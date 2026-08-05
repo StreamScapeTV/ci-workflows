@@ -16,7 +16,7 @@ SPEC.loader.exec_module(MODULE)
 class BootstrapContractTests(unittest.TestCase):
     def test_complete_bootstrap_contract(self) -> None:
         MODULE.validate_required_paths()
-        MODULE.validate_no_public_workflow_api()
+        MODULE.validate_public_workflow_exceptions()
         MODULE.validate_self_check()
         MODULE.validate_policies()
         MODULE.validate_authority_docs()
@@ -34,12 +34,11 @@ class BootstrapContractTests(unittest.TestCase):
         self.assertEqual(policy["default"], "zero-routine-artifacts")
         self.assertEqual(policy["exceptions"], [])
 
-    def test_no_consumer_facing_workflow_is_published_yet(self) -> None:
-        workflows = ROOT / ".github" / "workflows"
-        public = list(workflows.glob("reusable-*.yml")) + list(
-            workflows.glob("reusable-*.yaml")
+    def test_only_issue_34_public_workflow_is_bootstrap_allowed(self) -> None:
+        self.assertEqual(
+            MODULE.allowed_bootstrap_workflows(),
+            [".github/workflows/reusable-tag-image-chart.yml"],
         )
-        self.assertEqual(public, [])
 
 
 if __name__ == "__main__":

@@ -26,7 +26,7 @@ Consumer repositories keep triggers, minimum permissions, concurrency and enviro
 3. `actions/<name>/action.yml` — thin bounded composite actions.
 4. `src/ci_workflows/` — named typed functions for non-trivial behavior.
 
-The bootstrap stage intentionally publishes no consumer-facing reusable workflow until the inventory, API contract, and security harness are complete.
+The exact-tag image/chart workflow introduced by #34 is the sole bootstrap public API exception. Issues #3–#5 must inventory it, formalize its API, and bring it under the function-library and compatibility harness before additional public workflows are published.
 
 ## Consumer channel
 
@@ -34,19 +34,34 @@ During the first rollout, consumers may follow `main` so a central fix becomes a
 
 ```yaml
 jobs:
-  validate:
-    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-example.yml@main
+  release:
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-tag-image-chart.yml@main
     with:
-      profile: example
+      image_name: iptv-backend
+      chart_name: iptv-backend
+      chart_path: charts/iptv-backend
+      dockerfile_path: Dockerfile
+      build_context: .
+    secrets:
+      registry_username: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+      registry_token: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
 ```
 
 A Git tag can be used instead when a stable point is preferred:
 
 ```yaml
-uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-example.yml@v1.0.0
+uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-tag-image-chart.yml@v1.0.0
 ```
 
 `ci-workflows` releases are Git tags only. This repository does not need a GitHub Release object, ZIP attachment, image, chart, or other release artifact.
+
+## Exact-tag image and Helm publication
+
+`.github/workflows/reusable-tag-image-chart.yml` is a `workflow_call`-only product release primitive. A consumer tag push checks out the exact tagged caller commit, uses the exact tag as the version, publishes a daemonless multi-platform OCI image and Helm OCI chart, independently reads both products back, retains zero Actions artifacts, and performs no deployment.
+
+The workflow does not publish `latest`, create a GitHub Release, run from a branch/manual event, update production values, restart workloads, or access a cluster. The caller passes only bounded product inputs and explicit named registry secrets.
+
+Accepted product tags are `MAJOR.MINOR.PATCH` with an optional OCI-safe prerelease suffix such as `1.2.3-rc.1`. A tag can point to any approved historical commit.
 
 ## Private repository access
 

@@ -1,0 +1,94 @@
+name: Central workflow self-check
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: central-self-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate repository and reusable workflow contracts
+    runs-on: homelab-portable-linux-x64
+    timeout-minutes: 10
+    env:
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact source
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+
+      - name: Run repository policy and contract tests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 --version
+          python3 scripts/ci/bootstrap_check.py
+          python3 -m unittest discover -s tests -p 'test_*.py' -v
+
+      - name: Verify clean tracked tree
+        shell: bash
+        run: |
+          git diff --exit-code
+          git diff --cached --exit-code
+
+      - name: Remove test state
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          cleanup_failed=0
+          find . -type d -name __pycache__ -prune -exec rm -rf {} + || cleanup_failed=1
+          find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete || cleanup_failed=1
+          test -z "$(find . -type d -name __pycache__ -print -quit)" || cleanup_failed=1
+          test -z "$(find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -print -quit)" || cleanup_failed=1
+          exit "${cleanup_failed}"
+
+      - name: Confirm zero Actions artifacts
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          request = urllib.request.Request(
+              f"{os.environ['GITHUB_API_URL']}/repos/"
+              f"{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
+              f"{os.environ['GITHUB_RUN_ID']}/artifacts?per_page=100",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              payload = json.load(response)
+          count = int(payload.get("total_count", 0))
+          if count:
+              raise SystemExit(f"self-check uploaded {count} unexpected artifact(s)")
+          print("Central self-check artifact policy passed: zero artifacts.")
+          PY
