@@ -1,6 +1,6 @@
 # Organization Agent Workflow
 
-Status: adopted operating direction; transport implementation is tracked by [ci-workflows issue #37](../issues/37) and the deferred review-role design is tracked by [agent-state issue #184](https://github.com/StreamScapeTV/agent-state/issues/184).
+Status: adopted operating direction; transport implementation is tracked by [ci-workflows issue #37](https://github.com/StreamScapeTV/ci-workflows/issues/37) and the deferred review-role design is tracked by [agent-state issue #184](https://github.com/StreamScapeTV/agent-state/issues/184).
 
 ## Purpose
 
