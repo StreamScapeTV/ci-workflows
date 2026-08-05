@@ -1,30 +1,36 @@
 # StreamScapeTV CI Workflows
 
-This private repository owns reusable GitHub Actions orchestration for supported
-StreamScapeTV repositories. Consumer repositories keep only triggers, minimum
-permissions, bounded product inputs, explicit secrets, and immutable references.
+Reusable GitHub Actions orchestration for the StreamScapeTV organization.
 
-## Exact-tag image and Helm publication
+## Scope
 
-`.github/workflows/reusable-tag-image-chart.yml` is a `workflow_call`-only release
-primitive. A consumer tag push invokes it to:
+This repository centralizes exact-source handling, runner selection, shared validation, Agent State API transport, OCI and Helm pipelines, tag releases, Flux infrastructure assets, trusted Flux orchestration, maintenance, and conformance. It supports:
 
-1. check out the exact tagged caller commit;
-2. use the exact tag as the release version;
-3. build and publish one daemonless `linux/amd64` + `linux/arm64` OCI image;
-4. independently read back the image index, platforms, and OCI labels;
-5. package the chart with the exact tag as `version` and `appVersion`;
-6. publish and independently pull/read back the Helm OCI package;
-7. retain zero Actions artifacts and clean all publication state.
+- `iptv-backend`
+- `StreamScapeWeb`
+- `iptv-android`
+- `iptv-apple`
+- `streamscape-media`
+- `directus-front`
+- `finance-hub`
+- `agent-state`
+- `flux`
+- `ci-workflows`
 
-It does **not** publish `latest`, create a GitHub Release, run from a branch or
-manual event, update production values, deploy, restart workloads, or access a
-cluster.
+Consumer repositories keep triggers, minimum permissions, concurrency and environments, bounded identifiers, and product-owned commands/contracts. Agent State remains the claim/session decision authority. Flux remains the desired-state, allowlist, credential, and live-rollout authority.
 
-### Thin consumer caller
+## Reuse layers
 
-Production callers must replace `<FULL_CI_WORKFLOWS_COMMIT_SHA>` with the full
-immutable commit that contains the reviewed reusable workflow.
+1. `.github/workflows/reusable-*.yml` — public reusable workflows.
+2. `.github/workflows/internal-*.yml` — optional non-nesting internal leaf workflows.
+3. `actions/<name>/action.yml` — thin bounded composite actions.
+4. `src/ci_workflows/` — named typed functions for non-trivial behavior.
+
+The exact-tag image/chart workflow introduced by #34 is the sole bootstrap public API exception. Issues #3–#5 must inventory it, formalize its API, and bring it under the function-library and compatibility harness before additional public workflows are published.
+
+## Consumer channel
+
+During the first rollout, consumers may follow `main` so a central fix becomes available immediately:
 
 ```yaml
 name: Publish tagged Backend image and chart
@@ -40,7 +46,7 @@ permissions:
 
 jobs:
   release:
-    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-tag-image-chart.yml@<FULL_CI_WORKFLOWS_COMMIT_SHA>
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-tag-image-chart.yml@main
     with:
       image_name: iptv-backend
       chart_name: iptv-backend
@@ -52,21 +58,41 @@ jobs:
       registry_token: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
 ```
 
-The caller passes only the two named secrets shown above; broad secret inheritance
-is prohibited.
+A Git tag can be used instead when a stable point is preferred:
 
-### Release any approved commit
+```yaml
+uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-tag-image-chart.yml@v1.0.0
+```
 
-The tagged commit must contain the thin caller pinned to a valid central release.
+`ci-workflows` releases are Git tags only. This repository does not need a GitHub Release object, ZIP attachment, image, chart, or other release artifact.
+
+## Exact-tag image and Helm publication
+
+`.github/workflows/reusable-tag-image-chart.yml` is a `workflow_call`-only product release primitive. A consumer tag push checks out the exact tagged caller commit, uses the exact tag as the version, publishes a daemonless multi-platform OCI image and Helm OCI chart, independently reads both products back, retains zero Actions artifacts, and performs no deployment.
+
+The workflow does not publish `latest`, create a GitHub Release, run from a branch/manual event, update production values, restart workloads, or access a cluster. The caller passes only bounded product inputs and explicit named registry secrets; broad secret inheritance is prohibited.
+
+Accepted product tags are `MAJOR.MINOR.PATCH` with an optional OCI-safe prerelease suffix such as `1.2.3-rc.1`. A tag can point to any approved historical commit:
 
 ```bash
 git tag 1.2.3 <commit>
 git push origin 1.2.3
 ```
 
-Accepted tag names are `MAJOR.MINOR.PATCH` with an optional OCI-safe prerelease
-suffix such as `1.2.3-rc.1`. A `v` prefix, build metadata, slash, mutable alias,
-or leading zero in a numeric core component is rejected.
+Publication remains separate from Flux selection and deployment.
 
-Publication is separate from deployment. Flux/Helm selection can independently
-choose any immutable published image digest or chart version.
+## Private repository access
+
+Organization settings must allow supported private repositories to call workflows and actions from this private repository. See [`docs/consumers/access.md`](docs/consumers/access.md).
+
+## Security and artifact defaults
+
+- exact source and credential-free checkout;
+- least-privilege permissions and explicit named secrets;
+- no privileged execution of untrusted source;
+- no consumer-selected runner label or container engine;
+- zero routine Actions artifacts;
+- unconditional, residue-aware cleanup;
+- separate trust profiles for validation, Agent State transport, publication, Flux reconciliation, and maintenance.
+
+See [`docs/architecture/ADR-0001-reuse-layers.md`](docs/architecture/ADR-0001-reuse-layers.md) and [`docs/architecture/security-and-artifacts.md`](docs/architecture/security-and-artifacts.md).

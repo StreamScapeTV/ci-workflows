@@ -5,6 +5,7 @@ on:
     branches: [main]
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   actions: read
@@ -16,8 +17,8 @@ concurrency:
 
 jobs:
   validate:
-    name: Validate reusable workflow contracts
-    runs-on: [self-hosted]
+    name: Validate repository and reusable workflow contracts
+    runs-on: homelab-portable-linux-x64
     timeout-minutes: 10
     env:
       SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -32,13 +33,24 @@ jobs:
           persist-credentials: false
           set-safe-directory: false
 
-      - name: Verify exact source and run contract tests
+      - name: Verify exact source
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+
+      - name: Run repository policy and contract tests
         shell: bash
         run: |
           set -Eeuo pipefail
-          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
           python3 --version
+          python3 scripts/ci/bootstrap_check.py
           python3 -m unittest -v tests/test_reusable_tag_image_chart.py
+          python3 -m unittest -v tests/test_bootstrap.py
+
+      - name: Verify clean tracked tree
+        shell: bash
+        run: |
+          git diff --exit-code
+          git diff --cached --exit-code
 
       - name: Remove test state
         if: always()

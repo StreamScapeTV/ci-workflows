@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "allowed": [
+    {
+      "path": ".github/workflows/reusable-tag-image-chart.yml",
+      "issue": 34,
+      "status": "bootstrap-exception",
+      "required_follow_up": [3, 4, 5, 31]
+    }
+  ]
+}
