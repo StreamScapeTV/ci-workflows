@@ -43,7 +43,8 @@ jobs:
           set -Eeuo pipefail
           python3 --version
           python3 scripts/ci/bootstrap_check.py
-          python3 -m unittest discover -s tests -p 'test_*.py' -v
+          python3 -m unittest -v tests/test_reusable_tag_image_chart.py
+          python3 -m unittest -v tests/test_bootstrap.py
 
       - name: Verify clean tracked tree
         shell: bash

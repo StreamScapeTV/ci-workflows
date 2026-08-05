@@ -33,6 +33,17 @@ The exact-tag image/chart workflow introduced by #34 is the sole bootstrap publi
 During the first rollout, consumers may follow `main` so a central fix becomes available immediately:
 
 ```yaml
+name: Publish tagged Backend image and chart
+
+on:
+  push:
+    tags:
+      - "*"
+
+permissions:
+  actions: read
+  contents: read
+
 jobs:
   release:
     uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-tag-image-chart.yml@main
@@ -59,9 +70,16 @@ uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-tag-image-chart.yml@
 
 `.github/workflows/reusable-tag-image-chart.yml` is a `workflow_call`-only product release primitive. A consumer tag push checks out the exact tagged caller commit, uses the exact tag as the version, publishes a daemonless multi-platform OCI image and Helm OCI chart, independently reads both products back, retains zero Actions artifacts, and performs no deployment.
 
-The workflow does not publish `latest`, create a GitHub Release, run from a branch/manual event, update production values, restart workloads, or access a cluster. The caller passes only bounded product inputs and explicit named registry secrets.
+The workflow does not publish `latest`, create a GitHub Release, run from a branch/manual event, update production values, restart workloads, or access a cluster. The caller passes only bounded product inputs and explicit named registry secrets; broad secret inheritance is prohibited.
 
-Accepted product tags are `MAJOR.MINOR.PATCH` with an optional OCI-safe prerelease suffix such as `1.2.3-rc.1`. A tag can point to any approved historical commit.
+Accepted product tags are `MAJOR.MINOR.PATCH` with an optional OCI-safe prerelease suffix such as `1.2.3-rc.1`. A tag can point to any approved historical commit:
+
+```bash
+git tag 1.2.3 <commit>
+git push origin 1.2.3
+```
+
+Publication remains separate from Flux selection and deployment.
 
 ## Private repository access
 
