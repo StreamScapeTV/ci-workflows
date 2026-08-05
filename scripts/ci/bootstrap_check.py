@@ -104,7 +104,8 @@ def validate_self_check() -> None:
         "SOURCE_SHA:",
         'test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"',
         "python3 scripts/ci/bootstrap_check.py",
-        "python3 -m unittest discover",
+        "python3 -m unittest -v tests/test_reusable_tag_image_chart.py",
+        "python3 -m unittest -v tests/test_bootstrap.py",
         "git diff --exit-code",
         "Confirm zero Actions artifacts",
     )
