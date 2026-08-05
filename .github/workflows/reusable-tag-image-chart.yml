@@ -1,0 +1,674 @@
+name: Reusable exact-tag image and Helm release
+
+on:
+  workflow_call:
+    inputs:
+      image_name:
+        description: Image repository slug under git.faruqi.dev/mimranfaruqi
+        required: true
+        type: string
+      chart_name:
+        description: Helm chart and OCI repository slug
+        required: true
+        type: string
+      chart_path:
+        description: Relative chart directory in the caller repository
+        required: true
+        type: string
+      dockerfile_path:
+        description: Relative Dockerfile path in the caller repository
+        required: false
+        default: Dockerfile
+        type: string
+      build_context:
+        description: Relative image build context in the caller repository
+        required: false
+        default: .
+        type: string
+    secrets:
+      registry_username:
+        description: Private OCI registry username
+        required: true
+      registry_token:
+        description: Private OCI registry token
+        required: true
+    outputs:
+      version:
+        description: Exact Git tag used as the release version
+        value: ${{ jobs.publish.outputs.version }}
+      source_sha:
+        description: Exact tagged source commit
+        value: ${{ jobs.publish.outputs.source_sha }}
+      image_reference:
+        description: Published immutable image reference
+        value: ${{ jobs.publish.outputs.image_reference }}
+      image_digest:
+        description: Verified remote image-index digest
+        value: ${{ jobs.publish.outputs.image_digest }}
+      chart_reference:
+        description: Published immutable Helm OCI reference
+        value: ${{ jobs.publish.outputs.chart_reference }}
+      chart_package_sha256:
+        description: Verified chart package SHA-256
+        value: ${{ jobs.publish.outputs.chart_package_sha256 }}
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: tag-image-chart-${{ github.repository }}-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: git.faruqi.dev
+  REGISTRY_NAMESPACE: mimranfaruqi
+  CHART_NAMESPACE: mimranfaruqi/helm-charts
+  HELM_VERSION: v3.18.6
+  HELM_IMAGE: docker.io/alpine/helm:3.18.6@sha256:b158d7f0fe1fb84abb59a15973ef25adf66affa2028a8328c083046c5ca04e91
+
+jobs:
+  publish:
+    name: Publish exact tag image and chart
+    if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref, 'refs/tags/')
+    runs-on: [self-hosted, buildah-high]
+    timeout-minutes: 90
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      source_sha: ${{ steps.release.outputs.source_sha }}
+      image_reference: ${{ steps.image.outputs.reference }}
+      image_digest: ${{ steps.image.outputs.digest }}
+      chart_reference: ${{ steps.chart.outputs.reference }}
+      chart_package_sha256: ${{ steps.chart.outputs.package_sha256 }}
+
+    steps:
+      - name: Check out exact tagged caller source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - id: release
+        name: Validate tag and bounded product inputs
+        shell: bash
+        env:
+          IMAGE_NAME: ${{ inputs.image_name }}
+          CHART_NAME: ${{ inputs.chart_name }}
+          CHART_PATH: ${{ inputs.chart_path }}
+          DOCKERFILE_PATH: ${{ inputs.dockerfile_path }}
+          BUILD_CONTEXT: ${{ inputs.build_context }}
+        run: |
+          set -Eeuo pipefail
+          test "${GITHUB_EVENT_NAME}" = push
+          test "${GITHUB_REF_TYPE}" = tag
+          test "${GITHUB_REF}" = "refs/tags/${GITHUB_REF_NAME}"
+          test "${GITHUB_SHA}" = "$(git rev-parse HEAD)"
+
+          VERSION="${GITHUB_REF_NAME}"
+          VERSION="${VERSION}" \
+          IMAGE_NAME="${IMAGE_NAME}" \
+          CHART_NAME="${CHART_NAME}" \
+          CHART_PATH="${CHART_PATH}" \
+          DOCKERFILE_PATH="${DOCKERFILE_PATH}" \
+          BUILD_CONTEXT="${BUILD_CONTEXT}" \
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          import os
+          from pathlib import Path, PurePosixPath
+          import re
+
+          version = os.environ["VERSION"]
+          version_pattern = re.compile(
+              r"(?:0|[1-9][0-9]*)"
+              r"\.(?:0|[1-9][0-9]*)"
+              r"\.(?:0|[1-9][0-9]*)"
+              r"(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
+          )
+          if version_pattern.fullmatch(version) is None:
+              raise SystemExit(
+                  "Release tag must be MAJOR.MINOR.PATCH with an optional "
+                  "OCI-safe prerelease suffix."
+              )
+
+          slug_pattern = re.compile(r"[a-z0-9]+(?:[._-][a-z0-9]+)*")
+          for name in ("IMAGE_NAME", "CHART_NAME"):
+              value = os.environ[name]
+              if slug_pattern.fullmatch(value) is None:
+                  raise SystemExit(f"{name} is not an approved repository slug")
+
+          def checked_relative(name: str, *, allow_dot: bool = False) -> Path:
+              raw = os.environ[name]
+              if allow_dot and raw == ".":
+                  return Path(".")
+              pure = PurePosixPath(raw)
+              if (
+                  not raw
+                  or pure.is_absolute()
+                  or ".." in pure.parts
+                  or "." in pure.parts
+                  or "\\" in raw
+              ):
+                  raise SystemExit(f"{name} must be a normalized relative path")
+              return Path(*pure.parts)
+
+          chart_path = checked_relative("CHART_PATH")
+          dockerfile_path = checked_relative("DOCKERFILE_PATH")
+          build_context = checked_relative("BUILD_CONTEXT", allow_dot=True)
+          if not chart_path.is_dir():
+              raise SystemExit("CHART_PATH does not exist or is not a directory")
+          if not (chart_path / "Chart.yaml").is_file():
+              raise SystemExit("CHART_PATH is missing Chart.yaml")
+          if not dockerfile_path.is_file():
+              raise SystemExit("DOCKERFILE_PATH does not exist")
+          if not build_context.is_dir():
+              raise SystemExit("BUILD_CONTEXT does not exist or is not a directory")
+          PY
+
+          image_reference="${REGISTRY}/${REGISTRY_NAMESPACE}/${IMAGE_NAME}:${VERSION}"
+          chart_reference="oci://${REGISTRY}/${CHART_NAMESPACE}/${CHART_NAME}"
+          {
+            printf 'version=%s\n' "${VERSION}"
+            printf 'source_sha=%s\n' "${GITHUB_SHA}"
+            printf 'image_reference=%s\n' "${image_reference}"
+            printf 'chart_reference=%s\n' "${chart_reference}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Verify daemonless publication runner and credentials
+        shell: bash
+        env:
+          REGISTRY_USERNAME: ${{ secrets.registry_username }}
+          REGISTRY_TOKEN: ${{ secrets.registry_token }}
+        run: |
+          set -Eeuo pipefail
+          test "$(uname -s)" = Linux
+          test "$(uname -m)" = x86_64
+          test "$(id -u)" -eq 0
+          ! command -v docker
+          ! command -v dockerd
+          test ! -e /var/run/docker.sock
+          test ! -e /run/docker.sock
+          buildah --version
+          skopeo --version
+          podman --version
+          test -n "${REGISTRY_USERNAME}"
+          test -n "${REGISTRY_TOKEN}"
+
+      - name: Stage pinned Helm from immutable OCI image
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          helm_root="${RUNNER_TEMP}/central-tag-release-helm-bin"
+          helm_storage="${helm_root}/storage"
+          helm_run_token="$(
+            RUNROOT_KIND=central-tag-release-helm python3 - <<'PY_RUNROOT'
+          import hashlib
+          import os
+
+          material = ":".join(
+              (
+                  os.environ["GITHUB_RUN_ID"],
+                  os.environ["GITHUB_RUN_ATTEMPT"],
+                  os.environ["RUNROOT_KIND"],
+              )
+          )
+          print(hashlib.sha256(material.encode("utf-8")).hexdigest()[:12])
+          PY_RUNROOT
+          )"
+          helm_runroot="${RUNNER_TEMP}/r/${helm_run_token}"
+          helm_path="${helm_root}/helm"
+          helm_source_container="central-tag-release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-helm"
+          rm -rf "${helm_root}" "${helm_runroot}"
+          mkdir -p "${helm_storage}" "${helm_runroot}"
+          chmod 0700 "${helm_root}" "${helm_storage}" "${helm_runroot}"
+
+          podman_cmd=(
+            podman
+            --storage-driver vfs
+            --root "${helm_storage}"
+            --runroot "${helm_runroot}"
+          )
+          timeout --signal=TERM --kill-after=5s 60s "${podman_cmd[@]}" info
+          "${podman_cmd[@]}" pull --platform linux/amd64 "${HELM_IMAGE}"
+          helm_image_id="$("${podman_cmd[@]}" image inspect --format '{{.Id}}' "${HELM_IMAGE}")"
+          test -n "${helm_image_id}"
+          "${podman_cmd[@]}" create --platform linux/amd64 \
+            --name "${helm_source_container}" \
+            "${HELM_IMAGE}" version >/dev/null
+          "${podman_cmd[@]}" cp \
+            "${helm_source_container}:/usr/bin/helm" \
+            "${helm_path}"
+          test -x "${helm_path}"
+          test "$("${helm_path}" version --template '{{.Version}}')" = "${HELM_VERSION}"
+
+          cleanup_failed=0
+          "${podman_cmd[@]}" rm -f "${helm_source_container}" >/dev/null 2>&1 || cleanup_failed=1
+          "${podman_cmd[@]}" image rm -f "${helm_image_id}" >/dev/null 2>&1 || cleanup_failed=1
+          "${podman_cmd[@]}" container exists "${helm_source_container}" && cleanup_failed=1
+          "${podman_cmd[@]}" image exists "${HELM_IMAGE}" && cleanup_failed=1
+          rm -rf "${helm_storage}" "${helm_runroot}" || cleanup_failed=1
+          [[ ! -e "${helm_storage}" ]] || cleanup_failed=1
+          [[ ! -e "${helm_runroot}" ]] || cleanup_failed=1
+          test "${cleanup_failed}" -eq 0
+
+          echo "${helm_root}" >> "${GITHUB_PATH}"
+          echo "HELM_BIN=${helm_path}" >> "${GITHUB_ENV}"
+
+      - name: Prepare isolated publication and authentication state
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          state_root="${RUNNER_TEMP}/central-tag-release"
+          storage_root="${state_root}/containers/storage"
+          run_token="$(
+            RUNROOT_KIND=central-tag-release-containers python3 - <<'PY_RUNROOT'
+          import hashlib
+          import os
+
+          material = ":".join(
+              (
+                  os.environ["GITHUB_RUN_ID"],
+                  os.environ["GITHUB_RUN_ATTEMPT"],
+                  os.environ["RUNROOT_KIND"],
+              )
+          )
+          print(hashlib.sha256(material.encode("utf-8")).hexdigest()[:12])
+          PY_RUNROOT
+          )"
+          run_root="${RUNNER_TEMP}/r/${run_token}"
+          registry_auth="${state_root}/auth/containers.json"
+          helm_auth="${state_root}/auth/helm.json"
+          oci_layout="${state_root}/image-oci"
+          chart_source="${state_root}/chart-source"
+          chart_local="${state_root}/chart-local"
+          chart_remote="${state_root}/chart-remote"
+
+          rm -rf "${state_root}" "${run_root}"
+          mkdir -p \
+            "${storage_root}" \
+            "${run_root}" \
+            "$(dirname "${registry_auth}")" \
+            "${oci_layout}" \
+            "${chart_source}" \
+            "${chart_local}" \
+            "${chart_remote}"
+          chmod 0700 \
+            "${state_root}" \
+            "${storage_root}" \
+            "${run_root}" \
+            "$(dirname "${registry_auth}")" \
+            "${oci_layout}" \
+            "${chart_source}" \
+            "${chart_local}" \
+            "${chart_remote}"
+          : > "${registry_auth}"
+          : > "${helm_auth}"
+          chmod 0600 "${registry_auth}" "${helm_auth}"
+
+          {
+            printf 'STATE_ROOT=%s\n' "${state_root}"
+            printf 'CONTAINER_STORAGE_ROOT=%s\n' "${storage_root}"
+            printf 'CONTAINER_RUN_ROOT=%s\n' "${run_root}"
+            printf 'REGISTRY_AUTH_FILE=%s\n' "${registry_auth}"
+            printf 'HELM_REGISTRY_CONFIG=%s\n' "${helm_auth}"
+            printf 'OCI_LAYOUT=%s\n' "${oci_layout}"
+            printf 'CHART_SOURCE=%s\n' "${chart_source}"
+            printf 'CHART_LOCAL=%s\n' "${chart_local}"
+            printf 'CHART_REMOTE=%s\n' "${chart_remote}"
+          } >> "${GITHUB_ENV}"
+
+          timeout --signal=TERM --kill-after=5s 60s \
+            buildah \
+              --storage-driver vfs \
+              --root "${storage_root}" \
+              --runroot "${run_root}" \
+              info
+
+      - name: Authenticate to fixed private OCI registry
+        shell: bash
+        env:
+          REGISTRY_USERNAME: ${{ secrets.registry_username }}
+          REGISTRY_TOKEN: ${{ secrets.registry_token }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          printf '%s' "${REGISTRY_TOKEN}" \
+            | buildah login \
+                --authfile "${REGISTRY_AUTH_FILE}" \
+                --username "${REGISTRY_USERNAME}" \
+                --password-stdin \
+                "${REGISTRY}"
+          test -s "${REGISTRY_AUTH_FILE}"
+          chmod 0600 "${REGISTRY_AUTH_FILE}"
+
+          printf '%s' "${REGISTRY_TOKEN}" \
+            | "${HELM_BIN}" registry login "${REGISTRY}" \
+                --registry-config "${HELM_REGISTRY_CONFIG}" \
+                --username "${REGISTRY_USERNAME}" \
+                --password-stdin
+          test -s "${HELM_REGISTRY_CONFIG}"
+          chmod 0600 "${HELM_REGISTRY_CONFIG}"
+
+      - id: image
+        name: Build publish and verify exact-tag image
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          IMAGE_REFERENCE: ${{ steps.release.outputs.image_reference }}
+          DOCKERFILE_PATH: ${{ inputs.dockerfile_path }}
+          BUILD_CONTEXT: ${{ inputs.build_context }}
+        run: |
+          set -Eeuo pipefail
+          buildah_cmd=(
+            buildah
+            --storage-driver vfs
+            --root "${CONTAINER_STORAGE_ROOT}"
+            --runroot "${CONTAINER_RUN_ROOT}"
+          )
+          local_manifest="localhost/central-tag-release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}:manifest"
+          source_epoch="$(git show -s --format=%ct "${GITHUB_SHA}")"
+          "${buildah_cmd[@]}" manifest rm "${local_manifest}" >/dev/null 2>&1 || true
+          "${buildah_cmd[@]}" manifest create "${local_manifest}" >/dev/null
+
+          for architecture in amd64 arm64; do
+            "${buildah_cmd[@]}" bud \
+              --isolation chroot \
+              --format oci \
+              --platform "linux/${architecture}" \
+              --manifest "${local_manifest}" \
+              --timestamp "${source_epoch}" \
+              --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+              --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+              --label "org.opencontainers.image.version=${VERSION}" \
+              -f "${DOCKERFILE_PATH}" \
+              "${BUILD_CONTEXT}"
+          done
+
+          "${buildah_cmd[@]}" manifest push --all \
+            "${local_manifest}" \
+            "oci:${OCI_LAYOUT}:${VERSION}"
+          local_raw="${STATE_ROOT}/image-local-index.json"
+          skopeo inspect --raw "oci:${OCI_LAYOUT}:${VERSION}" > "${local_raw}"
+          local_digest="sha256:$(sha256sum "${local_raw}" | awk '{print $1}')"
+
+          remote_raw="${STATE_ROOT}/image-remote-index.json"
+          remote_exists=false
+          if skopeo inspect \
+              --authfile "${REGISTRY_AUTH_FILE}" \
+              "docker://${IMAGE_REFERENCE}" >/dev/null 2>&1; then
+            remote_exists=true
+            skopeo inspect --raw \
+              --authfile "${REGISTRY_AUTH_FILE}" \
+              "docker://${IMAGE_REFERENCE}" > "${remote_raw}"
+            remote_digest="sha256:$(sha256sum "${remote_raw}" | awk '{print $1}')"
+            test "${remote_digest}" = "${local_digest}"
+          else
+            skopeo copy --all \
+              --authfile "${REGISTRY_AUTH_FILE}" \
+              "oci:${OCI_LAYOUT}:${VERSION}" \
+              "docker://${IMAGE_REFERENCE}"
+            skopeo inspect --raw \
+              --authfile "${REGISTRY_AUTH_FILE}" \
+              "docker://${IMAGE_REFERENCE}" > "${remote_raw}"
+            remote_digest="sha256:$(sha256sum "${remote_raw}" | awk '{print $1}')"
+            test "${remote_digest}" = "${local_digest}"
+          fi
+
+          REMOTE_RAW="${remote_raw}" python3 - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          from pathlib import Path
+
+          manifest = json.loads(Path(os.environ["REMOTE_RAW"]).read_text(encoding="utf-8"))
+          platforms = {
+              (
+                  item.get("platform", {}).get("os"),
+                  item.get("platform", {}).get("architecture"),
+              )
+              for item in manifest.get("manifests", [])
+              if item.get("platform", {}).get("os") != "unknown"
+          }
+          expected = {("linux", "amd64"), ("linux", "arm64")}
+          if platforms != expected:
+              raise SystemExit(
+                  f"remote image platforms {platforms} do not equal {expected}"
+              )
+          PY
+
+          for architecture in amd64 arm64; do
+            config="$(
+              skopeo inspect \
+                --authfile "${REGISTRY_AUTH_FILE}" \
+                --override-os linux \
+                --override-arch "${architecture}" \
+                --config \
+                "docker://${IMAGE_REFERENCE}"
+            )"
+            CONFIG_JSON="${config}" VERSION="${VERSION}" python3 - <<'PY'
+          import json
+          import os
+
+          config = json.loads(os.environ["CONFIG_JSON"])
+          labels = config.get("config", {}).get("Labels", {})
+          expected = {
+              "org.opencontainers.image.source": (
+                  f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}"
+              ),
+              "org.opencontainers.image.revision": os.environ["GITHUB_SHA"],
+              "org.opencontainers.image.version": os.environ["VERSION"],
+          }
+          mismatches = {
+              key: value
+              for key, value in expected.items()
+              if labels.get(key) != value
+          }
+          if mismatches:
+              raise SystemExit(f"remote image labels do not match: {mismatches}")
+          PY
+          done
+
+          {
+            printf 'reference=%s\n' "${IMAGE_REFERENCE}"
+            printf 'digest=%s\n' "${remote_digest}"
+            printf 'replayed=%s\n' "${remote_exists}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - id: chart
+        name: Package publish and verify exact-tag Helm chart
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          CHART_NAME: ${{ inputs.chart_name }}
+          CHART_PATH: ${{ inputs.chart_path }}
+          CHART_REFERENCE: ${{ steps.release.outputs.chart_reference }}
+        run: |
+          set -Eeuo pipefail
+          cp -a "${CHART_PATH}/." "${CHART_SOURCE}/"
+          source_epoch="$(git show -s --format=%ct "${GITHUB_SHA}")"
+          SOURCE_EPOCH="${source_epoch}" python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          root = Path(os.environ["CHART_SOURCE"])
+          epoch = int(os.environ["SOURCE_EPOCH"])
+          for path in [root, *root.rglob("*")]:
+              os.utime(path, (epoch, epoch), follow_symlinks=False)
+          PY
+
+          "${HELM_BIN}" lint "${CHART_SOURCE}"
+          render="${STATE_ROOT}/chart-render.yaml"
+          "${HELM_BIN}" template "${CHART_NAME}" "${CHART_SOURCE}" \
+            --namespace "${CHART_NAME}" \
+            --set-string image.tag="${VERSION}" \
+            > "${render}"
+          if grep -Eq '(^|[^A-Za-z0-9_.-])latest([^A-Za-z0-9_.-]|$)' "${render}"; then
+            echo "Rendered chart contains forbidden latest identity" >&2
+            exit 1
+          fi
+
+          "${HELM_BIN}" package "${CHART_SOURCE}" \
+            --version "${VERSION}" \
+            --app-version "${VERSION}" \
+            --destination "${CHART_LOCAL}" >/dev/null
+          package="${CHART_LOCAL}/${CHART_NAME}-${VERSION}.tgz"
+          test -s "${package}"
+          local_sha="$(sha256sum "${package}" | awk '{print $1}')"
+
+          metadata="${STATE_ROOT}/chart-local-metadata.yaml"
+          "${HELM_BIN}" show chart "${package}" > "${metadata}"
+          grep -Fqx "name: ${CHART_NAME}" "${metadata}"
+          grep -Fqx "version: ${VERSION}" "${metadata}"
+          grep -Eq "^appVersion: ['\"]?${VERSION}['\"]?$" "${metadata}"
+
+          remote_package="${CHART_REMOTE}/${CHART_NAME}-${VERSION}.tgz"
+          remote_exists=false
+          if "${HELM_BIN}" pull "${CHART_REFERENCE}" \
+              --version "${VERSION}" \
+              --destination "${CHART_REMOTE}" \
+              --registry-config "${HELM_REGISTRY_CONFIG}" >/dev/null 2>&1; then
+            remote_exists=true
+            test -s "${remote_package}"
+            test "$(sha256sum "${remote_package}" | awk '{print $1}')" = "${local_sha}"
+          else
+            "${HELM_BIN}" push "${package}" \
+              "oci://${REGISTRY}/${CHART_NAMESPACE}" \
+              --registry-config "${HELM_REGISTRY_CONFIG}"
+            "${HELM_BIN}" pull "${CHART_REFERENCE}" \
+              --version "${VERSION}" \
+              --destination "${CHART_REMOTE}" \
+              --registry-config "${HELM_REGISTRY_CONFIG}"
+            test -s "${remote_package}"
+            test "$(sha256sum "${remote_package}" | awk '{print $1}')" = "${local_sha}"
+          fi
+
+          remote_metadata="${STATE_ROOT}/chart-remote-metadata.yaml"
+          "${HELM_BIN}" show chart "${remote_package}" > "${remote_metadata}"
+          grep -Fqx "name: ${CHART_NAME}" "${remote_metadata}"
+          grep -Fqx "version: ${VERSION}" "${remote_metadata}"
+          grep -Eq "^appVersion: ['\"]?${VERSION}['\"]?$" "${remote_metadata}"
+
+          {
+            printf 'reference=%s:%s\n' "${CHART_REFERENCE}" "${VERSION}"
+            printf 'package_sha256=%s\n' "${local_sha}"
+            printf 'replayed=%s\n' "${remote_exists}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Confirm zero Actions artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          import urllib.request
+
+          request = urllib.request.Request(
+              f"{os.environ['GITHUB_API_URL']}/repos/"
+              f"{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
+              f"{os.environ['GITHUB_RUN_ID']}/artifacts?per_page=100",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              payload = json.load(response)
+          count = int(payload.get("total_count", 0))
+          if count:
+              raise SystemExit(f"release uploaded {count} unexpected artifact(s)")
+          print("Exact-tag release artifact policy passed: zero artifacts.")
+          PY
+
+      - name: Summarize immutable publication
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          IMAGE_REFERENCE: ${{ steps.image.outputs.reference }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          IMAGE_REPLAYED: ${{ steps.image.outputs.replayed }}
+          CHART_REFERENCE: ${{ steps.chart.outputs.reference }}
+          CHART_PACKAGE_SHA: ${{ steps.chart.outputs.package_sha256 }}
+          CHART_REPLAYED: ${{ steps.chart.outputs.replayed }}
+        run: |
+          set -Eeuo pipefail
+          {
+            echo "## Exact-tag image and chart publication"
+            echo
+            echo "- Tag/version: \`${VERSION}\`"
+            echo "- Source: \`${GITHUB_SHA}\`"
+            echo "- Image: \`${IMAGE_REFERENCE}\`"
+            echo "- Image digest: \`${IMAGE_DIGEST}\`"
+            echo "- Image replayed: \`${IMAGE_REPLAYED}\`"
+            echo "- Chart: \`${CHART_REFERENCE}\`"
+            echo "- Chart package SHA-256: \`${CHART_PACKAGE_SHA}\`"
+            echo "- Chart replayed: \`${CHART_REPLAYED}\`"
+            echo "- Platforms: \`linux/amd64, linux/arm64\`"
+            echo "- Actions artifacts: zero"
+            echo "- Deployment/rollout: not performed"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Clean publication credentials and state
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          cleanup_failed=0
+          run_token="$(
+            RUNROOT_KIND=central-tag-release-containers python3 - <<'PY_RUNROOT'
+          import hashlib
+          import os
+
+          material = ":".join(
+              (
+                  os.environ["GITHUB_RUN_ID"],
+                  os.environ["GITHUB_RUN_ATTEMPT"],
+                  os.environ["RUNROOT_KIND"],
+              )
+          )
+          print(hashlib.sha256(material.encode("utf-8")).hexdigest()[:12])
+          PY_RUNROOT
+          )"
+          run_root="${CONTAINER_RUN_ROOT:-${RUNNER_TEMP}/r/${run_token}}"
+          storage_root="${CONTAINER_STORAGE_ROOT:-${RUNNER_TEMP}/central-tag-release/containers/storage}"
+          registry_auth="${REGISTRY_AUTH_FILE:-${RUNNER_TEMP}/central-tag-release/auth/containers.json}"
+          helm_auth="${HELM_REGISTRY_CONFIG:-${RUNNER_TEMP}/central-tag-release/auth/helm.json}"
+          buildah_cmd=(
+            buildah
+            --storage-driver vfs
+            --root "${storage_root}"
+            --runroot "${run_root}"
+          )
+
+          if command -v buildah >/dev/null 2>&1; then
+            "${buildah_cmd[@]}" rm --all >/dev/null 2>&1 || cleanup_failed=1
+            "${buildah_cmd[@]}" rmi --all --force >/dev/null 2>&1 || cleanup_failed=1
+            buildah logout --authfile "${registry_auth}" "${REGISTRY}" >/dev/null 2>&1 || true
+            [[ -z "$("${buildah_cmd[@]}" containers -q 2>/dev/null)" ]] || cleanup_failed=1
+            [[ -z "$("${buildah_cmd[@]}" images -q 2>/dev/null)" ]] || cleanup_failed=1
+          fi
+          if [[ -x "${HELM_BIN:-}" && -s "${helm_auth}" ]]; then
+            "${HELM_BIN}" registry logout "${REGISTRY}" \
+              --registry-config "${helm_auth}" >/dev/null 2>&1 || cleanup_failed=1
+          fi
+
+          rm -rf \
+            "${STATE_ROOT:-${RUNNER_TEMP}/central-tag-release}" \
+            "${RUNNER_TEMP}/central-tag-release-helm-bin" \
+            "${run_root}" || cleanup_failed=1
+          for path in \
+            "${STATE_ROOT:-${RUNNER_TEMP}/central-tag-release}" \
+            "${RUNNER_TEMP}/central-tag-release-helm-bin" \
+            "${run_root}"; do
+            [[ ! -e "${path}" ]] || cleanup_failed=1
+          done
+          exit "${cleanup_failed}"
