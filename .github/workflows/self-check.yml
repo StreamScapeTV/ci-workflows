@@ -45,6 +45,7 @@ jobs:
           python3 scripts/ci/bootstrap_check.py
           python3 -m unittest -v tests/test_reusable_tag_image_chart.py
           python3 -m unittest -v tests/test_bootstrap.py
+          python3 -m unittest -v tests/test_workflow_inventory.py
 
       - name: Verify clean tracked tree
         shell: bash
