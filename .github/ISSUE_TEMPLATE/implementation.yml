@@ -1,0 +1,45 @@
+name: Bounded implementation
+about: Plan one independently mergeable CI workflow slice
+body:
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: State one independently mergeable outcome.
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies and relationships
+      description: Parent, prerequisite, consumer, Agent State, Flux, or cross-repository issues.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and ownership boundaries
+      description: Exact files, public APIs, products, domain-owned policy, and out-of-scope behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: security
+    attributes:
+      label: Trust, permissions, secrets, and artifacts
+      description: Source mode, runner trust, minimum permissions, named secrets, artifact policy, and cleanup.
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility and migration
+      description: Inputs, outputs, check names, references, old/new parity, rollback, and consumer impact.
+    validations:
+      required: true
+  - type: textarea
+    id: plan
+    attributes:
+      label: Plan and acceptance evidence
+      description: Use a checked task list and record exact base/head, tests, workflow runs, and merge evidence.
+    validations:
+      required: true
