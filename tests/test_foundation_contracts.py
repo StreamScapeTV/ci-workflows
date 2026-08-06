@@ -89,6 +89,15 @@ class FoundationContractTests(unittest.TestCase):
                 self.assertNotIn("rm -rf", run)
                 self.assertTrue(set(data.get("inputs", {})).isdisjoint(FORBIDDEN_INPUTS))
 
+    def test_actions_catalog_lists_the_bounded_sequence_and_cleanup_duty(self) -> None:
+        catalog = (ROOT / "actions/README.md").read_text(encoding="utf-8")
+        for action in ACTIONS:
+            self.assertIn(f"`{action}`", catalog)
+        self.assertIn("if: always()", catalog)
+        self.assertIn("Callers never supply a deletion path", catalog)
+        self.assertIn("Caching remains disabled by default", catalog)
+        self.assertIn("routine GitHub Actions artifacts remain zero", catalog)
+
     def test_documented_functions_exist_as_named_public_definitions(self) -> None:
         contract = json.loads(
             (ROOT / "contracts/foundation-primitives.json").read_text(encoding="utf-8")
