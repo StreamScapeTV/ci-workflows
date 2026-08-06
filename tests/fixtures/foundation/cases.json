@@ -11,7 +11,7 @@
   ],
   "negative": [
     {"id": "path-traversal", "primitive": "workspace", "expected": "invalid_relative_path"},
-    {"id": "symlink-escape", "primitive": "workspace", "expected": "unsafe_cleanup_target"},
+    {"id": "symlink-escape", "primitive": "workspace", "expected": "symlink_escape_detected"},
     {"id": "malicious-deletion-target", "primitive": "workspace", "expected": "invalid_relative_path"},
     {"id": "interrupted-execution", "primitive": "workspace", "expected_terminal": "partial_setup"},
     {"id": "partial-setup", "primitive": "workspace", "expected_terminal": "partial_setup"},
