@@ -3,11 +3,6 @@
   "organization": "StreamScapeTV",
   "repositories": [
     {
-      "repository": "StreamScapeTV/StreamScapeWeb",
-      "project": "streamscape-web",
-      "integration_branch": "main"
-    },
-    {
       "repository": "StreamScapeTV/agent-state",
       "project": "agent-state",
       "integration_branch": "main"
@@ -46,6 +41,11 @@
       "repository": "StreamScapeTV/streamscape-media",
       "project": "streamscape-media",
       "integration_branch": "develop"
+    },
+    {
+      "repository": "StreamScapeTV/StreamScapeWeb",
+      "project": "streamscape-web",
+      "integration_branch": "main"
     }
   ]
 }
