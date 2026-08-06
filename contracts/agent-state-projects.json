@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "organization": "StreamScapeTV",
+  "repositories": [
+    {
+      "repository": "StreamScapeTV/agent-state",
+      "project": "agent-state",
+      "integration_branch": "main"
+    },
+    {
+      "repository": "StreamScapeTV/directus-front",
+      "project": "directus-front",
+      "integration_branch": "main"
+    },
+    {
+      "repository": "StreamScapeTV/finance-hub",
+      "project": "finance-hub",
+      "integration_branch": "main"
+    },
+    {
+      "repository": "StreamScapeTV/flux",
+      "project": "flux",
+      "integration_branch": "main"
+    },
+    {
+      "repository": "StreamScapeTV/iptv-android",
+      "project": "iptv-android",
+      "integration_branch": "develop"
+    },
+    {
+      "repository": "StreamScapeTV/iptv-apple",
+      "project": "iptv-apple",
+      "integration_branch": "develop"
+    },
+    {
+      "repository": "StreamScapeTV/iptv-backend",
+      "project": "iptv-backend",
+      "integration_branch": "main"
+    },
+    {
+      "repository": "StreamScapeTV/streamscape-media",
+      "project": "streamscape-media",
+      "integration_branch": "develop"
+    },
+    {
+      "repository": "StreamScapeTV/StreamScapeWeb",
+      "project": "streamscape-web",
+      "integration_branch": "main"
+    }
+  ]
+}

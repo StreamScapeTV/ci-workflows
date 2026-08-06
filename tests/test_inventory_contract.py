@@ -21,7 +21,7 @@ class InventoryContractTests(unittest.TestCase):
     def test_checked_in_contract_is_complete_and_deterministic(self) -> None:
         data = inventory_contract.validate(ROOT)
         self.assertEqual(len(data["inventory"]["repositories"]), 11)
-        self.assertEqual(data["workflow_total"], 87)
+        self.assertEqual(data["workflow_total"], 88)
         self.assertGreater(data["counts"]["disposition"]["retire"], 0)
         self.assertGreater(data["counts"]["trust"]["publish"], 0)
         self.assertGreater(data["counts"]["trust"]["device"], 0)

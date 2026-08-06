@@ -1,7 +1,8 @@
 """Shared CI workflow function library.
 
-The public function surface is introduced only after the inventory and API
-contracts are approved. Bootstrap code intentionally exports no workflow API.
+The package exposes bounded, tested orchestration functions. Agent State command
+transport is implemented in :mod:`ci_workflows.agent_state_command`; Agent State
+remains the lifecycle and ownership decision authority.
 """
 
 __all__: tuple[str, ...] = ()
