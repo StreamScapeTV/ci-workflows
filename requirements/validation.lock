@@ -1,0 +1,2 @@
+# Exact parser selected by contracts/action-tool-lock.json.
+PyYAML==6.0.3
