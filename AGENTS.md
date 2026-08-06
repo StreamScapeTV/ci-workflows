@@ -6,17 +6,20 @@ Before working in this repository, read `StreamScapeTV/organization-rules@main/A
 
 ## Repository identity and integration
 
-This private repository owns reusable GitHub Actions orchestration for supported StreamScapeTV repositories, including central source admission, runner resolution, validation, release, Flux orchestration, and temporary Agent State transport. Consumer repositories retain thin event callers, minimum permissions, bounded product configuration, and product-owned scripts, contracts, policy, credentials, and deployment data.
+This private repository owns reusable GitHub Actions orchestration for supported StreamScapeTV repositories, including central source admission, runner resolution, validation, release, Flux orchestration, and temporary Agent State compatibility transport. Consumer repositories retain thin event callers, minimum permissions, bounded product configuration, and product-owned scripts, contracts, policy, credentials, and deployment data.
 
 `main` is the integration branch and initial bootstrap consumer channel. This repository is released by an exact compatible Git tag; it does not require a GitHub Release object, attached archive, container image, or Helm chart for its own release.
 
 ## Agent State transition boundary
 
-- Issue #32 is closed as superseded by the Supabase replacement program in #51–#55. Do not implement the reusable GitHub Actions lifecycle and ownership architecture formerly planned by #32.
-- The protected manual command workflow completed by #37 is explicitly temporary. Keep it available only until #55 live-proves the direct Supabase path, completes the separate organization-rules cutover, and confirms that no active consumer depends on the legacy transport.
-- Supabase is the selected target architecture, but it is not yet the organization operating path. Do not instruct agents to use Supabase for ordinary coordination before #52–#55 are live-proven and `StreamScapeTV/organization-rules` is updated through its own reviewed change.
-- During this transition, follow the execution path routed by the current organization-rules entry point unless the repository owner gives explicit bounded bootstrap authorization. Never invent an Agent State receipt, ownership grant, or fallback transport.
-- This repository owns orchestration and transport surfaces only. It does not make project identity, session, claim, collision, replay, receipt, review, takeover, or ownership decisions locally.
+- Issue #32 is closed as superseded. Do not implement the reusable GitHub Actions lifecycle and ownership architecture formerly planned by #32.
+- `StreamScapeTV/agent-state-supabase#1` is the canonical Supabase Agent State implementation tracker. In that repository, #2 owns repository and deployment bootstrap, #3 owns the transactional core and RPC, #4 owns structured multi-work, #5 owns exact-head review and administration, and #6 owns live proof, active-state reconciliation, final cutover, and legacy retirement.
+- This repository's open #51–#55 issues are transition mirrors only. They preserve coordination and evidence while work is re-homed; they are not the eventual canonical Supabase migration repository or authoritative migration history.
+- `ci-workflows` continues to own reusable workflow orchestration and the protected manual compatibility workflow completed by #37. It does not own the authoritative Supabase schema, migration history, or Agent State decision engine.
+- Keep #37 available until `StreamScapeTV/agent-state-supabase#6` proves the live connector path, reconciles active state, completes separate reviewed organization-rules adoption, and confirms that no legacy consumer remains.
+- Supabase is the selected target architecture, not the required organization operating path. `agent-state-supabase` is currently empty, its Supabase GitHub integration is intentionally not connected, and no Agent State schema is live. Do not instruct ordinary agents to use Supabase before the final cutover and subsequent organization-rules update.
+- During this transition, follow the execution path routed by the current organization-rules entry point unless the repository owner gives explicit bounded bootstrap authorization. Never invent an Agent State receipt, ownership grant, schema state, deployment result, or fallback transport.
+- This issue and repository do not modify `StreamScapeTV/organization-rules`; that adoption must remain a separate reviewed change after live proof.
 
 ## Reusable workflow architecture
 
@@ -30,7 +33,7 @@ This private repository owns reusable GitHub Actions orchestration for supported
 
 ## Authority boundaries
 
-- Agent State coordination authority remains external to workflow YAML and local helper code. The #51–#55 program defines the replacement decision engine and cutover; this repository must not duplicate those decisions.
+- `StreamScapeTV/agent-state-supabase` owns the future canonical Supabase schema, versioned migrations, reviewed RPC contracts, fixtures, tests, deployment configuration, and transactional Agent State decisions. This repository must not duplicate that authority or maintain a competing canonical migration history.
 - Flux remains the sole authority for desired state, target and product allowlists, SOPS data, Kubernetes credentials, reconciliation policy, canary selection, live health, and rollback acceptance. This repository owns only the reviewed orchestration around exact Flux-owned policy source.
 - Product repositories retain toolchain pins, product commands, schemas, assertions, test selection, signing, release inputs, and deployment-specific data.
 
