@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "source": {
     "repository": "StreamScapeTV/ci-workflows",
     "issue": 52,
@@ -17,83 +17,174 @@
     "one_canonical_migration_history": true,
     "source_pr_merge_not_required_before_rehome": true
   },
+  "live_reconciliation": {
+    "observed_live_state": {
+      "status": "provisional-unaccepted",
+      "schema_already_exists": true,
+      "migration_ledger": [
+        {
+          "version": "20260806174835",
+          "name": "agent_state_core_schema"
+        },
+        {
+          "version": "20260806175059",
+          "name": "agent_state_core_rpc"
+        },
+        {
+          "version": "20260806175243",
+          "name": "agent_state_core_rpc_hardening"
+        },
+        {
+          "version": "20260806175336",
+          "name": "agent_state_claim_regex_fix"
+        },
+        {
+          "version": "20260806175433",
+          "name": "agent_state_error_projection_fix"
+        },
+        {
+          "version": "20260806175808",
+          "name": "agent_state_foreign_key_indexes"
+        }
+      ]
+    },
+    "source_package": {
+      "status": "reviewed-target-source-package",
+      "migration_history": [
+        {
+          "version": "20260806172100",
+          "name": "agent_state_core_schema",
+          "path": "supabase/migrations/20260806172100_agent_state_core_schema.sql"
+        },
+        {
+          "version": "20260806172200",
+          "name": "agent_state_core_rpc",
+          "path": "supabase/migrations/20260806172200_agent_state_core_rpc.sql"
+        },
+        {
+          "version": "20260806172300",
+          "name": "agent_state_core_indexes",
+          "path": "supabase/migrations/20260806172300_agent_state_core_indexes.sql"
+        }
+      ],
+      "directly_deployable_to_observed_live_project": false
+    },
+    "live_reconciliation_required": true,
+    "production_deployment_allowed": false,
+    "production_deployment_unlock_condition": "canonical issue #3 independently accepts a reviewed live-ledger reconciliation strategy and proves one authoritative migration history",
+    "ordinary_rpc_use_allowed": false,
+    "ordinary_rpc_unlock_condition": "canonical live proof and final cutover make agent_api the approved ordinary coordination path",
+    "permitted_strategy_classes": [
+      {
+        "id": "reconstruct-observed-live-baseline",
+        "description": "reconstruct the exact six already-applied migration versions and statements as the canonical baseline, then add reviewed forward migrations"
+      },
+      {
+        "id": "owner-authorized-reset-recreation",
+        "description": "perform an explicit owner-authorized reset or recreation of the provisional schema and migration ledger, then deploy the reviewed clean history"
+      },
+      {
+        "id": "reviewed-baseline-or-repair",
+        "description": "use another explicitly reviewed baseline or repair procedure that proves a single authoritative history and exact source/live parity"
+      }
+    ],
+    "strategy_selected_by_this_package": null,
+    "direct_ad_hoc_repair_forbidden": true
+  },
   "copy": [
     {
       "source": "contracts/supabase-agent-state-core.json",
-      "destination": "contracts/supabase-agent-state-core.json"
+      "destination": "contracts/supabase-agent-state-core.json",
+      "semantics": "exact-copy-review-input"
     },
     {
       "source": "contracts/supabase-agent-state-core-files.json",
-      "destination": "contracts/supabase-agent-state-core-files.json"
+      "destination": "contracts/supabase-agent-state-core-files.json",
+      "semantics": "exact-copy-review-input"
     },
     {
       "source": "contracts/supabase-agent-state-core-rehome.json",
-      "destination": "contracts/supabase-agent-state-core-rehome.json"
+      "destination": "contracts/supabase-agent-state-core-rehome.json",
+      "semantics": "exact-copy-review-input"
     },
     {
       "source": "docs/architecture/supabase-agent-state-core.md",
-      "destination": "docs/architecture/supabase-agent-state-core.md"
+      "destination": "docs/architecture/supabase-agent-state-core.md",
+      "semantics": "exact-copy-review-input"
     },
     {
       "source": "docs/evidence/supabase-agent-state-core-validation.md",
-      "destination": "docs/evidence/supabase-agent-state-core-validation.md"
+      "destination": "docs/evidence/supabase-agent-state-core-validation.md",
+      "semantics": "exact-copy-review-input"
     },
     {
       "source": "docs/operators/supabase-agent-state-core.md",
-      "destination": "docs/operators/supabase-agent-state-core.md"
+      "destination": "docs/operators/supabase-agent-state-core.md",
+      "semantics": "exact-copy-review-input"
     },
     {
       "source": "supabase/migrations/20260806172100_agent_state_core_schema.sql",
-      "destination": "supabase/migrations/20260806172100_agent_state_core_schema.sql"
+      "destination": "supabase/migrations/20260806172100_agent_state_core_schema.sql",
+      "semantics": "candidate-migration-source-not-direct-production-deployment"
     },
     {
       "source": "supabase/migrations/20260806172200_agent_state_core_rpc.sql",
-      "destination": "supabase/migrations/20260806172200_agent_state_core_rpc.sql"
+      "destination": "supabase/migrations/20260806172200_agent_state_core_rpc.sql",
+      "semantics": "candidate-migration-source-not-direct-production-deployment"
     },
     {
       "source": "supabase/migrations/20260806172300_agent_state_core_indexes.sql",
-      "destination": "supabase/migrations/20260806172300_agent_state_core_indexes.sql"
+      "destination": "supabase/migrations/20260806172300_agent_state_core_indexes.sql",
+      "semantics": "candidate-migration-source-not-direct-production-deployment"
     },
     {
       "source": "tests/fixtures/supabase-agent-state/bootstrap.sql",
-      "destination": "tests/fixtures/supabase-agent-state/bootstrap.sql"
+      "destination": "tests/fixtures/supabase-agent-state/bootstrap.sql",
+      "semantics": "exact-copy-review-input"
     },
     {
       "source": "tests/fixtures/supabase-agent-state/core-cases.json",
-      "destination": "tests/fixtures/supabase-agent-state/core-cases.json"
+      "destination": "tests/fixtures/supabase-agent-state/core-cases.json",
+      "semantics": "exact-copy-review-input"
     },
     {
       "source": "tests/support/supabase_agent_state_postgres.py",
-      "destination": "tests/support/supabase_agent_state_postgres.py"
+      "destination": "tests/support/supabase_agent_state_postgres.py",
+      "semantics": "exact-copy-review-input"
     },
     {
       "source": "tests/test_supabase_agent_state_core.py",
-      "destination": "tests/test_supabase_agent_state_core.py"
+      "destination": "tests/test_supabase_agent_state_core.py",
+      "semantics": "exact-copy-review-input"
     },
     {
       "source": "tests/test_supabase_agent_state_core_database.py",
-      "destination": "tests/test_supabase_agent_state_core_database.py"
+      "destination": "tests/test_supabase_agent_state_core_database.py",
+      "semantics": "explicit-reconstruction-test-input"
     }
   ],
-  "migration_order": [
+  "source_migration_order": [
     "supabase/migrations/20260806172100_agent_state_core_schema.sql",
     "supabase/migrations/20260806172200_agent_state_core_rpc.sql",
     "supabase/migrations/20260806172300_agent_state_core_indexes.sql"
   ],
   "canonical_review_steps": [
-    "verify the accepted source head and file manifest",
-    "copy all entries without content changes onto one issue 3 branch",
-    "run static manifest tests and disposable PostgreSQL reconstruction tests",
-    "connect the canonical repository to Supabase only after source acceptance",
-    "merge the unchanged canonical head through protected main",
-    "verify GitHub-managed migration history and production object parity",
-    "run live bounded RPC smoke checks, advisors, and cleanup",
-    "reconcile transition files in ci-workflows through a separate reviewed decision"
+    "verify the accepted source head and SHA-256 file manifest",
+    "copy non-migration source-package inputs exactly for canonical review",
+    "treat the three clean migration files as candidate target/source inputs, not as directly deployable migrations for the existing live project",
+    "run normal repository discovery without network or PostgreSQL compilation side effects",
+    "run the explicit PostgreSQL 17 reconstruction command in a vetted isolated environment",
+    "inspect the six observed live ledger entries and choose one permitted reconciliation strategy through canonical issue #3 review",
+    "do not connect or deploy through the Supabase GitHub integration until the selected strategy makes production_deployment_allowed true",
+    "after canonical deployment, verify the migration ledger, object/function hashes, grants, project mappings, RPC behavior, advisors, and smoke-data cleanup",
+    "reconcile transition files in ci-workflows through a separate reviewed decision so no competing canonical history remains"
   ],
   "prohibited": [
-    "creating a parallel migration history before source reconciliation",
+    "creating a parallel authoritative migration history",
+    "applying the three clean source migrations unchanged to the existing live project without ledger reconciliation",
     "editing an accepted or deployed migration in place",
-    "using direct production DDL as deployment evidence",
-    "implementing structured multi-work, review takeover, trusted bots, cutover, or retirement in this package"
+    "using direct ad-hoc production DDL, SQL editor, connector DDL, or table editor as a reconciliation shortcut",
+    "using the provisional agent_api RPCs for ordinary Agent State coordination before final cutover",
+    "implementing structured multi-work, parking, separate review requests, takeover, trusted bots, cutover, or retirement in this package"
   ]
 }
