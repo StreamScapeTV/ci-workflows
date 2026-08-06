@@ -17,7 +17,7 @@ import inventory_contract
 import inventory_live_check
 
 RUNS_ON = re.compile(r"(?m)^\s*runs-on:\s*(.+?)\s*$")
-USES = re.compile(r"(?m)^\s*uses:\s*([^\s#]+)")
+USES = re.compile(r"(?m)^\s*(?:-\s*)?uses:\s*([^\s#]+)")
 SECRET_REFERENCE = re.compile(r"secrets\.([A-Za-z_][A-Za-z0-9_]*)")
 PRODUCT_MARKERS = {
     "oci": re.compile(r"(?i)\b(buildah|skopeo|podman|docker|buildx|oci|registry)\b"),
