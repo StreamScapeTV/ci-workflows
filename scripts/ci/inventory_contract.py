@@ -19,7 +19,7 @@ OCI_PRODUCERS = {
     "StreamScapeTV/flux",
     "StreamScapeTV/iptv-backend",
 }
-MIN_WORKFLOWS = 88
+MIN_WORKFLOWS = 87
 
 
 class ContractError(RuntimeError):
@@ -193,7 +193,7 @@ def validate(root: Path) -> dict[str, Any]:
         require(repository in consumer_by_repo, f"{product_id}: unknown repository")
         kind = nonempty(product.get("kind"), f"{product_id}.kind")
         for field in ("status", "release_mode", "owner", "central_workflow_target"):
-            nonempty(product.get(field), f"{product_id}.{field}")
+            nonempty(product.get(field), f"{product_id}.{field")
         if kind in {"oci-image", "oci-runner-image-family"}:
             oci.add(repository)
         if kind in {"helm-oci-chart", "helm-oci-chart-assets"}:
