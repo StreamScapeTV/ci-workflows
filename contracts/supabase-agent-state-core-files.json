@@ -73,5 +73,6 @@
       "bytes": 40453,
       "sha256": "f09fa00df57a4ace4142b8eb318975bce769c6dea5d7937d55a52973c29b3c73"
     }
-  ]
+  ],
+  "manifest_scope": "all source-package files except this self-referential manifest"
 }
