@@ -4,7 +4,7 @@
   "authority": "Supabase PostgreSQL",
   "private_schema": "agent_private",
   "api_schema": "agent_api",
-  "project_locking": "transaction-scoped advisory lock plus row lock",
+  "project_locking": "request advisory lock, project advisory lock, project/slot/session row locks",
   "request_hash": "sha256 of canonical jsonb text",
   "roles": {
     "ordinary_rpc_role": "service_role",
@@ -14,46 +14,20 @@
     "command": "agent_api.command(jsonb)",
     "resume": "agent_api.resume(text,text,text)",
     "context": "agent_api.context(text,text,text)",
-    "ownership_check": "agent_api.ownership_check(text,text,bigint,text,bigint,text,text)"
+    "ownership_check": "agent_api.ownership_check(text,text,bigint,text,bigint,text)"
   },
   "actions": {
-    "resume": {
-      "required": ["contract_version", "request_id", "action", "repository", "project", "session_name"],
-      "optional": []
-    },
-    "start": {
-      "required": ["contract_version", "request_id", "action", "repository", "project", "session_name", "issue_number", "branch", "task", "base_sha"],
-      "optional": ["agent_id", "branch_nonce", "pr_number", "head_sha", "claims"]
-    },
-    "claim": {
-      "required": ["contract_version", "request_id", "action", "repository", "project", "session_name", "agent_id", "issue_number", "branch", "claims"],
-      "optional": []
-    },
-    "release": {
-      "required": ["contract_version", "request_id", "action", "repository", "project", "session_name", "agent_id", "issue_number", "branch", "claims"],
-      "optional": []
-    },
-    "reconcile_base": {
-      "required": ["contract_version", "request_id", "action", "repository", "project", "session_name", "agent_id", "issue_number", "branch", "base_sha", "new_base_sha"],
-      "optional": ["head_sha"]
-    },
-    "block": {
-      "required": ["contract_version", "request_id", "action", "repository", "project", "session_name", "agent_id", "issue_number", "branch", "reason"],
-      "optional": []
-    },
-    "review": {
-      "required": ["contract_version", "request_id", "action", "repository", "project", "session_name", "agent_id", "issue_number", "branch", "pr_number", "base_sha", "head_sha", "summary"],
-      "optional": []
-    },
-    "done": {
-      "required": ["contract_version", "request_id", "action", "repository", "project", "session_name", "agent_id", "issue_number", "branch", "base_sha", "summary"],
-      "optional": ["pr_number", "head_sha", "merge_sha"]
-    },
-    "cancel": {
-      "required": ["contract_version", "request_id", "action", "repository", "project", "session_name", "agent_id", "issue_number", "branch", "reason"],
-      "optional": []
-    }
+    "resume": {"required": ["contract_version", "request_id", "action", "project", "repository", "session_name"], "optional": []},
+    "start": {"required": ["contract_version", "request_id", "action", "project", "repository", "session_name", "task", "issue_number", "branch", "base_sha"], "optional": ["agent_id", "branch_nonce", "pr_number", "head_sha", "claims"]},
+    "claim": {"required": ["contract_version", "request_id", "action", "project", "repository", "session_name", "agent_id", "issue_number", "branch", "claims"], "optional": ["pr_number", "head_sha"]},
+    "release": {"required": ["contract_version", "request_id", "action", "project", "repository", "session_name", "agent_id", "issue_number", "branch"], "optional": ["claims", "all"]},
+    "reconcile_base": {"required": ["contract_version", "request_id", "action", "project", "repository", "session_name", "agent_id", "issue_number", "branch", "expected_base_sha", "base_sha"], "optional": []},
+    "block": {"required": ["contract_version", "request_id", "action", "project", "repository", "session_name", "agent_id", "issue_number", "branch", "reason"], "optional": []},
+    "review": {"required": ["contract_version", "request_id", "action", "project", "repository", "session_name", "agent_id", "issue_number", "branch", "pr_number", "head_sha"], "optional": ["summary"]},
+    "done": {"required": ["contract_version", "request_id", "action", "project", "repository", "session_name", "agent_id", "issue_number", "branch", "merge_sha", "summary"], "optional": ["pr_number", "head_sha"]},
+    "cancel": {"required": ["contract_version", "request_id", "action", "project", "repository", "session_name", "agent_id", "issue_number", "branch", "summary"], "optional": []}
   },
+  "reads": ["agent_api.resume", "agent_api.context", "agent_api.ownership_check"],
   "claim_kinds": {
     "file": ["exact", "prefix"],
     "package": ["exact"],
@@ -85,5 +59,6 @@
     {"project": "flux", "repository": "StreamScapeTV/flux", "integration_branch": "main"},
     {"project": "organization-rules", "repository": "StreamScapeTV/organization-rules", "integration_branch": "main"}
   ],
+  "future_extensions": ["#53", "#54", "#55"],
   "out_of_scope_actions": ["park", "activate", "transfer", "takeover", "review_request", "review_approve", "bot_start", "cutover", "retire"]
 }
