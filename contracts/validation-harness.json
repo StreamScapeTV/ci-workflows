@@ -4,7 +4,7 @@
   "max_matrix_jobs": 16,
   "max_timeout_minutes": 240,
   "allowed_runner_profiles": [
-    "homelab-portable-linux-x64",
+    "portable",
     "agent-state"
   ],
   "required_fixture_callers": [
