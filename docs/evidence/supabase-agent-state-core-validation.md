@@ -31,6 +31,12 @@ The isolated suite reconstructs two empty PostgreSQL 17 databases from the same 
 
 The exact commands and results are recorded in the PR description and final handoff after the exact head passes the repository self-check.
 
+
+## Current source execution
+
+- `python3 -m unittest -v tests.test_supabase_agent_state_core`: 11 tests passed.
+- `python3 -m unittest -v tests.test_supabase_agent_state_core_database`: bootstrap stopped before database creation in the Agent 2 container because PostgreSQL 17 was not installed and outbound DNS was unavailable for the pinned official source download. No reconstruction or database-behavior result is claimed from that attempt. The suite remains fail-closed and accepts a vetted PostgreSQL 17 directory through `AGENT_STATE_POSTGRES_BIN`.
+
 ## Not yet performed
 
 The following remain deliberately outstanding:
