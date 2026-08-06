@@ -40,6 +40,21 @@ class BootstrapContractTests(unittest.TestCase):
             [".github/workflows/reusable-tag-image-chart.yml"],
         )
 
+    def test_self_check_uses_automatic_test_discovery(self) -> None:
+        source = (ROOT / ".github/workflows/self-check.yml").read_text()
+        self.assertIn(
+            "python3 -m unittest discover -s tests -p 'test_*.py' -v",
+            source,
+        )
+        self.assertNotIn(
+            "python3 -m unittest -v tests/test_reusable_tag_image_chart.py",
+            source,
+        )
+        self.assertNotIn(
+            "python3 -m unittest -v tests/test_bootstrap.py",
+            source,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

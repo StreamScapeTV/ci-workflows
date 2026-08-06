@@ -1,0 +1,85 @@
+{
+  "events": {
+    "flux_reconciliation": {
+      "action": "reconcile",
+      "client_payload": {
+        "request_id": "fixture-flux",
+        "source_sha": "9999999999999999999999999999999999999999",
+        "target_id": "production"
+      },
+      "event_name": "repository_dispatch"
+    },
+    "issue_comment": {
+      "action": "created",
+      "comment": {
+        "body": "untrusted data",
+        "id": 101
+      },
+      "event_name": "issue_comment",
+      "issue": {
+        "number": 5
+      }
+    },
+    "pull_request_fork": {
+      "event_name": "pull_request",
+      "pull_request": {
+        "base": {
+          "sha": "3333333333333333333333333333333333333333"
+        },
+        "head": {
+          "repo": {
+            "fork": true
+          },
+          "sha": "2222222222222222222222222222222222222222"
+        }
+      },
+      "repository": "StreamScapeTV/example"
+    },
+    "pull_request_target": {
+      "event_name": "pull_request_target",
+      "pull_request": {
+        "base": {
+          "sha": "7777777777777777777777777777777777777777"
+        },
+        "head": {
+          "sha": "6666666666666666666666666666666666666666"
+        }
+      }
+    },
+    "push": {
+      "event_name": "push",
+      "ref": "refs/heads/main",
+      "repository": "StreamScapeTV/example",
+      "sha": "1111111111111111111111111111111111111111"
+    },
+    "tag_push": {
+      "event_name": "push",
+      "ref": "refs/tags/v1.2.3",
+      "ref_name": "v1.2.3",
+      "ref_type": "tag",
+      "sha": "5555555555555555555555555555555555555555"
+    },
+    "trusted_maintenance": {
+      "actor": "maintainer",
+      "event_name": "workflow_dispatch",
+      "inputs": {
+        "dry_run": true,
+        "request_id": "fixture-maintenance"
+      }
+    },
+    "workflow_call": {
+      "event_name": "workflow_call",
+      "inputs": {},
+      "sha": "4444444444444444444444444444444444444444"
+    },
+    "workflow_run": {
+      "event_name": "workflow_run",
+      "workflow_run": {
+        "conclusion": "success",
+        "head_sha": "8888888888888888888888888888888888888888",
+        "id": 202
+      }
+    }
+  },
+  "schema_version": 1
+}
