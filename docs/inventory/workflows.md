@@ -9,7 +9,7 @@ This contract classifies **88 live workflow files across 11 repositories**. Capt
 | Repository | Captured source | Workflows | Active | Retire | Publication | Device | Flux-authorized |
 |---|---|---:|---:|---:|---:|---:|---:|
 | StreamScapeTV/agent-state | `main@bf4b6122db1f248058a27b4b449cd1ecb9688a85` | 10 | 8 | 2 | 2 | 0 | 0 |
-| StreamScapeTV/ci-workflows | `main@668e1cdbb4c62eb08811959932ba2ef0d697e196` | 3 | 3 | 0 | 1 | 0 | 0 |
+| StreamScapeTV/ci-workflows | `main@9325b3262b7753d0e2d8ef9f3684b230647183de` | 3 | 3 | 0 | 1 | 0 | 0 |
 | StreamScapeTV/directus-front | `main@b7b21be7129859e45fdc57befcf85b86b82e7575` | 5 | 5 | 0 | 0 | 0 | 0 |
 | StreamScapeTV/finance-hub | `main@a549e610dee8f7f80b1a38ae4b709b8d2bd53461` | 4 | 3 | 1 | 0 | 0 | 0 |
 | StreamScapeTV/flux | `main@8e611816f11c4ebaf126217646e030b9c2df18b9` | 18 | 18 | 0 | 2 | 0 | 2 |
@@ -80,14 +80,14 @@ This contract classifies **88 live workflow files across 11 repositories**. Capt
 
 ### StreamScapeTV/ci-workflows
 
-- Capture: `main@668e1cdbb4c62eb08811959932ba2ef0d697e196`
+- Capture: `main@9325b3262b7753d0e2d8ef9f3684b230647183de`
 - Evidence basis: exact issue #37 parameterized Agent State command checkpoint
 
 | Workflow | Name | Status | Disposition | Migration | Trust | Blob |
 |---|---|---|---|---|---|---|
-| `.github/workflows/agent-state-command.yml` | Agent State command | `current-manual-control` | `thin` | `agent-state-lifecycle` | `agent-state` | `507e6458d72a39c1a8fb806e9a35dbcaae12fde0` |
+| `.github/workflows/agent-state-command.yml` | Agent State command | `current-manual-control` | `thin` | `agent-state-lifecycle` | `agent-state` | `a28db8d0abb67cfe84189411c1f03b8cfacea780` |
 | `.github/workflows/reusable-tag-image-chart.yml` | Reusable exact-tag image and Helm release | `current-bootstrap-exception` | `public` | `release` | `publish` | `289bc0844a36923e3bb856c21dfed0329a4c6a95` |
-| `.github/workflows/self-check.yml` | Central workflow self-check | `current` | `thin` | `conformance` | `read` | `2a937e534b4e7ea02acf01b62b4da92e1bc1d06e` |
+| `.github/workflows/self-check.yml` | Central workflow self-check | `current` | `thin` | `conformance` | `read` | `332134d333f047fc5df7f4b7f507fe6c60d4e451` |
 
 ### StreamScapeTV/directus-front
 
