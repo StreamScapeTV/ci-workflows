@@ -30,6 +30,7 @@ REQUIRED_BINARIES = (
 )
 RECONSTRUCTION_OPT_IN = "AGENT_STATE_RUN_POSTGRES_RECONSTRUCTION"
 CONFIGURED_BIN_DIR = "AGENT_STATE_POSTGRES_BIN"
+SOURCE_DOWNLOAD_OPT_IN = "AGENT_STATE_ALLOW_POSTGRES_SOURCE_DOWNLOAD"
 
 
 class CommandError(RuntimeError):
@@ -111,6 +112,11 @@ def _find_system_postgres() -> pathlib.Path | None:
 
 
 def _download_source(destination: pathlib.Path) -> pathlib.Path:
+    if os.environ.get(SOURCE_DOWNLOAD_OPT_IN) != "1":
+        raise CommandError(
+            "no vetted PostgreSQL 17 runtime is available and source download is disabled; "
+            f"provide {CONFIGURED_BIN_DIR} or explicitly set {SOURCE_DOWNLOAD_OPT_IN}=1"
+        )
     archive = destination / f"postgresql-{POSTGRES_VERSION}.tar.gz"
     digest = hashlib.sha256()
     request = urllib.request.Request(
@@ -121,8 +127,7 @@ def _download_source(destination: pathlib.Path) -> pathlib.Path:
         response_context = urllib.request.urlopen(request, timeout=60)
     except urllib.error.URLError as exc:
         raise CommandError(
-            "PostgreSQL 17 is not installed and the pinned official source archive "
-            f"could not be downloaded; provide {CONFIGURED_BIN_DIR} or network access"
+            "the explicitly authorized pinned PostgreSQL 17.6 source archive could not be downloaded"
         ) from exc
     with response_context as response, archive.open("wb") as output:
         while True:
