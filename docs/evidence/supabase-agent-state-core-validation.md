@@ -6,12 +6,14 @@ Connected project: `Agent State` (`eu-west-1`, PostgreSQL 17.6)
 
 ## Applied migration chain
 
-1. `agent_state_core_schema`
-2. `agent_state_core_rpc`
-3. `agent_state_core_rpc_hardening`
-4. `agent_state_claim_regex_fix`
-5. `agent_state_error_projection_fix`
-6. `agent_state_foreign_key_indexes`
+| Live version | Migration |
+|---|---|
+| `20260806174835` | `agent_state_core_schema` |
+| `20260806175059` | `agent_state_core_rpc` |
+| `20260806175243` | `agent_state_core_rpc_hardening` |
+| `20260806175336` | `agent_state_claim_regex_fix` |
+| `20260806175433` | `agent_state_error_projection_fix` |
+| `20260806175808` | `agent_state_foreign_key_indexes` |
 
 Each live DDL change is represented by the same ordered migration under `supabase/migrations/`.
 
