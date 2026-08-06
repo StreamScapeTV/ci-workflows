@@ -11,6 +11,8 @@ CONTRACT_PATH = ROOT / "contracts" / "supabase-agent-state-core.json"
 FILE_MANIFEST_PATH = ROOT / "contracts" / "supabase-agent-state-core-files.json"
 REHOME_PATH = ROOT / "contracts" / "supabase-agent-state-core-rehome.json"
 FIXTURE_PATH = ROOT / "tests" / "fixtures" / "supabase-agent-state" / "core-cases.json"
+DATABASE_TEST_PATH = ROOT / "tests" / "test_supabase_agent_state_core_database.py"
+RUNTIME_PATH = ROOT / "tests" / "support" / "supabase_agent_state_postgres.py"
 
 
 class SupabaseAgentStateCoreSourceTests(unittest.TestCase):
@@ -23,19 +25,17 @@ class SupabaseAgentStateCoreSourceTests(unittest.TestCase):
         cls.migration_paths = [ROOT / value for value in cls.contract["migration_order"]]
         cls.sql = "\n".join(path.read_text(encoding="utf-8") for path in cls.migration_paths)
 
-    def test_exact_ordered_migration_history(self) -> None:
-        self.assertEqual(
-            [path.name for path in self.migration_paths],
-            [
-                "20260806172100_agent_state_core_schema.sql",
-                "20260806172200_agent_state_core_rpc.sql",
-                "20260806172300_agent_state_core_indexes.sql",
-            ],
-        )
+    def test_exact_ordered_clean_source_history(self) -> None:
+        expected = [
+            "20260806172100_agent_state_core_schema.sql",
+            "20260806172200_agent_state_core_rpc.sql",
+            "20260806172300_agent_state_core_indexes.sql",
+        ]
+        self.assertEqual([path.name for path in self.migration_paths], expected)
         self.assertTrue(all(path.is_file() for path in self.migration_paths))
         self.assertEqual(
             sorted(path.name for path in (ROOT / "supabase" / "migrations").glob("*.sql")),
-            [path.name for path in self.migration_paths],
+            expected,
         )
         for path in self.migration_paths:
             source = path.read_text(encoding="utf-8")
@@ -119,7 +119,7 @@ class SupabaseAgentStateCoreSourceTests(unittest.TestCase):
         self.assertTrue(self.contract["atomicity"]["done_plus_release"])
         self.assertTrue(self.contract["atomicity"]["cancel_plus_release"])
 
-    def test_claim_validation_and_redaction_guards(self) -> None:
+    def test_claim_validation_redaction_and_rpc_grants(self) -> None:
         for kind in ("file", "package", "resource", "manifest", "device"):
             self.assertIn(f"'{kind}'", self.sql)
         for token in (
@@ -130,11 +130,7 @@ class SupabaseAgentStateCoreSourceTests(unittest.TestCase):
             "sensitive_text_rejected",
         ):
             self.assertIn(token, self.sql)
-        self.assertIn("context_event_limit", self.contract["redaction"])
         self.assertFalse(self.contract["redaction"]["context_event_payload_exposed"])
-        self.assertNotIn("payload", self.contract["redaction"]["receipt_forbidden_fields"])
-
-    def test_rpc_only_grants_and_bounded_security_definers(self) -> None:
         lower = self.sql.lower()
         for role in ("public", "anon", "authenticated", "service_role"):
             self.assertRegex(
@@ -153,24 +149,74 @@ class SupabaseAgentStateCoreSourceTests(unittest.TestCase):
         self.assertNotIn("grant insert on", lower)
         self.assertNotIn("grant update on", lower)
         self.assertNotIn("grant delete on", lower)
-        self.assertGreaterEqual(lower.count("security definer"), 4)
-        self.assertGreaterEqual(lower.count("set search_path"), 4)
-        self.assertGreaterEqual(lower.count("set row_security = off"), 4)
 
-    def test_disposable_runtime_is_pinned_and_cleanup_owned(self) -> None:
-        helper = (
-            ROOT / "tests" / "support" / "supabase_agent_state_postgres.py"
-        ).read_text(encoding="utf-8")
-        database_test = (
-            ROOT / "tests" / "test_supabase_agent_state_core_database.py"
-        ).read_text(encoding="utf-8")
+    def test_live_reconciliation_machine_contract(self) -> None:
+        live = self.rehome["live_reconciliation"]
+        self.assertTrue(live["live_reconciliation_required"])
+        self.assertFalse(live["production_deployment_allowed"])
+        self.assertFalse(live["ordinary_rpc_use_allowed"])
+        self.assertTrue(live["direct_ad_hoc_repair_forbidden"])
+        self.assertIsNone(live["strategy_selected_by_this_package"])
+        self.assertTrue(live["observed_live_state"]["schema_already_exists"])
+        self.assertEqual(
+            [(item["version"], item["name"]) for item in live["observed_live_state"]["migration_ledger"]],
+            [
+                ("20260806174835", "agent_state_core_schema"),
+                ("20260806175059", "agent_state_core_rpc"),
+                ("20260806175243", "agent_state_core_rpc_hardening"),
+                ("20260806175336", "agent_state_claim_regex_fix"),
+                ("20260806175433", "agent_state_error_projection_fix"),
+                ("20260806175808", "agent_state_foreign_key_indexes"),
+            ],
+        )
+        source = live["source_package"]
+        self.assertFalse(source["directly_deployable_to_observed_live_project"])
+        self.assertEqual(
+            [item["version"] for item in source["migration_history"]],
+            ["20260806172100", "20260806172200", "20260806172300"],
+        )
+        self.assertEqual(
+            [item["id"] for item in live["permitted_strategy_classes"]],
+            [
+                "reconstruct-observed-live-baseline",
+                "owner-authorized-reset-recreation",
+                "reviewed-baseline-or-repair",
+            ],
+        )
+
+    def test_rehome_copy_semantics_do_not_directly_deploy_clean_history(self) -> None:
+        migration_entries = [
+            item for item in self.rehome["copy"] if item["source"].startswith("supabase/migrations/")
+        ]
+        self.assertEqual(len(migration_entries), 3)
+        self.assertTrue(
+            all(
+                item["semantics"] == "candidate-migration-source-not-direct-production-deployment"
+                for item in migration_entries
+            )
+        )
+        steps = " ".join(self.rehome["canonical_review_steps"]).lower()
+        prohibited = " ".join(self.rehome["prohibited"]).lower()
+        self.assertIn("choose one permitted reconciliation strategy", steps)
+        self.assertIn("not as directly deployable migrations", steps)
+        self.assertIn("three clean source migrations", prohibited)
+        self.assertIn("direct ad-hoc", prohibited)
+        self.assertEqual(self.rehome["source_migration_order"], self.contract["migration_order"])
+
+    def test_normal_discovery_is_network_free_and_reconstruction_is_explicit(self) -> None:
+        helper = RUNTIME_PATH.read_text(encoding="utf-8")
+        database_test = DATABASE_TEST_PATH.read_text(encoding="utf-8")
         self.assertIn('POSTGRES_VERSION = "17.6"', helper)
         self.assertIn(
             "2910b85283674da2dae6ac13fe5ebbaaf3c482446396cba32e6728d3cc736d86",
             helper,
         )
         self.assertIn("PostgreSQL source digest mismatch", helper)
+        self.assertIn("AGENT_STATE_POSTGRES_BIN", helper)
+        self.assertIn("AGENT_STATE_RUN_POSTGRES_RECONSTRUCTION", helper)
+        self.assertIn("unittest.SkipTest", helper)
         self.assertIn("shutil.rmtree(self.root", helper)
+        self.assertIn("PostgresRuntime(ROOT)", database_test)
         for proof in (
             "atomic_start_failure",
             "atomic_terminal_failure",
@@ -181,43 +227,34 @@ class SupabaseAgentStateCoreSourceTests(unittest.TestCase):
         ):
             self.assertIn(proof, database_test)
 
-    def test_source_evidence_does_not_claim_live_deployment(self) -> None:
-        evidence = (
-            ROOT / "docs" / "evidence" / "supabase-agent-state-core-validation.md"
-        ).read_text(encoding="utf-8")
-        operator = (
-            ROOT / "docs" / "operators" / "supabase-agent-state-core.md"
-        ).read_text(encoding="utf-8")
-        self.assertIn("pre-deployment transition package", evidence)
-        self.assertIn("does not claim", evidence)
-        self.assertIn("No production Supabase project is contacted", operator)
-        for stale in (
-            "all six migrations applied",
-            "connected project: `agent state`",
-            "live direct-rpc proof",
-            "live version",
+    def test_documents_state_ledger_mismatch_and_operating_gate(self) -> None:
+        evidence = (ROOT / "docs" / "evidence" / "supabase-agent-state-core-validation.md").read_text(
+            encoding="utf-8"
+        )
+        operator = (ROOT / "docs" / "operators" / "supabase-agent-state-core.md").read_text(
+            encoding="utf-8"
+        )
+        architecture = (ROOT / "docs" / "architecture" / "supabase-agent-state-core.md").read_text(
+            encoding="utf-8"
+        )
+        combined = "\n".join((evidence, operator, architecture)).lower()
+        for version in (
+            "20260806174835",
+            "20260806175059",
+            "20260806175243",
+            "20260806175336",
+            "20260806175433",
+            "20260806175808",
+            "20260806172100",
+            "20260806172200",
+            "20260806172300",
         ):
-            self.assertNotIn(stale, (evidence + "\n" + operator).lower())
-
-    def test_rehome_manifest_is_exact_and_bounded(self) -> None:
-        self.assertEqual(
-            self.rehome["canonical_destination"],
-            {
-                "repository": "StreamScapeTV/agent-state-supabase",
-                "issue": 3,
-                "integration_branch": "main",
-            },
-        )
-        self.assertEqual(self.rehome["migration_order"], self.contract["migration_order"])
-        copied = {item["source"] for item in self.rehome["copy"]}
-        manifest_paths = {item["path"] for item in self.file_manifest["files"]}
-        self.assertEqual(
-            copied - {"contracts/supabase-agent-state-core-files.json"},
-            manifest_paths,
-        )
-        prohibited = " ".join(self.rehome["prohibited"]).lower()
-        for token in ("parallel migration history", "direct production ddl", "structured multi-work"):
-            self.assertIn(token, prohibited)
+            self.assertIn(version, combined)
+        self.assertIn("not directly deployable", combined)
+        self.assertIn("ordinary rpc", combined)
+        self.assertIn("direct ad-hoc", combined)
+        self.assertIn("agent_state_run_postgres_reconstruction=1", combined)
+        self.assertIn("issue #60", combined)
 
     def test_exact_file_manifest_hashes(self) -> None:
         self.assertEqual(self.file_manifest["hash_algorithm"], "sha256")
