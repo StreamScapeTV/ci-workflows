@@ -1,30 +1,143 @@
 {
   "schema_version": 1,
   "positive": [
-    {"id": "linux-minimal-workspace", "primitive": "workspace", "runner_os": "Linux", "profile": "minimal"},
-    {"id": "macos-full-cleanup", "primitive": "workspace", "runner_os": "macOS", "profile": "full_validation"},
-    {"id": "baseline-toolchain", "primitive": "tooling", "tool_set": "baseline"},
-    {"id": "exact-private-dependency", "primitive": "dependencies", "expected_subpath": "include"},
-    {"id": "clean-zero-artifact-policy", "primitive": "policy", "artifacts": []},
-    {"id": "deterministic-redacted-evidence", "primitive": "evidence"},
-    {"id": "cache-disabled-default", "primitive": "cache", "mode": "disabled"}
+    {
+      "id": "linux-minimal-workspace",
+      "primitive": "workspace",
+      "runner_os": "Linux",
+      "profile": "minimal"
+    },
+    {
+      "id": "macos-full-cleanup",
+      "primitive": "workspace",
+      "runner_os": "macOS",
+      "profile": "full_validation"
+    },
+    {
+      "id": "baseline-toolchain",
+      "primitive": "tooling",
+      "tool_set": "baseline"
+    },
+    {
+      "id": "exact-private-dependency",
+      "primitive": "dependencies",
+      "expected_subpath": "include"
+    },
+    {
+      "id": "clean-zero-artifact-policy",
+      "primitive": "policy",
+      "artifacts": []
+    },
+    {
+      "id": "deterministic-redacted-evidence",
+      "primitive": "evidence"
+    },
+    {
+      "id": "cache-disabled-default",
+      "primitive": "cache",
+      "mode": "disabled"
+    },
+    {
+      "id": "bounded-android-diagnostics",
+      "primitive": "policy",
+      "exception_id": "android-validation-diagnostics"
+    }
   ],
   "negative": [
-    {"id": "path-traversal", "primitive": "workspace", "expected": "invalid_relative_path"},
-    {"id": "symlink-escape", "primitive": "workspace", "expected": "symlink_escape_detected"},
-    {"id": "malicious-deletion-target", "primitive": "workspace", "expected": "invalid_relative_path"},
-    {"id": "interrupted-execution", "primitive": "workspace", "expected_terminal": "partial_setup"},
-    {"id": "partial-setup", "primitive": "workspace", "expected_terminal": "partial_setup"},
-    {"id": "credential-residue", "primitive": "dependencies", "expected": "dependency_credential_residue"},
-    {"id": "dirty-tree", "primitive": "policy", "expected": "repository_tree_dirty"},
-    {"id": "token-like-content", "primitive": "policy", "expected": "tracked_secret_detected"},
-    {"id": "forbidden-file", "primitive": "policy", "expected": "forbidden_tracked_file"},
-    {"id": "tracked-symlink-escape", "primitive": "policy", "expected": "tracked_symlink_escape"},
-    {"id": "undeclared-artifact", "primitive": "policy", "expected": "undeclared_artifact"},
-    {"id": "cache-poisoning-scope", "primitive": "cache", "expected": "cache_trust_scope_forbidden"},
-    {"id": "checksum-mismatch", "primitive": "tooling", "expected": "checksum_mismatch"},
-    {"id": "redirect-host-change", "primitive": "tooling", "expected": "locked_asset_redirect_forbidden"},
-    {"id": "unsafe-evidence-field", "primitive": "evidence", "expected": "invalid_runner_profile"},
-    {"id": "cleanup-residue", "primitive": "workspace", "expected": "cleanup_residue_detected"}
+    {
+      "id": "path-traversal",
+      "primitive": "workspace",
+      "expected": "invalid_relative_path"
+    },
+    {
+      "id": "symlink-escape",
+      "primitive": "workspace",
+      "expected": "symlink_escape_detected"
+    },
+    {
+      "id": "malicious-deletion-target",
+      "primitive": "workspace",
+      "expected": "invalid_relative_path"
+    },
+    {
+      "id": "interrupted-execution",
+      "primitive": "workspace",
+      "expected_terminal": "partial_setup"
+    },
+    {
+      "id": "partial-setup",
+      "primitive": "workspace",
+      "expected_terminal": "partial_setup"
+    },
+    {
+      "id": "credential-residue",
+      "primitive": "dependencies",
+      "expected": "dependency_credential_residue"
+    },
+    {
+      "id": "dirty-tree",
+      "primitive": "policy",
+      "expected": "repository_tree_dirty"
+    },
+    {
+      "id": "token-like-content",
+      "primitive": "policy",
+      "expected": "tracked_secret_detected"
+    },
+    {
+      "id": "forbidden-file",
+      "primitive": "policy",
+      "expected": "forbidden_tracked_file"
+    },
+    {
+      "id": "tracked-symlink-escape",
+      "primitive": "policy",
+      "expected": "tracked_symlink_escape"
+    },
+    {
+      "id": "undeclared-artifact",
+      "primitive": "policy",
+      "expected": "undeclared_artifact"
+    },
+    {
+      "id": "cache-poisoning-scope",
+      "primitive": "cache",
+      "expected": "cache_trust_scope_forbidden"
+    },
+    {
+      "id": "checksum-mismatch",
+      "primitive": "tooling",
+      "expected": "checksum_mismatch"
+    },
+    {
+      "id": "redirect-host-change",
+      "primitive": "tooling",
+      "expected": "locked_asset_redirect_forbidden"
+    },
+    {
+      "id": "unsafe-evidence-field",
+      "primitive": "evidence",
+      "expected": "invalid_runner_profile"
+    },
+    {
+      "id": "cleanup-residue",
+      "primitive": "workspace",
+      "expected": "cleanup_residue_detected"
+    },
+    {
+      "id": "failed-command",
+      "primitive": "workspace",
+      "expected_terminal": "cleanup_workspace"
+    },
+    {
+      "id": "artifact-exception-limit",
+      "primitive": "policy",
+      "expected": "artifact_exception_limit_exceeded"
+    },
+    {
+      "id": "runtime-capability-mismatch",
+      "primitive": "tooling",
+      "expected": "runtime_capability_mismatch"
+    }
   ]
 }

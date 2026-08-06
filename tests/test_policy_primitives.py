@@ -140,6 +140,41 @@ class PolicyPrimitiveTests(unittest.TestCase):
                 contract_root=ROOT,
             )
         )
+        accepted = ArtifactDeclaration(
+            name="android-validation-diagnostics",
+            size_bytes=1024,
+            retention_days=1,
+        )
+        self.assertEqual(
+            validate_artifacts(
+                [accepted],
+                exception_id="android-validation-diagnostics",
+                trust_mode="untrusted-validation",
+                contract_root=ROOT,
+            ),
+            "android-validation-diagnostics",
+        )
+        with self.assertRaises(FoundationError) as caught:
+            validate_artifacts(
+                [accepted, accepted],
+                exception_id="android-validation-diagnostics",
+                trust_mode="trusted-validation",
+                contract_root=ROOT,
+            )
+        self.assertEqual(caught.exception.instruction, "artifact_exception_limit_exceeded")
+        forbidden_name = ArtifactDeclaration(
+            name="unbounded-log",
+            size_bytes=1,
+            retention_days=1,
+        )
+        with self.assertRaises(FoundationError) as caught:
+            validate_artifacts(
+                [forbidden_name],
+                exception_id="android-validation-diagnostics",
+                trust_mode="trusted-validation",
+                contract_root=ROOT,
+            )
+        self.assertEqual(caught.exception.instruction, "artifact_exception_name_forbidden")
 
     def test_cache_disabled_default_and_poisoning_boundaries(self) -> None:
         disabled = validate_cache_request(

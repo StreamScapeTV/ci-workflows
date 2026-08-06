@@ -13,7 +13,6 @@ from .foundation_types import (
     FoundationError,
     FULL_SHA,
     SHA256,
-    canonical_json,
     load_contract,
     repository_name,
     require,
@@ -160,6 +159,8 @@ def _contains_token_like(content: str, contract: Mapping[str, Any]) -> bool:
         require(isinstance(segments, list) and all(isinstance(value, str) for value in segments), "repository_policy_invalid")
         if "".join(segments) in content:
             return True
+    # Bounded JWT signature detection avoids storing a token-shaped fixture in
+    # the policy contract itself.
     if re.search(r"\beyJ[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\b", content):
         return True
     return False
@@ -285,11 +286,18 @@ def validate_artifacts(
     maximum_count = entry.get("maximum_count")
     maximum_bytes = entry.get("maximum_total_bytes")
     maximum_retention = entry.get("maximum_retention_days")
+    allowed_names = entry.get("allowed_names")
     require(
         isinstance(maximum_count, int)
         and isinstance(maximum_bytes, int)
-        and isinstance(maximum_retention, int),
+        and isinstance(maximum_retention, int)
+        and isinstance(allowed_names, list)
+        and all(isinstance(value, str) for value in allowed_names),
         "artifact_contract_invalid",
+    )
+    require(
+        {item.name for item in artifacts} <= set(allowed_names),
+        "artifact_exception_name_forbidden",
     )
     require(len(artifacts) <= maximum_count, "artifact_exception_limit_exceeded")
     require(sum(item.size_bytes for item in artifacts) <= maximum_bytes, "artifact_exception_limit_exceeded")
