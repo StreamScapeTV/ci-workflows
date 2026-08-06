@@ -1,49 +1,46 @@
-# Supabase Agent State core validation
+# Supabase Agent State core source-package validation
 
-Validation date: 2026-08-06
+Status: **pre-deployment transition package**
 
-Connected project: `Agent State` (`eu-west-1`, PostgreSQL 17.6)
+Canonical destination: `StreamScapeTV/agent-state-supabase#3`
 
-## Applied migration chain
+This document records only disposable-database and repository evidence. It does not claim that these migrations have been deployed to the live Supabase project. Under the revised owner architecture, production deployment must occur from the canonical repository through the reviewed Supabase GitHub integration.
 
-| Live version | Migration |
-|---|---|
-| `20260806174835` | `agent_state_core_schema` |
-| `20260806175059` | `agent_state_core_rpc` |
-| `20260806175243` | `agent_state_core_rpc_hardening` |
-| `20260806175336` | `agent_state_claim_regex_fix` |
-| `20260806175433` | `agent_state_error_projection_fix` |
-| `20260806175808` | `agent_state_foreign_key_indexes` |
+## Source migration order
 
-Each live DDL change is represented by the same ordered migration under `supabase/migrations/`.
+1. `supabase/migrations/20260806172100_agent_state_core_schema.sql`
+2. `supabase/migrations/20260806172200_agent_state_core_rpc.sql`
+3. `supabase/migrations/20260806172300_agent_state_core_indexes.sql`
 
-## Live direct-RPC proof
+## Disposable test scope
 
-Isolated records under issues `900001`–`900003` proved:
+The isolated suite reconstructs two empty PostgreSQL 17 databases from the same ordered migrations and compares their normalized schema-only dumps. It then proves:
 
-- bounded no-work read and command `resume`;
-- atomic `start` with exact/prefix file and package/resource/manifest/device claims;
-- exact replay returning the original receipt;
-- conflicting request-ID reuse returning `agent_state:request_id_reuse_conflict` without mutation;
-- `claim`, selective `release`, `reconcile_base`, `block`, first `review`, `done`, and `cancel`;
-- bounded `context` and exact `ownership_check` reads;
-- prefix/exact collision returning one immutable `accepted=false` receipt;
-- `done` and `cancel` releasing every remaining claim transactionally.
+- positive and negative coverage for every current action;
+- atomic start with initial claims;
+- atomic done/cancel with complete claim release;
+- rollback of start and terminal operations under injected database failures;
+- exact replay and conflicting request-ID reuse;
+- concurrent overlapping and disjoint claims;
+- file exact/prefix and package/resource/manifest/device collisions;
+- malformed shape, unknown fields, overlong input, invalid identities, project mismatch, unsafe paths, duplicate claims, stale base/PR/head, wrong issue/branch, invalid transitions, and ambiguous release rejection;
+- direct-access denial for ordinary roles;
+- immutable requests/receipts and append-only events;
+- bounded, redacted receipts, context, ownership, and event metadata;
+- zero active sessions and claims followed by deletion of both disposable databases and the temporary PostgreSQL runtime.
 
-Project-scoped transaction advisory locks, row locks, and unique active-binding/session indexes serialize concurrent contenders. The collision proof confirms the deterministic post-lock outcome: one owner and one rejected receipt.
+The exact commands and results are recorded in the PR description and final handoff after the exact head passes the repository self-check.
 
-## Privilege proof
+## Not yet performed
 
-`anon` and `authenticated` have no private-schema usage, table read/write, or RPC execute permission. `service_role` has no private-schema usage or table read/write permission and has execute permission only on the four approved `agent_api` RPCs. No direct table grants exist.
+The following remain deliberately outstanding:
 
-## Advisors
-
-The final security advisor returned only `INFO` notices for private tables with forced RLS and no policies. This is intentional: the private schema is ungranted and has no direct-access policy by design.
-
-The final performance advisor returned no missing foreign-key-index notices after the index migration. It returned only `INFO` notices that new indexes have not yet accumulated usage statistics, which is expected immediately after creation.
-
-No unresolved security or performance finding is material to this schema.
-
-## Cleanup
-
-All isolated work, request, receipt, claim, event, binding, evidence, and session rows are removed after validation. Seeded project/profile/slot mappings and the reviewed migration history remain.
+- re-homing into the canonical repository;
+- Supabase GitHub integration connection;
+- production migration application;
+- production migration-ledger and schema/function hash parity;
+- live direct-RPC smoke validation;
+- live grants/RLS verification;
+- live security and performance advisors;
+- live smoke-data cleanup;
+- canonical exact-head deployment checks.
