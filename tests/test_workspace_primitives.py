@@ -129,7 +129,7 @@ class WorkspacePrimitiveTests(unittest.TestCase):
         evidence.symlink_to(outside, target_is_directory=True)
         with self.assertRaises(FoundationError) as caught:
             cleanup_workspace(state.root, expected_state_id=state.state_id, contract_root=ROOT)
-        self.assertEqual(caught.exception.instruction, "unsafe_cleanup_target")
+        self.assertEqual(caught.exception.instruction, "symlink_escape_detected")
         self.assertTrue(sentinel.exists())
         evidence.unlink()
         evidence.mkdir()
