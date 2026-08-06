@@ -156,6 +156,8 @@ class SupabaseAgentStateCoreSourceTests(unittest.TestCase):
         self.assertFalse(live["production_deployment_allowed"])
         self.assertFalse(live["ordinary_rpc_use_allowed"])
         self.assertTrue(live["direct_ad_hoc_repair_forbidden"])
+        self.assertTrue(live["silent_migration_filename_rewriting_forbidden"])
+        self.assertTrue(live["manual_ledger_mutation_forbidden"])
         self.assertIsNone(live["strategy_selected_by_this_package"])
         self.assertTrue(live["observed_live_state"]["schema_already_exists"])
         self.assertEqual(
@@ -170,6 +172,7 @@ class SupabaseAgentStateCoreSourceTests(unittest.TestCase):
             ],
         )
         source = live["source_package"]
+        self.assertEqual(source["status"], "reviewed-target-source-package")
         self.assertFalse(source["directly_deployable_to_observed_live_project"])
         self.assertEqual(
             [item["version"] for item in source["migration_history"]],
@@ -199,13 +202,33 @@ class SupabaseAgentStateCoreSourceTests(unittest.TestCase):
         prohibited = " ".join(self.rehome["prohibited"]).lower()
         self.assertIn("choose one permitted reconciliation strategy", steps)
         self.assertIn("not as directly deployable migrations", steps)
-        self.assertIn("three clean source migrations", prohibited)
-        self.assertIn("direct ad-hoc", prohibited)
+        for token in (
+            "three clean source migrations",
+            "direct ad-hoc",
+            "silently rewriting migration",
+            "migration ledger",
+        ):
+            self.assertIn(token, prohibited)
         self.assertEqual(self.rehome["source_migration_order"], self.contract["migration_order"])
 
     def test_normal_discovery_is_network_free_and_reconstruction_is_explicit(self) -> None:
         helper = RUNTIME_PATH.read_text(encoding="utf-8")
         database_test = DATABASE_TEST_PATH.read_text(encoding="utf-8")
+        execution = self.rehome["test_execution"]
+        normal = execution["normal_unittest_discovery"]
+        explicit = execution["explicit_postgres_reconstruction"]
+        self.assertFalse(normal["postgres_reconstruction_runs"])
+        self.assertFalse(normal["network_download_allowed"])
+        self.assertTrue(explicit["required_for_canonical_acceptance"])
+        self.assertEqual(explicit["missing_or_invalid_vetted_runtime"], "fail")
+        self.assertFalse(explicit["silent_skip_allowed"])
+        self.assertTrue(explicit["temporary_state_cleanup_required"])
+        self.assertFalse(explicit["source_download"]["allowed_by_default"])
+        self.assertEqual(
+            explicit["source_download"]["explicit_opt_in"],
+            "AGENT_STATE_ALLOW_POSTGRES_SOURCE_DOWNLOAD=1",
+        )
+        self.assertEqual(explicit["current_result"], "unexecuted-until-successfully-completed")
         self.assertIn('POSTGRES_VERSION = "17.6"', helper)
         self.assertIn(
             "2910b85283674da2dae6ac13fe5ebbaaf3c482446396cba32e6728d3cc736d86",
@@ -214,6 +237,8 @@ class SupabaseAgentStateCoreSourceTests(unittest.TestCase):
         self.assertIn("PostgreSQL source digest mismatch", helper)
         self.assertIn("AGENT_STATE_POSTGRES_BIN", helper)
         self.assertIn("AGENT_STATE_RUN_POSTGRES_RECONSTRUCTION", helper)
+        self.assertIn("AGENT_STATE_ALLOW_POSTGRES_SOURCE_DOWNLOAD", helper)
+        self.assertIn("source download is disabled", helper)
         self.assertIn("unittest.SkipTest", helper)
         self.assertIn("shutil.rmtree(self.root", helper)
         self.assertIn("PostgresRuntime(ROOT)", database_test)
@@ -253,8 +278,10 @@ class SupabaseAgentStateCoreSourceTests(unittest.TestCase):
         self.assertIn("not directly deployable", combined)
         self.assertIn("ordinary rpc", combined)
         self.assertIn("direct ad-hoc", combined)
+        self.assertIn("silent migration", combined)
         self.assertIn("agent_state_run_postgres_reconstruction=1", combined)
-        self.assertIn("issue #60", combined)
+        self.assertIn("agent_state_allow_postgres_source_download=1", combined)
+        self.assertIn("unexecuted", combined)
 
     def test_exact_file_manifest_hashes(self) -> None:
         self.assertEqual(self.file_manifest["hash_algorithm"], "sha256")
