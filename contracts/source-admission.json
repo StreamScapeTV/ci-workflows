@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "organization": "StreamScapeTV",
+  "api_name": "source.resolve",
+  "api_version": "1.0.0",
+  "allowed_inputs": [
+    "source_mode",
+    "requested_sha",
+    "expected_branch",
+    "release_contract",
+    "history_depth",
+    "caller_repository",
+    "caller_default_branch",
+    "caller_integration_branch",
+    "pr_number",
+    "expected_pr_head_sha",
+    "expected_pr_base_sha",
+    "expected_pr_merge_sha"
+  ],
+  "source_modes": {
+    "auto": ["pull_request", "push", "workflow_dispatch"],
+    "pr-head": ["pull_request"],
+    "pr-merge": ["pull_request"],
+    "push": ["push"],
+    "manual": ["workflow_dispatch"],
+    "workflow-call": ["workflow_call"],
+    "tag": ["push"],
+    "trusted-maintenance": [
+      "workflow_dispatch",
+      "workflow_call",
+      "workflow_run",
+      "issue_comment",
+      "pull_request_target"
+    ]
+  },
+  "trust_modes": {
+    "untrusted-validation": {
+      "events": ["pull_request"],
+      "executes_during_admission": false,
+      "privileged": false
+    },
+    "trusted-validation": {
+      "events": ["push", "workflow_dispatch", "workflow_call"],
+      "executes_during_admission": false,
+      "privileged": false
+    },
+    "tag-release": {
+      "events": ["push"],
+      "executes_during_admission": false,
+      "privileged": true
+    },
+    "trusted-maintenance": {
+      "events": [
+        "workflow_dispatch",
+        "workflow_call",
+        "workflow_run",
+        "issue_comment",
+        "pull_request_target"
+      ],
+      "executes_during_admission": false,
+      "privileged": true
+    }
+  },
+  "outputs": {
+    "caller_repository": {"type": "repository"},
+    "caller_default_branch": {"type": "branch"},
+    "caller_integration_branch": {"type": "branch"},
+    "trust_mode": {
+      "type": "enum",
+      "values": [
+        "untrusted-validation",
+        "trusted-validation",
+        "tag-release",
+        "trusted-maintenance"
+      ]
+    },
+    "source_repository": {"type": "repository"},
+    "source_sha": {"type": "full-sha"},
+    "requested_sha": {"type": "full-sha", "nullable": true},
+    "resolved_sha": {"type": "full-sha"},
+    "pr_number": {"type": "integer", "nullable": true},
+    "pr_head_repository": {"type": "repository", "nullable": true},
+    "pr_head_sha": {"type": "full-sha", "nullable": true},
+    "pr_base_branch": {"type": "branch", "nullable": true},
+    "pr_base_sha": {"type": "full-sha", "nullable": true},
+    "pr_merge_sha": {"type": "full-sha", "nullable": true},
+    "tag_name": {"type": "tag", "nullable": true},
+    "tag_object_sha": {"type": "full-sha", "nullable": true},
+    "tag_commit_sha": {"type": "full-sha", "nullable": true},
+    "requires_freshness": {"type": "boolean"},
+    "history_depth": {"type": "integer", "minimum": 1, "maximum": 1000},
+    "request_id": {"type": "safe-id"},
+    "evidence_id": {"type": "safe-id"}
+  },
+  "security": {
+    "full_sha_pattern": "^[0-9a-f]{40}$",
+    "unknown_inputs_fail_closed": true,
+    "consumer_trust_mode_input_forbidden": true,
+    "mutable_ref_input_forbidden": true,
+    "workflow_artifacts_are_untrusted": true,
+    "trusted_metadata_executes_pull_request_source": false,
+    "credentials_in_outputs_forbidden": true,
+    "private_urls_in_outputs_forbidden": true,
+    "freshness_revalidation_required_for": [
+      "pull_request",
+      "push",
+      "trusted-maintenance"
+    ]
+  },
+  "exact_checkout": {
+    "action": "actions/exact-checkout/action.yml",
+    "required_input": "admitted_sha",
+    "detached_head_required": true,
+    "persist_credentials": false,
+    "bounded_fetch_depth": [1, 1000],
+    "head_equality_required": true,
+    "non_empty_destination_forbidden": true
+  }
+}
