@@ -4,7 +4,7 @@ Status: **pre-deployment transition package with unresolved live-ledger reconcil
 
 Canonical destination: `StreamScapeTV/agent-state-supabase#3`
 
-This document records source-package and disposable-database requirements. It does not claim that PR #57's clean migration history is the live production migration history, and it does not authorize production deployment.
+This document records source-package and disposable-database requirements. It does not claim that PR #57's clean migration history is the live production migration history, and it does not authorize production deployment or ordinary RPC use.
 
 ## Clean source-package migration order
 
@@ -12,7 +12,7 @@ This document records source-package and disposable-database requirements. It do
 2. `supabase/migrations/20260806172200_agent_state_core_rpc.sql`
 3. `supabase/migrations/20260806172300_agent_state_core_indexes.sql`
 
-These are reviewed target/source migrations for clean reconstruction. They are not directly deployable as three new migrations to the currently connected project.
+These are reviewed target/source migrations for clean reconstruction. They cannot be applied as three new migrations to the currently connected project because that project already contains the provisional schema under a different ledger.
 
 ## Observed provisional live ledger
 
@@ -32,8 +32,11 @@ This live state is provisional and unaccepted as canonical deployment evidence. 
 Machine-readable policy is in `contracts/supabase-agent-state-core-rehome.json` and requires:
 
 - `live_reconciliation_required=true`;
-- `production_deployment_allowed=false` until canonical issue #3 accepts a reviewed reconciliation strategy;
-- `ordinary_rpc_use_allowed=false` until final canonical live proof and cutover.
+- `production_deployment_allowed=false` until canonical issue #3 accepts a reviewed reconciliation strategy proving one authoritative history;
+- `ordinary_rpc_use_allowed=false` until final canonical live proof and cutover;
+- `direct_ad_hoc_repair_forbidden=true`;
+- `silent_migration_filename_rewriting_forbidden=true`;
+- `manual_ledger_mutation_forbidden=true`.
 
 No reconciliation strategy is selected by this package.
 
@@ -41,11 +44,11 @@ No reconciliation strategy is selected by this package.
 
 Canonical issue #3 may independently review and select one of these classes:
 
-1. reconstruct the exact six already-applied migration versions and statements as the canonical baseline, followed by reviewed forward migrations;
+1. reconstruct the exact source corresponding to the six already-applied migration versions and statements as the canonical baseline, followed by reviewed forward migrations;
 2. perform an explicit owner-authorized reset or recreation of the provisional schema and ledger, followed by the clean history;
-3. use another explicitly reviewed baseline or repair procedure that proves one authoritative migration history.
+3. use another explicitly reviewed baseline or repair procedure that proves exactly one authoritative migration history and exact source/live parity.
 
-Direct ad-hoc repair or untracked ledger manipulation is forbidden.
+Direct ad-hoc repair, production ledger mutation, direct production DDL, and silent migration version/name/filename rewriting are forbidden.
 
 ## Disposable test scope
 
@@ -68,15 +71,15 @@ Disposable reconstruction does not prove or repair production ledger parity.
 
 ## Test execution model
 
-Normal central discovery is network-free with respect to this package:
+Normal repository-wide discovery is network-free with respect to this package:
 
 ```bash
 python3 -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-The database reconstruction class is explicitly skipped unless `AGENT_STATE_RUN_POSTGRES_RECONSTRUCTION=1` is set, so ordinary discovery must not download or compile PostgreSQL.
+The database reconstruction class produces a visible unittest skip before temporary runtime creation unless `AGENT_STATE_RUN_POSTGRES_RECONSTRUCTION=1` is set. That discovery skip is expected orchestration behavior only and is not reconstruction success.
 
-Canonical issue #3 must separately run:
+Canonical issue #3 must separately run the fail-closed reconstruction requirement with a vetted PostgreSQL 17 runtime:
 
 ```bash
 AGENT_STATE_RUN_POSTGRES_RECONSTRUCTION=1 \
@@ -84,13 +87,23 @@ AGENT_STATE_POSTGRES_BIN=/absolute/path/to/postgresql-17/bin \
 python3 -m unittest -v tests.test_supabase_agent_state_core_database
 ```
 
-That command is fail-closed. When opt-in is set, a missing or invalid PostgreSQL 17 toolchain is not a pass and is not silently skipped.
+When opt-in is set, a missing or invalid vetted PostgreSQL 17 runtime fails clearly. It is not silently skipped.
+
+An authorized source build is a separate explicit path, not an automatic fallback:
+
+```bash
+AGENT_STATE_RUN_POSTGRES_RECONSTRUCTION=1 \
+AGENT_STATE_ALLOW_POSTGRES_SOURCE_DOWNLOAD=1 \
+python3 -m unittest -v tests.test_supabase_agent_state_core_database
+```
+
+That path verifies the pinned PostgreSQL 17.6 source SHA-256 `2910b85283674da2dae6ac13fe5ebbaaf3c482446396cba32e6728d3cc736d86`. Download or checksum failure fails reconstruction.
 
 ## Current source execution evidence
 
-Previous source-only checks on the package passed, but any final acceptance must be tied to the corrected exact head after issue #60 is merged and this branch is normally reconciled with current `main`.
+Only commands that actually complete on the corrected exact head may be reported as passing. The explicit PostgreSQL reconstruction requirement remains **unexecuted** unless it successfully reaches reconstruction, behavior assertions, and cleanup in a vetted isolated environment.
 
-The explicit PostgreSQL reconstruction requirement remains outstanding and must not be represented as passed until it actually completes in a vetted isolated environment.
+Normal-discovery visibility of the reconstruction skip must never be converted into a reconstruction pass claim.
 
 ## Not yet allowed or performed
 
@@ -106,6 +119,7 @@ The following remain deliberately outstanding:
 - live security and performance advisors;
 - live smoke-data cleanup;
 - ordinary RPC cutover;
-- fresh exact-head central self-check after issue #60 merges and PR #57 is reconciled to exact current `main`.
+- successful explicit PostgreSQL 17 reconstruction on the final accepted source;
+- any future exact-head central self-check required after the runner-contract dependency is resolved.
 
-No production DDL, ledger repair, schema reset, or provisional RPC use is authorized by this evidence.
+No production DDL, migration-ledger repair, schema reset, migration rename, provisional RPC coordination, or other live mutation is authorized or performed by this evidence.
