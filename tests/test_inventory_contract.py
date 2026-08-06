@@ -21,7 +21,7 @@ class InventoryContractTests(unittest.TestCase):
     def test_checked_in_contract_is_complete_and_deterministic(self) -> None:
         data = inventory_contract.validate(ROOT)
         self.assertEqual(len(data["inventory"]["repositories"]), 11)
-        self.assertEqual(data["workflow_total"], 88)
+        self.assertEqual(data["workflow_total"], 87)
         self.assertGreater(data["counts"]["disposition"]["retire"], 0)
         self.assertGreater(data["counts"]["trust"]["publish"], 0)
         self.assertGreater(data["counts"]["trust"]["device"], 0)
@@ -37,6 +37,12 @@ class InventoryContractTests(unittest.TestCase):
             row["repository"] for row in data["inventory"]["repositories"]
         }
         self.assertIn("StreamScapeTV/organization-rules", repositories)
+        organization_rules = next(
+            row
+            for row in data["inventory"]["repositories"]
+            if row["repository"] == "StreamScapeTV/organization-rules"
+        )
+        self.assertEqual(organization_rules["workflows"], [])
         products = data["products"]["products"]
         oci = {
             product["repository"]
