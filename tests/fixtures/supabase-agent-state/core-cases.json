@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "contract_version": 1,
+  "actions": ["resume", "start", "claim", "release", "reconcile_base", "block", "review", "done", "cancel"],
+  "claim_kinds": {
+    "file": ["exact", "prefix"],
+    "package": ["exact"],
+    "resource": ["exact"],
+    "manifest": ["exact"],
+    "device": ["exact"]
+  },
+  "positive": [
+    "no-active-work resume",
+    "atomic start with initial claims",
+    "exact replay returns original receipt",
+    "add and selectively release claim",
+    "base reconciliation with expected old SHA",
+    "block then review with exact PR/head",
+    "ownership and context reads",
+    "done releases all claims",
+    "cancel releases all claims",
+    "prefix/exact collision returns accepted=false receipt"
+  ],
+  "negative": [
+    "unknown top-level field",
+    "unknown nested claim field",
+    "unsafe absolute or traversal path",
+    "malformed session or agent identity",
+    "project/repository mismatch",
+    "disabled or unknown slot",
+    "stale base, PR, or head assertion",
+    "duplicate claim entries",
+    "prefix mode on non-file claim",
+    "invalid transition or inactive binding",
+    "request ID reused with different canonical hash",
+    "direct private-table access by service_role, authenticated, anon, or PUBLIC"
+  ],
+  "live_isolation": {
+    "project": "ci-workflows",
+    "issues": [900001, 900002, 900003],
+    "request_prefix": "issue52-live-",
+    "agents": [
+      "gpt-agent-9-20260806-1758-a1b2",
+      "gpt-agent-8-20260806-1756-b2c3",
+      "gpt-agent-7-20260806-1757-c3d4"
+    ]
+  }
+}
