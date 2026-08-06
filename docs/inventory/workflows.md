@@ -9,7 +9,7 @@ This contract classifies **88 live workflow files across 11 repositories**. Capt
 | Repository | Captured source | Workflows | Active | Retire | Publication | Device | Flux-authorized |
 |---|---|---:|---:|---:|---:|---:|---:|
 | StreamScapeTV/agent-state | `main@bf4b6122db1f248058a27b4b449cd1ecb9688a85` | 10 | 8 | 2 | 2 | 0 | 0 |
-| StreamScapeTV/ci-workflows | `main@a26585efdfc2cba836c364da4f3c933a75ebf96d` | 2 | 2 | 0 | 1 | 0 | 0 |
+| StreamScapeTV/ci-workflows | `main@3fb71714bc223c244d0a1b45eaf357aab2514b22` | 2 | 2 | 0 | 1 | 0 | 0 |
 | StreamScapeTV/directus-front | `main@b7b21be7129859e45fdc57befcf85b86b82e7575` | 5 | 5 | 0 | 0 | 0 | 0 |
 | StreamScapeTV/finance-hub | `main@a549e610dee8f7f80b1a38ae4b709b8d2bd53461` | 4 | 3 | 1 | 0 | 0 | 0 |
 | StreamScapeTV/flux | `main@8e611816f11c4ebaf126217646e030b9c2df18b9` | 18 | 18 | 0 | 2 | 0 | 2 |
@@ -80,13 +80,13 @@ This contract classifies **88 live workflow files across 11 repositories**. Capt
 
 ### StreamScapeTV/ci-workflows
 
-- Capture: `main@a26585efdfc2cba836c364da4f3c933a75ebf96d`
-- Evidence basis: protected integration branch plus active issue #3 inventory branch
+- Capture: `main@3fb71714bc223c244d0a1b45eaf357aab2514b22`
+- Evidence basis: exact active issue #3 head after self-check integration
 
 | Workflow | Name | Status | Disposition | Migration | Trust | Blob |
 |---|---|---|---|---|---|---|
 | `.github/workflows/reusable-tag-image-chart.yml` | Reusable exact-tag image and Helm release | `current-bootstrap-exception` | `public` | `release` | `publish` | `289bc0844a36923e3bb856c21dfed0329a4c6a95` |
-| `.github/workflows/self-check.yml` | Central workflow self-check | `current` | `thin` | `conformance` | `read` | `51c1a9cb9cab338d214314913137ad01bfbfc5a6` |
+| `.github/workflows/self-check.yml` | Central workflow self-check | `current` | `thin` | `conformance` | `read` | `4d067c312b35e34b210c55ed2cf555171295dc1c` |
 
 ### StreamScapeTV/directus-front
 
