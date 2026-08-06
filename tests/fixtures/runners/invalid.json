@@ -1,0 +1,181 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "bare-self-hosted",
+      "mode": "selector",
+      "labels": ["self-hosted"],
+      "expected_error": "bare-self-hosted"
+    },
+    {
+      "id": "docker-retired",
+      "mode": "selector",
+      "labels": ["docker"],
+      "expected_error": "retired-docker"
+    },
+    {
+      "id": "dind-retired",
+      "mode": "selector",
+      "labels": ["dind"],
+      "expected_error": "retired-docker"
+    },
+    {
+      "id": "unknown-label",
+      "mode": "selector",
+      "labels": ["future-runner"],
+      "expected_error": "unknown-selector"
+    },
+    {
+      "id": "contradictory-labels",
+      "mode": "selector",
+      "labels": ["mobile", "buildah-small"],
+      "expected_error": "contradictory-labels"
+    },
+    {
+      "id": "unsupported-same-profile-combination",
+      "mode": "selector",
+      "labels": ["portable", "homelab-portable-linux-x64"],
+      "expected_error": "unsupported-selector-combination"
+    },
+    {
+      "id": "unsupported-self-hosted-combination",
+      "mode": "selector",
+      "labels": ["self-hosted", "mobile"],
+      "expected_error": "unsupported-self-hosted-combination"
+    },
+    {
+      "id": "caller-provided-runs-on",
+      "mode": "resolve",
+      "workflow_api": "validation.python",
+      "source_trust": "trusted-pr",
+      "requested_profile": "portable",
+      "caller_inputs": {"runs_on": ["portable"]},
+      "expected_error": "caller-supplied-selector",
+      "profile_under_test": "portable"
+    },
+    {
+      "id": "untrusted-buildah",
+      "mode": "resolve",
+      "workflow_api": "oci.build",
+      "source_trust": "untrusted-fork",
+      "requested_profile": "buildah-small",
+      "expected_error": "source-trust-not-allowed",
+      "profile_under_test": "buildah-small"
+    },
+    {
+      "id": "untrusted-mobile-cache",
+      "mode": "resolve",
+      "workflow_api": "validation.android",
+      "source_trust": "untrusted-fork",
+      "requested_profile": "mobile",
+      "expected_error": "source-trust-not-allowed",
+      "profile_under_test": "mobile"
+    },
+    {
+      "id": "wrong-profile-for-api",
+      "mode": "resolve",
+      "workflow_api": "validation.node",
+      "source_trust": "trusted-pr",
+      "requested_profile": "apple",
+      "expected_error": "profile-not-allowed",
+      "profile_under_test": "apple"
+    },
+    {
+      "id": "device-lock-missing",
+      "mode": "resolve",
+      "workflow_api": "validation.device",
+      "source_trust": "trusted-exact",
+      "requested_profile": "physical-device",
+      "device_family": "android",
+      "expected_error": "device-lock-required",
+      "profile_under_test": "physical-device"
+    },
+    {
+      "id": "device-family-invalid",
+      "mode": "resolve",
+      "workflow_api": "validation.device",
+      "source_trust": "trusted-exact",
+      "requested_profile": "physical-device",
+      "device_family": "watchos",
+      "lock_evidence": {},
+      "expected_error": "invalid-device-family"
+    },
+    {
+      "id": "device-family-evidence-mismatch",
+      "mode": "resolve",
+      "workflow_api": "validation.device",
+      "source_trust": "trusted-exact",
+      "requested_profile": "physical-device",
+      "device_family": "android",
+      "lock_evidence": {
+        "authorization_receipt": "auth-receipt",
+        "resource_lock_receipt": "lock-receipt",
+        "device_family": "ios",
+        "discovered_device_id": "device-id",
+        "tested_source_sha": "0123456789abcdef0123456789abcdef01234567",
+        "cleanup_evidence": "cleanup-receipt"
+      },
+      "expected_error": "device-lock-mismatch"
+    },
+    {
+      "id": "ambiguous-oci-tier",
+      "mode": "resolve",
+      "workflow_api": "oci.build",
+      "source_trust": "trusted-exact",
+      "expected_error": "profile-required"
+    },
+    {
+      "id": "unknown-profile",
+      "mode": "resolve",
+      "workflow_api": "validation.python",
+      "source_trust": "trusted-pr",
+      "requested_profile": "large-linux",
+      "expected_error": "unknown-profile"
+    },
+    {
+      "id": "agent-state-caller-source",
+      "mode": "resolve",
+      "workflow_api": "agent-state.lifecycle",
+      "source_trust": "trusted-exact",
+      "requested_profile": "agent-state-control",
+      "expected_error": "source-trust-not-allowed",
+      "profile_under_test": "agent-state-control"
+    },
+    {
+      "id": "untrusted-buildah-tiny",
+      "mode": "resolve",
+      "workflow_api": "oci.build",
+      "source_trust": "trusted-pr",
+      "requested_profile": "buildah-tiny",
+      "profile_under_test": "buildah-tiny",
+      "expected_error": "source-trust-not-allowed"
+    },
+    {
+      "id": "untrusted-buildah-medium",
+      "mode": "resolve",
+      "workflow_api": "oci.publish",
+      "source_trust": "trusted-pr",
+      "requested_profile": "buildah-medium",
+      "profile_under_test": "buildah-medium",
+      "expected_error": "source-trust-not-allowed"
+    },
+    {
+      "id": "untrusted-buildah-high",
+      "mode": "resolve",
+      "workflow_api": "oci.publish",
+      "source_trust": "trusted-pr",
+      "requested_profile": "buildah-high",
+      "profile_under_test": "buildah-high",
+      "expected_error": "source-trust-not-allowed"
+    },
+    {
+      "id": "flux-caller-source",
+      "mode": "resolve",
+      "workflow_api": "flux.reconcile",
+      "source_trust": "trusted-exact",
+      "requested_profile": "flux-control",
+      "profile_under_test": "flux-control",
+      "expected_error": "source-trust-not-allowed"
+    }
+  ]
+}
