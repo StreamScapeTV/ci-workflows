@@ -1,11 +1,13 @@
-"""Pinned tool, version, checksum, digest, and locked-asset verification."""
+"""Pinned tool, version, checksum, digest, and runtime capability verification."""
 from __future__ import annotations
 
 import hashlib
 import os
+import platform
 import re
 import shutil
 import subprocess
+import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
@@ -14,8 +16,8 @@ from typing import Any, Mapping, Sequence
 
 from .foundation_types import (
     FoundationError,
-    atomic_write_text,
     bounded_int,
+    canonical_json,
     load_contract,
     require,
     safe_id,
@@ -41,14 +43,28 @@ class ToolSetEvidence:
     evidence_id: str
 
     def output_values(self) -> dict[str, str]:
-        from .foundation_types import canonical_json
-
         values = {item.tool_id: item.version for item in self.tools}
         return {
             "tool_set": self.tool_set,
             "toolchain_json": canonical_json(values),
             "toolchain_id": self.evidence_id,
             "verified": "true",
+        }
+
+
+@dataclass(frozen=True)
+class RuntimeCapabilityEvidence:
+    capability_profile: str
+    operating_system: str
+    architecture: str
+    capability_id: str
+
+    def output_values(self) -> dict[str, str]:
+        return {
+            "capability_profile": self.capability_profile,
+            "platform": f"{self.operating_system}/{self.architecture}",
+            "capability_id": self.capability_id,
+            "capability_verified": "true",
         }
 
 
@@ -76,12 +92,19 @@ def _version_tuple(value: str) -> tuple[int, ...]:
         raise FoundationError("tool_version_invalid") from error
 
 
+def _resolve_executable(executable: str) -> Path:
+    candidate = shutil.which(executable)
+    require(candidate is not None, "required_tool_missing")
+    path = Path(candidate).resolve()
+    require(path.is_file() and os.access(path, os.X_OK), "required_tool_path_invalid")
+    return path
+
+
 def _run_version(executable: str, arguments: Sequence[str]) -> str:
-    path = shutil.which(executable)
-    require(path is not None, "required_tool_missing")
+    path = _resolve_executable(executable)
     try:
         completed = subprocess.run(
-            [path, *arguments],
+            [str(path), *arguments],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -110,7 +133,8 @@ def verify_tool(tool_id: str, *, contract_root: Path) -> ToolEvidence:
         and isinstance(version_args, list)
         and all(isinstance(value, str) for value in version_args)
         and isinstance(version_pattern, str)
-        and isinstance(minimum_version, str),
+        and isinstance(minimum_version, str)
+        and entry.get("version_policy") == "minimum",
         "tool_contract_invalid",
     )
     output = _run_version(executable, version_args)
@@ -139,6 +163,81 @@ def verify_tool_set(tool_set: str, *, contract_root: Path) -> ToolSetEvidence:
         {item.tool_id: item.version for item in evidence},
     )
     return ToolSetEvidence(tool_set=tool_set, tools=evidence, evidence_id=evidence_id)
+
+
+def _normalize_operating_system(value: str) -> str:
+    aliases = {"Linux": "Linux", "Darwin": "macOS", "macOS": "macOS"}
+    require(value in aliases, "runtime_operating_system_unsupported")
+    return aliases[value]
+
+
+def _normalize_architecture(value: str) -> str:
+    aliases = {
+        "x86_64": "x64",
+        "amd64": "x64",
+        "AMD64": "x64",
+        "X64": "x64",
+        "aarch64": "arm64",
+        "arm64": "arm64",
+        "ARM64": "arm64",
+    }
+    require(value in aliases, "runtime_architecture_unsupported")
+    return aliases[value]
+
+
+def verify_runtime_capability(
+    capability_profile: str,
+    *,
+    declared_os: str | None,
+    declared_architecture: str | None,
+    contract_root: Path,
+) -> RuntimeCapabilityEvidence:
+    """Verify a semantic OS/architecture profile without exposing host identity."""
+
+    contract = load_contract(contract_root, TOOL_CONTRACT)
+    capability_profile = safe_id(capability_profile, "unknown_capability_profile")
+    profiles = contract.get("capability_profiles")
+    require(
+        isinstance(profiles, dict) and capability_profile in profiles,
+        "unknown_capability_profile",
+    )
+    entry = profiles[capability_profile]
+    require(isinstance(entry, dict), "tool_contract_invalid")
+    operating_systems = entry.get("operating_systems")
+    architectures = entry.get("architectures")
+    require(
+        isinstance(operating_systems, list)
+        and isinstance(architectures, list)
+        and all(isinstance(value, str) for value in operating_systems + architectures),
+        "tool_contract_invalid",
+    )
+    actual_os = _normalize_operating_system(platform.system())
+    actual_architecture = _normalize_architecture(platform.machine())
+    require(
+        actual_os in operating_systems and actual_architecture in architectures,
+        "runtime_capability_mismatch",
+    )
+    if declared_os:
+        require(
+            _normalize_operating_system(declared_os) == actual_os,
+            "runtime_capability_mismatch",
+        )
+    if declared_architecture:
+        require(
+            _normalize_architecture(declared_architecture) == actual_architecture,
+            "runtime_capability_mismatch",
+        )
+    material = {
+        "profile": capability_profile,
+        "operating_system": actual_os,
+        "architecture": actual_architecture,
+    }
+    return RuntimeCapabilityEvidence(
+        capability_profile=capability_profile,
+        operating_system=actual_os,
+        architecture=actual_architecture,
+        capability_id=stable_identifier("capability", material),
+    )
 
 
 def checksum_file(path: Path, algorithm: str = "sha256") -> str:

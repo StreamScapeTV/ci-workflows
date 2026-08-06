@@ -12,7 +12,7 @@ from .dependencies import checkout_private_dependency
 from .evidence import build_evidence, parse_toolchain_json, write_evidence
 from .foundation_types import FoundationError, bounded_int, require
 from .policy import verify_repository_policy
-from .tooling import install_locked_asset, verify_tool_set
+from .tooling import install_locked_asset, verify_runtime_capability, verify_tool_set
 from .workspace import (
     WorkspaceContext,
     cleanup_workspace,
@@ -97,7 +97,13 @@ def _verify_tools(contract_root: Path) -> None:
     require(operation in {"verify-set", "install-asset"}, "unsupported_tool_operation")
     if operation == "verify-set":
         evidence = verify_tool_set(_input("tool_set", "baseline"), contract_root=contract_root)
-        _write_outputs(evidence.output_values())
+        capability = verify_runtime_capability(
+            _input("capability_profile", "baseline"),
+            declared_os=os.environ.get("RUNNER_OS") or None,
+            declared_architecture=os.environ.get("RUNNER_ARCH") or None,
+            contract_root=contract_root,
+        )
+        _write_outputs({**evidence.output_values(), **capability.output_values()})
         return
     asset_id = _input("asset_id")
     require(bool(asset_id), "locked_asset_id_required")

@@ -12,6 +12,7 @@ from ci_workflows.tooling import (
     install_locked_asset,
     verify_checksum,
     verify_digest,
+    verify_runtime_capability,
     verify_tool_set,
 )
 
@@ -50,6 +51,38 @@ class ToolingPrimitiveTests(unittest.TestCase):
         self.assertEqual(set(versions), {"python", "git", "bash"})
         self.assertTrue(evidence.evidence_id.startswith("toolchain-"))
         self.assertEqual(evidence.output_values()["verified"], "true")
+
+    def test_runtime_capability_is_semantic_and_host_identity_free(self) -> None:
+        with (
+            mock.patch("ci_workflows.tooling.platform.system", return_value="Linux"),
+            mock.patch("ci_workflows.tooling.platform.machine", return_value="x86_64"),
+        ):
+            evidence = verify_runtime_capability(
+                "linux",
+                declared_os="Linux",
+                declared_architecture="X64",
+                contract_root=ROOT,
+            )
+        outputs = evidence.output_values()
+        self.assertEqual(outputs["platform"], "Linux/x64")
+        self.assertEqual(outputs["capability_profile"], "linux")
+        self.assertEqual(outputs["capability_verified"], "true")
+        self.assertNotIn("runner", outputs["platform"].lower())
+        self.assertNotIn("/", outputs["capability_id"])
+
+    def test_runtime_capability_mismatch_fails_closed(self) -> None:
+        with (
+            mock.patch("ci_workflows.tooling.platform.system", return_value="Linux"),
+            mock.patch("ci_workflows.tooling.platform.machine", return_value="x86_64"),
+        ):
+            with self.assertRaises(FoundationError) as caught:
+                verify_runtime_capability(
+                    "macos",
+                    declared_os="Linux",
+                    declared_architecture="X64",
+                    contract_root=ROOT,
+                )
+        self.assertEqual(caught.exception.instruction, "runtime_capability_mismatch")
 
     def test_checksum_and_digest_verification_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

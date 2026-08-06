@@ -13,6 +13,10 @@ inputs:
   asset_id:
     description: Contract-selected immutable asset identifier for install-asset
     required: false
+  capability_profile:
+    description: Bounded semantic OS and architecture capability profile
+    required: false
+    default: baseline
 
 outputs:
   tool_set:
@@ -21,6 +25,14 @@ outputs:
     value: ${{ steps.verify.outputs.toolchain_json }}
   toolchain_id:
     value: ${{ steps.verify.outputs.toolchain_id }}
+  capability_profile:
+    value: ${{ steps.verify.outputs.capability_profile }}
+  platform:
+    value: ${{ steps.verify.outputs.platform }}
+  capability_id:
+    value: ${{ steps.verify.outputs.capability_id }}
+  capability_verified:
+    value: ${{ steps.verify.outputs.capability_verified }}
   asset_id:
     value: ${{ steps.verify.outputs.asset_id }}
   asset_relative_path:
@@ -41,6 +53,7 @@ runs:
         INPUT_OPERATION: ${{ inputs.operation }}
         INPUT_TOOL_SET: ${{ inputs.tool_set }}
         INPUT_ASSET_ID: ${{ inputs.asset_id }}
+        INPUT_CAPABILITY_PROFILE: ${{ inputs.capability_profile }}
       run: |
         set -Eeuo pipefail
         PYTHONPATH="${GITHUB_ACTION_PATH}/../../src" \

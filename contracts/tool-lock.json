@@ -3,27 +3,46 @@
   "tools": {
     "python": {
       "executable": "python3",
-      "version_args": ["--version"],
+      "version_args": [
+        "--version"
+      ],
       "version_pattern": "Python ([0-9]+\\.[0-9]+\\.[0-9]+)",
-      "minimum_version": "3.11.0"
+      "minimum_version": "3.11.0",
+      "version_policy": "minimum"
     },
     "git": {
       "executable": "git",
-      "version_args": ["--version"],
+      "version_args": [
+        "--version"
+      ],
       "version_pattern": "git version ([0-9]+\\.[0-9]+\\.[0-9]+)",
-      "minimum_version": "2.30.0"
+      "minimum_version": "2.30.0",
+      "version_policy": "minimum"
     },
     "bash": {
       "executable": "bash",
-      "version_args": ["--version"],
+      "version_args": [
+        "--version"
+      ],
       "version_pattern": "GNU bash, version ([0-9]+\\.[0-9]+\\.[0-9]+)",
-      "minimum_version": "3.2.0"
+      "minimum_version": "3.2.0",
+      "version_policy": "minimum"
     }
   },
   "tool_sets": {
-    "baseline": ["python", "git", "bash"],
-    "checkout": ["python", "git"],
-    "policy": ["python", "git"]
+    "baseline": [
+      "python",
+      "git",
+      "bash"
+    ],
+    "checkout": [
+      "python",
+      "git"
+    ],
+    "policy": [
+      "python",
+      "git"
+    ]
   },
   "assets": {},
   "download_policy": {
@@ -32,5 +51,35 @@
     "required_digest": "sha256",
     "redirect_host_must_match": true,
     "mutable_fallback_forbidden": true
+  },
+  "capability_profiles": {
+    "baseline": {
+      "operating_systems": [
+        "Linux",
+        "macOS"
+      ],
+      "architectures": [
+        "x64",
+        "arm64"
+      ]
+    },
+    "linux": {
+      "operating_systems": [
+        "Linux"
+      ],
+      "architectures": [
+        "x64",
+        "arm64"
+      ]
+    },
+    "macos": {
+      "operating_systems": [
+        "macOS"
+      ],
+      "architectures": [
+        "x64",
+        "arm64"
+      ]
+    }
   }
 }
