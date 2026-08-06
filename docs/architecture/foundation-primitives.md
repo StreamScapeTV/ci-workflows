@@ -13,6 +13,7 @@ Trust class: `shared-foundation`.
 | Function | Inputs | Outputs | Side effects | Cleanup duty |
 |---|---|---|---|---|
 | `prepare_workspace` | `WorkspaceContext`, `profile`, `cache_mode`, `source_sha`, `lock_digest`, `trust_mode`, `contract_root` | `WorkspaceState` | `creates one marker-bound workflow state root`, `creates only contract-selected isolated directories` | cleanup_workspace |
+| `resolve_state_root` | `runner_temp`, `state_id`, `declared_root`, `contract_root` | `Path` | `derives the only permitted state root beneath protected RUNNER_TEMP`, `rejects substituted CI_WORKFLOW_ROOT values` | none |
 | `register_state_path` | `state_root`, `name`, `relative`, `kind`, `contract_root`, `create` | `Path` | `appends one bounded dynamic path to the state registry` | remove_registered_path or cleanup_workspace |
 | `remove_registered_path` | `state_root`, `name`, `contract_root` | `boolean existed` | `removes one validated registered path` | self-verifying |
 | `cleanup_workspace` | `state_root`, `expected_state_id`, `contract_root` | `CleanupReport` | `removes validated registered state on Linux or macOS`, `fails on unsafe targets, symlink escape, or residue` | terminal cleanup function |

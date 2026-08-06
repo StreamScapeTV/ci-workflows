@@ -13,6 +13,7 @@ from ci_workflows.workspace import (
     cleanup_workspace,
     prepare_workspace,
     register_state_path,
+    resolve_state_root,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,9 +59,16 @@ class WorkspacePrimitiveTests(unittest.TestCase):
         self.assertEqual(state.environment["GIT_TERMINAL_PROMPT"], "0")
         self.assertTrue(state.root.is_relative_to(self.runner_temp))
         for variable in (
-            "HOME", "TMPDIR", "XDG_CACHE_HOME", "XDG_CONFIG_HOME",
-            "XDG_DATA_HOME", "CI_CREDENTIAL_ROOT", "CI_EVIDENCE_ROOT",
-            "CI_ARTIFACT_ROOT", "CI_GENERATED_ROOT", "CI_TOOL_ROOT",
+            "HOME",
+            "TMPDIR",
+            "XDG_CACHE_HOME",
+            "XDG_CONFIG_HOME",
+            "XDG_DATA_HOME",
+            "CI_CREDENTIAL_ROOT",
+            "CI_EVIDENCE_ROOT",
+            "CI_ARTIFACT_ROOT",
+            "CI_GENERATED_ROOT",
+            "CI_TOOL_ROOT",
             "CI_DEPENDENCY_ROOT",
         ):
             self.assertTrue(Path(state.environment[variable]).is_dir())
@@ -88,6 +96,37 @@ class WorkspacePrimitiveTests(unittest.TestCase):
         self.assertEqual(state.cache_mode, "restore-only")
         self.assertTrue(state.cache_key and state.cache_key.startswith("cache-"))
         cleanup_workspace(state.root, expected_state_id=state.state_id, contract_root=ROOT)
+
+    def test_state_root_is_derived_from_protected_runner_temp(self) -> None:
+        state = self.prepare()
+        self.assertEqual(
+            resolve_state_root(
+                runner_temp=self.runner_temp.resolve(),
+                state_id=state.state_id,
+                declared_root=str(state.root),
+                contract_root=ROOT,
+            ),
+            state.root,
+        )
+        outside = self.base / "forged-root"
+        outside.mkdir()
+        with self.assertRaises(FoundationError) as caught:
+            resolve_state_root(
+                runner_temp=self.runner_temp.resolve(),
+                state_id=state.state_id,
+                declared_root=str(outside),
+                contract_root=ROOT,
+            )
+        self.assertEqual(
+            caught.exception.instruction,
+            "workspace_root_environment_mismatch",
+        )
+        self.assertTrue(outside.exists())
+        cleanup_workspace(
+            state.root,
+            expected_state_id=state.state_id,
+            contract_root=ROOT,
+        )
 
     def test_path_traversal_and_duplicate_registration_fail_closed(self) -> None:
         state = self.prepare()

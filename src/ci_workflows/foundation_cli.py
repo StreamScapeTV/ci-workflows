@@ -18,6 +18,7 @@ from .workspace import (
     cleanup_workspace,
     prepare_workspace,
     register_state_path,
+    resolve_state_root,
 )
 
 _COMMAND_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -60,8 +61,13 @@ def _write_environment(values: Mapping[str, str]) -> None:
     _append_commands("GITHUB_ENV", values)
 
 
-def _state_root() -> Path:
-    return Path(_environment("CI_WORKFLOW_ROOT")).resolve()
+def _state_root(contract_root: Path) -> Path:
+    return resolve_state_root(
+        runner_temp=Path(_environment("RUNNER_TEMP")),
+        state_id=_environment("CI_WORKFLOW_STATE_ID"),
+        declared_root=_environment("CI_WORKFLOW_ROOT"),
+        contract_root=contract_root,
+    )
 
 
 def _prepare(contract_root: Path) -> None:
@@ -109,7 +115,7 @@ def _verify_tools(contract_root: Path) -> None:
     require(bool(asset_id), "locked_asset_id_required")
     relative = f"tools/{asset_id}"
     destination = register_state_path(
-        _state_root(),
+        _state_root(contract_root),
         name=f"tool-{asset_id}",
         relative=relative,
         kind="tool",
@@ -129,7 +135,7 @@ def _verify_tools(contract_root: Path) -> None:
 
 def _checkout_dependency(contract_root: Path) -> None:
     result = checkout_private_dependency(
-        state_root=_state_root(),
+        state_root=_state_root(contract_root),
         repository=_input("repository"),
         admitted_sha=_input("admitted_sha"),
         dependency_id=_input("dependency_id"),
@@ -143,7 +149,7 @@ def _checkout_dependency(contract_root: Path) -> None:
         token=os.environ.get("PRIVATE_DEPENDENCY_TOKEN", ""),
         contract_root=contract_root,
     )
-    target = _state_root() / result.relative_path
+    target = _state_root(contract_root) / result.relative_path
     _write_environment({"CI_PRIVATE_DEPENDENCY_PATH": str(target)})
     _write_outputs(result.output_values())
 
@@ -179,14 +185,14 @@ def _render_evidence(contract_root: Path) -> None:
         ),
         contract_root=contract_root,
     )
-    path = write_evidence(_state_root(), result)
+    path = write_evidence(_state_root(contract_root), result)
     _write_environment({"CI_EVIDENCE_FILE": str(path)})
     _write_outputs(result.output_values())
 
 
 def _cleanup(contract_root: Path) -> None:
     report = cleanup_workspace(
-        _state_root(),
+        _state_root(contract_root),
         expected_state_id=os.environ.get("CI_WORKFLOW_STATE_ID") or None,
         contract_root=contract_root,
     )

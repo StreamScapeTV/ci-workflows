@@ -277,13 +277,8 @@ def prepare_workspace(
     root.mkdir(mode=0o700)
     marker, registry = _state_files(root, contract)
     prepared_context = WorkspaceContext(
-        workspace,
-        runner_temp,
-        context.repository,
-        str(context.run_id),
-        context.run_attempt,
-        context.job,
-        context.runner_os,
+        workspace, runner_temp, context.repository, str(context.run_id),
+        context.run_attempt, context.job, context.runner_os,
     )
     _write_marker(
         marker,
@@ -353,14 +348,35 @@ def prepare_workspace(
     }
     environment.update(_profile_environment(contract, profile, resolved))
     return WorkspaceState(
-        state_id,
-        root,
-        profile,
-        cache_mode,
-        cache_key,
-        environment,
-        tuple(entries),
+        state_id, root, profile, cache_mode, cache_key, environment, tuple(entries)
     )
+
+
+def resolve_state_root(
+    *,
+    runner_temp: Path,
+    state_id: str,
+    declared_root: str,
+    contract_root: Path,
+) -> Path:
+    """Derive state beneath protected runner temp and reject path substitution."""
+
+    contract = load_contract(contract_root, WORKSPACE_CONTRACT)
+    state_id = safe_id(state_id, "workspace_state_id_invalid")
+    require(runner_temp.is_absolute(), "runner_temp_must_be_absolute")
+    require(not runner_temp.is_symlink(), "symlink_escape_detected")
+    resolved_temp = runner_temp.resolve()
+    require(resolved_temp.is_dir(), "workspace_context_unavailable")
+    parent = resolved_temp / safe_id(
+        contract.get("state_root_directory"),
+        "workspace_contract_invalid",
+    )
+    derived = parent / state_id
+    require(
+        bool(declared_root) and Path(declared_root).resolve() == derived,
+        "workspace_root_environment_mismatch",
+    )
+    return derived
 
 
 def _load_state(
@@ -378,11 +394,7 @@ def _load_state(
     require(isinstance(marker, dict) and marker.get("schema_version") == 1, "workspace_marker_invalid")
     state_id = safe_id(marker.get("state_id"), "workspace_marker_invalid")
     runner_temp = Path(str(marker.get("runner_temp", ""))).resolve()
-    expected = (
-        runner_temp
-        / safe_id(contract.get("state_root_directory"), "workspace_contract_invalid")
-        / state_id
-    )
+    expected = runner_temp / safe_id(contract.get("state_root_directory"), "workspace_contract_invalid") / state_id
     require(root.resolve() == expected, "unsafe_cleanup_target")
     require(marker.get("root") == str(root.resolve()), "workspace_marker_invalid")
 
@@ -481,14 +493,7 @@ def remove_registered_path(
     name = safe_id(name, "invalid_registered_path_name")
     raw_paths = registry.get("paths")
     require(isinstance(raw_paths, list), "workspace_registry_invalid")
-    entry = next(
-        (
-            _path_entry(value)
-            for value in raw_paths
-            if isinstance(value, dict) and value.get("name") == name
-        ),
-        None,
-    )
+    entry = next((_path_entry(value) for value in raw_paths if isinstance(value, dict) and value.get("name") == name), None)
     require(entry is not None, "registered_path_not_found")
     target = _lexical_target(state_root, entry.relative)
     existed = target.exists()
@@ -520,17 +525,11 @@ def cleanup_workspace(
 
     # Validate every target before deleting anything, so one malicious registry
     # entry cannot turn cleanup into a partial arbitrary deletion primitive.
-    validated = [
-        (entry, _lexical_target(state_root, entry.relative)) for entry in entries
-    ]
+    validated = [(entry, _lexical_target(state_root, entry.relative)) for entry in entries]
     sensitive = set(contract.get("sensitive_kinds", []))
     removed = 0
     removed_sensitive = 0
-    for entry, target in sorted(
-        validated,
-        key=lambda value: len(value[1].parts),
-        reverse=True,
-    ):
+    for entry, target in sorted(validated, key=lambda value: len(value[1].parts), reverse=True):
         if target.exists():
             removed += 1
             removed_sensitive += int(entry.kind in sensitive)
@@ -540,9 +539,5 @@ def cleanup_workspace(
     _remove_tree(state_root, runner_os)
     require(not state_root.exists(), "cleanup_residue_detected")
     return CleanupReport(
-        state_id,
-        removed,
-        removed_sensitive,
-        partial_setup,
-        runner_os,
+        state_id, removed, removed_sensitive, partial_setup, runner_os
     )
