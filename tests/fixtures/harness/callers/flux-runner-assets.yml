@@ -1,0 +1,22 @@
+name: Flux runner assets caller
+on:
+  push:
+    tags:
+      - 'v*'
+permissions:
+  actions: read
+  contents: write
+jobs:
+  release_runner_assets:
+    name: Release Flux runner assets
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-flux-infrastructure-assets.yml@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    with:
+      admitted_sha: ${{ github.sha }}
+      product_id: flux-runner-images
+      release_version: 1.2.3
+      operation: release
+      policy_path: policy/runner-assets.json
+      request_id: fixture-request-0004
+    secrets:
+      registry_username: ${{ secrets.REGISTRY_USERNAME }}
+      registry_token: ${{ secrets.REGISTRY_TOKEN }}
