@@ -15,23 +15,23 @@
     },
     {
       "path": "contracts/supabase-agent-state-core-rehome.json",
-      "bytes": 3943,
-      "sha256": "c072949948e726df386c08072a68b104a8a67ccf7a5c0f2b6a2b192424c4502a"
+      "bytes": 8302,
+      "sha256": "4fa82f4143684d1b4229c0292427591dfc3548d1122e78f283d95223195bc753"
     },
     {
       "path": "docs/architecture/supabase-agent-state-core.md",
-      "bytes": 3936,
-      "sha256": "25da8c0d8e03c12ce34eaced3dcdc667988e896ce200ac9ddc63b729d97d9825"
+      "bytes": 6256,
+      "sha256": "9ff1fa24b998a50933d79ff52ef8c3fd9cc856b8f174e43a9153c3896b74caf0"
     },
     {
       "path": "docs/evidence/supabase-agent-state-core-validation.md",
-      "bytes": 2920,
-      "sha256": "c7f70421f171e6d7abb405d6b9b974cd07077b7cbbb76f1e06f30fff0d5ce388"
+      "bytes": 5492,
+      "sha256": "25527c926b41061409b39b374ba63d6d69a9f2d9598acc7342249e45d4a405f2"
     },
     {
       "path": "docs/operators/supabase-agent-state-core.md",
-      "bytes": 3766,
-      "sha256": "c93cfb5f6d52b5e696ad2fb02fbd759890d55e1a1e17c93932c7e6ef4a31699e"
+      "bytes": 5826,
+      "sha256": "42b2aa3ae661a95b86d0cce891961740d1c044abbe6a4750cbeb21d7a3abea90"
     },
     {
       "path": "supabase/migrations/20260806172100_agent_state_core_schema.sql",
@@ -60,13 +60,13 @@
     },
     {
       "path": "tests/support/supabase_agent_state_postgres.py",
-      "bytes": 13276,
-      "sha256": "5f8a384d2b60c0908ba22217ba5e4667fa102ea6acc53a7bf06512600c221e79"
+      "bytes": 13982,
+      "sha256": "145b15f9254123a8b89906670dab44328904b99ed944f6b7ce0350dbee88a37c"
     },
     {
       "path": "tests/test_supabase_agent_state_core.py",
-      "bytes": 10868,
-      "sha256": "dc744e21b77b21c8acb5d4809423a4b384139180c8bee72edce2b1f836c6d732"
+      "bytes": 12790,
+      "sha256": "a6e0a29f578add7d2a7e4b9830ecb7dc456bcef271da6553a9c62347ae1ebb36"
     },
     {
       "path": "tests/test_supabase_agent_state_core_database.py",
