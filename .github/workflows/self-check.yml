@@ -61,13 +61,13 @@ jobs:
           "${VALIDATION_PYTHON}" scripts/ci/validation_harness.py \
             --root . \
             --summary "${VALIDATION_ROOT}/summary.json"
-          "${VALIDATION_PYTHON}" scripts/ci/bootstrap_check.py
+          python3 scripts/ci/bootstrap_check.py
           "${VALIDATION_PYTHON}" scripts/ci/inventory_contract.py validate
           "${VALIDATION_PYTHON}" scripts/ci/inventory_contract.py render --check
           "${VALIDATION_PYTHON}" scripts/ci/public_api_contract.py validate
           "${VALIDATION_PYTHON}" scripts/ci/public_api_contract.py render
           cat docs/workflows/public-api-reference.md
-          "${VALIDATION_PYTHON}" -m unittest discover -s tests -p 'test_*.py' -v
+          python3 -m unittest discover -s tests -p 'test_*.py' -v
           test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
 
       - name: Verify clean tracked tree
