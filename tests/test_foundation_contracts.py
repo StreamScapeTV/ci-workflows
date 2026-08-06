@@ -61,6 +61,7 @@ class FoundationContractTests(unittest.TestCase):
                 "partial-setup",
                 "credential-residue",
                 "dirty-tree",
+                "generated-output-drift",
                 "token-like-content",
                 "forbidden-file",
                 "tracked-symlink-escape",
