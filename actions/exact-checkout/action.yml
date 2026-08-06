@@ -1,0 +1,55 @@
+name: Exact admitted checkout
+description: Check out one admitted full commit SHA and verify detached HEAD equality without persisted credentials
+
+inputs:
+  repository:
+    description: Exact source repository in owner/name form
+    required: true
+  admitted_sha:
+    description: Exact lowercase 40-character source SHA returned by source admission
+    required: true
+  path:
+    description: Empty relative destination beneath GITHUB_WORKSPACE
+    required: false
+    default: source
+  fetch_depth:
+    description: Bounded history depth from 1 through 1000
+    required: false
+    default: "1"
+  token:
+    description: Optional read token; defaults to github.token and is never persisted
+    required: false
+
+outputs:
+  repository:
+    description: Validated source repository
+    value: ${{ steps.checkout.outputs.repository }}
+  head_sha:
+    description: Verified detached HEAD SHA
+    value: ${{ steps.checkout.outputs.head_sha }}
+  path:
+    description: Validated relative checkout path
+    value: ${{ steps.checkout.outputs.path }}
+  fetch_depth:
+    description: Validated bounded history depth
+    value: ${{ steps.checkout.outputs.fetch_depth }}
+  verified:
+    description: True only after exact detached HEAD verification
+    value: ${{ steps.checkout.outputs.verified }}
+
+runs:
+  using: composite
+  steps:
+    - id: checkout
+      name: Fetch and verify exact admitted commit
+      shell: bash
+      env:
+        CHECKOUT_TOKEN: ${{ inputs.token || github.token }}
+      run: |
+        set -Eeuo pipefail
+        PYTHONPATH="${GITHUB_ACTION_PATH}/../../src" \
+          python3 -m ci_workflows.source exact-checkout \
+            --repository "${{ inputs.repository }}" \
+            --admitted-sha "${{ inputs.admitted_sha }}" \
+            --path "${{ inputs.path }}" \
+            --fetch-depth "${{ inputs.fetch_depth }}"

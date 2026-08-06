@@ -1,0 +1,23 @@
+{
+  "valid": [
+    {"id": "fork-pr-head", "event": "pull_request_fork.json", "event_name": "pull_request", "source_mode": "pr-head"},
+    {"id": "fork-pr-merge", "event": "pull_request_fork.json", "event_name": "pull_request", "source_mode": "pr-merge"},
+    {"id": "protected-push", "event": "push_develop.json", "event_name": "push", "source_mode": "push"},
+    {"id": "manual-exact", "event": "workflow_dispatch_exact.json", "event_name": "workflow_dispatch", "source_mode": "manual"},
+    {"id": "workflow-call-exact", "event": "workflow_call_exact.json", "event_name": "workflow_call", "source_mode": "workflow-call"},
+    {"id": "historical-annotated-tag", "event": "tag_annotated.json", "event_name": "push", "source_mode": "tag"},
+    {"id": "trusted-workflow-run", "event": "workflow_run.json", "event_name": "workflow_run", "source_mode": "trusted-maintenance"},
+    {"id": "trusted-issue-comment", "event": "issue_comment.json", "event_name": "issue_comment", "source_mode": "trusted-maintenance"},
+    {"id": "trusted-pull-request-target", "event": "pull_request_target.json", "event_name": "pull_request_target", "source_mode": "trusted-maintenance"}
+  ],
+  "negative": [
+    {"id": "fork-privilege-escalation", "expected": "source_mode_event_mismatch"},
+    {"id": "malformed-sha", "expected": "requested_sha_must_be_full_sha"},
+    {"id": "mutable-ref", "expected": "requested_sha_must_be_full_sha"},
+    {"id": "unsafe-artifact", "expected": "unsupported_source_input"},
+    {"id": "trust-mode-input", "expected": "unsupported_source_input"},
+    {"id": "stale-pr", "expected": "stale_pr_head"},
+    {"id": "tag-mismatch", "expected": "tag_event_sha_mismatch"},
+    {"id": "changed-checkout", "expected": "checkout_path_not_empty"}
+  ]
+}
