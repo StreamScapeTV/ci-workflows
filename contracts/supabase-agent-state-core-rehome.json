@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "source": {
+    "repository": "StreamScapeTV/ci-workflows",
+    "issue": 52,
+    "pull_request": 57,
+    "branch": "issue/52-supabase-agent-state-core"
+  },
+  "canonical_destination": {
+    "repository": "StreamScapeTV/agent-state-supabase",
+    "issue": 3,
+    "integration_branch": "main"
+  },
+  "coordination": {
+    "second_implementation_forbidden_while_source_pr_active": true,
+    "independent_exact_head_review_required": true,
+    "one_canonical_migration_history": true,
+    "source_pr_merge_not_required_before_rehome": true
+  },
+  "copy": [
+    {
+      "source": "contracts/supabase-agent-state-core.json",
+      "destination": "contracts/supabase-agent-state-core.json"
+    },
+    {
+      "source": "contracts/supabase-agent-state-core-files.json",
+      "destination": "contracts/supabase-agent-state-core-files.json"
+    },
+    {
+      "source": "contracts/supabase-agent-state-core-rehome.json",
+      "destination": "contracts/supabase-agent-state-core-rehome.json"
+    },
+    {
+      "source": "docs/architecture/supabase-agent-state-core.md",
+      "destination": "docs/architecture/supabase-agent-state-core.md"
+    },
+    {
+      "source": "docs/evidence/supabase-agent-state-core-validation.md",
+      "destination": "docs/evidence/supabase-agent-state-core-validation.md"
+    },
+    {
+      "source": "docs/operators/supabase-agent-state-core.md",
+      "destination": "docs/operators/supabase-agent-state-core.md"
+    },
+    {
+      "source": "supabase/migrations/20260806172100_agent_state_core_schema.sql",
+      "destination": "supabase/migrations/20260806172100_agent_state_core_schema.sql"
+    },
+    {
+      "source": "supabase/migrations/20260806172200_agent_state_core_rpc.sql",
+      "destination": "supabase/migrations/20260806172200_agent_state_core_rpc.sql"
+    },
+    {
+      "source": "supabase/migrations/20260806172300_agent_state_core_indexes.sql",
+      "destination": "supabase/migrations/20260806172300_agent_state_core_indexes.sql"
+    },
+    {
+      "source": "tests/fixtures/supabase-agent-state/bootstrap.sql",
+      "destination": "tests/fixtures/supabase-agent-state/bootstrap.sql"
+    },
+    {
+      "source": "tests/fixtures/supabase-agent-state/core-cases.json",
+      "destination": "tests/fixtures/supabase-agent-state/core-cases.json"
+    },
+    {
+      "source": "tests/support/supabase_agent_state_postgres.py",
+      "destination": "tests/support/supabase_agent_state_postgres.py"
+    },
+    {
+      "source": "tests/test_supabase_agent_state_core.py",
+      "destination": "tests/test_supabase_agent_state_core.py"
+    },
+    {
+      "source": "tests/test_supabase_agent_state_core_database.py",
+      "destination": "tests/test_supabase_agent_state_core_database.py"
+    }
+  ],
+  "migration_order": [
+    "supabase/migrations/20260806172100_agent_state_core_schema.sql",
+    "supabase/migrations/20260806172200_agent_state_core_rpc.sql",
+    "supabase/migrations/20260806172300_agent_state_core_indexes.sql"
+  ],
+  "canonical_review_steps": [
+    "verify the accepted source head and file manifest",
+    "copy all entries without content changes onto one issue 3 branch",
+    "run static manifest tests and disposable PostgreSQL reconstruction tests",
+    "connect the canonical repository to Supabase only after source acceptance",
+    "merge the unchanged canonical head through protected main",
+    "verify GitHub-managed migration history and production object parity",
+    "run live bounded RPC smoke checks, advisors, and cleanup",
+    "reconcile transition files in ci-workflows through a separate reviewed decision"
+  ],
+  "prohibited": [
+    "creating a parallel migration history before source reconciliation",
+    "editing an accepted or deployed migration in place",
+    "using direct production DDL as deployment evidence",
+    "implementing structured multi-work, review takeover, trusted bots, cutover, or retirement in this package"
+  ]
+}
