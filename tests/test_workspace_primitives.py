@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import stat
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -191,6 +193,23 @@ class WorkspacePrimitiveTests(unittest.TestCase):
             contract_root=ROOT,
         )
         self.assertTrue(report.partial_setup)
+        self.assertFalse(state.root.exists())
+
+    def test_failed_caller_command_still_cleans_registered_state(self) -> None:
+        state = self.prepare()
+        credential = state.root / "credentials" / "command-token"
+        credential.write_text("transient\n", encoding="utf-8")
+        completed = subprocess.run(
+            [sys.executable, "-c", "raise SystemExit(7)"],
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 7)
+        report = cleanup_workspace(
+            state.root,
+            expected_state_id=state.state_id,
+            contract_root=ROOT,
+        )
+        self.assertGreater(report.removed_sensitive_paths, 0)
         self.assertFalse(state.root.exists())
 
     def test_linux_and_macos_cleanup_remove_read_only_sensitive_state(self) -> None:
