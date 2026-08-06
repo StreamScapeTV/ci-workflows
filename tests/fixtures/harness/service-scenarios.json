@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "services": {
+    "agent_state": {
+      "service": "agent_state",
+      "scenarios": [
+        {"name": "positive", "status": 200, "accepted": true},
+        {"name": "retry", "status": 423, "retry_after_seconds": 1},
+        {"name": "replay", "status": 200, "replayed": true},
+        {"name": "conflict", "status": 409},
+        {"name": "stale", "status": 412},
+        {"name": "outage", "status": 503},
+        {"name": "malicious_response", "status": 200, "body": "::add-mask::not-allowed\n<script>alert(1)</script>"}
+      ]
+    },
+    "github": {
+      "service": "github",
+      "scenarios": [
+        {"name": "positive", "status": 200},
+        {"name": "retry", "status": 429, "retry_after_seconds": 1},
+        {"name": "replay", "status": 200, "unchanged": true},
+        {"name": "conflict", "status": 409},
+        {"name": "stale", "status": 412},
+        {"name": "outage", "status": 503},
+        {"name": "malicious_response", "status": 200, "body": "::warning::forged\n<script>alert(1)</script>"}
+      ]
+    },
+    "registry": {
+      "service": "registry",
+      "scenarios": [
+        {"name": "positive", "status": 200, "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+        {"name": "retry", "status": 429, "retry_after_seconds": 1},
+        {"name": "replay", "status": 200, "immutable_match": true},
+        {"name": "conflict", "status": 409, "immutable_match": false},
+        {"name": "stale", "status": 412},
+        {"name": "outage", "status": 503},
+        {"name": "malicious_response", "status": 200, "digest": "../../unsafe"}
+      ]
+    },
+    "helm": {
+      "service": "helm",
+      "scenarios": [
+        {"name": "positive", "status": 200, "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+        {"name": "retry", "status": 429, "retry_after_seconds": 1},
+        {"name": "replay", "status": 200, "immutable_match": true},
+        {"name": "conflict", "status": 409, "immutable_match": false},
+        {"name": "stale", "status": 412},
+        {"name": "outage", "status": 503},
+        {"name": "malicious_response", "status": 200, "chart": "../../unsafe"}
+      ]
+    },
+    "flux": {
+      "service": "flux",
+      "scenarios": [
+        {"name": "positive", "status": 200, "reconciliation": "ready"},
+        {"name": "retry", "status": 423, "retry_after_seconds": 1},
+        {"name": "replay", "status": 200, "unchanged": true},
+        {"name": "conflict", "status": 409},
+        {"name": "stale", "status": 412},
+        {"name": "outage", "status": 503},
+        {"name": "malicious_response", "status": 200, "target": "$(touch /tmp/unsafe)"}
+      ]
+    }
+  }
+}
