@@ -218,10 +218,14 @@ class PublicApiContractTests(unittest.TestCase):
         for required in (
             "python3 scripts/ci/public_api_contract.py validate",
             "python3 scripts/ci/public_api_contract.py render",
-            "python3 -m unittest -v tests/test_public_api_contract.py",
+            "python3 -m unittest discover -s tests -p 'test_*.py' -v",
             "rm -f docs/workflows/public-api-reference.md",
         ):
             self.assertIn(required, source)
+        self.assertNotIn(
+            "python3 -m unittest -v tests/test_public_api_contract.py",
+            source,
+        )
 
     @staticmethod
     def _example_input(name: str) -> object:
