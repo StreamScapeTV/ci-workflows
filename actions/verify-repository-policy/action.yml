@@ -1,0 +1,54 @@
+name: Verify central repository policy
+description: Enforce tracked-secret, forbidden-file, clean-tree, generated-output, and artifact policy
+
+inputs:
+  phase:
+    description: before or after validation
+    required: false
+    default: after
+  artifacts_json:
+    description: Bounded JSON artifact declaration list; empty by default
+    required: false
+    default: "[]"
+  artifact_exception_id:
+    description: Optional named artifact exception from the central registry
+    required: false
+  trust_mode:
+    description: Admitted trust mode used only to validate a named artifact exception
+    required: false
+
+outputs:
+  phase:
+    value: ${{ steps.policy.outputs.phase }}
+  tracked_files:
+    value: ${{ steps.policy.outputs.tracked_files }}
+  scanned_files:
+    value: ${{ steps.policy.outputs.scanned_files }}
+  generated_outputs:
+    value: ${{ steps.policy.outputs.generated_outputs }}
+  artifact_count:
+    value: ${{ steps.policy.outputs.artifact_count }}
+  artifact_exception_id:
+    value: ${{ steps.policy.outputs.artifact_exception_id }}
+  policy_evidence_id:
+    value: ${{ steps.policy.outputs.policy_evidence_id }}
+  verified:
+    value: ${{ steps.policy.outputs.verified }}
+
+runs:
+  using: composite
+  steps:
+    - id: policy
+      name: Verify deterministic repository policy
+      shell: bash
+      env:
+        PYTHONDONTWRITEBYTECODE: "1"
+        INPUT_PHASE: ${{ inputs.phase }}
+        INPUT_ARTIFACTS_JSON: ${{ inputs.artifacts_json }}
+        INPUT_ARTIFACT_EXCEPTION_ID: ${{ inputs.artifact_exception_id }}
+        INPUT_TRUST_MODE: ${{ inputs.trust_mode }}
+      run: |
+        set -Eeuo pipefail
+        PYTHONPATH="${GITHUB_ACTION_PATH}/../../src" \
+          python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/foundation.py" \
+            --root "${GITHUB_ACTION_PATH}/../.." verify-repository-policy

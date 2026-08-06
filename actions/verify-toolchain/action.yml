@@ -1,0 +1,48 @@
+name: Verify locked foundation toolchain
+description: Verify one contract-selected tool set or install one checksum-locked asset
+
+inputs:
+  operation:
+    description: verify-set or install-asset
+    required: false
+    default: verify-set
+  tool_set:
+    description: Bounded tool set from contracts/tool-lock.json
+    required: false
+    default: baseline
+  asset_id:
+    description: Contract-selected immutable asset identifier for install-asset
+    required: false
+
+outputs:
+  tool_set:
+    value: ${{ steps.verify.outputs.tool_set }}
+  toolchain_json:
+    value: ${{ steps.verify.outputs.toolchain_json }}
+  toolchain_id:
+    value: ${{ steps.verify.outputs.toolchain_id }}
+  asset_id:
+    value: ${{ steps.verify.outputs.asset_id }}
+  asset_relative_path:
+    value: ${{ steps.verify.outputs.asset_relative_path }}
+  asset_sha256:
+    value: ${{ steps.verify.outputs.asset_sha256 }}
+  verified:
+    value: ${{ steps.verify.outputs.verified }}
+
+runs:
+  using: composite
+  steps:
+    - id: verify
+      name: Verify contract-selected tools and assets
+      shell: bash
+      env:
+        PYTHONDONTWRITEBYTECODE: "1"
+        INPUT_OPERATION: ${{ inputs.operation }}
+        INPUT_TOOL_SET: ${{ inputs.tool_set }}
+        INPUT_ASSET_ID: ${{ inputs.asset_id }}
+      run: |
+        set -Eeuo pipefail
+        PYTHONPATH="${GITHUB_ACTION_PATH}/../../src" \
+          python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/foundation.py" \
+            --root "${GITHUB_ACTION_PATH}/../.." verify-toolchain

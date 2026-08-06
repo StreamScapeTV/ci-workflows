@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "tools": {
+    "python": {
+      "executable": "python3",
+      "version_args": ["--version"],
+      "version_pattern": "Python ([0-9]+\\.[0-9]+\\.[0-9]+)",
+      "minimum_version": "3.11.0"
+    },
+    "git": {
+      "executable": "git",
+      "version_args": ["--version"],
+      "version_pattern": "git version ([0-9]+\\.[0-9]+\\.[0-9]+)",
+      "minimum_version": "2.30.0"
+    },
+    "bash": {
+      "executable": "bash",
+      "version_args": ["--version"],
+      "version_pattern": "GNU bash, version ([0-9]+\\.[0-9]+\\.[0-9]+)",
+      "minimum_version": "3.2.0"
+    }
+  },
+  "tool_sets": {
+    "baseline": ["python", "git", "bash"],
+    "checkout": ["python", "git"],
+    "policy": ["python", "git"]
+  },
+  "assets": {},
+  "download_policy": {
+    "allowed_scheme": "https",
+    "maximum_bytes": 104857600,
+    "required_digest": "sha256",
+    "redirect_host_must_match": true,
+    "mutable_fallback_forbidden": true
+  }
+}
