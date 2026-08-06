@@ -2,14 +2,14 @@
 
 Capture date: `2026-08-06`
 
-This contract classifies **87 live workflow files across 11 repositories**. Capture commits are evidence anchors; the live drift check compares workflow paths and available Git blob identities without checking out or executing consumer source.
+This contract classifies **88 live workflow files across 11 repositories**. Capture commits are evidence anchors; the live drift check compares workflow paths and available Git blob identities without checking out or executing consumer source.
 
 ## Summary
 
 | Repository | Captured source | Workflows | Active | Retire | Publication | Device | Flux-authorized |
 |---|---|---:|---:|---:|---:|---:|---:|
 | StreamScapeTV/agent-state | `main@bf4b6122db1f248058a27b4b449cd1ecb9688a85` | 10 | 8 | 2 | 2 | 0 | 0 |
-| StreamScapeTV/ci-workflows | `main@3fb71714bc223c244d0a1b45eaf357aab2514b22` | 2 | 2 | 0 | 1 | 0 | 0 |
+| StreamScapeTV/ci-workflows | `main@668e1cdbb4c62eb08811959932ba2ef0d697e196` | 3 | 3 | 0 | 1 | 0 | 0 |
 | StreamScapeTV/directus-front | `main@b7b21be7129859e45fdc57befcf85b86b82e7575` | 5 | 5 | 0 | 0 | 0 | 0 |
 | StreamScapeTV/finance-hub | `main@a549e610dee8f7f80b1a38ae4b709b8d2bd53461` | 4 | 3 | 1 | 0 | 0 | 0 |
 | StreamScapeTV/flux | `main@8e611816f11c4ebaf126217646e030b9c2df18b9` | 18 | 18 | 0 | 2 | 0 | 2 |
@@ -27,16 +27,16 @@ This contract classifies **87 live workflow files across 11 repositories**. Capt
 | Disposition | `public` | central public reusable workflow | 6 |
 | Disposition | `internal` | central internal reusable workflow | 0 |
 | Disposition | `function` | central named function or composite action | 0 |
-| Disposition | `thin` | thin repository caller | 69 |
+| Disposition | `thin` | thin repository caller | 70 |
 | Disposition | `owned` | repository-owned product command/contract/policy/data | 0 |
 | Disposition | `retire` | temporary/repair workflow to retire | 12 |
 | Trust | `read` | read-only-validation | 42 |
-| Trust | `agent-state` | agent-state-transport | 17 |
+| Trust | `agent-state` | agent-state-transport | 18 |
 | Trust | `publish` | trusted-publication | 8 |
 | Trust | `maintenance` | trusted-maintenance | 13 |
 | Trust | `device` | physical-device-validation | 5 |
 | Trust | `flux` | trusted-flux-reconciliation | 2 |
-| Migration | `agent-state-lifecycle` | Central Agent State lifecycle transport from issue #32. | 10 |
+| Migration | `agent-state-lifecycle` | Central Agent State lifecycle transport from issue #32. | 11 |
 | Migration | `agent-state-ownership` | Central Agent State ownership transport from issue #32; retain repository issue-ledger policy where applicable. | 7 |
 | Migration | `release` | Tag-only central release orchestration with immutable product read-back. | 3 |
 | Migration | `artifact-cleanup` | Central organization artifact cleanup. | 1 |
@@ -80,13 +80,14 @@ This contract classifies **87 live workflow files across 11 repositories**. Capt
 
 ### StreamScapeTV/ci-workflows
 
-- Capture: `main@3fb71714bc223c244d0a1b45eaf357aab2514b22`
-- Evidence basis: exact active issue #3 head after self-check integration
+- Capture: `main@668e1cdbb4c62eb08811959932ba2ef0d697e196`
+- Evidence basis: exact issue #37 parameterized Agent State command checkpoint
 
 | Workflow | Name | Status | Disposition | Migration | Trust | Blob |
 |---|---|---|---|---|---|---|
+| `.github/workflows/agent-state-command.yml` | Agent State command | `current-manual-control` | `thin` | `agent-state-lifecycle` | `agent-state` | `507e6458d72a39c1a8fb806e9a35dbcaae12fde0` |
 | `.github/workflows/reusable-tag-image-chart.yml` | Reusable exact-tag image and Helm release | `current-bootstrap-exception` | `public` | `release` | `publish` | `289bc0844a36923e3bb856c21dfed0329a4c6a95` |
-| `.github/workflows/self-check.yml` | Central workflow self-check | `current` | `thin` | `conformance` | `read` | `4d067c312b35e34b210c55ed2cf555171295dc1c` |
+| `.github/workflows/self-check.yml` | Central workflow self-check | `current` | `thin` | `conformance` | `read` | `2a937e534b4e7ea02acf01b62b4da92e1bc1d06e` |
 
 ### StreamScapeTV/directus-front
 
