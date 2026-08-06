@@ -22,7 +22,7 @@ Run the repository's normal discovered suite:
 python3 -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-The database suite uses PostgreSQL 17. It first searches for a complete installed PostgreSQL 17 binary set. Otherwise it downloads PostgreSQL 17.6 from the official PostgreSQL source server, verifies SHA-256 `2910b85283674da2dae6ac13fe5ebbaaf3c482446396cba32e6728d3cc736d86`, builds a private test-only installation, creates two empty clusters/databases, applies the committed migration order, and deletes all temporary state.
+The database suite uses PostgreSQL 17. Set `AGENT_STATE_POSTGRES_BIN` to a vetted complete PostgreSQL 17 binary directory, or let the suite search `PATH`. Otherwise it downloads PostgreSQL 17.6 from the official PostgreSQL source server, verifies SHA-256 `2910b85283674da2dae6ac13fe5ebbaaf3c482446396cba32e6728d3cc736d86`, builds a private test-only installation, creates two empty clusters/databases, applies the committed migration order, and deletes all temporary state.
 
 No production Supabase project is contacted by these commands.
 
