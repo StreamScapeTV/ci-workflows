@@ -13,7 +13,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from ci_workflows.public_api_contract import (  # noqa: E402
+from ci_workflows.public_api import (  # noqa: E402
     ContractError,
     compare_contracts,
     load_contract,
