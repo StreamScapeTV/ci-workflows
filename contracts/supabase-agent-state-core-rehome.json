@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "source": {
     "repository": "StreamScapeTV/ci-workflows",
     "issue": 52,
@@ -71,13 +71,13 @@
     },
     "live_reconciliation_required": true,
     "production_deployment_allowed": false,
-    "production_deployment_unlock_condition": "canonical issue #3 independently accepts a reviewed live-ledger reconciliation strategy and proves one authoritative migration history",
+    "production_deployment_unlock_condition": "canonical issue #3 independently accepts a reviewed live-ledger reconciliation strategy and proves exactly one authoritative migration history",
     "ordinary_rpc_use_allowed": false,
     "ordinary_rpc_unlock_condition": "canonical live proof and final cutover make agent_api the approved ordinary coordination path",
     "permitted_strategy_classes": [
       {
         "id": "reconstruct-observed-live-baseline",
-        "description": "reconstruct the exact six already-applied migration versions and statements as the canonical baseline, then add reviewed forward migrations"
+        "description": "reconstruct the exact source corresponding to the six already-applied migration versions and statements as the canonical baseline, then continue with reviewed forward migrations"
       },
       {
         "id": "owner-authorized-reset-recreation",
@@ -85,11 +85,36 @@
       },
       {
         "id": "reviewed-baseline-or-repair",
-        "description": "use another explicitly reviewed baseline or repair procedure that proves a single authoritative history and exact source/live parity"
+        "description": "use another explicitly reviewed baseline or repair procedure that proves exactly one authoritative migration history and exact source/live parity"
       }
     ],
     "strategy_selected_by_this_package": null,
-    "direct_ad_hoc_repair_forbidden": true
+    "direct_ad_hoc_repair_forbidden": true,
+    "silent_migration_filename_rewriting_forbidden": true,
+    "manual_ledger_mutation_forbidden": true
+  },
+  "test_execution": {
+    "normal_unittest_discovery": {
+      "command": "python3 -m unittest discover -s tests -p 'test_*.py' -v",
+      "postgres_reconstruction_runs": false,
+      "network_download_allowed": false,
+      "expected_reconstruction_signal": "visible unittest skip before temporary runtime creation"
+    },
+    "explicit_postgres_reconstruction": {
+      "required_for_canonical_acceptance": true,
+      "command_with_vetted_runtime": "AGENT_STATE_RUN_POSTGRES_RECONSTRUCTION=1 AGENT_STATE_POSTGRES_BIN=/absolute/path/to/postgresql-17/bin python3 -m unittest -v tests.test_supabase_agent_state_core_database",
+      "missing_or_invalid_vetted_runtime": "fail",
+      "silent_skip_allowed": false,
+      "temporary_state_cleanup_required": true,
+      "source_download": {
+        "allowed_by_default": false,
+        "explicit_opt_in": "AGENT_STATE_ALLOW_POSTGRES_SOURCE_DOWNLOAD=1",
+        "version": "17.6",
+        "sha256": "2910b85283674da2dae6ac13fe5ebbaaf3c482446396cba32e6728d3cc736d86",
+        "download_or_checksum_failure": "fail"
+      },
+      "current_result": "unexecuted-until-successfully-completed"
+    }
   },
   "copy": [
     {
@@ -171,19 +196,21 @@
   "canonical_review_steps": [
     "verify the accepted source head and SHA-256 file manifest",
     "copy non-migration source-package inputs exactly for canonical review",
-    "treat the three clean migration files as candidate target/source inputs, not as directly deployable migrations for the existing live project",
+    "treat the three clean migration files as reviewed target/source inputs, not as directly deployable migrations for the existing live project",
     "run normal repository discovery without network or PostgreSQL compilation side effects",
-    "run the explicit PostgreSQL 17 reconstruction command in a vetted isolated environment",
+    "run the explicit fail-closed PostgreSQL 17 reconstruction command in a vetted isolated environment",
     "inspect the six observed live ledger entries and choose one permitted reconciliation strategy through canonical issue #3 review",
-    "do not connect or deploy through the Supabase GitHub integration until the selected strategy makes production_deployment_allowed true",
+    "do not connect or deploy through the Supabase GitHub integration until the selected strategy proves one authoritative history and production_deployment_allowed is explicitly changed by canonical review",
     "after canonical deployment, verify the migration ledger, object/function hashes, grants, project mappings, RPC behavior, advisors, and smoke-data cleanup",
     "reconcile transition files in ci-workflows through a separate reviewed decision so no competing canonical history remains"
   ],
   "prohibited": [
     "creating a parallel authoritative migration history",
     "applying the three clean source migrations unchanged to the existing live project without ledger reconciliation",
+    "silently rewriting migration versions, names, or filenames to imitate the observed live ledger",
     "editing an accepted or deployed migration in place",
-    "using direct ad-hoc production DDL, SQL editor, connector DDL, or table editor as a reconciliation shortcut",
+    "manually mutating the production migration ledger as a reconciliation shortcut",
+    "using direct ad-hoc production DDL, SQL editor, connector DDL, apply_migration, execute_sql, or table editor as a reconciliation shortcut",
     "using the provisional agent_api RPCs for ordinary Agent State coordination before final cutover",
     "implementing structured multi-work, parking, separate review requests, takeover, trusted bots, cutover, or retirement in this package"
   ]
