@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 import unittest
 from pathlib import Path
 
@@ -9,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = ROOT / "contracts/supabase-agent-state-core.json"
 MIGRATIONS = ROOT / "supabase/migrations"
 FIXTURES = ROOT / "tests/fixtures/supabase-agent-state/core-cases.json"
+ACTIONS = ["resume", "start", "claim", "release", "reconcile_base", "block", "review", "done", "cancel"]
 
 
 class SupabaseAgentStateCoreTests(unittest.TestCase):
@@ -20,7 +20,7 @@ class SupabaseAgentStateCoreTests(unittest.TestCase):
         cls.sql = "\n".join(path.read_text(encoding="utf-8") for path in cls.files)
 
     def test_versioned_reconstructible_migrations(self) -> None:
-        self.assertGreaterEqual(len(self.files), 5)
+        self.assertGreaterEqual(len(self.files), 6)
         names = [path.name for path in self.files]
         self.assertEqual(names, sorted(names))
         for path in self.files:
@@ -30,12 +30,13 @@ class SupabaseAgentStateCoreTests(unittest.TestCase):
     def test_contract_surface(self) -> None:
         self.assertEqual(self.contract["private_schema"], "agent_private")
         self.assertEqual(self.contract["api_schema"], "agent_api")
-        self.assertEqual(
-            self.contract["actions"],
-            ["resume", "start", "claim", "release", "reconcile_base", "block", "review", "done", "cancel"],
-        )
+        self.assertEqual(list(self.contract["actions"]), ACTIONS)
         self.assertEqual(set(self.contract["reads"]), {"agent_api.resume", "agent_api.context", "agent_api.ownership_check"})
-        self.assertEqual(self.fixtures["actions"], self.contract["actions"])
+        self.assertEqual(self.fixtures["actions"], ACTIONS)
+        self.assertEqual(
+            self.contract["rpc"]["ownership_check"],
+            "agent_api.ownership_check(text,text,bigint,text,bigint,text)",
+        )
 
     def test_private_normalized_tables(self) -> None:
         for table in (
@@ -67,15 +68,11 @@ class SupabaseAgentStateCoreTests(unittest.TestCase):
         for role in ("public", "anon", "authenticated", "service_role"):
             self.assertRegex(self.sql.lower(), rf"revoke all on all tables in schema agent_private from[^;]*\b{role}\b")
         self.assertIn("grant execute on function agent_api.command(jsonb) to service_role", self.sql.lower())
-        self.assertNotIn("grant select on", self.sql.lower())
-        self.assertNotIn("grant insert on", self.sql.lower())
-        self.assertNotIn("grant update on", self.sql.lower())
-        self.assertNotIn("grant delete on", self.sql.lower())
+        for token in ("grant select on", "grant insert on", "grant update on", "grant delete on"):
+            self.assertNotIn(token, self.sql.lower())
 
     def test_security_definer_functions_are_bounded(self) -> None:
-        for signature in (
-            "agent_api.command", "agent_api.resume", "agent_api.context", "agent_api.ownership_check",
-        ):
+        for signature in ("agent_api.command", "agent_api.resume", "agent_api.context", "agent_api.ownership_check"):
             self.assertIn(signature, self.sql)
         self.assertGreaterEqual(self.sql.count("security definer"), 4)
         self.assertGreaterEqual(self.sql.count("set search_path="), 4)
