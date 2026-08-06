@@ -9,18 +9,27 @@ import socket
 import subprocess
 import tarfile
 import tempfile
+import unittest
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 
 POSTGRES_VERSION = "17.6"
-POSTGRES_SOURCE_URL = (
-    "https://ftp.postgresql.org/pub/source/v17.6/postgresql-17.6.tar.gz"
-)
+POSTGRES_SOURCE_URL = "https://ftp.postgresql.org/pub/source/v17.6/postgresql-17.6.tar.gz"
 POSTGRES_SOURCE_SHA256 = (
     "2910b85283674da2dae6ac13fe5ebbaaf3c482446396cba32e6728d3cc736d86"
 )
-REQUIRED_BINARIES = ("initdb", "pg_ctl", "postgres", "psql", "createdb", "dropdb", "pg_dump")
+REQUIRED_BINARIES = (
+    "initdb",
+    "pg_ctl",
+    "postgres",
+    "psql",
+    "createdb",
+    "dropdb",
+    "pg_dump",
+)
+RECONSTRUCTION_OPT_IN = "AGENT_STATE_RUN_POSTGRES_RECONSTRUCTION"
+CONFIGURED_BIN_DIR = "AGENT_STATE_POSTGRES_BIN"
 
 
 class CommandError(RuntimeError):
@@ -52,6 +61,14 @@ def _run(
     return result
 
 
+def _require_explicit_reconstruction() -> None:
+    if os.environ.get(RECONSTRUCTION_OPT_IN) != "1":
+        raise unittest.SkipTest(
+            "explicit PostgreSQL 17 reconstruction is not part of normal test discovery; "
+            f"set {RECONSTRUCTION_OPT_IN}=1 and run the documented reconstruction command"
+        )
+
+
 def _safe_extract(archive: pathlib.Path, destination: pathlib.Path) -> None:
     destination_real = destination.resolve()
     with tarfile.open(archive, "r:gz") as tar:
@@ -65,20 +82,20 @@ def _safe_extract(archive: pathlib.Path, destination: pathlib.Path) -> None:
 def _validate_bin_dir(bin_dir: pathlib.Path) -> pathlib.Path | None:
     if not all((bin_dir / name).is_file() for name in REQUIRED_BINARIES):
         return None
-    versions = _run([str(bin_dir / "initdb"), "--version"], check=False).stdout
-    if f" {POSTGRES_VERSION}" not in versions and " 17." not in versions:
+    version = _run([str(bin_dir / "initdb"), "--version"], check=False).stdout
+    if f" {POSTGRES_VERSION}" not in version and " 17." not in version:
         return None
     return bin_dir
 
 
 def _find_configured_postgres() -> pathlib.Path | None:
-    configured = os.environ.get("AGENT_STATE_POSTGRES_BIN")
+    configured = os.environ.get(CONFIGURED_BIN_DIR)
     if not configured:
         return None
     resolved = _validate_bin_dir(pathlib.Path(configured).expanduser().resolve())
     if resolved is None:
         raise CommandError(
-            "AGENT_STATE_POSTGRES_BIN must contain a complete PostgreSQL 17 binary set"
+            f"{CONFIGURED_BIN_DIR} must contain a complete PostgreSQL 17 binary set"
         )
     return resolved
 
@@ -105,7 +122,7 @@ def _download_source(destination: pathlib.Path) -> pathlib.Path:
     except urllib.error.URLError as exc:
         raise CommandError(
             "PostgreSQL 17 is not installed and the pinned official source archive "
-            "could not be downloaded; provide AGENT_STATE_POSTGRES_BIN or network access"
+            f"could not be downloaded; provide {CONFIGURED_BIN_DIR} or network access"
         ) from exc
     with response_context as response, archive.open("wb") as output:
         while True:
@@ -156,8 +173,9 @@ def _build_postgres(root: pathlib.Path) -> pathlib.Path:
     _run(["make", "-s", "install"], cwd=source, env=env, timeout=180)
     extension_env = env.copy()
     extension_env["PATH"] = f"{install / 'bin'}:{extension_env.get('PATH', '')}"
-    _run(["make", "-s", f"-j{jobs}"], cwd=source / "contrib" / "pgcrypto", env=extension_env, timeout=180)
-    _run(["make", "-s", "install"], cwd=source / "contrib" / "pgcrypto", env=extension_env, timeout=120)
+    pgcrypto = source / "contrib" / "pgcrypto"
+    _run(["make", "-s", f"-j{jobs}"], cwd=pgcrypto, env=extension_env, timeout=180)
+    _run(["make", "-s", "install"], cwd=pgcrypto, env=extension_env, timeout=120)
     return install / "bin"
 
 
@@ -175,7 +193,10 @@ class SqlResult:
 
 
 class PostgresRuntime:
+    """Explicit, isolated PostgreSQL 17 runtime for canonical reconstruction only."""
+
     def __init__(self, repository_root: pathlib.Path):
+        _require_explicit_reconstruction()
         self.repository_root = repository_root
         self.root = pathlib.Path(tempfile.mkdtemp(prefix="agent-state-pg17-"))
         self.bin_dir: pathlib.Path | None = None
@@ -370,12 +391,22 @@ class PostgresRuntime:
         )
         normalized: list[str] = []
         for line in result.stdout.splitlines():
-            if line.startswith("--") or line.startswith("\\restrict") or line.startswith("\\unrestrict"):
+            if (
+                line.startswith("--")
+                or line.startswith("\\restrict")
+                or line.startswith("\\unrestrict")
+            ):
                 continue
             normalized.append(line.rstrip())
         return "\n".join(normalized).strip() + "\n"
 
-    def popen_psql(self, database: str, sql: str, *, role: str | None = None) -> subprocess.Popen[str]:
+    def popen_psql(
+        self,
+        database: str,
+        sql: str,
+        *,
+        role: str | None = None,
+    ) -> subprocess.Popen[str]:
         if role is not None:
             sql = f"set role {role};\n{sql}"
         return subprocess.Popen(
