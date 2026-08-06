@@ -60,6 +60,18 @@ class BootstrapContractTests(unittest.TestCase):
             source,
         )
 
+    def test_self_check_uses_current_portable_runner_contract(self) -> None:
+        source = (ROOT / ".github/workflows/self-check.yml").read_text()
+        harness = json.loads(
+            (ROOT / "contracts/validation-harness.json").read_text()
+        )
+        self.assertIn("runs-on: portable", source)
+        self.assertNotIn("homelab-portable-linux-x64", source)
+        self.assertEqual(
+            harness["allowed_runner_profiles"],
+            ["portable", "agent-state"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
