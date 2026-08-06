@@ -1,0 +1,325 @@
+{
+  "schema_version": 1,
+  "organization": "StreamScapeTV",
+  "token_model": {
+    "called_workflow_cannot_elevate": true,
+    "caller_declares_minimum": true,
+    "secrets_inherit_forbidden": true,
+    "default_unspecified_permission": "none"
+  },
+  "profiles": [
+    {
+      "id": "source-read",
+      "trust_class": "source-admission",
+      "caller_permissions": {
+        "contents": "read",
+        "pull-requests": "read"
+      },
+      "workflow_permissions": {
+        "contents": "read",
+        "pull-requests": "read"
+      },
+      "forbidden_permissions": [
+        "actions:write",
+        "checks:write",
+        "contents:write",
+        "deployments:write",
+        "id-token:write",
+        "issues:write",
+        "packages:write",
+        "pull-requests:write",
+        "statuses:write"
+      ],
+      "named_secrets_allowed": [],
+      "notes": "Exact source and tag admission; no product or infrastructure credential."
+    },
+    {
+      "id": "validation-read",
+      "trust_class": "read-only-validation",
+      "caller_permissions": {
+        "contents": "read"
+      },
+      "workflow_permissions": {
+        "contents": "read"
+      },
+      "forbidden_permissions": [
+        "actions:write",
+        "checks:write",
+        "contents:write",
+        "deployments:write",
+        "id-token:write",
+        "issues:write",
+        "packages:write",
+        "pull-requests:write",
+        "statuses:write"
+      ],
+      "named_secrets_allowed": [
+        "private_dependency_token"
+      ],
+      "notes": "Ordinary exact-source validation. An inventory-approved private dependency token is explicit and unavailable to untrusted forks."
+    },
+    {
+      "id": "agent-state-lifecycle",
+      "trust_class": "agent-state-transport",
+      "caller_permissions": {
+        "issues": "write",
+        "pull-requests": "read"
+      },
+      "workflow_permissions": {
+        "issues": "write",
+        "pull-requests": "read"
+      },
+      "forbidden_permissions": [
+        "actions:write",
+        "checks:write",
+        "contents:write",
+        "deployments:write",
+        "id-token:write",
+        "packages:write",
+        "pull-requests:write"
+      ],
+      "named_secrets_allowed": [
+        "agent_state_api_token"
+      ],
+      "notes": "Transport and sanitized issue projection only; no caller source checkout."
+    },
+    {
+      "id": "agent-state-ownership",
+      "trust_class": "agent-state-transport",
+      "caller_permissions": {
+        "pull-requests": "read",
+        "statuses": "write"
+      },
+      "workflow_permissions": {
+        "pull-requests": "read",
+        "statuses": "write"
+      },
+      "forbidden_permissions": [
+        "actions:write",
+        "contents:write",
+        "deployments:write",
+        "id-token:write",
+        "issues:write",
+        "packages:write",
+        "pull-requests:write"
+      ],
+      "named_secrets_allowed": [
+        "agent_state_api_token"
+      ],
+      "notes": "Exact current PR head/base ownership query and sanitized status projection only."
+    },
+    {
+      "id": "device-validation",
+      "trust_class": "physical-device-validation",
+      "caller_permissions": {
+        "contents": "read"
+      },
+      "workflow_permissions": {
+        "contents": "read"
+      },
+      "forbidden_permissions": [
+        "actions:write",
+        "checks:write",
+        "contents:write",
+        "deployments:write",
+        "id-token:write",
+        "issues:write",
+        "packages:write",
+        "pull-requests:write",
+        "statuses:write"
+      ],
+      "named_secrets_allowed": [
+        "live_test_credentials"
+      ],
+      "notes": "Trusted opt-in physical-device execution with explicit lock and no signing/store credential."
+    },
+    {
+      "id": "oci-publication",
+      "trust_class": "trusted-publication",
+      "caller_permissions": {
+        "contents": "read"
+      },
+      "workflow_permissions": {
+        "contents": "read"
+      },
+      "forbidden_permissions": [
+        "actions:write",
+        "checks:write",
+        "contents:write",
+        "deployments:write",
+        "id-token:write",
+        "issues:write",
+        "pull-requests:write",
+        "statuses:write"
+      ],
+      "named_secrets_allowed": [
+        "registry_username",
+        "registry_token"
+      ],
+      "notes": "External private-registry publication uses named workflow-scoped credentials; no cluster credential."
+    },
+    {
+      "id": "release-orchestration",
+      "trust_class": "trusted-publication",
+      "caller_permissions": {
+        "actions": "read",
+        "contents": "write"
+      },
+      "workflow_permissions": {
+        "actions": "read",
+        "contents": "write"
+      },
+      "forbidden_permissions": [
+        "actions:write",
+        "checks:write",
+        "deployments:write",
+        "id-token:write",
+        "issues:write",
+        "pull-requests:write",
+        "statuses:write"
+      ],
+      "named_secrets_allowed": [
+        "registry_username",
+        "registry_token",
+        "flux_handoff_token"
+      ],
+      "notes": "Tag release, release manifest, optional GitHub Release metadata, and bounded handoff; no Kubernetes/SOPS credential."
+    },
+    {
+      "id": "flux-reconciliation",
+      "trust_class": "flux-authorized",
+      "caller_permissions": {
+        "actions": "read",
+        "contents": "read"
+      },
+      "workflow_permissions": {
+        "actions": "read",
+        "contents": "read"
+      },
+      "forbidden_permissions": [
+        "actions:write",
+        "checks:write",
+        "contents:write",
+        "deployments:write",
+        "id-token:write",
+        "issues:write",
+        "packages:write",
+        "pull-requests:write",
+        "statuses:write"
+      ],
+      "named_secrets_allowed": [
+        "flux_kubeconfig",
+        "flux_sops_age_key"
+      ],
+      "notes": "Environment-bound credentials are supplied only by the thin Flux caller and execute exact protected Flux policy source."
+    },
+    {
+      "id": "artifact-cleanup",
+      "trust_class": "trusted-maintenance",
+      "caller_permissions": {
+        "actions": "write",
+        "contents": "read"
+      },
+      "workflow_permissions": {
+        "actions": "write",
+        "contents": "read"
+      },
+      "forbidden_permissions": [
+        "checks:write",
+        "contents:write",
+        "deployments:write",
+        "id-token:write",
+        "issues:write",
+        "packages:write",
+        "pull-requests:write",
+        "statuses:write"
+      ],
+      "named_secrets_allowed": [
+        "organization_maintenance_token"
+      ],
+      "notes": "Expected-state protected organization artifact deletion; dry-run is the default."
+    },
+    {
+      "id": "branch-hygiene",
+      "trust_class": "trusted-maintenance",
+      "caller_permissions": {
+        "contents": "write",
+        "pull-requests": "read"
+      },
+      "workflow_permissions": {
+        "contents": "write",
+        "pull-requests": "read"
+      },
+      "forbidden_permissions": [
+        "actions:write",
+        "checks:write",
+        "deployments:write",
+        "id-token:write",
+        "issues:write",
+        "packages:write",
+        "pull-requests:write",
+        "statuses:write"
+      ],
+      "named_secrets_allowed": [
+        "organization_maintenance_token"
+      ],
+      "notes": "Deletes only an exact unchanged same-repository branch already proven merged."
+    },
+    {
+      "id": "conformance-report",
+      "trust_class": "trusted-maintenance",
+      "caller_permissions": {
+        "actions": "read",
+        "contents": "read",
+        "issues": "write",
+        "pull-requests": "write"
+      },
+      "workflow_permissions": {
+        "actions": "read",
+        "contents": "read",
+        "issues": "write",
+        "pull-requests": "write"
+      },
+      "forbidden_permissions": [
+        "actions:write",
+        "checks:write",
+        "contents:write",
+        "deployments:write",
+        "id-token:write",
+        "packages:write",
+        "statuses:write"
+      ],
+      "named_secrets_allowed": [
+        "organization_read_token",
+        "organization_update_token"
+      ],
+      "notes": "Report-first organization scan; any update is a reviewable issue or pull request."
+    },
+    {
+      "id": "runner-infrastructure-retry",
+      "trust_class": "trusted-maintenance",
+      "caller_permissions": {
+        "actions": "write",
+        "contents": "read"
+      },
+      "workflow_permissions": {
+        "actions": "write",
+        "contents": "read"
+      },
+      "forbidden_permissions": [
+        "checks:write",
+        "contents:write",
+        "deployments:write",
+        "id-token:write",
+        "issues:write",
+        "packages:write",
+        "pull-requests:write",
+        "statuses:write"
+      ],
+      "named_secrets_allowed": [
+        "organization_maintenance_token"
+      ],
+      "notes": "Retries only a bounded allowlisted workflow run whose failure is proven runner infrastructure, never a deterministic product failure."
+    }
+  ]
+}
