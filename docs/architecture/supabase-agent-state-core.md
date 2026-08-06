@@ -1,86 +1,53 @@
 # Supabase Agent State transactional core
 
-Issue #52 establishes Supabase PostgreSQL as the reviewed state and decision engine while #55 still owns organization-wide cutover and retirement. The schema is reconstructible from the ordered files under `supabase/migrations/`.
+Issue `StreamScapeTV/ci-workflows#52` is a transition source package for canonical issue `StreamScapeTV/agent-state-supabase#3`. It implements only the current single-work transactional core. The canonical migration and deployment history will live in `agent-state-supabase` after independent review and re-homing.
 
-## Authority and isolation
+## Authority and schemas
 
-Authoritative rows live in the private `agent_private` schema. Shared normalized tables are keyed by project; repositories do not receive copied table families. `PUBLIC`, `anon`, `authenticated`, and `service_role` have no table, sequence, or helper-function privileges. Row-level security is enabled and forced as defense in depth with no direct-access policies.
+The package creates two schemas:
 
-Ordinary approved agents use only these `service_role`-callable functions:
+- `agent_private` contains normalized authoritative tables keyed by project.
+- `agent_api` contains the only approved runtime functions.
+
+The private schema models projects, repository and integration-branch mappings, Agent/Codex profiles and slots, work sessions, issue/branch/PR bindings, exact base/head/merge evidence, claims, immutable requests, receipts, and append-only events. It does not create per-project table families.
+
+`PUBLIC`, `anon`, `authenticated`, and `service_role` receive no private-schema, table, sequence, or helper-function privileges. Row-level security is enabled and forced without direct-access policies as defense in depth. `service_role` receives execute permission only on:
 
 - `agent_api.command(jsonb)`
 - `agent_api.resume(text, text, text)`
 - `agent_api.context(text, text, text)`
 - `agent_api.ownership_check(text, text, bigint, text, bigint, text)`
 
-The connected administration capability can execute arbitrary SQL, but ordinary lifecycle operation must never use table-level `insert`, `update`, `delete`, `truncate`, `drop`, grants, policies, migrations, or `agent_private` helpers.
+## Transactions and locks
 
-## Direct connector examples
+Each command first locks its immutable request ID. Exact replay of the same canonical JSON returns the stored response and receipt. Changed JSON under the same request ID fails before work-state mutation.
 
-A command is one bounded JSON object:
+Mutation commands then lock the project and relevant project/profile/slot/session rows. This produces deterministic project-scoped ordering:
 
-```sql
-select agent_api.command(
-  '{
-    "contract_version": 1,
-    "request_id": "issue52-example-start-0001",
-    "action": "start",
-    "project": "ci-workflows",
-    "repository": "StreamScapeTV/ci-workflows",
-    "session_name": "Agent 2",
-    "task": "Implement one bounded issue",
-    "issue_number": 52,
-    "branch": "issue/52-supabase-core-a1b2",
-    "branch_nonce": "a1b2",
-    "base_sha": "0123456789abcdef0123456789abcdef01234567",
-    "claims": [
-      {"kind": "file", "mode": "prefix", "value": "supabase/migrations"}
-    ]
-  }'::jsonb
-);
-```
+- `start` inserts its request, session, binding, evidence, initial claims, receipt, and event in one transaction.
+- `done` and `cancel` release all active claims and terminalize the work in one transaction.
+- injected statement failure rolls back the request ledger and every earlier mutation in that command.
+- concurrent overlapping claims converge to one accepted owner and one immutable rejected receipt.
+- concurrent disjoint claims both succeed, although the project lock serializes their critical sections.
 
-Resume without mutation of work state:
+The issue intentionally permits only one unfinished work session per `(project, profile, slot)`. Parking, multiple same-slot work, and activation belong to the later structured-work issue.
 
-```sql
-select agent_api.resume(
-  'ci-workflows',
-  'StreamScapeTV/ci-workflows',
-  'Agent 2'
-);
-```
+## Validation and redaction
 
-Read bounded context or exact ownership:
+The dispatcher rejects unknown fields, malformed request shapes, mismatched project/repository identity, invalid Agent/Codex identity, unsafe or ambiguous paths, duplicate claims, invalid prefix use, stale base/PR/head assertions, invalid transitions, overlong text, and sensitive credential-like text.
 
-```sql
-select agent_api.context(
-  'ci-workflows',
-  'StreamScapeTV/ci-workflows',
-  'gpt-agent-2-20260806-1800-a1b2'
-);
+Public responses contain stable project, action, request, receipt, bounded session, claim, and collision data. They do not contain private UUIDs, request hashes, connection strings, authorization values, SQL, event payloads, or connector internals. Context returns at most 50 event metadata records and omits event payloads.
 
-select agent_api.ownership_check(
-  'ci-workflows',
-  'StreamScapeTV/ci-workflows',
-  52,
-  'issue/52-supabase-core-a1b2',
-  57,
-  '0123456789abcdef0123456789abcdef01234567'
-);
-```
+## Reconstructibility
 
-The connector call contains only the approved `select agent_api...` statement. It does not invoke GitHub Actions, comments, runners, commits, Edge Functions, or `agentctl`.
+The ordered migration history is:
 
-## Transactions and collisions
+1. `20260806172100_agent_state_core_schema.sql`
+2. `20260806172200_agent_state_core_rpc.sql`
+3. `20260806172300_agent_state_core_indexes.sql`
 
-Every command serializes immutable request IDs first. An identical canonical JSON request returns the stored response and receipt; changed data under the same request ID fails before mutation. Mutations then lock the mapped project, project row, and profile slot. This provides deterministic project-scoped ordering.
+The disposable-database test reconstructs two empty PostgreSQL 17 databases solely from these files, compares normalized schema dumps, exercises the full RPC and failure matrix, and drops both databases. It uses an installed PostgreSQL 17 toolchain when available or downloads and builds the pinned PostgreSQL 17.6 source archive after SHA-256 verification.
 
-`start` inserts the request, session, issue/branch binding, evidence, and initial claims in one transaction. Exact and prefix file overlap is checked together; package, resource, manifest, and device claims collide by exact identity. A collision produces an immutable rejected receipt instead of partial ownership. `done` and `cancel` release every active claim and terminalize the binding in one transaction.
+## Exclusions
 
-Requests, receipts, and events are immutable. Events are append-only. Terminal sessions remain historical but their inactive bindings and released claims do not block later work.
-
-## Validation and boundaries
-
-The command dispatcher rejects unknown fields, malformed project/repository/session/agent identities, unsafe paths, duplicate claim lists, stale base/PR/head assertions, unsupported transitions, and request-ID hash conflicts. Stable responses include `contract_version`, `request_id`, and `receipt_id`.
-
-Issue #53 owns parking, activation, priorities, and multiple same-slot work. Issue #54 owns review requests, takeover, and trusted bots. Issue #55 owns metadata migration, organization-rules cutover, and retirement of the old API/workflow/client paths. None is implemented here.
+This package does not implement parking, priorities, multiple same-slot work, review assignment, takeover, trusted bots, migration of old metadata, organization-rules cutover, or retirement of the old API/workflow/client paths. Those remain in the canonical program issues corresponding to former #53, #54, and #55.
