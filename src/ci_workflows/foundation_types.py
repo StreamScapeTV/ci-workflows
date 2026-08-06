@@ -6,16 +6,15 @@ import json
 import os
 import re
 import tempfile
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
-SAFE_ID = re.compile(r"^[a-z][a-z0-9-]{1,63}$")
+SAFE_ID = re.compile(r"^[a-z][a-z0-9_-]{1,63}$")
 SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
-VERSION = re.compile(r"^[0-9]+(?:\.[0-9]+){1,3}(?:[-+][0-9A-Za-z.-]+)?$")
 INSTRUCTION = re.compile(r"^[a-z][a-z0-9_]{2,95}$")
 
 
@@ -165,7 +164,3 @@ def atomic_write_text(path: Path, content: str, *, mode: int = 0o600) -> None:
 
 def atomic_write_json(path: Path, value: Any, *, mode: int = 0o600) -> None:
     atomic_write_text(path, canonical_json(value) + "\n", mode=mode)
-
-
-def dataclass_mapping(value: Any) -> Mapping[str, Any]:
-    return asdict(value)
