@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "contract_version": 1,
+  "authority": "Supabase PostgreSQL",
+  "private_schema": "agent_private",
+  "api_schema": "agent_api",
+  "project_locking": "transaction-scoped advisory lock plus row lock",
+  "request_hash": "sha256 of canonical jsonb text",
+  "roles": {
+    "ordinary_rpc_role": "service_role",
+    "direct_table_roles_revoked": ["PUBLIC", "anon", "authenticated", "service_role"]
+  },
+  "rpc": {
+    "command": "agent_api.command(jsonb)",
+    "resume": "agent_api.resume(text,text,text)",
+    "context": "agent_api.context(text,text,text)",
+    "ownership_check": "agent_api.ownership_check(text,text,bigint,text,bigint,text,text)"
+  },
+  "actions": {
+    "resume": {
+      "required": ["contract_version", "request_id", "action", "repository", "project", "session_name"],
+      "optional": []
+    },
+    "start": {
+      "required": ["contract_version", "request_id", "action", "repository", "project", "session_name", "issue_number", "branch", "task", "base_sha"],
+      "optional": ["agent_id", "branch_nonce", "pr_number", "head_sha", "claims"]
+    },
+    "claim": {
+      "required": ["contract_version", "request_id", "action", "repository", "project", "session_name", "agent_id", "issue_number", "branch", "claims"],
+      "optional": []
+    },
+    "release": {
+      "required": ["contract_version", "request_id", "action", "repository", "project", "session_name", "agent_id", "issue_number", "branch", "claims"],
+      "optional": []
+    },
+    "reconcile_base": {
+      "required": ["contract_version", "request_id", "action", "repository", "project", "session_name", "agent_id", "issue_number", "branch", "base_sha", "new_base_sha"],
+      "optional": ["head_sha"]
+    },
+    "block": {
+      "required": ["contract_version", "request_id", "action", "repository", "project", "session_name", "agent_id", "issue_number", "branch", "reason"],
+      "optional": []
+    },
+    "review": {
+      "required": ["contract_version", "request_id", "action", "repository", "project", "session_name", "agent_id", "issue_number", "branch", "pr_number", "base_sha", "head_sha", "summary"],
+      "optional": []
+    },
+    "done": {
+      "required": ["contract_version", "request_id", "action", "repository", "project", "session_name", "agent_id", "issue_number", "branch", "base_sha", "summary"],
+      "optional": ["pr_number", "head_sha", "merge_sha"]
+    },
+    "cancel": {
+      "required": ["contract_version", "request_id", "action", "repository", "project", "session_name", "agent_id", "issue_number", "branch", "reason"],
+      "optional": []
+    }
+  },
+  "claim_kinds": {
+    "file": ["exact", "prefix"],
+    "package": ["exact"],
+    "resource": ["exact"],
+    "manifest": ["exact"],
+    "device": ["exact"]
+  },
+  "nonterminal_statuses": ["active", "blocked", "review"],
+  "terminal_statuses": ["done", "cancelled"],
+  "identity": {
+    "session_name_pattern": "^(Agent|Codex) ([1-9][0-9]?)$",
+    "agent_id_patterns": {
+      "Agent": "^gpt-agent-<slot>-YYYYMMDD-HHMM-[a-z0-9]{4}$",
+      "Codex": "^cod-agent-<slot>-YYYYMMDD-HHMM-[a-z0-9]{4}$"
+    },
+    "enabled_slots": [1, 2, 3, 4, 5, 6, 7, 8, 9],
+    "branch_pattern": "^issue/<issue>-<lowercase-slug>-<four-character-nonce>$"
+  },
+  "projects": [
+    {"project": "ci-workflows", "repository": "StreamScapeTV/ci-workflows", "integration_branch": "main"},
+    {"project": "iptv-backend", "repository": "StreamScapeTV/iptv-backend", "integration_branch": "main"},
+    {"project": "StreamScapeWeb", "repository": "StreamScapeTV/StreamScapeWeb", "integration_branch": "main"},
+    {"project": "iptv-android", "repository": "StreamScapeTV/iptv-android", "integration_branch": "develop"},
+    {"project": "iptv-apple", "repository": "StreamScapeTV/iptv-apple", "integration_branch": "develop"},
+    {"project": "streamscape-media", "repository": "StreamScapeTV/streamscape-media", "integration_branch": "develop"},
+    {"project": "directus-front", "repository": "StreamScapeTV/directus-front", "integration_branch": "main"},
+    {"project": "finance-hub", "repository": "StreamScapeTV/finance-hub", "integration_branch": "main"},
+    {"project": "agent-state", "repository": "StreamScapeTV/agent-state", "integration_branch": "main"},
+    {"project": "flux", "repository": "StreamScapeTV/flux", "integration_branch": "main"},
+    {"project": "organization-rules", "repository": "StreamScapeTV/organization-rules", "integration_branch": "main"}
+  ],
+  "out_of_scope_actions": ["park", "activate", "transfer", "takeover", "review_request", "review_approve", "bot_start", "cutover", "retire"]
+}
