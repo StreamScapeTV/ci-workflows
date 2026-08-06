@@ -4,6 +4,7 @@ import importlib.util
 import json
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = ROOT / "scripts" / "ci" / "bootstrap_check.py"
@@ -71,6 +72,20 @@ class BootstrapContractTests(unittest.TestCase):
             harness["allowed_runner_profiles"],
             ["portable", "agent-state"],
         )
+
+    def test_self_check_rejects_obsolete_concrete_selector(self) -> None:
+        source = (ROOT / ".github/workflows/self-check.yml").read_text()
+        contaminated_source = source + "\n# homelab-portable-linux-x64\n"
+        with mock.patch.object(
+            MODULE,
+            "read_text",
+            return_value=contaminated_source,
+        ):
+            with self.assertRaisesRegex(
+                SystemExit,
+                "homelab-portable-linux-x64",
+            ):
+                MODULE.validate_self_check()
 
 
 if __name__ == "__main__":
