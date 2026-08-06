@@ -24,8 +24,6 @@ jobs:
       SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       PYTHONDONTWRITEBYTECODE: "1"
       PYTHONPATH: src
-      PIP_DISABLE_PIP_VERSION_CHECK: "1"
-      PIP_NO_CACHE_DIR: "1"
     steps:
       - name: Check out exact source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -47,13 +45,9 @@ jobs:
           validation_root="${RUNNER_TEMP}/ci-workflows-validation-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           rm -rf "${validation_root}"
           mkdir -p "${validation_root}/python"
-          python3 -m pip install \
-            --disable-pip-version-check \
-            --no-cache-dir \
-            --no-compile \
-            --no-input \
-            --target "${validation_root}/python" \
-            --requirement requirements/validation.lock
+          python3 scripts/ci/bootstrap_validation_runtime.py \
+            --lock contracts/action-tool-lock.json \
+            --target "${validation_root}/python"
           {
             printf 'VALIDATION_ROOT=%s\n' "${validation_root}"
             printf 'VALIDATION_PYTHON=python3\n'
