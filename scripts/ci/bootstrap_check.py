@@ -35,6 +35,7 @@ FORBIDDEN_SELF_CHECK_PATTERNS = (
     "pull_request_target:",
     "packages: write",
     "id-token: write",
+    "homelab-portable-linux-x64",
 )
 
 
@@ -98,7 +99,7 @@ def validate_public_workflow_exceptions() -> None:
 def validate_self_check() -> None:
     source = read_text(".github/workflows/self-check.yml")
     required = (
-        "runs-on: homelab-portable-linux-x64",
+        "runs-on: portable",
         "timeout-minutes: 10",
         "persist-credentials: false",
         "SOURCE_SHA:",
