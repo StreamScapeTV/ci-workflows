@@ -50,6 +50,7 @@ jobs:
           python3 -m unittest -v tests/test_workflow_inventory.py
           python3 -m unittest -v tests/test_inventory_contract.py
           python3 -m unittest -v tests/test_agent_state_command.py
+          python3 -m unittest -v tests/test_agent_state_command_configuration.py
 
       - name: Verify clean tracked tree
         shell: bash
