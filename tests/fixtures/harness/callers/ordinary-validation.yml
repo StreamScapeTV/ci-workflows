@@ -1,0 +1,13 @@
+name: Ordinary validation caller
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  validate_source:
+    name: Validate exact source
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-python.yml@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    with:
+      admitted_sha: ${{ github.event.pull_request.head.sha }}
+      validation_profile: backend
+      command_profile: unit

@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "third_party_actions": [
+    {
+      "uses": "actions/checkout",
+      "sha": "3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "release": "v7.0.1",
+      "runtime": "node24",
+      "source": "https://github.com/actions/checkout"
+    }
+  ],
+  "approved_internal_actions": [
+    ".github/actions",
+    "actions"
+  ],
+  "python": {
+    "minimum": "3.11",
+    "packages": [
+      {
+        "name": "PyYAML",
+        "version": "6.0.3",
+        "sha256": "d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f",
+        "artifact": "pyyaml-6.0.3.tar.gz",
+        "runtime": "python"
+      }
+    ]
+  }
+}
