@@ -2,7 +2,7 @@
 
 Capture date: `2026-08-06`
 
-This contract classifies **88 live workflow files across 11 repositories**. Capture commits are evidence anchors; the live drift check compares workflow paths and available Git blob identities without checking out or executing consumer source.
+This contract classifies **87 live workflow files across 11 repositories**. Capture commits are evidence anchors; the live drift check compares workflow paths and available Git blob identities without checking out or executing consumer source.
 
 ## Summary
 
@@ -15,8 +15,8 @@ This contract classifies **88 live workflow files across 11 repositories**. Capt
 | StreamScapeTV/flux | `main@8e611816f11c4ebaf126217646e030b9c2df18b9` | 18 | 18 | 0 | 2 | 0 | 2 |
 | StreamScapeTV/iptv-android | `develop@898b95fdbfec894299428ccfb8eb491be89030da` | 7 | 7 | 0 | 0 | 1 | 0 |
 | StreamScapeTV/iptv-apple | `develop@258ca9f70f432b5364ebeea9f55e3a42e1cc3281` | 13 | 9 | 4 | 0 | 0 | 0 |
-| StreamScapeTV/iptv-backend | `main@e1b75c7c9105137fc00746d1dc4d553c8c438f2a` | 6 | 5 | 1 | 1 | 0 | 0 |
-| StreamScapeTV/organization-rules | `main@925bca77d3c722345765de598f7a47c2a0b21f28` | 1 | 1 | 0 | 0 | 0 | 0 |
+| StreamScapeTV/iptv-backend | `main@982275628f41c4fac1d652b05ca8ff1cee7eb151` | 6 | 5 | 1 | 1 | 0 | 0 |
+| StreamScapeTV/organization-rules | `main@c6d255885f9567f275b53f4fdccaa4927267d2b1` | 0 | 0 | 0 | 0 | 0 | 0 |
 | StreamScapeTV/streamscape-media | `develop@7cf106c5fea32583cd12fea56bda6bb402ed49f6` | 18 | 14 | 4 | 2 | 4 | 0 |
 | StreamScapeTV/StreamScapeWeb | `main@3cd28e7ae45b6503464ece2e0df70b4cb2031b81` | 4 | 4 | 0 | 0 | 0 | 0 |
 
@@ -27,10 +27,10 @@ This contract classifies **88 live workflow files across 11 repositories**. Capt
 | Disposition | `public` | central public reusable workflow | 6 |
 | Disposition | `internal` | central internal reusable workflow | 0 |
 | Disposition | `function` | central named function or composite action | 0 |
-| Disposition | `thin` | thin repository caller | 70 |
+| Disposition | `thin` | thin repository caller | 69 |
 | Disposition | `owned` | repository-owned product command/contract/policy/data | 0 |
 | Disposition | `retire` | temporary/repair workflow to retire | 12 |
-| Trust | `read` | read-only-validation | 43 |
+| Trust | `read` | read-only-validation | 42 |
 | Trust | `agent-state` | agent-state-transport | 17 |
 | Trust | `publish` | trusted-publication | 8 |
 | Trust | `maintenance` | trusted-maintenance | 13 |
@@ -50,7 +50,7 @@ This contract classifies **88 live workflow files across 11 repositories**. Capt
 | Migration | `flux-assets` | Reusable Flux runner-image/chart build, publish, read-back, canary, and manifest orchestration. | 8 |
 | Migration | `flux-reconcile` | Central trusted Flux wrapper executing exact Flux-owned policy and allowlist source. | 1 |
 | Migration | `gitops` | Reusable source-only YAML/Helm/Kustomize validation; retain Flux/product policy in owner. | 6 |
-| Migration | `conformance` | Central workflow/action/runner/security conformance; retain repository-specific assertions. | 7 |
+| Migration | `conformance` | Central workflow/action/runner/security conformance; retain repository-specific assertions. | 6 |
 | Migration | `python` | Reusable exact-source Python/PostgreSQL validation and product-contract checks. | 2 |
 | Migration | `media` | Reusable Media Android/Apple/native validation or inventory-confirmed native release verification. | 3 |
 | Migration | `policy-validation` | Central source-only validation of organization-rules; policy remains owned there. | 0 |
@@ -177,8 +177,8 @@ This contract classifies **88 live workflow files across 11 repositories**. Capt
 
 ### StreamScapeTV/iptv-backend
 
-- Capture: `main@e1b75c7c9105137fc00746d1dc4d553c8c438f2a`
-- Evidence basis: live indexed tree and exact file reads
+- Capture: `main@982275628f41c4fac1d652b05ca8ff1cee7eb151`
+- Evidence basis: live indexed tree and exact workflow reads; later product-only commits did not change workflow blobs
 
 | Workflow | Name | Status | Disposition | Migration | Trust | Blob |
 |---|---|---|---|---|---|---|
@@ -191,12 +191,11 @@ This contract classifies **88 live workflow files across 11 repositories**. Capt
 
 ### StreamScapeTV/organization-rules
 
-- Capture: `main@925bca77d3c722345765de598f7a47c2a0b21f28`
-- Evidence basis: exact repository instructions and bootstrap commit
+- Capture: `main@c6d255885f9567f275b53f4fdccaa4927267d2b1`
+- Evidence basis: exact current policy reduction commit; repository intentionally contains no GitHub Actions workflows
 
 | Workflow | Name | Status | Disposition | Migration | Trust | Blob |
 |---|---|---|---|---|---|---|
-| `.github/workflows/validate-policy.yml` | Validate organization rules | `current` | `thin` | `conformance` | `read` | — |
 
 ### StreamScapeTV/streamscape-media
 
