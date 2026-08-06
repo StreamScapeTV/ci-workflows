@@ -9,6 +9,7 @@ import socket
 import subprocess
 import tarfile
 import tempfile
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 
@@ -61,6 +62,27 @@ def _safe_extract(archive: pathlib.Path, destination: pathlib.Path) -> None:
         tar.extractall(destination)
 
 
+def _validate_bin_dir(bin_dir: pathlib.Path) -> pathlib.Path | None:
+    if not all((bin_dir / name).is_file() for name in REQUIRED_BINARIES):
+        return None
+    versions = _run([str(bin_dir / "initdb"), "--version"], check=False).stdout
+    if f" {POSTGRES_VERSION}" not in versions and " 17." not in versions:
+        return None
+    return bin_dir
+
+
+def _find_configured_postgres() -> pathlib.Path | None:
+    configured = os.environ.get("AGENT_STATE_POSTGRES_BIN")
+    if not configured:
+        return None
+    resolved = _validate_bin_dir(pathlib.Path(configured).expanduser().resolve())
+    if resolved is None:
+        raise CommandError(
+            "AGENT_STATE_POSTGRES_BIN must contain a complete PostgreSQL 17 binary set"
+        )
+    return resolved
+
+
 def _find_system_postgres() -> pathlib.Path | None:
     found: list[pathlib.Path] = []
     for name in REQUIRED_BINARIES:
@@ -68,10 +90,7 @@ def _find_system_postgres() -> pathlib.Path | None:
         if path is None:
             return None
         found.append(pathlib.Path(path))
-    versions = _run([str(found[0]), "--version"], check=False).stdout
-    if f" {POSTGRES_VERSION}" not in versions and " 17." not in versions:
-        return None
-    return found[0].parent
+    return _validate_bin_dir(found[0].parent)
 
 
 def _download_source(destination: pathlib.Path) -> pathlib.Path:
@@ -81,7 +100,14 @@ def _download_source(destination: pathlib.Path) -> pathlib.Path:
         POSTGRES_SOURCE_URL,
         headers={"User-Agent": "StreamScapeTV-ci-workflows-issue-52"},
     )
-    with urllib.request.urlopen(request, timeout=60) as response, archive.open("wb") as output:
+    try:
+        response_context = urllib.request.urlopen(request, timeout=60)
+    except urllib.error.URLError as exc:
+        raise CommandError(
+            "PostgreSQL 17 is not installed and the pinned official source archive "
+            "could not be downloaded; provide AGENT_STATE_POSTGRES_BIN or network access"
+        ) from exc
+    with response_context as response, archive.open("wb") as output:
         while True:
             chunk = response.read(1024 * 1024)
             if not chunk:
@@ -162,7 +188,11 @@ class PostgresRuntime:
 
     def __enter__(self) -> "PostgresRuntime":
         try:
-            self.bin_dir = _find_system_postgres() or _build_postgres(self.root / "build")
+            self.bin_dir = (
+                _find_configured_postgres()
+                or _find_system_postgres()
+                or _build_postgres(self.root / "build")
+            )
             self._prepare_process_user()
             self._initdb()
             self._start()
