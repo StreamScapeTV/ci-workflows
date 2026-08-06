@@ -1,0 +1,163 @@
+{
+  "schema_version": 1,
+  "organization": "StreamScapeTV",
+  "release_principles": {
+    "exact_source_required": true,
+    "latest_forbidden": true,
+    "publication_separate_from_deployment": true,
+    "routine_actions_artifacts": "forbidden",
+    "ci_workflows_repository_release": "lightweight-git-tag-only"
+  },
+  "products": [
+    {
+      "id": "iptv-backend-image",
+      "repository": "StreamScapeTV/iptv-backend",
+      "kind": "oci-image",
+      "status": "current",
+      "release_mode": "tag-triggered-immutable-publication",
+      "owner": "product-repository",
+      "central_workflow_target": "reusable-oci-build.yml + reusable-oci-publish.yml + reusable-release.yml"
+    },
+    {
+      "id": "iptv-backend-chart",
+      "repository": "StreamScapeTV/iptv-backend",
+      "kind": "helm-oci-chart",
+      "status": "current",
+      "release_mode": "tag-triggered-immutable-publication",
+      "owner": "product-repository",
+      "central_workflow_target": "reusable-helm-validate.yml + reusable-helm-publish.yml + reusable-release.yml"
+    },
+    {
+      "id": "streamscape-web-static-export",
+      "repository": "StreamScapeTV/StreamScapeWeb",
+      "kind": "static-web-bundle",
+      "status": "current",
+      "release_mode": "cloudflare-pages-git-deployment-outside-shared-release",
+      "owner": "product-repository",
+      "central_workflow_target": "reusable-node.yml validation only"
+    },
+    {
+      "id": "iptv-android-application",
+      "repository": "StreamScapeTV/iptv-android",
+      "kind": "mobile-application",
+      "status": "current",
+      "release_mode": "non-publishing-validation-only-in-current-program",
+      "owner": "product-repository",
+      "central_workflow_target": "reusable-android.yml + reusable-device.yml"
+    },
+    {
+      "id": "iptv-apple-applications",
+      "repository": "StreamScapeTV/iptv-apple",
+      "kind": "apple-applications",
+      "status": "current",
+      "release_mode": "unsigned-non-publishing-validation-only-in-current-program",
+      "owner": "product-repository",
+      "central_workflow_target": "reusable-apple.yml + explicitly-authorized reusable-device.yml"
+    },
+    {
+      "id": "streamscape-media-library",
+      "repository": "StreamScapeTV/streamscape-media",
+      "kind": "cross-platform-native-library",
+      "status": "current",
+      "release_mode": "inventory-confirmed-native-release-only; no-container-product",
+      "owner": "product-repository",
+      "central_workflow_target": "reusable-android.yml + reusable-apple.yml + reusable-device.yml"
+    },
+    {
+      "id": "directus-front-application",
+      "repository": "StreamScapeTV/directus-front",
+      "kind": "flutter-application",
+      "status": "current",
+      "release_mode": "debug-unsigned-non-publishing-validation",
+      "owner": "product-repository",
+      "central_workflow_target": "reusable-flutter.yml"
+    },
+    {
+      "id": "finance-hub-application",
+      "repository": "StreamScapeTV/finance-hub",
+      "kind": "flutter-application",
+      "status": "current",
+      "release_mode": "debug-unsigned-non-publishing-validation",
+      "owner": "product-repository",
+      "central_workflow_target": "reusable-flutter.yml + optionally-authorized reusable-device.yml"
+    },
+    {
+      "id": "agent-state-image",
+      "repository": "StreamScapeTV/agent-state",
+      "kind": "oci-image",
+      "status": "current",
+      "release_mode": "tag-triggered-immutable-publication",
+      "owner": "product-repository",
+      "central_workflow_target": "reusable-oci-build.yml + reusable-oci-publish.yml + reusable-release.yml"
+    },
+    {
+      "id": "agent-state-chart",
+      "repository": "StreamScapeTV/agent-state",
+      "kind": "helm-oci-chart",
+      "status": "current",
+      "release_mode": "tag-triggered-immutable-publication",
+      "owner": "product-repository",
+      "central_workflow_target": "reusable-helm-validate.yml + reusable-helm-publish.yml + reusable-release.yml"
+    },
+    {
+      "id": "flux-runner-images",
+      "repository": "StreamScapeTV/flux",
+      "kind": "oci-runner-image-family",
+      "status": "current",
+      "release_mode": "immutable-publication-read-back-canary-then-reviewed-selection",
+      "owner": "flux-product-contract",
+      "central_workflow_target": "reusable-oci-build.yml + reusable-oci-publish.yml + reusable-flux-infrastructure-assets.yml"
+    },
+    {
+      "id": "flux-runner-chart-assets",
+      "repository": "StreamScapeTV/flux",
+      "kind": "helm-oci-chart-assets",
+      "status": "current",
+      "release_mode": "locked-upstream-or-owned-chart-publication-read-back-then-reviewed-selection",
+      "owner": "flux-product-contract",
+      "central_workflow_target": "reusable-helm-validate.yml + reusable-helm-publish.yml + reusable-flux-infrastructure-assets.yml"
+    },
+    {
+      "id": "flux-desired-state",
+      "repository": "StreamScapeTV/flux",
+      "kind": "gitops-desired-state",
+      "status": "current",
+      "release_mode": "reviewed-source-change-and-trusted-reconciliation",
+      "owner": "flux",
+      "central_workflow_target": "reusable-gitops-validation.yml + trusted reusable-flux-reconcile.yml"
+    },
+    {
+      "id": "organization-operating-policy",
+      "repository": "StreamScapeTV/organization-rules",
+      "kind": "versioned-policy-source",
+      "status": "current",
+      "release_mode": "git-source-and-policy-version",
+      "owner": "organization-rules",
+      "central_workflow_target": "source-only policy validation; no product publication"
+    },
+    {
+      "id": "shared-workflow-library",
+      "repository": "StreamScapeTV/ci-workflows",
+      "kind": "github-actions-workflow-library",
+      "status": "current",
+      "release_mode": "lightweight-git-tag-only",
+      "owner": "ci-workflows",
+      "central_workflow_target": "self"
+    }
+  ],
+  "explicit_non_products": [
+    {
+      "repositories": [
+        "StreamScapeTV/StreamScapeWeb",
+        "StreamScapeTV/iptv-android",
+        "StreamScapeTV/iptv-apple",
+        "StreamScapeTV/streamscape-media",
+        "StreamScapeTV/directus-front",
+        "StreamScapeTV/finance-hub",
+        "StreamScapeTV/organization-rules"
+      ],
+      "forbidden_implicit_products": ["oci-image", "helm-chart", "jib-image"],
+      "reason": "No current inventory-approved container or chart product. A separate reviewed product issue is required."
+    }
+  ]
+}

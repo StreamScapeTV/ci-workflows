@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "organization": "StreamScapeTV",
+  "repositories": [
+    {
+      "repository": "StreamScapeTV/ci-workflows",
+      "integration_branch": "main",
+      "agent_state_project": "ci-workflows",
+      "agent_state_mapping_status": "established",
+      "technologies": ["github-actions", "python"],
+      "products": ["shared-workflows"],
+      "runner_capabilities": ["portable", "agent-state-control", "oci-publication", "gitops-authorized"],
+      "required_checks": [],
+      "required_checks_status": "not-confirmed",
+      "migration_status": "inventory-in-progress"
+    },
+    {
+      "repository": "StreamScapeTV/iptv-backend",
+      "integration_branch": "main",
+      "agent_state_project": "iptv-backend",
+      "agent_state_mapping_status": "established",
+      "technologies": ["python", "postgresql", "helm", "oci"],
+      "products": ["application-image", "application-chart"],
+      "runner_capabilities": ["portable", "postgresql", "daemonless-oci"],
+      "required_checks": [],
+      "required_checks_status": "not-confirmed",
+      "migration_status": "planned"
+    },
+    {
+      "repository": "StreamScapeTV/StreamScapeWeb",
+      "integration_branch": "main",
+      "agent_state_project": "StreamScapeWeb",
+      "agent_state_mapping_status": "established",
+      "technologies": ["node", "nextjs", "typescript"],
+      "products": ["cloudflare-pages-static-export"],
+      "runner_capabilities": ["portable"],
+      "required_checks": [],
+      "required_checks_status": "not-confirmed",
+      "migration_status": "planned"
+    },
+    {
+      "repository": "StreamScapeTV/iptv-android",
+      "integration_branch": "develop",
+      "agent_state_project": "iptv-android",
+      "agent_state_mapping_status": "established",
+      "technologies": ["android", "gradle", "kotlin", "java"],
+      "products": ["android-application"],
+      "runner_capabilities": ["portable", "android-api-37", "android-device"],
+      "required_checks": [],
+      "required_checks_status": "not-confirmed",
+      "migration_status": "planned"
+    },
+    {
+      "repository": "StreamScapeTV/iptv-apple",
+      "integration_branch": "develop",
+      "agent_state_project": "iptv-apple",
+      "agent_state_mapping_status": "established",
+      "technologies": ["swift", "xcode", "ios", "tvos", "macos"],
+      "products": ["apple-applications"],
+      "runner_capabilities": ["apple-simulator", "apple-device"],
+      "required_checks": [],
+      "required_checks_status": "not-confirmed",
+      "migration_status": "planned"
+    },
+    {
+      "repository": "StreamScapeTV/streamscape-media",
+      "integration_branch": "develop",
+      "agent_state_project": "streamscape-media",
+      "agent_state_mapping_status": "established",
+      "technologies": ["android", "swift", "native-media", "gradle", "xcode"],
+      "products": ["cross-platform-media-library"],
+      "runner_capabilities": ["portable", "android-api-37", "apple-simulator", "android-device", "apple-device"],
+      "required_checks": [],
+      "required_checks_status": "not-confirmed",
+      "migration_status": "planned"
+    },
+    {
+      "repository": "StreamScapeTV/directus-front",
+      "integration_branch": "main",
+      "agent_state_project": "directus-front",
+      "agent_state_mapping_status": "established",
+      "technologies": ["flutter", "dart", "android", "ios"],
+      "products": ["flutter-application"],
+      "runner_capabilities": ["portable", "apple-simulator"],
+      "required_checks": [],
+      "required_checks_status": "not-confirmed",
+      "migration_status": "planned"
+    },
+    {
+      "repository": "StreamScapeTV/finance-hub",
+      "integration_branch": "main",
+      "agent_state_project": "finance-hub",
+      "agent_state_mapping_status": "established",
+      "technologies": ["flutter", "dart", "node", "android", "ios"],
+      "products": ["flutter-application"],
+      "runner_capabilities": ["portable", "apple-simulator", "android-device"],
+      "required_checks": [],
+      "required_checks_status": "not-confirmed",
+      "migration_status": "planned"
+    },
+    {
+      "repository": "StreamScapeTV/agent-state",
+      "integration_branch": "main",
+      "agent_state_project": "agent-state",
+      "agent_state_mapping_status": "established",
+      "technologies": ["python", "postgresql", "node", "compose", "helm", "oci"],
+      "products": ["agent-state-image", "agent-state-chart", "github-release"],
+      "runner_capabilities": ["portable", "postgresql", "daemonless-oci", "agent-state-control"],
+      "required_checks": [],
+      "required_checks_status": "not-confirmed",
+      "migration_status": "planned"
+    },
+    {
+      "repository": "StreamScapeTV/flux",
+      "integration_branch": "main",
+      "agent_state_project": "flux",
+      "agent_state_mapping_status": "established",
+      "technologies": ["flux", "kustomize", "helm", "sops", "oci"],
+      "products": ["gitops-desired-state", "runner-images", "runner-chart-assets"],
+      "runner_capabilities": ["portable", "daemonless-oci", "gitops-authorized", "agent-state-control"],
+      "required_checks": [],
+      "required_checks_status": "not-confirmed",
+      "migration_status": "planned"
+    },
+    {
+      "repository": "StreamScapeTV/organization-rules",
+      "integration_branch": "main",
+      "agent_state_project": "not-established",
+      "agent_state_mapping_status": "not-established-do-not-use-as-project-key",
+      "technologies": ["markdown", "json", "python", "github-actions"],
+      "products": ["organization-operating-policy"],
+      "runner_capabilities": ["portable"],
+      "required_checks": [],
+      "required_checks_status": "not-confirmed",
+      "migration_status": "new-repository-inventory-added"
+    }
+  ]
+}
