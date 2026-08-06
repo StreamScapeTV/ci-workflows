@@ -14,6 +14,12 @@ A public workflow may call one reviewed internal reusable-workflow leaf when mul
 
 Public workflow YAML stays readable. Non-trivial algorithms live in named, typed, tested functions under `src/ci_workflows/` and are exposed through thin adapters. Product-specific commands remain repository-owned hooks selected by bounded profiles or checked-in relative paths; callers never submit arbitrary shell.
 
+## Reference channels
+
+During the initial organization migration, protected `StreamScapeTV/ci-workflows@main` is the preferred channel for every public workflow family. A central correction therefore becomes available to migrated repositories without editing every caller. Full commit SHAs and immutable SemVer tags remain supported at all times and can be selected whenever a consumer needs a fixed or rollback reference.
+
+A moving workflow reference never weakens source admission. Product source, release tags, Agent State requests, pull-request heads, device commands, and Flux policy are still resolved and validated as exact inputs by the called workflow. Changes to the public API contract remain reviewable in this repository before they reach `main`.
+
 ## Caller and called-workflow boundary
 
 The consumer repository owns:
@@ -56,7 +62,7 @@ Device work is explicitly authorized, exact-source, single-resource, time-bounde
 
 ### Trusted publication
 
-Publication runs only for immutable admitted release source. Image and chart products are selected from the product contract; callers do not choose a registry host, container engine, storage driver, or registry command. Publication and deployment remain separate, and immutable products require independent remote read-back.
+Publication runs only for an exact admitted release tag and source SHA. Image and chart products are selected from the product contract; callers do not choose a registry host, container engine, storage driver, or registry command. Publication and deployment remain separate, and immutable products require independent remote read-back.
 
 ### Flux-authorized reconciliation
 
@@ -64,7 +70,7 @@ Flux remains the sole authority for desired state, target and product allowlists
 
 ### Trusted maintenance
 
-Maintenance APIs are operation-specific, immutable-reference-only, report-first, dry-run-by-default, and fail closed. Artifact cleanup, merged-branch hygiene, organization conformance, and runner-infrastructure retry use separate permission profiles rather than one broad maintenance credential.
+Maintenance APIs are operation-specific, protected-main-or-immutable-reference, report-first, dry-run-by-default, and fail closed. Artifact cleanup, merged-branch hygiene, organization conformance, and runner-infrastructure retry use separate permission profiles rather than one broad maintenance credential.
 
 ## Inputs, outputs, and forbidden fields
 
@@ -85,4 +91,4 @@ The default is zero routine Actions artifacts. A named exception must define the
 
 ## Compatibility and implementation order
 
-The registry is reviewed before implementation. Compatible additions, conditional changes, and breaking changes are classified by `scripts/ci/public_api_contract.py`. Breaking changes require an explicit acknowledgement with a migration issue and effective version. Implementations, callers, required checks, and immutable release manifests must remain synchronized with the approved records.
+The registry is reviewed before implementation. Compatible additions, conditional changes, and breaking changes are classified by `scripts/ci/public_api_contract.py`. Breaking changes require an explicit acknowledgement with a migration issue and effective version. Implementations, callers, required checks, the protected `main` channel, and immutable release manifests must remain synchronized with the approved records.
