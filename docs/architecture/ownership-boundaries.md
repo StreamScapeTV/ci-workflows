@@ -68,7 +68,7 @@ The Agent State product repository retains its backend, frontend, Compose, image
 
 `ci-workflows` owns reusable source-validation, runner-image/chart build and publication, release-manifest, maintenance, and trusted reconciliation orchestration. A trusted central Flux wrapper checks out exact protected Flux source and executes Flux-owned allowlist, plan, reconcile, and health scripts. It never accepts an arbitrary namespace, object, kubeconfig path, command, image, chart, or cluster target from untrusted input.
 
-Publication and live selection are separate evidence states. Publishing a runner image or chart never mutates the live scale set automatically.
+The rule is explicit: publication and live selection are separate evidence states. Publishing a runner image or chart never mutates the live scale set automatically.
 
 ## Organization operating policy
 
