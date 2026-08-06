@@ -80,6 +80,11 @@
       "expected": "repository_tree_dirty"
     },
     {
+      "id": "generated-output-drift",
+      "primitive": "policy",
+      "expected": "generated_output_dirty"
+    },
+    {
       "id": "token-like-content",
       "primitive": "policy",
       "expected": "tracked_secret_detected"
