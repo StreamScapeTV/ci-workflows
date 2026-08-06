@@ -1,183 +1,119 @@
 from __future__ import annotations
 
-import importlib.util
-import json
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
-MODULE_PATH = Path(__file__).parents[1] / "scripts" / "ci" / "workflow_inventory.py"
-SPEC = importlib.util.spec_from_file_location("workflow_inventory", MODULE_PATH)
-assert SPEC and SPEC.loader
-workflow_inventory = importlib.util.module_from_spec(SPEC)
-sys.modules[SPEC.name] = workflow_inventory
-SPEC.loader.exec_module(workflow_inventory)
+ROOT = Path(__file__).resolve().parents[1]
+CI_SCRIPTS = ROOT / "scripts" / "ci"
+if str(CI_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(CI_SCRIPTS))
+
+import workflow_inventory  # noqa: E402
 
 
-class AnalyzeWorkflowTests(unittest.TestCase):
-    def test_extracts_workflow_shape_without_execution(self) -> None:
-        source = """name: Release
+class WorkflowInventorySourceTests(unittest.TestCase):
+    def test_analyze_workflow_extracts_source_shape(self) -> None:
+        source = """name: Example CI
 on:
-  push:
-    tags: ['*']
+  pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
+  issues: write
 jobs:
-  publish:
-    runs-on: [self-hosted, buildah-high]
+  validate:
+    runs-on: portable
     steps:
-      - uses: actions/checkout@abc
-        with:
-          persist-credentials: false
-      - uses: actions/upload-artifact@def
-      - run: helm version && buildah version
-        env:
-          TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+      - uses: actions/checkout@0123456789012345678901234567890123456789
+      - uses: StreamScapeTV/agent-state/.github/workflows/agent-state-lifecycle.yml@main
+        secrets:
+          token: ${{ secrets.AGENT_STATE_API_TOKEN }}
+      - uses: actions/upload-artifact@1111111111111111111111111111111111111111
+      - run: python3 -m pytest && helm template chart && buildah bud .
 """
-        result = workflow_inventory.analyze_workflow(source)
-        self.assertEqual(result["name"], "Release")
-        self.assertEqual(result["triggers"], ["push"])
-        self.assertEqual(result["permissions"], {"contents": "read"})
-        self.assertEqual(result["runners"], ["[self-hosted, buildah-high]"])
-        self.assertEqual(result["secrets"], ["REGISTRY_TOKEN"])
-        self.assertEqual(result["artifact_actions"], ["actions/upload-artifact@def"])
-        self.assertEqual(result["product_markers"], ["helm", "oci"])
-        self.assertIn("persist-credentials-false", result["source_markers"])
-
-    def test_inline_triggers_and_scalar_permissions(self) -> None:
-        source = "name: Audit\non: [push, pull_request]\npermissions: read-all\njobs:\n  audit:\n    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-audit.yml@main\n"
-        result = workflow_inventory.analyze_workflow(source)
-        self.assertEqual(result["triggers"], ["pull_request", "push"])
-        self.assertEqual(result["permissions"], "read-all")
+        record = workflow_inventory.analyze_workflow(
+            ".github/workflows/example.yml", source, "a" * 40
+        )
+        self.assertEqual(record["name"], "Example CI")
+        self.assertEqual(record["triggers"], ["pull_request", "workflow_dispatch"])
+        self.assertEqual(record["permissions"], ["contents:read", "issues:write"])
+        self.assertEqual(record["runs_on"], ["portable"])
+        self.assertEqual(record["secrets"], ["AGENT_STATE_API_TOKEN"])
+        self.assertTrue(record["uploads_artifacts"])
         self.assertEqual(
-            result["reusable_workflows"],
-            ["StreamScapeTV/ci-workflows/.github/workflows/reusable-audit.yml@main"],
+            record["calls_reusable_workflows"],
+            ["StreamScapeTV/agent-state/.github/workflows/agent-state-lifecycle.yml@main"],
+        )
+        self.assertEqual(record["products"], ["helm", "oci", "python"])
+        self.assertEqual(record["blob_sha"], "a" * 40)
+
+    def test_inline_trigger_list_and_absent_permissions_are_deterministic(self) -> None:
+        source = 'name: Inline\n"on": [push, workflow_dispatch]\njobs:\n  one:\n    runs-on: [portable]\n'
+        record = workflow_inventory.analyze_workflow(
+            ".github/workflows/inline.yaml", source
+        )
+        self.assertEqual(record["triggers"], ["push", "workflow_dispatch"])
+        self.assertEqual(record["permissions"], [])
+        self.assertEqual(record["name"], "Inline")
+
+    def test_validate_and_render_route_to_the_authoritative_v2_contract(self) -> None:
+        self.assertEqual(
+            workflow_inventory.main(["--root", str(ROOT), "validate"]),
+            0,
+        )
+        self.assertEqual(
+            workflow_inventory.main(["--root", str(ROOT), "render", "--check"]),
+            0,
         )
 
-
-class ContractTests(unittest.TestCase):
-    def _consumer_document(self) -> dict:
-        return {
-            "schema_version": 1,
-            "organization": "StreamScapeTV",
+    def test_compare_inventory_delegates_to_live_tree_contract(self) -> None:
+        inventory = {
             "repositories": [
                 {
-                    "repository": "StreamScapeTV/zeta",
-                    "integration_branch": "main",
-                    "agent_state_project": "zeta",
-                    "technologies": ["python"],
-                    "products": ["service"],
-                    "runner_capabilities": ["portable"],
-                    "required_checks": [],
-                    "migration_status": "planned",
-                },
-                {
-                    "repository": "StreamScapeTV/alpha",
-                    "integration_branch": "develop",
-                    "agent_state_project": "alpha",
-                    "technologies": ["node"],
-                    "products": ["web"],
-                    "runner_capabilities": ["portable"],
-                    "required_checks": ["CI"],
-                    "migration_status": "planned",
-                },
-            ],
-        }
-
-    def test_load_consumers_is_deterministic(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "consumers.json"
-            path.write_text(json.dumps(self._consumer_document()), encoding="utf-8")
-            consumers = workflow_inventory.load_consumers(path)
-        self.assertEqual(
-            [item.repository for item in consumers],
-            ["StreamScapeTV/alpha", "StreamScapeTV/zeta"],
-        )
-
-    def test_duplicate_consumer_fails(self) -> None:
-        document = self._consumer_document()
-        document["repositories"].append(dict(document["repositories"][0]))
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "consumers.json"
-            path.write_text(json.dumps(document), encoding="utf-8")
-            with self.assertRaisesRegex(workflow_inventory.InventoryError, "duplicate repository"):
-                workflow_inventory.load_consumers(path)
-
-    def test_compare_reports_commit_and_workflow_drift(self) -> None:
-        expected = {
-            "repositories": [
-                {
-                    "repository": "StreamScapeTV/demo",
-                    "exact_commit": "a" * 40,
-                    "workflows": [{"path": ".github/workflows/ci.yml", "sha256": "old"}],
-                }
-            ]
-        }
-        actual = {
-            "repositories": [
-                {
-                    "repository": "StreamScapeTV/demo",
-                    "exact_commit": "b" * 40,
+                    "repository": "StreamScapeTV/example",
                     "workflows": [
-                        {"path": ".github/workflows/ci.yml", "sha256": "new"},
-                        {"path": ".github/workflows/release.yml", "sha256": "release"},
+                        [
+                            ".github/workflows/current.yml",
+                            "Current",
+                            "current",
+                            "thin",
+                            "other",
+                            "read",
+                            "a" * 40,
+                        ]
                     ],
                 }
             ]
         }
-        errors = workflow_inventory.compare_inventory(expected, actual)
-        self.assertEqual(len(errors), 3)
-        self.assertTrue(any("integration commit changed" in item for item in errors))
-        self.assertTrue(any("workflow changed" in item for item in errors))
-        self.assertTrue(any("workflow added" in item for item in errors))
-
-    def test_markdown_escapes_table_cells(self) -> None:
-        document = {
-            "repositories": [
+        self.assertEqual(
+            workflow_inventory.compare_inventory(
+                inventory,
                 {
-                    "repository": "StreamScapeTV/demo",
-                    "integration_branch": "main",
-                    "exact_commit": "a" * 40,
-                    "products": ["web"],
-                    "migration_status": "planned",
-                    "workflows": [
-                        {
-                            "path": ".github/workflows/ci.yml",
-                            "name": "A | B",
-                            "triggers": ["push"],
-                            "runners": ["portable"],
-                            "product_markers": ["node"],
-                            "disposition": "central public reusable workflow",
-                            "migration_target": "reusable-node.yml",
-                        }
-                    ],
-                }
-            ]
-        }
-        rendered = workflow_inventory.render_markdown(document)
-        self.assertIn("A \\| B", rendered)
-        self.assertIn("main@" + "a" * 40, rendered)
-
-    def test_normalize_sorts_repositories_and_workflows(self) -> None:
-        document = {
-            "repositories": [
-                {
-                    "repository": "StreamScapeTV/zeta",
-                    "workflows": [{"path": "z.yml"}, {"path": "a.yml"}],
+                    "StreamScapeTV/example": {
+                        ".github/workflows/current.yml": "a" * 40
+                    }
                 },
-                {"repository": "StreamScapeTV/alpha", "workflows": []},
-            ]
-        }
-        normalized = workflow_inventory.normalize_inventory(document)
-        self.assertEqual(
-            [row["repository"] for row in normalized["repositories"]],
-            ["StreamScapeTV/alpha", "StreamScapeTV/zeta"],
+            ),
+            [],
         )
-        self.assertEqual(
-            [row["path"] for row in normalized["repositories"][1]["workflows"]],
-            ["a.yml", "z.yml"],
+        errors = workflow_inventory.compare_inventory(
+            inventory,
+            {
+                "StreamScapeTV/example": {
+                    ".github/workflows/new.yml": "b" * 40
+                }
+            },
         )
+        self.assertTrue(any("workflow removed" in error for error in errors))
+        self.assertTrue(any("workflow added" in error for error in errors))
+
+    def test_compatibility_module_contains_no_second_inventory_schema(self) -> None:
+        source = (CI_SCRIPTS / "workflow_inventory.py").read_text(encoding="utf-8")
+        self.assertNotIn('"schema_version": 1', source)
+        self.assertNotIn("def capture(", source)
+        self.assertIn("inventory_contract.main", source)
+        self.assertIn("inventory_live_check.main", source)
 
 
 if __name__ == "__main__":
