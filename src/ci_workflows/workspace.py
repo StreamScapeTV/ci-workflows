@@ -2,18 +2,16 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import stat
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Mapping, Sequence
 
 from .foundation_types import (
     FoundationError,
     atomic_write_json,
     bounded_path,
-    canonical_json,
     ensure_no_symlink_escape,
     full_sha,
     load_contract,
@@ -80,44 +78,63 @@ class CleanupReport:
             "state_id": self.state_id,
             "removed_paths": str(self.removed_paths),
             "removed_sensitive_paths": str(self.removed_sensitive_paths),
-            "partial_setup": "true" if self.partial_setup else "false",
+            "partial_setup": str(self.partial_setup).lower(),
             "platform": self.platform,
             "cleanup_verified": "true",
         }
 
 
-def _contract_paths(contract: Mapping[str, Any], profile: str) -> list[RegisteredPath]:
+def _path_entry(raw: Any) -> RegisteredPath:
+    require(isinstance(raw, dict), "workspace_contract_invalid")
+    return RegisteredPath(
+        name=safe_id(raw.get("name"), "invalid_registered_path_name"),
+        relative=safe_relative_path(raw.get("relative")),
+        kind=safe_id(raw.get("kind"), "invalid_registered_path_kind"),
+    )
+
+
+def _profile_order(contract: Mapping[str, Any], profile: str) -> list[str]:
     profiles = contract.get("profiles")
     require(isinstance(profiles, dict) and profile in profiles, "unsupported_workspace_profile")
-    result: dict[str, RegisteredPath] = {}
+    result: list[str] = []
+    active: set[str] = set()
+    complete: set[str] = set()
 
-    def add_entries(entries: Any) -> None:
-        require(isinstance(entries, list), "workspace_contract_invalid")
-        for raw in entries:
-            require(isinstance(raw, dict), "workspace_contract_invalid")
-            name = safe_id(raw.get("name"), "invalid_registered_path_name")
-            relative = safe_relative_path(raw.get("relative"))
-            kind = safe_id(raw.get("kind"), "invalid_registered_path_kind")
-            require(name not in result, "duplicate_registered_path")
-            result[name] = RegisteredPath(name=name, relative=relative, kind=kind)
-
-    add_entries(contract.get("base_paths"))
-    seen_profiles: set[str] = set()
-
-    def add_profile(identifier: str) -> None:
-        require(identifier not in seen_profiles, "workspace_profile_cycle")
-        seen_profiles.add(identifier)
-        raw_profile = profiles.get(identifier)
-        require(isinstance(raw_profile, dict), "workspace_contract_invalid")
-        parents = raw_profile.get("extends", [])
-        require(isinstance(parents, list), "workspace_contract_invalid")
+    def visit(identifier: str) -> None:
+        require(identifier not in active, "workspace_profile_cycle")
+        if identifier in complete:
+            return
+        raw = profiles.get(identifier)
+        require(isinstance(raw, dict), "workspace_contract_invalid")
+        parents = raw.get("extends", [])
+        require(
+            isinstance(parents, list)
+            and all(isinstance(value, str) and value in profiles for value in parents),
+            "workspace_contract_invalid",
+        )
+        active.add(identifier)
         for parent in parents:
-            require(isinstance(parent, str) and parent in profiles, "workspace_contract_invalid")
-            add_profile(parent)
-        add_entries(raw_profile.get("paths", []))
+            visit(parent)
+        active.remove(identifier)
+        complete.add(identifier)
+        result.append(identifier)
 
-    add_profile(profile)
-    return list(result.values())
+    visit(profile)
+    return result
+
+
+def _contract_paths(contract: Mapping[str, Any], profile: str) -> list[RegisteredPath]:
+    raw_base = contract.get("base_paths")
+    require(isinstance(raw_base, list), "workspace_contract_invalid")
+    entries = [_path_entry(value) for value in raw_base]
+    profiles = contract["profiles"]
+    for identifier in _profile_order(contract, profile):
+        raw_paths = profiles[identifier].get("paths", [])
+        require(isinstance(raw_paths, list), "workspace_contract_invalid")
+        entries.extend(_path_entry(value) for value in raw_paths)
+    names = [entry.name for entry in entries]
+    require(len(names) == len(set(names)), "duplicate_registered_path")
+    return entries
 
 
 def _profile_environment(
@@ -125,36 +142,18 @@ def _profile_environment(
     profile: str,
     paths: Mapping[str, Path],
 ) -> dict[str, str]:
-    profiles = contract["profiles"]
     result: dict[str, str] = {}
-    seen: set[str] = set()
-
-    def add_profile(identifier: str) -> None:
-        if identifier in seen:
-            return
-        seen.add(identifier)
-        raw = profiles[identifier]
-        for parent in raw.get("extends", []):
-            add_profile(parent)
-        environment = raw.get("environment", {})
-        require(isinstance(environment, dict), "workspace_contract_invalid")
-        for variable, target in environment.items():
-            require(
-                isinstance(variable, str)
-                and variable
-                and isinstance(target, str)
-                and target,
-                "workspace_contract_invalid",
-            )
-            name, separator, suffix = target.partition("/")
+    for identifier in _profile_order(contract, profile):
+        raw = contract["profiles"][identifier].get("environment", {})
+        require(isinstance(raw, dict), "workspace_contract_invalid")
+        for variable, value in raw.items():
+            require(isinstance(variable, str) and isinstance(value, str), "workspace_contract_invalid")
+            name, separator, suffix = value.partition("/")
             require(name in paths, "workspace_contract_invalid")
-            path = paths[name]
+            target = paths[name]
             if separator:
-                suffix = safe_relative_path(suffix)
-                path = bounded_path(path, suffix)
-            result[variable] = str(path)
-
-    add_profile(profile)
+                target = bounded_path(target, safe_relative_path(suffix))
+            result[variable] = str(target)
     return result
 
 
@@ -175,17 +174,15 @@ def _cache_settings(
     if mode == contract.get("default_mode") == "disabled":
         return mode, None
     require(source_sha is not None and lock_digest is not None, "cache_key_material_required")
-    source_sha = full_sha(source_sha, "cache_source_sha_required")
-    lock_digest = sha256_hex(lock_digest, "cache_lock_digest_required")
-    allowed = contract.get("allowed_trust_modes", {}).get(mode)
-    require(isinstance(allowed, list) and trust_mode in allowed, "cache_trust_scope_forbidden")
     material = {
         "repository": repository_name(repository),
-        "source_sha": source_sha,
-        "lock_digest": lock_digest,
+        "source_sha": full_sha(source_sha, "cache_source_sha_required"),
+        "lock_digest": sha256_hex(lock_digest, "cache_lock_digest_required"),
         "platform": runner_os,
         "profile": profile,
     }
+    allowed = contract.get("allowed_trust_modes", {}).get(mode)
+    require(isinstance(allowed, list) and trust_mode in allowed, "cache_trust_scope_forbidden")
     key = stable_identifier("cache", material, length=32)
     require(len(key) <= int(contract.get("max_key_length", 0)), "cache_key_too_long")
     return mode, key
@@ -204,50 +201,50 @@ def _state_id(context: WorkspaceContext) -> str:
 
 
 def _state_files(root: Path, contract: Mapping[str, Any]) -> tuple[Path, Path]:
-    marker_name = safe_relative_path(contract.get("marker_file"))
-    registry_name = safe_relative_path(contract.get("registry_file"))
-    return root / marker_name, root / registry_name
+    return (
+        root / safe_relative_path(contract.get("marker_file")),
+        root / safe_relative_path(contract.get("registry_file")),
+    )
 
 
-def _write_state(
-    marker: Path,
-    registry: Path,
+def _write_marker(
+    path: Path,
     *,
     state_id: str,
     context: WorkspaceContext,
     root: Path,
     profile: str,
     status: str,
-    paths: Sequence[RegisteredPath],
 ) -> None:
-    marker_payload = {
-        "schema_version": 1,
-        "state_id": state_id,
-        "root": str(root),
-        "runner_temp": str(context.runner_temp.resolve()),
-        "workspace": str(context.workspace.resolve()),
-        "repository": context.repository,
-        "run_id": str(context.run_id),
-        "run_attempt": context.run_attempt,
-        "job": context.job,
-        "runner_os": context.runner_os,
-        "profile": profile,
-        "status": status,
-    }
-    atomic_write_json(marker, marker_payload)
-    if status == "prepared":
-        atomic_write_json(
-            registry,
-            {
-                "schema_version": 1,
-                "state_id": state_id,
-                "root": str(root),
-                "paths": [
-                    {"name": item.name, "relative": item.relative, "kind": item.kind}
-                    for item in paths
-                ],
-            },
-        )
+    atomic_write_json(
+        path,
+        {
+            "schema_version": 1,
+            "state_id": state_id,
+            "root": str(root),
+            "runner_temp": str(context.runner_temp.resolve()),
+            "workspace": str(context.workspace.resolve()),
+            "repository": context.repository,
+            "run_id": str(context.run_id),
+            "run_attempt": context.run_attempt,
+            "job": context.job,
+            "runner_os": context.runner_os,
+            "profile": profile,
+            "status": status,
+        },
+    )
+
+
+def _write_registry(path: Path, root: Path, state_id: str, entries: Sequence[RegisteredPath]) -> None:
+    atomic_write_json(
+        path,
+        {
+            "schema_version": 1,
+            "state_id": state_id,
+            "root": str(root),
+            "paths": [entry.__dict__ for entry in entries],
+        },
+    )
 
 
 def prepare_workspace(
@@ -265,61 +262,57 @@ def prepare_workspace(
     contract = load_contract(contract_root, WORKSPACE_CONTRACT)
     repository_name(context.repository)
     require(context.runner_os in contract.get("supported_os", []), "unsupported_runner_os")
-    require(context.run_attempt >= 1, "invalid_run_attempt")
-    require(bool(str(context.run_id).strip()) and bool(context.job.strip()), "invalid_workflow_identity")
+    require(context.run_attempt >= 1 and str(context.run_id).strip() and context.job.strip(), "invalid_workflow_identity")
     workspace = context.workspace.resolve()
     runner_temp = context.runner_temp.resolve()
     require(workspace.is_dir() and runner_temp.is_dir(), "workspace_context_unavailable")
     require(not context.workspace.is_symlink() and not context.runner_temp.is_symlink(), "symlink_escape_detected")
 
-    paths = _contract_paths(contract, profile)
+    entries = _contract_paths(contract, profile)
     state_id = _state_id(context)
-    state_parent = runner_temp / safe_id(contract.get("state_root_directory"), "workspace_contract_invalid")
-    state_parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    root = state_parent / state_id
+    parent = runner_temp / safe_id(contract.get("state_root_directory"), "workspace_contract_invalid")
+    parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    root = parent / state_id
     require(not root.exists(), "workspace_state_already_exists")
     root.mkdir(mode=0o700)
     marker, registry = _state_files(root, contract)
     prepared_context = WorkspaceContext(
-        workspace=workspace,
-        runner_temp=runner_temp,
-        repository=context.repository,
-        run_id=str(context.run_id),
-        run_attempt=context.run_attempt,
-        job=context.job,
-        runner_os=context.runner_os,
+        workspace,
+        runner_temp,
+        context.repository,
+        str(context.run_id),
+        context.run_attempt,
+        context.job,
+        context.runner_os,
     )
-    _write_state(
+    _write_marker(
         marker,
-        registry,
         state_id=state_id,
         context=prepared_context,
         root=root,
         profile=profile,
         status="preparing",
-        paths=(),
     )
 
+    resolved: dict[str, Path] = {}
     try:
-        resolved_paths: dict[str, Path] = {}
-        for item in paths:
-            target = bounded_path(root, item.relative)
+        for entry in entries:
+            target = bounded_path(root, entry.relative)
             ensure_no_symlink_escape(root, target)
             target.mkdir(mode=0o700, parents=True, exist_ok=False)
-            resolved_paths[item.name] = target
-        _write_state(
+            resolved[entry.name] = target
+        _write_registry(registry, root, state_id, entries)
+        _write_marker(
             marker,
-            registry,
             state_id=state_id,
             context=prepared_context,
             root=root,
             profile=profile,
             status="prepared",
-            paths=paths,
         )
     except BaseException:
-        # The marker deliberately remains so cleanup can safely terminalize a
-        # partial or interrupted setup without accepting an arbitrary path.
+        # Marker retention allows a later always() cleanup to terminalize an
+        # interrupted setup without accepting a caller-selected path.
         raise
 
     cache_mode, cache_key = _cache_settings(
@@ -344,33 +337,36 @@ def prepare_workspace(
         "LC_ALL": locale,
         "LANG": locale,
         "TZ": "UTC",
-        "HOME": str(resolved_paths["home"]),
-        "TMPDIR": str(resolved_paths["tmp"]),
-        "XDG_CACHE_HOME": str(resolved_paths["xdg_cache"]),
-        "XDG_CONFIG_HOME": str(resolved_paths["xdg_config"]),
-        "XDG_DATA_HOME": str(resolved_paths["xdg_data"]),
+        "HOME": str(resolved["home"]),
+        "TMPDIR": str(resolved["tmp"]),
+        "XDG_CACHE_HOME": str(resolved["xdg_cache"]),
+        "XDG_CONFIG_HOME": str(resolved["xdg_config"]),
+        "XDG_DATA_HOME": str(resolved["xdg_data"]),
         "GIT_CONFIG_NOSYSTEM": "1",
         "GIT_TERMINAL_PROMPT": "0",
-        "CI_CREDENTIAL_ROOT": str(resolved_paths["credentials"]),
-        "CI_EVIDENCE_ROOT": str(resolved_paths["evidence"]),
-        "CI_ARTIFACT_ROOT": str(resolved_paths["artifacts"]),
-        "CI_GENERATED_ROOT": str(resolved_paths["generated"]),
-        "CI_TOOL_ROOT": str(resolved_paths["tools"]),
-        "CI_DEPENDENCY_ROOT": str(resolved_paths["dependencies"]),
+        "CI_CREDENTIAL_ROOT": str(resolved["credentials"]),
+        "CI_EVIDENCE_ROOT": str(resolved["evidence"]),
+        "CI_ARTIFACT_ROOT": str(resolved["artifacts"]),
+        "CI_GENERATED_ROOT": str(resolved["generated"]),
+        "CI_TOOL_ROOT": str(resolved["tools"]),
+        "CI_DEPENDENCY_ROOT": str(resolved["dependencies"]),
     }
-    environment.update(_profile_environment(contract, profile, resolved_paths))
+    environment.update(_profile_environment(contract, profile, resolved))
     return WorkspaceState(
-        state_id=state_id,
-        root=root,
-        profile=profile,
-        cache_mode=cache_mode,
-        cache_key=cache_key,
-        environment=environment,
-        registered_paths=tuple(paths),
+        state_id,
+        root,
+        profile,
+        cache_mode,
+        cache_key,
+        environment,
+        tuple(entries),
     )
 
 
-def _load_state(root: Path, contract_root: Path) -> tuple[Mapping[str, Any], Mapping[str, Any] | None, Mapping[str, Any]]:
+def _load_state(
+    root: Path,
+    contract_root: Path,
+) -> tuple[Mapping[str, Any], Mapping[str, Any] | None, Mapping[str, Any]]:
     contract = load_contract(contract_root, WORKSPACE_CONTRACT)
     require(root.is_absolute(), "workspace_root_must_be_absolute")
     require(not root.is_symlink(), "symlink_escape_detected")
@@ -382,19 +378,36 @@ def _load_state(root: Path, contract_root: Path) -> tuple[Mapping[str, Any], Map
     require(isinstance(marker, dict) and marker.get("schema_version") == 1, "workspace_marker_invalid")
     state_id = safe_id(marker.get("state_id"), "workspace_marker_invalid")
     runner_temp = Path(str(marker.get("runner_temp", ""))).resolve()
-    expected_parent = runner_temp / safe_id(contract.get("state_root_directory"), "workspace_contract_invalid")
-    require(root.resolve() == expected_parent / state_id, "unsafe_cleanup_target")
-    require(str(root.resolve()) == marker.get("root"), "workspace_marker_invalid")
+    expected = (
+        runner_temp
+        / safe_id(contract.get("state_root_directory"), "workspace_contract_invalid")
+        / state_id
+    )
+    require(root.resolve() == expected, "unsafe_cleanup_target")
+    require(marker.get("root") == str(root.resolve()), "workspace_marker_invalid")
+
     registry: Mapping[str, Any] | None = None
     if registry_path.exists():
         try:
-            loaded = json.loads(registry_path.read_text(encoding="utf-8"))
+            candidate = json.loads(registry_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as error:
             raise FoundationError("workspace_registry_invalid") from error
-        require(isinstance(loaded, dict) and loaded.get("schema_version") == 1, "workspace_registry_invalid")
-        require(loaded.get("state_id") == state_id and loaded.get("root") == str(root.resolve()), "workspace_registry_invalid")
-        registry = loaded
+        require(
+            isinstance(candidate, dict)
+            and candidate.get("schema_version") == 1
+            and candidate.get("state_id") == state_id
+            and candidate.get("root") == str(root.resolve()),
+            "workspace_registry_invalid",
+        )
+        registry = candidate
     return marker, registry, contract
+
+
+def _lexical_target(root: Path, relative: str) -> Path:
+    relative = safe_relative_path(relative)
+    target = root.resolve() / Path(*PurePosixPath(relative).parts)
+    ensure_no_symlink_escape(root, target)
+    return bounded_path(root, relative)
 
 
 def register_state_path(
@@ -413,19 +426,20 @@ def register_state_path(
     name = safe_id(name, "invalid_registered_path_name")
     relative = safe_relative_path(relative)
     kind = safe_id(kind, "invalid_registered_path_kind")
-    dynamic_roots = set(str(value) for value in contract.get("dynamic_roots", []))
-    require(relative.split("/", 1)[0] in dynamic_roots, "unapproved_dynamic_path")
-    paths = registry.get("paths")
-    require(isinstance(paths, list), "workspace_registry_invalid")
-    require(all(isinstance(item, dict) for item in paths), "workspace_registry_invalid")
-    require(name not in {str(item.get("name")) for item in paths}, "duplicate_registered_path")
-    target = bounded_path(state_root, relative)
-    ensure_no_symlink_escape(state_root, target)
+    require(
+        relative.split("/", 1)[0] in set(contract.get("dynamic_roots", [])),
+        "unapproved_dynamic_path",
+    )
+    raw_paths = registry.get("paths")
+    require(isinstance(raw_paths, list), "workspace_registry_invalid")
+    entries = [_path_entry(value) for value in raw_paths]
+    require(name not in {entry.name for entry in entries}, "duplicate_registered_path")
+    target = _lexical_target(state_root, relative)
     if create:
         target.mkdir(mode=0o700, parents=True, exist_ok=False)
-    paths.append({"name": name, "relative": relative, "kind": kind})
+    entries.append(RegisteredPath(name, relative, kind))
     _, registry_path = _state_files(state_root, contract)
-    atomic_write_json(registry_path, dict(registry))
+    _write_registry(registry_path, state_root.resolve(), marker["state_id"], entries)
     return target
 
 
@@ -440,13 +454,20 @@ def _remove_tree(path: Path, runner_os: str) -> None:
     if not path.exists():
         return
     require(not path.is_symlink(), "symlink_escape_detected")
-    # Both Linux and macOS can leave read-only files behind. macOS additionally
-    # commonly needs writable directory traversal after build tools finish.
     if runner_os == "macOS":
         for candidate in sorted(path.rglob("*"), reverse=True):
             _chmod_writable(candidate)
     _chmod_writable(path)
-    shutil.rmtree(path, onerror=lambda _fn, candidate, _exc: _chmod_writable(Path(candidate)))
+
+    def recover(function: Any, candidate: str, _error: Any) -> None:
+        target = Path(candidate)
+        _chmod_writable(target)
+        try:
+            function(candidate)
+        except OSError as error:
+            raise FoundationError("cleanup_residue_detected") from error
+
+    shutil.rmtree(path, onerror=recover)
 
 
 def remove_registered_path(
@@ -455,15 +476,21 @@ def remove_registered_path(
     name: str,
     contract_root: Path,
 ) -> bool:
-    marker, registry, contract = _load_state(state_root, contract_root)
+    marker, registry, _contract = _load_state(state_root, contract_root)
     require(registry is not None and marker.get("status") == "prepared", "workspace_not_prepared")
     name = safe_id(name, "invalid_registered_path_name")
-    paths = registry.get("paths")
-    require(isinstance(paths, list), "workspace_registry_invalid")
-    entry = next((item for item in paths if isinstance(item, dict) and item.get("name") == name), None)
-    require(isinstance(entry, dict), "registered_path_not_found")
-    target = bounded_path(state_root, str(entry.get("relative", "")))
-    ensure_no_symlink_escape(state_root, target)
+    raw_paths = registry.get("paths")
+    require(isinstance(raw_paths, list), "workspace_registry_invalid")
+    entry = next(
+        (
+            _path_entry(value)
+            for value in raw_paths
+            if isinstance(value, dict) and value.get("name") == name
+        ),
+        None,
+    )
+    require(entry is not None, "registered_path_not_found")
+    target = _lexical_target(state_root, entry.relative)
     existed = target.exists()
     _remove_tree(target, str(marker.get("runner_os")))
     require(not target.exists(), "cleanup_residue_detected")
@@ -484,42 +511,38 @@ def cleanup_workspace(
         require(state_id == safe_id(expected_state_id), "workspace_state_id_mismatch")
     runner_os = str(marker.get("runner_os"))
     require(runner_os in contract.get("supported_os", []), "unsupported_runner_os")
-    sensitive_kinds = set(str(value) for value in contract.get("sensitive_kinds", []))
     partial_setup = registry is None
-    entries: list[Mapping[str, Any]] = []
+    entries: list[RegisteredPath] = []
     if registry is not None:
-        raw_entries = registry.get("paths")
-        require(isinstance(raw_entries, list), "workspace_registry_invalid")
-        for raw in raw_entries:
-            require(isinstance(raw, dict), "workspace_registry_invalid")
-            entries.append(raw)
+        raw_paths = registry.get("paths")
+        require(isinstance(raw_paths, list), "workspace_registry_invalid")
+        entries = [_path_entry(value) for value in raw_paths]
 
-    # Validate every deletion target before deleting anything. A malicious
-    # registry therefore cannot cause partial deletion outside the state root.
-    validated: list[tuple[Mapping[str, Any], Path]] = []
-    for entry in entries:
-        safe_id(entry.get("name"), "workspace_registry_invalid")
-        safe_id(entry.get("kind"), "workspace_registry_invalid")
-        target = bounded_path(state_root, str(entry.get("relative", "")), "unsafe_cleanup_target")
-        ensure_no_symlink_escape(state_root, target)
-        validated.append((entry, target))
-
+    # Validate every target before deleting anything, so one malicious registry
+    # entry cannot turn cleanup into a partial arbitrary deletion primitive.
+    validated = [
+        (entry, _lexical_target(state_root, entry.relative)) for entry in entries
+    ]
+    sensitive = set(contract.get("sensitive_kinds", []))
     removed = 0
     removed_sensitive = 0
-    for entry, target in sorted(validated, key=lambda item: len(item[1].parts), reverse=True):
+    for entry, target in sorted(
+        validated,
+        key=lambda value: len(value[1].parts),
+        reverse=True,
+    ):
         if target.exists():
             removed += 1
-            if str(entry.get("kind")) in sensitive_kinds:
-                removed_sensitive += 1
+            removed_sensitive += int(entry.kind in sensitive)
         _remove_tree(target, runner_os)
         require(not target.exists(), "cleanup_residue_detected")
 
     _remove_tree(state_root, runner_os)
     require(not state_root.exists(), "cleanup_residue_detected")
     return CleanupReport(
-        state_id=state_id,
-        removed_paths=removed,
-        removed_sensitive_paths=removed_sensitive,
-        partial_setup=partial_setup,
-        platform=runner_os,
+        state_id,
+        removed,
+        removed_sensitive,
+        partial_setup,
+        runner_os,
     )
