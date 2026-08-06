@@ -43,9 +43,12 @@ jobs:
           set -Eeuo pipefail
           python3 --version
           python3 scripts/ci/bootstrap_check.py
+          python3 scripts/ci/inventory_contract.py validate
+          python3 scripts/ci/inventory_contract.py render --check
           python3 -m unittest -v tests/test_reusable_tag_image_chart.py
           python3 -m unittest -v tests/test_bootstrap.py
           python3 -m unittest -v tests/test_workflow_inventory.py
+          python3 -m unittest -v tests/test_inventory_contract.py
 
       - name: Verify clean tracked tree
         shell: bash
