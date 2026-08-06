@@ -1,0 +1,88 @@
+# Public workflow API architecture
+
+The public workflow registry is the design authority for every organization-facing reusable workflow before implementation. It separates caller-owned triggers and product policy from reusable orchestration, infrastructure selection, and privileged transport.
+
+## Shallow call graph
+
+The normal execution shape is:
+
+```text
+consumer caller → public reusable workflow → named function
+```
+
+A public workflow may call one reviewed internal reusable-workflow leaf when multi-job orchestration requires it. That internal leaf may not call another reusable workflow. The maximum supported total reusable-workflow depth is therefore two; ordinary APIs remain at depth one.
+
+Public workflow YAML stays readable. Non-trivial algorithms live in named, typed, tested functions under `src/ci_workflows/` and are exposed through thin adapters. Product-specific commands remain repository-owned hooks selected by bounded profiles or checked-in relative paths; callers never submit arbitrary shell.
+
+## Caller and called-workflow boundary
+
+The consumer repository owns:
+
+- event triggers, path filters, concurrency, and environment protection;
+- the stable required-check surface;
+- exact product, project, release, validation, and policy identifiers;
+- minimum caller permissions and explicit named secrets;
+- product commands, tests, toolchain pins, schemas, fixtures, signing policy, and deployment-specific data.
+
+The called workflow owns:
+
+- exact-source admission and checkout behavior;
+- semantic runner intent and internal implementation selection;
+- reusable tool setup, orchestration, evidence, cleanup, and redaction;
+- bounded OCI/Helm validation, publication, and independent read-back;
+- reusable Agent State, device, maintenance, and Flux transport around the owning system's authority.
+
+The called workflow cannot elevate the caller's `GITHUB_TOKEN`. Each API binds to one permission profile, treats unspecified permissions as `none`, accepts only declared named secrets, and forbids `secrets: inherit`.
+
+## Trust classes
+
+### Source admission
+
+Source resolution reads GitHub metadata and returns one admitted exact SHA. It does not execute caller source and has no product or infrastructure credential.
+
+### Read-only validation
+
+Validation may execute exact admitted caller source with read-only permissions. A private dependency token is optional only where the inventory approves it and is unavailable to untrusted forks. Validation publishes zero routine Actions artifacts.
+
+### Agent State transport
+
+Agent State remains the sole authority for project identity, sessions, claims, collisions, lifecycle, retries, replay, receipts, takeover, and ownership. Central workflows validate trusted GitHub event context, submit bounded requests, and project sanitized results. They do not maintain a second policy table or execute product source with Agent State credentials.
+
+The manually dispatched `agent-state-command.yml` is a protected control workflow rather than a public `workflow_call` API. It follows the same authority, redaction, exact-source, and permission boundaries and is documented separately.
+
+### Physical-device validation
+
+Device work is explicitly authorized, exact-source, single-resource, time-bounded, and residue-checked. The public API chooses a semantic device capability; callers do not choose hosts or runner labels. Test-environment credentials are the only product-source-visible secret class and are restricted to the approved device command profile.
+
+### Trusted publication
+
+Publication runs only for immutable admitted release source. Image and chart products are selected from the product contract; callers do not choose a registry host, container engine, storage driver, or registry command. Publication and deployment remain separate, and immutable products require independent remote read-back.
+
+### Flux-authorized reconciliation
+
+Flux remains the sole authority for desired state, target and product allowlists, SOPS/Kubernetes credentials, live reconciliation, health, canary selection, rollback, and incident acceptance. The central wrapper executes exact protected Flux source and Flux-owned policy and never accepts arbitrary cluster, namespace, kubeconfig path, object, or command input.
+
+### Trusted maintenance
+
+Maintenance APIs are operation-specific, immutable-reference-only, report-first, dry-run-by-default, and fail closed. Artifact cleanup, merged-branch hygiene, organization conformance, and runner-infrastructure retry use separate permission profiles rather than one broad maintenance credential.
+
+## Inputs, outputs, and forbidden fields
+
+Public inputs are typed in `contracts/public-workflow-types.json`. Every workflow selects only cataloged fields and records required/default behavior. Public callers cannot supply:
+
+- concrete runner labels or `runs-on` expressions;
+- Docker, Buildah, or other container-engine commands;
+- registry hosts or commands;
+- secret names;
+- kubeconfig paths, clusters, or namespaces;
+- arbitrary commands, shells, callbacks, or private API locations.
+
+Outputs are bounded catalog entries suitable for job outputs and concise summaries. Evidence is redacted and structured. Routine logs, result bundles, build products, archives, images, charts, database dumps, private media, and environment snapshots are not retained as evidence.
+
+## Artifacts and cleanup
+
+The default is zero routine Actions artifacts. A named exception must define the producer, consumer, exact content, privacy classification, integrity check, retention, and cleanup behavior. Cleanup runs for success, failure, cancellation, and timeout and fails closed on credential, authentication-file, container, image, chart, cache, device, simulator, or temporary-state residue.
+
+## Compatibility and implementation order
+
+The registry is reviewed before implementation. Compatible additions, conditional changes, and breaking changes are classified by `scripts/ci/public_api_contract.py`. Breaking changes require an explicit acknowledgement with a migration issue and effective version. Implementations, callers, required checks, and immutable release manifests must remain synchronized with the approved records.
