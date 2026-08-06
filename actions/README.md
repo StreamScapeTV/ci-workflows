@@ -7,7 +7,7 @@ Composite actions in this directory are thin, bounded adapters around named func
 Issue #8 adds the non-language foundation adapters below:
 
 1. `prepare-workspace` creates one marker-bound workflow-scoped state root and strict locale/environment isolation.
-2. `verify-toolchain` verifies a contract-selected tool set or installs one checksum-locked asset.
+2. `verify-toolchain` verifies a contract-selected tool set plus semantic OS/architecture capability, or installs one checksum-locked asset.
 3. `checkout-private-dependency` consumes a full SHA admitted by `source.resolve`, invokes the merged exact checkout contract, and erases remotes and credential-bearing Git state.
 4. `verify-repository-policy` enforces tracked-secret, forbidden-file, clean-tree, generated-output, cache, and zero-artifact policy.
 5. `render-evidence` emits deterministic redacted evidence beneath registered state.

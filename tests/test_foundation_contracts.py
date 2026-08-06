@@ -48,6 +48,7 @@ class FoundationContractTests(unittest.TestCase):
                 "clean-zero-artifact-policy",
                 "deterministic-redacted-evidence",
                 "cache-disabled-default",
+                "bounded-android-diagnostics",
             },
         )
         self.assertEqual(
@@ -69,6 +70,9 @@ class FoundationContractTests(unittest.TestCase):
                 "redirect-host-change",
                 "unsafe-evidence-field",
                 "cleanup-residue",
+                "failed-command",
+                "artifact-exception-limit",
+                "runtime-capability-mismatch",
             },
         )
 
@@ -138,9 +142,17 @@ class FoundationContractTests(unittest.TestCase):
         self.assertEqual(cache["default_mode"], "disabled")
         self.assertFalse(cache["modes"]["disabled"]["restore"])
         self.assertFalse(cache["modes"]["disabled"]["save"])
+        self.assertEqual(artifacts["default"], "zero-artifacts")
         self.assertEqual(
-            artifacts,
-            {"schema_version": 1, "default": "zero-artifacts", "exceptions": []},
+            {item["id"] for item in artifacts["exceptions"]},
+            {"android-validation-diagnostics"},
+        )
+        exception = artifacts["exceptions"][0]
+        self.assertEqual(exception["maximum_count"], 1)
+        self.assertLessEqual(exception["maximum_retention_days"], 3)
+        self.assertEqual(
+            exception["allowed_names"],
+            ["android-validation-diagnostics"],
         )
         self.assertTrue(tools["download_policy"]["mutable_fallback_forbidden"])
         self.assertEqual(tools["download_policy"]["required_digest"], "sha256")

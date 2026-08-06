@@ -55,6 +55,13 @@
           "cleanup": "none"
         },
         {
+          "name": "verify_runtime_capability",
+          "inputs": ["capability_profile", "declared_os", "declared_architecture", "contract_root"],
+          "outputs": ["RuntimeCapabilityEvidence"],
+          "side_effects": ["verifies actual OS and architecture against one semantic contract profile", "compares GitHub-declared OS and architecture when present without emitting host identity or executable paths"],
+          "cleanup": "none"
+        },
+        {
           "name": "verify_checksum",
           "inputs": ["path", "algorithm", "expected"],
           "outputs": ["verified checksum"],
@@ -177,8 +184,8 @@
     {
       "path": "actions/verify-toolchain",
       "function": "ci_workflows.tooling.verify_tool_set or install_locked_asset",
-      "inputs": ["operation", "tool_set", "asset_id"],
-      "outputs": ["tool_set", "toolchain_json", "toolchain_id", "asset_id", "asset_relative_path", "asset_sha256", "verified"],
+      "inputs": ["operation", "tool_set", "asset_id", "capability_profile"],
+      "outputs": ["tool_set", "toolchain_json", "toolchain_id", "capability_profile", "platform", "capability_id", "capability_verified", "asset_id", "asset_relative_path", "asset_sha256", "verified"],
       "cleanup": "installed assets are registered under the workflow state root"
     },
     {

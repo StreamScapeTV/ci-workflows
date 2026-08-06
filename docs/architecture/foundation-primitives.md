@@ -25,6 +25,7 @@ Trust class: `shared-foundation`.
 |---|---|---|---|---|
 | `verify_tool` | `tool_id`, `contract_root` | `ToolEvidence` | `executes a contract-selected version command` | none |
 | `verify_tool_set` | `tool_set`, `contract_root` | `ToolSetEvidence` | `verifies contract-selected tools` | none |
+| `verify_runtime_capability` | `capability_profile`, `declared_os`, `declared_architecture`, `contract_root` | `RuntimeCapabilityEvidence` | `verifies actual OS and architecture against one semantic contract profile`, `compares GitHub-declared OS and architecture when present without emitting host identity or executable paths` | none |
 | `verify_checksum` | `path`, `algorithm`, `expected` | `verified checksum` | none | none |
 | `verify_digest` | `path`, `expected_digest` | `verified digest` | none | none |
 | `install_locked_asset` | `asset_id`, `destination_root`, `contract_root` | `InstalledAsset` | `downloads one contract-selected HTTPS asset`, `verifies size and SHA-256 before atomic install` | registered tool path through cleanup_workspace |
@@ -65,7 +66,7 @@ Trust class: `shared-foundation`.
 | Action | Named function boundary | Inputs | Outputs | Cleanup duty |
 |---|---|---|---|---|
 | `actions/prepare-workspace` | `ci_workflows.workspace.prepare_workspace` | `profile`, `cache_mode`, `source_sha`, `lock_digest`, `trust_mode` | `state_id`, `profile`, `cache_mode`, `cache_key`, `registered_path_count` | must pair with actions/cleanup-workspace under if: always() |
-| `actions/verify-toolchain` | `ci_workflows.tooling.verify_tool_set or install_locked_asset` | `operation`, `tool_set`, `asset_id` | `tool_set`, `toolchain_json`, `toolchain_id`, `asset_id`, `asset_relative_path`, `asset_sha256`, `verified` | installed assets are registered under the workflow state root |
+| `actions/verify-toolchain` | `ci_workflows.tooling.verify_tool_set or install_locked_asset` | `operation`, `tool_set`, `asset_id`, `capability_profile` | `tool_set`, `toolchain_json`, `toolchain_id`, `capability_profile`, `platform`, `capability_id`, `capability_verified`, `asset_id`, `asset_relative_path`, `asset_sha256`, `verified` | installed assets are registered under the workflow state root |
 | `actions/checkout-private-dependency` | `ci_workflows.dependencies.checkout_private_dependency` | `repository`, `admitted_sha`, `dependency_id`, `expected_subpath`, `fetch_depth`, `token` | `dependency_id`, `repository`, `head_sha`, `relative_path`, `expected_subpath`, `remotes_erased`, `credentials_erased`, `verified` | registered dependency path; cleanup-workspace required under if: always() |
 | `actions/verify-repository-policy` | `ci_workflows.policy.verify_repository_policy` | `phase`, `artifacts_json`, `artifact_exception_id`, `trust_mode` | `phase`, `tracked_files`, `scanned_files`, `generated_outputs`, `artifact_count`, `artifact_exception_id`, `policy_evidence_id`, `verified` | none; the action mutates no caller source |
 | `actions/render-evidence` | `ci_workflows.evidence.build_evidence and write_evidence` | `source_sha`, `workflow_release`, `runner_profile`, `toolchain_json`, `command_profile`, `result`, `cleanup_state`, `cleanup_removed_paths` | `evidence_id`, `evidence_json`, `redacted` | evidence file is registered state and must be removed by cleanup-workspace |
