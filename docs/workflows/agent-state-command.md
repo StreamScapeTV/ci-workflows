@@ -62,8 +62,10 @@ A queued or running job grants no ownership. `start` or `claim` grants ownership
 
 ## Configuration
 
-- `AGENT_STATE_API_URL` is a repository/organization variable containing the private API location. Its value is never printed.
-- `AGENT_STATE_API_TOKEN` is an optional explicit workflow secret for deployments that require API authentication.
-- `AGENT_STATE_GITHUB_TOKEN` is an explicit read-only organization credential used only for target repository metadata.
+The central workflow uses three explicit masked secrets:
 
-No secret is inherited, chosen by an input, exposed to target source, or written to an artifact.
+- `AGENT_STATE_API_URL` contains the private Agent State API location. It is a secret rather than a GitHub variable so the endpoint is masked in workflow environment rendering and logs.
+- `AGENT_STATE_API_TOKEN` is optional and is used only when the Agent State deployment requires API authentication.
+- `AGENT_STATE_GITHUB_TOKEN` is a read-only organization credential used only for target repository, branch, issue, and pull-request metadata.
+
+No secret is inherited, selected by an input, exposed to target source, or written to an artifact. The workflow cannot operate until the required endpoint and read-only metadata credentials are configured centrally.
