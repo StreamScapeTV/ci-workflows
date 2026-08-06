@@ -12,6 +12,7 @@ from ci_workflows.policy import (
     validate_artifacts,
     validate_cache_request,
     verify_clean_tree,
+    verify_generated_outputs,
     verify_repository_policy,
 )
 
@@ -71,6 +72,17 @@ class PolicyPrimitiveTests(unittest.TestCase):
         with self.assertRaises(FoundationError) as caught:
             verify_clean_tree(self.repo)
         self.assertEqual(caught.exception.instruction, "repository_tree_dirty")
+
+    def test_generated_output_drift_fails_closed(self) -> None:
+        path = self.commit(
+            "docs/architecture/foundation-primitives.md",
+            "generated baseline\n",
+        )
+        self.assertEqual(verify_generated_outputs(self.repo, contract_root=ROOT), 2)
+        path.write_text("generated drift\n", encoding="utf-8")
+        with self.assertRaises(FoundationError) as caught:
+            verify_generated_outputs(self.repo, contract_root=ROOT)
+        self.assertEqual(caught.exception.instruction, "generated_output_dirty")
 
     def test_forbidden_file_and_token_like_content_fail_closed(self) -> None:
         self.commit(".env", "EXAMPLE=value\n")
