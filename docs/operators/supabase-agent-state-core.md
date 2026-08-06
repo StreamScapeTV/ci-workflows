@@ -16,7 +16,7 @@ Run the repository's normal discovered suite:
 python3 -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-Normal discovery must not download or compile PostgreSQL. The database reconstruction test is present in the discovery namespace but visibly skips before creating a runtime unless the explicit reconstruction opt-in is set.
+Normal discovery must not download or compile PostgreSQL. The database reconstruction test remains visible in discovery but exits with an explicit unittest skip **before temporary runtime creation** unless the separate reconstruction opt-in is set. That discovery skip is only a signal that the heavyweight integration proof is a separately required command; it is never reconstruction success.
 
 ## Explicit PostgreSQL 17 reconstruction
 
@@ -28,9 +28,19 @@ AGENT_STATE_POSTGRES_BIN=/absolute/path/to/postgresql-17/bin \
 python3 -m unittest -v tests.test_supabase_agent_state_core_database
 ```
 
-`AGENT_STATE_POSTGRES_BIN` should point to a complete vetted PostgreSQL 17 binary directory. With the explicit opt-in set, the runtime may otherwise use a complete PostgreSQL 17 installation from `PATH` or obtain the pinned PostgreSQL 17.6 source archive and verify SHA-256 `2910b85283674da2dae6ac13fe5ebbaaf3c482446396cba32e6728d3cc736d86`.
+`AGENT_STATE_POSTGRES_BIN` must point to a complete vetted PostgreSQL 17 binary directory. If that directory is missing or invalid, the explicit reconstruction fails clearly. A complete PostgreSQL 17 installation already on `PATH` may also satisfy the runtime requirement.
 
-When the explicit opt-in is present, toolchain or source-download failure is a reconstruction failure. It must not be silently skipped or represented as passed. The suite creates only local disposable PostgreSQL state and must not contact the production Supabase project.
+A network source download is **not** implicitly authorized by reconstruction. If canonical issue #3 separately authorizes building the pinned PostgreSQL 17.6 source, use:
+
+```bash
+AGENT_STATE_RUN_POSTGRES_RECONSTRUCTION=1 \
+AGENT_STATE_ALLOW_POSTGRES_SOURCE_DOWNLOAD=1 \
+python3 -m unittest -v tests.test_supabase_agent_state_core_database
+```
+
+The download path accepts only the pinned PostgreSQL 17.6 archive and verifies SHA-256 `2910b85283674da2dae6ac13fe5ebbaaf3c482446396cba32e6728d3cc736d86` before extraction or build. Download, checksum, build, startup, migration, assertion, or cleanup failure fails the reconstruction command. It must not be silently skipped or represented as passed.
+
+The suite creates only disposable local PostgreSQL state. It drops both temporary databases and removes the temporary runtime tree. It must never contact the connected production Supabase project.
 
 ## Source history versus current live ledger
 
@@ -49,41 +59,42 @@ The current connected project already has the provisional schema and these six r
 5. `20260806175433 agent_state_error_projection_fix`
 6. `20260806175808 agent_state_foreign_key_indexes`
 
-Therefore the clean three-file history **must not be connected to the existing project and applied as three new production migrations**. Canonical issue #3 must first choose and review an explicit live-ledger reconciliation strategy.
+The three clean files are a reviewed **target/source package**, not three migrations that may be appended to the existing project. The live schema already exists under a different provisional ledger. Canonical `agent-state-supabase#3` must therefore select and independently review one migration-ledger reconciliation strategy before production deployment.
 
 ## Permitted reconciliation classes
 
-This transition package does not select a strategy. Canonical issue #3 may review one of these classes:
+This transition package does not select or execute a strategy. Canonical issue #3 may review one of these classes:
 
-1. **Reconstruct the observed live baseline.** Recreate the exact six already-applied versions and statements as the canonical baseline, then add reviewed forward migrations.
+1. **Reconstruct the observed live baseline.** Reconstruct the exact source corresponding to the six already-applied versions and statements as the canonical baseline, then continue with reviewed forward migrations.
 2. **Owner-authorized reset/recreation.** Explicitly reset or recreate the provisional schema and migration ledger under owner authorization, then deploy the clean history.
-3. **Reviewed baseline or repair procedure.** Use another reviewed procedure that proves one authoritative migration history and exact source/live parity.
+3. **Reviewed baseline or repair procedure.** Use another reviewed baseline or repair procedure that proves exactly one authoritative migration history and exact source/live parity.
 
-Direct ad-hoc repair through `execute_sql`, `apply_migration`, SQL editor, table editor, manual ledger edits, or similar untracked production changes is forbidden.
+Direct ad-hoc repair is forbidden. Do not use `execute_sql`, `apply_migration`, SQL editor, table editor, connector DDL, manual migration-ledger mutation, or silent migration version/name/filename rewriting to force the histories to appear aligned.
 
 Machine-readable details and gates are in `contracts/supabase-agent-state-core-rehome.json`:
 
 - `live_reconciliation_required=true`;
 - `production_deployment_allowed=false`;
 - `ordinary_rpc_use_allowed=false`;
-- `strategy_selected_by_this_package=null`.
+- `strategy_selected_by_this_package=null`;
+- `direct_ad_hoc_repair_forbidden=true`;
+- `silent_migration_filename_rewriting_forbidden=true`.
 
 ## Re-homing sequence
 
-1. After issue #60 merges, reconcile draft PR #57 normally with the exact current `main` without rewriting history.
-2. Obtain a fresh exact-head central self-check and verify the corrected package.
-3. Independently review the exact PR #57 head and `contracts/supabase-agent-state-core-files.json`.
-4. Copy non-migration implementation, contracts, fixtures, tests, and documentation exactly as canonical review inputs.
-5. Treat the three clean migration files as candidate target/source inputs; do not assume they are the production ledger.
-6. Run normal repository discovery and the explicit PostgreSQL 17 reconstruction command in the canonical repository.
-7. Inspect the reported six-entry live ledger and select a permitted reconciliation strategy through canonical issue #3 review.
-8. Only after that strategy is accepted and proves one authoritative history may the canonical repository be connected for production deployment.
-9. After canonical deployment, verify migration history, object/function hashes, grants, project mappings, bounded RPC behavior, security/performance advisors, and smoke-data cleanup.
-10. Reconcile transitional Supabase files in `ci-workflows` through a separate reviewed decision so two canonical histories do not remain.
+1. Independently review the exact PR #57 head and `contracts/supabase-agent-state-core-files.json`.
+2. Copy non-migration implementation, contracts, fixtures, tests, and documentation exactly as canonical review inputs.
+3. Treat the three clean migration files as candidate target/source inputs; do not assume or manufacture their place in the production ledger.
+4. Run normal repository discovery in the canonical repository; this must have no PostgreSQL download/build side effect.
+5. Run the separate explicit PostgreSQL 17 reconstruction command successfully in a vetted isolated environment.
+6. Inspect the reported six-entry live ledger and select one permitted reconciliation strategy through canonical issue #3 review.
+7. Only after that strategy is accepted and proves exactly one authoritative history may production deployment be enabled.
+8. After canonical deployment, verify migration history, object/function hashes, grants, project mappings, bounded RPC behavior, security/performance advisors, and smoke-data cleanup.
+9. Reconcile transitional Supabase files in `ci-workflows` through a separate reviewed decision so two canonical histories do not remain.
 
 ## Ordinary RPC boundary
 
-The source package documents the intended future `agent_api.*` surface, but ordinary Agent State use is currently forbidden. Do not use the provisional RPCs for normal coordination until canonical live proof and final cutover explicitly enable them.
+The source package documents the intended future `agent_api.*` surface, but ordinary Agent State use is currently forbidden. Do not use the provisional RPCs for coordination until canonical live proof and final cutover explicitly enable them.
 
 After that future cutover, bounded calls may use `agent_api.command`, `agent_api.resume`, `agent_api.context`, and `agent_api.ownership_check`; ordinary operation must still never directly mutate private tables or migration state.
 
