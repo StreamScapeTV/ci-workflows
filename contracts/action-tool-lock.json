@@ -7,6 +7,13 @@
       "release": "v7.0.1",
       "runtime": "node24",
       "source": "https://github.com/actions/checkout"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/resolve-source",
+      "sha": "90706a72aa68c81b7840c139965ae528d8ed6b25",
+      "release": "issue #7 immutable helper checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/90706a72aa68c81b7840c139965ae528d8ed6b25/actions/resolve-source"
     }
   ],
   "approved_internal_actions": [

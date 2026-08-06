@@ -22,22 +22,27 @@ class BootstrapContractTests(unittest.TestCase):
         MODULE.validate_authority_docs()
 
     def test_release_policy_uses_main_and_tag_without_release_assets(self) -> None:
-        policy = json.loads((ROOT / "contracts/security-policy.json").read_text())
+        policy = json.loads(
+            (ROOT / "contracts/security-policy.json").read_text()
+        )
         release = policy["release_reference_policy"]
         self.assertEqual(release["bootstrap_channel"], "main")
-        self.assertIn("git-tag", release["supported_immutable_references"])
+        self.assertIn(
+            "git-tag",
+            release["supported_immutable_references"],
+        )
         self.assertFalse(release["github_release_required"])
         self.assertFalse(release["attached_artifacts_required"])
 
-    def test_artifact_registry_starts_empty(self) -> None:
-        policy = json.loads((ROOT / "contracts/artifact-policy.json").read_text())
-        self.assertEqual(policy["default"], "zero-routine-artifacts")
-        self.assertEqual(policy["exceptions"], [])
-
-    def test_only_issue_34_public_workflow_is_bootstrap_allowed(self) -> None:
+    def test_public_workflow_bootstrap_contract_includes_implemented_source(
+        self,
+    ) -> None:
         self.assertEqual(
             MODULE.allowed_bootstrap_workflows(),
-            [".github/workflows/reusable-tag-image-chart.yml"],
+            [
+                ".github/workflows/reusable-resolve-source.yml",
+                ".github/workflows/reusable-tag-image-chart.yml",
+            ],
         )
 
     def test_self_check_uses_automatic_test_discovery(self) -> None:

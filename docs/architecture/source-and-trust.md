@@ -1,0 +1,102 @@
+# Exact source admission and trust
+
+`source.resolve` is the organization’s metadata-only admission boundary. It turns a bounded caller event and optional exact assertions into one typed exact source record. It does not check out, import, install, build, or execute product source.
+
+The public workflow is `.github/workflows/reusable-resolve-source.yml`. Its implementation is the immutable composite action `actions/resolve-source/action.yml`, backed by named typed functions in `src/ci_workflows/source.py`. Consumers use `actions/exact-checkout/action.yml` only after admission.
+
+## State machine
+
+Trust is derived from the current GitHub event and current repository metadata. There is no public `trust_mode` input, matrix override, callback, arbitrary ref, artifact path, remote URL, or command input.
+
+| Event and admitted transition | Resulting trust | Exact source | Required current evidence |
+|---|---|---|---|
+| `pull_request` with `pr-head` | `untrusted-validation` | current PR head commit, including a fork repository | event head/base/merge agree with the current PR API response; PR base is the asserted integration branch |
+| `pull_request` with `pr-merge` | `untrusted-validation` | current GitHub merge commit | same PR freshness checks and a non-null current merge SHA |
+| protected branch `push` | `trusted-validation` | exact pushed commit | pushed branch is the asserted integration branch and its current tip still equals `github.sha` |
+| `workflow_dispatch` | `trusted-validation` | exact requested full SHA, or the exact dispatch SHA | triggering actor has write, maintain, or admin permission and the commit exists |
+| reusable call with `workflow-call` | event-derived validation trust | exact caller-provided full SHA | the original triggering event is still validated; a PR remains untrusted, a branch push remains branch-bound, and a tag remains tag-bound |
+| tag `push` | `tag-release` | recursively dereferenced tag commit | exact tag ref and tag objects resolve to one commit and `github.sha` agrees with the tag object or resolved commit |
+| trusted metadata or maintenance | `trusted-maintenance` | current default-branch helper commit only | authorized actor, exact current default branch, and current PR evidence when supplied |
+
+`workflow_run`, `issue_comment`, and `pull_request_target` are metadata/coordination contexts only. They never admit a PR head, downloaded artifact, dependency, caller script path, or fork checkout as trusted executable source. Their admitted source is the current protected default-branch helper code.
+
+## Typed admission record
+
+The resolver returns:
+
+- caller repository, current default branch, and asserted integration branch;
+- event-derived trust mode;
+- source repository and exact source SHA;
+- requested versus resolved SHA;
+- PR number, head repository/SHA, base branch/SHA, and merge SHA when applicable;
+- tag name, exact tag object SHA, and dereferenced commit SHA for releases;
+- bounded checkout history depth;
+- a `requires_freshness` flag;
+- stable `request_id` and `evidence_id` values containing only a safe prefix and SHA-256-derived suffix.
+
+Empty values mean “not applicable”; they never contain tokens, private URLs, raw API responses, or artifact contents.
+
+## Exact checkout
+
+The checkout action accepts only:
+
+- `repository` in `owner/name` form;
+- the admitted lowercase 40-character `admitted_sha`;
+- an empty normalized path below `GITHUB_WORKSPACE`;
+- a bounded fetch depth from 1 through 1000;
+- an optional read token.
+
+It initializes a new repository, fetches the exact SHA with `--no-tags`, checks out detached `FETCH_HEAD`, and requires `git rev-parse HEAD` to equal the admitted SHA. Authentication is passed through transient process environment configuration and is not written to local Git configuration. A branch name, tag name, arbitrary ref, arbitrary remote URL, non-empty destination, or changed checkout fails closed.
+
+The action does not preserve credentials. Its contract is the equivalent of `persist-credentials: false`; callers must not add a credential-bearing remote or rewrite the checked-out source before verification.
+
+## Freshness and privileged follow-up
+
+Admission is evidence, not permission to publish, merge, comment, set a privileged status, or reconcile a cluster forever. When `requires_freshness` is true, the privileged operation must call the typed `revalidate_admission` function or repeat source admission immediately before publication or mutation.
+
+Revalidation checks:
+
+- current PR head, base, and merge SHA;
+- current integration-branch tip for protected pushes;
+- current default-branch helper SHA for trusted maintenance.
+
+A stale result fails with a stable instruction code. It must not be converted into a warning or reused from an earlier workflow artifact.
+
+## Trusted helper separation
+
+The reusable workflow executes the resolver through a full-SHA reference to `actions/resolve-source`. That immutable action archive contains only the central helper, contract, and CLI. Product source is not present in its workspace and is not checked out during admission.
+
+After admission, a separate job or step may invoke `actions/exact-checkout` with `source_repository` and `source_sha`. Privileged metadata workflows must not invoke that checkout for untrusted PR source at all.
+
+Downloaded workflow artifacts remain untrusted data. This contract has no artifact input and does not promote an artifact into trusted source. A future signed evidence transport requires a separate reviewed contract.
+
+## Consumer patterns
+
+Backend and Android manual validation pass an optional exact SHA with `source_mode: manual`; mutable branch or ref input is rejected. Apple and media callers assert `develop` or their exact integration branch. Web PR and push callers use PR or branch admission without duplicating event parsing. Agent State coordination callers use trusted metadata mode and process only metadata while keeping PR source unexecuted. Tag-triggered image and chart publication consumes `tag_name` and `tag_commit_sha`, so a tag on a historical commit releases that exact historical source. Flux source validation may use ordinary exact admission, while cluster-authorized reconciliation remains a separate Flux-owned workflow using exact protected Flux policy source.
+
+Product commands, status/comment formats, registry publication, cluster selection, and deployment are deliberately outside this resolver.
+
+## Thin caller example
+
+```yaml
+jobs:
+  source:
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-resolve-source.yml@<immutable-reference>
+    permissions:
+      contents: read
+      pull-requests: read
+    with:
+      source_mode: pr-head
+      expected_branch: develop
+
+  validate:
+    needs: source
+    runs-on: <centrally-selected-semantic-profile>
+    steps:
+      - uses: StreamScapeTV/ci-workflows/actions/exact-checkout@<immutable-reference>
+        with:
+          repository: ${{ needs.source.outputs.source_repository }}
+          admitted_sha: ${{ needs.source.outputs.source_sha }}
+```
+
+During the owner-approved bootstrap channel, callers may reference protected `@main`; privileged production consumers should prefer an immutable full SHA or released tag. Exact product-source admission remains mandatory regardless of the central workflow reference.
