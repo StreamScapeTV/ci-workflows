@@ -1,48 +1,130 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "contract_version": 1,
-  "actions": ["resume", "start", "claim", "release", "reconcile_base", "block", "review", "done", "cancel"],
-  "claim_kinds": {
-    "file": ["exact", "prefix"],
-    "package": ["exact"],
-    "resource": ["exact"],
-    "manifest": ["exact"],
-    "device": ["exact"]
+  "project": "ci-workflows",
+  "repository": "StreamScapeTV/ci-workflows",
+  "base_sha": "1111111111111111111111111111111111111111",
+  "new_base_sha": "2222222222222222222222222222222222222222",
+  "head_sha": "3333333333333333333333333333333333333333",
+  "merge_sha": "4444444444444444444444444444444444444444",
+  "primary": {
+    "session_name": "Agent 1",
+    "agent_id": "gpt-agent-1-20260806-2000-a1b2",
+    "issue_number": 910001,
+    "branch": "issue/910001-core-flow-a1b2",
+    "pr_number": 920001,
+    "task": "Disposable transactional core verification",
+    "initial_claims": [
+      {
+        "kind": "file",
+        "mode": "exact",
+        "value": "tests/fixtures/supabase-agent-state/primary.sql"
+      },
+      {
+        "kind": "file",
+        "mode": "prefix",
+        "value": "tests/fixtures/supabase-agent-state/prefix"
+      },
+      {
+        "kind": "package",
+        "mode": "exact",
+        "value": "package:core-primary"
+      },
+      {
+        "kind": "resource",
+        "mode": "exact",
+        "value": "resource:core-primary"
+      },
+      {
+        "kind": "manifest",
+        "mode": "exact",
+        "value": "manifest:core-primary"
+      },
+      {
+        "kind": "device",
+        "mode": "exact",
+        "value": "device:core-primary"
+      }
+    ],
+    "extra_claim": {
+      "kind": "file",
+      "mode": "exact",
+      "value": "tests/fixtures/supabase-agent-state/extra.sql"
+    }
   },
-  "positive": [
-    "no-active-work resume",
-    "atomic start with initial claims",
-    "exact replay returns original receipt",
-    "add and selectively release claim",
-    "base reconciliation with expected old SHA",
-    "block then review with exact PR/head",
-    "ownership and context reads",
-    "done releases all claims",
-    "cancel releases all claims",
-    "prefix/exact collision returns accepted=false receipt"
+  "positive_actions": [
+    {"action": "resume", "request_id": "issue52-test-resume-empty-0001", "expected_decision": "no-active-work"},
+    {"action": "start", "request_id": "issue52-test-start-0001", "expected_decision": "started"},
+    {"action": "resume", "request_id": "issue52-test-resume-active-0001", "expected_decision": "resume"},
+    {"action": "claim", "request_id": "issue52-test-claim-0001", "expected_decision": "claimed"},
+    {"action": "release", "request_id": "issue52-test-release-0001", "expected_decision": "released"},
+    {"action": "reconcile_base", "request_id": "issue52-test-reconcile-0001", "expected_decision": "base-reconciled"},
+    {"action": "block", "request_id": "issue52-test-block-0001", "expected_decision": "blocked"},
+    {"action": "review", "request_id": "issue52-test-review-0001", "expected_decision": "review"},
+    {"action": "done", "request_id": "issue52-test-done-0001", "expected_decision": "done"},
+    {"action": "cancel", "request_id": "issue52-test-cancel-0001", "expected_decision": "cancelled"}
   ],
-  "negative": [
-    "unknown top-level field",
-    "unknown nested claim field",
-    "unsafe absolute or traversal path",
-    "malformed session or agent identity",
-    "project/repository mismatch",
-    "disabled or unknown slot",
-    "stale base, PR, or head assertion",
-    "duplicate claim entries",
-    "prefix mode on non-file claim",
-    "invalid transition or inactive binding",
-    "request ID reused with different canonical hash",
-    "direct private-table access by service_role, authenticated, anon, or PUBLIC"
+  "negative_cases": [
+    {"id": "ambiguous-release", "expected_error": "ambiguous_release_request"},
+    {"id": "append-only-event", "expected_error": "immutable_record"},
+    {"id": "atomic-start-rollback", "expected_error": "test:atomic_start_failure"},
+    {"id": "atomic-terminal-rollback", "expected_error": "test:atomic_terminal_failure"},
+    {"id": "conflicting-request-reuse", "expected_error": "request_id_reuse_conflict"},
+    {"id": "device-conflict", "expected_decision": "claim-conflict"},
+    {"id": "direct-table-service-role", "expected_error": "permission denied"},
+    {"id": "done-before-review", "expected_error": "review_status_required"},
+    {"id": "duplicate-claim", "expected_error": "duplicate_claim"},
+    {"id": "immutable-receipt", "expected_error": "immutable_record"},
+    {"id": "immutable-request", "expected_error": "immutable_record"},
+    {"id": "invalid-session-name", "expected_error": "invalid_session_name"},
+    {"id": "manifest-conflict", "expected_decision": "claim-conflict"},
+    {"id": "overlong-task", "expected_error": "field_length"},
+    {"id": "package-conflict", "expected_decision": "claim-conflict"},
+    {"id": "prefix-non-file", "expected_error": "prefix_requires_file"},
+    {"id": "request-not-object", "expected_error": "request_must_be_object"},
+    {"id": "resource-conflict", "expected_decision": "claim-conflict"},
+    {"id": "rpc-anon", "expected_error": "permission denied"},
+    {"id": "rpc-authenticated", "expected_error": "permission denied"},
+    {"id": "sensitive-task", "expected_error": "sensitive_text_rejected"},
+    {"id": "stale-base-reconcile", "expected_error": "stale_base_assertion"},
+    {"id": "stale-base-start", "expected_error": "stale_base_assertion"},
+    {"id": "stale-head-claim", "expected_error": "stale_head_assertion"},
+    {"id": "stale-head-review", "expected_error": "stale_head_assertion"},
+    {"id": "stale-pr-claim", "expected_error": "stale_pr_assertion"},
+    {"id": "stale-pr-review", "expected_error": "stale_pr_assertion"},
+    {"id": "terminal-session-mutation", "expected_error": "session_assertion_failed"},
+    {"id": "unknown-claim-field", "expected_error": "unknown_field"},
+    {"id": "unknown-top-field", "expected_error": "unknown_field"},
+    {"id": "unsafe-absolute-path", "expected_error": "unsafe_path"},
+    {"id": "unsafe-backslash", "expected_error": "unsafe_path"},
+    {"id": "unsafe-double-separator", "expected_error": "unsafe_path"},
+    {"id": "unsafe-traversal-path", "expected_error": "unsafe_path"},
+    {"id": "wrong-agent-profile", "expected_error": "invalid_agent_id"},
+    {"id": "wrong-agent-slot", "expected_error": "invalid_agent_id"},
+    {"id": "wrong-branch", "expected_error": "session_assertion_failed"},
+    {"id": "wrong-issue", "expected_error": "session_assertion_failed"},
+    {"id": "wrong-project-repository", "expected_error": "project_mismatch"}
   ],
-  "live_isolation": {
-    "project": "ci-workflows",
-    "issues": [900001, 900002, 900003],
-    "request_prefix": "issue52-live-",
+  "concurrency": {
+    "overlap_prefix": "tests/fixtures/supabase-agent-state/concurrent",
+    "disjoint_a": "tests/fixtures/supabase-agent-state/disjoint-a.sql",
+    "disjoint_b": "tests/fixtures/supabase-agent-state/disjoint-b.sql",
     "agents": [
-      "gpt-agent-9-20260806-1758-a1b2",
-      "gpt-agent-8-20260806-1756-b2c3",
-      "gpt-agent-7-20260806-1757-c3d4"
+      {"session_name": "Agent 3", "agent_id": "gpt-agent-3-20260806-2000-c3d4", "issue_number": 910003, "branch": "issue/910003-overlap-one-c3d4"},
+      {"session_name": "Agent 4", "agent_id": "gpt-agent-4-20260806-2000-d4e5", "issue_number": 910004, "branch": "issue/910004-overlap-two-d4e5"},
+      {"session_name": "Codex 3", "agent_id": "cod-agent-3-20260806-2000-e5f6", "issue_number": 910005, "branch": "issue/910005-disjoint-one-e5f6"},
+      {"session_name": "Codex 4", "agent_id": "cod-agent-4-20260806-2000-f6g7", "issue_number": 910006, "branch": "issue/910006-disjoint-two-f6g7"}
     ]
+  },
+  "negative_by_action": {
+    "resume": ["unknown-top-field", "invalid-session-name"],
+    "start": ["atomic-start-rollback", "stale-base-start", "duplicate-claim", "unsafe-traversal-path"],
+    "claim": ["stale-pr-claim", "stale-head-claim", "package-conflict", "resource-conflict", "manifest-conflict", "device-conflict"],
+    "release": ["ambiguous-release"],
+    "reconcile_base": ["stale-base-reconcile"],
+    "block": ["wrong-issue", "wrong-branch"],
+    "review": ["stale-pr-review", "stale-head-review"],
+    "done": ["done-before-review", "atomic-terminal-rollback"],
+    "cancel": ["terminal-session-mutation"]
   }
 }
