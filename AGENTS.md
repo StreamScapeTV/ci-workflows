@@ -2,7 +2,7 @@
 
 ## Shared organization-policy entry point
 
-Before working in this repository, read `StreamScapeTV/organization-rules@main/AGENTS.md` after this file. It is the only shared organization-policy reference from this local entry point and owns routing to any additional central guidance. Do not add direct references here to organization-rules internal files, Agent State operating documents, Flux operating documents, or unrelated repositories for routine shared policy.
+Before working in this repository, read `StreamScapeTV/organization-rules@main/AGENTS.md` after this file. It is the only shared organization-policy reference from this local entry point and owns routing to any additional central guidance. Do not add direct references here to organization-rules internal files, Agent State operating documents, Flux operating documents, or unrelated repositories for routine shared policy. Changes to shared organization policy belong in `StreamScapeTV/organization-rules` under a separate bounded change rather than being copied into this repository.
 
 ## Repository identity and integration
 
