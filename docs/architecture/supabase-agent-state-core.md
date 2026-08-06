@@ -1,13 +1,13 @@
 # Supabase Agent State transactional core
 
-Issue `StreamScapeTV/ci-workflows#52` is a transition source package for canonical issue `StreamScapeTV/agent-state-supabase#3`. It implements only the current single-work transactional core. The canonical repository must independently review both this source package and the already-existing provisional live migration ledger before choosing a production history.
+Issue `StreamScapeTV/ci-workflows#52` is a transition source package for canonical issue `StreamScapeTV/agent-state-supabase#3`. It implements only the current single-work transactional core. The canonical repository must independently review both this source package and the already-existing provisional live migration ledger before choosing one authoritative production history.
 
 ## Authority and schemas
 
 The source package defines two schemas:
 
 - `agent_private` contains normalized authoritative tables keyed by project.
-- `agent_api` contains the only candidate runtime functions.
+- `agent_api` contains the candidate runtime functions.
 
 The private schema models projects, repository and integration-branch mappings, Agent/Codex profiles and slots, work sessions, issue/branch/PR bindings, exact base/head/merge evidence, claims, immutable requests, receipts, and append-only events. It does not create per-project table families.
 
@@ -48,11 +48,11 @@ The reviewed target/source migration order in PR #57 is:
 2. `20260806172200_agent_state_core_rpc.sql`
 3. `20260806172300_agent_state_core_indexes.sql`
 
-These three files are a clean reconstruction target for an empty disposable PostgreSQL 17 database. They are **not directly deployable as new migrations to the current connected project**, because that project already contains the provisional schema and a different six-entry migration ledger.
+These three files define a clean reconstruction target for an empty disposable PostgreSQL 17 database. They are a **reviewed target/source package**, not directly deployable new migrations for the current connected project.
 
 ## Observed provisional live ledger
 
-The connected project is reported to contain these provisional, unaccepted entries:
+The connected project is reported to already contain the provisional schema and these six unaccepted ledger entries:
 
 1. `20260806174835 agent_state_core_schema`
 2. `20260806175059 agent_state_core_rpc`
@@ -61,15 +61,17 @@ The connected project is reported to contain these provisional, unaccepted entri
 5. `20260806175433 agent_state_error_projection_fix`
 6. `20260806175808 agent_state_foreign_key_indexes`
 
-The schema already exists. Therefore canonical issue #3 must choose and independently review a live-ledger reconciliation strategy **before any production deployment is allowed**. This source package does not choose or execute a strategy.
+The schema already exists under this different provisional history. Appending the three clean migrations would create a second incompatible migration story rather than reconcile the existing one.
+
+Canonical issue #3 must therefore choose and independently review a live-ledger reconciliation strategy **before production deployment is allowed**. This source package does not choose or execute a strategy.
 
 Permitted strategy classes are limited to:
 
-1. reconstruct the exact six already-applied versions and statements as the canonical baseline, followed by reviewed forward migrations;
-2. an explicit owner-authorized reset or recreation of the provisional schema and ledger, followed by the reviewed clean history;
-3. another explicitly reviewed baseline or repair procedure that proves one authoritative migration history and exact source/live parity.
+1. reconstruct the exact source corresponding to the six already-applied versions and statements as the canonical baseline, followed by reviewed forward migrations;
+2. perform an explicit owner-authorized reset or recreation of the provisional schema and migration ledger, followed by deployment of the reviewed clean history;
+3. use another explicitly reviewed baseline or repair procedure that proves exactly one authoritative migration history and exact source/live parity.
 
-Direct ad-hoc repair through SQL editor, connector DDL, table editor, or untracked migration-ledger mutation is forbidden.
+Direct ad-hoc repair, manual ledger mutation, direct production DDL, and silent migration version/name/filename rewriting are forbidden. Migration history must be made authoritative by a reviewed reconciliation procedure, not by disguising one history as another.
 
 ## Disposable reconstruction model
 
@@ -79,9 +81,9 @@ Normal repository discovery:
 python3 -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-must not download or compile PostgreSQL. The database test visibly skips its reconstruction class unless the explicit reconstruction opt-in is set.
+must not download or compile PostgreSQL. The database test emits a visible unittest skip before temporary runtime creation unless the explicit reconstruction opt-in is set. That discovery skip is not reconstruction evidence.
 
-Canonical issue #3 must separately run the fail-closed reconstruction command in a vetted isolated PostgreSQL 17 environment:
+Canonical issue #3 must separately run the fail-closed reconstruction command with a vetted PostgreSQL 17 runtime:
 
 ```bash
 AGENT_STATE_RUN_POSTGRES_RECONSTRUCTION=1 \
@@ -89,7 +91,15 @@ AGENT_STATE_POSTGRES_BIN=/absolute/path/to/postgresql-17/bin \
 python3 -m unittest -v tests.test_supabase_agent_state_core_database
 ```
 
-When explicitly enabled, the suite must run; lack of a valid PostgreSQL 17 toolchain or inability to obtain the pinned source is a failure, not a passing or silently skipped reconstruction result. Disposable reconstruction proves the clean target/source history only; it does not reconcile the existing production migration ledger.
+With explicit reconstruction enabled, a missing or invalid vetted runtime fails the command. Network source download is not implied. If separately authorized, the source-build path additionally requires:
+
+```bash
+AGENT_STATE_ALLOW_POSTGRES_SOURCE_DOWNLOAD=1
+```
+
+and verifies the pinned PostgreSQL 17.6 source SHA-256 before extraction or build. Download, checksum, build, startup, migration, assertion, or cleanup failure fails the explicit reconstruction.
+
+Disposable reconstruction proves the clean target/source history only; it does not reconcile the existing production migration ledger. All temporary PostgreSQL databases and runtime files are deleted by the suite.
 
 ## Exclusions
 
