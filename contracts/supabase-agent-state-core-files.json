@@ -25,13 +25,13 @@
     },
     {
       "path": "docs/evidence/supabase-agent-state-core-validation.md",
-      "bytes": 2364,
-      "sha256": "fd13a2aa9729e6b75be1643871616ddf8d53e0fb9afec35e96f079c371dbd337"
+      "bytes": 2920,
+      "sha256": "c7f70421f171e6d7abb405d6b9b974cd07077b7cbbb76f1e06f30fff0d5ce388"
     },
     {
       "path": "docs/operators/supabase-agent-state-core.md",
-      "bytes": 3719,
-      "sha256": "712d880a3d0c4520a99662265276948ec9ea1f34011159bab69d6d3421ddb64a"
+      "bytes": 3766,
+      "sha256": "c93cfb5f6d52b5e696ad2fb02fbd759890d55e1a1e17c93932c7e6ef4a31699e"
     },
     {
       "path": "supabase/migrations/20260806172100_agent_state_core_schema.sql",
@@ -60,8 +60,8 @@
     },
     {
       "path": "tests/support/supabase_agent_state_postgres.py",
-      "bytes": 12218,
-      "sha256": "20d709ded9e67fc043ba8e40ab3af23b64524e0b84febb853f7a104c8387aa15"
+      "bytes": 13276,
+      "sha256": "5f8a384d2b60c0908ba22217ba5e4667fa102ea6acc53a7bf06512600c221e79"
     },
     {
       "path": "tests/test_supabase_agent_state_core.py",
