@@ -1,0 +1,599 @@
+{
+  "aliases": {
+    "agent-state-control": "agent-state-control",
+    "apple": "apple",
+    "buildah": "buildah-small",
+    "buildah-high": "buildah-high",
+    "buildah-medium": "buildah-medium",
+    "buildah-small": "buildah-small",
+    "buildah-tiny": "buildah-tiny",
+    "flux-control": "flux-control",
+    "macOS": "apple",
+    "mobile": "mobile",
+    "physical-device": "physical-device",
+    "portable": "portable"
+  },
+  "contract_version": "1.0.0",
+  "generated_from": "contracts/runner-profiles.json",
+  "profiles": {
+    "agent-state-control": {
+      "allowed_source_trust": [
+        "no-caller-source"
+      ],
+      "allowed_workflow_apis": [
+        "agent-state.lifecycle",
+        "agent-state.ownership",
+        "agent-state.command"
+      ],
+      "approved_selectors": [
+        [
+          "agent-state"
+        ]
+      ],
+      "capacity_owner": "agent-state-control-owner",
+      "evidence_fields": [
+        "accepted",
+        "decision",
+        "instruction",
+        "receipt_id",
+        "agent_id",
+        "lifecycle_status",
+        "request_id"
+      ],
+      "kind": "runner",
+      "lifecycle": "repository-scoped-trusted-control",
+      "privilege": {
+        "device_locked": false,
+        "kubernetes_token": false,
+        "manual_capacity": false,
+        "privileged_container": false,
+        "repository_scoped": true
+      },
+      "public_labels": [],
+      "runs_on": [
+        "agent-state"
+      ]
+    },
+    "apple": {
+      "allowed_source_trust": [
+        "trusted-pr",
+        "trusted-exact"
+      ],
+      "allowed_workflow_apis": [
+        "validation.apple",
+        "validation.flutter",
+        "validation.device"
+      ],
+      "approved_selectors": [
+        [
+          "macOS"
+        ],
+        [
+          "self-hosted",
+          "macOS"
+        ]
+      ],
+      "capacity_owner": "organization-manual",
+      "evidence_fields": [
+        "result",
+        "test_summary",
+        "artifact_exception_used",
+        "cleanup_result"
+      ],
+      "kind": "runner",
+      "lifecycle": "organization-managed-persistent-capacity",
+      "privilege": {
+        "device_locked": false,
+        "kubernetes_token": false,
+        "manual_capacity": true,
+        "privileged_container": false,
+        "repository_scoped": false
+      },
+      "public_labels": [
+        "macOS"
+      ],
+      "runs_on": [
+        "self-hosted",
+        "macOS"
+      ]
+    },
+    "buildah-high": {
+      "allowed_source_trust": [
+        "trusted-exact"
+      ],
+      "allowed_workflow_apis": [
+        "oci.build",
+        "oci.publish",
+        "release.orchestrate",
+        "flux.assets"
+      ],
+      "approved_selectors": [
+        [
+          "buildah-high"
+        ],
+        [
+          "homelab-buildah-high-linux-x64"
+        ]
+      ],
+      "capacity_owner": "flux-arc",
+      "evidence_fields": [
+        "result",
+        "image_digest",
+        "platform_digests_json",
+        "immutable_references_json",
+        "remote_read_back"
+      ],
+      "kind": "runner",
+      "lifecycle": "ephemeral-one-job",
+      "privilege": {
+        "device_locked": false,
+        "kubernetes_token": false,
+        "manual_capacity": false,
+        "privileged_container": true,
+        "repository_scoped": false
+      },
+      "public_labels": [
+        "buildah-high"
+      ],
+      "runs_on": [
+        "homelab-buildah-high-linux-x64"
+      ]
+    },
+    "buildah-medium": {
+      "allowed_source_trust": [
+        "trusted-exact"
+      ],
+      "allowed_workflow_apis": [
+        "oci.build",
+        "oci.publish",
+        "release.orchestrate",
+        "flux.assets"
+      ],
+      "approved_selectors": [
+        [
+          "buildah-medium"
+        ],
+        [
+          "homelab-buildah-medium-linux-x64"
+        ]
+      ],
+      "capacity_owner": "flux-arc",
+      "evidence_fields": [
+        "result",
+        "image_digest",
+        "platform_digests_json",
+        "immutable_references_json",
+        "remote_read_back"
+      ],
+      "kind": "runner",
+      "lifecycle": "ephemeral-one-job",
+      "privilege": {
+        "device_locked": false,
+        "kubernetes_token": false,
+        "manual_capacity": false,
+        "privileged_container": true,
+        "repository_scoped": false
+      },
+      "public_labels": [
+        "buildah-medium"
+      ],
+      "runs_on": [
+        "homelab-buildah-medium-linux-x64"
+      ]
+    },
+    "buildah-small": {
+      "allowed_source_trust": [
+        "trusted-exact"
+      ],
+      "allowed_workflow_apis": [
+        "oci.build",
+        "oci.publish",
+        "release.orchestrate",
+        "flux.assets"
+      ],
+      "approved_selectors": [
+        [
+          "buildah"
+        ],
+        [
+          "buildah-small"
+        ],
+        [
+          "homelab-buildah-small-linux-x64"
+        ]
+      ],
+      "capacity_owner": "flux-arc",
+      "evidence_fields": [
+        "result",
+        "image_digest",
+        "platform_digests_json",
+        "immutable_references_json",
+        "remote_read_back"
+      ],
+      "kind": "runner",
+      "lifecycle": "ephemeral-one-job",
+      "privilege": {
+        "device_locked": false,
+        "kubernetes_token": false,
+        "manual_capacity": false,
+        "privileged_container": true,
+        "repository_scoped": false
+      },
+      "public_labels": [
+        "buildah",
+        "buildah-small"
+      ],
+      "runs_on": [
+        "homelab-buildah-small-linux-x64"
+      ]
+    },
+    "buildah-tiny": {
+      "allowed_source_trust": [
+        "trusted-exact"
+      ],
+      "allowed_workflow_apis": [
+        "oci.build",
+        "oci.publish",
+        "release.orchestrate",
+        "flux.assets"
+      ],
+      "approved_selectors": [
+        [
+          "buildah-tiny"
+        ],
+        [
+          "homelab-buildah-tiny-linux-x64"
+        ]
+      ],
+      "capacity_owner": "flux-arc",
+      "evidence_fields": [
+        "result",
+        "image_digest",
+        "platform_digests_json",
+        "immutable_references_json",
+        "remote_read_back"
+      ],
+      "kind": "runner",
+      "lifecycle": "ephemeral-one-job",
+      "privilege": {
+        "device_locked": false,
+        "kubernetes_token": false,
+        "manual_capacity": false,
+        "privileged_container": true,
+        "repository_scoped": false
+      },
+      "public_labels": [
+        "buildah-tiny"
+      ],
+      "runs_on": [
+        "homelab-buildah-tiny-linux-x64"
+      ]
+    },
+    "flux-control": {
+      "allowed_source_trust": [
+        "protected-flux-policy-only"
+      ],
+      "allowed_workflow_apis": [
+        "flux.reconcile",
+        "flux.assets"
+      ],
+      "approved_selectors": [
+        [
+          "homelab-flux-control-plane-linux-x64"
+        ]
+      ],
+      "capacity_owner": "flux-arc",
+      "evidence_fields": [
+        "result",
+        "reconciliation_state",
+        "request_id",
+        "cleanup_result"
+      ],
+      "kind": "runner",
+      "lifecycle": "ephemeral-one-job-repository-scoped",
+      "privilege": {
+        "device_locked": false,
+        "kubernetes_token": true,
+        "manual_capacity": false,
+        "privileged_container": false,
+        "repository_scoped": true
+      },
+      "public_labels": [],
+      "runs_on": [
+        "homelab-flux-control-plane-linux-x64"
+      ]
+    },
+    "mobile": {
+      "allowed_source_trust": [
+        "trusted-pr",
+        "trusted-exact"
+      ],
+      "allowed_workflow_apis": [
+        "validation.android",
+        "validation.flutter",
+        "validation.device"
+      ],
+      "approved_selectors": [
+        [
+          "mobile"
+        ],
+        [
+          "homelab-mobile-linux-x64"
+        ]
+      ],
+      "capacity_owner": "flux-arc",
+      "evidence_fields": [
+        "result",
+        "test_summary",
+        "artifact_exception_used"
+      ],
+      "kind": "runner",
+      "lifecycle": "ephemeral-one-job-with-managed-cache",
+      "privilege": {
+        "device_locked": false,
+        "kubernetes_token": false,
+        "manual_capacity": false,
+        "privileged_container": false,
+        "repository_scoped": false
+      },
+      "public_labels": [
+        "mobile"
+      ],
+      "runs_on": [
+        "homelab-mobile-linux-x64"
+      ]
+    },
+    "physical-device": {
+      "allowed_source_trust": [
+        "trusted-exact"
+      ],
+      "allowed_workflow_apis": [
+        "validation.device"
+      ],
+      "base_profile_by_family": {
+        "android": "mobile",
+        "ios": "apple",
+        "tvos": "apple"
+      },
+      "capacity_owner": "device-registry-and-host-owner",
+      "evidence_fields": [
+        "result",
+        "device_evidence_id",
+        "authorization_receipt",
+        "resource_lock_receipt",
+        "discovered_device_id",
+        "cleanup_evidence",
+        "request_id"
+      ],
+      "kind": "guarded-overlay",
+      "lifecycle": "trusted-resource-lock-required",
+      "lock_contract": {
+        "required": true,
+        "required_fields": [
+          "authorization_receipt",
+          "resource_lock_receipt",
+          "device_family",
+          "discovered_device_id",
+          "tested_source_sha",
+          "cleanup_evidence"
+        ]
+      },
+      "privilege": {
+        "device_locked": true,
+        "kubernetes_token": false,
+        "manual_capacity": true,
+        "privileged_container": false,
+        "repository_scoped": false
+      },
+      "public_labels": [],
+      "runs_on": null
+    },
+    "portable": {
+      "allowed_source_trust": [
+        "untrusted-fork",
+        "trusted-pr",
+        "trusted-exact"
+      ],
+      "allowed_workflow_apis": [
+        "source.resolve",
+        "validation.python",
+        "validation.node",
+        "validation.gitops",
+        "helm.validate",
+        "helm.publish",
+        "maintenance.artifacts",
+        "maintenance.branches",
+        "maintenance.conformance",
+        "maintenance.runner-retry",
+        "release.orchestrate",
+        "flux.assets"
+      ],
+      "approved_selectors": [
+        [
+          "portable"
+        ],
+        [
+          "homelab-portable-linux-x64"
+        ]
+      ],
+      "capacity_owner": "flux-arc",
+      "evidence_fields": [
+        "result",
+        "test_summary",
+        "artifact_exception_used"
+      ],
+      "kind": "runner",
+      "lifecycle": "ephemeral-one-job",
+      "privilege": {
+        "device_locked": false,
+        "kubernetes_token": false,
+        "manual_capacity": false,
+        "privileged_container": false,
+        "repository_scoped": false
+      },
+      "public_labels": [
+        "portable"
+      ],
+      "runs_on": [
+        "homelab-portable-linux-x64"
+      ]
+    }
+  },
+  "scheduling_mechanism": {
+    "caller_supplied_selectors": false,
+    "composite_action_can_change_runs_on": false,
+    "description": "A minimal protected planning job validates bounded semantic intent and emits a JSON selector. A dependent job uses fromJSON(needs.plan.outputs.runs_on), which GitHub resolves before scheduling that dependent job.",
+    "generated_mapping": "generated/runner-mappings.json",
+    "kind": "trusted-planning-job",
+    "planner_profile": "portable"
+  },
+  "schema_version": 1,
+  "workflow_bindings": {
+    "agent-state.command": {
+      "profiles": [
+        "agent-state-control"
+      ],
+      "strategy": "fixed"
+    },
+    "agent-state.lifecycle": {
+      "profiles": [
+        "agent-state-control"
+      ],
+      "strategy": "fixed"
+    },
+    "agent-state.ownership": {
+      "profiles": [
+        "agent-state-control"
+      ],
+      "strategy": "fixed"
+    },
+    "flux.assets": {
+      "profiles": [
+        "portable",
+        "buildah-tiny",
+        "buildah-small",
+        "buildah-medium",
+        "buildah-high",
+        "flux-control"
+      ],
+      "strategy": "internal-multi-job"
+    },
+    "flux.reconcile": {
+      "profiles": [
+        "flux-control"
+      ],
+      "strategy": "fixed"
+    },
+    "helm.publish": {
+      "profiles": [
+        "portable"
+      ],
+      "strategy": "fixed"
+    },
+    "helm.validate": {
+      "profiles": [
+        "portable"
+      ],
+      "strategy": "fixed"
+    },
+    "maintenance.artifacts": {
+      "profiles": [
+        "portable"
+      ],
+      "strategy": "fixed"
+    },
+    "maintenance.branches": {
+      "profiles": [
+        "portable"
+      ],
+      "strategy": "fixed"
+    },
+    "maintenance.conformance": {
+      "profiles": [
+        "portable"
+      ],
+      "strategy": "fixed"
+    },
+    "maintenance.runner-retry": {
+      "profiles": [
+        "portable"
+      ],
+      "strategy": "fixed"
+    },
+    "oci.build": {
+      "profiles": [
+        "buildah-tiny",
+        "buildah-small",
+        "buildah-medium",
+        "buildah-high"
+      ],
+      "strategy": "measured-tier"
+    },
+    "oci.publish": {
+      "profiles": [
+        "buildah-small",
+        "buildah-medium",
+        "buildah-high"
+      ],
+      "strategy": "product-contract-tier"
+    },
+    "release.orchestrate": {
+      "profiles": [
+        "portable",
+        "buildah-small",
+        "buildah-medium",
+        "buildah-high"
+      ],
+      "strategy": "internal-multi-job"
+    },
+    "source.resolve": {
+      "profiles": [
+        "portable"
+      ],
+      "strategy": "fixed"
+    },
+    "validation.android": {
+      "profiles": [
+        "mobile"
+      ],
+      "strategy": "fixed"
+    },
+    "validation.apple": {
+      "profiles": [
+        "apple"
+      ],
+      "strategy": "fixed"
+    },
+    "validation.device": {
+      "profiles": [
+        "physical-device"
+      ],
+      "strategy": "guarded-overlay"
+    },
+    "validation.flutter": {
+      "profiles": [
+        "mobile",
+        "apple"
+      ],
+      "strategy": "platform"
+    },
+    "validation.gitops": {
+      "profiles": [
+        "portable"
+      ],
+      "strategy": "fixed"
+    },
+    "validation.node": {
+      "profiles": [
+        "portable"
+      ],
+      "strategy": "fixed"
+    },
+    "validation.python": {
+      "profiles": [
+        "portable"
+      ],
+      "strategy": "fixed"
+    }
+  }
+}
