@@ -1,0 +1,253 @@
+{
+  "schema_version": 1,
+  "workflow": ".github/workflows/agent-state-command.yml",
+  "dispatch_repository": "StreamScapeTV/ci-workflows",
+  "protected_ref": "refs/heads/main",
+  "runner_intent": "agent-state-control",
+  "authorized_actors": [
+    "mimranfaruqi"
+  ],
+  "inputs": [
+    "request_id",
+    "repository",
+    "project",
+    "action",
+    "session_name",
+    "agent_id",
+    "issue_number",
+    "pr_number",
+    "task",
+    "base_sha",
+    "head_sha",
+    "branch",
+    "files",
+    "packages",
+    "claim_type",
+    "claim_mode",
+    "summary",
+    "reason"
+  ],
+  "request_id_pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{7,127}$",
+  "session_name_pattern": "^Agent [1-9][0-9]*$",
+  "agent_id_pattern": "^gpt-agent-[1-9][0-9]*-[0-9]{8}-[0-9]{4}-[a-z0-9]{4}$",
+  "limits": {
+    "task": 500,
+    "summary": 500,
+    "reason": 500,
+    "list_items": 256,
+    "list_item_length": 512,
+    "result_json_bytes": 32768,
+    "retry_attempts": 5,
+    "retry_after_seconds_max": 30
+  },
+  "actions": {
+    "resume": {
+      "required": [
+        "request_id",
+        "repository",
+        "project",
+        "action",
+        "session_name"
+      ],
+      "optional": [],
+      "scope_required": false,
+      "issue_required": false,
+      "pr_allowed": false,
+      "transport": "github-lifecycle-compat"
+    },
+    "start": {
+      "required": [
+        "request_id",
+        "repository",
+        "project",
+        "action",
+        "session_name",
+        "agent_id",
+        "issue_number",
+        "task",
+        "base_sha",
+        "branch"
+      ],
+      "optional": [
+        "files",
+        "packages",
+        "claim_type",
+        "claim_mode"
+      ],
+      "scope_required": true,
+      "issue_required": true,
+      "pr_allowed": false,
+      "transport": "direct"
+    },
+    "claim": {
+      "required": [
+        "request_id",
+        "repository",
+        "project",
+        "action",
+        "session_name",
+        "agent_id",
+        "issue_number"
+      ],
+      "optional": [
+        "files",
+        "packages",
+        "claim_type",
+        "claim_mode"
+      ],
+      "scope_required": true,
+      "issue_required": true,
+      "pr_allowed": false,
+      "transport": "direct"
+    },
+    "release": {
+      "required": [
+        "request_id",
+        "repository",
+        "project",
+        "action",
+        "session_name",
+        "agent_id",
+        "issue_number"
+      ],
+      "optional": [
+        "files",
+        "packages"
+      ],
+      "scope_required": true,
+      "issue_required": true,
+      "pr_allowed": false,
+      "transport": "direct"
+    },
+    "reconcile_base": {
+      "required": [
+        "request_id",
+        "repository",
+        "project",
+        "action",
+        "session_name",
+        "agent_id",
+        "issue_number",
+        "branch"
+      ],
+      "optional": [
+        "base_sha"
+      ],
+      "scope_required": false,
+      "issue_required": true,
+      "pr_allowed": false,
+      "transport": "github-lifecycle-compat"
+    },
+    "block": {
+      "required": [
+        "request_id",
+        "repository",
+        "project",
+        "action",
+        "session_name",
+        "agent_id",
+        "issue_number",
+        "reason"
+      ],
+      "optional": [],
+      "scope_required": false,
+      "issue_required": true,
+      "pr_allowed": false,
+      "transport": "direct"
+    },
+    "review": {
+      "required": [
+        "request_id",
+        "repository",
+        "project",
+        "action",
+        "session_name",
+        "agent_id",
+        "issue_number",
+        "summary"
+      ],
+      "optional": [
+        "pr_number",
+        "head_sha"
+      ],
+      "scope_required": false,
+      "issue_required": true,
+      "pr_allowed": true,
+      "transport": "direct"
+    },
+    "done": {
+      "required": [
+        "request_id",
+        "repository",
+        "project",
+        "action",
+        "session_name",
+        "agent_id",
+        "issue_number",
+        "summary"
+      ],
+      "optional": [
+        "pr_number",
+        "head_sha"
+      ],
+      "scope_required": false,
+      "issue_required": true,
+      "pr_allowed": true,
+      "transport": "direct"
+    },
+    "cancel": {
+      "required": [
+        "request_id",
+        "repository",
+        "project",
+        "action",
+        "session_name",
+        "agent_id",
+        "issue_number",
+        "reason"
+      ],
+      "optional": [],
+      "scope_required": false,
+      "issue_required": true,
+      "pr_allowed": false,
+      "transport": "direct"
+    }
+  },
+  "result_fields": [
+    "accepted",
+    "action",
+    "agent_id",
+    "project",
+    "repository",
+    "decision",
+    "instruction",
+    "next_instruction",
+    "summary",
+    "request_id",
+    "receipt_id",
+    "replayed",
+    "registered",
+    "claimed",
+    "released",
+    "reconciled_base",
+    "previous_base_sha",
+    "current_base_sha",
+    "block",
+    "review",
+    "done",
+    "cancel",
+    "status",
+    "read_only",
+    "state_changed",
+    "assignment",
+    "active_sessions",
+    "resume_required",
+    "conflict_count",
+    "warning_count",
+    "conflicts",
+    "warnings",
+    "agent",
+    "expected_branch",
+    "requested_base_sha"
+  ]
+}
