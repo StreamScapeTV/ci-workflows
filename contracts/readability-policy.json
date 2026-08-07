@@ -25,6 +25,20 @@
         "tests/test_reusable_tag_image_chart.py",
         "tests/test_validation_harness.py"
       ]
+    },
+    {
+      "id": "issue-37-legacy-agent-state-run",
+      "issue": 37,
+      "path": "src/ci_workflows/agent_state_command.py",
+      "reason": "The protected temporary Agent State compatibility transport predates the named-function convergence and exposes its tested legacy run entry point. Issue #31 does not rename or absorb Agent State transport semantics.",
+      "removal_condition": "Remove when the temporary #37 compatibility transport is retired after canonical Agent State cutover and legacy-consumer retirement.",
+      "rules": [
+        "opaque-function-name"
+      ],
+      "tests": [
+        "tests/test_agent_state_command.py",
+        "tests/test_readability_contract.py"
+      ]
     }
   ],
   "forbidden_generic_inputs": [
