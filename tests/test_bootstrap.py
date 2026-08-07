@@ -47,17 +47,17 @@ class BootstrapContractTests(unittest.TestCase):
             ],
         )
 
-    def test_self_check_uses_automatic_discovery_and_verified_python(self) -> None:
+    def test_self_check_uses_automatic_discovery_and_selected_python(self) -> None:
         source = (ROOT / ".github/workflows/self-check.yml").read_text()
         self.assertIn(
-            '"${VERIFIED_PYTHON}" -m unittest discover '
-            "-s tests -p 'test_*.py' -v",
+            "python3 -m unittest discover -s tests -p 'test_*.py' -v",
             source,
         )
-        self.assertNotIn(
-            "python3 -m unittest discover",
+        self.assertIn(
+            'printf \'%s\\n\' "${runtime_bin}" >> "${GITHUB_PATH}"',
             source,
         )
+        self.assertNotIn("VERIFIED_PYTHON", source)
         self.assertNotIn("actions/setup-python@", source)
 
     def test_self_check_uses_bounded_emergency_macos_contract(self) -> None:
