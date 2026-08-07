@@ -50,53 +50,26 @@ jobs:
               ;;
           esac
 
-      - name: Inspect preinstalled macOS Python candidates
+      - name: Select preinstalled CPython 3.12
         shell: bash
         run: |
           set -Eeuo pipefail
           candidates=(
             /opt/homebrew/bin/python3.12
-            /opt/homebrew/bin/python3
             /usr/local/bin/python3.12
-            /usr/local/bin/python3
             /Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12
-            /usr/bin/python3
           )
           command -v python3.12 >/dev/null 2>&1 && candidates+=("$(command -v python3.12)")
           command -v python3 >/dev/null 2>&1 && candidates+=("$(command -v python3)")
 
+          selected=''
           seen=':'
-          found=0
           for candidate in "${candidates[@]}"; do
             [[ -x "${candidate}" ]] || continue
             resolved="$(cd "$(dirname "${candidate}")" && pwd -P)/$(basename "${candidate}")"
             [[ "${seen}" != *":${resolved}:"* ]] || continue
             seen+="${resolved}:"
-            found=1
-            "${resolved}" - <<'PY'
-          import platform
-          import sys
-
-          print(
-              "preinstalled-python "
-              f"implementation={sys.implementation.name} "
-              f"version={sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro} "
-              f"system={platform.system()} machine={platform.machine()}"
-          )
-          PY
-          done
-          test "${found}" -eq 1
-
-      - name: Set up pinned CPython 3.12
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.12.10"
-
-      - name: Verify pinned macOS Python runtime
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          python3 - <<'PY'
+            if "${resolved}" - <<'PY'
           import platform
           import sys
 
@@ -105,11 +78,50 @@ jobs:
               machine = "x86_64"
           elif machine == "aarch64":
               machine = "arm64"
-          expected = ("cpython", (3, 12, 10), "Darwin", {"x86_64", "arm64"})
-          actual = (sys.implementation.name, sys.version_info[:3], platform.system(), machine)
-          if actual[0] != expected[0] or actual[1] != expected[1] or actual[2] != expected[2] or actual[3] not in expected[3]:
-              raise SystemExit(f"unsupported self-check Python host: {actual!r}")
+          actual = (
+              sys.implementation.name,
+              sys.version_info[:2],
+              platform.system(),
+              machine,
+          )
+          expected = ("cpython", (3, 12), "Darwin", {"x86_64", "arm64"})
+          if (
+              actual[0] != expected[0]
+              or actual[1] != expected[1]
+              or actual[2] != expected[2]
+              or actual[3] not in expected[3]
+          ):
+              raise SystemExit(1)
           PY
+            then
+              selected="${resolved}"
+              break
+            fi
+          done
+
+          if [[ -z "${selected}" ]]; then
+            echo '::error::No preinstalled CPython 3.12 runtime is available on the organization-managed macOS runner.' >&2
+            exit 1
+          fi
+
+          runtime_bin="${RUNNER_TEMP}/ci-workflows-python-bin"
+          rm -rf "${runtime_bin}"
+          mkdir -p "${runtime_bin}"
+          ln -s "${selected}" "${runtime_bin}/python3"
+          "${runtime_bin}/python3" - <<'PY'
+          import platform
+          import sys
+
+          print(
+              "Selected preinstalled validation runtime: "
+              f"CPython {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro} "
+              f"on {platform.system()} {platform.machine()}"
+          )
+          PY
+          {
+            printf '%s\n' "${runtime_bin}" >> "${GITHUB_PATH}"
+            printf 'PYTHON_RUNTIME_BIN=%s\n' "${runtime_bin}" >> "${GITHUB_ENV}"
+          }
 
       - name: Check out exact source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -199,6 +211,10 @@ jobs:
             rm -rf "${VALIDATION_ROOT}" || cleanup_failed=1
             [[ ! -e "${VALIDATION_ROOT}" ]] || cleanup_failed=1
           fi
+          if [[ -n "${PYTHON_RUNTIME_BIN:-}" ]]; then
+            rm -rf "${PYTHON_RUNTIME_BIN}" || cleanup_failed=1
+            [[ ! -e "${PYTHON_RUNTIME_BIN}" ]] || cleanup_failed=1
+          fi
           find . -type d -name __pycache__ -prune -exec rm -rf {} + || cleanup_failed=1
           find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete || cleanup_failed=1
           test -z "$(find . -type d -name __pycache__ -print -quit)" || cleanup_failed=1
@@ -232,6 +248,6 @@ jobs:
               payload = json.load(response)
           count = int(payload.get("total_count", 0))
           if count:
-              raise SystemExit(f"self-check uploaded {count} unexpected artifact(s)")
+            raise SystemExit(f"self-check uploaded {count} unexpected artifact(s)")
           print("Central self-check artifact policy passed: zero artifacts.")
           PY
