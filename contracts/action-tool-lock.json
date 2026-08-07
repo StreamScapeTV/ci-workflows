@@ -22,6 +22,18 @@
   ],
   "python": {
     "minimum": "3.12",
+    "emergency_macos_host": {
+      "implementation": "cpython",
+      "version": "3.12.13",
+      "system": "Darwin",
+      "architectures": [
+        "arm64",
+        "x86_64"
+      ],
+      "provisioning": "preinstalled",
+      "runtime_installation": "forbidden",
+      "privilege_elevation": "forbidden"
+    },
     "packages": [
       {
         "name": "PyYAML",
