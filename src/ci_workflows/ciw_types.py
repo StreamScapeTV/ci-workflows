@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Mapping, TextIO
 
 _IDENTIFIER = re.compile(r"^[a-z][a-z0-9-]{1,63}$")
-_ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{2,95}$")
+_ERROR_CODE = re.compile(r"^[a-z][a-z0-9_-]{2,95}$")
 _COMMAND_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
