@@ -88,7 +88,7 @@ Podman profiles require the central Buildah classes and:
 
 ## PostgreSQL isolation
 
-`podman-postgres` creates a random per-execution password with `secrets.token_urlsafe`, a fixed non-production username/database, one isolated Podman network, one isolated data volume, and one service container. The database URL is injected only into the contract-selected environment variable for the validation container. It is never an input, output, log summary, evidence field, or remote fallback.
+`podman-postgres` creates ephemeral per-execution PostgreSQL credentials: a random password with `secrets.token_urlsafe`, a fixed non-production username/database, one isolated Podman network, one isolated data volume, and one service container. The database URL is injected only into the contract-selected environment variable for the validation container. It is never an input, output, log summary, evidence field, or remote fallback.
 
 Readiness is bounded to 30 attempts at two-second intervals. The service image and Python image are exact. A failure to become ready produces `postgres_readiness_timeout` and still enters unconditional cleanup.
 
