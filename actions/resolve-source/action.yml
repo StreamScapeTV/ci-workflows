@@ -107,6 +107,5 @@ runs:
         INPUT_EXPECTED_PR_MERGE_SHA: ${{ inputs.expected_pr_merge_sha }}
       run: |
         set -Eeuo pipefail
-        PYTHONPATH="${GITHUB_ACTION_PATH}/../../src" \
-          python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/resolve_source.py" \
-            resolve --root "${GITHUB_ACTION_PATH}/../.."
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
+          source resolve
