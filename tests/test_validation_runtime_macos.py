@@ -90,18 +90,30 @@ class MacOSValidationRuntimeTest(unittest.TestCase):
                         implementation="cpython",
                         system="Darwin",
                         machine=machine,
-                        version=(3, 13, 5),
+                        version=(3, 12, 13),
+                    ),
+                )
+
+    def test_supported_darwin_patch_updates_share_the_cp312_lock(self) -> None:
+        for version in ((3, 12), (3, 12, 10), (3, 12, 13), (3, 12, 99)):
+            with self.subTest(version=version):
+                self.assertEqual(
+                    MAC_ARM_RUNTIME,
+                    detect_runtime(
+                        implementation="cpython",
+                        system="Darwin",
+                        machine="arm64",
+                        version=version,
                     ),
                 )
 
     def test_unsupported_host_properties_are_rejected(self) -> None:
         cases = (
-            ("pypy", "Darwin", "arm64", (3, 13, 5), "implementation"),
-            ("cpython", "Windows", "x86_64", (3, 13, 5), "operating system"),
-            ("cpython", "Darwin", "ppc64", (3, 13, 5), "architecture"),
-            ("cpython", "Darwin", "arm64", (3, 13, 4), "Python version"),
-            ("cpython", "Darwin", "arm64", (3, 13, 6), "Python version"),
-            ("cpython", "Darwin", "arm64", (3, 12, 10), "Python version"),
+            ("pypy", "Darwin", "arm64", (3, 12, 13), "implementation"),
+            ("cpython", "Windows", "x86_64", (3, 12, 13), "operating system"),
+            ("cpython", "Darwin", "ppc64", (3, 12, 13), "architecture"),
+            ("cpython", "Darwin", "arm64", (3, 11, 9), "Python version"),
+            ("cpython", "Darwin", "arm64", (3, 13, 0), "Python version"),
             ("cpython", "Linux", "arm64", (3, 12, 10), "architecture"),
             ("cpython", "Linux", "x86_64", (3, 13, 5), "Python version"),
         )
