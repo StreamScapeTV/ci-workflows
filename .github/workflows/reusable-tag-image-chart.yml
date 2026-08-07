@@ -71,7 +71,7 @@ jobs:
   publish:
     name: Publish exact tag image and chart
     if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref, 'refs/tags/')
-    runs-on: [self-hosted, buildah-high]
+    runs-on: buildah-high
     timeout-minutes: 90
     outputs:
       version: ${{ steps.release.outputs.version }}
@@ -281,6 +281,8 @@ jobs:
           run_root="${RUNNER_TEMP}/r/${run_token}"
           registry_auth="${state_root}/auth/containers.json"
           helm_auth="${state_root}/auth/helm.json"
+          helm_repository_config="${state_root}/helm/repositories.yaml"
+          helm_repository_cache="${state_root}/helm/repository-cache"
           oci_layout="${state_root}/image-oci"
           chart_source="${state_root}/chart-source"
           chart_local="${state_root}/chart-local"
@@ -291,6 +293,8 @@ jobs:
             "${storage_root}" \
             "${run_root}" \
             "$(dirname "${registry_auth}")" \
+            "$(dirname "${helm_repository_config}")" \
+            "${helm_repository_cache}" \
             "${oci_layout}" \
             "${chart_source}" \
             "${chart_local}" \
@@ -300,6 +304,8 @@ jobs:
             "${storage_root}" \
             "${run_root}" \
             "$(dirname "${registry_auth}")" \
+            "$(dirname "${helm_repository_config}")" \
+            "${helm_repository_cache}" \
             "${oci_layout}" \
             "${chart_source}" \
             "${chart_local}" \
@@ -314,6 +320,8 @@ jobs:
             printf 'CONTAINER_RUN_ROOT=%s\n' "${run_root}"
             printf 'REGISTRY_AUTH_FILE=%s\n' "${registry_auth}"
             printf 'HELM_REGISTRY_CONFIG=%s\n' "${helm_auth}"
+            printf 'HELM_REPOSITORY_CONFIG=%s\n' "${helm_repository_config}"
+            printf 'HELM_REPOSITORY_CACHE=%s\n' "${helm_repository_cache}"
             printf 'OCI_LAYOUT=%s\n' "${oci_layout}"
             printf 'CHART_SOURCE=%s\n' "${chart_source}"
             printf 'CHART_LOCAL=%s\n' "${chart_local}"
@@ -326,6 +334,148 @@ jobs:
               --root "${storage_root}" \
               --runroot "${run_root}" \
               info
+
+      - name: Prepare locked Helm chart dependencies
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          CHART_NAME: ${{ inputs.chart_name }}
+          CHART_PATH: ${{ inputs.chart_path }}
+        run: |
+          set -Eeuo pipefail
+          cp -a "${CHART_PATH}/." "${CHART_SOURCE}/"
+
+          source_metadata="${STATE_ROOT}/chart-source-metadata.yaml"
+          "${HELM_BIN}" show chart "${CHART_SOURCE}" > "${source_metadata}"
+          grep -Fqx "name: ${CHART_NAME}" "${source_metadata}"
+          grep -Fqx "version: ${VERSION}" "${source_metadata}"
+          grep -Eq "^appVersion: ['\"]?${VERSION}['\"]?$" "${source_metadata}"
+
+          dependency_list="${STATE_ROOT}/chart-dependency-list.txt"
+          dependency_repositories="${STATE_ROOT}/chart-dependency-repositories.txt"
+          dependency_count_file="${STATE_ROOT}/chart-dependency-count.txt"
+          "${HELM_BIN}" dependency list "${CHART_SOURCE}" > "${dependency_list}"
+
+          CHART_SOURCE="${CHART_SOURCE}" \
+          DEPENDENCY_LIST="${dependency_list}" \
+          DEPENDENCY_REPOSITORIES="${dependency_repositories}" \
+          DEPENDENCY_COUNT_FILE="${dependency_count_file}" \
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          import os
+          from pathlib import Path
+          import re
+          from urllib.parse import urlsplit
+
+          chart_source = Path(os.environ["CHART_SOURCE"])
+          dependency_list = Path(os.environ["DEPENDENCY_LIST"])
+          repository_output = Path(os.environ["DEPENDENCY_REPOSITORIES"])
+          count_output = Path(os.environ["DEPENDENCY_COUNT_FILE"])
+
+          rows: list[tuple[str, str, str]] = []
+          saw_header = False
+          for raw_line in dependency_list.read_text(encoding="utf-8").splitlines():
+              line = raw_line.strip()
+              if not line or line.startswith("WARNING:"):
+                  continue
+              if line.startswith("NAME") and "VERSION" in line and "REPOSITORY" in line:
+                  saw_header = True
+                  continue
+              if not saw_header:
+                  raise SystemExit(f"Unexpected Helm dependency output: {line}")
+              fields = line.split()
+              if len(fields) < 4:
+                  raise SystemExit(f"Malformed Helm dependency row: {line}")
+              name, version, repository = fields[:3]
+              if re.fullmatch(r"[A-Za-z0-9_.-]+", name) is None:
+                  raise SystemExit(f"Unsafe Helm dependency name: {name}")
+              if re.fullmatch(r"[0-9A-Za-z.+_-]+", version) is None:
+                  raise SystemExit(f"Unsafe Helm dependency version: {version}")
+              parsed = urlsplit(repository)
+              if parsed.scheme not in {"https", "oci"}:
+                  raise SystemExit(
+                      f"Unsupported Helm dependency repository scheme: {repository}"
+                  )
+              if (
+                  not parsed.netloc
+                  or parsed.username is not None
+                  or parsed.password is not None
+                  or parsed.query
+                  or parsed.fragment
+              ):
+                  raise SystemExit(
+                      f"Unsafe Helm dependency repository URL: {repository}"
+                  )
+              rows.append((name, version, repository))
+
+          lock_path = chart_source / "Chart.lock"
+          if rows and not lock_path.is_file():
+              raise SystemExit(
+                  "Chart.lock is required when Chart.yaml declares dependencies"
+              )
+          if not rows and lock_path.exists():
+              raise SystemExit(
+                  "Chart.lock exists but Chart.yaml declares no dependencies"
+              )
+
+          repositories = sorted(
+              {repository for _, _, repository in rows if repository.startswith("https://")}
+          )
+          repository_output.write_text(
+              "".join(f"{repository}\n" for repository in repositories),
+              encoding="utf-8",
+          )
+          count_output.write_text(f"{len(rows)}\n", encoding="utf-8")
+          PY
+
+          dependency_count="$(tr -d '[:space:]' < "${dependency_count_file}")"
+          [[ "${dependency_count}" =~ ^[0-9]+$ ]]
+          printf 'CHART_DEPENDENCY_COUNT=%s\n' "${dependency_count}" >> "${GITHUB_ENV}"
+
+          if [[ "${dependency_count}" -gt 0 ]]; then
+            lock_sha_before="$(sha256sum "${CHART_SOURCE}/Chart.lock" | awk '{print $1}')"
+            repository_index=0
+            while IFS= read -r repository; do
+              [[ -n "${repository}" ]] || continue
+              "${HELM_BIN}" repo add \
+                "release-dependency-${repository_index}" \
+                "${repository}" \
+                --force-update \
+                --repository-config "${HELM_REPOSITORY_CONFIG}" \
+                --repository-cache "${HELM_REPOSITORY_CACHE}"
+              repository_index=$((repository_index + 1))
+            done < "${dependency_repositories}"
+
+            rm -rf "${CHART_SOURCE}/charts"
+            "${HELM_BIN}" dependency build "${CHART_SOURCE}" \
+              --skip-refresh \
+              --repository-config "${HELM_REPOSITORY_CONFIG}" \
+              --repository-cache "${HELM_REPOSITORY_CACHE}"
+
+            lock_sha_after="$(sha256sum "${CHART_SOURCE}/Chart.lock" | awk '{print $1}')"
+            test "${lock_sha_after}" = "${lock_sha_before}"
+            actual_dependencies="$(
+              find "${CHART_SOURCE}/charts" \
+                -mindepth 1 -maxdepth 1 -type f -name '*.tgz' -print \
+                | wc -l \
+                | tr -d '[:space:]'
+            )"
+            test "${actual_dependencies}" -eq "${dependency_count}"
+          else
+            test ! -e "${CHART_SOURCE}/charts"
+          fi
+
+          source_epoch="$(git show -s --format=%ct "${GITHUB_SHA}")"
+          SOURCE_EPOCH="${source_epoch}" python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          root = Path(os.environ["CHART_SOURCE"])
+          epoch = int(os.environ["SOURCE_EPOCH"])
+          for path in [root, *root.rglob("*")]:
+              os.utime(path, (epoch, epoch), follow_symlinks=False)
+          PY
 
       - name: Authenticate to fixed private OCI registry
         shell: bash
@@ -484,22 +634,9 @@ jobs:
         env:
           VERSION: ${{ steps.release.outputs.version }}
           CHART_NAME: ${{ inputs.chart_name }}
-          CHART_PATH: ${{ inputs.chart_path }}
           CHART_REFERENCE: ${{ steps.release.outputs.chart_reference }}
         run: |
           set -Eeuo pipefail
-          cp -a "${CHART_PATH}/." "${CHART_SOURCE}/"
-          source_epoch="$(git show -s --format=%ct "${GITHUB_SHA}")"
-          SOURCE_EPOCH="${source_epoch}" python3 - <<'PY'
-          from pathlib import Path
-          import os
-
-          root = Path(os.environ["CHART_SOURCE"])
-          epoch = int(os.environ["SOURCE_EPOCH"])
-          for path in [root, *root.rglob("*")]:
-              os.utime(path, (epoch, epoch), follow_symlinks=False)
-          PY
-
           "${HELM_BIN}" lint "${CHART_SOURCE}"
           render="${STATE_ROOT}/chart-render.yaml"
           "${HELM_BIN}" template "${CHART_NAME}" "${CHART_SOURCE}" \
@@ -517,6 +654,12 @@ jobs:
             --destination "${CHART_LOCAL}" >/dev/null
           package="${CHART_LOCAL}/${CHART_NAME}-${VERSION}.tgz"
           test -s "${package}"
+          local_dependency_entries="$(
+            tar -tzf "${package}" \
+              | grep -Ec "^${CHART_NAME}/charts/[^/]+\\.tgz$" \
+              || true
+          )"
+          test "${local_dependency_entries}" -eq "${CHART_DEPENDENCY_COUNT}"
           local_sha="$(sha256sum "${package}" | awk '{print $1}')"
 
           metadata="${STATE_ROOT}/chart-local-metadata.yaml"
@@ -545,6 +688,13 @@ jobs:
             test -s "${remote_package}"
             test "$(sha256sum "${remote_package}" | awk '{print $1}')" = "${local_sha}"
           fi
+
+          remote_dependency_entries="$(
+            tar -tzf "${remote_package}" \
+              | grep -Ec "^${CHART_NAME}/charts/[^/]+\\.tgz$" \
+              || true
+          )"
+          test "${remote_dependency_entries}" -eq "${CHART_DEPENDENCY_COUNT}"
 
           remote_metadata="${STATE_ROOT}/chart-remote-metadata.yaml"
           "${HELM_BIN}" show chart "${remote_package}" > "${remote_metadata}"
