@@ -51,6 +51,25 @@ class WorkspacePrimitiveTests(unittest.TestCase):
             contract_root=ROOT,
         )
 
+    def prepare_read_only_parent(
+        self,
+        *,
+        runner_os: str,
+        run_id: str,
+    ):
+        state = prepare_workspace(
+            self.context(runner_os, run_id=run_id),
+            profile="full_validation",
+            contract_root=ROOT,
+        )
+        parent = state.root / "npm" / "cache" / "nested"
+        parent.mkdir()
+        value = parent / "value"
+        value.write_text("cache\n", encoding="utf-8")
+        value.chmod(stat.S_IRUSR)
+        parent.chmod(stat.S_IRUSR | stat.S_IXUSR)
+        return state
+
     def test_strict_environment_and_workflow_scoped_root(self) -> None:
         state = self.prepare()
         self.assertEqual(state.profile, "minimal")
@@ -159,29 +178,113 @@ class WorkspacePrimitiveTests(unittest.TestCase):
         self.assertEqual(caught.exception.instruction, "duplicate_registered_path")
         cleanup_workspace(state.root, expected_state_id=state.state_id, contract_root=ROOT)
 
-    def test_symlink_escape_and_malicious_registry_do_not_delete_outside(self) -> None:
+    def test_parent_escape_registration_is_rejected(self) -> None:
         state = self.prepare()
-        outside = self.base / "outside"
+        with self.assertRaises(FoundationError) as caught:
+            register_state_path(
+                state.root,
+                name="parent-escape",
+                relative="artifacts/../../outside",
+                kind="artifact",
+                contract_root=ROOT,
+            )
+        self.assertEqual(caught.exception.instruction, "invalid_relative_path")
+        cleanup_workspace(state.root, expected_state_id=state.state_id, contract_root=ROOT)
+
+    def test_registered_symlink_file_and_directory_escape_are_rejected(self) -> None:
+        outside_file = self.base / "outside-file"
+        outside_file.write_text("keep\n", encoding="utf-8")
+        outside_directory = self.base / "outside-directory"
+        outside_directory.mkdir()
+        (outside_directory / "sentinel").write_text("keep\n", encoding="utf-8")
+
+        for index, target in enumerate((outside_file, outside_directory), start=1):
+            with self.subTest(target=target.name):
+                state = prepare_workspace(
+                    self.context("Linux", run_id=str(300 + index)),
+                    profile="minimal",
+                    contract_root=ROOT,
+                )
+                untouched = state.root / "credentials" / "untouched"
+                untouched.write_text("keep\n", encoding="utf-8")
+                evidence = state.root / "evidence"
+                evidence.rmdir()
+                evidence.symlink_to(
+                    target,
+                    target_is_directory=target.is_dir(),
+                )
+                with self.assertRaises(FoundationError) as caught:
+                    cleanup_workspace(
+                        state.root,
+                        expected_state_id=state.state_id,
+                        contract_root=ROOT,
+                    )
+                self.assertEqual(caught.exception.instruction, "symlink_escape_detected")
+                self.assertTrue(untouched.exists())
+                self.assertTrue(target.exists())
+                evidence.unlink()
+                evidence.mkdir()
+                cleanup_workspace(
+                    state.root,
+                    expected_state_id=state.state_id,
+                    contract_root=ROOT,
+                )
+
+    def test_internal_symlinks_are_unlinked_without_following_or_chmod_outside(self) -> None:
+        state = self.prepare(profile="minimal")
+        outside_file = self.base / "outside-file-mode"
+        outside_file.write_text("outside\n", encoding="utf-8")
+        outside_file.chmod(stat.S_IRUSR)
+        outside_directory = self.base / "outside-directory-mode"
+        outside_directory.mkdir()
+        outside_sentinel = outside_directory / "sentinel"
+        outside_sentinel.write_text("outside\n", encoding="utf-8")
+        outside_directory.chmod(stat.S_IRUSR | stat.S_IXUSR)
+        file_mode = stat.S_IMODE(outside_file.stat().st_mode)
+        directory_mode = stat.S_IMODE(outside_directory.stat().st_mode)
+
+        artifacts = state.root / "artifacts"
+        (artifacts / "file-link").symlink_to(outside_file)
+        (artifacts / "directory-link").symlink_to(
+            outside_directory,
+            target_is_directory=True,
+        )
+        cleanup_workspace(
+            state.root,
+            expected_state_id=state.state_id,
+            contract_root=ROOT,
+        )
+        self.assertTrue(outside_file.exists())
+        self.assertTrue(outside_sentinel.exists())
+        self.assertEqual(stat.S_IMODE(outside_file.stat().st_mode), file_mode)
+        self.assertEqual(
+            stat.S_IMODE(outside_directory.stat().st_mode),
+            directory_mode,
+        )
+        outside_directory.chmod(stat.S_IRWXU)
+        outside_file.chmod(stat.S_IRUSR | stat.S_IWUSR)
+
+    def test_malicious_registry_entry_is_rejected_before_any_deletion(self) -> None:
+        state = self.prepare()
+        untouched = state.root / "credentials" / "untouched"
+        untouched.write_text("keep\n", encoding="utf-8")
+        outside = self.base / "outside-registry"
         outside.mkdir()
         sentinel = outside / "sentinel"
         sentinel.write_text("keep\n", encoding="utf-8")
-        evidence = state.root / "evidence"
-        evidence.rmdir()
-        evidence.symlink_to(outside, target_is_directory=True)
-        with self.assertRaises(FoundationError) as caught:
-            cleanup_workspace(state.root, expected_state_id=state.state_id, contract_root=ROOT)
-        self.assertEqual(caught.exception.instruction, "symlink_escape_detected")
-        self.assertTrue(sentinel.exists())
-        evidence.unlink()
-        evidence.mkdir()
 
         registry = state.root / ".ci-workflows-registry.json"
         payload = json.loads(registry.read_text(encoding="utf-8"))
-        payload["paths"][0]["relative"] = "../../outside"
+        payload["paths"][-1]["relative"] = "../../outside-registry"
         registry.write_text(json.dumps(payload), encoding="utf-8")
         with self.assertRaises(FoundationError) as caught:
-            cleanup_workspace(state.root, expected_state_id=state.state_id, contract_root=ROOT)
+            cleanup_workspace(
+                state.root,
+                expected_state_id=state.state_id,
+                contract_root=ROOT,
+            )
         self.assertEqual(caught.exception.instruction, "invalid_relative_path")
+        self.assertTrue(untouched.exists())
         self.assertTrue(sentinel.exists())
 
     def test_interrupted_partial_setup_is_safely_terminalized(self) -> None:
@@ -212,33 +315,79 @@ class WorkspacePrimitiveTests(unittest.TestCase):
         self.assertGreater(report.removed_sensitive_paths, 0)
         self.assertFalse(state.root.exists())
 
-    def test_linux_and_macos_cleanup_remove_read_only_sensitive_state(self) -> None:
-        for index, runner_os in enumerate(("Linux", "macOS"), start=1):
-            with self.subTest(runner_os=runner_os):
-                state = prepare_workspace(
-                    self.context(runner_os, run_id=str(100 + index)),
-                    profile="full_validation",
-                    contract_root=ROOT,
-                )
-                credential = state.root / "credentials" / "secret"
-                credential.write_text("sensitive\n", encoding="utf-8")
-                credential.chmod(stat.S_IRUSR)
-                cache = state.root / "npm" / "cache" / "nested"
-                cache.mkdir()
-                (cache / "value").write_text("cache\n", encoding="utf-8")
-                cache.chmod(stat.S_IRUSR | stat.S_IXUSR)
-                report = cleanup_workspace(
-                    state.root,
-                    expected_state_id=state.state_id,
-                    contract_root=ROOT,
-                )
-                self.assertEqual(report.platform, runner_os)
-                self.assertGreater(report.removed_sensitive_paths, 0)
-                self.assertFalse(state.root.exists())
+    def test_linux_read_only_file_beneath_read_only_parent_is_removed(self) -> None:
+        state = self.prepare_read_only_parent(
+            runner_os="Linux",
+            run_id="401",
+        )
+        report = cleanup_workspace(
+            state.root,
+            expected_state_id=state.state_id,
+            contract_root=ROOT,
+        )
+        self.assertEqual(report.platform, "Linux")
+        self.assertFalse(state.root.exists())
 
-    def test_cleanup_fails_when_registered_residue_cannot_be_removed(self) -> None:
+    def test_macos_read_only_file_beneath_read_only_parent_is_removed(self) -> None:
+        state = self.prepare_read_only_parent(
+            runner_os="macOS",
+            run_id="402",
+        )
+        report = cleanup_workspace(
+            state.root,
+            expected_state_id=state.state_id,
+            contract_root=ROOT,
+        )
+        self.assertEqual(report.platform, "macOS")
+        self.assertFalse(state.root.exists())
+
+    def test_multiple_nested_read_only_directories_are_removed(self) -> None:
+        state = prepare_workspace(
+            self.context("Linux", run_id="403"),
+            profile="full_validation",
+            contract_root=ROOT,
+        )
+        first = state.root / "npm" / "cache" / "one"
+        second = first / "two"
+        third = second / "three"
+        third.mkdir(parents=True)
+        value = third / "value"
+        value.write_text("nested\n", encoding="utf-8")
+        value.chmod(stat.S_IRUSR)
+        for directory in (third, second, first):
+            directory.chmod(stat.S_IRUSR | stat.S_IXUSR)
+        cleanup_workspace(
+            state.root,
+            expected_state_id=state.state_id,
+            contract_root=ROOT,
+        )
+        self.assertFalse(state.root.exists())
+
+    def test_read_only_registered_sensitive_state_is_removed(self) -> None:
         state = self.prepare()
-        with mock.patch("ci_workflows.workspace._remove_tree", return_value=None):
+        credentials = state.root / "credentials"
+        secret = credentials / "secret"
+        secret.write_text("sensitive\n", encoding="utf-8")
+        secret.chmod(stat.S_IRUSR)
+        credentials.chmod(stat.S_IRUSR | stat.S_IXUSR)
+        report = cleanup_workspace(
+            state.root,
+            expected_state_id=state.state_id,
+            contract_root=ROOT,
+        )
+        self.assertGreater(report.removed_sensitive_paths, 0)
+        self.assertFalse(state.root.exists())
+
+    def test_genuine_cleanup_failure_still_reports_residue(self) -> None:
+        state = self.prepare()
+        (state.root / "credentials" / "blocked").write_text(
+            "blocked\n",
+            encoding="utf-8",
+        )
+        with mock.patch(
+            "ci_workflows.workspace.os.unlink",
+            side_effect=PermissionError("blocked unlink"),
+        ):
             with self.assertRaises(FoundationError) as caught:
                 cleanup_workspace(
                     state.root,
@@ -247,6 +396,11 @@ class WorkspacePrimitiveTests(unittest.TestCase):
                 )
         self.assertEqual(caught.exception.instruction, "cleanup_residue_detected")
         self.assertTrue(state.root.exists())
+        cleanup_workspace(
+            state.root,
+            expected_state_id=state.state_id,
+            contract_root=ROOT,
+        )
 
     def test_state_identity_mismatch_prevents_cleanup(self) -> None:
         state = self.prepare()

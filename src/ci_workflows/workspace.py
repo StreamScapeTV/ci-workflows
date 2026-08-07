@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-import shutil
+import os
 import stat
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -25,6 +25,11 @@ from .foundation_types import (
 
 WORKSPACE_CONTRACT = "contracts/workspace-paths.json"
 CACHE_CONTRACT = "contracts/cache-policy.json"
+_DIRECTORY_OPEN_FLAGS = (
+    os.O_RDONLY
+    | getattr(os, "O_DIRECTORY", 0)
+    | getattr(os, "O_NOFOLLOW", 0)
+)
 
 
 @dataclass(frozen=True)
@@ -455,31 +460,141 @@ def register_state_path(
     return target
 
 
-def _chmod_writable(path: Path) -> None:
+def _open_bounded_directory(boundary: Path, directory: Path) -> int:
+    require(boundary.is_absolute() and directory.is_absolute(), "unsafe_cleanup_target")
+    resolved_boundary = boundary.resolve()
+    require(not boundary.is_symlink(), "symlink_escape_detected")
     try:
-        path.chmod(path.stat().st_mode | stat.S_IWUSR | stat.S_IXUSR)
-    except OSError:
-        return
+        relative = directory.relative_to(resolved_boundary)
+    except ValueError as error:
+        raise FoundationError("unsafe_cleanup_target") from error
+
+    try:
+        descriptor = os.open(resolved_boundary, _DIRECTORY_OPEN_FLAGS)
+    except OSError as error:
+        raise FoundationError("cleanup_residue_detected") from error
+    try:
+        for part in relative.parts:
+            next_descriptor = os.open(
+                part,
+                _DIRECTORY_OPEN_FLAGS,
+                dir_fd=descriptor,
+            )
+            os.close(descriptor)
+            descriptor = next_descriptor
+        return descriptor
+    except OSError as error:
+        os.close(descriptor)
+        raise FoundationError("cleanup_residue_detected") from error
 
 
-def _remove_tree(path: Path, runner_os: str) -> None:
-    if not path.exists():
-        return
-    require(not path.is_symlink(), "symlink_escape_detected")
-    if runner_os == "macOS":
-        for candidate in sorted(path.rglob("*"), reverse=True):
-            _chmod_writable(candidate)
-    _chmod_writable(path)
+def _make_directory_writable(descriptor: int) -> None:
+    try:
+        current_mode = stat.S_IMODE(os.fstat(descriptor).st_mode)
+        writable_mode = (
+            current_mode
+            | stat.S_IRUSR
+            | stat.S_IWUSR
+            | stat.S_IXUSR
+        )
+        if writable_mode != current_mode:
+            os.fchmod(descriptor, writable_mode)
+    except OSError as error:
+        raise FoundationError("cleanup_residue_detected") from error
 
-    def recover(function: Any, candidate: str, _error: Any) -> None:
-        target = Path(candidate)
-        _chmod_writable(target)
+
+def _remove_directory_contents(descriptor: int) -> None:
+    _make_directory_writable(descriptor)
+    try:
+        names = tuple(os.listdir(descriptor))
+    except OSError as error:
+        raise FoundationError("cleanup_residue_detected") from error
+
+    for name in names:
         try:
-            function(candidate)
+            entry_stat = os.stat(
+                name,
+                dir_fd=descriptor,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            continue
         except OSError as error:
             raise FoundationError("cleanup_residue_detected") from error
 
-    shutil.rmtree(path, onerror=recover)
+        if stat.S_ISDIR(entry_stat.st_mode):
+            try:
+                child_descriptor = os.open(
+                    name,
+                    _DIRECTORY_OPEN_FLAGS,
+                    dir_fd=descriptor,
+                )
+            except OSError as error:
+                raise FoundationError("cleanup_residue_detected") from error
+            try:
+                _remove_directory_contents(child_descriptor)
+            finally:
+                os.close(child_descriptor)
+            try:
+                os.rmdir(name, dir_fd=descriptor)
+            except OSError as error:
+                raise FoundationError("cleanup_residue_detected") from error
+            continue
+
+        try:
+            os.unlink(name, dir_fd=descriptor)
+        except OSError as error:
+            raise FoundationError("cleanup_residue_detected") from error
+
+
+def _make_parent_writable(path: Path, boundary: Path) -> None:
+    parent = path.parent
+    try:
+        parent.relative_to(boundary.resolve())
+    except ValueError:
+        return
+    parent_descriptor = _open_bounded_directory(boundary, parent)
+    try:
+        _make_directory_writable(parent_descriptor)
+    finally:
+        os.close(parent_descriptor)
+
+
+def _remove_tree(path: Path, runner_os: str, *, boundary: Path) -> None:
+    del runner_os
+    require(path.is_absolute() and boundary.is_absolute(), "unsafe_cleanup_target")
+    resolved_boundary = boundary.resolve()
+    try:
+        path.relative_to(resolved_boundary)
+    except ValueError as error:
+        raise FoundationError("unsafe_cleanup_target") from error
+
+    try:
+        entry_stat = os.lstat(path)
+    except FileNotFoundError:
+        return
+    except OSError as error:
+        raise FoundationError("cleanup_residue_detected") from error
+
+    require(not stat.S_ISLNK(entry_stat.st_mode), "symlink_escape_detected")
+    if stat.S_ISDIR(entry_stat.st_mode):
+        descriptor = _open_bounded_directory(boundary, path)
+        try:
+            _remove_directory_contents(descriptor)
+        finally:
+            os.close(descriptor)
+        _make_parent_writable(path, boundary)
+        try:
+            os.rmdir(path)
+        except OSError as error:
+            raise FoundationError("cleanup_residue_detected") from error
+        return
+
+    _make_parent_writable(path, boundary)
+    try:
+        os.unlink(path)
+    except OSError as error:
+        raise FoundationError("cleanup_residue_detected") from error
 
 
 def remove_registered_path(
@@ -497,7 +612,11 @@ def remove_registered_path(
     require(entry is not None, "registered_path_not_found")
     target = _lexical_target(state_root, entry.relative)
     existed = target.exists()
-    _remove_tree(target, str(marker.get("runner_os")))
+    _remove_tree(
+        target,
+        str(marker.get("runner_os")),
+        boundary=state_root,
+    )
     require(not target.exists(), "cleanup_residue_detected")
     return existed
 
@@ -523,20 +642,24 @@ def cleanup_workspace(
         require(isinstance(raw_paths, list), "workspace_registry_invalid")
         entries = [_path_entry(value) for value in raw_paths]
 
-    # Validate every target before deleting anything, so one malicious registry
-    # entry cannot turn cleanup into a partial arbitrary deletion primitive.
-    validated = [(entry, _lexical_target(state_root, entry.relative)) for entry in entries]
+    # Validate every registered target before chmod or deletion so one malicious
+    # entry cannot turn cleanup into a partial arbitrary mutation primitive.
+    validated = [
+        (entry, _lexical_target(state_root, entry.relative))
+        for entry in entries
+    ]
     sensitive = set(contract.get("sensitive_kinds", []))
-    removed = 0
-    removed_sensitive = 0
-    for entry, target in sorted(validated, key=lambda value: len(value[1].parts), reverse=True):
-        if target.exists():
-            removed += 1
-            removed_sensitive += int(entry.kind in sensitive)
-        _remove_tree(target, runner_os)
-        require(not target.exists(), "cleanup_residue_detected")
+    removed = sum(int(target.exists()) for _entry, target in validated)
+    removed_sensitive = sum(
+        int(target.exists() and entry.kind in sensitive)
+        for entry, target in validated
+    )
 
-    _remove_tree(state_root, runner_os)
+    _remove_tree(
+        state_root,
+        runner_os,
+        boundary=state_root,
+    )
     require(not state_root.exists(), "cleanup_residue_detected")
     return CleanupReport(
         state_id, removed, removed_sensitive, partial_setup, runner_os
