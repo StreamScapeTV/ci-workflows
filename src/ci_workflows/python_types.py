@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from typing import Mapping
@@ -63,6 +64,15 @@ class PythonValidationPlan:
     readiness_interval_seconds: int
 
     def planning_outputs(self) -> dict[str, str]:
+        summary = json.dumps(
+            {
+                "command_profile": self.command_profile,
+                "status": "planned",
+                "validation_profile": self.validation_profile,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
         return {
             "source_sha": self.admitted_sha,
             "validation_profile": self.validation_profile,
@@ -71,10 +81,10 @@ class PythonValidationPlan:
             "timeout_minutes": str(self.timeout_minutes),
             "resolved_python_version": self.python_version,
             "result": "planned",
-            "test_summary": "bounded Python validation plan accepted",
+            "test_summary": summary,
             "cleanup_result": "not-run",
             "failure_code": "",
-            "artifact_exception_used": "",
+            "artifact_exception_used": "false",
         }
 
 
@@ -89,15 +99,25 @@ class PythonValidationResult:
     evidence_id: str
 
     def output_values(self) -> dict[str, str]:
+        summary = json.dumps(
+            {
+                "command_profile": self.command_profile,
+                "stages": self.stage_count,
+                "status": "passed",
+                "validation_profile": self.validation_profile,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
         return {
             "result": "success",
-            "test_summary": f"{self.stage_count} bounded Python stage(s) passed",
+            "test_summary": summary,
             "source_sha": self.source_sha,
             "resolved_python_version": self.resolved_python_version,
             "validation_profile": self.validation_profile,
             "command_profile": self.command_profile,
             "cleanup_result": self.cleanup_result,
             "failure_code": "",
-            "artifact_exception_used": "",
+            "artifact_exception_used": "false",
             "evidence_id": self.evidence_id,
         }
