@@ -41,7 +41,26 @@ Ordinary Python and policy validation remains assigned to `portable`. While the 
 
 ## Buildah escalation
 
-Generic `buildah` maps only to `buildah-small`. Select the smallest tier whose memory and storage limits cover measured peaks plus reviewed headroom. A larger tier without measurements is contract drift. Buildah capacity is privileged and daemonless; Docker daemons and Docker-in-Docker are retired and are not aliases.
+Generic `buildah` maps only to `buildah-small`. Select the smallest tier whose memory and storage limits cover measured peaks plus reviewed headroom. Escalation evidence must record:
+
+- peak memory bytes and peak local-storage bytes;
+- exact source SHA;
+- workflow API and product ID.
+
+A larger tier without those measurements is contract drift. Buildah capacity is privileged and daemonless; Docker daemons and Docker-in-Docker are retired and are not aliases.
+
+## Physical-device contract
+
+A physical-device job must have all of the following before device access begins:
+
+1. trusted authorization receipt;
+2. exclusive resource-lock receipt for the exact device;
+3. requested device family and deterministic discovered device ID;
+4. exact tested source SHA;
+5. bounded execution and stable evidence ID;
+6. cleanup evidence and lock release in an `always()` path.
+
+The device lock covers only device access, not source checkout, dependency resolution, or unrelated compilation. This keeps scarce devices available while preserving exact single-owner access.
 
 ## Mandatory rules
 
