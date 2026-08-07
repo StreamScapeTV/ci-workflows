@@ -57,6 +57,5 @@ runs:
         INPUT_FETCH_DEPTH: ${{ inputs.fetch_depth }}
       run: |
         set -Eeuo pipefail
-        PYTHONPATH="${GITHUB_ACTION_PATH}/../../src" \
-          python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/foundation.py" \
-            --root "${GITHUB_ACTION_PATH}/../.." checkout-private-dependency
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
+          dependencies checkout-private

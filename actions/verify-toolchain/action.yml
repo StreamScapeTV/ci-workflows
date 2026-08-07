@@ -56,6 +56,15 @@ runs:
         INPUT_CAPABILITY_PROFILE: ${{ inputs.capability_profile }}
       run: |
         set -Eeuo pipefail
-        PYTHONPATH="${GITHUB_ACTION_PATH}/../../src" \
-          python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/foundation.py" \
-            --root "${GITHUB_ACTION_PATH}/../.." verify-toolchain
+        case "${INPUT_OPERATION}" in
+          verify-set)
+            python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" tooling verify
+            ;;
+          install-asset)
+            python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" tooling install-asset
+            ;;
+          *)
+            echo 'unsupported_tool_operation' >&2
+            exit 2
+            ;;
+        esac

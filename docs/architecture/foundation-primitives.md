@@ -4,6 +4,8 @@ Generated from `contracts/foundation-primitives.json`. Do not edit directly.
 
 Architecture: `consumer workflow -> public action -> named tested function`.
 
+All six foundation composite actions dispatch through the checked-in `ciw` registry while preserving the function, input, output, side-effect, trust, and cleanup contracts below.
+
 ## Named modules
 
 ### `ci_workflows.workspace`

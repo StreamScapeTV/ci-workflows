@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compatibility wrapper for the runner capability contract."""
+"""Invoke the checked-in typed ``ciw`` command registry."""
 from __future__ import annotations
 
 import sys
@@ -14,6 +14,4 @@ from ci_workflows.ciw import main  # noqa: E402
 
 
 if __name__ == "__main__":
-    raise SystemExit(
-        main(["--root", str(ROOT), "runners", *sys.argv[1:]])
-    )
+    raise SystemExit(main(["--root", str(ROOT), *sys.argv[1:]]))

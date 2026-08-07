@@ -48,7 +48,8 @@ runs:
       run: |
         set -Eeuo pipefail
         PYTHONPATH="${GITHUB_ACTION_PATH}/../../src" \
-          python3 -m ci_workflows.source exact-checkout \
+          python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
+            source exact-checkout \
             --repository "${{ inputs.repository }}" \
             --admitted-sha "${{ inputs.admitted_sha }}" \
             --path "${{ inputs.path }}" \

@@ -49,6 +49,5 @@ runs:
         INPUT_TRUST_MODE: ${{ inputs.trust_mode }}
       run: |
         set -Eeuo pipefail
-        PYTHONPATH="${GITHUB_ACTION_PATH}/../../src" \
-          python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/foundation.py" \
-            --root "${GITHUB_ACTION_PATH}/../.." verify-repository-policy
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
+          policy verify-repository
