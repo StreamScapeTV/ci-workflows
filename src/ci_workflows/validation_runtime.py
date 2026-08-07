@@ -1,4 +1,4 @@
-"""Install the locked validation parser without pip or build tooling."""
+"""Install the exact locked validation parser without pip or build tooling."""
 from __future__ import annotations
 
 import argparse
@@ -22,7 +22,8 @@ from typing import Any, Callable, Mapping, Sequence
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _ALLOWED_DOWNLOAD_HOST = "files.pythonhosted.org"
-_SUPPORTED_PYTHON = (3, 12)
+_SUPPORTED_LINUX_PYTHON = (3, 12)
+_SUPPORTED_MACOS_PYTHON = (3, 13, 5)
 MAX_ARCHIVE_MEMBERS = 1024
 MAX_EXPANDED_BYTES = 16 * 1024 * 1024
 MAX_DOWNLOAD_BYTES = 32 * 1024 * 1024
@@ -43,8 +44,6 @@ class LockedArtifact:
     format: str
 
 
-# Backward-compatible public name retained for callers that explicitly test the
-# Linux wheel path.
 WheelArtifact = LockedArtifact
 
 
@@ -62,38 +61,49 @@ def detect_runtime(
     implementation: str | None = None,
     system: str | None = None,
     machine: str | None = None,
-    version: tuple[int, int] | None = None,
+    version: tuple[int, ...] | None = None,
 ) -> str:
-    """Return the exact lock key for a supported CPython 3.12 host."""
+    """Return the exact locked artifact key for a supported host."""
 
     implementation = implementation or getattr(sys.implementation, "name", "")
     if implementation != "cpython":
         raise ValidationRuntimeError(
             f"unsupported Python implementation {implementation!r}; CPython is required"
         )
-    version = version or tuple(sys.version_info[:2])
-    if version != _SUPPORTED_PYTHON:
-        raise ValidationRuntimeError(
-            "unsupported Python version "
-            f"{version[0]}.{version[1]}; expected "
-            f"{_SUPPORTED_PYTHON[0]}.{_SUPPORTED_PYTHON[1]}"
-        )
-    system = (system or platform.system()).strip().lower()
-    machine = _normalize_machine(machine or platform.machine())
-    if system == "linux":
-        if machine != "x86_64":
+
+    normalized_system = (system or platform.system()).strip().lower()
+    normalized_machine = _normalize_machine(machine or platform.machine())
+    actual_version = tuple(version or sys.version_info[:3])
+
+    if normalized_system == "linux":
+        if actual_version[:2] != _SUPPORTED_LINUX_PYTHON:
             raise ValidationRuntimeError(
-                f"unsupported validation architecture {machine!r} for Linux"
+                "unsupported Python version "
+                f"{'.'.join(str(part) for part in actual_version)} for Linux; "
+                "expected CPython 3.12"
+            )
+        if normalized_machine != "x86_64":
+            raise ValidationRuntimeError(
+                f"unsupported validation architecture {normalized_machine!r} for Linux"
             )
         return "cp312-manylinux-x86_64"
-    if system == "darwin":
-        if machine not in {"x86_64", "arm64"}:
+
+    if normalized_system == "darwin":
+        if actual_version[:3] != _SUPPORTED_MACOS_PYTHON:
             raise ValidationRuntimeError(
-                f"unsupported validation architecture {machine!r} for Darwin"
+                "unsupported Python version "
+                f"{'.'.join(str(part) for part in actual_version)} for Darwin; "
+                "expected CPython 3.13.5"
             )
-        return f"cp312-macos-{machine}"
+        if normalized_machine not in {"x86_64", "arm64"}:
+            raise ValidationRuntimeError(
+                f"unsupported validation architecture {normalized_machine!r} for Darwin"
+            )
+        return f"cp313-macos-{normalized_machine}"
+
     raise ValidationRuntimeError(
-        f"unsupported validation operating system {system!r}; expected Linux or Darwin"
+        f"unsupported validation operating system {normalized_system!r}; "
+        "expected Linux or Darwin"
     )
 
 
@@ -149,13 +159,13 @@ def _validate_artifact(artifact: LockedArtifact) -> None:
         raise ValidationRuntimeError(
             "locked artifact must include a lowercase SHA-256 digest"
         )
-    version_pattern = r"[0-9]+(?:\.[0-9]+)+"
     if artifact.package != "PyYAML" or not re.fullmatch(
-        version_pattern, artifact.version
+        r"[0-9]+(?:\.[0-9]+)+", artifact.version
     ):
         raise ValidationRuntimeError(
             "locked parser package identity or version is invalid"
         )
+
     if artifact.format == "wheel":
         if not artifact.filename.endswith(".whl"):
             raise ValidationRuntimeError("locked wheel filename must end in .whl")
@@ -166,13 +176,14 @@ def _validate_artifact(artifact: LockedArtifact) -> None:
                 f"{artifact.runtime!r}"
             )
         return
+
     if artifact.format == "sdist-tar-gz":
-        expected = f"pyyaml-{artifact.version}.tar.gz"
-        if artifact.filename != expected:
+        if artifact.filename != f"pyyaml-{artifact.version}.tar.gz":
             raise ValidationRuntimeError(
                 "source filename does not match the locked PyYAML package version"
             )
         return
+
     raise ValidationRuntimeError(
         f"unsupported locked artifact format {artifact.format!r}"
     )
@@ -186,6 +197,7 @@ def select_artifact(
     runtime = runtime or detect_runtime()
     package = _pyyaml_package(lock_path)
     version = str(package.get("version", ""))
+
     wheels = package.get("wheels", [])
     if not isinstance(wheels, list):
         raise ValidationRuntimeError("PyYAML wheels must be a list")
@@ -210,7 +222,9 @@ def select_artifact(
         if not isinstance(runtimes, list) or not all(
             isinstance(value, str) for value in runtimes
         ):
-            raise ValidationRuntimeError("PyYAML source runtimes must be a string list")
+            raise ValidationRuntimeError(
+                "PyYAML source runtimes must be a string list"
+            )
         if runtime in runtimes:
             artifact = LockedArtifact(
                 package="PyYAML",
@@ -222,17 +236,20 @@ def select_artifact(
                 format=str(source.get("format", "")),
             )
             _validate_artifact(artifact)
-            source_digest = str(package.get("sha256", ""))
-            if source_digest != artifact.sha256:
+            if str(package.get("sha256", "")) != artifact.sha256:
                 raise ValidationRuntimeError(
-                    "PyYAML source digest differs between package and "
-                    "source lock fields"
+                    "PyYAML source digest differs between package and source lock fields"
                 )
             return artifact
-    raise ValidationRuntimeError(f"no locked PyYAML artifact for runtime {runtime!r}")
+
+    raise ValidationRuntimeError(
+        f"no locked PyYAML artifact for runtime {runtime!r}"
+    )
 
 
-def select_wheel(lock_path: Path, runtime: str | None = None) -> WheelArtifact:
+def select_wheel(
+    lock_path: Path, runtime: str | None = None
+) -> WheelArtifact:
     """Select the retained Linux wheel and reject non-wheel runtimes."""
 
     artifact = select_artifact(lock_path, runtime)
@@ -246,7 +263,9 @@ def select_wheel(lock_path: Path, runtime: str | None = None) -> WheelArtifact:
 def _download(url: str) -> bytes:
     request = urllib.request.Request(
         url,
-        headers={"User-Agent": "StreamScapeTV-ci-workflows-validation-bootstrap/2"},
+        headers={
+            "User-Agent": "StreamScapeTV-ci-workflows-validation-bootstrap/3"
+        },
     )
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
@@ -255,29 +274,34 @@ def _download(url: str) -> bytes:
                     "locked parser download redirected away from the exact approved URL"
                 )
             payload = response.read(MAX_DOWNLOAD_BYTES + 1)
-            if len(payload) > MAX_DOWNLOAD_BYTES:
-                raise ValidationRuntimeError(
-                    "locked parser download exceeds the compressed-size bound"
-                )
-            return payload
     except ValidationRuntimeError:
         raise
     except OSError as error:
         raise ValidationRuntimeError(
             f"cannot download locked parser artifact: {error}"
         ) from error
+    if len(payload) > MAX_DOWNLOAD_BYTES:
+        raise ValidationRuntimeError(
+            "locked parser download exceeds the compressed-size bound"
+        )
+    return payload
 
 
-def _safe_member_path(name: str, *, archive: str) -> PurePosixPath:
+def _safe_member_path(
+    name: str, *, archive: str, directory: bool = False
+) -> PurePosixPath:
     if not name or "\\" in name:
         raise ValidationRuntimeError(f"unsafe {archive} member path {name!r}")
-    path = PurePosixPath(name)
-    if (
-        path.is_absolute()
-        or name.startswith("/")
-        or any(part in {"", ".", ".."} for part in path.parts)
-        or (path.parts and path.parts[0].endswith(":"))
-    ):
+    raw = name[:-1] if directory and name.endswith("/") else name
+    if not raw or raw.startswith("/"):
+        raise ValidationRuntimeError(f"unsafe {archive} member path {name!r}")
+    parts = raw.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        raise ValidationRuntimeError(f"unsafe {archive} member path {name!r}")
+    if parts[0].endswith(":"):
+        raise ValidationRuntimeError(f"unsafe {archive} member path {name!r}")
+    path = PurePosixPath(*parts)
+    if path.is_absolute():
         raise ValidationRuntimeError(f"unsafe {archive} member path {name!r}")
     return path
 
@@ -295,7 +319,9 @@ def _bounded_members(
     for member in members:
         member_size = size(member)
         if member_size < 0:
-            raise ValidationRuntimeError(f"{archive} member has a negative size")
+            raise ValidationRuntimeError(
+                f"{archive} member has a negative size"
+            )
         expanded += member_size
         if expanded > MAX_EXPANDED_BYTES:
             raise ValidationRuntimeError(
@@ -303,46 +329,77 @@ def _bounded_members(
             )
 
 
+def _reject_file_directory_collisions(
+    destinations: Mapping[PurePosixPath, str], *, archive: str
+) -> None:
+    files = {
+        path for path, kind in destinations.items() if kind == "file"
+    }
+    for destination in destinations:
+        parent = destination.parent
+        while parent != PurePosixPath("."):
+            if parent in files:
+                raise ValidationRuntimeError(
+                    f"{archive} file collides with a destination directory"
+                )
+            parent = parent.parent
+
+
 def _install_wheel(payload: bytes, target: Path) -> None:
     try:
-        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
-            members = archive.infolist()
-            _bounded_members(
-                members,
-                archive="wheel",
-                size=lambda member: int(member.file_size),
-            )
-            destinations: set[str] = set()
-            for member in members:
-                path = _safe_member_path(member.filename, archive="wheel")
-                mode = stat.S_IFMT(member.external_attr >> 16)
-                if mode not in {0, stat.S_IFREG, stat.S_IFDIR}:
-                    raise ValidationRuntimeError(
-                        f"wheel member type is forbidden: {member.filename!r}"
-                    )
-                destination_key = path.as_posix().casefold()
-                if destination_key in destinations:
-                    raise ValidationRuntimeError(
-                        f"duplicate wheel destination {path.as_posix()!r}"
-                    )
-                destinations.add(destination_key)
-            for member in members:
-                path = _safe_member_path(member.filename, archive="wheel")
-                destination = target.joinpath(*path.parts)
-                if member.is_dir():
-                    destination.mkdir(parents=True, exist_ok=True)
-                    continue
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                data = archive.read(member)
-                if len(data) != member.file_size:
-                    raise ValidationRuntimeError(
-                        f"wheel member size differs from header: {member.filename!r}"
-                    )
-                destination.write_bytes(data)
+        archive = zipfile.ZipFile(io.BytesIO(payload))
     except zipfile.BadZipFile as error:
         raise ValidationRuntimeError(
             "locked parser artifact is not a valid wheel"
         ) from error
+
+    with archive:
+        members = archive.infolist()
+        _bounded_members(
+            members,
+            archive="wheel",
+            size=lambda member: int(member.file_size),
+        )
+        destinations: dict[PurePosixPath, str] = {}
+        keys: set[str] = set()
+        for member in members:
+            kind = "directory" if member.is_dir() else "file"
+            mode = stat.S_IFMT(member.external_attr >> 16)
+            if mode not in {0, stat.S_IFREG, stat.S_IFDIR}:
+                raise ValidationRuntimeError(
+                    f"wheel member type is forbidden: {member.filename!r}"
+                )
+            path = _safe_member_path(
+                member.filename,
+                archive="wheel",
+                directory=member.is_dir(),
+            )
+            key = path.as_posix().casefold()
+            if key in keys:
+                raise ValidationRuntimeError(
+                    f"duplicate wheel destination {path.as_posix()!r}"
+                )
+            keys.add(key)
+            destinations[path] = kind
+        _reject_file_directory_collisions(destinations, archive="wheel")
+
+        for member in members:
+            path = _safe_member_path(
+                member.filename,
+                archive="wheel",
+                directory=member.is_dir(),
+            )
+            destination = target.joinpath(*path.parts)
+            if member.is_dir():
+                destination.mkdir(parents=True, exist_ok=True)
+                continue
+            data = archive.read(member)
+            if len(data) != member.file_size:
+                raise ValidationRuntimeError(
+                    f"wheel member size differs from header: {member.filename!r}"
+                )
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(data)
 
 
 def _classify_tar_member(member: tarfile.TarInfo) -> str:
@@ -369,7 +426,9 @@ def _metadata_value(payload: bytes, field: str) -> str:
     return str(message.get(field, ""))
 
 
-def _read_bounded_tar_members(archive: tarfile.TarFile) -> list[tarfile.TarInfo]:
+def _read_bounded_tar_members(
+    archive: tarfile.TarFile,
+) -> list[tarfile.TarInfo]:
     members: list[tarfile.TarInfo] = []
     expanded = 0
     while True:
@@ -392,7 +451,9 @@ def _read_bounded_tar_members(archive: tarfile.TarFile) -> list[tarfile.TarInfo]
                     "locked parser source archive exceeds the expanded-size bound"
                 )
     if not members:
-        raise ValidationRuntimeError("locked parser source archive is empty")
+        raise ValidationRuntimeError(
+            "locked parser source archive is empty"
+        )
     return members
 
 
@@ -405,54 +466,77 @@ def _install_source(
         raise ValidationRuntimeError(
             "locked parser artifact is not a valid gzip tar archive"
         ) from error
+
     with archive:
         members = _read_bounded_tar_members(archive)
         paths: dict[str, PurePosixPath] = {}
-        seen_paths: set[str] = set()
+        keys: set[str] = set()
         for member in members:
-            path = _safe_member_path(member.name, archive="source archive")
             kind = _classify_tar_member(member)
-            if kind in {"symlink", "hardlink", "device", "fifo", "unsupported"}:
+            if kind in {
+                "symlink",
+                "hardlink",
+                "device",
+                "fifo",
+                "unsupported",
+            }:
                 raise ValidationRuntimeError(
-                    f"source archive member type {kind} is forbidden: {member.name!r}"
+                    f"source archive member type {kind} is forbidden: "
+                    f"{member.name!r}"
                 )
-            path_key = path.as_posix().casefold()
-            if path_key in seen_paths:
+            path = _safe_member_path(
+                member.name,
+                archive="source archive",
+                directory=kind == "directory",
+            )
+            key = path.as_posix().casefold()
+            if key in keys:
                 raise ValidationRuntimeError(
                     f"duplicate source destination {path.as_posix()!r}"
                 )
-            seen_paths.add(path_key)
+            keys.add(key)
             paths[member.name] = path
 
         roots = {path.parts[0] for path in paths.values()}
-        expected_root_lower = f"pyyaml-{artifact.version}"
         if len(roots) != 1:
             raise ValidationRuntimeError(
                 "source archive root does not match the locked package version"
             )
-        expected_root = next(iter(roots))
-        if expected_root.lower() != expected_root_lower:
+        root = next(iter(roots))
+        if root.lower() != f"pyyaml-{artifact.version}":
             raise ValidationRuntimeError(
                 "source archive root does not match the locked package version"
             )
-        metadata_name = f"{expected_root}/PKG-INFO"
+
+        metadata_name = f"{root}/PKG-INFO"
         metadata_member = next(
-            (member for member in members if member.name == metadata_name), None
+            (
+                member
+                for member in members
+                if paths[member.name] == PurePosixPath(metadata_name)
+            ),
+            None,
         )
         if metadata_member is None or not metadata_member.isfile():
-            raise ValidationRuntimeError("source archive is missing regular PKG-INFO")
+            raise ValidationRuntimeError(
+                "source archive is missing regular PKG-INFO"
+            )
         metadata_file = archive.extractfile(metadata_member)
         if metadata_file is None:
-            raise ValidationRuntimeError("cannot read source archive PKG-INFO")
+            raise ValidationRuntimeError(
+                "cannot read source archive PKG-INFO"
+            )
         metadata = metadata_file.read()
         if _metadata_value(metadata, "Name") != artifact.package:
-            raise ValidationRuntimeError("source archive package name is not PyYAML")
+            raise ValidationRuntimeError(
+                "source archive package name is not PyYAML"
+            )
         if _metadata_value(metadata, "Version") != artifact.version:
             raise ValidationRuntimeError(
                 "source archive package version differs from the lock"
             )
 
-        package_prefix = PurePosixPath(expected_root, "lib", "yaml")
+        package_prefix = PurePosixPath(root, "lib", "yaml")
         selected: list[tuple[tarfile.TarInfo, PurePosixPath, str]] = []
         destinations: dict[PurePosixPath, str] = {}
         destination_keys: set[str] = set()
@@ -464,36 +548,26 @@ def _install_source(
                 continue
             destination = PurePosixPath("yaml", *relative.parts)
             kind = _classify_tar_member(member)
-            destination_key = destination.as_posix().casefold()
-            if destination_key in destination_keys:
+            key = destination.as_posix().casefold()
+            if key in destination_keys:
                 raise ValidationRuntimeError(
                     f"duplicate source destination {destination.as_posix()!r}"
                 )
-            destination_keys.add(destination_key)
+            destination_keys.add(key)
             destinations[destination] = kind
             selected.append((member, destination, kind))
 
-        init_path = PurePosixPath("yaml", "__init__.py")
-        if destinations.get(init_path) != "file":
+        if destinations.get(PurePosixPath("yaml", "__init__.py")) != "file":
             raise ValidationRuntimeError(
                 "locked source archive did not contain yaml/__init__.py"
             )
-        file_destinations = {
-            destination
-            for _, destination, kind in selected
-            if kind == "file"
-        }
-        for destination in destinations:
-            parent = destination.parent
-            while parent != PurePosixPath("."):
-                if parent in file_destinations:
-                    raise ValidationRuntimeError(
-                        "source archive file collides with a destination directory"
-                    )
-                parent = parent.parent
+        _reject_file_directory_collisions(
+            destinations, archive="source archive"
+        )
 
         for member, relative, kind in sorted(
-            selected, key=lambda item: (len(item[1].parts), item[1].as_posix())
+            selected,
+            key=lambda item: (len(item[1].parts), item[1].as_posix()),
         ):
             destination = target.joinpath(*relative.parts)
             if kind == "directory":
@@ -528,8 +602,11 @@ def install_locked_artifact(
             f"validation target must be a real directory: {target}"
         )
     if target.exists() and any(target.iterdir()):
-        raise ValidationRuntimeError(f"validation target must be empty: {target}")
+        raise ValidationRuntimeError(
+            f"validation target must be empty: {target}"
+        )
     target.mkdir(parents=True, exist_ok=True)
+
     try:
         payload = downloader(artifact.url)
         digest = hashlib.sha256(payload).hexdigest()
@@ -542,7 +619,7 @@ def install_locked_artifact(
             _install_wheel(payload, target)
         elif artifact.format == "sdist-tar-gz":
             _install_source(payload, target, artifact)
-        else:  # pragma: no cover - select_artifact rejects this first
+        else:  # pragma: no cover
             raise ValidationRuntimeError(
                 f"unsupported locked artifact format {artifact.format!r}"
             )
@@ -566,13 +643,12 @@ def install_locked_wheel(
     """Install the retained Linux wheel for compatibility callers."""
 
     selected = select_wheel(lock_path, runtime)
-    artifact = install_locked_artifact(
+    return install_locked_artifact(
         lock_path,
         target,
         runtime=selected.runtime,
         downloader=downloader,
     )
-    return artifact
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -587,7 +663,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         artifact = install_locked_artifact(
-            args.lock.resolve(), args.target.resolve(), runtime=args.runtime
+            args.lock.resolve(),
+            args.target.resolve(),
+            runtime=args.runtime,
         )
     except ValidationRuntimeError as error:
         print(str(error), file=sys.stderr)
