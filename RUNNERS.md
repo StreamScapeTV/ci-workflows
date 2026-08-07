@@ -35,6 +35,12 @@ The direct tags above exist only for controlled migration of current workflows. 
 
 A reusable workflow with more than one possible profile uses a protected `portable` planning job. The planner validates semantic intent and emits a JSON selector from the checked-in mapping. A dependent job uses that output in `runs-on`. A composite action cannot change the runner after a job is scheduled.
 
+## Temporary central self-check exception
+
+Ordinary Python and policy validation remains assigned to `portable`. While the portable ARC incident tracked by Flux #268 is open, ci-workflows #60 authorizes only `.github/workflows/self-check.yml` to use the organization-managed `macOS` capability as an emergency exact-head merge gate. That workflow accepts only a same-repository pull request or exact trusted push/dispatch source, then verifies a pre-provisioned absolute executable as CPython 3.12.13 on Darwin arm64 or x86_64 before checkout. It never installs a runtime, invokes `sudo`, or elevates host privileges.
+
+The exception receives no Apple signing, provisioning, simulator, physical-device, notarization, or store credential or entitlement. It does not change the public runner profile contract or generated mappings and must be removed in a later bounded change after portable ARC recovery.
+
 ## Buildah escalation
 
 Generic `buildah` maps only to `buildah-small`. Select the smallest tier whose memory and storage limits cover measured peaks plus reviewed headroom. Escalation evidence must record:

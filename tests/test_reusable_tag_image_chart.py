@@ -363,11 +363,11 @@ class ReusableTagImageChartTests(unittest.TestCase):
 
     def test_self_check_and_documented_caller_are_thin(self) -> None:
         self.assertIn(
-            "python3 -m unittest discover -s tests -p 'test_*.py' -v",
+            '"${VERIFIED_PYTHON}" -m unittest discover -s tests -p \'test_*.py\' -v',
             self.self_check,
         )
         self.assertNotIn(
-            "python3 -m unittest -v tests/test_reusable_tag_image_chart.py",
+            '"${VERIFIED_PYTHON}" -m unittest -v tests/test_reusable_tag_image_chart.py',
             self.self_check,
         )
         self.assertIn("Confirm zero Actions artifacts", self.self_check)
