@@ -93,6 +93,14 @@ class PythonWorkflowContractTests(unittest.TestCase):
 
     def test_shared_foundation_sequence_is_marker_bound_and_cleanup_is_unconditional(self) -> None:
         source = self.workflow_text
+        validate_job = source.index("\n  validate:\n")
+        planner_action = source.index("uses: ./.ciw/actions/validate-python")
+        self.assertLess(planner_action, validate_job)
+        self.assertEqual(
+            source.count("uses: ./.ciw/actions/validate-python"),
+            2,
+        )
+        validation_source = source[validate_job:]
         sequence = [
             "uses: ./.ciw/actions/exact-checkout",
             "uses: ./.ciw/actions/prepare-workspace",
@@ -101,13 +109,13 @@ class PythonWorkflowContractTests(unittest.TestCase):
             "uses: ./.ciw/actions/render-evidence",
             "uses: ./.ciw/actions/cleanup-workspace",
         ]
-        positions = [source.index(value) for value in sequence]
+        positions = [validation_source.index(value) for value in sequence]
         self.assertEqual(positions, sorted(positions))
         self.assertRegex(
-            source,
+            validation_source,
             r"- id: cleanup\n        name: Remove and verify all registered Python state\n        if: always\(\)",
         )
-        self.assertIn("cache_mode: disabled", source)
+        self.assertIn("cache_mode: disabled", validation_source)
         self.assertNotIn("actions/upload-artifact", source)
         self.assertNotIn("actions/download-artifact", source)
         self.assertNotIn("secrets: inherit", source)
