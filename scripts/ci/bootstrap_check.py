@@ -10,6 +10,15 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 
+HOST_PYTHON = {
+    "implementation": "cpython",
+    "version": "3.13.5",
+    "system": "Darwin",
+    "architectures": ["arm64", "x86_64"],
+    "provisioning": "preinstalled",
+    "runtime_installation": "forbidden",
+    "privilege_elevation": "forbidden",
+}
 PY_YAML_VERSION = "6.0.3"
 PY_YAML_SOURCE_SHA256 = (
     "d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f"
@@ -20,7 +29,7 @@ PY_YAML_SOURCE_URL = (
     "961c0007c59b8dd7729d542c61a4d537767a59645b82a0b521206e1e25c2/"
     "pyyaml-6.0.3.tar.gz"
 )
-PY_YAML_SOURCE_RUNTIMES = ["cp312-macos-arm64", "cp312-macos-x86_64"]
+PY_YAML_SOURCE_RUNTIMES = ["cp313-macos-arm64", "cp313-macos-x86_64"]
 PY_YAML_LINUX_WHEEL = {
     "runtime": "cp312-manylinux-x86_64",
     "filename": (
@@ -70,6 +79,8 @@ FORBIDDEN_SELF_CHECK_PATTERNS = (
     "id-token: write",
     "homelab-portable-linux-x64",
     "runs-on: macos-latest",
+    "runs-on: ubuntu-latest",
+    "runs-on: windows-latest",
     "runs-on: self-hosted",
     "runs-on: portable",
     "runs-on: mobile",
@@ -80,11 +91,19 @@ FORBIDDEN_SELF_CHECK_PATTERNS = (
     "runs-on: buildah-high",
     "runs-on: flux-control",
     "actions/setup-python@",
+    "python-version:",
+    "hostedtoolcache",
+    "sudo ",
+    "brew install",
+    "homebrew",
+    "pip install",
     "python -m pip",
     "python3 -m pip",
-    "pip install",
-    "setup.py",
-    "brew install",
+    "virtualenv",
+    "pyenv",
+    "conda",
+    "curl ",
+    "wget ",
 )
 
 
@@ -170,7 +189,9 @@ def _validate_emergency_exception() -> None:
         and entry.get("path") == ".github/workflows/self-check.yml"
     ]
     if len(matches) != 1:
-        raise SystemExit("self-check requires exactly one emergency runner exception")
+        raise SystemExit(
+            "self-check requires exactly one emergency runner exception"
+        )
     entry = matches[0]
     if entry.get("issue") != 60 or entry.get("rules") != [
         "unknown-runner-profile"
@@ -181,6 +202,42 @@ def _validate_emergency_exception() -> None:
         if required not in reason:
             raise SystemExit(
                 f"self-check emergency exception reason is missing {required!r}"
+            )
+
+
+def _validate_verified_interpreter_use(source: str) -> None:
+    host_step = source.index(
+        "- name: Verify pre-provisioned CPython 3.13.5"
+    )
+    checkout = source.index("- name: Check out exact source")
+    if host_step >= checkout:
+        raise SystemExit(
+            "verified pre-provisioned Python must be established before checkout"
+        )
+    after_checkout = source[checkout:]
+    if re.search(
+        r"(?<![A-Za-z0-9_])python(?:3(?:\.[0-9]+)?)?(?=\s)",
+        after_checkout,
+    ):
+        raise SystemExit(
+            "self-check may not fall back to PATH Python after verification"
+        )
+    required_invocations = (
+        '"${VERIFIED_PYTHON}" scripts/ci/bootstrap_validation_runtime.py',
+        'PYTHONPATH="${validation_root}/python" "${VERIFIED_PYTHON}" -',
+        '"${VERIFIED_PYTHON}" scripts/ci/validation_harness.py',
+        '"${VERIFIED_PYTHON}" scripts/ci/bootstrap_check.py',
+        '"${VERIFIED_PYTHON}" scripts/ci/inventory_contract.py validate',
+        '"${VERIFIED_PYTHON}" scripts/ci/inventory_contract.py render --check',
+        '"${VERIFIED_PYTHON}" scripts/ci/public_api_contract.py validate',
+        '"${VERIFIED_PYTHON}" scripts/ci/public_api_contract.py render',
+        '"${VERIFIED_PYTHON}" -m unittest discover',
+        '"${VERIFIED_PYTHON}" - <<\'PY\'',
+    )
+    for token in required_invocations:
+        if token not in after_checkout:
+            raise SystemExit(
+                f"self-check does not use the verified interpreter for {token!r}"
             )
 
 
@@ -195,18 +252,21 @@ def validate_self_check() -> None:
         '"${PR_HEAD_REPOSITORY}" != "${GITHUB_REPOSITORY}"',
         "push|workflow_dispatch)",
         "SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}",
-        "Select preinstalled CPython 3.12",
-        "/opt/homebrew/bin/python3.12",
-        "sys.version_info[:2]",
-        "PYTHON_RUNTIME_BIN=%s",
-        'ln -s "${selected}" "${runtime_bin}/python3"',
+        "Verify pre-provisioned CPython 3.13.5",
+        "type -P python3.13",
+        "type -P python3",
+        "os.path.realpath(sys.executable)",
+        '"${resolved}" != /* || ! -x "${resolved}"',
+        '"${implementation}" == "cpython"',
+        '"${version}" == "3.13.5"',
+        '"${system}" == "Darwin"',
+        'arm64|x86_64)',
+        "VERIFIED_PYTHON=%s",
+        "PYTHON_EXECUTABLE=%s",
         "persist-credentials: false",
-        "SOURCE_SHA:",
         'test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"',
-        "python3 scripts/ci/bootstrap_validation_runtime.py",
         'test -f "${validation_root}/python/yaml/__init__.py"',
-        "python3 scripts/ci/bootstrap_check.py",
-        "python3 -m unittest discover -s tests -p 'test_*.py' -v",
+        '"${VERIFIED_PYTHON}" -m unittest discover -s tests -p \'test_*.py\' -v',
         "git diff --exit-code",
         "if: always()",
         "Confirm zero Actions artifacts",
@@ -214,10 +274,15 @@ def validate_self_check() -> None:
     for token in required:
         if token not in source:
             raise SystemExit(f"self-check is missing required contract: {token}")
+
+    lowered = source.lower()
     for token in FORBIDDEN_SELF_CHECK_PATTERNS:
-        if token in source:
+        if token.lower() in lowered:
             raise SystemExit(f"self-check contains forbidden contract: {token}")
-    runs_on = re.findall(r"^\s+runs-on:\s*([^\s#]+)\s*$", source, re.MULTILINE)
+
+    runs_on = re.findall(
+        r"^\s+runs-on:\s*([^\s#]+)\s*$", source, re.MULTILINE
+    )
     if runs_on != ["macOS"]:
         raise SystemExit(
             "self-check must use exactly runs-on: macOS, "
@@ -226,15 +291,20 @@ def validate_self_check() -> None:
     if re.search(r"runs-on:\s*.*\$\{\{", source):
         raise SystemExit("self-check runner selector must not be dynamic")
     if re.search(r"^\s+[A-Za-z-]+:\s+write\s*$", source, re.MULTILINE):
-        raise SystemExit("self-check must preserve read-only workflow permissions")
+        raise SystemExit(
+            "self-check must preserve read-only workflow permissions"
+        )
 
     admission = source.index("- name: Admit trusted workflow source")
-    runtime = source.index("- name: Select preinstalled CPython 3.12")
+    host = source.index("- name: Verify pre-provisioned CPython 3.13.5")
     checkout = source.index("- name: Check out exact source")
-    if not admission < runtime < checkout:
+    if not admission < host < checkout:
         raise SystemExit(
-            "same-repository admission and bounded Python selection must precede checkout"
+            "same-repository admission and host Python verification "
+            "must precede checkout"
         )
+
+    _validate_verified_interpreter_use(source)
     _validate_emergency_exception()
 
     macos_users: list[str] = []
@@ -257,20 +327,23 @@ def validate_runtime_lock() -> None:
     actions = lock.get("third_party_actions")
     if not isinstance(actions, list):
         raise SystemExit("third-party action lock is invalid")
-    setup_entries = [
-        entry
+    if any(
+        isinstance(entry, dict)
+        and entry.get("uses") == "actions/setup-python"
         for entry in actions
-        if isinstance(entry, dict) and entry.get("uses") == "actions/setup-python"
-    ]
-    if setup_entries:
+    ):
         raise SystemExit(
-            "actions/setup-python must not be locked when the self-check uses "
-            "the preinstalled macOS CPython runtime"
+            "actions/setup-python must not remain in the emergency action lock"
         )
 
     python = _mapping(lock.get("python"), "python tool lock is invalid")
     if python.get("minimum") != "3.12":
-        raise SystemExit("validation Python minimum must be 3.12")
+        raise SystemExit("validation Python minimum must remain 3.12")
+    if python.get("emergency_macos_host") != HOST_PYTHON:
+        raise SystemExit(
+            "pre-provisioned emergency macOS Python contract drifted"
+        )
+
     packages = python.get("packages")
     if not isinstance(packages, list):
         raise SystemExit("validation package lock is invalid")
@@ -280,7 +353,9 @@ def validate_runtime_lock() -> None:
         if isinstance(entry, dict) and entry.get("name") == "PyYAML"
     ]
     if len(pyyaml) != 1:
-        raise SystemExit("validation lock must contain one PyYAML entry")
+        raise SystemExit(
+            "validation lock must contain exactly one PyYAML entry"
+        )
     package = pyyaml[0]
     if package.get("version") != PY_YAML_VERSION:
         raise SystemExit("PyYAML package version drifted")
@@ -290,7 +365,10 @@ def validate_runtime_lock() -> None:
         raise SystemExit("PyYAML package source filename drifted")
     if package.get("sha256") != PY_YAML_SOURCE_SHA256:
         raise SystemExit("PyYAML source digest drifted")
-    source = _mapping(package.get("source"), "PyYAML source lock is invalid")
+
+    source = _mapping(
+        package.get("source"), "PyYAML source lock is invalid"
+    )
     expected_source = {
         "format": "sdist-tar-gz",
         "filename": PY_YAML_SOURCE_FILENAME,
@@ -300,8 +378,7 @@ def validate_runtime_lock() -> None:
     }
     if source != expected_source:
         raise SystemExit("PyYAML macOS source artifact lock drifted")
-    wheels = package.get("wheels")
-    if wheels != [PY_YAML_LINUX_WHEEL]:
+    if package.get("wheels") != [PY_YAML_LINUX_WHEEL]:
         raise SystemExit("retained Linux PyYAML wheel lock drifted")
 
 
@@ -317,12 +394,20 @@ def validate_policies() -> None:
     if not isinstance(security, dict):
         raise SystemExit("security policy is invalid")
     release = security.get("release_reference_policy")
-    if not isinstance(release, dict) or release.get("bootstrap_channel") != "main":
-        raise SystemExit("security policy must document @main bootstrap channel")
+    if not isinstance(release, dict) or release.get(
+        "bootstrap_channel"
+    ) != "main":
+        raise SystemExit(
+            "security policy must document @main bootstrap channel"
+        )
     if release.get("github_release_required") is not False:
-        raise SystemExit("ci-workflows tag release must not require GitHub Release")
+        raise SystemExit(
+            "ci-workflows tag release must not require GitHub Release"
+        )
     if release.get("attached_artifacts_required") is not False:
-        raise SystemExit("ci-workflows tag release must not require attached artifacts")
+        raise SystemExit(
+            "ci-workflows tag release must not require attached artifacts"
+        )
 
 
 def validate_authority_docs() -> None:
@@ -345,9 +430,13 @@ def validate_authority_docs() -> None:
         "src/ci_workflows",
         "ci-workflows #60",
         "Flux #268",
+        "CPython 3.13.5",
+        "pre-provisioned",
     ):
         if required not in combined:
-            raise SystemExit(f"bootstrap documentation is missing: {required}")
+            raise SystemExit(
+                f"bootstrap documentation is missing: {required}"
+            )
 
 
 def main() -> None:
