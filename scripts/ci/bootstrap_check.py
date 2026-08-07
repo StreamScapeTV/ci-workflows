@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 HOST_PYTHON = {
     "implementation": "cpython",
-    "version": "3.13.5",
+    "version": "3.12.13",
     "system": "Darwin",
     "architectures": ["arm64", "x86_64"],
     "provisioning": "preinstalled",
@@ -29,7 +29,7 @@ PY_YAML_SOURCE_URL = (
     "961c0007c59b8dd7729d542c61a4d537767a59645b82a0b521206e1e25c2/"
     "pyyaml-6.0.3.tar.gz"
 )
-PY_YAML_SOURCE_RUNTIMES = ["cp313-macos-arm64", "cp313-macos-x86_64"]
+PY_YAML_SOURCE_RUNTIMES = ["cp312-macos-arm64", "cp312-macos-x86_64"]
 PY_YAML_LINUX_WHEEL = {
     "runtime": "cp312-manylinux-x86_64",
     "filename": (
@@ -207,7 +207,7 @@ def _validate_emergency_exception() -> None:
 
 def _validate_verified_interpreter_use(source: str) -> None:
     host_step = source.index(
-        "- name: Verify pre-provisioned CPython 3.13.5"
+        "- name: Verify pre-provisioned CPython 3.12.13"
     )
     checkout = source.index("- name: Check out exact source")
     if host_step >= checkout:
@@ -252,13 +252,13 @@ def validate_self_check() -> None:
         '"${PR_HEAD_REPOSITORY}" != "${GITHUB_REPOSITORY}"',
         "push|workflow_dispatch)",
         "SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}",
-        "Verify pre-provisioned CPython 3.13.5",
-        "type -P python3.13",
+        "Verify pre-provisioned CPython 3.12.13",
+        "type -P python3.12",
         "type -P python3",
         "os.path.realpath(sys.executable)",
         '"${resolved}" != /* || ! -x "${resolved}"',
         '"${implementation}" == "cpython"',
-        '"${version}" == "3.13.5"',
+        '"${version}" == "3.12.13"',
         '"${system}" == "Darwin"',
         'arm64|x86_64)',
         "VERIFIED_PYTHON=%s",
@@ -296,7 +296,7 @@ def validate_self_check() -> None:
         )
 
     admission = source.index("- name: Admit trusted workflow source")
-    host = source.index("- name: Verify pre-provisioned CPython 3.13.5")
+    host = source.index("- name: Verify pre-provisioned CPython 3.12.13")
     checkout = source.index("- name: Check out exact source")
     if not admission < host < checkout:
         raise SystemExit(
@@ -430,7 +430,7 @@ def validate_authority_docs() -> None:
         "src/ci_workflows",
         "ci-workflows #60",
         "Flux #268",
-        "CPython 3.13.5",
+        "CPython 3.12.13",
         "pre-provisioned",
     ):
         if required not in combined:
