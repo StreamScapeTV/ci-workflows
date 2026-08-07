@@ -50,11 +50,11 @@ jobs:
               ;;
           esac
 
-      - name: Verify pre-provisioned CPython 3.13.5
+      - name: Verify pre-provisioned CPython 3.12.13
         shell: bash
         run: |
           set -Eeuo pipefail
-          candidate="$(type -P python3.13 || true)"
+          candidate="$(type -P python3.12 || true)"
           if [[ -z "${candidate}" ]]; then
             candidate="$(type -P python3 || true)"
           fi
@@ -70,7 +70,7 @@ jobs:
           identity="$("${resolved}" -c 'import platform,sys; m=platform.machine().lower(); m={"amd64":"x86_64","x64":"x86_64","aarch64":"arm64"}.get(m,m); print(f"{sys.implementation.name}|{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}|{platform.system()}|{m}")')"
           IFS='|' read -r implementation version system machine <<< "${identity}"
           [[ "${implementation}" == "cpython" ]] || { echo "::error::Expected CPython, got ${implementation}." >&2; exit 1; }
-          [[ "${version}" == "3.13.5" ]] || { echo "::error::Expected Python 3.13.5, got ${version}." >&2; exit 1; }
+          [[ "${version}" == "3.12.13" ]] || { echo "::error::Expected Python 3.12.13, got ${version}." >&2; exit 1; }
           [[ "${system}" == "Darwin" ]] || { echo "::error::Expected Darwin, got ${system}." >&2; exit 1; }
           case "${machine}" in arm64|x86_64) ;; *) echo "::error::Unsupported macOS architecture ${machine}." >&2; exit 1 ;; esac
           {
