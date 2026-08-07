@@ -1,0 +1,52 @@
+# `ciw` named command library
+
+Generated from `contracts/ciw-commands.json`. Do not edit directly.
+
+Command contract version: `1.0.0`.
+
+The registry is checked in, typed, and fail closed. It dispatches only to explicit named handlers and never imports a caller-selected module, function, callback, runner, engine, secret, or deletion target.
+
+## Commands
+
+| Command | Named handler | Trust class | Inputs | Outputs | Side effects | Cleanup | Failure code |
+|---|---|---|---|---|---|---|---|
+| `ciw dependencies checkout-private` | `ci_workflows.ciw.handle_dependencies_checkout_private` | `exact-source` | `repository`, `admitted_sha`, `dependency_id`, `expected_subpath`, `fetch_depth`, `PRIVATE_DEPENDENCY_TOKEN` | `dependency_id`, `repository`, `head_sha`, `relative_path`, `expected_subpath`, `remotes_erased`, `credentials_erased`, `verified` | `uses merged #7 exact checkout and erases Git connection state` | immediate partial-failure cleanup and terminal workspace cleanup | `FoundationError.instruction` |
+| `ciw evidence render` | `ci_workflows.ciw.handle_evidence_render` | `shared-foundation` | `source_sha`, `workflow_release`, `runner_profile`, `toolchain_json`, `command_profile`, `result`, `cleanup_state`, `cleanup_removed_paths` | `evidence_id`, `evidence_json`, `redacted` | `writes deterministic evidence beneath registered state` | ciw workspace cleanup under if: always() | `FoundationError.instruction` |
+| `ciw policy validate-cache` | `ci_workflows.ciw.handle_policy_validate_cache` | `shared-foundation` | `mode`, `repository`, `source_sha`, `lock_digest`, `platform`, `profile`, `trust_mode` | `mode`, `restore`, `save`, `key` | none | cache transport remains caller-owned and disabled by default | `FoundationError.instruction` |
+| `ciw policy verify-repository` | `ci_workflows.ciw.handle_policy_verify_repository` | `shared-foundation` | `phase`, `artifacts_json`, `artifact_exception_id`, `trust_mode` | `repository`, `phase`, `tracked_files`, `scanned_files`, `generated_outputs`, `artifact_count`, `artifact_exception_id`, `policy_evidence_id`, `verified` | `reads repository status and tracked files`, `enforces generated and artifact policy` | none | `FoundationError.instruction` |
+| `ciw release-tag resolve` | `ci_workflows.ciw.handle_release_tag_resolve` | `trusted-publication` | `release_mode`, `release_version`, `release_source_sha`, `GitHub event metadata` | `release_mode`, `release_version`, `release_source_sha`, `tag_object_sha`, `tag_commit_sha` | `queries bounded read-only GitHub tag and caller metadata` | none | `ReleaseTagError.code` |
+| `ciw release-tag revalidate` | `ci_workflows.ciw.handle_release_tag_revalidate` | `trusted-publication` | `release_mode`, `release_version`, `release_source_sha`, `expected_tag_object_sha`, `expected_tag_commit_sha`, `GitHub event metadata` | `release_mode`, `release_version`, `release_source_sha`, `tag_object_sha`, `tag_commit_sha` | `rechecks exact immutable tag object and commit before publication` | none | `ReleaseTagError.code` |
+| `ciw runners generate` | `ci_workflows.ciw.handle_runners_generate` | `shared-foundation` | `--root`, `check` | none | `renders or verifies deterministic runner mappings and compatibility documentation` | none | `RunnerContractError.code` |
+| `ciw runners resolve` | `ci_workflows.ciw.handle_runners_resolve` | `shared-foundation` | `api`, `source_trust`, `profile`, `device_family`, `caller_inputs_json`, `lock_evidence_json` | `stdout_json` | `resolves one semantic runner profile without exposing infrastructure identities` | none | `RunnerContractError.code` |
+| `ciw runners select-buildah-tier` | `ci_workflows.ciw.handle_runners_select_buildah_tier` | `trusted-publication` | `peak_memory_bytes`, `peak_local_storage_bytes`, `headroom_percent` | `profile` | `selects the smallest contract-approved Buildah tier from measured evidence` | none | `RunnerContractError.code` |
+| `ciw runners validate` | `ci_workflows.ciw.handle_runners_validate` | `shared-foundation` | `--root` | none | `validates runner contract and workflow compatibility inventory` | none | `RunnerContractError.code` |
+| `ciw runners validate-selector` | `ci_workflows.ciw.handle_runners_validate_selector` | `shared-foundation` | `labels` | `profile` | `validates an existing direct selector during migration` | none | `RunnerContractError.code` |
+| `ciw source exact-checkout` | `ci_workflows.ciw.handle_source_exact_checkout` | `exact-source` | `repository`, `admitted_sha`, `path`, `fetch_depth`, `CHECKOUT_TOKEN` | `repository`, `head_sha`, `path`, `fetch_depth`, `verified` | `performs merged #7 exact detached credential-free checkout` | caller workspace cleanup | `SourceAdmissionError.instruction` |
+| `ciw source resolve` | `ci_workflows.ciw.handle_source_resolve` | `source-admission` | `environment source inputs`, `--root` | `caller_repository`, `caller_default_branch`, `caller_integration_branch`, `trust_mode`, `source_repository`, `source_sha`, `requested_sha`, `resolved_sha`, `pr_number`, `pr_head_repository`, `pr_head_sha`, `pr_base_branch`, `pr_base_sha`, `pr_merge_sha`, `tag_name`, `tag_object_sha`, `tag_commit_sha`, `requires_freshness`, `history_depth`, `request_id`, `evidence_id` | `reads GitHub event metadata`, `queries bounded read-only GitHub source metadata`, `writes GitHub outputs and redacted summary` | none | `SourceAdmissionError.instruction` |
+| `ciw source revalidate` | `ci_workflows.ciw.handle_source_revalidate` | `source-admission` | `admission_json`, `GitHub event token` | `source_sha`, `evidence_id`, `revalidated` | `rechecks mutable source evidence through the existing source provider` | none | `SourceAdmissionError.instruction` |
+| `ciw tooling install-asset` | `ci_workflows.ciw.handle_tooling_install_asset` | `shared-foundation` | `asset_id`, `marker-bound workflow environment` | `asset_id`, `asset_filename`, `asset_sha256`, `asset_relative_path`, `verified` | `downloads one contract-selected immutable asset into registered state` | ciw workspace cleanup under if: always() | `FoundationError.instruction` |
+| `ciw tooling verify` | `ci_workflows.ciw.handle_tooling_verify` | `shared-foundation` | `tool_set`, `capability_profile` | `tool_set`, `toolchain_json`, `toolchain_id`, `verified`, `capability_profile`, `platform`, `capability_id`, `capability_verified` | `executes contract-selected version commands and verifies semantic runtime capability` | none | `FoundationError.instruction` |
+| `ciw workspace cleanup` | `ci_workflows.ciw.handle_workspace_cleanup` | `shared-foundation` | `marker-bound workflow environment` | `state_id`, `removed_paths`, `removed_sensitive_paths`, `partial_setup`, `platform`, `cleanup_verified` | `performs descriptor-anchored no-follow cleanup of registered state` | terminal self-verifying cleanup | `FoundationError.instruction` |
+| `ciw workspace prepare` | `ci_workflows.ciw.handle_workspace_prepare` | `shared-foundation` | `profile`, `cache_mode`, `source_sha`, `lock_digest`, `trust_mode`, `GitHub workflow identity` | `state_id`, `profile`, `cache_mode`, `cache_key`, `registered_path_count` | `creates one marker-bound state root beneath protected RUNNER_TEMP`, `writes bounded environment updates` | ciw workspace cleanup under if: always() | `FoundationError.instruction` |
+
+## Compatibility wrappers
+
+Existing entry points remain supported while delegating to the same registered commands:
+
+- `scripts/ci/foundation.py` → `ciw workspace prepare`, `ciw workspace cleanup`, `ciw tooling verify`, `ciw tooling install-asset`, `ciw dependencies checkout-private`, `ciw policy verify-repository`, `ciw evidence render`.
+- `scripts/ci/release_tag_authority.py` → `ciw release-tag resolve`, `ciw release-tag revalidate`.
+- `scripts/ci/resolve_source.py` → `ciw source resolve`, `ciw source exact-checkout`.
+- `scripts/ci/runner_contract.py` → `ciw runners validate`, `ciw runners generate`, `ciw runners resolve`, `ciw runners validate-selector`, `ciw runners select-buildah-tier`.
+
+## Shared result and error projection
+
+- `CIWResult` carries stable string outputs, bounded environment updates, an optional redacted summary, and optional deterministic stdout.
+- `CIWError` carries only a safe domain, stable code, and bounded exit code.
+- Existing source, runner, foundation, and release-tag error codes remain unchanged at the projection boundary.
+- GitHub command-file names and values reject invalid names and CR/LF injection.
+
+## Future extension points
+
+The following namespaces are reserved but not implemented by this issue:
+
+`python`, `node`, `android`, `flutter`, `apple`, `gitops`, `oci`, `helm`, `release`, `device`, `github`.
