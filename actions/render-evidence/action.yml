@@ -1,0 +1,61 @@
+name: Render redacted foundation evidence
+description: Produce deterministic bounded evidence without environment, token, URL, or runner-path disclosure
+
+inputs:
+  source_sha:
+    description: Exact admitted source SHA
+    required: true
+  workflow_release:
+    description: Bounded workflow or function release identifier
+    required: true
+  runner_profile:
+    description: Semantic runner profile, never a concrete host label
+    required: true
+  toolchain_json:
+    description: Verified bounded tool-to-version JSON object
+    required: false
+    default: "{}"
+  command_profile:
+    description: Bounded checked-in command profile identifier
+    required: true
+  result:
+    description: success, failure, or skipped
+    required: true
+  cleanup_state:
+    description: not-run, success, or failure
+    required: false
+    default: not-run
+  cleanup_removed_paths:
+    description: Bounded count of removed registered paths
+    required: false
+    default: "0"
+
+outputs:
+  evidence_id:
+    value: ${{ steps.evidence.outputs.evidence_id }}
+  evidence_json:
+    value: ${{ steps.evidence.outputs.evidence_json }}
+  redacted:
+    value: ${{ steps.evidence.outputs.redacted }}
+
+runs:
+  using: composite
+  steps:
+    - id: evidence
+      name: Render canonical redacted evidence
+      shell: bash
+      env:
+        PYTHONDONTWRITEBYTECODE: "1"
+        INPUT_SOURCE_SHA: ${{ inputs.source_sha }}
+        INPUT_WORKFLOW_RELEASE: ${{ inputs.workflow_release }}
+        INPUT_RUNNER_PROFILE: ${{ inputs.runner_profile }}
+        INPUT_TOOLCHAIN_JSON: ${{ inputs.toolchain_json }}
+        INPUT_COMMAND_PROFILE: ${{ inputs.command_profile }}
+        INPUT_RESULT: ${{ inputs.result }}
+        INPUT_CLEANUP_STATE: ${{ inputs.cleanup_state }}
+        INPUT_CLEANUP_REMOVED_PATHS: ${{ inputs.cleanup_removed_paths }}
+      run: |
+        set -Eeuo pipefail
+        PYTHONPATH="${GITHUB_ACTION_PATH}/../../src" \
+          python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/foundation.py" \
+            --root "${GITHUB_ACTION_PATH}/../.." render-evidence

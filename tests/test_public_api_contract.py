@@ -25,6 +25,7 @@ class PublicApiContractTests(unittest.TestCase):
         self.assertEqual(len(self.data.workflows), 22)
         self.assertEqual(len(self.profiles), 13)
         self.assertEqual(len(self.data.types["trust_classes"]), 7)
+        self.assertEqual("1.1.0", self.data.index["contract_version"])
         self.assertEqual(
             [row["api_name"] for row in self.data.workflows],
             sorted(row["api_name"] for row in self.data.workflows),
@@ -40,6 +41,7 @@ class PublicApiContractTests(unittest.TestCase):
             )
         )
         represented = set()
+        valid_ids = set()
         for case in fixtures["valid"]:
             with self.subTest(case=case["id"]):
                 self.assertIsNone(
@@ -48,7 +50,10 @@ class PublicApiContractTests(unittest.TestCase):
                     )
                 )
                 represented.add(case["trust_class"])
+                valid_ids.add(case["id"])
         self.assertEqual(represented, set(self.data.types["trust_classes"]))
+        self.assertIn("bootstrap-tag-push-legacy", valid_ids)
+        self.assertIn("bootstrap-existing-tag", valid_ids)
         for case in fixtures["invalid"]:
             with self.subTest(case=case["id"]):
                 self.assertEqual(
@@ -65,6 +70,7 @@ class PublicApiContractTests(unittest.TestCase):
             )
         )
         decisions = set()
+        existing_tag_case = None
         for case in fixtures["cases"]:
             with self.subTest(case=case["id"]):
                 decision = contract.classify_change(
@@ -74,6 +80,9 @@ class PublicApiContractTests(unittest.TestCase):
                 )
                 self.assertEqual(decision, case["expected"])
                 decisions.add(decision)
+                if case["id"] == "compatible-existing-tag-optional-tuple":
+                    existing_tag_case = decision
+        self.assertEqual("compatible", existing_tag_case)
         self.assertEqual(
             decisions,
             {
@@ -159,10 +168,25 @@ class PublicApiContractTests(unittest.TestCase):
             },
         )
 
-    def test_existing_bootstrap_workflow_matches_its_deprecated_api_record(self) -> None:
+    def test_existing_bootstrap_workflow_matches_its_versioned_api_record(self) -> None:
         row = self.workflows["release.tag-image-chart-bootstrap"]
+        self.assertEqual("1.1.0", row["api_version"])
         self.assertEqual(row["status"], "deprecated-bootstrap-exception")
         self.assertEqual(row["deprecation"]["replacement"], "release.orchestrate")
+        input_map = {item["name"]: item for item in row["inputs"]}
+        self.assertEqual("tag-push", input_map["release_mode"]["default"])
+        self.assertFalse(input_map["release_version"]["required"])
+        self.assertFalse(input_map["release_source_sha"]["required"])
+        self.assertIn("tag-push", row["permitted_events"])
+        self.assertIn("workflow_dispatch-existing-tag", row["permitted_events"])
+        self.assertIn(
+            "ci_workflows.release_tag_authority.resolve_release_authority",
+            row["implementation_components"],
+        )
+        self.assertIn(
+            "ci_workflows.release_tag_authority.revalidate_release_authority",
+            row["implementation_components"],
+        )
         contract.validate_bootstrap_workflow(
             self.data, self.workflows, self.profiles
         )
@@ -189,6 +213,9 @@ class PublicApiContractTests(unittest.TestCase):
         self.assertIn("release.orchestrate", rendered)
         self.assertIn("flux.reconcile", rendered)
         self.assertIn("agent-state.lifecycle", rendered)
+        self.assertIn("`release_mode` (default `tag-push`)", rendered)
+        self.assertIn("`release_source_sha`", rendered)
+        self.assertIn("`workflow_dispatch-existing-tag`", rendered)
 
     def test_breaking_changes_fail_without_a_complete_acknowledgement(self) -> None:
         baseline = copy.deepcopy(self.workflows["validation.python"])
@@ -247,7 +274,9 @@ class PublicApiContractTests(unittest.TestCase):
             "device_capability": "physical",
             "script_path": "scripts/validate.sh",
             "product_id": "iptv-backend-image",
+            "release_mode": "tag-push",
             "release_version": "1.2.3",
+            "release_source_sha": "5" * 40,
             "release_contract": "backend",
             "release_tag": "v1.2.3",
             "target_id": "backend-production",

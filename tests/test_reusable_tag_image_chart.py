@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import re
@@ -14,6 +15,8 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "reusable-tag-image-chart.yml"
 SELF_CHECK = ROOT / ".github" / "workflows" / "self-check.yml"
 README = ROOT / "README.md"
+ACTION_LOCK = ROOT / "contracts" / "action-tool-lock.json"
+HELPER_SHA = "bd03c2b312e820d2c91097ecde4c076286e1bb24"
 
 
 class ReusableTagImageChartTests(unittest.TestCase):
@@ -36,8 +39,11 @@ class ReusableTagImageChartTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, header)
 
-    def test_public_api_is_bounded_and_explicit(self) -> None:
+    def test_public_api_is_bounded_versioned_and_explicit(self) -> None:
         for input_name in (
+            "release_mode",
+            "release_version",
+            "release_source_sha",
             "image_name",
             "chart_name",
             "chart_path",
@@ -48,6 +54,12 @@ class ReusableTagImageChartTests(unittest.TestCase):
                 self.text,
                 re.compile(rf"(?m)^      {re.escape(input_name)}:\n"),
             )
+        self.assertRegex(
+            self.text,
+            re.compile(
+                r"(?ms)^      release_mode:\n.*?^        default: tag-push$"
+            ),
+        )
         for secret_name in ("registry_username", "registry_token"):
             self.assertRegex(
                 self.text,
@@ -62,6 +74,8 @@ class ReusableTagImageChartTests(unittest.TestCase):
             "command",
             "script",
             "secret_name",
+            "ref",
+            "branch",
         ):
             self.assertNotRegex(
                 self.text,
@@ -69,23 +83,58 @@ class ReusableTagImageChartTests(unittest.TestCase):
             )
         self.assertNotIn("secrets: inherit", self.text)
 
-    def test_exact_tag_and_source_are_required(self) -> None:
+    def test_exact_tag_authority_checkout_and_freshness_are_required(self) -> None:
+        action_reference = (
+            "StreamScapeTV/ci-workflows/actions/resolve-release-tag@"
+            + HELPER_SHA
+        )
+        self.assertEqual(3, self.text.count(action_reference))
+        self.assertIn("Admit exact trusted release mode and tag tuple", self.text)
+        self.assertIn("Revalidate exact release tag before checkout", self.text)
         self.assertIn(
-            "github.event_name == 'push' && github.ref_type == 'tag'",
+            "Revalidate exact release tag immediately before publication",
             self.text,
         )
-        self.assertIn("startsWith(github.ref, 'refs/tags/')", self.text)
-        self.assertIn("ref: ${{ github.sha }}", self.text)
+        checkout = self.text.index("Check out exact validated caller source")
+        publication = self.text.index("Authenticate to fixed private OCI registry")
+        prepublication = self.text.index(
+            "Revalidate exact release tag immediately before publication"
+        )
+        self.assertLess(prepublication, publication)
+        self.assertIn("ref: ${{ needs.admit.outputs.source_sha }}", self.text)
         self.assertIn("persist-credentials: false", self.text)
-        self.assertIn('test "${GITHUB_REF}" = "refs/tags/${GITHUB_REF_NAME}"', self.text)
-        self.assertIn('test "${GITHUB_SHA}" = "$(git rev-parse HEAD)"', self.text)
-        self.assertIn('VERSION="${GITHUB_REF_NAME}"', self.text)
+        self.assertIn('test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"', self.text)
+        self.assertIn('test -z "$(git symbolic-ref -q HEAD || true)"', self.text)
+        self.assertNotIn("${{ github.sha }}", self.text[checkout:])
+        self.assertNotIn("${GITHUB_SHA}", self.text[checkout:])
+        self.assertIn(
+            "group: tag-image-chart-${{ github.repository }}-"
+            "${{ needs.admit.outputs.version }}",
+            self.text,
+        )
+        self.assertNotIn("github.ref_name", self.text)
+
+    def test_helper_action_and_human_release_are_exactly_locked(self) -> None:
+        lock = json.loads(ACTION_LOCK.read_text(encoding="utf-8"))
+        matches = [
+            entry
+            for entry in lock["third_party_actions"]
+            if entry["uses"]
+            == "StreamScapeTV/ci-workflows/actions/resolve-release-tag"
+        ]
+        self.assertEqual(1, len(matches))
+        self.assertEqual(HELPER_SHA, matches[0]["sha"])
+        self.assertEqual(
+            "issue #59 immutable helper checkpoint",
+            matches[0]["release"],
+        )
+        self.assertEqual("composite", matches[0]["runtime"])
 
     def test_version_and_input_validator_accepts_only_bounded_values(self) -> None:
         marker = "          python3 - <<'PY'\n"
         start = self.text.index(
             marker,
-            self.text.index("Validate tag and bounded product inputs"),
+            self.text.index("Validate bounded product inputs"),
         )
         script = textwrap.dedent(
             self.text[start + len(marker):].split("\n          PY", 1)[0]
@@ -144,7 +193,7 @@ class ReusableTagImageChartTests(unittest.TestCase):
         self.assertIn("REGISTRY: git.faruqi.dev", self.text)
         self.assertIn("REGISTRY_NAMESPACE: mimranfaruqi", self.text)
         self.assertIn("CHART_NAMESPACE: mimranfaruqi/helm-charts", self.text)
-        self.assertIn("    runs-on: buildah-high", self.text)
+        self.assertEqual(2, self.text.count("    runs-on: buildah-high"))
         self.assertNotIn("self-hosted", self.text)
         for marker in (
             "! command -v docker",
@@ -157,12 +206,45 @@ class ReusableTagImageChartTests(unittest.TestCase):
         ):
             self.assertIn(marker, self.text)
 
+    def test_both_modes_share_identical_publication_stages_and_outputs(self) -> None:
+        publish = self.text[self.text.index("  publish:"):]
+        for marker in (
+            "Verify daemonless publication runner and credentials",
+            "Stage pinned Helm from immutable OCI image",
+            "Prepare isolated publication and authentication state",
+            "Prepare locked Helm chart dependencies",
+            "Authenticate to fixed private OCI registry",
+            "Build publish and verify exact-tag image",
+            "Package publish and verify exact-tag Helm chart",
+            "Confirm zero Actions artifacts",
+            "Clean publication credentials and state",
+        ):
+            self.assertEqual(1, publish.count(marker))
+        for output in (
+            "version",
+            "source_sha",
+            "image_reference",
+            "image_digest",
+            "chart_reference",
+            "chart_package_sha256",
+        ):
+            self.assertRegex(
+                self.text,
+                re.compile(rf"(?m)^      {re.escape(output)}:\n"),
+            )
+        publication_start = publish.index(
+            "Verify daemonless publication runner and credentials"
+        )
+        publication_body = publish[publication_start:]
+        self.assertNotIn("inputs.release_mode", publication_body)
+        self.assertNotIn("github.event_name", publication_body)
+
     def test_image_is_exact_tag_multi_platform_and_independently_read_back(self) -> None:
         self.assertIn("for architecture in amd64 arm64; do", self.text)
         self.assertIn('--platform "linux/${architecture}"', self.text)
         self.assertIn('--timestamp "${source_epoch}"', self.text)
         self.assertIn("org.opencontainers.image.source", self.text)
-        self.assertIn("org.opencontainers.image.revision", self.text)
+        self.assertIn("org.opencontainers.image.revision=${SOURCE_SHA}", self.text)
         self.assertIn("org.opencontainers.image.version", self.text)
         self.assertIn('"oci:${OCI_LAYOUT}:${VERSION}"', self.text)
         self.assertIn('"docker://${IMAGE_REFERENCE}"', self.text)
@@ -193,7 +275,7 @@ class ReusableTagImageChartTests(unittest.TestCase):
             "Chart.lock is required when Chart.yaml declares dependencies",
             "Unsupported Helm dependency repository scheme",
             "dependency build",
-            '--skip-refresh',
+            "--skip-refresh",
             'test "${lock_sha_after}" = "${lock_sha_before}"',
             "CHART_DEPENDENCY_COUNT",
             "local_dependency_entries",
@@ -327,7 +409,6 @@ class ReusableTagImageChartTests(unittest.TestCase):
         lower = self.text.lower()
         for forbidden in (
             "workflow_dispatch:",
-            "refs/heads/main",
             ":latest",
             "github release",
             "/releases",
@@ -361,7 +442,7 @@ class ReusableTagImageChartTests(unittest.TestCase):
         self.assertIn("registry logout", self.text)
         self.assertIn('"${STATE_ROOT:-${RUNNER_TEMP}/central-tag-release}"', self.text)
 
-    def test_self_check_and_documented_caller_are_thin(self) -> None:
+    def test_self_check_and_documented_callers_are_thin(self) -> None:
         self.assertIn(
             '"${VERIFIED_PYTHON}" -m unittest discover -s tests -p \'test_*.py\' -v',
             self.self_check,
@@ -377,6 +458,9 @@ class ReusableTagImageChartTests(unittest.TestCase):
             self.readme,
         )
         self.assertIn("tags:", self.readme)
+        self.assertIn("release_mode: existing-tag", self.readme)
+        self.assertIn("release_version:", self.readme)
+        self.assertIn("release_source_sha:", self.readme)
         self.assertIn("registry_username:", self.readme)
         self.assertIn("registry_token:", self.readme)
         self.assertIn("git tag 1.2.3 <commit>", self.readme)

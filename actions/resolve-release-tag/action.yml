@@ -1,0 +1,56 @@
+name: Resolve exact release tag authority
+description: Validate trusted release mode and resolve one immutable tag to one exact commit
+
+inputs:
+  phase:
+    description: resolve before checkout or revalidate immediately before publication
+    required: false
+    default: resolve
+  release_mode:
+    description: tag-push or existing-tag
+    required: false
+    default: tag-push
+  release_version:
+    description: Exact canonical stable SemVer tag without refs or a v prefix
+    required: false
+  release_source_sha:
+    description: Exact lowercase source commit for existing-tag mode
+    required: false
+  expected_tag_object_sha:
+    description: Exact initially resolved tag object for revalidation
+    required: false
+  expected_tag_commit_sha:
+    description: Exact initially resolved tag commit for revalidation
+    required: false
+
+outputs:
+  release_mode:
+    value: ${{ steps.resolve.outputs.release_mode }}
+  release_version:
+    value: ${{ steps.resolve.outputs.release_version }}
+  release_source_sha:
+    value: ${{ steps.resolve.outputs.release_source_sha }}
+  tag_object_sha:
+    value: ${{ steps.resolve.outputs.tag_object_sha }}
+  tag_commit_sha:
+    value: ${{ steps.resolve.outputs.tag_commit_sha }}
+
+runs:
+  using: composite
+  steps:
+    - id: resolve
+      name: Resolve and validate exact release tag authority
+      shell: bash
+      env:
+        PYTHONDONTWRITEBYTECODE: "1"
+        GITHUB_TOKEN: ${{ github.token }}
+        INPUT_PHASE: ${{ inputs.phase }}
+        INPUT_RELEASE_MODE: ${{ inputs.release_mode }}
+        INPUT_RELEASE_VERSION: ${{ inputs.release_version }}
+        INPUT_RELEASE_SOURCE_SHA: ${{ inputs.release_source_sha }}
+        INPUT_EXPECTED_TAG_OBJECT_SHA: ${{ inputs.expected_tag_object_sha }}
+        INPUT_EXPECTED_TAG_COMMIT_SHA: ${{ inputs.expected_tag_commit_sha }}
+      run: |
+        set -Eeuo pipefail
+        PYTHONPATH="${GITHUB_ACTION_PATH}/../../src" \
+          python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/release_tag_authority.py"

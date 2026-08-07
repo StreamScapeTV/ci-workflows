@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "organization": "StreamScapeTV",
+  "maximum_scanned_bytes": 1048576,
+  "forbidden_paths": [
+    ".env",
+    ".env.*",
+    "**/.env",
+    "**/.env.*",
+    "**/.npmrc",
+    "**/.pypirc",
+    "**/auth.json",
+    "**/credentials.json",
+    "**/kubeconfig",
+    "**/*.pem",
+    "**/*.key",
+    "**/*.p12",
+    "**/*.mobileprovision",
+    "**/*.jks",
+    "**/*.keystore"
+  ],
+  "allowed_forbidden_path_exceptions": [
+    ".env.example",
+    "**/.env.example",
+    "**/.env.sample"
+  ],
+  "token_rules": [
+    {"id": "github-classic", "prefixes": ["ghp_", "gho_", "ghu_", "ghs_", "ghr_"], "minimum_length": 28},
+    {"id": "github-fine-grained", "prefixes": ["github_pat_"], "minimum_length": 50},
+    {"id": "aws-access-key", "prefixes": ["AKIA"], "minimum_length": 20}
+  ],
+  "split_markers": [
+    {"id": "private-key", "segments": ["-----BEGIN ", "PRIVATE KEY-----"]},
+    {"id": "bearer-token", "segments": ["Authorization", ": Bearer "]}
+  ],
+  "generated_outputs": [
+    "docs/workflows/public-api-reference.md",
+    "docs/architecture/foundation-primitives.md"
+  ],
+  "repository_exceptions": []
+}
