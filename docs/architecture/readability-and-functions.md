@@ -54,3 +54,12 @@ Prefer an intent-named adapter:
 - Reason: The bounded bootstrap publisher predates the named-function architecture and retains only its existing reviewed exceptions.
 - Removal condition: Remove with the contracted replacement for the deprecated bootstrap publication workflow.
 - Regression tests: `tests/test_reusable_tag_image_chart.py`, `tests/test_validation_harness.py`
+
+### `issue-37-legacy-agent-state-run`
+
+- Issue: #37
+- Path: `src/ci_workflows/agent_state_command.py`
+- Rules: `opaque-function-name`
+- Reason: The protected temporary Agent State compatibility transport predates the named-function convergence and exposes its tested legacy run entry point. Issue #31 does not rename or absorb Agent State transport semantics.
+- Removal condition: Remove when the temporary #37 compatibility transport is retired after canonical Agent State cutover and legacy-consumer retirement.
+- Regression tests: `tests/test_agent_state_command.py`, `tests/test_readability_contract.py`
