@@ -18,13 +18,66 @@ concurrency:
 jobs:
   validate:
     name: Validate repository and reusable workflow contracts
-    runs-on: homelab-portable-linux-x64
+    runs-on: macOS
     timeout-minutes: 10
     env:
       SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       PYTHONDONTWRITEBYTECODE: "1"
       PYTHONPATH: src
     steps:
+      - name: Admit trusted workflow source
+        shell: bash
+        env:
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -Eeuo pipefail
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          case "${GITHUB_EVENT_NAME}" in
+            pull_request)
+              if [[ -z "${PR_HEAD_REPOSITORY}" || "${PR_HEAD_REPOSITORY}" != "${GITHUB_REPOSITORY}" ]]; then
+                echo '::error::Central self-check rejects fork pull-request source before checkout.' >&2
+                exit 1
+              fi
+              test "${SOURCE_SHA}" = "${PR_HEAD_SHA}"
+              ;;
+            push|workflow_dispatch)
+              test "${SOURCE_SHA}" = "${GITHUB_SHA}"
+              ;;
+            *)
+              echo "::error::Unsupported self-check event ${GITHUB_EVENT_NAME}." >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Verify pre-provisioned CPython 3.12.13
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          candidate="$(type -P python3.12 || true)"
+          if [[ -z "${candidate}" ]]; then
+            candidate="$(type -P python3 || true)"
+          fi
+          if [[ -z "${candidate}" || "${candidate}" != /* || ! -x "${candidate}" ]]; then
+            echo '::error::No absolute executable Python candidate is pre-provisioned.' >&2
+            exit 1
+          fi
+          resolved="$("${candidate}" -c 'import os,sys; print(os.path.realpath(sys.executable))')"
+          if [[ "${resolved}" != /* || ! -x "${resolved}" ]]; then
+            echo '::error::Resolved Python path is not an absolute executable.' >&2
+            exit 1
+          fi
+          identity="$("${resolved}" -c 'import platform,sys; m=platform.machine().lower(); m={"amd64":"x86_64","x64":"x86_64","aarch64":"arm64"}.get(m,m); print(f"{sys.implementation.name}|{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}|{platform.system()}|{m}")')"
+          IFS='|' read -r implementation version system machine <<< "${identity}"
+          [[ "${implementation}" == "cpython" ]] || { echo "::error::Expected CPython, got ${implementation}." >&2; exit 1; }
+          [[ "${version}" == "3.12.13" ]] || { echo "::error::Expected Python 3.12.13, got ${version}." >&2; exit 1; }
+          [[ "${system}" == "Darwin" ]] || { echo "::error::Expected Darwin, got ${system}." >&2; exit 1; }
+          case "${machine}" in arm64|x86_64) ;; *) echo "::error::Unsupported macOS architecture ${machine}." >&2; exit 1 ;; esac
+          {
+            printf 'VERIFIED_PYTHON=%s\n' "${resolved}"
+            printf 'PYTHON_EXECUTABLE=%s\n' "${resolved}"
+          } >> "${GITHUB_ENV}"
+
       - name: Check out exact source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -45,28 +98,52 @@ jobs:
           validation_root="${RUNNER_TEMP}/ci-workflows-validation-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           rm -rf "${validation_root}"
           mkdir -p "${validation_root}/python"
-          python3 scripts/ci/bootstrap_validation_runtime.py \
+          "${VERIFIED_PYTHON}" scripts/ci/bootstrap_validation_runtime.py \
             --lock contracts/action-tool-lock.json \
             --target "${validation_root}/python"
+          test -f "${validation_root}/python/yaml/__init__.py"
+          PYTHONPATH="${validation_root}/python" "${VERIFIED_PYTHON}" - <<'PY'
+          import yaml
+
+          if yaml.__version__ != "6.0.3":
+              raise SystemExit(f"unexpected PyYAML version: {yaml.__version__}")
+          if yaml.__with_libyaml__:
+              raise SystemExit("validation runtime unexpectedly loaded LibYAML")
+          PY
           {
             printf 'VALIDATION_ROOT=%s\n' "${validation_root}"
             printf 'PYTHONPATH=%s:%s/src\n' "${validation_root}/python" "${GITHUB_WORKSPACE}"
           } >> "${GITHUB_ENV}"
 
-      - name: Run canonical validation and discovered tests
+      - name: Run canonical validation harness
         shell: bash
         run: |
           set -Eeuo pipefail
-          python3 scripts/ci/validation_harness.py \
+          "${VERIFIED_PYTHON}" scripts/ci/validation_harness.py \
             --root . \
             --summary "${VALIDATION_ROOT}/summary.json"
-          python3 scripts/ci/bootstrap_check.py
-          python3 scripts/ci/inventory_contract.py validate
-          python3 scripts/ci/inventory_contract.py render --check
-          python3 scripts/ci/public_api_contract.py validate
-          python3 scripts/ci/public_api_contract.py render
+
+      - name: Verify bootstrap and generated inventory contracts
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          "${VERIFIED_PYTHON}" scripts/ci/bootstrap_check.py
+          "${VERIFIED_PYTHON}" scripts/ci/inventory_contract.py validate
+          "${VERIFIED_PYTHON}" scripts/ci/inventory_contract.py render --check
+
+      - name: Verify public API agreement
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          "${VERIFIED_PYTHON}" scripts/ci/public_api_contract.py validate
+          "${VERIFIED_PYTHON}" scripts/ci/public_api_contract.py render
           cat docs/workflows/public-api-reference.md
-          python3 -m unittest discover -s tests -p 'test_*.py' -v
+
+      - name: Run automatically discovered unit tests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          "${VERIFIED_PYTHON}" -m unittest discover -s tests -p 'test_*.py' -v
           test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
 
       - name: Verify clean tracked tree
@@ -93,7 +170,9 @@ jobs:
           find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete || cleanup_failed=1
           test -z "$(find . -type d -name __pycache__ -print -quit)" || cleanup_failed=1
           test -z "$(find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -print -quit)" || cleanup_failed=1
-          test -z "$(git status --porcelain --untracked-files=all)" || cleanup_failed=1
+          if [[ -d .git ]]; then
+            test -z "$(git status --porcelain --untracked-files=all)" || cleanup_failed=1
+          fi
           exit "${cleanup_failed}"
 
       - name: Confirm zero Actions artifacts
@@ -103,7 +182,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -Eeuo pipefail
-          python3 - <<'PY'
+          "${VERIFIED_PYTHON}" - <<'PY'
           import json
           import os
           import urllib.request

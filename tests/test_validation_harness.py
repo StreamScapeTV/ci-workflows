@@ -55,7 +55,10 @@ class ValidationHarnessTest(unittest.TestCase):
         self.assertIn("on", parsed.data)
         self.assertNotIn(True, parsed.data)
         inventory = discover_repository(self.root)
-        self.assertIn(source, inventory.workflows)
+        self.assertIn(
+            source.resolve(),
+            tuple(path.resolve() for path in inventory.workflows),
+        )
 
     def test_action_pin_release_comment_and_allowlist_fail_closed(self) -> None:
         path = self.root / ".github/workflows/reusable-sample.yml"
