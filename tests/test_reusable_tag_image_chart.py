@@ -144,7 +144,8 @@ class ReusableTagImageChartTests(unittest.TestCase):
         self.assertIn("REGISTRY: git.faruqi.dev", self.text)
         self.assertIn("REGISTRY_NAMESPACE: mimranfaruqi", self.text)
         self.assertIn("CHART_NAMESPACE: mimranfaruqi/helm-charts", self.text)
-        self.assertIn("runs-on: [self-hosted, buildah-high]", self.text)
+        self.assertIn("    runs-on: buildah-high", self.text)
+        self.assertNotIn("self-hosted", self.text)
         for marker in (
             "! command -v docker",
             "! command -v dockerd",
@@ -169,6 +170,142 @@ class ReusableTagImageChartTests(unittest.TestCase):
         self.assertIn("remote image platforms", self.text)
         self.assertIn("--override-arch", self.text)
         self.assertIn('test "${remote_digest}" = "${local_digest}"', self.text)
+
+    def test_chart_builds_locked_dependencies_before_lint_and_package(self) -> None:
+        prepare = self.text.index("Prepare locked Helm chart dependencies")
+        dependency_build = self.text.index(
+            '"${HELM_BIN}" dependency build "${CHART_SOURCE}"',
+            prepare,
+        )
+        chart_step = self.text.index(
+            "Package publish and verify exact-tag Helm chart",
+            dependency_build,
+        )
+        lint = self.text.index('"${HELM_BIN}" lint "${CHART_SOURCE}"', chart_step)
+        package = self.text.index('"${HELM_BIN}" package "${CHART_SOURCE}"', chart_step)
+        self.assertLess(prepare, dependency_build)
+        self.assertLess(dependency_build, lint)
+        self.assertLess(lint, package)
+
+        for marker in (
+            "HELM_REPOSITORY_CONFIG",
+            "HELM_REPOSITORY_CACHE",
+            "Chart.lock is required when Chart.yaml declares dependencies",
+            "Unsupported Helm dependency repository scheme",
+            "dependency build",
+            '--skip-refresh',
+            'test "${lock_sha_after}" = "${lock_sha_before}"',
+            "CHART_DEPENDENCY_COUNT",
+            "local_dependency_entries",
+            "remote_dependency_entries",
+        ):
+            self.assertIn(marker, self.text)
+
+    def test_dependency_validator_accepts_locked_https_and_oci_only(self) -> None:
+        marker = "          python3 - <<'PY'\n"
+        start = self.text.index(
+            marker,
+            self.text.index("Prepare locked Helm chart dependencies"),
+        )
+        script = textwrap.dedent(
+            self.text[start + len(marker):].split("\n          PY", 1)[0]
+        )
+
+        def run_case(
+            directory: Path,
+            dependency_output: str,
+            *,
+            with_lock: bool,
+        ) -> subprocess.CompletedProcess[str]:
+            chart = directory / "chart"
+            chart.mkdir(parents=True, exist_ok=True)
+            if with_lock:
+                (chart / "Chart.lock").write_text(
+                    "dependencies: []\ndigest: sha256:test\ngenerated: now\n",
+                    encoding="utf-8",
+                )
+            dependency_file = directory / "dependencies.txt"
+            repository_file = directory / "repositories.txt"
+            count_file = directory / "count.txt"
+            dependency_file.write_text(dependency_output, encoding="utf-8")
+            env = {
+                **os.environ,
+                "CHART_SOURCE": str(chart),
+                "DEPENDENCY_LIST": str(dependency_file),
+                "DEPENDENCY_REPOSITORIES": str(repository_file),
+                "DEPENDENCY_COUNT_FILE": str(count_file),
+            }
+            return subprocess.run(
+                [sys.executable, "-S", "-c", script],
+                cwd=directory,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        header = "NAME VERSION REPOSITORY STATUS\n"
+        with tempfile.TemporaryDirectory() as directory_name:
+            directory = Path(directory_name)
+            result = run_case(
+                directory / "https",
+                header + "valkey 0.11.0 https://valkey.io/valkey-helm/ missing\n",
+                with_lock=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                (directory / "https" / "repositories.txt").read_text(),
+                "https://valkey.io/valkey-helm/\n",
+            )
+            self.assertEqual(
+                (directory / "https" / "count.txt").read_text(),
+                "1\n",
+            )
+
+            result = run_case(
+                directory / "oci",
+                header + "shared 1.2.3 oci://registry.example/charts missing\n",
+                with_lock=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                (directory / "oci" / "repositories.txt").read_text(),
+                "",
+            )
+
+            result = run_case(
+                directory / "no-lock",
+                header + "valkey 0.11.0 https://valkey.io/valkey-helm/ missing\n",
+                with_lock=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Chart.lock is required", result.stderr)
+
+            for repository in (
+                "http://valkey.example/charts",
+                "file://../escape",
+                "git+https://example.invalid/charts",
+                "https://user:password@example.invalid/charts",
+                "https://example.invalid/charts?token=secret",
+            ):
+                with self.subTest(repository=repository):
+                    result = run_case(
+                        directory / ("bad-" + str(abs(hash(repository)))),
+                        header + f"bad 1.2.3 {repository} missing\n",
+                        with_lock=True,
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+
+            result = run_case(
+                directory / "none",
+                header,
+                with_lock=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                (directory / "none" / "count.txt").read_text(),
+                "0\n",
+            )
 
     def test_chart_uses_tag_version_and_remote_package_readback(self) -> None:
         self.assertIn('--version "${VERSION}"', self.text)
@@ -222,14 +359,15 @@ class ReusableTagImageChartTests(unittest.TestCase):
         self.assertIn("containers -q", self.text)
         self.assertIn("images -q", self.text)
         self.assertIn("registry logout", self.text)
+        self.assertIn('"${STATE_ROOT:-${RUNNER_TEMP}/central-tag-release}"', self.text)
 
     def test_self_check_and_documented_caller_are_thin(self) -> None:
         self.assertIn(
-            "python3 -m unittest discover -s tests -p 'test_*.py' -v",
+            '"${VERIFIED_PYTHON}" -m unittest discover -s tests -p \'test_*.py\' -v',
             self.self_check,
         )
         self.assertNotIn(
-            "python3 -m unittest -v tests/test_reusable_tag_image_chart.py",
+            '"${VERIFIED_PYTHON}" -m unittest -v tests/test_reusable_tag_image_chart.py',
             self.self_check,
         )
         self.assertIn("Confirm zero Actions artifacts", self.self_check)

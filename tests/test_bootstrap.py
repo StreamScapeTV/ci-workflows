@@ -4,6 +4,7 @@ import importlib.util
 import json
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = ROOT / "scripts" / "ci" / "bootstrap_check.py"
@@ -18,6 +19,7 @@ class BootstrapContractTests(unittest.TestCase):
         MODULE.validate_required_paths()
         MODULE.validate_public_workflow_exceptions()
         MODULE.validate_self_check()
+        MODULE.validate_runtime_lock()
         MODULE.validate_policies()
         MODULE.validate_authority_docs()
 
@@ -45,20 +47,62 @@ class BootstrapContractTests(unittest.TestCase):
             ],
         )
 
-    def test_self_check_uses_automatic_test_discovery(self) -> None:
+    def test_self_check_uses_automatic_discovery_and_verified_python(self) -> None:
         source = (ROOT / ".github/workflows/self-check.yml").read_text()
         self.assertIn(
-            "python3 -m unittest discover -s tests -p 'test_*.py' -v",
+            '"${VERIFIED_PYTHON}" -m unittest discover '
+            "-s tests -p 'test_*.py' -v",
             source,
         )
         self.assertNotIn(
-            "python3 -m unittest -v tests/test_reusable_tag_image_chart.py",
+            "python3 -m unittest discover",
             source,
         )
-        self.assertNotIn(
-            "python3 -m unittest -v tests/test_bootstrap.py",
-            source,
+        self.assertNotIn("actions/setup-python@", source)
+
+    def test_self_check_uses_bounded_emergency_macos_contract(self) -> None:
+        source = (ROOT / ".github/workflows/self-check.yml").read_text()
+        harness = json.loads(
+            (ROOT / "contracts/validation-harness.json").read_text()
         )
+        self.assertEqual(source.count("runs-on: macOS"), 1)
+        self.assertNotIn("runs-on: portable", source)
+        self.assertEqual(
+            harness["allowed_runner_profiles"],
+            ["portable", "agent-state"],
+        )
+        exception = [
+            item
+            for item in harness["exceptions"]
+            if item["path"] == ".github/workflows/self-check.yml"
+        ]
+        self.assertEqual(1, len(exception))
+        self.assertEqual(60, exception[0]["issue"])
+        self.assertEqual(
+            ["unknown-runner-profile"],
+            exception[0]["rules"],
+        )
+
+    def test_self_check_rejects_obsolete_concrete_selector(self) -> None:
+        source = (ROOT / ".github/workflows/self-check.yml").read_text()
+        contaminated_source = source + "\n# homelab-portable-linux-x64\n"
+        original = MODULE.read_text
+
+        def read_text(relative: str) -> str:
+            if relative == ".github/workflows/self-check.yml":
+                return contaminated_source
+            return original(relative)
+
+        with mock.patch.object(
+            MODULE,
+            "read_text",
+            side_effect=read_text,
+        ):
+            with self.assertRaisesRegex(
+                SystemExit,
+                "homelab-portable-linux-x64",
+            ):
+                MODULE.validate_self_check()
 
 
 if __name__ == "__main__":
