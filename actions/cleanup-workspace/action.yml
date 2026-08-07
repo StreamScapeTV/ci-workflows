@@ -25,6 +25,5 @@ runs:
         PYTHONDONTWRITEBYTECODE: "1"
       run: |
         set -Eeuo pipefail
-        PYTHONPATH="${GITHUB_ACTION_PATH}/../../src" \
-          python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/foundation.py" \
-            --root "${GITHUB_ACTION_PATH}/../.." cleanup-workspace
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
+          workspace cleanup
