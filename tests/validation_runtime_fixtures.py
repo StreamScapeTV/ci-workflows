@@ -7,8 +7,8 @@ import tarfile
 from pathlib import Path
 
 LINUX_RUNTIME = "cp312-manylinux-x86_64"
-MAC_ARM_RUNTIME = "cp313-macos-arm64"
-MAC_X64_RUNTIME = "cp313-macos-x86_64"
+MAC_ARM_RUNTIME = "cp312-macos-arm64"
+MAC_X64_RUNTIME = "cp312-macos-x86_64"
 WHEEL_FILENAME = (
     "pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64."
     "manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl"
