@@ -48,6 +48,17 @@ class MacOSValidationRuntimeTest(unittest.TestCase):
                 self.assertEqual(SOURCE_FILENAME, source.filename)
                 self.assertEqual("sdist-tar-gz", source.format)
 
+    def test_linux_detection_remains_cpython_312_x86_64(self) -> None:
+        self.assertEqual(
+            LINUX_RUNTIME,
+            detect_runtime(
+                implementation="cpython",
+                system="Linux",
+                machine="amd64",
+                version=(3, 12, 10),
+            ),
+        )
+
     def test_macos_source_installs_only_pure_python_yaml(self) -> None:
         install_locked_artifact(
             self.lock,
@@ -79,19 +90,23 @@ class MacOSValidationRuntimeTest(unittest.TestCase):
                         implementation="cpython",
                         system="Darwin",
                         machine=machine,
-                        version=(3, 12),
+                        version=(3, 13, 5),
                     ),
                 )
 
     def test_unsupported_host_properties_are_rejected(self) -> None:
         cases = (
-            ("pypy", "Darwin", "arm64", (3, 12), "implementation"),
-            ("cpython", "Windows", "x86_64", (3, 12), "operating system"),
-            ("cpython", "Darwin", "ppc64", (3, 12), "architecture"),
-            ("cpython", "Darwin", "arm64", (3, 11), "Python version"),
+            ("pypy", "Darwin", "arm64", (3, 13, 5), "implementation"),
+            ("cpython", "Windows", "x86_64", (3, 13, 5), "operating system"),
+            ("cpython", "Darwin", "ppc64", (3, 13, 5), "architecture"),
+            ("cpython", "Darwin", "arm64", (3, 13, 4), "Python version"),
+            ("cpython", "Darwin", "arm64", (3, 13, 6), "Python version"),
+            ("cpython", "Darwin", "arm64", (3, 12, 10), "Python version"),
+            ("cpython", "Linux", "arm64", (3, 12, 10), "architecture"),
+            ("cpython", "Linux", "x86_64", (3, 13, 5), "Python version"),
         )
         for implementation, system, machine, version, expression in cases:
-            with self.subTest(expression=expression):
+            with self.subTest(expression=expression, version=version):
                 with self.assertRaisesRegex(
                     ValidationRuntimeError,
                     expression,
