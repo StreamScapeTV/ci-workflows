@@ -11,12 +11,12 @@ from ci_workflows.foundation_docs import render_foundation_docs
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTIONS = {
-    "prepare-workspace": "prepare-workspace",
-    "verify-toolchain": "verify-toolchain",
-    "checkout-private-dependency": "checkout-private-dependency",
-    "verify-repository-policy": "verify-repository-policy",
-    "render-evidence": "render-evidence",
-    "cleanup-workspace": "cleanup-workspace",
+    "prepare-workspace": ("workspace prepare",),
+    "verify-toolchain": ("tooling verify", "tooling install-asset"),
+    "checkout-private-dependency": ("dependencies checkout-private",),
+    "verify-repository-policy": ("policy verify-repository",),
+    "render-evidence": ("evidence render",),
+    "cleanup-workspace": ("workspace cleanup",),
 }
 FORBIDDEN_INPUTS = {
     "command",
@@ -77,8 +77,8 @@ class FoundationContractTests(unittest.TestCase):
             },
         )
 
-    def test_actions_are_thin_composites_calling_only_the_bounded_cli(self) -> None:
-        for action, operation in ACTIONS.items():
+    def test_actions_are_thin_composites_calling_only_the_bounded_ciw_registry(self) -> None:
+        for action, commands in ACTIONS.items():
             with self.subTest(action=action):
                 path = ROOT / "actions" / action / "action.yml"
                 data = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -86,8 +86,13 @@ class FoundationContractTests(unittest.TestCase):
                 steps = data["runs"]["steps"]
                 self.assertEqual(len(steps), 1)
                 run = steps[0]["run"]
-                self.assertIn("scripts/ci/foundation.py", run)
-                self.assertIn(operation, run)
+                self.assertIn("scripts/ci/ciw.py", run)
+                for command in commands:
+                    self.assertIn(command, run)
+                if action == "verify-toolchain":
+                    self.assertIn('case "${INPUT_OPERATION}"', run)
+                    self.assertIn("verify-set)", run)
+                    self.assertIn("install-asset)", run)
                 self.assertNotIn("eval ", run)
                 self.assertNotIn("source ", run)
                 self.assertNotIn("curl ", run)
@@ -102,6 +107,7 @@ class FoundationContractTests(unittest.TestCase):
         self.assertIn("Callers never supply a deletion path", catalog)
         self.assertIn("Caching remains disabled by default", catalog)
         self.assertIn("routine GitHub Actions artifacts remain zero", catalog)
+        self.assertIn("`ciw`", catalog)
 
     def test_documented_functions_exist_as_named_public_definitions(self) -> None:
         contract = json.loads(
@@ -131,6 +137,7 @@ class FoundationContractTests(unittest.TestCase):
             "zero",
             "disabled",
             "explicit repository-owner bootstrap authorization",
+            "ciw",
         ):
             self.assertIn(token, checked_in)
 
