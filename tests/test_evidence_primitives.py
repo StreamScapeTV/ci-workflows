@@ -97,7 +97,7 @@ class EvidencePrimitiveTests(unittest.TestCase):
             state = Path(directory)
             (state / "evidence").mkdir()
             path = write_evidence(state, evidence)
-            self.assertEqual(path, state / "evidence/evidence.json")
+            self.assertEqual(path, (state / "evidence/evidence.json").resolve())
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
             self.assertEqual(path.read_text(encoding="utf-8"), evidence.json_text + "\n")
         with tempfile.TemporaryDirectory() as directory:
