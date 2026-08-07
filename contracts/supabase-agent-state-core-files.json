@@ -71,7 +71,7 @@
     {
       "path": "tests/test_supabase_agent_state_core_database.py",
       "bytes": 40453,
-      "sha256": "f09fa00df57a4ace4142b8eb318975bce769c6dea5d7937d55a52973c29b3c73"
+      "sha256": "62d5f44970f543aea71d6fdf7ae414aede7507766a579220c4b4878085ce84ff"
     }
   ],
   "manifest_scope": "all source-package files except this self-referential manifest"
