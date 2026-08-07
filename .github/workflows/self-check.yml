@@ -50,6 +50,43 @@ jobs:
               ;;
           esac
 
+      - name: Inspect preinstalled macOS Python candidates
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          candidates=(
+            /opt/homebrew/bin/python3.12
+            /opt/homebrew/bin/python3
+            /usr/local/bin/python3.12
+            /usr/local/bin/python3
+            /Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12
+            /usr/bin/python3
+          )
+          command -v python3.12 >/dev/null 2>&1 && candidates+=("$(command -v python3.12)")
+          command -v python3 >/dev/null 2>&1 && candidates+=("$(command -v python3)")
+
+          seen=':'
+          found=0
+          for candidate in "${candidates[@]}"; do
+            [[ -x "${candidate}" ]] || continue
+            resolved="$(cd "$(dirname "${candidate}")" && pwd -P)/$(basename "${candidate}")"
+            [[ "${seen}" != *":${resolved}:"* ]] || continue
+            seen+="${resolved}:"
+            found=1
+            "${resolved}" - <<'PY'
+          import platform
+          import sys
+
+          print(
+              "preinstalled-python "
+              f"implementation={sys.implementation.name} "
+              f"version={sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro} "
+              f"system={platform.system()} machine={platform.machine()}"
+          )
+          PY
+          done
+          test "${found}" -eq 1
+
       - name: Set up pinned CPython 3.12
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
