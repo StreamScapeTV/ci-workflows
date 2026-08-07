@@ -47,9 +47,10 @@ runs:
         CHECKOUT_TOKEN: ${{ inputs.token || github.token }}
       run: |
         set -Eeuo pipefail
-        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
-          source exact-checkout \
-          --repository "${{ inputs.repository }}" \
-          --admitted-sha "${{ inputs.admitted_sha }}" \
-          --path "${{ inputs.path }}" \
-          --fetch-depth "${{ inputs.fetch_depth }}"
+        PYTHONPATH="${GITHUB_ACTION_PATH}/../../src" \
+          python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
+            source exact-checkout \
+            --repository "${{ inputs.repository }}" \
+            --admitted-sha "${{ inputs.admitted_sha }}" \
+            --path "${{ inputs.path }}" \
+            --fetch-depth "${{ inputs.fetch_depth }}"
