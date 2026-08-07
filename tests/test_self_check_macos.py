@@ -81,10 +81,10 @@ class EmergencyMacOSSelfCheckTest(unittest.TestCase):
         source = workflow_source()
         self.assertLess(
             source.index("Admit trusted workflow source"),
-            source.index("Verify pre-provisioned CPython 3.13.5"),
+            source.index("Verify pre-provisioned CPython 3.12.13"),
         )
         self.assertLess(
-            source.index("Verify pre-provisioned CPython 3.13.5"),
+            source.index("Verify pre-provisioned CPython 3.12.13"),
             source.index("Check out exact source"),
         )
         self.assertEqual(0, run_admission("pull_request").returncode)
@@ -138,11 +138,11 @@ class EmergencyMacOSSelfCheckTest(unittest.TestCase):
         forbidden = (
             "actions/setup-python@" + "a" * 40,
             "sudo mkdir /Users/runner/hostedtoolcache",
-            "brew install python@3.13",
+            "brew install python@3.12",
             "python -m pip install PyYAML",
             "virtualenv .venv",
-            "pyenv install 3.13.5",
-            "conda install python=3.13.5",
+            "pyenv install 3.12.13",
+            "conda install python=3.12.13",
             "curl -fsSLo python.tar.gz https://example.invalid/python.tar.gz",
             "wget https://example.invalid/python.tar.gz",
         )
@@ -154,7 +154,7 @@ class EmergencyMacOSSelfCheckTest(unittest.TestCase):
     def test_exact_host_identity_mutations_are_rejected(self) -> None:
         original = workflow_source()
         mutations = (
-            ('"${version}" == "3.13.5"', '"${version}" == "3.13.4"'),
+            ('"${version}" == "3.12.13"', '"${version}" == "3.12.12"'),
             (
                 '"${implementation}" == "cpython"',
                 '"${implementation}" == "pypy"',
@@ -207,7 +207,7 @@ class EmergencyMacOSSelfCheckTest(unittest.TestCase):
         self.assertEqual(
             {
                 "implementation": "cpython",
-                "version": "3.13.5",
+                "version": "3.12.13",
                 "system": "Darwin",
                 "architectures": ["arm64", "x86_64"],
                 "provisioning": "preinstalled",
