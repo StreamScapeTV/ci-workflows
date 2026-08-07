@@ -12,6 +12,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 from . import runners
 from .ciw_docs import load_command_contract
+from .ciw_python import configure_python_validate, execute_python_validate
 from .ciw_types import (
     CIWContext,
     CIWError,
@@ -102,6 +103,10 @@ def _add_runner_tier(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--peak-memory-bytes", type=int, required=True)
     parser.add_argument("--peak-local-storage-bytes", type=int, required=True)
     parser.add_argument("--headroom-percent", type=int, default=20)
+
+
+def _add_python_validate(parser: argparse.ArgumentParser) -> None:
+    configure_python_validate(parser)
 
 
 def _add_workspace_prepare(parser: argparse.ArgumentParser) -> None:
@@ -398,6 +403,13 @@ def handle_runners_select_buildah_tier(
         "select-buildah-tier",
         stdout_text=profile,
     )
+
+
+def handle_python_validate(
+    args: argparse.Namespace,
+    context: CIWContext,
+) -> CIWResult:
+    return execute_python_validate(args, context)
 
 
 def _foundation_environment(
@@ -900,6 +912,12 @@ def command_specs() -> tuple[CommandSpec, ...]:
             "select-buildah-tier",
             handle_runners_select_buildah_tier,
             _add_runner_tier,
+        ),
+        CommandSpec(
+            "python",
+            "validate",
+            handle_python_validate,
+            _add_python_validate,
         ),
         CommandSpec(
             "workspace",
