@@ -4,6 +4,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Mapping
 
+from .foundation_types import FoundationError
+from .policy import verify_repository_policy
 from .python_contract import (
     CONTRACT_PATH,
     bounded_path,
@@ -40,6 +42,26 @@ _cleanup_podman = cleanup_podman
 _run = run_command
 
 
+def _verify_policy(
+    source_root: Path,
+    request: PythonValidationRequest,
+    contract_root: Path,
+    phase: str,
+) -> None:
+    try:
+        verify_repository_policy(
+            source_root,
+            repository=request.repository,
+            phase=phase,
+            artifact_manifest_json="[]",
+            artifact_exception_id=request.artifact_exception_id,
+            trust_mode=request.source_trust,
+            contract_root=contract_root,
+        )
+    except FoundationError as error:
+        raise PythonValidationError("policy_failed") from error
+
+
 def validate(
     *,
     contract_root: Path,
@@ -65,26 +87,35 @@ def validate(
     verify_exact_source(exact_source, plan.admitted_sha)
     resolve_python_version(exact_source, plan)
     validate_dependency_lock(exact_source, plan)
+    _verify_policy(exact_source, request, contract_root, "before")
 
-    if plan.isolation == "copied-host-source":
-        stage_count = execute_host_plan(
-            exact_source,
-            registered_state,
-            plan,
-            environment,
-        )
-    elif plan.isolation in {"podman-vfs", "podman-vfs-postgres"}:
-        stage_count = execute_podman_plan(
-            exact_source,
-            registered_state,
-            plan,
-            contract,
-            environment,
-        )
-    else:
-        raise PythonValidationError("isolation_unavailable")
+    original_error: BaseException | None = None
+    stage_count = 0
+    try:
+        if plan.isolation == "copied-host-source":
+            stage_count = execute_host_plan(
+                exact_source,
+                registered_state,
+                plan,
+                environment,
+            )
+        elif plan.isolation in {"podman-vfs", "podman-vfs-postgres"}:
+            stage_count = execute_podman_plan(
+                exact_source,
+                registered_state,
+                plan,
+                contract,
+                environment,
+            )
+        else:
+            raise PythonValidationError("isolation_unavailable")
+    except BaseException as error:
+        original_error = error
 
     verify_exact_source(exact_source, plan.admitted_sha)
+    _verify_policy(exact_source, request, contract_root, "after")
+    if original_error is not None:
+        raise original_error
     return result_from_plan(plan, stage_count)
 
 
