@@ -10,9 +10,6 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 
-SETUP_PYTHON_SHA = "5fda3b95a4ea91299a34e894583c3862153e4b97"
-SETUP_PYTHON_RELEASE = "v7.0.0"
-PYTHON_VERSION = "3.12.10"
 PY_YAML_VERSION = "6.0.3"
 PY_YAML_SOURCE_SHA256 = (
     "d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f"
@@ -82,6 +79,7 @@ FORBIDDEN_SELF_CHECK_PATTERNS = (
     "runs-on: buildah-medium",
     "runs-on: buildah-high",
     "runs-on: flux-control",
+    "actions/setup-python@",
     "python -m pip",
     "python3 -m pip",
     "pip install",
@@ -197,8 +195,11 @@ def validate_self_check() -> None:
         '"${PR_HEAD_REPOSITORY}" != "${GITHUB_REPOSITORY}"',
         "push|workflow_dispatch)",
         "SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}",
-        f"actions/setup-python@{SETUP_PYTHON_SHA} # {SETUP_PYTHON_RELEASE}",
-        f'python-version: "{PYTHON_VERSION}"',
+        "Select preinstalled CPython 3.12",
+        "/opt/homebrew/bin/python3.12",
+        "sys.version_info[:2]",
+        "PYTHON_RUNTIME_BIN=%s",
+        'ln -s "${selected}" "${runtime_bin}/python3"',
         "persist-credentials: false",
         "SOURCE_SHA:",
         'test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"',
@@ -228,11 +229,11 @@ def validate_self_check() -> None:
         raise SystemExit("self-check must preserve read-only workflow permissions")
 
     admission = source.index("- name: Admit trusted workflow source")
-    setup = source.index("- name: Set up pinned CPython 3.12")
+    runtime = source.index("- name: Select preinstalled CPython 3.12")
     checkout = source.index("- name: Check out exact source")
-    if not admission < setup < checkout:
+    if not admission < runtime < checkout:
         raise SystemExit(
-            "same-repository admission and pinned Python setup must precede checkout"
+            "same-repository admission and bounded Python selection must precede checkout"
         )
     _validate_emergency_exception()
 
@@ -261,15 +262,11 @@ def validate_runtime_lock() -> None:
         for entry in actions
         if isinstance(entry, dict) and entry.get("uses") == "actions/setup-python"
     ]
-    expected_setup = {
-        "uses": "actions/setup-python",
-        "sha": SETUP_PYTHON_SHA,
-        "release": SETUP_PYTHON_RELEASE,
-        "runtime": "node24",
-        "source": "https://github.com/actions/setup-python",
-    }
-    if setup_entries != [expected_setup]:
-        raise SystemExit("actions/setup-python lock entry drifted")
+    if setup_entries:
+        raise SystemExit(
+            "actions/setup-python must not be locked when the self-check uses "
+            "the preinstalled macOS CPython runtime"
+        )
 
     python = _mapping(lock.get("python"), "python tool lock is invalid")
     if python.get("minimum") != "3.12":
