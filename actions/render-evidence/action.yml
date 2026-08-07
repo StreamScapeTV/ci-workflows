@@ -56,6 +56,5 @@ runs:
         INPUT_CLEANUP_REMOVED_PATHS: ${{ inputs.cleanup_removed_paths }}
       run: |
         set -Eeuo pipefail
-        PYTHONPATH="${GITHUB_ACTION_PATH}/../../src" \
-          python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/foundation.py" \
-            --root "${GITHUB_ACTION_PATH}/../.." render-evidence
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
+          evidence render
