@@ -35,28 +35,13 @@ The direct tags above exist only for controlled migration of current workflows. 
 
 A reusable workflow with more than one possible profile uses a protected `portable` planning job. The planner validates semantic intent and emits a JSON selector from the checked-in mapping. A dependent job uses that output in `runs-on`. A composite action cannot change the runner after a job is scheduled.
 
+## Temporary central self-check exception
+
+Ordinary Python and policy validation remains assigned to `portable`. While the portable ARC incident tracked by Flux #268 is open, ci-workflows #60 authorizes only `.github/workflows/self-check.yml` to use the organization-managed `macOS` capability as an emergency exact-head merge gate. The workflow rejects fork pull requests before checkout and receives no Apple signing, provisioning, simulator, physical-device, notarization, or store credential or entitlement. This exception does not change the public runner profile contract or generated mappings and must be removed in a later bounded change after portable ARC recovery.
+
 ## Buildah escalation
 
-Generic `buildah` maps only to `buildah-small`. Select the smallest tier whose memory and storage limits cover measured peaks plus reviewed headroom. Escalation evidence must record:
-
-- peak memory bytes and peak local-storage bytes;
-- exact source SHA;
-- workflow API and product ID.
-
-A larger tier without those measurements is contract drift. Buildah capacity is privileged and daemonless; Docker daemons and Docker-in-Docker are retired and are not aliases.
-
-## Physical-device contract
-
-A physical-device job must have all of the following before device access begins:
-
-1. trusted authorization receipt;
-2. exclusive resource-lock receipt for the exact device;
-3. requested device family and deterministic discovered device ID;
-4. exact tested source SHA;
-5. bounded execution and stable evidence ID;
-6. cleanup evidence and lock release in an `always()` path.
-
-The device lock covers only device access, not source checkout, dependency resolution, or unrelated compilation. This keeps scarce devices available while preserving exact single-owner access.
+Generic `buildah` maps only to `buildah-small`. Select the smallest tier whose memory and storage limits cover measured peaks plus reviewed headroom. A larger tier without measurements is contract drift. Buildah capacity is privileged and daemonless; Docker daemons and Docker-in-Docker are retired and are not aliases.
 
 ## Mandatory rules
 

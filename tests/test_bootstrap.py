@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 import unittest
 from pathlib import Path
@@ -8,9 +7,11 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = ROOT / "scripts" / "ci" / "bootstrap_check.py"
-SPEC = importlib.util.spec_from_file_location("bootstrap_check", MODULE_PATH)
+SPEC = __import__("importlib.util").util.spec_from_file_location(
+    "bootstrap_check", MODULE_PATH
+)
 assert SPEC and SPEC.loader
-MODULE = importlib.util.module_from_spec(SPEC)
+MODULE = __import__("importlib.util").util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 
 
@@ -19,6 +20,7 @@ class BootstrapContractTests(unittest.TestCase):
         MODULE.validate_required_paths()
         MODULE.validate_public_workflow_exceptions()
         MODULE.validate_self_check()
+        MODULE.validate_runtime_lock()
         MODULE.validate_policies()
         MODULE.validate_authority_docs()
 
@@ -61,16 +63,27 @@ class BootstrapContractTests(unittest.TestCase):
             source,
         )
 
-    def test_self_check_uses_current_portable_runner_contract(self) -> None:
+    def test_self_check_uses_bounded_emergency_macos_contract(self) -> None:
         source = (ROOT / ".github/workflows/self-check.yml").read_text()
         harness = json.loads(
             (ROOT / "contracts/validation-harness.json").read_text()
         )
-        self.assertIn("runs-on: portable", source)
-        self.assertNotIn("homelab-portable-linux-x64", source)
+        self.assertEqual(source.count("runs-on: macOS"), 1)
+        self.assertNotIn("runs-on: portable", source)
         self.assertEqual(
             harness["allowed_runner_profiles"],
             ["portable", "agent-state"],
+        )
+        exception = [
+            item
+            for item in harness["exceptions"]
+            if item["path"] == ".github/workflows/self-check.yml"
+        ]
+        self.assertEqual(1, len(exception))
+        self.assertEqual(60, exception[0]["issue"])
+        self.assertEqual(
+            ["unknown-runner-profile"],
+            exception[0]["rules"],
         )
 
     def test_self_check_rejects_obsolete_concrete_selector(self) -> None:

@@ -18,13 +18,62 @@ concurrency:
 jobs:
   validate:
     name: Validate repository and reusable workflow contracts
-    runs-on: portable
+    runs-on: macOS
     timeout-minutes: 10
     env:
       SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       PYTHONDONTWRITEBYTECODE: "1"
       PYTHONPATH: src
     steps:
+      - name: Admit trusted workflow source
+        shell: bash
+        env:
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -Eeuo pipefail
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          case "${GITHUB_EVENT_NAME}" in
+            pull_request)
+              if [[ -z "${PR_HEAD_REPOSITORY}" || "${PR_HEAD_REPOSITORY}" != "${GITHUB_REPOSITORY}" ]]; then
+                echo '::error::Central self-check rejects fork pull-request source before checkout.' >&2
+                exit 1
+              fi
+              test "${SOURCE_SHA}" = "${PR_HEAD_SHA}"
+              ;;
+            push|workflow_dispatch)
+              test "${SOURCE_SHA}" = "${GITHUB_SHA}"
+              ;;
+            *)
+              echo "::error::Unsupported self-check event ${GITHUB_EVENT_NAME}." >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Set up pinned CPython 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12.10"
+
+      - name: Verify pinned macOS Python runtime
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import platform
+          import sys
+
+          machine = platform.machine().lower()
+          if machine in {"amd64", "x64"}:
+              machine = "x86_64"
+          elif machine == "aarch64":
+              machine = "arm64"
+          expected = ("cpython", (3, 12, 10), "Darwin", {"x86_64", "arm64"})
+          actual = (sys.implementation.name, sys.version_info[:3], platform.system(), machine)
+          if actual[0] != expected[0] or actual[1] != expected[1] or actual[2] != expected[2] or actual[3] not in expected[3]:
+              raise SystemExit(f"unsupported self-check Python host: {actual!r}")
+          PY
+
       - name: Check out exact source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -48,6 +97,15 @@ jobs:
           python3 scripts/ci/bootstrap_validation_runtime.py \
             --lock contracts/action-tool-lock.json \
             --target "${validation_root}/python"
+          test -f "${validation_root}/python/yaml/__init__.py"
+          PYTHONPATH="${validation_root}/python" python3 - <<'PY'
+          import yaml
+
+          if yaml.__version__ != "6.0.3":
+              raise SystemExit(f"unexpected PyYAML version: {yaml.__version__}")
+          if yaml.__with_libyaml__:
+              raise SystemExit("validation runtime unexpectedly loaded LibYAML")
+          PY
           {
             printf 'VALIDATION_ROOT=%s\n' "${validation_root}"
             printf 'PYTHONPATH=%s:%s/src\n' "${validation_root}/python" "${GITHUB_WORKSPACE}"
