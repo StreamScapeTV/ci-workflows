@@ -9,13 +9,6 @@
       "source": "https://github.com/actions/checkout"
     },
     {
-      "uses": "actions/setup-python",
-      "sha": "5fda3b95a4ea91299a34e894583c3862153e4b97",
-      "release": "v7.0.0",
-      "runtime": "node24",
-      "source": "https://github.com/actions/setup-python"
-    },
-    {
       "uses": "StreamScapeTV/ci-workflows/actions/resolve-source",
       "sha": "90706a72aa68c81b7840c139965ae528d8ed6b25",
       "release": "issue #7 immutable helper checkpoint",
