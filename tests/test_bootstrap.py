@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import unittest
 from pathlib import Path
@@ -7,11 +8,9 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = ROOT / "scripts" / "ci" / "bootstrap_check.py"
-SPEC = __import__("importlib.util").util.spec_from_file_location(
-    "bootstrap_check", MODULE_PATH
-)
+SPEC = importlib.util.spec_from_file_location("bootstrap_check", MODULE_PATH)
 assert SPEC and SPEC.loader
-MODULE = __import__("importlib.util").util.module_from_spec(SPEC)
+MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 
 
@@ -48,20 +47,18 @@ class BootstrapContractTests(unittest.TestCase):
             ],
         )
 
-    def test_self_check_uses_automatic_test_discovery(self) -> None:
+    def test_self_check_uses_automatic_discovery_and_verified_python(self) -> None:
         source = (ROOT / ".github/workflows/self-check.yml").read_text()
         self.assertIn(
-            "python3 -m unittest discover -s tests -p 'test_*.py' -v",
+            '"${VERIFIED_PYTHON}" -m unittest discover '
+            "-s tests -p 'test_*.py' -v",
             source,
         )
         self.assertNotIn(
-            "python3 -m unittest -v tests/test_reusable_tag_image_chart.py",
+            "python3 -m unittest discover",
             source,
         )
-        self.assertNotIn(
-            "python3 -m unittest -v tests/test_bootstrap.py",
-            source,
-        )
+        self.assertNotIn("actions/setup-python@", source)
 
     def test_self_check_uses_bounded_emergency_macos_contract(self) -> None:
         source = (ROOT / ".github/workflows/self-check.yml").read_text()
@@ -89,10 +86,17 @@ class BootstrapContractTests(unittest.TestCase):
     def test_self_check_rejects_obsolete_concrete_selector(self) -> None:
         source = (ROOT / ".github/workflows/self-check.yml").read_text()
         contaminated_source = source + "\n# homelab-portable-linux-x64\n"
+        original = MODULE.read_text
+
+        def read_text(relative: str) -> str:
+            if relative == ".github/workflows/self-check.yml":
+                return contaminated_source
+            return original(relative)
+
         with mock.patch.object(
             MODULE,
             "read_text",
-            return_value=contaminated_source,
+            side_effect=read_text,
         ):
             with self.assertRaisesRegex(
                 SystemExit,
