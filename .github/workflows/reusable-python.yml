@@ -1,0 +1,204 @@
+name: Reusable Python validation
+
+on:
+  workflow_call:
+    inputs:
+      admitted_sha:
+        description: Exact lowercase source SHA admitted by source.resolve
+        required: true
+        type: string
+      validation_profile:
+        description: audit, host, podman, or podman-postgres
+        required: true
+        type: string
+      version_file:
+        description: Optional contract-matched relative Python version file
+        required: false
+        type: string
+      working_directory:
+        description: Contract-matched relative working directory
+        required: false
+        default: .
+        type: string
+      command_profile:
+        description: Checked-in reviewed Python command profile
+        required: true
+        type: string
+      script_path:
+        description: Optional contract-matched reviewed script path
+        required: false
+        type: string
+      artifact_exception_id:
+        description: Optional named central artifact exception; empty by default
+        required: false
+        type: string
+    outputs:
+      result:
+        description: Success only after bounded validation and terminal cleanup
+        value: ${{ jobs.validate.outputs.result }}
+      test_summary:
+        description: Bounded validation summary without command output or credentials
+        value: ${{ jobs.validate.outputs.test_summary }}
+      source_sha:
+        description: Exact validated source SHA
+        value: ${{ jobs.validate.outputs.source_sha }}
+      resolved_python_version:
+        description: Exact contract-selected Python version
+        value: ${{ jobs.validate.outputs.resolved_python_version }}
+      validation_profile:
+        description: Validated bounded Python profile
+        value: ${{ jobs.validate.outputs.validation_profile }}
+      command_profile:
+        description: Validated checked-in command profile
+        value: ${{ jobs.validate.outputs.command_profile }}
+      cleanup_result:
+        description: True only after marker-bound terminal cleanup
+        value: ${{ jobs.validate.outputs.cleanup_result }}
+      failure_code:
+        description: Stable non-secret Python validation failure code
+        value: ${{ jobs.validate.outputs.failure_code }}
+      artifact_exception_used:
+        description: Named artifact exception used; empty for the initial API
+        value: ${{ jobs.validate.outputs.artifact_exception_used }}
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Resolve bounded Python validation plan
+    runs-on: portable
+    timeout-minutes: 10
+    outputs:
+      runner_profile: ${{ steps.plan.outputs.runner_profile }}
+      runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
+      workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
+      timeout_minutes: ${{ steps.plan.outputs.timeout_minutes }}
+      source_trust: ${{ steps.plan.outputs.source_trust }}
+    steps:
+      - name: Check out exact central workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact central workflow source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C .ciw rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
+
+      - id: plan
+        name: Resolve contract-owned command and runner plan
+        uses: ./.ciw/actions/validate-python
+        with:
+          phase: plan
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          command_profile: ${{ inputs.command_profile }}
+          working_directory: ${{ inputs.working_directory }}
+          version_file: ${{ inputs.version_file }}
+          script_path: ${{ inputs.script_path }}
+          artifact_exception_id: ${{ inputs.artifact_exception_id }}
+
+  validate:
+    name: CI / Python validation
+    needs: plan
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
+    timeout-minutes: 120
+    outputs:
+      result: ${{ steps.python.outputs.result }}
+      test_summary: ${{ steps.python.outputs.test_summary }}
+      source_sha: ${{ steps.python.outputs.source_sha }}
+      resolved_python_version: ${{ steps.python.outputs.resolved_python_version }}
+      validation_profile: ${{ steps.python.outputs.validation_profile }}
+      command_profile: ${{ steps.python.outputs.command_profile }}
+      cleanup_result: ${{ steps.cleanup.outputs.cleanup_verified }}
+      failure_code: ${{ steps.python.outputs.failure_code }}
+      artifact_exception_used: ${{ steps.python.outputs.artifact_exception_used }}
+    steps:
+      - name: Check out exact central workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact central workflow source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C .ciw rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
+
+      - name: Check out exact admitted caller source
+        uses: ./.ciw/actions/exact-checkout
+        with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          admitted_sha: ${{ inputs.admitted_sha }}
+          path: source
+          fetch_depth: "1"
+
+      - id: workspace
+        name: Prepare isolated marker-bound Python state
+        uses: ./.ciw/actions/prepare-workspace
+        with:
+          profile: ${{ needs.plan.outputs.workspace_profile }}
+          cache_mode: disabled
+          source_sha: ${{ inputs.admitted_sha }}
+          trust_mode: ${{ needs.plan.outputs.source_trust }}
+
+      - id: tools
+        name: Verify contract-selected host toolchain
+        uses: ./.ciw/actions/verify-toolchain
+        with:
+          operation: verify-set
+          tool_set: baseline
+          capability_profile: linux
+
+      - id: python
+        name: Execute bounded Python validation
+        uses: ./.ciw/actions/validate-python
+        with:
+          phase: execute
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          command_profile: ${{ inputs.command_profile }}
+          working_directory: ${{ inputs.working_directory }}
+          version_file: ${{ inputs.version_file }}
+          script_path: ${{ inputs.script_path }}
+          artifact_exception_id: ${{ inputs.artifact_exception_id }}
+
+      - name: Render deterministic redacted Python evidence
+        if: always()
+        uses: ./.ciw/actions/render-evidence
+        with:
+          source_sha: ${{ inputs.admitted_sha }}
+          workflow_release: validation-python-1.0.0
+          runner_profile: ${{ needs.plan.outputs.runner_profile }}
+          toolchain_json: ${{ steps.tools.outputs.toolchain_json }}
+          command_profile: ${{ inputs.command_profile }}
+          result: ${{ steps.python.outcome == 'success' && 'success' || 'failure' }}
+          cleanup_state: not-run
+          cleanup_removed_paths: "0"
+
+      - id: cleanup
+        name: Remove and verify all registered Python state
+        if: always()
+        uses: ./.ciw/actions/cleanup-workspace
+
+      - name: Verify exact source remained clean after cleanup
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C source rev-parse HEAD)" = "${{ inputs.admitted_sha }}"
+          test -z "$(git -C source status --porcelain --untracked-files=all)"
