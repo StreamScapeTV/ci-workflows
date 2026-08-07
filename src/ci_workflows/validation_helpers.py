@@ -18,6 +18,8 @@ from .validation_model import (
     ParsedDocument,
 )
 
+_TRUSTED_PLANNER_RUNNER = "${{ fromJSON(needs.plan.outputs.runs_on_json) }}"
+
 
 def _finding(
     findings: list[Finding],
@@ -306,13 +308,14 @@ def _validate_runner(
         )
     for label in labels:
         if "${{" in label:
-            _finding(
-                findings,
-                config,
-                "dynamic-runner",
-                relative_path,
-                "runner labels may not be caller-controlled expressions",
-            )
+            if label != _TRUSTED_PLANNER_RUNNER:
+                _finding(
+                    findings,
+                    config,
+                    "dynamic-runner",
+                    relative_path,
+                    "runner expressions must use the exact trusted planner output",
+                )
         elif label == "self-hosted":
             continue
         elif label not in config.allowed_runner_profiles:
