@@ -3,6 +3,19 @@ name: Reusable exact-tag image and Helm release
 on:
   workflow_call:
     inputs:
+      release_mode:
+        description: tag-push by default, or existing-tag with the complete exact tuple
+        required: false
+        default: tag-push
+        type: string
+      release_version:
+        description: Exact canonical stable SemVer tag for existing-tag mode
+        required: false
+        type: string
+      release_source_sha:
+        description: Exact lowercase tagged commit for existing-tag mode
+        required: false
+        type: string
       image_name:
         description: Image repository slug under git.faruqi.dev/mimranfaruqi
         required: true
@@ -34,10 +47,10 @@ on:
         required: true
     outputs:
       version:
-        description: Exact Git tag used as the release version
+        description: Exact validated release version
         value: ${{ jobs.publish.outputs.version }}
       source_sha:
-        description: Exact tagged source commit
+        description: Exact validated tagged source commit
         value: ${{ jobs.publish.outputs.source_sha }}
       image_reference:
         description: Published immutable image reference
@@ -56,10 +69,6 @@ permissions:
   actions: read
   contents: read
 
-concurrency:
-  group: tag-image-chart-${{ github.repository }}-${{ github.ref_name }}
-  cancel-in-progress: false
-
 env:
   REGISTRY: git.faruqi.dev
   REGISTRY_NAMESPACE: mimranfaruqi
@@ -68,11 +77,36 @@ env:
   HELM_IMAGE: docker.io/alpine/helm:3.18.6@sha256:b158d7f0fe1fb84abb59a15973ef25adf66affa2028a8328c083046c5ca04e91
 
 jobs:
+  admit:
+    name: Resolve exact release tag authority
+    runs-on: buildah-high
+    timeout-minutes: 10
+    outputs:
+      release_mode: ${{ steps.authority.outputs.release_mode }}
+      version: ${{ steps.authority.outputs.release_version }}
+      source_sha: ${{ steps.authority.outputs.release_source_sha }}
+      tag_object_sha: ${{ steps.authority.outputs.tag_object_sha }}
+      tag_commit_sha: ${{ steps.authority.outputs.tag_commit_sha }}
+    steps:
+      - id: authority
+        name: Admit exact trusted release mode and tag tuple
+        uses: StreamScapeTV/ci-workflows/actions/resolve-release-tag@bd03c2b312e820d2c91097ecde4c076286e1bb24 # issue #59 immutable helper checkpoint
+        with:
+          release_mode: ${{ inputs.release_mode }}
+          release_version: ${{ inputs.release_version }}
+          release_source_sha: ${{ inputs.release_source_sha }}
+
   publish:
     name: Publish exact tag image and chart
-    if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref, 'refs/tags/')
+    needs: admit
     runs-on: buildah-high
     timeout-minutes: 90
+    concurrency:
+      group: tag-image-chart-${{ github.repository }}-${{ needs.admit.outputs.version }}
+      cancel-in-progress: false
+    env:
+      VERSION: ${{ needs.admit.outputs.version }}
+      SOURCE_SHA: ${{ needs.admit.outputs.source_sha }}
     outputs:
       version: ${{ steps.release.outputs.version }}
       source_sha: ${{ steps.release.outputs.source_sha }}
@@ -82,17 +116,34 @@ jobs:
       chart_package_sha256: ${{ steps.chart.outputs.package_sha256 }}
 
     steps:
-      - name: Check out exact tagged caller source
+      - name: Revalidate exact release tag before checkout
+        uses: StreamScapeTV/ci-workflows/actions/resolve-release-tag@bd03c2b312e820d2c91097ecde4c076286e1bb24 # issue #59 immutable helper checkpoint
+        with:
+          phase: revalidate
+          release_mode: ${{ needs.admit.outputs.release_mode }}
+          release_version: ${{ needs.admit.outputs.version }}
+          release_source_sha: ${{ needs.admit.outputs.source_sha }}
+          expected_tag_object_sha: ${{ needs.admit.outputs.tag_object_sha }}
+          expected_tag_commit_sha: ${{ needs.admit.outputs.tag_commit_sha }}
+
+      - name: Check out exact validated caller source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ needs.admit.outputs.source_sha }}
           fetch-depth: 1
           clean: true
           persist-credentials: false
           set-safe-directory: false
 
+      - name: Verify exact detached release source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+          test -z "$(git symbolic-ref -q HEAD || true)"
+
       - id: release
-        name: Validate tag and bounded product inputs
+        name: Validate bounded product inputs
         shell: bash
         env:
           IMAGE_NAME: ${{ inputs.image_name }}
@@ -102,12 +153,8 @@ jobs:
           BUILD_CONTEXT: ${{ inputs.build_context }}
         run: |
           set -Eeuo pipefail
-          test "${GITHUB_EVENT_NAME}" = push
-          test "${GITHUB_REF_TYPE}" = tag
-          test "${GITHUB_REF}" = "refs/tags/${GITHUB_REF_NAME}"
-          test "${GITHUB_SHA}" = "$(git rev-parse HEAD)"
+          test "${SOURCE_SHA}" = "$(git rev-parse HEAD)"
 
-          VERSION="${GITHUB_REF_NAME}"
           VERSION="${VERSION}" \
           IMAGE_NAME="${IMAGE_NAME}" \
           CHART_NAME="${CHART_NAME}" \
@@ -172,7 +219,7 @@ jobs:
           chart_reference="oci://${REGISTRY}/${CHART_NAMESPACE}/${CHART_NAME}"
           {
             printf 'version=%s\n' "${VERSION}"
-            printf 'source_sha=%s\n' "${GITHUB_SHA}"
+            printf 'source_sha=%s\n' "${SOURCE_SHA}"
             printf 'image_reference=%s\n' "${image_reference}"
             printf 'chart_reference=%s\n' "${chart_reference}"
           } >> "${GITHUB_OUTPUT}"
@@ -338,7 +385,6 @@ jobs:
       - name: Prepare locked Helm chart dependencies
         shell: bash
         env:
-          VERSION: ${{ steps.release.outputs.version }}
           CHART_NAME: ${{ inputs.chart_name }}
           CHART_PATH: ${{ inputs.chart_path }}
         run: |
@@ -466,7 +512,7 @@ jobs:
             test ! -e "${CHART_SOURCE}/charts"
           fi
 
-          source_epoch="$(git show -s --format=%ct "${GITHUB_SHA}")"
+          source_epoch="$(git show -s --format=%ct "${SOURCE_SHA}")"
           SOURCE_EPOCH="${source_epoch}" python3 - <<'PY'
           from pathlib import Path
           import os
@@ -476,6 +522,16 @@ jobs:
           for path in [root, *root.rglob("*")]:
               os.utime(path, (epoch, epoch), follow_symlinks=False)
           PY
+
+      - name: Revalidate exact release tag immediately before publication
+        uses: StreamScapeTV/ci-workflows/actions/resolve-release-tag@bd03c2b312e820d2c91097ecde4c076286e1bb24 # issue #59 immutable helper checkpoint
+        with:
+          phase: revalidate
+          release_mode: ${{ needs.admit.outputs.release_mode }}
+          release_version: ${{ needs.admit.outputs.version }}
+          release_source_sha: ${{ needs.admit.outputs.source_sha }}
+          expected_tag_object_sha: ${{ needs.admit.outputs.tag_object_sha }}
+          expected_tag_commit_sha: ${{ needs.admit.outputs.tag_commit_sha }}
 
       - name: Authenticate to fixed private OCI registry
         shell: bash
@@ -506,7 +562,6 @@ jobs:
         name: Build publish and verify exact-tag image
         shell: bash
         env:
-          VERSION: ${{ steps.release.outputs.version }}
           IMAGE_REFERENCE: ${{ steps.release.outputs.image_reference }}
           DOCKERFILE_PATH: ${{ inputs.dockerfile_path }}
           BUILD_CONTEXT: ${{ inputs.build_context }}
@@ -519,7 +574,7 @@ jobs:
             --runroot "${CONTAINER_RUN_ROOT}"
           )
           local_manifest="localhost/central-tag-release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}:manifest"
-          source_epoch="$(git show -s --format=%ct "${GITHUB_SHA}")"
+          source_epoch="$(git show -s --format=%ct "${SOURCE_SHA}")"
           "${buildah_cmd[@]}" manifest rm "${local_manifest}" >/dev/null 2>&1 || true
           "${buildah_cmd[@]}" manifest create "${local_manifest}" >/dev/null
 
@@ -531,7 +586,7 @@ jobs:
               --manifest "${local_manifest}" \
               --timestamp "${source_epoch}" \
               --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
-              --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+              --label "org.opencontainers.image.revision=${SOURCE_SHA}" \
               --label "org.opencontainers.image.version=${VERSION}" \
               -f "${DOCKERFILE_PATH}" \
               "${BUILD_CONTEXT}"
@@ -599,7 +654,7 @@ jobs:
                 --config \
                 "docker://${IMAGE_REFERENCE}"
             )"
-            CONFIG_JSON="${config}" VERSION="${VERSION}" python3 - <<'PY'
+            CONFIG_JSON="${config}" python3 - <<'PY'
           import json
           import os
 
@@ -609,7 +664,7 @@ jobs:
               "org.opencontainers.image.source": (
                   f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}"
               ),
-              "org.opencontainers.image.revision": os.environ["GITHUB_SHA"],
+              "org.opencontainers.image.revision": os.environ["SOURCE_SHA"],
               "org.opencontainers.image.version": os.environ["VERSION"],
           }
           mismatches = {
@@ -632,7 +687,6 @@ jobs:
         name: Package publish and verify exact-tag Helm chart
         shell: bash
         env:
-          VERSION: ${{ steps.release.outputs.version }}
           CHART_NAME: ${{ inputs.chart_name }}
           CHART_REFERENCE: ${{ steps.release.outputs.chart_reference }}
         run: |
@@ -742,7 +796,6 @@ jobs:
       - name: Summarize immutable publication
         shell: bash
         env:
-          VERSION: ${{ steps.release.outputs.version }}
           IMAGE_REFERENCE: ${{ steps.image.outputs.reference }}
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
           IMAGE_REPLAYED: ${{ steps.image.outputs.replayed }}
@@ -755,7 +808,7 @@ jobs:
             echo "## Exact-tag image and chart publication"
             echo
             echo "- Tag/version: \`${VERSION}\`"
-            echo "- Source: \`${GITHUB_SHA}\`"
+            echo "- Source: \`${SOURCE_SHA}\`"
             echo "- Image: \`${IMAGE_REFERENCE}\`"
             echo "- Image digest: \`${IMAGE_DIGEST}\`"
             echo "- Image replayed: \`${IMAGE_REPLAYED}\`"
