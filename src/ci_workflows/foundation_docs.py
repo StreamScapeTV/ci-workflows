@@ -33,6 +33,8 @@ def render_foundation_docs(*, contract_root: Path) -> str:
         "",
         f"Architecture: `{contract.get('architecture')}`.",
         "",
+        "All six foundation composite actions dispatch through the checked-in `ciw` registry while preserving the function, input, output, side-effect, trust, and cleanup contracts below.",
+        "",
         "## Named modules",
         "",
     ]
