@@ -15,7 +15,7 @@ Every one of the **88** inventoried workflow/job families across **11** reposito
 | `StreamScapeTV/agent-state` | `.github/workflows/recover-release-1-0-65.yml` | `retire` | Exception: `retired-temporary-or-recovery-workflow` |
 | `StreamScapeTV/agent-state` | `.github/workflows/release.yml` | `release` | `portable`, `buildah-small`, `buildah-medium`, `buildah-high` |
 | `StreamScapeTV/agent-state` | `.github/workflows/runner-infrastructure-retry-fixture.yml` | `retire` | Exception: `retired-temporary-or-recovery-workflow` |
-| `StreamScapeTV/agent-state` | `.github/workflows/test.yml` | `python` | `portable` |
+| `StreamScapeTV/agent-state` | `.github/workflows/test.yml` | `python` | `portable`, `buildah-medium`, `buildah-high` |
 | `StreamScapeTV/ci-workflows` | `.github/workflows/agent-state-command.yml` | `agent-state-lifecycle` | `agent-state-control` |
 | `StreamScapeTV/ci-workflows` | `.github/workflows/reusable-tag-image-chart.yml` | `release` | `portable`, `buildah-small`, `buildah-medium`, `buildah-high` |
 | `StreamScapeTV/ci-workflows` | `.github/workflows/self-check.yml` | `conformance` | `portable` |
@@ -68,7 +68,7 @@ Every one of the **88** inventoried workflow/job families across **11** reposito
 | `StreamScapeTV/iptv-apple` | `.github/workflows/visual-tvos-review-proof.yml` | `apple` | `apple` |
 | `StreamScapeTV/iptv-backend` | `.github/workflows/agent-state-claim.yml` | `agent-state-lifecycle` | `agent-state-control` |
 | `StreamScapeTV/iptv-backend` | `.github/workflows/agent-state-ownership.yml` | `agent-state-ownership` | `agent-state-control` |
-| `StreamScapeTV/iptv-backend` | `.github/workflows/backend-ci.yml` | `python` | `portable` |
+| `StreamScapeTV/iptv-backend` | `.github/workflows/backend-ci.yml` | `python` | `portable`, `buildah-medium`, `buildah-high` |
 | `StreamScapeTV/iptv-backend` | `.github/workflows/issue121-dispatch-final-validation.yml` | `retire` | Exception: `retired-temporary-or-recovery-workflow` |
 | `StreamScapeTV/iptv-backend` | `.github/workflows/release.yml` | `release` | `portable`, `buildah-small`, `buildah-medium`, `buildah-high` |
 | `StreamScapeTV/iptv-backend` | `.github/workflows/workflow-policy.yml` | `conformance` | `portable` |
