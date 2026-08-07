@@ -127,7 +127,7 @@ class EmergencyMacOSSelfCheckTest(unittest.TestCase):
             ), self.assertRaises(SystemExit):
                 BOOTSTRAP.validate_self_check()
 
-    def test_preinstalled_python_selection_is_bounded_and_temporary(self) -> None:
+    def test_preinstalled_python_selection_is_exact_and_temporary(self) -> None:
         source = workflow_source()
         lock = json.loads(
             (ROOT / "contracts/action-tool-lock.json").read_text()
@@ -136,17 +136,18 @@ class EmergencyMacOSSelfCheckTest(unittest.TestCase):
         self.assertNotIn("actions/setup-python@", source)
         self.assertNotIn("sudo", source)
         self.assertNotIn("brew install", source)
+        self.assertNotIn("for candidate", source)
         self.assertIn("Select preinstalled CPython 3.12", source)
-        self.assertIn("/opt/homebrew/bin/python3.12", source)
-        self.assertIn("/usr/local/bin/python3.12", source)
+        self.assertIn("selected=/opt/homebrew/bin/python3.12", source)
         self.assertIn("sys.version_info[:2]", source)
-        self.assertIn('expected = ("cpython", (3, 12)', source)
+        self.assertIn("'(3, 12)'", source)
+        self.assertIn('"${machine}" == arm64', source)
         self.assertIn(
             'runtime_bin="${RUNNER_TEMP}/ci-workflows-python-bin"',
             source,
         )
         self.assertIn(
-            'ln -s "${selected}" "${runtime_bin}/python3"',
+            'ln -s "${resolved}" "${runtime_bin}/python3"',
             source,
         )
         self.assertIn(
