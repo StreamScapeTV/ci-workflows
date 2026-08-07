@@ -50,33 +50,78 @@ jobs:
               ;;
           esac
 
-      - name: Verify pre-provisioned CPython 3.13.5
+      - name: Select preinstalled CPython 3.12
         shell: bash
         run: |
           set -Eeuo pipefail
-          candidate="$(type -P python3.13 || true)"
-          if [[ -z "${candidate}" ]]; then
-            candidate="$(type -P python3 || true)"
-          fi
-          if [[ -z "${candidate}" || "${candidate}" != /* || ! -x "${candidate}" ]]; then
-            echo '::error::No absolute executable Python candidate is pre-provisioned.' >&2
+          candidates=(
+            /opt/homebrew/bin/python3.12
+            /usr/local/bin/python3.12
+            /Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12
+          )
+          command -v python3.12 >/dev/null 2>&1 && candidates+=("$(command -v python3.12)")
+          command -v python3 >/dev/null 2>&1 && candidates+=("$(command -v python3)")
+
+          selected=''
+          seen=':'
+          for candidate in "${candidates[@]}"; do
+            [[ -x "${candidate}" ]] || continue
+            resolved="$(cd "$(dirname "${candidate}")" && pwd -P)/$(basename "${candidate}")"
+            [[ "${seen}" != *":${resolved}:"* ]] || continue
+            seen+="${resolved}:"
+            if "${resolved}" - <<'PY'
+          import platform
+          import sys
+
+          machine = platform.machine().lower()
+          if machine in {"amd64", "x64"}:
+              machine = "x86_64"
+          elif machine == "aarch64":
+              machine = "arm64"
+          actual = (
+              sys.implementation.name,
+              sys.version_info[:2],
+              platform.system(),
+              machine,
+          )
+          expected = ("cpython", (3, 12), "Darwin", {"x86_64", "arm64"})
+          if (
+              actual[0] != expected[0]
+              or actual[1] != expected[1]
+              or actual[2] != expected[2]
+              or actual[3] not in expected[3]
+          ):
+              raise SystemExit(1)
+          PY
+            then
+              selected="${resolved}"
+              break
+            fi
+          done
+
+          if [[ -z "${selected}" ]]; then
+            echo '::error::No preinstalled CPython 3.12 runtime is available on the organization-managed macOS runner.' >&2
             exit 1
           fi
-          resolved="$("${candidate}" -c 'import os,sys; print(os.path.realpath(sys.executable))')"
-          if [[ "${resolved}" != /* || ! -x "${resolved}" ]]; then
-            echo '::error::Resolved Python path is not an absolute executable.' >&2
-            exit 1
-          fi
-          identity="$("${resolved}" -c 'import platform,sys; m=platform.machine().lower(); m={"amd64":"x86_64","x64":"x86_64","aarch64":"arm64"}.get(m,m); print(f"{sys.implementation.name}|{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}|{platform.system()}|{m}")')"
-          IFS='|' read -r implementation version system machine <<< "${identity}"
-          [[ "${implementation}" == "cpython" ]] || { echo "::error::Expected CPython, got ${implementation}." >&2; exit 1; }
-          [[ "${version}" == "3.13.5" ]] || { echo "::error::Expected Python 3.13.5, got ${version}." >&2; exit 1; }
-          [[ "${system}" == "Darwin" ]] || { echo "::error::Expected Darwin, got ${system}." >&2; exit 1; }
-          case "${machine}" in arm64|x86_64) ;; *) echo "::error::Unsupported macOS architecture ${machine}." >&2; exit 1 ;; esac
+
+          runtime_bin="${RUNNER_TEMP}/ci-workflows-python-bin"
+          rm -rf "${runtime_bin}"
+          mkdir -p "${runtime_bin}"
+          ln -s "${selected}" "${runtime_bin}/python3"
+          "${runtime_bin}/python3" - <<'PY'
+          import platform
+          import sys
+
+          print(
+              "Selected preinstalled validation runtime: "
+              f"CPython {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro} "
+              f"on {platform.system()} {platform.machine()}"
+          )
+          PY
           {
-            printf 'VERIFIED_PYTHON=%s\n' "${resolved}"
-            printf 'PYTHON_EXECUTABLE=%s\n' "${resolved}"
-          } >> "${GITHUB_ENV}"
+            printf '%s\n' "${runtime_bin}" >> "${GITHUB_PATH}"
+            printf 'PYTHON_RUNTIME_BIN=%s\n' "${runtime_bin}" >> "${GITHUB_ENV}"
+          }
 
       - name: Check out exact source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -98,11 +143,11 @@ jobs:
           validation_root="${RUNNER_TEMP}/ci-workflows-validation-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           rm -rf "${validation_root}"
           mkdir -p "${validation_root}/python"
-          "${VERIFIED_PYTHON}" scripts/ci/bootstrap_validation_runtime.py \
+          python3 scripts/ci/bootstrap_validation_runtime.py \
             --lock contracts/action-tool-lock.json \
             --target "${validation_root}/python"
           test -f "${validation_root}/python/yaml/__init__.py"
-          PYTHONPATH="${validation_root}/python" "${VERIFIED_PYTHON}" - <<'PY'
+          PYTHONPATH="${validation_root}/python" python3 - <<'PY'
           import yaml
 
           if yaml.__version__ != "6.0.3":
@@ -119,7 +164,7 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          "${VERIFIED_PYTHON}" scripts/ci/validation_harness.py \
+          python3 scripts/ci/validation_harness.py \
             --root . \
             --summary "${VALIDATION_ROOT}/summary.json"
 
@@ -127,23 +172,23 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          "${VERIFIED_PYTHON}" scripts/ci/bootstrap_check.py
-          "${VERIFIED_PYTHON}" scripts/ci/inventory_contract.py validate
-          "${VERIFIED_PYTHON}" scripts/ci/inventory_contract.py render --check
+          python3 scripts/ci/bootstrap_check.py
+          python3 scripts/ci/inventory_contract.py validate
+          python3 scripts/ci/inventory_contract.py render --check
 
       - name: Verify public API agreement
         shell: bash
         run: |
           set -Eeuo pipefail
-          "${VERIFIED_PYTHON}" scripts/ci/public_api_contract.py validate
-          "${VERIFIED_PYTHON}" scripts/ci/public_api_contract.py render
+          python3 scripts/ci/public_api_contract.py validate
+          python3 scripts/ci/public_api_contract.py render
           cat docs/workflows/public-api-reference.md
 
       - name: Run automatically discovered unit tests
         shell: bash
         run: |
           set -Eeuo pipefail
-          "${VERIFIED_PYTHON}" -m unittest discover -s tests -p 'test_*.py' -v
+          python3 -m unittest discover -s tests -p 'test_*.py' -v
           test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
 
       - name: Verify clean tracked tree
@@ -166,6 +211,10 @@ jobs:
             rm -rf "${VALIDATION_ROOT}" || cleanup_failed=1
             [[ ! -e "${VALIDATION_ROOT}" ]] || cleanup_failed=1
           fi
+          if [[ -n "${PYTHON_RUNTIME_BIN:-}" ]]; then
+            rm -rf "${PYTHON_RUNTIME_BIN}" || cleanup_failed=1
+            [[ ! -e "${PYTHON_RUNTIME_BIN}" ]] || cleanup_failed=1
+          fi
           find . -type d -name __pycache__ -prune -exec rm -rf {} + || cleanup_failed=1
           find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete || cleanup_failed=1
           test -z "$(find . -type d -name __pycache__ -print -quit)" || cleanup_failed=1
@@ -182,7 +231,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -Eeuo pipefail
-          "${VERIFIED_PYTHON}" - <<'PY'
+          python3 - <<'PY'
           import json
           import os
           import urllib.request
