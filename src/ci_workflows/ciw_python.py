@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from . import python as python_validation
@@ -39,11 +40,24 @@ def _failure_outputs(context: CIWContext, code: str) -> None:
     path = context.environment.get("GITHUB_OUTPUT", "")
     if not path:
         return
+    summary = json.dumps(
+        {
+            "status": "failed",
+            "validation_profile": context.environment.get(
+                "INPUT_VALIDATION_PROFILE", ""
+            ),
+            "command_profile": context.environment.get(
+                "INPUT_COMMAND_PROFILE", ""
+            ),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
     write_command_file(
         Path(path),
         {
             "result": "failure",
-            "test_summary": "bounded Python validation failed",
+            "test_summary": summary,
             "source_sha": context.environment.get("INPUT_ADMITTED_SHA", ""),
             "resolved_python_version": "",
             "validation_profile": context.environment.get(
@@ -52,7 +66,7 @@ def _failure_outputs(context: CIWContext, code: str) -> None:
             "command_profile": context.environment.get("INPUT_COMMAND_PROFILE", ""),
             "cleanup_result": "not-run",
             "failure_code": code,
-            "artifact_exception_used": "",
+            "artifact_exception_used": "false",
             "evidence_id": "",
             "runner_profile": "",
             "runs_on_json": "",
