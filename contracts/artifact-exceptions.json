@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "default": "zero-artifacts",
+  "exceptions": [
+    {
+      "id": "android-validation-diagnostics",
+      "issue": 8,
+      "allowed_names": [
+        "android-validation-diagnostics"
+      ],
+      "trust_modes": [
+        "untrusted-validation",
+        "trusted-validation"
+      ],
+      "maximum_count": 1,
+      "maximum_total_bytes": 52428800,
+      "maximum_retention_days": 3,
+      "reason": "Bounded failure diagnostics for Android validation only; routine artifacts remain zero."
+    }
+  ]
+}

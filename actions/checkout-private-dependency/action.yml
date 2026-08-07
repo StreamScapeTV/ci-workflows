@@ -1,0 +1,62 @@
+name: Checkout exact private dependency
+description: Use the merged source contract to checkout one exact detached dependency and erase remotes
+
+inputs:
+  repository:
+    description: Approved StreamScapeTV dependency repository in owner/name form
+    required: true
+  admitted_sha:
+    description: Exact lowercase SHA returned by source admission
+    required: true
+  dependency_id:
+    description: Bounded dependency identifier used beneath the registered state root
+    required: true
+  expected_subpath:
+    description: Expected normalized subpath within the dependency checkout
+    required: false
+    default: .
+  fetch_depth:
+    description: Bounded exact checkout history depth from 1 through 1000
+    required: false
+    default: "1"
+  token:
+    description: Explicit read token passed transiently and never persisted
+    required: false
+
+outputs:
+  dependency_id:
+    value: ${{ steps.checkout.outputs.dependency_id }}
+  repository:
+    value: ${{ steps.checkout.outputs.repository }}
+  head_sha:
+    value: ${{ steps.checkout.outputs.head_sha }}
+  relative_path:
+    value: ${{ steps.checkout.outputs.relative_path }}
+  expected_subpath:
+    value: ${{ steps.checkout.outputs.expected_subpath }}
+  remotes_erased:
+    value: ${{ steps.checkout.outputs.remotes_erased }}
+  credentials_erased:
+    value: ${{ steps.checkout.outputs.credentials_erased }}
+  verified:
+    value: ${{ steps.checkout.outputs.verified }}
+
+runs:
+  using: composite
+  steps:
+    - id: checkout
+      name: Checkout and detach exact private dependency
+      shell: bash
+      env:
+        PYTHONDONTWRITEBYTECODE: "1"
+        PRIVATE_DEPENDENCY_TOKEN: ${{ inputs.token }}
+        INPUT_REPOSITORY: ${{ inputs.repository }}
+        INPUT_ADMITTED_SHA: ${{ inputs.admitted_sha }}
+        INPUT_DEPENDENCY_ID: ${{ inputs.dependency_id }}
+        INPUT_EXPECTED_SUBPATH: ${{ inputs.expected_subpath }}
+        INPUT_FETCH_DEPTH: ${{ inputs.fetch_depth }}
+      run: |
+        set -Eeuo pipefail
+        PYTHONPATH="${GITHUB_ACTION_PATH}/../../src" \
+          python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/foundation.py" \
+            --root "${GITHUB_ACTION_PATH}/../.." checkout-private-dependency

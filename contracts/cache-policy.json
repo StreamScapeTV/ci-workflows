@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "default_mode": "disabled",
+  "modes": {
+    "disabled": {"restore": false, "save": false},
+    "restore-only": {"restore": true, "save": false},
+    "read-write": {"restore": true, "save": true}
+  },
+  "allowed_trust_modes": {
+    "restore-only": ["untrusted-validation", "trusted-validation", "tag-release"],
+    "read-write": ["trusted-validation", "tag-release"]
+  },
+  "required_key_material": ["repository", "source_sha", "lock_digest", "platform", "profile"],
+  "max_key_length": 200,
+  "eviction_days": 7,
+  "poisoning_protection": "exact-source-lock-platform-profile"
+}

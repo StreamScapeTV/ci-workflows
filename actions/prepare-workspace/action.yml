@@ -1,0 +1,52 @@
+name: Prepare isolated CI workspace
+description: Create one strict workflow-scoped state root from a bounded profile
+
+inputs:
+  profile:
+    description: Bounded workspace profile from contracts/workspace-paths.json
+    required: false
+    default: minimal
+  cache_mode:
+    description: disabled, restore-only, or read-write; disabled by default
+    required: false
+    default: disabled
+  source_sha:
+    description: Exact source SHA required only for opt-in caching
+    required: false
+  lock_digest:
+    description: Exact lowercase SHA-256 lock digest required only for opt-in caching
+    required: false
+  trust_mode:
+    description: Admitted trust mode required only for opt-in caching
+    required: false
+
+outputs:
+  state_id:
+    value: ${{ steps.prepare.outputs.state_id }}
+  profile:
+    value: ${{ steps.prepare.outputs.profile }}
+  cache_mode:
+    value: ${{ steps.prepare.outputs.cache_mode }}
+  cache_key:
+    value: ${{ steps.prepare.outputs.cache_key }}
+  registered_path_count:
+    value: ${{ steps.prepare.outputs.registered_path_count }}
+
+runs:
+  using: composite
+  steps:
+    - id: prepare
+      name: Prepare registered workspace state
+      shell: bash
+      env:
+        PYTHONDONTWRITEBYTECODE: "1"
+        INPUT_PROFILE: ${{ inputs.profile }}
+        INPUT_CACHE_MODE: ${{ inputs.cache_mode }}
+        INPUT_SOURCE_SHA: ${{ inputs.source_sha }}
+        INPUT_LOCK_DIGEST: ${{ inputs.lock_digest }}
+        INPUT_TRUST_MODE: ${{ inputs.trust_mode }}
+      run: |
+        set -Eeuo pipefail
+        PYTHONPATH="${GITHUB_ACTION_PATH}/../../src" \
+          python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/foundation.py" \
+            --root "${GITHUB_ACTION_PATH}/../.." prepare-workspace

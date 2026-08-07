@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "state_root_directory": "ci-workflows-state",
+  "marker_file": ".ci-workflows-state.json",
+  "registry_file": ".ci-workflows-registry.json",
+  "supported_os": ["Linux", "macOS"],
+  "locale_by_os": {
+    "Linux": "C.UTF-8",
+    "macOS": "en_US.UTF-8"
+  },
+  "base_paths": [
+    {"name": "home", "relative": "home", "kind": "state"},
+    {"name": "tmp", "relative": "tmp", "kind": "temporary"},
+    {"name": "xdg_cache", "relative": "xdg/cache", "kind": "cache"},
+    {"name": "xdg_config", "relative": "xdg/config", "kind": "state"},
+    {"name": "xdg_data", "relative": "xdg/data", "kind": "state"},
+    {"name": "credentials", "relative": "credentials", "kind": "credential"},
+    {"name": "evidence", "relative": "evidence", "kind": "evidence"},
+    {"name": "artifacts", "relative": "artifacts", "kind": "artifact"},
+    {"name": "generated", "relative": "generated", "kind": "generated"},
+    {"name": "tools", "relative": "tools", "kind": "tool"},
+    {"name": "dependencies", "relative": "dependencies", "kind": "dependency"}
+  ],
+  "profiles": {
+    "minimal": {"paths": [], "environment": {}},
+    "container": {
+      "paths": [
+        {"name": "container_storage", "relative": "containers/storage", "kind": "container"},
+        {"name": "container_runroot", "relative": "containers/runroot", "kind": "container"},
+        {"name": "container_auth", "relative": "credentials/containers", "kind": "credential"}
+      ],
+      "environment": {
+        "CI_CONTAINER_STORAGE_ROOT": "container_storage",
+        "CI_CONTAINER_RUNROOT": "container_runroot",
+        "REGISTRY_AUTH_FILE": "container_auth/auth.json"
+      }
+    },
+    "node": {
+      "paths": [
+        {"name": "npm_cache", "relative": "npm/cache", "kind": "cache"},
+        {"name": "npm_prefix", "relative": "npm/prefix", "kind": "state"}
+      ],
+      "environment": {
+        "npm_config_cache": "npm_cache",
+        "npm_config_prefix": "npm_prefix"
+      }
+    },
+    "gradle": {
+      "paths": [
+        {"name": "gradle_home", "relative": "gradle", "kind": "cache"}
+      ],
+      "environment": {
+        "GRADLE_USER_HOME": "gradle_home"
+      }
+    },
+    "apple": {
+      "paths": [
+        {"name": "cocoapods_home", "relative": "cocoapods", "kind": "cache"},
+        {"name": "derived_data", "relative": "derived-data", "kind": "generated"},
+        {"name": "simulator_state", "relative": "simulators", "kind": "device"}
+      ],
+      "environment": {
+        "CP_HOME_DIR": "cocoapods_home",
+        "COCOAPODS_HOME": "cocoapods_home",
+        "CI_DERIVED_DATA_ROOT": "derived_data",
+        "CI_SIMULATOR_STATE_ROOT": "simulator_state"
+      }
+    },
+    "native": {
+      "paths": [
+        {"name": "native_cache", "relative": "native/cache", "kind": "cache"},
+        {"name": "device_evidence", "relative": "device-evidence", "kind": "device"}
+      ],
+      "environment": {
+        "CI_NATIVE_CACHE_ROOT": "native_cache",
+        "CI_DEVICE_EVIDENCE_ROOT": "device_evidence"
+      }
+    },
+    "flux": {
+      "paths": [
+        {"name": "flux_cache", "relative": "flux/cache", "kind": "cache"},
+        {"name": "flux_credentials", "relative": "credentials/flux", "kind": "credential"}
+      ],
+      "environment": {
+        "CI_FLUX_CACHE_ROOT": "flux_cache",
+        "CI_FLUX_CREDENTIAL_ROOT": "flux_credentials"
+      }
+    },
+    "full_validation": {
+      "extends": ["container", "node", "gradle", "apple", "native", "flux"],
+      "paths": [],
+      "environment": {}
+    }
+  },
+  "dynamic_roots": ["artifacts", "dependencies", "evidence", "generated", "tools"],
+  "sensitive_kinds": ["credential", "device"],
+  "residue_kinds": ["artifact", "cache", "container", "credential", "dependency", "device", "evidence", "generated", "state", "temporary", "tool"]
+}
