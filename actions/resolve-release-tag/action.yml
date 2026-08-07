@@ -52,5 +52,17 @@ runs:
         INPUT_EXPECTED_TAG_COMMIT_SHA: ${{ inputs.expected_tag_commit_sha }}
       run: |
         set -Eeuo pipefail
-        PYTHONPATH="${GITHUB_ACTION_PATH}/../../src" \
-          python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/release_tag_authority.py"
+        case "${INPUT_PHASE}" in
+          resolve)
+            python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
+              release-tag resolve
+            ;;
+          revalidate)
+            python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
+              release-tag revalidate
+            ;;
+          *)
+            echo 'unknown_release_authority_phase' >&2
+            exit 2
+            ;;
+        esac
