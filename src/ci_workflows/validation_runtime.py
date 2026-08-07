@@ -23,7 +23,7 @@ from typing import Any, Callable, Mapping, Sequence
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _ALLOWED_DOWNLOAD_HOST = "files.pythonhosted.org"
 _SUPPORTED_LINUX_PYTHON = (3, 12)
-_SUPPORTED_MACOS_PYTHON = (3, 13, 5)
+_SUPPORTED_MACOS_PYTHON = (3, 12)
 MAX_ARCHIVE_MEMBERS = 1024
 MAX_EXPANDED_BYTES = 16 * 1024 * 1024
 MAX_DOWNLOAD_BYTES = 32 * 1024 * 1024
@@ -89,17 +89,17 @@ def detect_runtime(
         return "cp312-manylinux-x86_64"
 
     if normalized_system == "darwin":
-        if actual_version[:3] != _SUPPORTED_MACOS_PYTHON:
+        if actual_version[:2] != _SUPPORTED_MACOS_PYTHON:
             raise ValidationRuntimeError(
                 "unsupported Python version "
                 f"{'.'.join(str(part) for part in actual_version)} for Darwin; "
-                "expected CPython 3.13.5"
+                "expected CPython 3.12"
             )
         if normalized_machine not in {"x86_64", "arm64"}:
             raise ValidationRuntimeError(
                 f"unsupported validation architecture {normalized_machine!r} for Darwin"
             )
-        return f"cp313-macos-{normalized_machine}"
+        return f"cp312-macos-{normalized_machine}"
 
     raise ValidationRuntimeError(
         f"unsupported validation operating system {normalized_system!r}; "
