@@ -5,6 +5,7 @@ import dataclasses
 import json
 from pathlib import Path
 
+from .readability import validate_repository_readability
 from .validation_contracts import (
     _function_index,
     _validate_caller_fixture,
@@ -107,6 +108,19 @@ def validate_repository(
         findings,
     )
     _validate_global_duplicate_blocks(duplicated_runs, config, findings)
+    for readability_finding in validate_repository_readability(
+        root,
+        workflow_documents,
+        action_documents,
+    ):
+        _finding(
+            findings,
+            config,
+            readability_finding.rule,
+            readability_finding.path,
+            readability_finding.message,
+            readability_finding.line,
+        )
 
     callers_root = root / "tests/fixtures/harness/callers"
     for path in sorted(callers_root.glob("*.y*ml")):
