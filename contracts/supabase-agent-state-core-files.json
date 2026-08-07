@@ -56,7 +56,7 @@
     {
       "path": "tests/fixtures/supabase-agent-state/core-cases.json",
       "bytes": 8210,
-      "sha256": "3072d26c7349d156e71a45d97b7fd5987c650e286846e9d9f84561a0216cbf1e"
+      "sha256": "f4a918d391e7f0708542091d75d8c02f6d99bb6855935870f2246d2412055445"
     },
     {
       "path": "tests/support/supabase_agent_state_postgres.py",
