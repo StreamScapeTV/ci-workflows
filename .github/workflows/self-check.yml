@@ -57,9 +57,9 @@ jobs:
           selected=/opt/homebrew/bin/python3.12
           [[ -x "${selected}" ]] || { echo '::error::The reviewed macOS CPython 3.12 runtime is unavailable.' >&2; exit 1; }
           resolved="$("${selected}" -c 'import os,sys; print(os.path.realpath(sys.executable))')"
-          identity="$("${resolved}" -c 'import platform,sys; m=platform.machine().lower(); m={"amd64":"x86_64","x64":"x86_64","aarch64":"arm64"}.get(m,m); print(f"{sys.implementation.name}|{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}|{platform.system()}|{m}")')"
+          identity="$("${resolved}" -c 'import platform,sys; m=platform.machine().lower(); m={"amd64":"x86_64","x64":"x86_64","aarch64":"arm64"}.get(m,m); print(f"{sys.implementation.name}|{sys.version_info[:2]}|{platform.system()}|{m}")')"
           IFS='|' read -r implementation version system machine <<< "${identity}"
-          [[ "${implementation}" == cpython && "${version}" == 3.12.* && "${system}" == Darwin && "${machine}" == arm64 ]] || { echo "::error::Unsupported macOS Python runtime ${identity}." >&2; exit 1; }
+          [[ "${implementation}" == cpython && "${version}" == '(3, 12)' && "${system}" == Darwin && "${machine}" == arm64 ]] || { echo "::error::Unsupported macOS Python runtime ${identity}." >&2; exit 1; }
           runtime_bin="${RUNNER_TEMP}/ci-workflows-python-bin"
           rm -rf "${runtime_bin}"
           mkdir -p "${runtime_bin}"
