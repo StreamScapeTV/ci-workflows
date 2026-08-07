@@ -127,25 +127,48 @@ class EmergencyMacOSSelfCheckTest(unittest.TestCase):
             ), self.assertRaises(SystemExit):
                 BOOTSTRAP.validate_self_check()
 
-    def test_setup_python_and_lock_are_exact(self) -> None:
+    def test_preinstalled_python_selection_is_bounded_and_temporary(self) -> None:
         source = workflow_source()
         lock = json.loads(
             (ROOT / "contracts/action-tool-lock.json").read_text()
         )
+
+        self.assertNotIn("actions/setup-python@", source)
+        self.assertNotIn("sudo", source)
+        self.assertNotIn("brew install", source)
+        self.assertIn("Select preinstalled CPython 3.12", source)
+        self.assertIn("/opt/homebrew/bin/python3.12", source)
+        self.assertIn("/usr/local/bin/python3.12", source)
+        self.assertIn("sys.version_info[:2]", source)
+        self.assertIn('expected = ("cpython", (3, 12)', source)
         self.assertIn(
-            "actions/setup-python@"
-            "5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0",
+            'runtime_bin="${RUNNER_TEMP}/ci-workflows-python-bin"',
             source,
         )
-        self.assertIn('python-version: "3.12.10"', source)
+        self.assertIn(
+            'ln -s "${selected}" "${runtime_bin}/python3"',
+            source,
+        )
+        self.assertIn(
+            'printf \'PYTHON_RUNTIME_BIN=%s\\n\' "${runtime_bin}"',
+            source,
+        )
+        self.assertIn('rm -rf "${PYTHON_RUNTIME_BIN}"', source)
+        self.assertLess(
+            source.index("Admit trusted workflow source"),
+            source.index("Select preinstalled CPython 3.12"),
+        )
+        self.assertLess(
+            source.index("Select preinstalled CPython 3.12"),
+            source.index("Check out exact source"),
+        )
+
         setup = [
             entry
             for entry in lock["third_party_actions"]
             if entry["uses"] == "actions/setup-python"
         ]
-        self.assertEqual(1, len(setup))
-        self.assertEqual("v7.0.0", setup[0]["release"])
-        self.assertEqual("node24", setup[0]["runtime"])
+        self.assertEqual([], setup)
 
     def test_exception_grants_no_sensitive_apple_capability(self) -> None:
         source = workflow_source().lower()
