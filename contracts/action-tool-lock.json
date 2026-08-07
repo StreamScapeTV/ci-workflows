@@ -9,6 +9,13 @@
       "source": "https://github.com/actions/checkout"
     },
     {
+      "uses": "StreamScapeTV/ci-workflows/actions/resolve-release-tag",
+      "sha": "bd03c2b312e820d2c91097ecde4c076286e1bb24",
+      "release": "issue #59 immutable helper checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/bd03c2b312e820d2c91097ecde4c076286e1bb24/actions/resolve-release-tag"
+    },
+    {
       "uses": "StreamScapeTV/ci-workflows/actions/resolve-source",
       "sha": "90706a72aa68c81b7840c139965ae528d8ed6b25",
       "release": "issue #7 immutable helper checkpoint",
