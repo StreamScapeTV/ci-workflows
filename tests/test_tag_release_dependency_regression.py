@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -19,8 +20,23 @@ class TagReleaseDependencyRegressionTests(unittest.TestCase):
         cls.text = WORKFLOW.read_text(encoding="utf-8")
 
     def test_release_uses_only_the_live_high_buildah_capability(self) -> None:
-        self.assertEqual(self.text.count("    runs-on: buildah-high\n"), 1)
-        self.assertNotIn("self-hosted", self.text)
+        selectors = re.findall(
+            r"^\s+runs-on:\s*([^\s#]+)\s*$",
+            self.text,
+            re.MULTILINE,
+        )
+        self.assertEqual(["buildah-high", "buildah-high"], selectors)
+        for forbidden in (
+            "self-hosted",
+            "portable",
+            "mobile",
+            "macOS",
+            "ubuntu-latest",
+            "buildah-tiny",
+            "buildah-small",
+            "buildah-medium",
+        ):
+            self.assertNotIn(forbidden, self.text)
 
     def test_stale_lock_without_declared_dependencies_is_rejected(self) -> None:
         marker = "          python3 - <<'PY'\n"
