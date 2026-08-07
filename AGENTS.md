@@ -14,12 +14,12 @@ This private repository owns reusable GitHub Actions orchestration for supported
 
 - Issue #32 is closed as superseded. Do not implement the reusable GitHub Actions lifecycle and ownership architecture formerly planned by #32.
 - `StreamScapeTV/agent-state-supabase#1` is the canonical Supabase Agent State implementation tracker. In that repository, #2 owns repository and deployment bootstrap, #3 owns the transactional core and canonical migration/RPC reconciliation, #4 owns structured multi-work, #5 owns exact-head review and administration, and #6 owns canonical live proof, active-state reconciliation, final cutover, and legacy retirement.
-- This repository's open #51–#55 issues are transition mirrors only. They preserve coordination and evidence while work is re-homed; they are not the eventual canonical Supabase migration repository or authoritative migration history.
-- `ci-workflows` continues to own reusable workflow orchestration and the protected manual compatibility workflow completed by #37. It does not own the authoritative Supabase schema, canonical migration/deployment history, or Agent State decision engine.
+- This repository's open #51–#55 issues are transition mirrors only. They preserve coordination and evidence while work is re-homed; they are not the canonical Supabase migration repository or authoritative migration history.
+- `ci-workflows` owns reusable workflow orchestration and the protected manual compatibility workflow completed by #37. It does not own the authoritative Supabase schema, canonical migration/deployment history, or Agent State decision engine.
 - Keep #37 available until `StreamScapeTV/agent-state-supabase#6` proves the canonical live connector path, reconciles active state, completes separate reviewed organization-rules adoption, and confirms that no legacy consumer remains.
-- The canonical `agent-state-supabase` repository is only initially created and is not yet the accepted migration/deployment source. Until its bootstrap and transactional-core issues establish the reviewed repository structure and canonical migration history, do not infer readiness from repository existence or bootstrap-only content.
-- A provisional Supabase Agent State schema may exist from transition work before canonical reconciliation. Such directly applied schema, RPC, or migration-ledger state is not accepted deployment evidence unless it is reconciled to the reviewed `agent-state-supabase` migration history and proven by the canonical repository. In particular, transition work applied during `ci-workflows` PR #57 is provisional and currently unreconciled with that PR's committed migration filenames.
-- Direct Supabase Agent State operation is forbidden for ordinary agents until `agent-state-supabase#6` completes canonical live proof and the separate organization-rules cutover makes that path authoritative. Provisional RPCs must not be treated as an available coordination surface.
+- The canonical `agent-state-supabase` repository may contain bootstrap work, but it is not yet the accepted canonical core migration/deployment source. Repository existence or bootstrap progress alone does not establish schema or operating-path readiness.
+- Provisional directly applied `agent_private` / `agent_api` schema, RPC, or migration-ledger state from transition work is not accepted canonical deployment evidence until reconciled to the reviewed `agent-state-supabase` migration history and proven by that repository.
+- Direct Supabase Agent State operation is forbidden for ordinary agents until `agent-state-supabase#6` completes canonical live proof and the separate organization-rules cutover makes that path authoritative. Provisional RPCs are not an ordinary coordination surface.
 - During this transition, follow the execution path routed by the current organization-rules entry point unless the repository owner gives explicit bounded bootstrap authorization. Never invent an Agent State receipt, ownership grant, schema state, deployment result, or fallback transport.
 - `ci-workflows` changes must not bundle organization-rules adoption. That remains a separate reviewed change after canonical live proof.
 
@@ -35,11 +35,20 @@ This private repository owns reusable GitHub Actions orchestration for supported
 
 ## Authority boundaries
 
-- `StreamScapeTV/agent-state-supabase` owns the future canonical Supabase schema, versioned migrations, reviewed RPC contracts, fixtures, tests, deployment configuration, and transactional Agent State decisions. This repository must not duplicate that authority or maintain a competing canonical migration history.
+- `StreamScapeTV/agent-state-supabase` owns the canonical Supabase schema, versioned migrations, reviewed RPC contracts, fixtures, tests, deployment configuration, and transactional Agent State decisions once those changes are accepted there. This repository must not duplicate that authority or maintain a competing canonical migration history.
 - Flux remains the sole authority for desired state, target and product allowlists, SOPS data, Kubernetes credentials, reconciliation policy, canary selection, live health, and rollback acceptance. This repository owns only the reviewed orchestration around exact Flux-owned policy source.
 - Product repositories retain toolchain pins, product commands, schemas, assertions, test selection, signing, release inputs, and deployment-specific data.
 
-## Security, runners, artifacts, and cleanup
+## Runner and central self-check boundary
+
+- Semantic runner intent remains authoritative. Ordinary Python, policy, source-admission, and GitOps validation use the `portable` capability; consumers do not select concrete runner labels or hosts.
+- Issue #60 is complete. While Flux #268 tracks recovery of portable ARC scheduling, the repository's central self-check has one owner-authorized temporary exception that runs only that merge gate on organization-managed macOS capacity.
+- The exception does not reclassify ordinary validation as Apple work and does not change the public runner-profile contract or generated mappings.
+- The central self-check verifies an exact pre-provisioned host CPython runtime before checkout and does not install or elevate a runtime on the persistent host.
+- The exception grants no signing, provisioning, simulator, physical-device, notarization, store, registry, Kubernetes, production, or Agent State credential or authority.
+- Remove the temporary macOS exception through a later bounded reviewed change after Flux #268 proves portable ARC recovery.
+
+## Security, artifacts, and cleanup
 
 - Use explicit workflow and job permissions, explicit named secrets, workflow-scoped authentication files, and no `secrets: inherit`.
 - Never execute untrusted pull-request, fork, issue-comment, `pull_request_target`, `workflow_run`, or mutable source in a privileged context.
