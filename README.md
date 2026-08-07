@@ -30,7 +30,7 @@ The exact-tag image/chart workflow introduced by #34 is the sole bootstrap publi
 
 ## Consumer channel
 
-During the first rollout, consumers may follow `main` so a central fix becomes available immediately:
+During the first rollout, consumers may follow `main` so a central fix becomes available immediately. Existing genuine tag-push callers remain unchanged:
 
 ```yaml
 name: Publish tagged Backend image and chart
@@ -58,7 +58,47 @@ jobs:
       registry_token: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
 ```
 
-A Git tag can be used instead when a stable point is preferred:
+When the exact tag already exists and no synthetic tag-push event can be relied on, a reviewed same-repository caller may expose a bounded manual tuple and select `existing-tag` explicitly:
+
+```yaml
+name: Publish an existing exact Backend tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: Existing canonical SemVer tag, for example 1.0.4
+        required: true
+        type: string
+      release_source_sha:
+        description: Exact lowercase commit currently named by that tag
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  release:
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-tag-image-chart.yml@main
+    with:
+      release_mode: existing-tag
+      release_version: ${{ inputs.release_version }}
+      release_source_sha: ${{ inputs.release_source_sha }}
+      image_name: iptv-backend
+      chart_name: iptv-backend
+      chart_path: charts/iptv-backend
+      dockerfile_path: Dockerfile
+      build_context: .
+    secrets:
+      registry_username: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+      registry_token: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
+```
+
+The explicit caller must execute from the current default branch of the same non-fork repository under a write-authorized actor. The central workflow resolves `refs/tags/<release_version>` through GitHub’s read-only API, supports lightweight and bounded annotated tags, requires the final commit to equal `release_source_sha`, checks out only that detached commit, and revalidates the tag immediately before publication. A branch or caller ref is never accepted as release authority.
+
+A Git tag can be used for the central workflow reference when a stable point is preferred:
 
 ```yaml
 uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-tag-image-chart.yml@v1.0.0
@@ -68,9 +108,9 @@ uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-tag-image-chart.yml@
 
 ## Exact-tag image and Helm publication
 
-`.github/workflows/reusable-tag-image-chart.yml` is a `workflow_call`-only product release primitive. A consumer tag push checks out the exact tagged caller commit, uses the exact tag as the version, publishes a daemonless multi-platform OCI image and Helm OCI chart, independently reads both products back, retains zero Actions artifacts, and performs no deployment.
+`.github/workflows/reusable-tag-image-chart.yml` is a `workflow_call`-only product release primitive. Its default `tag-push` mode preserves genuine tag-push behavior. Its explicit `existing-tag` mode accepts only the complete exact version/source tuple from the trusted caller class described above. Both modes produce the same immutable version and source outputs and enter identical daemonless image and chart publication stages.
 
-The workflow does not publish `latest`, create a GitHub Release, run from a branch/manual event, update production values, restart workloads, or access a cluster. The caller passes only bounded product inputs and explicit named registry secrets; broad secret inheritance is prohibited.
+The workflow uses the exact validated version for a multi-platform OCI image and Helm OCI chart, independently reads both products back, retains zero Actions artifacts, and performs no deployment. It does not publish `latest`, create a GitHub Release, accept a branch as release identity, update production values, restart workloads, or access a cluster. The caller passes only bounded product inputs and explicit named registry secrets; broad secret inheritance is prohibited.
 
 Accepted product tags are `MAJOR.MINOR.PATCH` with an optional OCI-safe prerelease suffix such as `1.2.3-rc.1`. A tag can point to any approved historical commit:
 

@@ -64,6 +64,10 @@ Device work is explicitly authorized, exact-source, single-resource, time-bounde
 
 Publication runs only for an exact admitted release tag and source SHA. Image and chart products are selected from the product contract; callers do not choose a registry host, container engine, storage driver, or registry command. Publication and deployment remain separate, and immutable products require independent remote read-back.
 
+The versioned bootstrap image/chart API supports two authority modes with one downstream publication contract. `tag-push` remains the default and derives the immutable version and source from a genuine stable-tag push. `existing-tag` requires the complete explicit `release_mode`, `release_version`, and `release_source_sha` tuple from a same-repository `workflow_dispatch` caller whose workflow is running from the current default branch under a write-authorized actor. Pull requests, forks, issue comments, branches, arbitrary refs, and partial or mixed tuples are rejected before source checkout.
+
+Both modes resolve `refs/tags/<release_version>` through the caller repository's read-only GitHub API. Lightweight tags resolve directly to a commit; annotated tags are dereferenced through a bounded, cycle-checked chain that rejects unsupported object types and missing objects. The final commit must equal the exact lowercase source SHA, and the initially resolved tag object and commit are revalidated before checkout and immediately before registry authentication. The workflow then checks out only the detached exact commit and enters the same Buildah, OCI image, Helm chart, replay, read-back, output, cleanup, and zero-artifact stages for either mode.
+
 ### Flux-authorized reconciliation
 
 Flux remains the sole authority for desired state, target and product allowlists, SOPS/Kubernetes credentials, live reconciliation, health, canary selection, rollback, and incident acceptance. The central wrapper executes exact protected Flux source and Flux-owned policy and never accepts arbitrary cluster, namespace, kubeconfig path, object, or command input.
