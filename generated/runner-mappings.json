@@ -102,6 +102,7 @@
         "trusted-exact"
       ],
       "allowed_workflow_apis": [
+        "validation.python",
         "oci.build",
         "oci.publish",
         "release.orchestrate",
@@ -144,6 +145,7 @@
         "trusted-exact"
       ],
       "allowed_workflow_apis": [
+        "validation.python",
         "oci.build",
         "oci.publish",
         "release.orchestrate",
@@ -591,9 +593,11 @@
     },
     "validation.python": {
       "profiles": [
-        "portable"
+        "portable",
+        "buildah-medium",
+        "buildah-high"
       ],
-      "strategy": "fixed"
+      "strategy": "profile-contract"
     }
   }
 }

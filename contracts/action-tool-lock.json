@@ -25,7 +25,8 @@
   ],
   "approved_internal_actions": [
     ".github/actions",
-    "actions"
+    "actions",
+    ".ciw/actions"
   ],
   "python": {
     "minimum": "3.12",

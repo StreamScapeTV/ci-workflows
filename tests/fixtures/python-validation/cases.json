@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "positive": [
+    {
+      "id": "flux-source-audit",
+      "repository": "StreamScapeTV/flux",
+      "validation_profile": "audit",
+      "command_profile": "source-audit"
+    },
+    {
+      "id": "agent-state-host-automation",
+      "repository": "StreamScapeTV/agent-state",
+      "validation_profile": "host",
+      "command_profile": "source-audit"
+    },
+    {
+      "id": "agent-state-postgres",
+      "repository": "StreamScapeTV/agent-state",
+      "validation_profile": "podman-postgres",
+      "command_profile": "postgres-test"
+    },
+    {
+      "id": "backend-full-isolation",
+      "repository": "StreamScapeTV/iptv-backend",
+      "validation_profile": "podman",
+      "command_profile": "full-test"
+    },
+    {
+      "id": "backend-postgres-focus",
+      "repository": "StreamScapeTV/iptv-backend",
+      "validation_profile": "podman-postgres",
+      "command_profile": "postgres-test"
+    }
+  ],
+  "negative": [
+    {
+      "id": "unknown-profile",
+      "failure": "unsupported_profile"
+    },
+    {
+      "id": "unmapped-consumer-profile",
+      "failure": "unsupported_consumer_profile"
+    },
+    {
+      "id": "fork-podman-escalation",
+      "failure": "source_mismatch"
+    },
+    {
+      "id": "mutable-python-image",
+      "failure": "invalid_input"
+    },
+    {
+      "id": "mutable-postgres-image",
+      "failure": "invalid_input"
+    },
+    {
+      "id": "caller-selected-command",
+      "failure": "invalid_input"
+    },
+    {
+      "id": "caller-selected-runner",
+      "failure": "invalid_input"
+    },
+    {
+      "id": "caller-selected-database-url",
+      "failure": "invalid_input"
+    },
+    {
+      "id": "unpinned-dependency",
+      "failure": "dependency_lock_drift"
+    },
+    {
+      "id": "postgres-readiness-timeout",
+      "failure": "postgres_readiness_timeout"
+    },
+    {
+      "id": "cleanup-residue",
+      "failure": "cleanup_failed"
+    },
+    {
+      "id": "source-dirty-after-validation",
+      "failure": "dirty_tree"
+    }
+  ]
+}

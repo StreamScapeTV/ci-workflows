@@ -1,0 +1,73 @@
+{
+  "negative": [
+    {
+      "error": "unsupported_profile",
+      "id": "unknown-profile"
+    },
+    {
+      "error": "unsupported_profile",
+      "id": "cross-consumer-command"
+    },
+    {
+      "error": "unsupported_profile",
+      "id": "fork-podman"
+    },
+    {
+      "error": "toolchain_mismatch",
+      "id": "mutable-image"
+    },
+    {
+      "error": "dependency_lock_drift",
+      "id": "floating-dependency"
+    },
+    {
+      "error": "invalid_input",
+      "id": "remote-database"
+    },
+    {
+      "error": "artifact_policy_failed",
+      "id": "artifact-exception"
+    },
+    {
+      "error": "invalid_input",
+      "id": "caller-runner"
+    },
+    {
+      "error": "cleanup_failed",
+      "id": "cleanup-residue"
+    }
+  ],
+  "positive": [
+    {
+      "command_profile": "source-audit",
+      "id": "flux-audit",
+      "profile": "audit",
+      "repository": "StreamScapeTV/flux"
+    },
+    {
+      "command_profile": "source-audit",
+      "id": "agent-state-host",
+      "profile": "host",
+      "repository": "StreamScapeTV/agent-state"
+    },
+    {
+      "command_profile": "full-test",
+      "id": "backend-podman",
+      "profile": "podman",
+      "repository": "StreamScapeTV/iptv-backend"
+    },
+    {
+      "command_profile": "postgres-test",
+      "id": "backend-postgres",
+      "profile": "podman-postgres",
+      "repository": "StreamScapeTV/iptv-backend"
+    },
+    {
+      "command_profile": "postgres-test",
+      "id": "agent-state-postgres",
+      "profile": "podman-postgres",
+      "repository": "StreamScapeTV/agent-state"
+    }
+  ],
+  "schema_version": 1
+}

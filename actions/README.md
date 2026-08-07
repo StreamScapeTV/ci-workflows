@@ -8,6 +8,12 @@ Composite actions in this directory are thin, bounded adapters around named func
 - `exact-checkout` calls `ciw source exact-checkout` and preserves exact detached credential-free checkout.
 - `resolve-release-tag` calls only `ciw release-tag resolve` or `ciw release-tag revalidate`; merged #59 remains the authority for trusted tag-push/existing-tag semantics.
 
+## Python validation
+
+- `validate-python` calls only `ciw python validate` with `plan` or `execute` phase.
+- It accepts exact admitted source and bounded profile/path identifiers, never arbitrary shell, callbacks, runner labels, engines, images, service addresses, database URLs, credentials, or deletion roots.
+- The reusable workflow owns runner planning, exact source staging, marker-bound state, immutable runtime selection, zero-artifact policy, evidence, and `if: always()` cleanup.
+
 ## Shared foundation sequence
 
 Issue #8 provides the six non-language foundation adapters below. Issue #31 changes only their dispatch path and preserves every public input, output, side effect, trust boundary, and cleanup duty.
@@ -21,4 +27,4 @@ Issue #8 provides the six non-language foundation adapters below. Issue #31 chan
 
 `cleanup-workspace` must be invoked under `if: always()` after `prepare-workspace`. Callers never supply a deletion path. Caching remains disabled by default, and routine GitHub Actions artifacts remain zero unless a named reviewed exception exists.
 
-The authoritative foundation inputs, outputs, side effects, trust boundaries, and cleanup duties are generated in `docs/architecture/foundation-primitives.md` from `contracts/foundation-primitives.json`. The complete typed command hierarchy is generated in `docs/reference/ciw.md` from `contracts/ciw-commands.json`.
+The authoritative foundation inputs, outputs, side effects, trust boundaries, and cleanup duties are generated in `docs/architecture/foundation-primitives.md` from `contracts/foundation-primitives.json`. Python validation behavior is documented in `docs/workflows/python.md` and `docs/architecture/python-validation.md`. The complete typed command hierarchy is generated in `docs/reference/ciw.md` from `contracts/ciw-commands.json`.
