@@ -78,7 +78,7 @@ class WorkspacePrimitiveTests(unittest.TestCase):
         self.assertEqual(state.environment["LC_ALL"], "C.UTF-8")
         self.assertEqual(state.environment["TZ"], "UTC")
         self.assertEqual(state.environment["GIT_TERMINAL_PROMPT"], "0")
-        self.assertTrue(state.root.is_relative_to(self.runner_temp))
+        self.assertTrue(state.root.is_relative_to(self.runner_temp.resolve()))
         for variable in (
             "HOME",
             "TMPDIR",
