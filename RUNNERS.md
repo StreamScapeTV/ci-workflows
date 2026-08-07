@@ -37,7 +37,9 @@ A reusable workflow with more than one possible profile uses a protected `portab
 
 ## Temporary central self-check exception
 
-Ordinary Python and policy validation remains assigned to `portable`. While the portable ARC incident tracked by Flux #268 is open, ci-workflows #60 authorizes only `.github/workflows/self-check.yml` to use the organization-managed `macOS` capability as an emergency exact-head merge gate. The workflow rejects fork pull requests before checkout and receives no Apple signing, provisioning, simulator, physical-device, notarization, or store credential or entitlement. This exception does not change the public runner profile contract or generated mappings and must be removed in a later bounded change after portable ARC recovery.
+Ordinary Python and policy validation remains assigned to `portable`. While the portable ARC incident tracked by Flux #268 is open, ci-workflows #60 authorizes only `.github/workflows/self-check.yml` to use the organization-managed `macOS` capability as an emergency exact-head merge gate. That workflow accepts only a same-repository pull request or exact trusted push/dispatch source, then verifies a pre-provisioned absolute executable as CPython 3.13.5 on Darwin arm64 or x86_64 before checkout. It never installs a runtime, invokes `sudo`, or elevates host privileges.
+
+The exception receives no Apple signing, provisioning, simulator, physical-device, notarization, or store credential or entitlement. It does not change the public runner profile contract or generated mappings and must be removed in a later bounded change after portable ARC recovery.
 
 ## Buildah escalation
 
