@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "source": {
+    "repository": "StreamScapeTV/ci-workflows",
+    "issue": 52,
+    "pull_request": 57
+  },
+  "hash_algorithm": "sha256",
+  "excluded_self": "contracts/supabase-agent-state-core-files.json",
+  "files": [
+    {
+      "path": "contracts/supabase-agent-state-core.json",
+      "bytes": 7143,
+      "sha256": "4b7255c57471b0493db2596fc8b58b6656a8d1c389d0d92af6e3a7f0f73f32d0"
+    },
+    {
+      "path": "contracts/supabase-agent-state-core-rehome.json",
+      "bytes": 9910,
+      "sha256": "91bc5fcbba753989989896cb3f3cd4762b950be4d9294218e34eb888176e11ae"
+    },
+    {
+      "path": "docs/architecture/supabase-agent-state-core.md",
+      "bytes": 7016,
+      "sha256": "6f469a99756f3801091cec5793c63e87631edb91a5d79592d1ab8a5da3ca27d6"
+    },
+    {
+      "path": "docs/evidence/supabase-agent-state-core-validation.md",
+      "bytes": 6641,
+      "sha256": "dfde45073f38221099407bc1f984a84d68a3e6ffd1e49690eb5ef7d83f485694"
+    },
+    {
+      "path": "docs/operators/supabase-agent-state-core.md",
+      "bytes": 6845,
+      "sha256": "eba25858859097a18cf389ff5989e6957b2b98dd5c3219690bb2c7d8ff04bf90"
+    },
+    {
+      "path": "supabase/migrations/20260806172100_agent_state_core_schema.sql",
+      "bytes": 28413,
+      "sha256": "fea47c8dec69e0e3776aa1cdd22a22c88472a7059eda685bc1efe5c0b561c9ff"
+    },
+    {
+      "path": "supabase/migrations/20260806172200_agent_state_core_rpc.sql",
+      "bytes": 29839,
+      "sha256": "d46859c64030f999147477dc2e9b1efd67104e71a862d42bb118e1c21f08d43d"
+    },
+    {
+      "path": "supabase/migrations/20260806172300_agent_state_core_indexes.sql",
+      "bytes": 1891,
+      "sha256": "a787d53e1b0cd9c6414b2d2f7bf1e83aebac2fc208c61f8e8d2d943cb8272e51"
+    },
+    {
+      "path": "tests/fixtures/supabase-agent-state/bootstrap.sql",
+      "bytes": 249,
+      "sha256": "9195b0b4f94b65a11ad1e70a621a4554600a882e4ddf85a360379c2ad09264fa"
+    },
+    {
+      "path": "tests/fixtures/supabase-agent-state/core-cases.json",
+      "bytes": 8210,
+      "sha256": "3072d26c7349d156e71a45d97b7fd5987c650e286846e9d9f84561a0216cbf1e"
+    },
+    {
+      "path": "tests/support/supabase_agent_state_postgres.py",
+      "bytes": 14256,
+      "sha256": "17e469e84e70026ec6b2fe9b4eed5a6fdc952e0a263e0c2c02a8b7eac4213139"
+    },
+    {
+      "path": "tests/test_supabase_agent_state_core.py",
+      "bytes": 14297,
+      "sha256": "8bf140c943f384d6c82ff30ffb0107bb24e2fbe59a0bc5937f93371a21faea93"
+    },
+    {
+      "path": "tests/test_supabase_agent_state_core_database.py",
+      "bytes": 40453,
+      "sha256": "f09fa00df57a4ace4142b8eb318975bce769c6dea5d7937d55a52973c29b3c73"
+    }
+  ],
+  "manifest_scope": "all source-package files except this self-referential manifest"
+}
