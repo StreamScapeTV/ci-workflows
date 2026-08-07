@@ -184,6 +184,8 @@ def _validate_event_repository(event: ReleaseEvent) -> None:
 def _validate_existing_tag_caller(
     event: ReleaseEvent,
     provider: TagProvider,
+    *,
+    require_current_branch: bool = True,
 ) -> None:
     _validate_event_repository(event)
     _require(
@@ -207,11 +209,12 @@ def _validate_existing_tag_caller(
         event.ref == f"refs/heads/{default_branch}",
         "trusted_caller_ref_mismatch",
     )
-    _require(
-        _full_sha(event.sha, "invalid_caller_sha")
-        == provider.branch_sha(event.repository, default_branch),
-        "stale_trusted_caller_source",
-    )
+    caller_sha = _full_sha(event.sha, "invalid_caller_sha")
+    if require_current_branch:
+        _require(
+            caller_sha == provider.branch_sha(event.repository, default_branch),
+            "stale_trusted_caller_source",
+        )
     workflow_prefix = f"{event.repository}/"
     _require(event.workflow_ref.startswith(workflow_prefix), "caller_workflow_mismatch")
     workflow_and_ref = event.workflow_ref[len(workflow_prefix):]
@@ -334,7 +337,11 @@ def revalidate_release_authority(
             "tag_event_sha_mismatch",
         )
     else:
-        _validate_existing_tag_caller(event, provider)
+        _validate_existing_tag_caller(
+            event,
+            provider,
+            require_current_branch=False,
+        )
 
     current = resolve_tag(provider, event.repository, version)
     _require(
