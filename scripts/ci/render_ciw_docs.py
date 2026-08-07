@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render or verify deterministic ``ciw`` command documentation."""
+"""Render or verify deterministic ``ciw`` and readability documentation."""
 from __future__ import annotations
 
 import argparse
@@ -12,6 +12,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ci_workflows.ciw_docs import write_ciw_docs  # noqa: E402
+from ci_workflows.readability import write_readability_docs  # noqa: E402
 
 
 def main() -> int:
@@ -19,7 +20,12 @@ def main() -> int:
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
     write_ciw_docs(contract_root=ROOT, check=args.check)
-    print("ciw documentation is current" if args.check else "rendered ciw documentation")
+    write_readability_docs(contract_root=ROOT, check=args.check)
+    print(
+        "ciw and readability documentation are current"
+        if args.check
+        else "rendered ciw and readability documentation"
+    )
     return 0
 
 
