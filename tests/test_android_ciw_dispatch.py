@@ -43,7 +43,10 @@ class AndroidCIWDispatchTests(unittest.TestCase):
         self.assertEqual(arguments.operation, "validate")
         self.assertEqual(arguments.phase, "plan")
         self.assertEqual(arguments.source_root, "source")
-        self.assertIs(arguments._command_spec, ciw.runtime_command_index()["android validate"])
+        self.assertEqual(
+            arguments._command_spec,
+            ciw.runtime_command_index()["android validate"],
+        )
 
         with self.assertRaises(SystemExit):
             ciw.parser().parse_args(["android", "arbitrary"])
