@@ -1,0 +1,46 @@
+name: Android validation smoke
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - ".github/workflows/reusable-android.yml"
+      - ".github/workflows/android-validation-smoke.yml"
+      - "actions/validate-android/action.yml"
+      - "contracts/android-validation.json"
+      - "scripts/ci/android.py"
+      - "src/ci_workflows/android.py"
+      - "src/ci_workflows/android_contract.py"
+      - "src/ci_workflows/android_execution.py"
+      - "src/ci_workflows/android_types.py"
+      - "src/ci_workflows/ciw_android.py"
+      - "tests/test_android_validation.py"
+      - "tests/test_android_workflow_contract.py"
+      - "tests/fixtures/android-validation/**"
+      - "docs/workflows/android.md"
+      - "docs/architecture/android-validation.md"
+      - "contracts/action-tool-lock.json"
+      - "contracts/bootstrap-public-workflows.json"
+      - "contracts/ciw-commands.json"
+      - "contracts/public-workflow-types.json"
+      - "contracts/public-workflows.json"
+      - "contracts/public-workflows/validation.json"
+      - "contracts/runner-profiles.json"
+      - "generated/runner-mappings.json"
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  toolchain-smoke:
+    name: Android mobile toolchain smoke
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    uses: ./.github/workflows/reusable-android.yml
+    with:
+      admitted_sha: ${{ github.event.pull_request.head.sha }}
+      validation_profile: toolchain-smoke
+      task_profile: central-toolchain-smoke
+      working_directory: tests/fixtures/android-validation/smoke-project
+      gradle_wrapper_path: gradlew
