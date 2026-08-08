@@ -10,10 +10,20 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class FlutterWorkflowContractTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.contract = json.loads((ROOT / "contracts/flutter-validation.json").read_text(encoding="utf-8"))
-        self.workflow = (ROOT / ".github/workflows/reusable-flutter.yml").read_text(encoding="utf-8")
-        self.smoke = (ROOT / ".github/workflows/flutter-validation-smoke.yml").read_text(encoding="utf-8")
-        self.action = (ROOT / "actions/validate-flutter/action.yml").read_text(encoding="utf-8")
+        self.contract = json.loads(
+            (ROOT / "contracts/flutter-validation.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.workflow = (
+            ROOT / ".github/workflows/reusable-flutter.yml"
+        ).read_text(encoding="utf-8")
+        self.smoke = (
+            ROOT / ".github/workflows/flutter-validation-smoke.yml"
+        ).read_text(encoding="utf-8")
+        self.action = (ROOT / "actions/validate-flutter/action.yml").read_text(
+            encoding="utf-8"
+        )
 
     def test_public_api_and_stable_check(self) -> None:
         self.assertEqual("validation.flutter", self.contract["workflow_api"])
@@ -24,60 +34,120 @@ class FlutterWorkflowContractTests(unittest.TestCase):
         self.assertIn("command_profile:", self.workflow)
         self.assertNotIn("consumer_contract:\n", self.workflow)
         expected_inputs = {
-            "admitted_sha", "artifact_exception_id", "command_profile",
-            "platform", "script_path", "validation_profile",
-            "version_file", "working_directory",
+            "admitted_sha",
+            "artifact_exception_id",
+            "command_profile",
+            "platform",
+            "script_path",
+            "validation_profile",
+            "version_file",
+            "working_directory",
         }
         block = self.workflow.split("inputs:", 1)[1].split("outputs:", 1)[0]
         actual_inputs = set(re.findall(r"^      ([a-z_]+):$", block, re.M))
         self.assertEqual(expected_inputs, actual_inputs)
-        output_block = self.workflow.split("outputs:", 1)[1].split("permissions:", 1)[0]
-        actual_outputs = set(re.findall(r"^      ([a-z_]+):$", output_block, re.M))
-        self.assertEqual({"result", "test_summary", "artifact_exception_used"}, actual_outputs)
+        output_block = self.workflow.split("outputs:", 1)[1].split(
+            "permissions:", 1
+        )[0]
+        actual_outputs = set(
+            re.findall(r"^      ([a-z_]+):$", output_block, re.M)
+        )
+        self.assertEqual(
+            {"result", "test_summary", "artifact_exception_used"},
+            actual_outputs,
+        )
 
-    def test_semantic_runner_separation(self) -> None:
-        for runner in ("portable", "mobile", "apple"):
-            self.assertRegex(self.workflow, rf"runs-on:\s*{runner}\b")
-        for forbidden in ("self-hosted", "macos-latest", "ubuntu-latest", "windows-latest"):
-            self.assertNotIn(forbidden, self.workflow)
+    def test_semantic_runner_separation_uses_trusted_resolver(self) -> None:
+        self.assertIn("runs-on: portable", self.workflow)
+        self.assertGreaterEqual(
+            self.workflow.count(
+                "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}"
+            ),
+            3,
+        )
+        self.assertIn("runs_on_json: ${{ steps.plan.outputs.runs_on_json }}", self.workflow)
+        self.assertIn("android_plan:", self.smoke)
+        self.assertIn("ios_plan:", self.smoke)
+        self.assertIn(
+            "runs-on: ${{ fromJSON(needs.android_plan.outputs.runs_on_json) }}",
+            self.smoke,
+        )
+        self.assertIn(
+            "runs-on: ${{ fromJSON(needs.ios_plan.outputs.runs_on_json) }}",
+            self.smoke,
+        )
+        for forbidden in (
+            "runs-on: self-hosted",
+            "runs-on: macos-latest",
+            "runs-on: ubuntu-latest",
+            "runs-on: windows-latest",
+        ):
+            self.assertNotIn(forbidden, self.workflow + self.smoke)
         self.assertIn("needs.plan.outputs.runner_profile == 'mobile'", self.workflow)
         self.assertIn("needs.plan.outputs.runner_profile == 'apple'", self.workflow)
         self.assertIn("needs.plan.outputs.runner_profile == 'portable'", self.workflow)
 
     def test_action_and_tool_setup_are_full_sha_pinned(self) -> None:
-        uses = re.findall(r"uses:\s*([^\s#]+)", self.workflow + "\n" + self.smoke)
+        uses = re.findall(
+            r"uses:\s*([^\s#]+)", self.workflow + "\n" + self.smoke
+        )
         for value in uses:
             if value.startswith("./"):
                 continue
             self.assertRegex(value, r"@[0-9a-f]{40}$", value)
-        self.assertRegex(self.contract["setup"]["action"], r"@[0-9a-f]{40}$")
+        self.assertRegex(
+            self.contract["setup"]["action"], r"@[0-9a-f]{40}$"
+        )
         self.assertIn(self.contract["setup"]["action"], self.workflow)
+
+    def test_setup_and_pub_caches_are_marker_bound(self) -> None:
+        for text in (self.workflow, self.smoke):
+            self.assertIn("cache-path:", text)
+            self.assertIn("pub-cache-path:", text)
+            self.assertIn("env.CI_TOOL_ROOT", text)
+            self.assertIn("env.HOME", text)
+            self.assertNotIn("RUNNER_TOOL_CACHE", text)
 
     def test_no_artifact_secret_signing_or_device_paths(self) -> None:
         text = (self.workflow + "\n" + self.smoke + "\n" + self.action).lower()
         for forbidden in (
-            "upload-artifact", "download-artifact", "secrets.", "workflow_dispatch",
-            "keychain", "testflight", "app store", "notarization",
-            "runner_labels", "registry", "deployment",
+            "upload-artifact",
+            "download-artifact",
+            "secrets.",
+            "workflow_dispatch",
+            "keychain",
+            "testflight",
+            "app store",
+            "notarization",
+            "runner_labels",
+            "registry",
+            "deployment",
         ):
             self.assertNotIn(forbidden, text)
         self.assertIn("--no-codesign", json.dumps(self.contract))
         self.assertIn("artifact_exception_used", self.action)
 
     def test_plan_precedes_execution_and_cleanup_is_always(self) -> None:
-        self.assertLess(self.workflow.index("jobs:\n  plan:"), self.workflow.index("  mobile:"))
+        self.assertLess(
+            self.workflow.index("jobs:\n  plan:"),
+            self.workflow.index("  mobile:"),
+        )
         self.assertIn("if: always()", self.workflow)
         self.assertIn("phase: cleanup", self.workflow)
         self.assertIn("phase: residue", self.workflow)
         self.assertIn("persist-credentials: false", self.workflow)
         self.assertIn("github.workflow_sha", self.workflow)
 
-    def test_smoke_has_portable_mobile_and_apple_real_paths(self) -> None:
+    def test_smoke_has_portable_focused_mobile_and_apple_paths(self) -> None:
         self.assertIn("source-audit", self.smoke)
+        self.assertIn("focused_tests:", self.smoke)
         self.assertIn("android-debug", self.smoke)
         self.assertIn("ios-simulator", self.smoke)
         self.assertIn("flutter create", self.smoke)
-        self.assertIn("routine flutter actions artifacts verified: zero", self.smoke.lower())
+        self.assertIn(
+            "routine flutter actions artifacts verified: zero",
+            self.smoke.lower(),
+        )
         self.assertIn("jobs:\n  source_audit:", self.smoke)
         self.assertIn("  zero_artifacts:", self.smoke)
         self.assertNotIn("  source-audit:", self.smoke)

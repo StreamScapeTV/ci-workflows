@@ -61,6 +61,7 @@ jobs:
     timeout-minutes: 10
     outputs:
       runner_profile: ${{ steps.plan.outputs.runner_profile }}
+      runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
       workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
       timeout_minutes: ${{ steps.plan.outputs.timeout_minutes }}
       source_trust: ${{ steps.plan.outputs.source_trust }}
@@ -106,7 +107,7 @@ jobs:
     name: Execute portable Flutter source or handoff validation
     needs: plan
     if: ${{ needs.plan.outputs.runner_profile == 'portable' }}
-    runs-on: portable
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
     timeout-minutes: 30
     outputs:
       result: ${{ steps.execute.outputs.result }}
@@ -195,7 +196,7 @@ jobs:
     name: Execute mobile Flutter quality or Android validation
     needs: plan
     if: ${{ needs.plan.outputs.runner_profile == 'mobile' }}
-    runs-on: mobile
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
     timeout-minutes: 100
     outputs:
       result: ${{ steps.execute.outputs.result }}
@@ -291,7 +292,7 @@ jobs:
     name: Execute Apple Flutter iOS simulator validation
     needs: plan
     if: ${{ needs.plan.outputs.runner_profile == 'apple' }}
-    runs-on: apple
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
     timeout-minutes: 100
     outputs:
       result: ${{ steps.execute.outputs.result }}

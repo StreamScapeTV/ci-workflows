@@ -140,9 +140,44 @@ jobs:
             test -z "$(git status --porcelain --untracked-files=all)"
           )
 
+  android_plan:
+    name: Resolve Flutter mobile smoke selector
+    runs-on: portable
+    timeout-minutes: 10
+    outputs:
+      runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
+    steps:
+      - name: Check out exact pull request source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+      - name: Verify exact pull request source
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -Eeuo pipefail
+          (cd .ciw && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
+      - id: plan
+        name: Resolve contract-owned mobile selector
+        uses: ./.ciw/actions/validate-flutter
+        with:
+          phase: plan
+          admitted_sha: ${{ github.event.pull_request.head.sha }}
+          validation_profile: android-debug
+          command_profile: synthetic-smoke
+          platform: android
+          source_trust: trusted-pr
+
   android:
     name: Flutter mobile Android debug smoke
-    runs-on: mobile
+    needs: android_plan
+    runs-on: ${{ fromJSON(needs.android_plan.outputs.runs_on_json) }}
     timeout-minutes: 100
     steps:
       - name: Check out exact pull request source
@@ -218,9 +253,44 @@ jobs:
         if: always()
         uses: ./.ciw/actions/cleanup-workspace
 
+  ios_plan:
+    name: Resolve Flutter Apple smoke selector
+    runs-on: portable
+    timeout-minutes: 10
+    outputs:
+      runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
+    steps:
+      - name: Check out exact pull request source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+      - name: Verify exact pull request source
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -Eeuo pipefail
+          (cd .ciw && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
+      - id: plan
+        name: Resolve contract-owned Apple selector
+        uses: ./.ciw/actions/validate-flutter
+        with:
+          phase: plan
+          admitted_sha: ${{ github.event.pull_request.head.sha }}
+          validation_profile: ios-simulator
+          command_profile: synthetic-smoke
+          platform: ios-simulator
+          source_trust: trusted-pr
+
   ios:
     name: Flutter Apple iOS simulator smoke
-    runs-on: apple
+    needs: ios_plan
+    runs-on: ${{ fromJSON(needs.ios_plan.outputs.runs_on_json) }}
     timeout-minutes: 100
     steps:
       - name: Check out exact pull request source

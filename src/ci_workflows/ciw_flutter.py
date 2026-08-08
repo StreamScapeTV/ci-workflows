@@ -12,7 +12,7 @@ from . import flutter as flutter_validation
 
 try:
     from . import runners
-    from .ciw_types import CIWContext, CIWResult, write_command_file
+    from .ciw_types import CIWContext, CIWResult
     from .workspace import resolve_state_root
 except ImportError:  # pragma: no cover - standalone fixture use
     CIWContext = object  # type: ignore[assignment,misc]
@@ -20,13 +20,19 @@ except ImportError:  # pragma: no cover - standalone fixture use
 
 
 def configure_flutter_validate(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--phase", choices=("plan", "execute", "cleanup", "residue"), default="execute")
+    parser.add_argument(
+        "--phase",
+        choices=("plan", "execute", "cleanup", "residue"),
+        default="execute",
+    )
     parser.add_argument("--source-root", default="source")
 
 
 def _resolved_state_root(root: Path, environment: Mapping[str, str]) -> Path:
     runner_temp = Path(environment.get("RUNNER_TEMP", root / ".validation-state"))
-    declared = environment.get("CI_WORKFLOW_ROOT", str(runner_temp / "ciw-flutter"))
+    declared = environment.get(
+        "CI_WORKFLOW_ROOT", str(runner_temp / "ciw-flutter")
+    )
     state_id = environment.get("CI_WORKFLOW_STATE_ID", "flutter-validation")
     try:
         resolver = resolve_state_root  # type: ignore[name-defined]
@@ -50,7 +56,9 @@ def _resolved_state_root(root: Path, environment: Mapping[str, str]) -> Path:
 def _standalone_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
-    parser.add_argument("command", choices=("plan", "execute", "cleanup", "residue"))
+    parser.add_argument(
+        "command", choices=("plan", "execute", "cleanup", "residue")
+    )
     parser.add_argument("--source-root", default="source")
     parser.add_argument("--output")
     return parser
@@ -62,6 +70,27 @@ def _write_outputs(values: Mapping[str, str], target: str | None) -> None:
             for key, value in sorted(values.items()):
                 handle.write(f"{key}={value}\n")
     print(json.dumps(dict(values), sort_keys=True, separators=(",", ":")))
+
+
+def _planning_outputs(
+    root: Path,
+    plan: flutter_validation.FlutterPlan,
+    request: flutter_validation.FlutterRequest,
+) -> dict[str, str]:
+    try:
+        resolved = runners.resolve_runner_profile(
+            runners.load_runner_contract(root),
+            workflow_api="validation.flutter",
+            source_trust=request.source_trust,
+            requested_profile=plan.runner_profile.value,
+        )
+    except runners.RunnerContractError as error:
+        raise flutter_validation.FlutterValidationError(
+            "platform_runner_mismatch"
+        ) from error
+    outputs = plan.planning_outputs()
+    outputs["runs_on_json"] = resolved.as_dict()["runs_on_json"]
+    return outputs
 
 
 def standalone_main(argv: Sequence[str] | None = None) -> int:
@@ -83,7 +112,9 @@ def standalone_main(argv: Sequence[str] | None = None) -> int:
             flutter_validation.assert_zero_flutter_residue(source, state)
             values = {"cleanup_result": "success", "failure_code": ""}
         else:
-            request = flutter_validation.request_from_environment(os.environ, contract)
+            request = flutter_validation.request_from_environment(
+                os.environ, contract
+            )
             result = flutter_validation.validate(
                 contract_root=root,
                 source_root=None if args.command == "plan" else source,
@@ -93,7 +124,7 @@ def standalone_main(argv: Sequence[str] | None = None) -> int:
                 environment=os.environ,
             )
             values = (
-                result.planning_outputs()
+                _planning_outputs(root, result, request)
                 if isinstance(result, flutter_validation.FlutterPlan)
                 else result.output_values()
             )
@@ -107,13 +138,21 @@ def standalone_main(argv: Sequence[str] | None = None) -> int:
         return 1
 
 
-def execute_flutter_validate(args: argparse.Namespace, context: "CIWContext") -> "CIWResult":
+def execute_flutter_validate(
+    args: argparse.Namespace, context: "CIWContext"
+) -> "CIWResult":
     contract = flutter_validation.load_flutter_contract(context.root)
-    request = flutter_validation.request_from_environment(context.environment, contract)
-    state = None if args.phase == "plan" else _resolved_state_root(
-        context.root, context.environment
+    request = flutter_validation.request_from_environment(
+        context.environment, contract
     )
-    workspace = Path(context.environment.get("GITHUB_WORKSPACE", ".")).resolve()
+    state = (
+        None
+        if args.phase == "plan"
+        else _resolved_state_root(context.root, context.environment)
+    )
+    workspace = Path(
+        context.environment.get("GITHUB_WORKSPACE", ".")
+    ).resolve()
     source = flutter_validation.bounded_path(
         workspace, flutter_validation.safe_relative(args.source_root)
     )
@@ -121,14 +160,16 @@ def execute_flutter_validate(args: argparse.Namespace, context: "CIWContext") ->
         assert state is not None
         flutter_validation.cleanup_flutter_state(source, state)
         return CIWResult(
-            "flutter", "validate",
+            "flutter",
+            "validate",
             outputs={"cleanup_result": "success", "failure_code": ""},
         )
     if args.phase == "residue":
         assert state is not None
         flutter_validation.assert_zero_flutter_residue(source, state)
         return CIWResult(
-            "flutter", "validate",
+            "flutter",
+            "validate",
             outputs={"cleanup_result": "success", "failure_code": ""},
         )
     result = flutter_validation.validate(
@@ -140,16 +181,14 @@ def execute_flutter_validate(args: argparse.Namespace, context: "CIWContext") ->
         environment=context.environment,
     )
     if isinstance(result, flutter_validation.FlutterPlan):
-        resolved = runners.resolve_runner_profile(
-            runners.load_runner_contract(context.root),
-            workflow_api="validation.flutter",
-            source_trust=request.source_trust,
-            requested_profile=result.runner_profile.value,
+        return CIWResult(
+            "flutter",
+            "validate",
+            outputs=_planning_outputs(context.root, result, request),
         )
-        outputs = result.planning_outputs()
-        outputs["runs_on_json"] = resolved.as_dict()["runs_on_json"]
-        return CIWResult("flutter", "validate", outputs=outputs)
-    return CIWResult("flutter", "validate", outputs=result.output_values())
+    return CIWResult(
+        "flutter", "validate", outputs=result.output_values()
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
