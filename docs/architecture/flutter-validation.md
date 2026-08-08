@@ -62,7 +62,9 @@ pin, manifest, tracked source, or undeclared residue fails the result.
 
 The workflow has explicit jobs for `portable`, `mobile`, and `apple`. The plan
 selects a semantic capability; no expression derived from caller text becomes a
-runner label.
+runner label. Every dynamically scheduled job consumes exactly the reviewed
+`runs_on_json` planner output through
+`${{ fromJSON(needs.plan.outputs.runs_on_json) }}`.
 
 - `portable` never installs Flutter and handles source audit or device handoff.
 - `mobile` handles quality, canonical gates, Android debug, and compatibility.
@@ -72,6 +74,23 @@ Android commands contain `--debug`, never release or publication flags. iOS
 commands contain `--simulator`, debug/unsigned flags, and never use a keychain,
 signing identity, provisioning profile, store credential, TestFlight,
 notarization, or a physical device.
+
+## Exact smoke topology
+
+Exact-head smoke proof is deliberately split across two direct pull-request
+workflows. `.github/workflows/flutter-validation-smoke.yml` owns portable
+source audit, focused tests, and mobile Android execution.
+`.github/workflows/flutter-apple-validation-smoke.yml` owns Apple simulator
+execution. Each workflow has one job named `plan` and one dynamically scheduled
+execution job, so both jobs consume the exact trusted planner output without
+reconstructing labels or exceeding the reviewed reusable-workflow depth.
+
+The smoke workflows create disposable product-neutral Flutter projects only
+after exact central checkout and immutable runtime setup. The initial plain
+`flutter pub get` creates the disposable fixture lock; the validator then runs
+the contract-owned `flutter pub get --enforce-lockfile` command and verifies the
+lock does not change. Build products, dependency state, workspace state, and
+routine Actions artifacts are removed or required to remain zero.
 
 ## State and evidence
 
@@ -92,5 +111,5 @@ runner. They cover exact pins, FVM parsing, agreement and mismatch, malformed
 and ranged values, symlink and traversal rejection, Flutter/Dart mismatch,
 lock mutation, stage order, checked-in gates, Android/iOS boundaries, Node
 composition, command failures, dirty source, residue, forbidden caller inputs,
-deterministic results, full-SHA action pins, semantic workflow jobs, and real
-mobile/Apple smoke definitions.
+deterministic results, full-SHA action pins, semantic workflow jobs, independent
+trusted mobile/Apple selectors, and real mobile/Apple smoke definitions.
