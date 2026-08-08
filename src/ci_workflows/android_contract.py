@@ -170,7 +170,7 @@ def load_android_contract(root: Path) -> Mapping[str, Any]:
     toolchain = contract.get("toolchain")
     require(isinstance(toolchain, Mapping), "toolchain_mismatch")
     require((toolchain.get("java_major"), toolchain.get("javac_major"), toolchain.get("android_api"), toolchain.get("command_line_tools_version"), toolchain.get("build_tools_version"), toolchain.get("locale"), toolchain.get("gradle_daemon")) == (25, 25, 37, "14742923", "37.0.0", "C.UTF-8", False), "toolchain_mismatch")
-    require(strings(toolchain.get("packages"), nonempty=True) == ["platform-tools", "platforms;android-37.0", "build-tools;37.0.0"], "sdk_package_missing")
+    require(strings(toolchain.get("packages"), nonempty=True) == ["platform-tools", "platforms;android-37", "build-tools;37.0.0"], "sdk_package_missing")
     profiles = contract.get("profiles")
     require(isinstance(profiles, Mapping) and set(profiles) == PROFILES, "unsupported_profile")
     for name, profile in profiles.items():
