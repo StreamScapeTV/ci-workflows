@@ -54,7 +54,14 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             "private_dependency_contract_id", "private_dependency_sha",
             "artifact_exception_id", "device_family", "device_request_id",
         })
-        self.assertEqual(smoke["jobs"]["toolchain-smoke"]["uses"], "./.github/workflows/reusable-android.yml")
+        self.assertEqual(set(smoke["jobs"]), {"plan_android", "execute_android"})
+        self.assertEqual(smoke["jobs"]["plan_android"]["runs-on"], "portable")
+        self.assertEqual(smoke["jobs"]["plan_android"]["timeout-minutes"], 10)
+        self.assertEqual(smoke["jobs"]["execute_android"]["timeout-minutes"], 30)
+        self.assertIn(
+            "fromJSON(needs.plan_android.outputs.runs_on_json)",
+            smoke["jobs"]["execute_android"]["runs-on"],
+        )
         self.assertEqual(action["runs"]["using"], "composite")
         self.assertNotIn("workflow_dispatch", reusable[True])
 
@@ -68,6 +75,16 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("runs-on: mobile", self.reusable)
         for forbidden in ("macos-latest", "ubuntu-latest", "buildah", "apple-", "docker"):
             self.assertNotIn(forbidden, self.reusable.casefold())
+
+    def test_smoke_is_direct_mobile_plan_execute_not_nested_reuse(self) -> None:
+        self.assertNotIn("./.github/workflows/reusable-android.yml", self.smoke)
+        self.assertGreaterEqual(self.smoke.count("uses: ./.ciw/actions/validate-android"), 4)
+        self.assertIn("Admit same-repository trusted pull request source", self.smoke)
+        self.assertIn("Check out exact admitted smoke source", self.smoke)
+        self.assertIn("Verify zero Actions artifacts", self.smoke)
+        self.assertIn("Project terminal Android smoke status", self.smoke)
+        self.assertNotIn("adb ", self.smoke.casefold())
+        self.assertNotIn("physical-device", self.smoke.casefold())
 
     def test_workflow_is_orchestration_only(self) -> None:
         for forbidden in ("gradlew ", "sdkmanager ", "adb ", "jib", "keystore", "play store", "helm "):
@@ -176,7 +193,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             self.assertEqual(failure.exception.code, "private_dependency_rejected")
         self.assertIn("remotes_erased", self.action)
         self.assertIn("credentials_erased", self.action)
-        self.assertIn("private_dependency_read_token", self.reusable)
+        self.assertIn("private_dependency_token", self.reusable)
 
     def test_debug_unsigned_output_and_aab_rejection(self) -> None:
         request = dict(self.cases["positive"][1]["environment"])
