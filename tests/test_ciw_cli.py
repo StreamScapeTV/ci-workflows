@@ -108,6 +108,52 @@ class CIWCLITests(unittest.TestCase):
             self.assertEqual(values["artifact_exception_used"], "false")
             self.assertNotIn("callback", output.read_text(encoding="utf-8"))
 
+    def test_node_plan_dispatch_resolves_exact_runtime_and_portable_runner(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "output"
+            environment = {
+                "GITHUB_OUTPUT": str(output),
+                "GITHUB_REPOSITORY": "StreamScapeTV/StreamScapeWeb",
+                "GITHUB_EVENT_NAME": "push",
+                "INPUT_ADMITTED_SHA": "b" * 40,
+                "INPUT_VALIDATION_PROFILE": "locked-node",
+                "INPUT_VERSION_FILE": ".nvmrc",
+                "INPUT_WORKING_DIRECTORY": ".",
+                "INPUT_INSTALL_PROFILE": "npm-ci",
+                "INPUT_COMMAND_PROFILE": "quality-test",
+                "INPUT_PUBLIC_ENVIRONMENT": "{}",
+            }
+            errors = io.StringIO()
+            code = ciw.main(
+                [
+                    "--root",
+                    str(ROOT),
+                    "node",
+                    "validate",
+                    "--phase",
+                    "plan",
+                ],
+                environment=environment,
+                stdout=io.StringIO(),
+                stderr=errors,
+            )
+            self.assertEqual(0, code, errors.getvalue())
+            values = dict(
+                line.split("=", 1)
+                for line in output.read_text(encoding="utf-8").splitlines()
+            )
+            self.assertEqual(values["result"], "planned")
+            self.assertEqual(values["node_version"], "22.18.0")
+            self.assertEqual(values["runner_profile"], "portable")
+            self.assertEqual(
+                values["runs_on_json"],
+                '["homelab-portable-linux-x64"]',
+            )
+            self.assertEqual(values["artifact_exception_used"], "false")
+            serialized = output.read_text(encoding="utf-8")
+            self.assertNotIn("NEXT_PUBLIC", serialized)
+            self.assertNotIn("callback", serialized)
+
     def test_exact_checkout_dispatch_preserves_action_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "output"
@@ -237,13 +283,14 @@ class CIWCLITests(unittest.TestCase):
                 dispatch.call_args.args[0],
             )
 
-    def test_scripts_and_ten_actions_are_compatibility_delegates(self) -> None:
+    def test_scripts_and_eleven_actions_are_compatibility_delegates(self) -> None:
         for script in (
             "scripts/ci/resolve_source.py",
             "scripts/ci/runner_contract.py",
             "scripts/ci/foundation.py",
             "scripts/ci/release_tag_authority.py",
             "scripts/ci/python.py",
+            "scripts/ci/node.py",
         ):
             source = (ROOT / script).read_text(encoding="utf-8")
             self.assertTrue(
@@ -251,7 +298,7 @@ class CIWCLITests(unittest.TestCase):
                 script,
             )
         actions = sorted((ROOT / "actions").glob("*/action.yml"))
-        self.assertEqual(10, len(actions))
+        self.assertEqual(11, len(actions))
         for action in actions:
             source = action.read_text(encoding="utf-8")
             self.assertIn("scripts/ci/ciw.py", source, action.as_posix())
