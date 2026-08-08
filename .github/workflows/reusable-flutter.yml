@@ -1,0 +1,255 @@
+name: Reusable Flutter validation
+
+on:
+  workflow_call:
+    inputs:
+      admitted_sha:
+        description: Exact lowercase source SHA admitted by source.resolve
+        required: true
+        type: string
+      consumer_contract:
+        description: Reviewed product-neutral Flutter consumer contract identifier
+        required: true
+        type: string
+      validation_profile:
+        description: Bounded Flutter validation profile
+        required: true
+        type: string
+      source_trust:
+        description: Exact admitted source trust class
+        required: false
+        default: trusted-pr
+        type: string
+    outputs:
+      result:
+        description: Success only after selected semantic runner validation and cleanup
+        value: ${{ jobs.validate.outputs.result }}
+      flutter_version:
+        description: Exact verified Flutter version
+        value: ${{ jobs.validate.outputs.flutter_version }}
+      dart_version:
+        description: Exact verified compatible Dart version
+        value: ${{ jobs.validate.outputs.dart_version }}
+      evidence_id:
+        description: Deterministic bounded evidence identity
+        value: ${{ jobs.validate.outputs.evidence_id }}
+      device_handoff_json:
+        description: Bounded deferred packet for the future physical-device API
+        value: ${{ jobs.validate.outputs.device_handoff_json }}
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Resolve bounded Flutter validation plan
+    runs-on: portable
+    timeout-minutes: 10
+    outputs:
+      runner_profile: ${{ steps.plan.outputs.runner_profile }}
+      workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
+      timeout_minutes: ${{ steps.plan.outputs.timeout_minutes }}
+      source_trust: ${{ steps.plan.outputs.source_trust }}
+      flutter_version: ${{ steps.plan.outputs.flutter_version }}
+      dart_version: ${{ steps.plan.outputs.dart_version }}
+      install_required: ${{ steps.plan.outputs.install_required }}
+      node_composition: ${{ steps.plan.outputs.node_composition }}
+    steps:
+      - name: Check out exact central workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact central workflow source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C .ciw rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
+
+      - id: plan
+        name: Resolve contract-owned Flutter plan
+        uses: ./.ciw/actions/validate-flutter
+        with:
+          phase: plan
+          admitted_sha: ${{ inputs.admitted_sha }}
+          consumer_contract: ${{ inputs.consumer_contract }}
+          validation_profile: ${{ inputs.validation_profile }}
+          source_trust: ${{ inputs.source_trust }}
+
+  portable:
+    name: Execute portable Flutter source or handoff validation
+    needs: plan
+    if: ${{ needs.plan.outputs.runner_profile == 'portable' }}
+    runs-on: portable
+    timeout-minutes: 30
+    outputs:
+      result: ${{ steps.execute.outputs.result }}
+      flutter_version: ${{ steps.execute.outputs.flutter_version }}
+      dart_version: ${{ steps.execute.outputs.dart_version }}
+      evidence_id: ${{ steps.execute.outputs.evidence_id }}
+      device_handoff_json: ${{ steps.execute.outputs.device_handoff_json }}
+    steps:
+      - &central-checkout
+        name: Check out exact central workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+      - &source-checkout
+        name: Check out exact admitted caller source
+        uses: ./.ciw/actions/exact-checkout
+        with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          admitted_sha: ${{ inputs.admitted_sha }}
+          path: source
+          fetch_depth: "1"
+      - &workspace
+        id: workspace
+        name: Prepare isolated Flutter state
+        uses: ./.ciw/actions/prepare-workspace
+        with:
+          profile: ${{ needs.plan.outputs.workspace_profile }}
+          cache_mode: disabled
+          source_sha: ${{ inputs.admitted_sha }}
+          trust_mode: ${{ needs.plan.outputs.source_trust }}
+      - &execute
+        id: execute
+        name: Execute bounded Flutter validation
+        uses: ./.ciw/actions/validate-flutter
+        with:
+          phase: execute
+          admitted_sha: ${{ inputs.admitted_sha }}
+          consumer_contract: ${{ inputs.consumer_contract }}
+          validation_profile: ${{ inputs.validation_profile }}
+          source_trust: ${{ inputs.source_trust }}
+      - &flutter-cleanup
+        name: Remove Flutter-specific state
+        if: always()
+        uses: ./.ciw/actions/validate-flutter
+        with:
+          phase: cleanup
+          admitted_sha: ${{ inputs.admitted_sha }}
+          consumer_contract: ${{ inputs.consumer_contract }}
+          validation_profile: ${{ inputs.validation_profile }}
+          source_trust: ${{ inputs.source_trust }}
+      - &flutter-residue
+        name: Verify zero Flutter-specific residue
+        if: always()
+        uses: ./.ciw/actions/validate-flutter
+        with:
+          phase: residue
+          admitted_sha: ${{ inputs.admitted_sha }}
+          consumer_contract: ${{ inputs.consumer_contract }}
+          validation_profile: ${{ inputs.validation_profile }}
+          source_trust: ${{ inputs.source_trust }}
+      - &workspace-cleanup
+        name: Remove and verify all registered workflow state
+        if: always()
+        uses: ./.ciw/actions/cleanup-workspace
+
+  mobile:
+    name: Execute mobile Flutter quality or Android validation
+    needs: plan
+    if: ${{ needs.plan.outputs.runner_profile == 'mobile' }}
+    runs-on: mobile
+    timeout-minutes: 100
+    outputs:
+      result: ${{ steps.execute.outputs.result }}
+      flutter_version: ${{ steps.execute.outputs.flutter_version }}
+      dart_version: ${{ steps.execute.outputs.dart_version }}
+      evidence_id: ${{ steps.execute.outputs.evidence_id }}
+      device_handoff_json: ${{ steps.execute.outputs.device_handoff_json }}
+    steps:
+      - *central-checkout
+      - *source-checkout
+      - *workspace
+      - name: Set up exact immutable Flutter runtime
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: ${{ needs.plan.outputs.flutter_version }}
+          cache: false
+      - *execute
+      - *flutter-cleanup
+      - *flutter-residue
+      - *workspace-cleanup
+
+  apple:
+    name: Execute Apple Flutter iOS simulator validation
+    needs: plan
+    if: ${{ needs.plan.outputs.runner_profile == 'apple' }}
+    runs-on: apple
+    timeout-minutes: 100
+    outputs:
+      result: ${{ steps.execute.outputs.result }}
+      flutter_version: ${{ steps.execute.outputs.flutter_version }}
+      dart_version: ${{ steps.execute.outputs.dart_version }}
+      evidence_id: ${{ steps.execute.outputs.evidence_id }}
+      device_handoff_json: ${{ steps.execute.outputs.device_handoff_json }}
+    steps:
+      - *central-checkout
+      - *source-checkout
+      - *workspace
+      - name: Set up exact immutable Flutter runtime
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: ${{ needs.plan.outputs.flutter_version }}
+          cache: false
+      - *execute
+      - *flutter-cleanup
+      - *flutter-residue
+      - *workspace-cleanup
+
+  validate:
+    name: CI / Flutter validation
+    needs: [plan, portable, mobile, apple]
+    if: always()
+    runs-on: portable
+    timeout-minutes: 10
+    outputs:
+      result: ${{ steps.result.outputs.result }}
+      flutter_version: ${{ steps.result.outputs.flutter_version }}
+      dart_version: ${{ steps.result.outputs.dart_version }}
+      evidence_id: ${{ steps.result.outputs.evidence_id }}
+      device_handoff_json: ${{ steps.result.outputs.device_handoff_json }}
+    steps:
+      - id: result
+        name: Require selected semantic execution and zero skipped-path authority
+        env:
+          SELECTED: ${{ needs.plan.outputs.runner_profile }}
+          PORTABLE_RESULT: ${{ needs.portable.result }}
+          MOBILE_RESULT: ${{ needs.mobile.result }}
+          APPLE_RESULT: ${{ needs.apple.result }}
+          PORTABLE_STATUS: ${{ needs.portable.outputs.result }}
+          MOBILE_STATUS: ${{ needs.mobile.outputs.result }}
+          APPLE_STATUS: ${{ needs.apple.outputs.result }}
+          FLUTTER_VERSION: ${{ needs.portable.outputs.flutter_version || needs.mobile.outputs.flutter_version || needs.apple.outputs.flutter_version }}
+          DART_VERSION: ${{ needs.portable.outputs.dart_version || needs.mobile.outputs.dart_version || needs.apple.outputs.dart_version }}
+          EVIDENCE_ID: ${{ needs.portable.outputs.evidence_id || needs.mobile.outputs.evidence_id || needs.apple.outputs.evidence_id }}
+          DEVICE_HANDOFF_JSON: ${{ needs.portable.outputs.device_handoff_json || needs.mobile.outputs.device_handoff_json || needs.apple.outputs.device_handoff_json }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          case "$SELECTED" in
+            portable) test "$PORTABLE_RESULT" = success; test "$PORTABLE_STATUS" = success ;;
+            mobile) test "$MOBILE_RESULT" = success; test "$MOBILE_STATUS" = success ;;
+            apple) test "$APPLE_RESULT" = success; test "$APPLE_STATUS" = success ;;
+            *) exit 1 ;;
+          esac
+          {
+            echo "result=success"
+            echo "flutter_version=$FLUTTER_VERSION"
+            echo "dart_version=$DART_VERSION"
+            echo "evidence_id=$EVIDENCE_ID"
+            echo "device_handoff_json=$DEVICE_HANDOFF_JSON"
+          } >> "$GITHUB_OUTPUT"

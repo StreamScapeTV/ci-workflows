@@ -1,0 +1,168 @@
+name: Flutter validation smoke
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+    paths:
+      - ".github/workflows/reusable-flutter.yml"
+      - ".github/workflows/flutter-validation-smoke.yml"
+      - "actions/validate-flutter/**"
+      - "contracts/flutter-validation.json"
+      - "scripts/ci/flutter.py"
+      - "src/ci_workflows/flutter*.py"
+      - "src/ci_workflows/ciw_flutter.py"
+      - "tests/fixtures/flutter-validation/**"
+      - "tests/test_flutter_validation.py"
+      - "tests/test_flutter_workflow_contract.py"
+      - "docs/workflows/flutter.md"
+      - "docs/architecture/flutter-validation.md"
+
+permissions:
+  contents: read
+
+jobs:
+  source-audit:
+    name: Flutter portable source-audit smoke
+    runs-on: portable
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact pull request source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+      - name: Prepare synthetic source without installing Flutter
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cp -R .ciw/tests/fixtures/flutter-validation/smoke source
+      - name: Prepare isolated state
+        uses: ./.ciw/actions/prepare-workspace
+        with:
+          profile: minimal
+          cache_mode: disabled
+          source_sha: ${{ github.event.pull_request.head.sha }}
+          trust_mode: trusted-pr
+      - name: Execute no-install source audit
+        uses: ./.ciw/actions/validate-flutter
+        with:
+          phase: execute
+          admitted_sha: ${{ github.event.pull_request.head.sha }}
+          consumer_contract: synthetic-smoke
+          validation_profile: source-audit
+          source_trust: trusted-pr
+      - name: Cleanup source audit
+        if: always()
+        uses: ./.ciw/actions/cleanup-workspace
+
+  android:
+    name: Flutter mobile Android debug smoke
+    runs-on: mobile
+    timeout-minutes: 100
+    steps:
+      - name: Check out exact pull request source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+      - name: Set up exact smoke Flutter runtime
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: "3.41.4"
+          cache: false
+      - name: Create disposable contract-owned Android smoke source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          flutter create --platforms=android --project-name ciw_flutter_smoke source
+          test -f source/pubspec.lock
+      - name: Prepare isolated Android smoke state
+        uses: ./.ciw/actions/prepare-workspace
+        with:
+          profile: flutter-android
+          cache_mode: disabled
+          source_sha: ${{ github.event.pull_request.head.sha }}
+          trust_mode: trusted-pr
+      - name: Execute real Android debug smoke
+        uses: ./.ciw/actions/validate-flutter
+        with:
+          phase: execute
+          admitted_sha: ${{ github.event.pull_request.head.sha }}
+          consumer_contract: synthetic-smoke
+          validation_profile: android-debug
+          source_trust: trusted-pr
+      - name: Remove all Android smoke state
+        if: always()
+        uses: ./.ciw/actions/cleanup-workspace
+
+  ios:
+    name: Flutter Apple iOS simulator smoke
+    runs-on: apple
+    timeout-minutes: 100
+    steps:
+      - name: Check out exact pull request source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+      - name: Set up exact smoke Flutter runtime
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: "3.41.4"
+          cache: false
+      - name: Create disposable contract-owned iOS smoke source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          flutter create --platforms=ios --project-name ciw_flutter_smoke source
+          test -f source/pubspec.lock
+      - name: Prepare isolated Apple smoke state
+        uses: ./.ciw/actions/prepare-workspace
+        with:
+          profile: flutter-apple
+          cache_mode: disabled
+          source_sha: ${{ github.event.pull_request.head.sha }}
+          trust_mode: trusted-pr
+      - name: Execute real unsigned iOS simulator smoke
+        uses: ./.ciw/actions/validate-flutter
+        with:
+          phase: execute
+          admitted_sha: ${{ github.event.pull_request.head.sha }}
+          consumer_contract: synthetic-smoke
+          validation_profile: ios-simulator
+          source_trust: trusted-pr
+      - name: Remove all Apple smoke state
+        if: always()
+        uses: ./.ciw/actions/cleanup-workspace
+
+  zero-artifacts:
+    name: Verify routine artifacts remain zero
+    needs: [source-audit, android, ios]
+    if: always()
+    runs-on: portable
+    steps:
+      - name: Require all smoke paths and zero upload actions
+        env:
+          SOURCE_RESULT: ${{ needs.source-audit.result }}
+          ANDROID_RESULT: ${{ needs.android.result }}
+          IOS_RESULT: ${{ needs.ios.result }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$SOURCE_RESULT" = success
+          test "$ANDROID_RESULT" = success
+          test "$IOS_RESULT" = success
+          echo "Routine artifacts remain zero; every generated build output was verified and removed."
