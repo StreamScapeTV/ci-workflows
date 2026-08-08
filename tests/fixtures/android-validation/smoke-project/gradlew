@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ " $* " == *" --version "* ]]; then
+  printf '\nGradle 9.6.1\n'
+  exit 0
+fi
+printf 'Synthetic issue-11 wrapper supports --version only.\n' >&2
+exit 2

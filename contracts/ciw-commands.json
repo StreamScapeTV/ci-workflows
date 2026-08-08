@@ -114,6 +114,17 @@
     },
     {
       "cleanup": "ciw workspace cleanup under if: always()",
+      "domain": "android",
+      "failure": "AndroidValidationError.code",
+      "handler": "ci_workflows.ciw.handle_android_validate",
+      "inputs": ["phase", "admitted_sha", "validation_profile", "task_profile", "working_directory", "gradle_wrapper_path", "targeted_test_selector", "consumer_script_profile", "private_dependency_contract_id", "private_dependency_sha", "artifact_exception_id", "device_family", "device_request_id", "GitHub event identity"],
+      "operation": "validate",
+      "outputs": ["result", "source_sha", "validation_profile", "task_profile", "test_summary", "resolved_java_major", "resolved_android_api", "gradle_version", "private_dependency_used", "artifact_exception_used", "device_handoff_json", "debug_output_verified", "schema_verified", "clean_tree", "cleanup_result", "failure_code", "evidence_id", "runner_profile", "runs_on_json", "workspace_profile", "timeout_minutes", "source_trust"],
+      "side_effects": ["resolves one contract-owned Android plan", "runs exact JDK 25 and Android API 37 validation on semantic mobile capacity", "uses the exact private dependency primitive when contract-selected", "invokes only the checked-in Gradle wrapper with no daemon and isolated state", "enforces mutation, schema, unsigned-debug, redaction, cleanup, and zero-artifact policy"],
+      "trust_class": "read-only-validation"
+    },
+    {
+      "cleanup": "ciw workspace cleanup under if: always()",
       "domain": "workspace",
       "failure": "FoundationError.instruction",
       "handler": "ci_workflows.ciw.handle_workspace_prepare",
@@ -229,11 +240,12 @@
     {"commands": ["workspace prepare", "workspace cleanup", "tooling verify", "tooling install-asset", "dependencies checkout-private", "policy verify-repository", "evidence render"], "path": "scripts/ci/foundation.py"},
     {"commands": ["release-tag resolve", "release-tag revalidate"], "path": "scripts/ci/release_tag_authority.py"},
     {"commands": ["python validate"], "path": "scripts/ci/python.py"},
-    {"commands": ["node validate"], "path": "scripts/ci/node.py"}
+    {"commands": ["node validate"], "path": "scripts/ci/node.py"},
+    {"commands": ["android validate"], "path": "scripts/ci/android.py"}
   ],
   "entry_point": "scripts/ci/ciw.py",
   "forbidden_dispatch_inputs": ["arbitrary_command", "shell", "callback", "callback_url", "handler", "function_name", "module_name", "runner", "runs_on", "runner_labels", "container_engine", "secret_name", "deletion_path", "workspace_root"],
-  "future_namespaces": ["android", "flutter", "apple", "gitops", "oci", "helm", "release", "device", "github"],
+  "future_namespaces": ["flutter", "apple", "gitops", "oci", "helm", "release", "device", "github"],
   "program": "ciw",
   "schema_version": 1
 }

@@ -1,0 +1,293 @@
+name: Reusable Android validation
+
+on:
+  workflow_call:
+    inputs:
+      admitted_sha:
+        description: Exact lowercase source SHA admitted by source.resolve
+        required: true
+        type: string
+      validation_profile:
+        description: Reviewed Android validation profile
+        required: true
+        type: string
+      task_profile:
+        description: Checked-in repository/task profile
+        required: true
+        type: string
+      working_directory:
+        description: Contract-matched relative working directory
+        required: false
+        default: .
+        type: string
+      gradle_wrapper_path:
+        description: Contract-matched checked-in wrapper or launcher
+        required: false
+        default: gradlew
+        type: string
+      targeted_test_selector:
+        description: Optional exact selector for unit-targeted only
+        required: false
+        type: string
+      consumer_script_profile:
+        description: Optional checked-in consumer script profile
+        required: false
+        type: string
+      private_dependency_contract_id:
+        description: Optional reviewed private dependency contract identity
+        required: false
+        type: string
+      private_dependency_sha:
+        description: Optional contract-matched exact private dependency SHA
+        required: false
+        type: string
+      artifact_exception_id:
+        description: Optional named central diagnostic exception
+        required: false
+        type: string
+      device_family:
+        description: Optional bounded device-handoff family
+        required: false
+        type: string
+      device_request_id:
+        description: Optional bounded device-handoff request identity
+        required: false
+        type: string
+    secrets:
+      private_dependency_token:
+        description: Optional read-only token used only by the exact dependency primitive
+        required: false
+    outputs:
+      result:
+        description: Success only after bounded validation and terminal cleanup
+        value: ${{ jobs.validate.outputs.result }}
+      test_summary:
+        description: Bounded machine-readable execution summary
+        value: ${{ jobs.validate.outputs.test_summary }}
+      artifact_exception_used:
+        description: Whether a named diagnostic exception was requested
+        value: ${{ jobs.validate.outputs.artifact_exception_used }}
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Resolve bounded Android validation plan
+    runs-on: portable
+    timeout-minutes: 10
+    outputs:
+      runner_profile: ${{ steps.plan.outputs.runner_profile }}
+      runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
+      workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
+      timeout_minutes: ${{ steps.plan.outputs.timeout_minutes }}
+      source_trust: ${{ steps.plan.outputs.source_trust }}
+      private_dependency_used: ${{ steps.plan.outputs.private_dependency_used }}
+      private_dependency_contract_id: ${{ steps.plan.outputs.private_dependency_contract_id }}
+      private_dependency_repository: ${{ steps.plan.outputs.private_dependency_repository }}
+      private_dependency_sha: ${{ steps.plan.outputs.private_dependency_sha }}
+      private_dependency_subdirectory: ${{ steps.plan.outputs.private_dependency_subdirectory }}
+      private_dependency_id: ${{ steps.plan.outputs.private_dependency_id }}
+    steps:
+      - name: Check out exact central workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact central workflow source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
+          )
+
+      - id: plan
+        name: Resolve contract-owned Android plan
+        uses: ./.ciw/actions/validate-android
+        with:
+          phase: plan
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          task_profile: ${{ inputs.task_profile }}
+          working_directory: ${{ inputs.working_directory }}
+          gradle_wrapper_path: ${{ inputs.gradle_wrapper_path }}
+          targeted_test_selector: ${{ inputs.targeted_test_selector }}
+          consumer_script_profile: ${{ inputs.consumer_script_profile }}
+          private_dependency_contract_id: ${{ inputs.private_dependency_contract_id }}
+          private_dependency_sha: ${{ inputs.private_dependency_sha }}
+          artifact_exception_id: ${{ inputs.artifact_exception_id }}
+          device_family: ${{ inputs.device_family }}
+          device_request_id: ${{ inputs.device_request_id }}
+
+  validate:
+    name: CI / Android validation
+    needs: plan
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
+    timeout-minutes: 120
+    outputs:
+      result: ${{ steps.android.outcome == 'success' && steps.android_cleanup.outcome == 'success' && steps.residue.outcome == 'success' && steps.workspace_cleanup.outcome == 'success' && 'success' || 'failure' }}
+      source_sha: ${{ steps.android.outputs.source_sha }}
+      validation_profile: ${{ steps.android.outputs.validation_profile }}
+      task_profile: ${{ steps.android.outputs.task_profile }}
+      test_summary: ${{ steps.android.outputs.test_summary }}
+      resolved_java_major: ${{ steps.android.outputs.resolved_java_major }}
+      resolved_android_api: ${{ steps.android.outputs.resolved_android_api }}
+      gradle_version: ${{ steps.android.outputs.gradle_version }}
+      private_dependency_used: ${{ steps.android.outputs.private_dependency_used }}
+      artifact_exception_used: ${{ steps.android.outputs.artifact_exception_used }}
+      device_handoff_json: ${{ steps.android.outputs.device_handoff_json }}
+      debug_output_verified: ${{ steps.android.outputs.debug_output_verified }}
+      schema_verified: ${{ steps.android.outputs.schema_verified }}
+      clean_tree: ${{ steps.android.outputs.clean_tree }}
+      cleanup_result: ${{ steps.android_cleanup.outcome == 'success' && steps.residue.outcome == 'success' && steps.workspace_cleanup.outcome == 'success' && 'success' || 'failure' }}
+      failure_code: ${{ steps.android.outputs.failure_code }}
+      evidence_id: ${{ steps.android.outputs.evidence_id }}
+    steps:
+      - name: Check out exact central workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact central workflow source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
+          )
+
+      - name: Check out exact admitted caller source
+        uses: ./.ciw/actions/exact-checkout
+        with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          admitted_sha: ${{ inputs.admitted_sha }}
+          path: source
+          fetch_depth: "1"
+
+      - id: workspace
+        name: Prepare isolated marker-bound Android state
+        uses: ./.ciw/actions/prepare-workspace
+        with:
+          profile: ${{ needs.plan.outputs.workspace_profile }}
+          cache_mode: disabled
+          source_sha: ${{ inputs.admitted_sha }}
+          trust_mode: ${{ needs.plan.outputs.source_trust }}
+
+      - id: dependency
+        name: Check out exact reviewed private dependency
+        if: needs.plan.outputs.private_dependency_used == 'true'
+        uses: ./.ciw/actions/checkout-private-dependency
+        with:
+          repository: ${{ needs.plan.outputs.private_dependency_repository }}
+          admitted_sha: ${{ needs.plan.outputs.private_dependency_sha }}
+          dependency_id: ${{ needs.plan.outputs.private_dependency_id }}
+          expected_subpath: ${{ needs.plan.outputs.private_dependency_subdirectory }}
+          fetch_depth: "1"
+          token: ${{ secrets.private_dependency_token }}
+
+      - id: android
+        name: Execute bounded Android validation
+        continue-on-error: true
+        uses: ./.ciw/actions/validate-android
+        with:
+          phase: execute
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          task_profile: ${{ inputs.task_profile }}
+          working_directory: ${{ inputs.working_directory }}
+          gradle_wrapper_path: ${{ inputs.gradle_wrapper_path }}
+          targeted_test_selector: ${{ inputs.targeted_test_selector }}
+          consumer_script_profile: ${{ inputs.consumer_script_profile }}
+          private_dependency_contract_id: ${{ inputs.private_dependency_contract_id }}
+          private_dependency_sha: ${{ inputs.private_dependency_sha }}
+          artifact_exception_id: ${{ inputs.artifact_exception_id }}
+          device_family: ${{ inputs.device_family }}
+          device_request_id: ${{ inputs.device_request_id }}
+          private_dependency_path: ${{ steps.dependency.outputs.relative_path }}
+          private_dependency_verified: ${{ steps.dependency.outputs.verified }}
+          private_dependency_remotes_erased: ${{ steps.dependency.outputs.remotes_erased }}
+          private_dependency_credentials_erased: ${{ steps.dependency.outputs.credentials_erased }}
+
+      - name: Render deterministic redacted Android evidence
+        if: always()
+        uses: ./.ciw/actions/render-evidence
+        with:
+          source_sha: ${{ inputs.admitted_sha }}
+          workflow_release: validation-android-1.0.0
+          runner_profile: ${{ needs.plan.outputs.runner_profile }}
+          toolchain_json: >-
+            {"java":"${{ steps.android.outputs.resolved_java_major || 'unknown' }}","android_api":"${{ steps.android.outputs.resolved_android_api || 'unknown' }}","gradle":"${{ steps.android.outputs.gradle_version || 'unknown' }}"}
+          command_profile: ${{ inputs.task_profile }}
+          result: ${{ steps.android.outcome == 'success' && 'success' || 'failure' }}
+          cleanup_state: not-run
+          cleanup_removed_paths: "0"
+
+      - id: android_cleanup
+        name: Remove Android-specific source, output, and state
+        if: always()
+        uses: ./.ciw/actions/validate-android
+        with:
+          phase: cleanup
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          task_profile: ${{ inputs.task_profile }}
+          working_directory: ${{ inputs.working_directory }}
+          gradle_wrapper_path: ${{ inputs.gradle_wrapper_path }}
+
+      - id: residue
+        name: Verify zero Android-specific residue
+        if: always()
+        uses: ./.ciw/actions/validate-android
+        with:
+          phase: residue
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          task_profile: ${{ inputs.task_profile }}
+          working_directory: ${{ inputs.working_directory }}
+          gradle_wrapper_path: ${{ inputs.gradle_wrapper_path }}
+
+      - id: workspace_cleanup
+        name: Remove and verify all registered Android workspace state
+        if: always()
+        uses: ./.ciw/actions/cleanup-workspace
+
+      - name: Verify exact caller source remained clean
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          (
+            cd source
+            test "$(git rev-parse HEAD)" = "${{ inputs.admitted_sha }}"
+            test -z "$(git status --porcelain --untracked-files=all)"
+          )
+
+      - name: Project terminal Android validation status
+        if: always()
+        shell: bash
+        env:
+          ANDROID_OUTCOME: ${{ steps.android.outcome }}
+          ANDROID_CLEANUP_OUTCOME: ${{ steps.android_cleanup.outcome }}
+          RESIDUE_OUTCOME: ${{ steps.residue.outcome }}
+          WORKSPACE_CLEANUP_OUTCOME: ${{ steps.workspace_cleanup.outcome }}
+        run: |
+          set -Eeuo pipefail
+          test "${ANDROID_OUTCOME}" = "success"
+          test "${ANDROID_CLEANUP_OUTCOME}" = "success"
+          test "${RESIDUE_OUTCOME}" = "success"
+          test "${WORKSPACE_CLEANUP_OUTCOME}" = "success"
