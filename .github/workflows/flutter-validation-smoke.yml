@@ -96,6 +96,50 @@ jobs:
         if: always()
         uses: ./.ciw/actions/cleanup-workspace
 
+  focused_tests:
+    name: Flutter focused contract tests
+    runs-on: portable
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - name: Check out exact pull request source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+      - name: Verify exact pull request source
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -Eeuo pipefail
+          (cd .ciw && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
+      - name: Compile and run all focused Flutter tests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          (
+            cd .ciw
+            python3 -m py_compile \
+              scripts/ci/flutter.py \
+              src/ci_workflows/flutter.py \
+              src/ci_workflows/flutter_contract.py \
+              src/ci_workflows/flutter_execution.py \
+              src/ci_workflows/flutter_types.py \
+              src/ci_workflows/ciw_flutter.py \
+              tests/test_flutter_validation.py \
+              tests/test_flutter_workflow_contract.py
+            PYTHONPATH=src python3 -m unittest -v \
+              tests.test_flutter_validation \
+              tests.test_flutter_workflow_contract
+            test -z "$(git status --porcelain --untracked-files=all)"
+          )
+
   android:
     name: Flutter mobile Android debug smoke
     runs-on: mobile
@@ -130,6 +174,8 @@ jobs:
         with:
           flutter-version: "3.41.4"
           cache: false
+          cache-path: ${{ format('{0}/flutter-sdk-3.41.4', env.CI_TOOL_ROOT) }}
+          pub-cache-path: ${{ format('{0}/.pub-cache', env.HOME) }}
       - name: Create disposable contract-owned Android smoke source
         shell: bash
         run: |
@@ -206,6 +252,8 @@ jobs:
         with:
           flutter-version: "3.41.4"
           cache: false
+          cache-path: ${{ format('{0}/flutter-sdk-3.41.4', env.CI_TOOL_ROOT) }}
+          pub-cache-path: ${{ format('{0}/.pub-cache', env.HOME) }}
       - name: Create disposable contract-owned iOS smoke source
         shell: bash
         run: |
@@ -250,7 +298,7 @@ jobs:
 
   zero_artifacts:
     name: Verify routine artifacts remain zero
-    needs: [source_audit, android, ios]
+    needs: [source_audit, focused_tests, android, ios]
     if: always()
     runs-on: portable
     timeout-minutes: 10
@@ -258,6 +306,7 @@ jobs:
       - name: Require all smoke paths and zero Actions artifacts
         env:
           SOURCE_RESULT: ${{ needs.source_audit.result }}
+          FOCUSED_RESULT: ${{ needs.focused_tests.result }}
           ANDROID_RESULT: ${{ needs.android.result }}
           IOS_RESULT: ${{ needs.ios.result }}
           GITHUB_TOKEN: ${{ github.token }}
@@ -265,6 +314,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           test "${SOURCE_RESULT}" = success
+          test "${FOCUSED_RESULT}" = success
           test "${ANDROID_RESULT}" = success
           test "${IOS_RESULT}" = success
           python3 - <<'PY'

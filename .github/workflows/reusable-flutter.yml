@@ -246,6 +246,8 @@ jobs:
         with:
           flutter-version: ${{ needs.plan.outputs.flutter_version }}
           cache: false
+          cache-path: ${{ format('{0}/flutter-sdk-{1}', env.CI_TOOL_ROOT, needs.plan.outputs.flutter_version) }}
+          pub-cache-path: ${{ format('{0}/.pub-cache', env.HOME) }}
       - id: execute
         name: Execute bounded Flutter validation
         uses: ./.ciw/actions/validate-flutter
@@ -340,6 +342,8 @@ jobs:
         with:
           flutter-version: ${{ needs.plan.outputs.flutter_version }}
           cache: false
+          cache-path: ${{ format('{0}/flutter-sdk-{1}', env.CI_TOOL_ROOT, needs.plan.outputs.flutter_version) }}
+          pub-cache-path: ${{ format('{0}/.pub-cache', env.HOME) }}
       - id: execute
         name: Execute bounded Flutter validation
         uses: ./.ciw/actions/validate-flutter
