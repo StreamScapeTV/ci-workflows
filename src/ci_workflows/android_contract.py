@@ -123,20 +123,20 @@ def validate_task(contract: Mapping[str, Any], repository: str, consumer: Mappin
     safe_relative(task.get("working_directory"), allow_dot=True)
     safe_relative(task.get("gradle_wrapper_path"), "wrapper_invalid")
     require(task.get("wrapper_id") in contract["wrappers"], "wrapper_invalid")
-    commands = task.get("commands")
-    require(isinstance(commands, list), "task_profile_rejected")
+    command_rows = task.get("commands")
+    require(isinstance(command_rows, list), "task_profile_rejected")
     forbidden = strings(contract.get("forbidden_argument_fragments"), nonempty=True)
-    for command in commands:
+    for command in command_rows:
         require(isinstance(command, Mapping), "task_profile_rejected")
         validate_command(command, forbidden)
     if profile in {"toolchain-smoke", "device-handoff"}:
-        require(not commands, "task_profile_rejected")
+        require(not command_rows, "task_profile_rejected")
     if profile == "unit-targeted":
-        require(len(commands) == 1 and commands[0]["stage"] == "tests" and "--tests" not in commands[0]["argv"], "task_profile_rejected")
+        require(len(command_rows) == 1 and command_rows[0]["stage"] == "tests" and "--tests" not in command_rows[0]["argv"], "task_profile_rejected")
     script = task.get("consumer_script_path")
     if profile == "consumer-script":
         script = safe_relative(script, "task_profile_rejected")
-        require(any(row["argv"][:2] == ["bash", script] for row in commands), "task_profile_rejected")
+        require(any(row["argv"][:2] == ["bash", script] for row in command_rows), "task_profile_rejected")
     else:
         require(script in {None, ""}, "task_profile_rejected")
     for key in ("protected_paths", "schema_paths", "expected_debug_outputs"):
@@ -197,6 +197,9 @@ def load_android_contract(root: Path) -> Mapping[str, Any]:
         for path in strings(dependency.get("required_paths"), nonempty=True):
             safe_relative(path, "private_dependency_rejected")
         require(all(REPOSITORY.fullmatch(item) for item in strings(dependency.get("allowed_consumers"), nonempty=True)), "private_dependency_rejected")
+        bindings = dependency.get("environment")
+        require(isinstance(bindings, Mapping) and bindings, "private_dependency_rejected")
+        require(all(re.fullmatch(r"^[A-Z][A-Z0-9_]{2,63}$", key) and value in {"root", "subdirectory", "sha"} for key, value in bindings.items()), "private_dependency_rejected")
     exceptions = contract.get("artifact_exceptions")
     require(isinstance(exceptions, Mapping), "artifact_policy_failed")
     for key, exception in exceptions.items():
@@ -256,7 +259,12 @@ def request_from_environment(environment: Mapping[str, str], contract: Mapping[s
         for forbidden in contract["forbidden_inputs"]:
             require(not environment.get("INPUT_" + str(forbidden).upper().replace("-", "_"), "").strip(), "invalid_input")
     return AndroidValidationRequest(
-        repository, sha, profile, task, working, wrapper,
+        repository,
+        sha,
+        profile,
+        task,
+        working,
+        wrapper,
         optional_input(environment, "INPUT_TARGETED_TEST_SELECTOR"),
         optional_input(environment, "INPUT_CONSUMER_SCRIPT_PROFILE"),
         optional_input(environment, "INPUT_PRIVATE_DEPENDENCY_CONTRACT_ID"),
@@ -293,6 +301,7 @@ def resolve_validation_plan(contract: Mapping[str, Any], request: AndroidValidat
         require(request.consumer_script_profile is None, "task_profile_rejected")
     dependency_contract_id = task.get("private_dependency_contract_id")
     dependency_repository = dependency_sha = dependency_subdirectory = dependency_id = None
+    dependency_environment: tuple[tuple[str, str], ...] = ()
     if dependency_contract_id is None:
         require(request.private_dependency_contract_id is None and request.private_dependency_sha is None, "private_dependency_rejected")
     else:
@@ -304,6 +313,7 @@ def resolve_validation_plan(contract: Mapping[str, Any], request: AndroidValidat
         dependency_sha = request.private_dependency_sha
         dependency_subdirectory = dependency["expected_subdirectory"]
         dependency_id = dependency["dependency_id"]
+        dependency_environment = tuple(sorted((str(key), str(value)) for key, value in dependency["environment"].items()))
     exception = request.artifact_exception_id
     if exception is not None:
         require(exception in contract["artifact_exceptions"] and request.validation_profile in contract["artifact_exceptions"][exception]["allowed_profiles"], "artifact_policy_failed")
@@ -315,18 +325,40 @@ def resolve_validation_plan(contract: Mapping[str, Any], request: AndroidValidat
         require(request.device_family is None and request.device_request_id is None, "invalid_input")
     wrapper = contract["wrappers"][task["wrapper_id"]]
     return AndroidValidationPlan(
-        repository=request.repository, admitted_sha=request.admitted_sha,
-        validation_profile=request.validation_profile, task_profile=request.task_profile,
-        runner_profile=contract["execution_runner_profile"], planner_runner_profile=contract["planner_runner_profile"],
-        timeout_minutes=profile["timeout_minutes"], source_trust=request.source_trust,
-        working_directory=task["working_directory"], gradle_wrapper_path=task["gradle_wrapper_path"],
-        wrapper=AndroidWrapperContract(wrapper["mode"], wrapper["version"], wrapper["properties_path"], wrapper["distribution_url"], wrapper.get("distribution_sha256"), wrapper.get("tracked_blob_sha1"), wrapper.get("properties_blob_sha1")),
-        commands=commands(task["commands"]), fixed_gradle_arguments=tuple(contract["fixed_gradle_arguments"]),
-        targeted_test_selector=selector, consumer_script_path=script,
-        private_dependency_contract_id=dependency_contract_id, private_dependency_repository=dependency_repository,
-        private_dependency_sha=dependency_sha, private_dependency_subdirectory=dependency_subdirectory,
-        private_dependency_id=dependency_id, artifact_exception_id=exception,
-        protected_paths=tuple(task["protected_paths"]), schema_paths=tuple(task["schema_paths"]),
-        expected_debug_outputs=tuple(task["expected_debug_outputs"]), output_mode=profile["output_mode"],
-        device_family=request.device_family, device_request_id=request.device_request_id,
+        repository=request.repository,
+        admitted_sha=request.admitted_sha,
+        validation_profile=request.validation_profile,
+        task_profile=request.task_profile,
+        runner_profile=contract["execution_runner_profile"],
+        planner_runner_profile=contract["planner_runner_profile"],
+        timeout_minutes=profile["timeout_minutes"],
+        source_trust=request.source_trust,
+        working_directory=task["working_directory"],
+        gradle_wrapper_path=task["gradle_wrapper_path"],
+        wrapper=AndroidWrapperContract(
+            wrapper["mode"],
+            wrapper["version"],
+            wrapper["properties_path"],
+            wrapper["distribution_url"],
+            wrapper.get("distribution_sha256"),
+            wrapper.get("tracked_blob_sha1"),
+            wrapper.get("properties_blob_sha1"),
+        ),
+        commands=commands(task["commands"]),
+        fixed_gradle_arguments=tuple(contract["fixed_gradle_arguments"]),
+        targeted_test_selector=selector,
+        consumer_script_path=script,
+        private_dependency_contract_id=dependency_contract_id,
+        private_dependency_repository=dependency_repository,
+        private_dependency_sha=dependency_sha,
+        private_dependency_subdirectory=dependency_subdirectory,
+        private_dependency_id=dependency_id,
+        private_dependency_environment=dependency_environment,
+        artifact_exception_id=exception,
+        protected_paths=tuple(task["protected_paths"]),
+        schema_paths=tuple(task["schema_paths"]),
+        expected_debug_outputs=tuple(task["expected_debug_outputs"]),
+        output_mode=profile["output_mode"],
+        device_family=request.device_family,
+        device_request_id=request.device_request_id,
     )
