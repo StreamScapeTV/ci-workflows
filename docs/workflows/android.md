@@ -31,7 +31,7 @@ The token, when required, is passed only to the exact dependency primitive. Fork
 
 ## Toolchain and Gradle execution
 
-The contract requires JDK and Javac major 25, Android platform API 37, command-line tools build `14742923` / revision `19.0`, `platform-tools`, `platforms;android-37.0`, and `build-tools;37.0.0`. The runner must already provide those identities; this workflow does not silently downgrade them.
+The contract requires JDK and Javac major 25, Android platform API 37, command-line tools build `14742923` / revision `19.0`, `platform-tools`, `platforms;android-37`, and `build-tools;37.0.0`. The runner must already provide those identities; this workflow does not silently downgrade them.
 
 Every Gradle-capable profile verifies the checked-in wrapper or launcher, the exact distribution URL, the declared distribution checksum when available, and the expected Gradle version. It invokes only the reviewed wrapper with fixed `--no-daemon --console=plain --warning-mode=all --stacktrace` arguments. A targeted selector is appended only after strict grammar validation. Caller property injection, init scripts, project/system properties, arbitrary tasks, and caller Gradle state paths are rejected.
 
