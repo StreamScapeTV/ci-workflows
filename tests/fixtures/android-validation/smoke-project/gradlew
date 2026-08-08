@@ -1,8 +1,113 @@
 #!/usr/bin/env bash
-set -euo pipefail
-if [[ " $* " == *" --version "* ]]; then
-  printf '\nGradle 9.6.1\n'
-  exit 0
+set -Eeuo pipefail
+
+version="9.6.1"
+expected_sha256="9c0f7faeeb306cb14e4279a3e084ca6b596894089a0638e68a07c945a32c9e14"
+distribution_url="https://services.gradle.org/distributions/gradle-${version}-bin.zip"
+
+: "${GRADLE_USER_HOME:?GRADLE_USER_HOME is required}"
+[[ "${GRADLE_USER_HOME}" = /* ]] || {
+  printf 'GRADLE_USER_HOME must be absolute.\n' >&2
+  exit 1
+}
+
+distribution_root="${GRADLE_USER_HOME}/wrapper/dists/gradle-${version}-bin"
+archive="${distribution_root}/gradle-${version}-bin.zip"
+partial="${archive}.partial"
+installation="${distribution_root}/gradle-${version}"
+executable="${installation}/bin/gradle"
+mkdir -p "${distribution_root}"
+
+if [[ ! -x "${executable}" ]]; then
+  rm -f "${partial}"
+  curl --fail --location --proto '=https' --tlsv1.2 \
+    --connect-timeout 20 --max-time 300 --retry 3 \
+    "${distribution_url}" \
+    --output "${partial}"
+  actual_sha256="$(
+    python3 - "${partial}" <<'PY'
+import hashlib
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+digest = hashlib.sha256()
+with path.open("rb") as stream:
+    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+        digest.update(chunk)
+print(digest.hexdigest())
+PY
+  )"
+  if [[ "${actual_sha256}" != "${expected_sha256}" ]]; then
+    printf 'Gradle distribution checksum mismatch.\n' >&2
+    rm -f "${partial}"
+    exit 1
+  fi
+  mv "${partial}" "${archive}"
+  python3 - "${archive}" "${distribution_root}" "${installation}" <<'PY'
+from __future__ import annotations
+
+import pathlib
+import shutil
+import stat
+import sys
+import zipfile
+
+archive = pathlib.Path(sys.argv[1]).resolve()
+destination = pathlib.Path(sys.argv[2]).resolve()
+installation = pathlib.Path(sys.argv[3]).resolve()
+temporary = destination / f".{installation.name}.extracting"
+
+if temporary.exists():
+    shutil.rmtree(temporary)
+temporary.mkdir(mode=0o700)
+
+with zipfile.ZipFile(archive) as bundle:
+    members = bundle.infolist()
+    if not members or len(members) > 10000:
+        raise SystemExit("Gradle archive member limit exceeded.")
+    if sum(member.file_size for member in members) > 512 * 1024 * 1024:
+        raise SystemExit("Gradle archive expanded-size limit exceeded.")
+
+    destinations: set[pathlib.Path] = set()
+    for member in members:
+        if "\\" in member.filename:
+            raise SystemExit("Gradle archive contains a non-portable path.")
+        target = (temporary / member.filename).resolve()
+        try:
+            target.relative_to(temporary)
+        except ValueError as error:
+            raise SystemExit("Gradle archive path escaped extraction root.") from error
+        if target in destinations:
+            raise SystemExit("Gradle archive contains a duplicate destination.")
+        destinations.add(target)
+
+        member_type = stat.S_IFMT(member.external_attr >> 16)
+        if member_type not in {0, stat.S_IFREG, stat.S_IFDIR}:
+            raise SystemExit("Gradle archive contains an unsupported member type.")
+
+        if member.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with bundle.open(member) as source, target.open("xb") as output:
+            shutil.copyfileobj(source, output, length=1024 * 1024)
+
+extracted = temporary / installation.name
+gradle_executable = extracted / "bin/gradle"
+if not gradle_executable.is_file():
+    raise SystemExit("Gradle archive did not contain the expected executable.")
+gradle_executable.chmod(0o755)
+if installation.exists():
+    shutil.rmtree(installation)
+extracted.rename(installation)
+shutil.rmtree(temporary)
+PY
 fi
-printf 'Synthetic issue-11 wrapper supports --version only.\n' >&2
-exit 2
+
+[[ -x "${executable}" ]] || {
+  printf 'Gradle executable is missing after verified installation.\n' >&2
+  exit 1
+}
+exec "${executable}" "$@"
