@@ -8,11 +8,12 @@ The workflow accepts only an exact admitted source SHA, one reviewed
 product-neutral consumer-contract identifier through the historical bounded
 `command_profile` field, one bounded validation profile, and exact optional
 contract-match assertions for version file, working directory, script path,
-platform, and the reserved empty artifact-exception field. Source trust is
-derived internally from the admitted GitHub event. It does not accept a runner,
-label, matrix, Flutter download URL, runtime, package manager, command, argument
-list, shell, callback, device, engine, signing identity, registry, database,
-Flux target, or deployment input.
+platform, and the reserved empty artifact-exception field. The invoking
+`GITHUB_REPOSITORY` must equal the repository registered by the selected
+consumer contract. Source trust is derived internally from the admitted GitHub
+event. The API does not accept a runner, label, matrix, Flutter download URL,
+runtime, package manager, command, argument list, shell, callback, device,
+engine, signing identity, registry, database, Flux target, or deployment input.
 
 ## Profiles
 
@@ -61,20 +62,21 @@ fingerprints both pin and package authority before execution, restores with
 
 Commands are fixed arrays in `contracts/flutter-validation.json`; consumers
 cannot append arguments. Checked-in gates are resolved below the source root,
-must be regular non-symlink files, and execute with fixed arguments. Finance
-Hub's optional web-asset preflight composes the existing bounded Node source
-audit contract before its checked-in gate. Flutter code does not implement a
-second Node download, npm lockfile parser, public-environment model, or Node
+must be regular non-symlink Git-tracked files, and execute with fixed arguments.
+Finance Hub's optional web-asset preflight composes the existing bounded Node
+source-audit contract before its checked-in gate. Flutter code does not implement
+a second Node download, npm lockfile parser, public-environment model, or Node
 cleanup path.
 
 The current reviewed shapes cover:
 
-- Directus Front: exact `.flutter-version`, canonical `tool/ci_gate.sh`, analysis,
-  tests, split-per-ABI arm64 debug APK verification, iOS simulator verification,
-  and checked-in compatibility execution;
-- Finance Hub: exact `.fvmrc`, repository audit, quality, debug Android APK,
-  unsigned iOS simulator compile, and embedded web-asset validation through the
-  checked-in quality gate plus bounded Node composition.
+- Directus Front: exact `.fvmrc`, canonical `tool/ci_gate.sh`, analysis, tests,
+  split-per-ABI arm64 debug APK verification, iOS simulator verification, and
+  exact checked-in `tool/run_directus_smoke.sh` compatibility execution;
+- Finance Hub: exact agreeing `.fvmrc` and `.flutter-version` pins when both are
+  present, repository audit, quality, debug Android APK, unsigned iOS simulator
+  compile, and embedded web-asset validation through the checked-in quality gate
+  plus bounded Node composition.
 
 ## Exact-head smoke proof
 
@@ -96,17 +98,18 @@ Actions artifacts.
 ## Outputs and cleanup
 
 Android outputs are debug and unsigned only. iOS outputs are simulator and
-unsigned only. Outputs are checked for existence and then removed. No APK, AAB,
-app bundle, result bundle, log, report, or diagnostic is uploaded.
+unsigned only. Outputs are checked through contained non-symlink paths and then
+removed. No APK, AAB, app bundle, result bundle, log, report, or diagnostic is
+uploaded.
 
 Validation uses the existing `minimal`, `gradle`, and `apple` workspace
 profiles and then creates a Flutter-specific marker-bound subtree. It isolates
 `HOME`, `PUB_CACHE`, Flutter state, Gradle state, CocoaPods state, DerivedData,
 temporary files, logs, reports, and build output. Real consumer iOS profiles run
-`pod install --deployment` before the simulator compile. Cleanup is terminal and
-fail closed. It removes Flutter/Dart, Gradle, Pods, DerivedData, coverage, logs,
-reports, and build residue; verifies pin and lock hashes; and requires a clean
-admitted source. Routine Actions artifacts remain zero.
+`pod install --deployment` before the simulator compile. Cleanup is terminal,
+no-follow, and fail closed. It removes Flutter/Dart, Gradle, Pods, DerivedData,
+coverage, logs, reports, and build residue; verifies pin and lock hashes; and
+requires a clean admitted source. Routine Actions artifacts remain zero.
 
 ## Caller example
 
@@ -118,7 +121,7 @@ jobs:
       admitted_sha: ${{ needs.source.outputs.admitted_sha }}
       validation_profile: canonical-gate
       command_profile: directus-canonical
-      version_file: .flutter-version
+      version_file: .fvmrc
       working_directory: .
       script_path: tool/ci_gate.sh
       platform: flutter
