@@ -112,6 +112,14 @@ jobs:
           persist-credentials: false
           set-safe-directory: false
 
+      - name: Clear fixed admitted source checkout root
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf -- source
+          test ! -e source
+          test ! -L source
+
       - name: Check out exact admitted smoke source
         uses: ./.ciw/actions/exact-checkout
         with:
@@ -179,6 +187,15 @@ jobs:
           destination_profile: ios-simulator-default
           source_trust: trusted-pr
 
+      - name: Remove exact admitted iOS smoke source
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf -- source
+          test ! -e source
+          test ! -L source
+
       - name: Remove and verify registered iOS workflow state
         if: always()
         uses: ./.ciw/actions/cleanup-workspace
@@ -198,6 +215,14 @@ jobs:
           clean: true
           persist-credentials: false
           set-safe-directory: false
+
+      - name: Clear fixed admitted source checkout root
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf -- source
+          test ! -e source
+          test ! -L source
 
       - name: Check out exact admitted smoke source
         uses: ./.ciw/actions/exact-checkout
@@ -266,6 +291,15 @@ jobs:
           destination_profile: tvos-simulator-default
           source_trust: trusted-pr
 
+      - name: Remove exact admitted tvOS smoke source
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf -- source
+          test ! -e source
+          test ! -L source
+
       - name: Remove and verify registered tvOS workflow state
         if: always()
         uses: ./.ciw/actions/cleanup-workspace
@@ -285,6 +319,14 @@ jobs:
           clean: true
           persist-credentials: false
           set-safe-directory: false
+
+      - name: Clear fixed admitted source checkout root
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf -- source
+          test ! -e source
+          test ! -L source
 
       - name: Check out exact admitted smoke source
         uses: ./.ciw/actions/exact-checkout
@@ -352,6 +394,15 @@ jobs:
           scheme: AppleValidationSmoke
           destination_profile: macos-unsigned
           source_trust: trusted-pr
+
+      - name: Remove exact admitted macOS smoke source
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf -- source
+          test ! -e source
+          test ! -L source
 
       - name: Remove and verify registered macOS workflow state
         if: always()

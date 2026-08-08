@@ -139,6 +139,14 @@ jobs:
           set -Eeuo pipefail
           (cd .ciw && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
 
+      - name: Clear fixed admitted source checkout root
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf -- source
+          test ! -e source
+          test ! -L source
+
       - name: Check out exact admitted caller source
         uses: ./.ciw/actions/exact-checkout
         with:
@@ -218,6 +226,15 @@ jobs:
           destination_profile: ${{ inputs.destination_profile }}
           artifact_exception_id: ${{ inputs.artifact_exception_id }}
           source_trust: ${{ needs.plan.outputs.source_trust }}
+
+      - name: Remove exact admitted source checkout
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf -- source
+          test ! -e source
+          test ! -L source
 
       - name: Remove and verify all registered workflow state
         if: always()
