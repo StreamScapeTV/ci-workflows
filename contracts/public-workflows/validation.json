@@ -11,81 +11,7 @@
       "trust_class": "read-only-validation",
       "permission_profile": "validation-read",
       "semantic_runner_profile": "contract:python",
-      "permitted_events": [
-        "pull_request",
-        "push",
-        "workflow_dispatch",
-        "workflow_call"
-      ],
-      "inputs": [
-        {
-          "name": "admitted_sha",
-          "required": true
-        },
-        {
-          "name": "validation_profile",
-          "required": true
-        },
-        {
-          "name": "version_file",
-          "required": false
-        },
-        {
-          "name": "working_directory",
-          "required": false,
-          "default": "."
-        },
-        {
-          "name": "command_profile",
-          "required": true
-        },
-        {
-          "name": "script_path",
-          "required": false
-        },
-        {
-          "name": "artifact_exception_id",
-          "required": false
-        }
-      ],
-      "secrets": [],
-      "outputs": [
-        "result",
-        "test_summary",
-        "artifact_exception_used"
-      ],
-      "stable_check_name": "CI / Python validation",
-      "timeout_minutes": 120,
-      "matrix_max_jobs": 1,
-      "supported_consumers": [
-        "StreamScapeTV/iptv-backend",
-        "StreamScapeTV/agent-state",
-        "StreamScapeTV/flux"
-      ],
-      "supported_products": [],
-      "repository_owned_hooks": [
-        "command_profile",
-        "script_path"
-      ],
-      "implementation_components": [
-        "ci_workflows.python.validate",
-        "actions/validate-python"
-      ]
-    },
-    {
-      "file": ".github/workflows/reusable-node.yml",
-      "api_name": "validation.node",
-      "api_version": "1.0.0",
-      "status": "planned",
-      "trust_class": "read-only-validation",
-      "permission_profile": "validation-read",
-      "semantic_runner_profile": "contract:node",
-      "permitted_events": [
-        "pull_request",
-        "push",
-        "workflow_dispatch",
-        "workflow_call"
-      ],
+      "permitted_events": ["pull_request", "push", "workflow_dispatch", "workflow_call"],
       "inputs": [
         {"name": "admitted_sha", "required": true},
         {"name": "validation_profile", "required": true},
@@ -93,22 +19,63 @@
         {"name": "working_directory", "required": false, "default": "."},
         {"name": "command_profile", "required": true},
         {"name": "script_path", "required": false},
-        {"name": "static_output_directory", "required": false},
         {"name": "artifact_exception_id", "required": false}
       ],
       "secrets": [],
       "outputs": ["result", "test_summary", "artifact_exception_used"],
-      "stable_check_name": "CI / Node validation",
-      "timeout_minutes": 90,
-      "matrix_max_jobs": 6,
-      "supported_consumers": [
-        "StreamScapeTV/StreamScapeWeb",
-        "StreamScapeTV/agent-state",
-        "StreamScapeTV/finance-hub"
-      ],
+      "stable_check_name": "CI / Python validation",
+      "timeout_minutes": 120,
+      "matrix_max_jobs": 1,
+      "supported_consumers": ["StreamScapeTV/iptv-backend", "StreamScapeTV/agent-state", "StreamScapeTV/flux"],
       "supported_products": [],
       "repository_owned_hooks": ["command_profile", "script_path"],
-      "implementation_components": ["ci_workflows.node.validate"]
+      "implementation_components": ["ci_workflows.python.validate", "actions/validate-python"]
+    },
+    {
+      "file": ".github/workflows/reusable-node.yml",
+      "api_name": "validation.node",
+      "api_version": "1.0.0",
+      "status": "implemented",
+      "trust_class": "read-only-validation",
+      "permission_profile": "validation-read",
+      "semantic_runner_profile": "contract:node",
+      "permitted_events": ["pull_request", "push", "workflow_dispatch", "workflow_call"],
+      "inputs": [
+        {"name": "admitted_sha", "required": true},
+        {"name": "validation_profile", "required": true},
+        {"name": "version_file", "required": false},
+        {"name": "node_version", "required": false},
+        {"name": "working_directory", "required": false, "default": "."},
+        {"name": "install_profile", "required": true},
+        {"name": "command_profile", "required": true},
+        {"name": "script_path", "required": false},
+        {"name": "static_output_directory", "required": false},
+        {"name": "output_verifier_path", "required": false},
+        {"name": "public_environment", "required": false, "default": "{}"},
+        {"name": "artifact_exception_id", "required": false}
+      ],
+      "secrets": [],
+      "outputs": [
+        "result",
+        "node_version",
+        "npm_version",
+        "install_result",
+        "test_summary",
+        "build_result",
+        "output_verified",
+        "output_digest",
+        "clean_tree",
+        "cleanup_result",
+        "artifact_exception_used",
+        "evidence_id"
+      ],
+      "stable_check_name": "CI / Node validation",
+      "timeout_minutes": 90,
+      "matrix_max_jobs": 1,
+      "supported_consumers": ["StreamScapeTV/StreamScapeWeb", "StreamScapeTV/agent-state", "StreamScapeTV/finance-hub"],
+      "supported_products": [],
+      "repository_owned_hooks": ["command_profile", "script_path", "static_output_directory", "output_verifier_path"],
+      "implementation_components": ["ci_workflows.node.validate", "actions/validate-node"]
     },
     {
       "file": ".github/workflows/reusable-android.yml",
@@ -118,12 +85,7 @@
       "trust_class": "read-only-validation",
       "permission_profile": "validation-read",
       "semantic_runner_profile": "contract:android",
-      "permitted_events": [
-        "pull_request",
-        "push",
-        "workflow_dispatch",
-        "workflow_call"
-      ],
+      "permitted_events": ["pull_request", "push", "workflow_dispatch", "workflow_call"],
       "inputs": [
         {"name": "admitted_sha", "required": true},
         {"name": "validation_profile", "required": true},
@@ -142,10 +104,7 @@
       "stable_check_name": "CI / Android validation",
       "timeout_minutes": 180,
       "matrix_max_jobs": 12,
-      "supported_consumers": [
-        "StreamScapeTV/iptv-android",
-        "StreamScapeTV/streamscape-media"
-      ],
+      "supported_consumers": ["StreamScapeTV/iptv-android", "StreamScapeTV/streamscape-media"],
       "supported_products": [],
       "repository_owned_hooks": ["command_profile", "script_path"],
       "implementation_components": ["ci_workflows.android.validate"]
@@ -158,12 +117,7 @@
       "trust_class": "read-only-validation",
       "permission_profile": "validation-read",
       "semantic_runner_profile": "contract:flutter",
-      "permitted_events": [
-        "pull_request",
-        "push",
-        "workflow_dispatch",
-        "workflow_call"
-      ],
+      "permitted_events": ["pull_request", "push", "workflow_dispatch", "workflow_call"],
       "inputs": [
         {"name": "admitted_sha", "required": true},
         {"name": "validation_profile", "required": true},
@@ -179,10 +133,7 @@
       "stable_check_name": "CI / Flutter validation",
       "timeout_minutes": 180,
       "matrix_max_jobs": 8,
-      "supported_consumers": [
-        "StreamScapeTV/directus-front",
-        "StreamScapeTV/finance-hub"
-      ],
+      "supported_consumers": ["StreamScapeTV/directus-front", "StreamScapeTV/finance-hub"],
       "supported_products": [],
       "repository_owned_hooks": ["command_profile", "script_path"],
       "implementation_components": ["ci_workflows.flutter.validate"]
@@ -195,12 +146,7 @@
       "trust_class": "read-only-validation",
       "permission_profile": "validation-read",
       "semantic_runner_profile": "contract:apple-simulator",
-      "permitted_events": [
-        "pull_request",
-        "push",
-        "workflow_dispatch",
-        "workflow_call"
-      ],
+      "permitted_events": ["pull_request", "push", "workflow_dispatch", "workflow_call"],
       "inputs": [
         {"name": "admitted_sha", "required": true},
         {"name": "validation_profile", "required": true},
@@ -218,10 +164,7 @@
       "stable_check_name": "CI / Apple validation",
       "timeout_minutes": 180,
       "matrix_max_jobs": 12,
-      "supported_consumers": [
-        "StreamScapeTV/iptv-apple",
-        "StreamScapeTV/streamscape-media"
-      ],
+      "supported_consumers": ["StreamScapeTV/iptv-apple", "StreamScapeTV/streamscape-media"],
       "supported_products": [],
       "repository_owned_hooks": ["command_profile", "script_path"],
       "implementation_components": ["ci_workflows.apple.validate"]
@@ -247,28 +190,14 @@
         {"name": "request_id", "required": true}
       ],
       "secrets": ["live_test_credentials"],
-      "outputs": [
-        "result",
-        "device_evidence_id",
-        "artifact_exception_used",
-        "request_id"
-      ],
+      "outputs": ["result", "device_evidence_id", "artifact_exception_used", "request_id"],
       "stable_check_name": "CI / Physical device validation",
       "timeout_minutes": 240,
       "matrix_max_jobs": 1,
-      "supported_consumers": [
-        "StreamScapeTV/iptv-android",
-        "StreamScapeTV/iptv-apple",
-        "StreamScapeTV/streamscape-media",
-        "StreamScapeTV/finance-hub"
-      ],
+      "supported_consumers": ["StreamScapeTV/iptv-android", "StreamScapeTV/iptv-apple", "StreamScapeTV/streamscape-media", "StreamScapeTV/finance-hub"],
       "supported_products": [],
       "repository_owned_hooks": ["command_profile", "script_path"],
-      "implementation_components": [
-        "ci_workflows.devices.lock",
-        "ci_workflows.devices.validate",
-        "ci_workflows.devices.cleanup"
-      ],
+      "implementation_components": ["ci_workflows.devices.lock", "ci_workflows.devices.validate", "ci_workflows.devices.cleanup"],
       "concurrency_policy": "resource-locked"
     },
     {
@@ -279,12 +208,7 @@
       "trust_class": "read-only-validation",
       "permission_profile": "validation-read",
       "semantic_runner_profile": "portable",
-      "permitted_events": [
-        "pull_request",
-        "push",
-        "workflow_dispatch",
-        "workflow_call"
-      ],
+      "permitted_events": ["pull_request", "push", "workflow_dispatch", "workflow_call"],
       "inputs": [
         {"name": "admitted_sha", "required": true},
         {"name": "validation_profile", "required": true},
@@ -300,18 +224,9 @@
       "stable_check_name": "CI / GitOps source validation",
       "timeout_minutes": 90,
       "matrix_max_jobs": 16,
-      "supported_consumers": [
-        "StreamScapeTV/flux",
-        "StreamScapeTV/iptv-backend",
-        "StreamScapeTV/agent-state",
-        "StreamScapeTV/organization-rules"
-      ],
+      "supported_consumers": ["StreamScapeTV/flux", "StreamScapeTV/iptv-backend", "StreamScapeTV/agent-state", "StreamScapeTV/organization-rules"],
       "supported_products": [],
-      "repository_owned_hooks": [
-        "command_profile",
-        "script_path",
-        "policy_path"
-      ],
+      "repository_owned_hooks": ["command_profile", "script_path", "policy_path"],
       "implementation_components": ["ci_workflows.gitops.validate"]
     }
   ]
