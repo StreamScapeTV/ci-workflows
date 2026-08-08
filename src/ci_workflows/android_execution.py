@@ -97,19 +97,43 @@ def _major(output: str) -> int | None:
     match = _MAJOR.search(output); return int(match.group(1)) if match else None
 
 
+def _isolated_runtime_directories(state: Path) -> dict[str, Path]:
+    require(state.is_absolute(), "invalid_input")
+    base = state / "android-validation"
+    directories = {
+        "HOME": base / "home",
+        "GRADLE_USER_HOME": base / "gradle-home",
+        "ANDROID_USER_HOME": base / "android-home",
+        "TMPDIR": base / "tmp",
+    }
+    for directory in directories.values():
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    return directories
+
+
 def verify_toolchain(source: Path, state: Path, plan: AndroidValidationPlan,
                      contract: Mapping[str, Any], inherited: Mapping[str, str]) -> tuple[int, int]:
-    env = {"PATH": inherited.get("PATH", os.environ.get("PATH", "")), "HOME": inherited.get("HOME", ""),
-           "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "TZ": "UTC"}
+    directories = _isolated_runtime_directories(state)
+    sdk_value = inherited.get("ANDROID_SDK_ROOT") or inherited.get("ANDROID_HOME")
+    require(bool(sdk_value), "sdk_package_missing")
+    sdk = Path(str(sdk_value)).resolve()
+    require(sdk.is_absolute() and sdk.is_dir(), "sdk_package_missing")
+    env = {
+        "PATH": inherited.get("PATH", os.environ.get("PATH", "")),
+        "JAVA_HOME": inherited.get("JAVA_HOME", ""),
+        "ANDROID_SDK_ROOT": str(sdk),
+        "ANDROID_HOME": str(sdk),
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "TZ": "UTC",
+        **{key: str(value) for key, value in directories.items()},
+    }
     java = run_command(["java", "-version"], cwd=source, environment=env, timeout_seconds=30,
                        failure_code="toolchain_mismatch", state_root=state, stage="java-version")
     javac = run_command(["javac", "-version"], cwd=source, environment=env, timeout_seconds=30,
                         failure_code="toolchain_mismatch", state_root=state, stage="javac-version")
     require(_major(java.stdout + java.stderr) == 25 and _major(javac.stdout + javac.stderr) == 25,
             "toolchain_mismatch")
-    sdk_value = inherited.get("ANDROID_SDK_ROOT") or inherited.get("ANDROID_HOME")
-    require(bool(sdk_value), "sdk_package_missing")
-    sdk = Path(str(sdk_value)).resolve(); require(sdk.is_absolute() and sdk.is_dir(), "sdk_package_missing")
     sdkmanager = sdk / "cmdline-tools/latest/bin/sdkmanager"
     require(sdkmanager.is_file() and not sdkmanager.is_symlink() and os.access(sdkmanager, os.X_OK)
             and sdk in sdkmanager.resolve().parents, "sdk_package_missing")
@@ -157,10 +181,7 @@ def verify_wrapper(copy: Path, state: Path, plan: AndroidValidationPlan,
 
 def execution_environment(plan: AndroidValidationPlan, state: Path, inherited: Mapping[str, str],
                           dependency: Path | None) -> dict[str, str]:
-    base = state / "android-validation"
-    dirs = {"HOME": base / "home", "GRADLE_USER_HOME": base / "gradle-home",
-            "ANDROID_USER_HOME": base / "android-home", "TMPDIR": base / "tmp"}
-    for directory in dirs.values(): directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    dirs = _isolated_runtime_directories(state)
     sdk = inherited.get("ANDROID_SDK_ROOT", inherited.get("ANDROID_HOME", ""))
     env = {"PATH": inherited.get("PATH", os.environ.get("PATH", "")), "JAVA_HOME": inherited.get("JAVA_HOME", ""),
            "ANDROID_SDK_ROOT": sdk, "ANDROID_HOME": sdk, "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "TZ": "UTC",
