@@ -56,26 +56,32 @@ class FlutterWorkflowContractTests(unittest.TestCase):
             {"result", "test_summary", "artifact_exception_used"},
             actual_outputs,
         )
+        self.assertIn(
+            "consumer_contract: ${{ steps.plan.outputs.consumer_contract }}",
+            self.workflow,
+        )
 
     def test_semantic_runner_separation_uses_trusted_resolver(self) -> None:
         self.assertIn("runs-on: portable", self.workflow)
-        self.assertGreaterEqual(
+        self.assertEqual(
+            3,
             self.workflow.count(
                 "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}"
             ),
-            3,
-        )
-        self.assertIn("runs_on_json: ${{ steps.plan.outputs.runs_on_json }}", self.workflow)
-        self.assertIn("android_plan:", self.smoke)
-        self.assertIn("ios_plan:", self.smoke)
-        self.assertIn(
-            "runs-on: ${{ fromJSON(needs.android_plan.outputs.runs_on_json) }}",
-            self.smoke,
         )
         self.assertIn(
-            "runs-on: ${{ fromJSON(needs.ios_plan.outputs.runs_on_json) }}",
-            self.smoke,
+            "runs_on_json: ${{ steps.plan.outputs.runs_on_json }}",
+            self.workflow,
         )
+        self.assertEqual(
+            2,
+            self.smoke.count(
+                "uses: ./.github/workflows/reusable-flutter.yml"
+            ),
+        )
+        self.assertNotIn("fromJSON(", self.smoke)
+        self.assertNotIn("android_plan:", self.smoke)
+        self.assertNotIn("ios_plan:", self.smoke)
         for forbidden in (
             "runs-on: self-hosted",
             "runs-on: macos-latest",
@@ -83,9 +89,15 @@ class FlutterWorkflowContractTests(unittest.TestCase):
             "runs-on: windows-latest",
         ):
             self.assertNotIn(forbidden, self.workflow + self.smoke)
-        self.assertIn("needs.plan.outputs.runner_profile == 'mobile'", self.workflow)
-        self.assertIn("needs.plan.outputs.runner_profile == 'apple'", self.workflow)
-        self.assertIn("needs.plan.outputs.runner_profile == 'portable'", self.workflow)
+        self.assertIn(
+            "needs.plan.outputs.runner_profile == 'mobile'", self.workflow
+        )
+        self.assertIn(
+            "needs.plan.outputs.runner_profile == 'apple'", self.workflow
+        )
+        self.assertIn(
+            "needs.plan.outputs.runner_profile == 'portable'", self.workflow
+        )
 
     def test_action_and_tool_setup_are_full_sha_pinned(self) -> None:
         uses = re.findall(
@@ -101,12 +113,11 @@ class FlutterWorkflowContractTests(unittest.TestCase):
         self.assertIn(self.contract["setup"]["action"], self.workflow)
 
     def test_setup_and_pub_caches_are_marker_bound(self) -> None:
-        for text in (self.workflow, self.smoke):
-            self.assertIn("cache-path:", text)
-            self.assertIn("pub-cache-path:", text)
-            self.assertIn("env.CI_TOOL_ROOT", text)
-            self.assertIn("env.HOME", text)
-            self.assertNotIn("RUNNER_TOOL_CACHE", text)
+        self.assertIn("cache-path:", self.workflow)
+        self.assertIn("pub-cache-path:", self.workflow)
+        self.assertIn("env.CI_TOOL_ROOT", self.workflow)
+        self.assertIn("env.HOME", self.workflow)
+        self.assertNotIn("RUNNER_TOOL_CACHE", self.workflow + self.smoke)
 
     def test_no_artifact_secret_signing_or_device_paths(self) -> None:
         text = (self.workflow + "\n" + self.smoke + "\n" + self.action).lower()
@@ -138,12 +149,32 @@ class FlutterWorkflowContractTests(unittest.TestCase):
         self.assertIn("persist-credentials: false", self.workflow)
         self.assertIn("github.workflow_sha", self.workflow)
 
+    def test_synthetic_smoke_source_is_disposable_and_lock_first(self) -> None:
+        self.assertIn(
+            "needs.plan.outputs.consumer_contract == 'synthetic-smoke'",
+            self.workflow,
+        )
+        self.assertIn(
+            "needs.plan.outputs.consumer_contract != 'synthetic-smoke'",
+            self.workflow,
+        )
+        self.assertIn(
+            "flutter create --no-pub --platforms=android", self.workflow
+        )
+        self.assertIn("flutter create --no-pub --platforms=ios", self.workflow)
+        self.assertEqual(2, self.workflow.count("(cd source && flutter pub get)"))
+        self.assertIn("Remove disposable synthetic Android source", self.workflow)
+        self.assertIn("Remove disposable synthetic iOS source", self.workflow)
+        self.assertIn(
+            '["flutter", "pub", "get", "--enforce-lockfile"]',
+            json.dumps(self.contract),
+        )
+
     def test_smoke_has_portable_focused_mobile_and_apple_paths(self) -> None:
         self.assertIn("source-audit", self.smoke)
         self.assertIn("focused_tests:", self.smoke)
-        self.assertIn("android-debug", self.smoke)
-        self.assertIn("ios-simulator", self.smoke)
-        self.assertIn("flutter create", self.smoke)
+        self.assertIn("validation_profile: android-debug", self.smoke)
+        self.assertIn("validation_profile: ios-simulator", self.smoke)
         self.assertIn(
             "routine flutter actions artifacts verified: zero",
             self.smoke.lower(),
