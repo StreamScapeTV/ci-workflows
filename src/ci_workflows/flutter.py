@@ -77,6 +77,9 @@ def request_from_environment(
             if logical in forbidden:
                 raise FlutterValidationError("forbidden_input")
     try:
+        repository = environment["GITHUB_REPOSITORY"]
+        if not repository:
+            raise FlutterValidationError("invalid_input")
         profile = FlutterProfile(environment["INPUT_VALIDATION_PROFILE"])
         consumer_id = environment.get("INPUT_COMMAND_PROFILE") or environment[
             "INPUT_CONSUMER_CONTRACT"
@@ -108,11 +111,14 @@ def request_from_environment(
             else "trusted-pr"
         )
         return FlutterRequest(
+            repository=repository,
             admitted_sha=environment["INPUT_ADMITTED_SHA"],
             consumer_contract=consumer_id,
             validation_profile=profile,
             source_trust=source_trust,
         )
+    except FlutterValidationError:
+        raise
     except (KeyError, TypeError, ValueError) as error:
         raise FlutterValidationError("invalid_input") from error
 
