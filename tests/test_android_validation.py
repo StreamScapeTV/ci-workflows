@@ -30,7 +30,7 @@ class AndroidValidationContractTests(unittest.TestCase):
         self.assertEqual(contract["execution_runner_profile"], "mobile")
         self.assertEqual(
             contract["toolchain"]["packages"],
-            ["platform-tools", "platforms;android-37.0", "build-tools;37.0.0"],
+            ["platform-tools", "platforms;android-37", "build-tools;37.0.0"],
         )
         self.assertEqual(contract["toolchain"]["java_major"], 25)
         self.assertEqual(contract["toolchain"]["javac_major"], 25)
@@ -200,7 +200,7 @@ class AndroidValidationContractTests(unittest.TestCase):
             (sdk / "cmdline-tools/latest/source.properties").write_text(
                 "Pkg.Revision=19.0\n", encoding="utf-8"
             )
-            platform = sdk / "platforms/android-37.0"
+            platform = sdk / "platforms/android-37"
             platform.mkdir(parents=True)
             (platform / "android.jar").write_bytes(b"jar")
             build = sdk / "build-tools/37.0.0"
@@ -226,7 +226,7 @@ class AndroidValidationContractTests(unittest.TestCase):
                     0,
                     (
                         "platform-tools | 36\n"
-                        "platforms;android-37.0 | 2\n"
+                        "platforms;android-37 | 1\n"
                         "build-tools;37.0.0 | 37.0.0\n"
                     ),
                     "",
@@ -288,7 +288,7 @@ class AndroidValidationContractTests(unittest.TestCase):
         self.assertIn("distributionSha256Sum=" + expected_sha, properties)
         self.assertIn('tasks.register("verifyToolchainSmoke")', build)
         self.assertIn('JavaVersion.current().majorVersion == "25"', build)
-        self.assertIn("platforms/android-37.0/android.jar", build)
+        self.assertIn("platforms/android-37/android.jar", build)
         self.assertIn("build-tools/37.0.0/aapt2", build)
 
         request = android_contract.request_from_environment(
