@@ -54,64 +54,21 @@ on:
         required: false
         type: string
     secrets:
-      private_dependency_read_token:
+      private_dependency_token:
         description: Optional read-only token used only by the exact dependency primitive
         required: false
     outputs:
       result:
         description: Success only after bounded validation and terminal cleanup
         value: ${{ jobs.validate.outputs.result }}
-      source_sha:
-        description: Exact validated source SHA
-        value: ${{ jobs.validate.outputs.source_sha }}
-      validation_profile:
-        description: Reviewed validation profile
-        value: ${{ jobs.validate.outputs.validation_profile }}
-      task_profile:
-        description: Reviewed task profile
-        value: ${{ jobs.validate.outputs.task_profile }}
       test_summary:
         description: Bounded machine-readable execution summary
         value: ${{ jobs.validate.outputs.test_summary }}
-      resolved_java_major:
-        description: Exact verified JDK/Javac major
-        value: ${{ jobs.validate.outputs.resolved_java_major }}
-      resolved_android_api:
-        description: Exact verified Android API
-        value: ${{ jobs.validate.outputs.resolved_android_api }}
-      gradle_version:
-        description: Exact verified Gradle version
-        value: ${{ jobs.validate.outputs.gradle_version }}
-      private_dependency_used:
-        description: Whether the exact private dependency primitive was used
-        value: ${{ jobs.validate.outputs.private_dependency_used }}
       artifact_exception_used:
         description: Whether a named diagnostic exception was requested
         value: ${{ jobs.validate.outputs.artifact_exception_used }}
-      device_handoff_json:
-        description: Bounded device request packet; never device execution evidence
-        value: ${{ jobs.validate.outputs.device_handoff_json }}
-      debug_output_verified:
-        description: Whether unsigned debug output shape was verified before deletion
-        value: ${{ jobs.validate.outputs.debug_output_verified }}
-      schema_verified:
-        description: Whether Room schema history remained unchanged
-        value: ${{ jobs.validate.outputs.schema_verified }}
-      clean_tree:
-        description: Whether protected and source state remained clean
-        value: ${{ jobs.validate.outputs.clean_tree }}
-      cleanup_result:
-        description: Terminal cleanup and residue result
-        value: ${{ jobs.validate.outputs.cleanup_result }}
-      failure_code:
-        description: Stable failure projection, empty on success
-        value: ${{ jobs.validate.outputs.failure_code }}
-      evidence_id:
-        description: Deterministic bounded evidence identity
-        value: ${{ jobs.validate.outputs.evidence_id }}
 
 permissions:
-  actions: read
   contents: read
 
 jobs:
@@ -241,7 +198,7 @@ jobs:
           dependency_id: ${{ needs.plan.outputs.private_dependency_id }}
           expected_subpath: ${{ needs.plan.outputs.private_dependency_subdirectory }}
           fetch_depth: "1"
-          token: ${{ secrets.private_dependency_read_token }}
+          token: ${{ secrets.private_dependency_token }}
 
       - id: android
         name: Execute bounded Android validation
