@@ -76,6 +76,7 @@ class AndroidValidationPlan:
     private_dependency_sha: str | None
     private_dependency_subdirectory: str | None
     private_dependency_id: str | None
+    private_dependency_environment: tuple[tuple[str, str], ...]
     artifact_exception_id: str | None
     protected_paths: tuple[str, ...]
     schema_paths: tuple[str, ...]
