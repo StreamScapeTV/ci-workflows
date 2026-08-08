@@ -32,6 +32,10 @@ on:
       - "contracts/runner-profiles.json"
       - "generated/runner-mappings.json"
 
+concurrency:
+  group: android-validation-smoke-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 permissions:
   actions: read
   contents: read
