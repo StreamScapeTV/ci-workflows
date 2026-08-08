@@ -103,6 +103,17 @@
     },
     {
       "cleanup": "ciw workspace cleanup under if: always()",
+      "domain": "node",
+      "failure": "NodeValidationError.code",
+      "handler": "ci_workflows.ciw.handle_node_validate",
+      "inputs": ["phase", "admitted_sha", "validation_profile", "version_file", "node_version", "working_directory", "install_profile", "command_profile", "script_path", "static_output_directory", "output_verifier_path", "public_environment", "artifact_exception_id", "GitHub event identity"],
+      "operation": "validate",
+      "outputs": ["result", "node_version", "npm_version", "install_result", "test_summary", "build_result", "output_verified", "output_digest", "clean_tree", "cleanup_result", "artifact_exception_used", "evidence_id", "runner_profile", "runs_on_json", "workspace_profile", "timeout_minutes", "source_trust"],
+      "side_effects": ["resolves one contract-owned Node plan", "runs npm-only locked validation in copied registered state", "verifies bounded static output without upload or deployment", "enforces manifest, lock, source, redaction, cleanup, and zero-artifact policy"],
+      "trust_class": "read-only-validation"
+    },
+    {
+      "cleanup": "ciw workspace cleanup under if: always()",
       "domain": "workspace",
       "failure": "FoundationError.instruction",
       "handler": "ci_workflows.ciw.handle_workspace_prepare",
@@ -217,11 +228,12 @@
     {"commands": ["runners validate", "runners generate", "runners resolve", "runners validate-selector", "runners select-buildah-tier"], "path": "scripts/ci/runner_contract.py"},
     {"commands": ["workspace prepare", "workspace cleanup", "tooling verify", "tooling install-asset", "dependencies checkout-private", "policy verify-repository", "evidence render"], "path": "scripts/ci/foundation.py"},
     {"commands": ["release-tag resolve", "release-tag revalidate"], "path": "scripts/ci/release_tag_authority.py"},
-    {"commands": ["python validate"], "path": "scripts/ci/python.py"}
+    {"commands": ["python validate"], "path": "scripts/ci/python.py"},
+    {"commands": ["node validate"], "path": "scripts/ci/node.py"}
   ],
   "entry_point": "scripts/ci/ciw.py",
   "forbidden_dispatch_inputs": ["arbitrary_command", "shell", "callback", "callback_url", "handler", "function_name", "module_name", "runner", "runs_on", "runner_labels", "container_engine", "secret_name", "deletion_path", "workspace_root"],
-  "future_namespaces": ["node", "android", "flutter", "apple", "gitops", "oci", "helm", "release", "device", "github"],
+  "future_namespaces": ["android", "flutter", "apple", "gitops", "oci", "helm", "release", "device", "github"],
   "program": "ciw",
   "schema_version": 1
 }
