@@ -252,7 +252,6 @@ def _verify_command_hooks(
         "bun",
         "corepack",
         "wrangler",
-        "cloudflare",
         "docker",
         "buildah",
         "kubectl",
@@ -400,14 +399,16 @@ def _validated_cleanup_roots(
     copy_root: Path,
     state_root: Path,
 ) -> tuple[Path, Path, Path]:
-    state = _absolute_lexical(state_root)
-    copy = _absolute_lexical(copy_root)
-    _require_real_directory(state)
+    state_lexical = _absolute_lexical(state_root)
+    copy_lexical = _absolute_lexical(copy_root)
+    _require_real_directory(state_lexical)
+    _require_real_directory(copy_lexical)
+    state = state_lexical.resolve(strict=True)
+    copy = copy_lexical.resolve(strict=True)
     node_state = state / "node-validation"
     _require_real_directory(node_state)
-    expected_copy = node_state / "source"
-    require(copy == expected_copy, "cleanup_failed")
-    _require_real_directory(copy)
+    node_state = node_state.resolve(strict=True)
+    require(copy == node_state / "source", "cleanup_failed")
     return state, node_state, copy
 
 
