@@ -107,7 +107,9 @@ concurrency:
 jobs:
   command:
     name: Execute authoritative Agent State command
-    runs-on: agent-state
+    runs-on:
+      group: agent-state
+      labels: agent-state
     timeout-minutes: 10
     outputs:
       accepted: ${{ steps.execute.outputs.accepted }}

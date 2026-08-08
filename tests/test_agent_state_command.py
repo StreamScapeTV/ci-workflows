@@ -459,7 +459,8 @@ class AgentStateCommandContractTests(unittest.TestCase):
         )
         for required in (
             "workflow_dispatch:",
-            "runs-on: agent-state",
+            "group: agent-state",
+            "labels: agent-state",
             'test "${GITHUB_REF}" = "refs/heads/main"',
             "PYTHONPATH=src python3 -m ci_workflows.agent_state_command",
             "AGENT_STATE_COMMAND_RESULT",
@@ -481,6 +482,7 @@ class AgentStateCommandContractTests(unittest.TestCase):
             "request:",
             "arbitrary_command",
             "runs-on: [self-hosted",
+            "runs-on: agent-state",
         ):
             self.assertNotIn(forbidden, source)
 
