@@ -2,6 +2,12 @@
   "schema_version": 1,
   "allowed": [
     {
+      "path": ".github/workflows/reusable-node.yml",
+      "issue": 10,
+      "status": "implemented-public-workflow",
+      "required_follow_up": []
+    },
+    {
       "path": ".github/workflows/reusable-python.yml",
       "issue": 9,
       "status": "implemented-public-workflow",

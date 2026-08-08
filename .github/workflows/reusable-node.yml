@@ -1,0 +1,255 @@
+name: Reusable Node validation
+
+on:
+  workflow_call:
+    inputs:
+      admitted_sha:
+        description: Exact lowercase source SHA admitted by source.resolve
+        required: true
+        type: string
+      validation_profile:
+        description: locked-node, next-static-export, frontend-contract-static, or node-source-audit
+        required: true
+        type: string
+      version_file:
+        description: Optional contract-matched exact Node version file
+        required: false
+        type: string
+      node_version:
+        description: Optional contract-matched exact Node version
+        required: false
+        type: string
+      working_directory:
+        description: Contract-matched relative working directory
+        required: false
+        default: .
+        type: string
+      install_profile:
+        description: npm-ci or none as selected by the validation profile
+        required: true
+        type: string
+      command_profile:
+        description: Checked-in reviewed Node command profile
+        required: true
+        type: string
+      script_path:
+        description: Optional contract-matched checked-in audit hook
+        required: false
+        type: string
+      static_output_directory:
+        description: Optional contract-matched static output directory
+        required: false
+        type: string
+      output_verifier_path:
+        description: Optional contract-matched checked-in output verifier
+        required: false
+        type: string
+      public_environment:
+        description: Optional canonical JSON object of reviewed public browser values
+        required: false
+        default: "{}"
+        type: string
+      artifact_exception_id:
+        description: Optional named central artifact exception; empty by default
+        required: false
+        type: string
+    outputs:
+      result:
+        description: Success only after bounded validation and terminal cleanup
+        value: ${{ jobs.validate.outputs.result }}
+      node_version:
+        description: Exact verified Node version
+        value: ${{ jobs.validate.outputs.node_version }}
+      npm_version:
+        description: Exact verified npm version
+        value: ${{ jobs.validate.outputs.npm_version }}
+      install_result:
+        description: Locked restore result or skipped for source audit
+        value: ${{ jobs.validate.outputs.install_result }}
+      test_summary:
+        description: Bounded machine-readable test summary
+        value: ${{ jobs.validate.outputs.test_summary }}
+      build_result:
+        description: Build result or skipped for non-build profiles
+        value: ${{ jobs.validate.outputs.build_result }}
+      output_verified:
+        description: Whether the declared static output passed verification
+        value: ${{ jobs.validate.outputs.output_verified }}
+      output_digest:
+        description: Deterministic static output digest when produced
+        value: ${{ jobs.validate.outputs.output_digest }}
+      clean_tree:
+        description: Whether source, manifest, and lock state remained clean
+        value: ${{ jobs.validate.outputs.clean_tree }}
+      cleanup_result:
+        description: Terminal cleanup verification result
+        value: ${{ jobs.validate.outputs.cleanup_result }}
+      artifact_exception_used:
+        description: False for the initial zero-artifact Node API
+        value: ${{ jobs.validate.outputs.artifact_exception_used }}
+      evidence_id:
+        description: Deterministic bounded validation evidence identity
+        value: ${{ jobs.validate.outputs.evidence_id }}
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Resolve bounded Node validation plan
+    runs-on: portable
+    timeout-minutes: 10
+    outputs:
+      node_version: ${{ steps.plan.outputs.node_version }}
+      runner_profile: ${{ steps.plan.outputs.runner_profile }}
+      workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
+      timeout_minutes: ${{ steps.plan.outputs.timeout_minutes }}
+      source_trust: ${{ steps.plan.outputs.source_trust }}
+    steps:
+      - name: Check out exact central workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact central workflow source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
+          )
+
+      - id: plan
+        name: Resolve contract-owned Node command plan
+        uses: ./.ciw/actions/validate-node
+        with:
+          phase: plan
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          version_file: ${{ inputs.version_file }}
+          node_version: ${{ inputs.node_version }}
+          working_directory: ${{ inputs.working_directory }}
+          install_profile: ${{ inputs.install_profile }}
+          command_profile: ${{ inputs.command_profile }}
+          script_path: ${{ inputs.script_path }}
+          static_output_directory: ${{ inputs.static_output_directory }}
+          output_verifier_path: ${{ inputs.output_verifier_path }}
+          public_environment: ${{ inputs.public_environment }}
+          artifact_exception_id: ${{ inputs.artifact_exception_id }}
+
+  validate:
+    name: CI / Node validation
+    needs: plan
+    runs-on: portable
+    timeout-minutes: 90
+    outputs:
+      result: ${{ steps.node.outcome == 'success' && steps.cleanup.outcome == 'success' && 'success' || 'failure' }}
+      node_version: ${{ steps.node.outputs.node_version }}
+      npm_version: ${{ steps.node.outputs.npm_version }}
+      install_result: ${{ steps.node.outputs.install_result }}
+      test_summary: ${{ steps.node.outputs.test_summary }}
+      build_result: ${{ steps.node.outputs.build_result }}
+      output_verified: ${{ steps.node.outputs.output_verified }}
+      output_digest: ${{ steps.node.outputs.output_digest }}
+      clean_tree: ${{ steps.node.outputs.clean_tree }}
+      cleanup_result: ${{ steps.cleanup.outcome == 'success' && 'success' || 'failure' }}
+      artifact_exception_used: ${{ steps.node.outputs.artifact_exception_used }}
+      evidence_id: ${{ steps.node.outputs.evidence_id }}
+    steps:
+      - name: Check out exact central workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact central workflow source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
+          )
+
+      - name: Check out exact admitted caller source
+        uses: ./.ciw/actions/exact-checkout
+        with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          admitted_sha: ${{ inputs.admitted_sha }}
+          path: source
+          fetch_depth: "1"
+
+      - id: workspace
+        name: Prepare isolated marker-bound Node state
+        uses: ./.ciw/actions/prepare-workspace
+        with:
+          profile: ${{ needs.plan.outputs.workspace_profile }}
+          cache_mode: disabled
+          source_sha: ${{ inputs.admitted_sha }}
+          trust_mode: ${{ needs.plan.outputs.source_trust }}
+
+      - name: Set up exact contract-selected Node runtime
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: ${{ needs.plan.outputs.node_version }}
+          package-manager-cache: false
+
+      - id: node
+        name: Execute bounded Node validation
+        uses: ./.ciw/actions/validate-node
+        with:
+          phase: execute
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          version_file: ${{ inputs.version_file }}
+          node_version: ${{ inputs.node_version }}
+          working_directory: ${{ inputs.working_directory }}
+          install_profile: ${{ inputs.install_profile }}
+          command_profile: ${{ inputs.command_profile }}
+          script_path: ${{ inputs.script_path }}
+          static_output_directory: ${{ inputs.static_output_directory }}
+          output_verifier_path: ${{ inputs.output_verifier_path }}
+          public_environment: ${{ inputs.public_environment }}
+          artifact_exception_id: ${{ inputs.artifact_exception_id }}
+
+      - name: Render deterministic redacted Node evidence
+        if: always()
+        uses: ./.ciw/actions/render-evidence
+        with:
+          source_sha: ${{ inputs.admitted_sha }}
+          workflow_release: validation-node-1.0.0
+          runner_profile: portable
+          toolchain_json: >-
+            {"node":"${{ needs.plan.outputs.node_version }}","npm":"${{ steps.node.outputs.npm_version || 'unknown' }}"}
+          command_profile: ${{ inputs.command_profile }}
+          result: ${{ steps.node.outcome == 'success' && 'success' || 'failure' }}
+          cleanup_state: not-run
+          cleanup_removed_paths: "0"
+
+      - id: cleanup
+        name: Remove and verify all registered Node state
+        if: always()
+        uses: ./.ciw/actions/cleanup-workspace
+
+      - name: Verify exact source remained clean after cleanup
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          (
+            cd source
+            test "$(git rev-parse HEAD)" = "${{ inputs.admitted_sha }}"
+            test -z "$(git status --porcelain --untracked-files=all)"
+          )
