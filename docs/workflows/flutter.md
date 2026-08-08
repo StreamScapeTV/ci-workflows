@@ -29,7 +29,8 @@ Flux target, or deployment input.
 The planner always executes on `portable`. It chooses exactly one of the three
 explicit execution jobs. Android work cannot consume `apple`; iOS simulator work
 cannot consume `mobile` or `portable`; no profile grants physical-device
-authority.
+authority. Dynamic execution consumes only the exact planner-produced selector
+through `${{ fromJSON(needs.plan.outputs.runs_on_json) }}`.
 
 ## Runtime authority
 
@@ -74,6 +75,23 @@ The current reviewed shapes cover:
 - Finance Hub: exact `.fvmrc`, repository audit, quality, debug Android APK,
   unsigned iOS simulator compile, and embedded web-asset validation through the
   checked-in quality gate plus bounded Node composition.
+
+## Exact-head smoke proof
+
+Two direct smoke workflows preserve the reviewed shallow call graph and give
+each non-portable capacity its own trusted `plan` output:
+
+- `.github/workflows/flutter-validation-smoke.yml` proves portable source audit,
+  focused Flutter tests, and real mobile Android debug execution;
+- `.github/workflows/flutter-apple-validation-smoke.yml` proves real Apple iOS
+  simulator execution.
+
+Neither smoke workflow reconstructs, concatenates, or exposes runner labels.
+The product-neutral smoke projects are disposable. They run one plain
+`flutter pub get` only to create their initial synthetic lock, then the normal
+validator performs the enforced locked restore and proves the lock remains
+unchanged. Both workflows require cleanup, zero residue, and zero routine
+Actions artifacts.
 
 ## Outputs and cleanup
 
