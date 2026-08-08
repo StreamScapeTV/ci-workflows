@@ -162,15 +162,15 @@ class AppleWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("archive_path", source)
 
     def test_deterministic_simulator_creation_and_owned_cleanup_are_present(self) -> None:
-        self.assertIn('(\"xcrun\", \"simctl\", \"list\", \"devices\", \"available\", \"-j\")', self.execution)
-        self.assertIn('\"simctl\",\n                \"create\"', self.execution)
-        self.assertIn('\"simctl\", \"bootstatus\"', self.execution)
-        self.assertIn('\"simctl\", \"shutdown\"', self.execution)
-        self.assertIn('\"simctl\", \"delete\"', self.execution)
+        self.assertIn('("xcrun", "simctl", "list", "devices", "available", "-j")', self.execution)
+        self.assertIn('"simctl",\n                "create"', self.execution)
+        self.assertIn('"simctl", "bootstatus"', self.execution)
+        self.assertIn('"simctl", "shutdown"', self.execution)
+        self.assertIn('"simctl", "delete"', self.execution)
         self.assertIn("simulators.json", self.execution)
         self.assertIn("simulator_unowned", self.execution)
         self.assertIn("simulator_ambiguous", self.execution)
-        self.assertNotIn('destination = \"generic/', self.execution.lower())
+        self.assertNotIn('destination = "generic/', self.execution.lower())
 
     def test_exact_toolchain_sdk_and_package_resolution_are_checked(self) -> None:
         toolchain = self.contract["toolchain"]
