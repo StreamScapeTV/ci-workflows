@@ -63,6 +63,7 @@ class FlutterCommand:
 
 @dataclass(frozen=True, slots=True)
 class FlutterRequest:
+    repository: str
     admitted_sha: str
     consumer_contract: str
     validation_profile: FlutterProfile
