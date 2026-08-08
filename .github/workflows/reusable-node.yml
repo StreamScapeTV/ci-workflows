@@ -159,7 +159,7 @@ jobs:
       output_verified: ${{ steps.node.outputs.output_verified }}
       output_digest: ${{ steps.node.outputs.output_digest }}
       clean_tree: ${{ steps.node.outputs.clean_tree }}
-      cleanup_result: ${{ steps.cleanup.outputs.cleanup_verified }}
+      cleanup_result: ${{ steps.cleanup.outcome == 'success' && 'success' || 'failure' }}
       artifact_exception_used: ${{ steps.node.outputs.artifact_exception_used }}
       evidence_id: ${{ steps.node.outputs.evidence_id }}
     steps:
@@ -231,7 +231,8 @@ jobs:
           source_sha: ${{ inputs.admitted_sha }}
           workflow_release: validation-node-1.0.0
           runner_profile: portable
-          toolchain_json: '{"node":"${{ needs.plan.outputs.node_version }}","npm":"${{ steps.node.outputs.npm_version || 'unknown' }}"}'
+          toolchain_json: >-
+            {"node":"${{ needs.plan.outputs.node_version }}","npm":"${{ steps.node.outputs.npm_version || 'unknown' }}"}
           command_profile: ${{ inputs.command_profile }}
           result: ${{ steps.node.outcome == 'success' && 'success' || 'failure' }}
           cleanup_state: not-run
