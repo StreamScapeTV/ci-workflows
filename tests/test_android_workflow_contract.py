@@ -54,12 +54,12 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             "private_dependency_contract_id", "private_dependency_sha",
             "artifact_exception_id", "device_family", "device_request_id",
         })
-        self.assertEqual(set(smoke["jobs"]), {"plan_android", "execute_android"})
-        self.assertEqual(smoke["jobs"]["plan_android"]["runs-on"], "portable")
-        self.assertEqual(smoke["jobs"]["plan_android"]["timeout-minutes"], 10)
+        self.assertEqual(set(smoke["jobs"]), {"plan", "execute_android"})
+        self.assertEqual(smoke["jobs"]["plan"]["runs-on"], "portable")
+        self.assertEqual(smoke["jobs"]["plan"]["timeout-minutes"], 10)
         self.assertEqual(smoke["jobs"]["execute_android"]["timeout-minutes"], 30)
         self.assertIn(
-            "fromJSON(needs.plan_android.outputs.runs_on_json)",
+            "fromJSON(needs.plan.outputs.runs_on_json)",
             smoke["jobs"]["execute_android"]["runs-on"],
         )
         self.assertEqual(action["runs"]["using"], "composite")
