@@ -148,7 +148,7 @@ def verify_toolchain(source: Path, state: Path, plan: AndroidValidationPlan,
                           state_root=state, stage="sdk-packages").stdout
     for package in contract["toolchain"]["packages"]:
         require(re.search(rf'(?m)^\s*{re.escape(package)}\s*\|', listing) is not None, "sdk_package_missing")
-    require((sdk / "platforms/android-37.0/android.jar").is_file(), "sdk_package_missing")
+    require((sdk / "platforms/android-37/android.jar").is_file(), "sdk_package_missing")
     build = sdk / "build-tools/37.0.0"
     require((build / "aapt2").is_file(), "sdk_package_missing")
     require(_properties(build / "source.properties", "sdk_package_missing").get("Pkg.Revision") == "37.0.0",
