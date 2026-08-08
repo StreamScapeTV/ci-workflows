@@ -37,7 +37,7 @@ permissions:
   contents: read
 
 jobs:
-  plan_android:
+  plan:
     name: Resolve bounded Android mobile smoke plan
     runs-on: portable
     timeout-minutes: 10
@@ -94,8 +94,8 @@ jobs:
 
   execute_android:
     name: Execute Android mobile toolchain smoke
-    needs: plan_android
-    runs-on: ${{ fromJSON(needs.plan_android.outputs.runs_on_json) }}
+    needs: plan
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
     timeout-minutes: 30
     steps:
       - name: Check out exact central source
@@ -132,10 +132,10 @@ jobs:
         name: Prepare isolated marker-bound Android smoke state
         uses: ./.ciw/actions/prepare-workspace
         with:
-          profile: ${{ needs.plan_android.outputs.workspace_profile }}
+          profile: ${{ needs.plan.outputs.workspace_profile }}
           cache_mode: disabled
           source_sha: ${{ github.event.pull_request.head.sha }}
-          trust_mode: ${{ needs.plan_android.outputs.source_trust }}
+          trust_mode: ${{ needs.plan.outputs.source_trust }}
 
       - id: android
         name: Execute bounded Android toolchain fixture validation
