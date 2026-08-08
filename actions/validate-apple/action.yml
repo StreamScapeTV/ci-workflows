@@ -12,27 +12,30 @@ inputs:
   validation_profile:
     description: Bounded Apple validation profile
     required: true
+  version_file:
+    description: Optional exact contract-matching version or resolution authority file
+    required: false
+    default: ""
+  working_directory:
+    description: Exact contract-matching working directory
+    required: false
+    default: "."
   command_profile:
     description: Reviewed product-neutral Apple consumer contract identifier
     required: true
-  working_directory:
-    description: Optional exact contract-matching working directory
+  script_path:
+    description: Optional exact contract-matching checked-in script
     required: false
     default: ""
-  project_path:
-    description: Optional exact contract-matching project, workspace, or package path
-    required: false
-    default: ""
+  platform:
+    description: Exact bounded Apple platform selected by the reviewed profile
+    required: true
   scheme:
     description: Optional exact contract-matching scheme
     required: false
     default: ""
-  configuration:
-    description: Optional exact contract-matching build configuration
-    required: false
-    default: ""
-  test_plan:
-    description: Optional exact contract-matching checked-in test plan
+  destination_profile:
+    description: Optional exact contract-matching destination profile identifier
     required: false
     default: ""
   artifact_exception_id:
@@ -104,12 +107,13 @@ runs:
         PYTHONDONTWRITEBYTECODE: "1"
         INPUT_ADMITTED_SHA: ${{ inputs.admitted_sha }}
         INPUT_VALIDATION_PROFILE: ${{ inputs.validation_profile }}
-        INPUT_COMMAND_PROFILE: ${{ inputs.command_profile }}
+        INPUT_VERSION_FILE: ${{ inputs.version_file }}
         INPUT_WORKING_DIRECTORY: ${{ inputs.working_directory }}
-        INPUT_PROJECT_PATH: ${{ inputs.project_path }}
+        INPUT_COMMAND_PROFILE: ${{ inputs.command_profile }}
+        INPUT_SCRIPT_PATH: ${{ inputs.script_path }}
+        INPUT_PLATFORM: ${{ inputs.platform }}
         INPUT_SCHEME: ${{ inputs.scheme }}
-        INPUT_CONFIGURATION: ${{ inputs.configuration }}
-        INPUT_TEST_PLAN: ${{ inputs.test_plan }}
+        INPUT_DESTINATION_PROFILE: ${{ inputs.destination_profile }}
         INPUT_ARTIFACT_EXCEPTION_ID: ${{ inputs.artifact_exception_id }}
         INPUT_SOURCE_TRUST: ${{ inputs.source_trust }}
       run: |

@@ -48,11 +48,12 @@ class AppleWorkflowContractTests(unittest.TestCase):
             "admitted_sha",
             "artifact_exception_id",
             "command_profile",
-            "configuration",
-            "project_path",
+            "destination_profile",
+            "platform",
             "scheme",
-            "test_plan",
+            "script_path",
             "validation_profile",
+            "version_file",
             "working_directory",
         }
         block = self.workflow.split("inputs:", 1)[1].split("outputs:", 1)[0]
@@ -66,13 +67,7 @@ class AppleWorkflowContractTests(unittest.TestCase):
             re.findall(r"^      ([a-z_]+):$", output_block, re.M)
         )
         self.assertEqual(
-            {
-                "artifact_exception_used",
-                "cleanup_result",
-                "evidence_id",
-                "result",
-                "test_summary",
-            },
+            {"artifact_exception_used", "result", "test_summary"},
             actual_outputs,
         )
 
@@ -95,10 +90,14 @@ class AppleWorkflowContractTests(unittest.TestCase):
             (ROOT / "src/ci_workflows/ciw_apple.py").read_text(encoding="utf-8"),
         )
 
-    def test_smoke_exercises_exact_reusable_workflow_on_all_apple_platforms(self) -> None:
-        self.assertEqual(
-            3,
-            self.smoke.count("uses: ./.github/workflows/reusable-apple.yml"),
+    def test_smoke_exercises_exact_implementation_on_all_apple_platforms(self) -> None:
+        self.assertNotIn(
+            "uses: ./.github/workflows/reusable-apple.yml",
+            self.smoke,
+        )
+        self.assertGreaterEqual(
+            self.smoke.count("uses: ./.ciw/actions/validate-apple"),
+            12,
         )
         self.assertIn("validation_profile: ios-simulator", self.smoke)
         self.assertIn("validation_profile: tvos-simulator", self.smoke)
@@ -106,8 +105,9 @@ class AppleWorkflowContractTests(unittest.TestCase):
         self.assertIn("Real iOS simulator smoke", self.smoke)
         self.assertIn("Real tvOS simulator smoke", self.smoke)
         self.assertIn("Real unsigned macOS smoke", self.smoke)
-        self.assertIn("github.event.pull_request.head.sha || github.sha", self.smoke)
+        self.assertIn("github.event.pull_request.head.sha", self.smoke)
         self.assertIn("head.repo.full_name == github.repository", self.smoke)
+        self.assertIn("timeout-minutes: 120", self.smoke)
         self.assertNotIn("workflow_dispatch:", self.smoke)
 
     def test_external_actions_are_full_sha_pinned(self) -> None:

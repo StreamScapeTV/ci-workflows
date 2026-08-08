@@ -31,6 +31,22 @@ class AppleProfile(str, Enum):
     REPOSITORY_RECOVERY = "repository-recovery"
 
 
+PUBLIC_PLATFORM_BY_PROFILE = {
+    AppleProfile.SOURCE_AUDIT: "apple",
+    AppleProfile.SWIFT_PACKAGE: "swift",
+    AppleProfile.IOS_SIMULATOR: "ios",
+    AppleProfile.TVOS_SIMULATOR: "tvos",
+    AppleProfile.MACOS: "macos",
+    AppleProfile.NATIVE_DEPENDENCY_PREPARATION: "apple-native",
+    AppleProfile.REPOSITORY_RECOVERY: "apple",
+}
+PUBLIC_DESTINATION_BY_PROFILE = {
+    AppleProfile.IOS_SIMULATOR: "ios-simulator-default",
+    AppleProfile.TVOS_SIMULATOR: "tvos-simulator-default",
+    AppleProfile.MACOS: "macos-unsigned",
+}
+
+
 class AppleRunnerCapability(str, Enum):
     PORTABLE = "portable"
     APPLE = "apple"
@@ -105,7 +121,28 @@ class AppleValidationRequest:
     scheme: str | None = None
     configuration: str | None = None
     test_plan: str | None = None
+    version_file: str | None = None
+    script_path: str | None = None
+    platform: str | None = None
+    destination_profile: str | None = None
     artifact_exception_id: str | None = None
+
+    def __post_init__(self) -> None:
+        expected_platform = PUBLIC_PLATFORM_BY_PROFILE[self.validation_profile]
+        if self.platform not in {None, "", expected_platform}:
+            raise AppleValidationError("platform_rejected")
+        expected_destination = PUBLIC_DESTINATION_BY_PROFILE.get(
+            self.validation_profile
+        )
+        if (
+            self.destination_profile not in {None, ""}
+            and self.destination_profile != expected_destination
+        ):
+            raise AppleValidationError("destination_profile_rejected")
+        if self.version_file not in {None, ""}:
+            raise AppleValidationError("version_file_rejected")
+        if self.script_path not in {None, ""}:
+            raise AppleValidationError("script_path_rejected")
 
 
 @dataclass(frozen=True, slots=True)

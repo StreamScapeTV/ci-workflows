@@ -8,7 +8,12 @@ hermetic command construction, redacted reporting, and terminal cleanup.
 Consumer repositories retain authority over their checked-in project/workspace
 or package path, scheme, configuration, optional test plan, exact command
 profile, dependency-preparation script, recovery scripts, package-resolution
-mode, protected source paths, and accepted diagnostic exception.
+mode, protected source paths, and accepted diagnostic exception. The public
+workflow exposes only the already-reviewed API vocabulary: version file, working
+directory, command profile, script path, bounded platform, scheme, destination
+profile, and named diagnostic exception. Every supplied value must equal the
+selected task; container paths, configurations, test plans, device identities,
+and arguments stay internal.
 
 `contracts/apple-validation.json` is the reviewed data boundary. The shared
 modules do not branch on repository or product names. Repository compatibility
@@ -103,6 +108,15 @@ state root. Each path is resolved lexically, every parent is checked with
 `lstat`, and recursive deletion never follows a symlink. Cleanup failure is
 reported without replacing the primary execution failure, and a separate
 cleanup result marks terminal cleanup failure.
+
+## Smoke topology
+
+The smoke caller executes the exact checked-out Apple action and contract
+directly instead of nesting the public reusable workflow. This is deliberate:
+the repository permits public reusable depth one, so a nested smoke caller would
+create rejected depth two. The direct smoke uses the same plan/execute/cleanup
+modules and exact source, and separately proves iOS, tvOS, macOS, residue, and
+zero-artifact behavior.
 
 ## Deferred shared integration
 

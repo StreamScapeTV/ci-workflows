@@ -29,6 +29,22 @@ from .apple_types import (
     AppleValidationResult,
 )
 
+_ALLOWED_INPUT_KEYS = {
+    "admitted_sha",
+    "artifact_exception_id",
+    "command_profile",
+    "consumer_contract",
+    "destination_profile",
+    "platform",
+    "scheme",
+    "script_path",
+    "source_trust",
+    "validation_profile",
+    "version_file",
+    "working_directory",
+}
+
+
 __all__ = [
     "AppleProfile",
     "AppleValidationError",
@@ -84,7 +100,7 @@ def request_from_environment(
     for key, value in environment.items():
         if key.startswith("INPUT_") and value:
             logical = key.removeprefix("INPUT_").lower()
-            if logical in forbidden:
+            if logical in forbidden or logical not in _ALLOWED_INPUT_KEYS:
                 raise AppleValidationError("forbidden_input")
     try:
         repository = environment["GITHUB_REPOSITORY"].strip()
@@ -105,11 +121,15 @@ def request_from_environment(
             consumer_contract=consumer_contract,
             validation_profile=profile,
             source_trust=source_trust,
+            version_file=_optional(environment, "INPUT_VERSION_FILE"),
             working_directory=_optional(environment, "INPUT_WORKING_DIRECTORY"),
-            project_path=_optional(environment, "INPUT_PROJECT_PATH"),
+            script_path=_optional(environment, "INPUT_SCRIPT_PATH"),
+            platform=_optional(environment, "INPUT_PLATFORM"),
             scheme=_optional(environment, "INPUT_SCHEME"),
-            configuration=_optional(environment, "INPUT_CONFIGURATION"),
-            test_plan=_optional(environment, "INPUT_TEST_PLAN"),
+            destination_profile=_optional(
+                environment,
+                "INPUT_DESTINATION_PROFILE",
+            ),
             artifact_exception_id=_optional(
                 environment,
                 "INPUT_ARTIFACT_EXCEPTION_ID",

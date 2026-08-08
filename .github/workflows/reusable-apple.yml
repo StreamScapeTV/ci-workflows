@@ -11,32 +11,36 @@ on:
         description: Bounded Apple validation profile
         required: true
         type: string
+      version_file:
+        description: Optional exact contract-matching version or resolution authority file
+        required: false
+        default: ""
+        type: string
+      working_directory:
+        description: Exact contract-matching source directory
+        required: false
+        default: "."
+        type: string
       command_profile:
         description: Reviewed product-neutral Apple consumer contract identifier
         required: true
         type: string
-      working_directory:
-        description: Optional exact contract-matching source directory
+      script_path:
+        description: Optional exact contract-matching checked-in script
         required: false
         default: ""
         type: string
-      project_path:
-        description: Optional exact contract-matching project, workspace, or package path
-        required: false
-        default: ""
+      platform:
+        description: Exact bounded Apple platform selected by the reviewed profile
+        required: true
         type: string
       scheme:
         description: Optional exact contract-matching scheme
         required: false
         default: ""
         type: string
-      configuration:
-        description: Optional exact contract-matching build configuration
-        required: false
-        default: ""
-        type: string
-      test_plan:
-        description: Optional exact contract-matching checked-in test plan
+      destination_profile:
+        description: Optional exact contract-matching destination profile identifier
         required: false
         default: ""
         type: string
@@ -52,12 +56,6 @@ on:
       test_summary:
         description: Deterministic bounded stage summary
         value: ${{ jobs.apple.outputs.test_summary }}
-      evidence_id:
-        description: Deterministic redacted evidence identity
-        value: ${{ jobs.apple.outputs.evidence_id }}
-      cleanup_result:
-        description: Success only after registered state is absent
-        value: ${{ jobs.apple.outputs.cleanup_result }}
       artifact_exception_used:
         description: Whether one registered redacted exception was requested
         value: ${{ jobs.apple.outputs.artifact_exception_used }}
@@ -94,10 +92,7 @@ jobs:
           EXPECTED_SHA: ${{ github.workflow_sha }}
         run: |
           set -Eeuo pipefail
-          (
-            cd .ciw
-            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
-          )
+          (cd .ciw && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
 
       - id: plan
         name: Resolve contract-owned Apple plan
@@ -106,12 +101,13 @@ jobs:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
           validation_profile: ${{ inputs.validation_profile }}
-          command_profile: ${{ inputs.command_profile }}
+          version_file: ${{ inputs.version_file }}
           working_directory: ${{ inputs.working_directory }}
-          project_path: ${{ inputs.project_path }}
+          command_profile: ${{ inputs.command_profile }}
+          script_path: ${{ inputs.script_path }}
+          platform: ${{ inputs.platform }}
           scheme: ${{ inputs.scheme }}
-          configuration: ${{ inputs.configuration }}
-          test_plan: ${{ inputs.test_plan }}
+          destination_profile: ${{ inputs.destination_profile }}
           artifact_exception_id: ${{ inputs.artifact_exception_id }}
 
   apple:
@@ -122,8 +118,6 @@ jobs:
     outputs:
       result: ${{ steps.execute.outputs.result }}
       test_summary: ${{ steps.execute.outputs.test_summary }}
-      evidence_id: ${{ steps.execute.outputs.evidence_id }}
-      cleanup_result: ${{ steps.execute.outputs.cleanup_result }}
       artifact_exception_used: ${{ steps.execute.outputs.artifact_exception_used }}
     steps:
       - name: Check out exact central workflow source
@@ -181,38 +175,50 @@ jobs:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
           validation_profile: ${{ inputs.validation_profile }}
-          command_profile: ${{ inputs.command_profile }}
+          version_file: ${{ inputs.version_file }}
           working_directory: ${{ inputs.working_directory }}
-          project_path: ${{ inputs.project_path }}
+          command_profile: ${{ inputs.command_profile }}
+          script_path: ${{ inputs.script_path }}
+          platform: ${{ inputs.platform }}
           scheme: ${{ inputs.scheme }}
-          configuration: ${{ inputs.configuration }}
-          test_plan: ${{ inputs.test_plan }}
+          destination_profile: ${{ inputs.destination_profile }}
           artifact_exception_id: ${{ inputs.artifact_exception_id }}
           source_trust: ${{ needs.plan.outputs.source_trust }}
 
-      - id: apple_cleanup
-        name: Remove Apple-specific state
+      - name: Remove Apple-specific state
         if: always()
         uses: ./.ciw/actions/validate-apple
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
           validation_profile: ${{ inputs.validation_profile }}
+          version_file: ${{ inputs.version_file }}
+          working_directory: ${{ inputs.working_directory }}
           command_profile: ${{ inputs.command_profile }}
+          script_path: ${{ inputs.script_path }}
+          platform: ${{ inputs.platform }}
+          scheme: ${{ inputs.scheme }}
+          destination_profile: ${{ inputs.destination_profile }}
+          artifact_exception_id: ${{ inputs.artifact_exception_id }}
           source_trust: ${{ needs.plan.outputs.source_trust }}
 
-      - id: apple_residue
-        name: Verify zero Apple-specific residue
+      - name: Verify zero Apple-specific residue
         if: always()
         uses: ./.ciw/actions/validate-apple
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
           validation_profile: ${{ inputs.validation_profile }}
+          version_file: ${{ inputs.version_file }}
+          working_directory: ${{ inputs.working_directory }}
           command_profile: ${{ inputs.command_profile }}
+          script_path: ${{ inputs.script_path }}
+          platform: ${{ inputs.platform }}
+          scheme: ${{ inputs.scheme }}
+          destination_profile: ${{ inputs.destination_profile }}
+          artifact_exception_id: ${{ inputs.artifact_exception_id }}
           source_trust: ${{ needs.plan.outputs.source_trust }}
 
-      - id: workspace_cleanup
-        name: Remove and verify all registered workflow state
+      - name: Remove and verify all registered workflow state
         if: always()
         uses: ./.ciw/actions/cleanup-workspace

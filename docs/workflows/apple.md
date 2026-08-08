@@ -5,10 +5,12 @@
 `CI / Apple validation`.
 
 The workflow accepts one exact admitted source SHA, one bounded validation
-profile, and one reviewed consumer-contract identifier. Optional project,
-workspace, scheme, configuration, test-plan, working-directory, and diagnostic
-exception inputs are accepted only when they exactly match the checked-in
-consumer contract. Callers cannot select a runner, host, architecture, Xcode
+profile, one required bounded platform, and one reviewed consumer-contract
+identifier. Optional version-file, working-directory, checked-in script, scheme,
+destination-profile, and diagnostic-exception inputs are accepted only when
+they exactly match the selected checked-in task. Project/workspace/package
+paths, build configuration, test plans, simulator runtime/device identity, and
+command arguments are never caller inputs; they remain contract-owned. Callers cannot select a runner, host, architecture, Xcode
 path, destination, device, command, arbitrary argument list, signing identity,
 provisioning profile, keychain, archive/export/store operation, dependency URL,
 secret, registry, Kubernetes target, or deployment operation.
@@ -89,8 +91,12 @@ failure.
 
 ## Smoke workflow
 
-`.github/workflows/apple-validation-smoke.yml` calls the exact pull-request
-version of the reusable workflow for a product-neutral fixture on iOS simulator,
-tvOS simulator, and unsigned macOS. It accepts same-repository pull requests
-only and independently verifies that the run retained zero Actions artifacts.
+`.github/workflows/apple-validation-smoke.yml` checks out the exact
+pull-request implementation and executes the same planner, composite action,
+contract, workspace isolation, and cleanup path directly for a product-neutral
+fixture on iOS simulator, tvOS simulator, and unsigned macOS. The direct caller
+preserves the repository's maximum reusable depth of one while proving the
+implementation used by `.github/workflows/reusable-apple.yml`. It accepts
+same-repository pull requests only and independently verifies that the run
+retained zero Actions artifacts.
 Simulator smoke is not physical-device, signing, release, or store proof.
