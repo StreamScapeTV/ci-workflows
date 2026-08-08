@@ -5,16 +5,19 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import subprocess
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Mapping, Protocol, Sequence
 
 from .flutter_contract import (
     FlutterValidationError,
+    bounded_path,
     checked_in_script,
     fail,
     parse_runtime_identity,
+    safe_relative,
     source_authority_hashes,
 )
 from .flutter_types import FlutterPlan, FlutterProfile, FlutterResult, FlutterStage
@@ -45,16 +48,23 @@ class SubprocessCommandRunner:
         cwd: Path,
         env: Mapping[str, str],
     ) -> CommandOutcome:
-        completed = subprocess.run(
-            list(argv),
-            cwd=cwd,
-            env=dict(env),
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
+        try:
+            completed = subprocess.run(
+                list(argv),
+                cwd=cwd,
+                env=dict(env),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+        except OSError:
+            fail("command_failed")
+        return CommandOutcome(
+            completed.returncode,
+            completed.stdout,
+            completed.stderr,
         )
-        return CommandOutcome(completed.returncode, completed.stdout, completed.stderr)
 
 
 def _state_directory(state_root: Path) -> Path:
@@ -126,7 +136,10 @@ def isolated_environment(
     return env, directories
 
 
-def _render_argv(argv: Sequence[str], values: Mapping[str, str]) -> tuple[str, ...]:
+def _render_argv(
+    argv: Sequence[str],
+    values: Mapping[str, str],
+) -> tuple[str, ...]:
     rendered: list[str] = []
     for item in argv:
         output = item
@@ -159,26 +172,59 @@ def _verify_authority(source_root: Path, before: Mapping[str, str]) -> str:
     return after["pubspec.lock"]
 
 
+def _git_marker_exists(source_root: Path) -> bool:
+    marker = source_root / ".git"
+    return marker.exists() or marker.is_file()
+
+
+def _git_command(source_root: Path, arguments: Sequence[str]) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            ["git", *arguments],
+            cwd=source_root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+    except OSError:
+        fail("dirty_source")
+
+
 def _assert_clean_source(source_root: Path) -> None:
-    git_marker = source_root / ".git"
-    if not git_marker.exists() and not git_marker.is_file():
+    if not _git_marker_exists(source_root):
         return
-    completed = subprocess.run(
-        ["git", "status", "--porcelain=v1", "--untracked-files=all"],
-        cwd=source_root,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
+    completed = _git_command(
+        source_root,
+        ["status", "--porcelain=v1", "--untracked-files=all"],
     )
     if completed.returncode != 0 or completed.stdout.strip():
         fail("dirty_source")
 
 
-def _verify_expected_outputs(source_root: Path, expected: Sequence[str]) -> bool:
+def _assert_tracked_regular(source_root: Path, relative: str) -> None:
+    checked_in_script(source_root, relative)
+    if not _git_marker_exists(source_root):
+        return
+    completed = _git_command(
+        source_root,
+        ["ls-files", "--error-unmatch", "--", relative],
+    )
+    if completed.returncode != 0 or completed.stdout.strip() != relative:
+        fail("gate_path_rejected")
+
+
+def _verify_expected_outputs(
+    source_root: Path,
+    expected: Sequence[str],
+) -> bool:
     for value in expected:
-        path = source_root / value
-        if not path.exists() or path.is_symlink():
+        path = bounded_path(
+            source_root,
+            safe_relative(value, allow_dot=False),
+            must_exist=True,
+        )
+        if path.is_symlink():
             fail("output_missing")
     return bool(expected)
 
@@ -211,6 +257,7 @@ def _compose_node(
         INPUT_OUTPUT_VERIFIER_PATH="",
         INPUT_PUBLIC_ENVIRONMENT="",
         INPUT_ARTIFACT_EXCEPTION_ID="",
+        GITHUB_REPOSITORY=plan.request.repository,
         GITHUB_WORKSPACE=str(source_root.parent),
         RUNNER_TEMP=str(state_root.parent),
     )
@@ -286,15 +333,16 @@ def execute_flutter_plan(
             "derived_data": str(directories["derived-data"]),
         }
         for command in plan.commands:
-            cwd = source_root / command.working_directory
-            resolved = cwd.resolve(strict=False)
-            source_resolved = source_root.resolve()
-            if resolved != source_resolved and source_resolved not in resolved.parents:
-                fail("command_profile_rejected")
+            cwd = bounded_path(
+                source_root,
+                safe_relative(command.working_directory),
+                must_exist=True,
+            )
             if not cwd.is_dir() or cwd.is_symlink():
                 fail("command_profile_rejected")
             argv = _render_argv(command.argv, values)
             if argv[0] == "checked-in-script":
+                _assert_tracked_regular(source_root, argv[1])
                 script = checked_in_script(source_root, argv[1])
                 argv = ("bash", str(script), *argv[2:])
             _run_checked(
@@ -307,7 +355,10 @@ def execute_flutter_plan(
             completed.append(command.stage)
             if command.expected_outputs:
                 output_verified = (
-                    _verify_expected_outputs(source_root, command.expected_outputs)
+                    _verify_expected_outputs(
+                        source_root,
+                        command.expected_outputs,
+                    )
                     or output_verified
                 )
 
@@ -320,6 +371,7 @@ def execute_flutter_plan(
         evidence_id = hashlib.sha256(
             json.dumps(
                 {
+                    "repository": plan.request.repository,
                     "consumer": plan.request.consumer_contract,
                     "profile": plan.request.validation_profile.value,
                     "sha": plan.request.admitted_sha,
@@ -352,42 +404,93 @@ def execute_flutter_plan(
         raise
 
 
-def cleanup_flutter_state(source_root: Path, state_root: Path) -> None:
-    targets = (
-        state_root / "flutter-validation",
-        source_root / "build",
-        source_root / ".dart_tool",
-        source_root / "coverage",
-        source_root / "ios" / "Pods",
-        source_root / "ios" / ".symlinks",
-        source_root / "ios" / "Flutter" / "ephemeral",
-        source_root / "ios" / "Flutter" / "Generated.xcconfig",
-        source_root / "ios" / "Flutter" / "flutter_export_environment.sh",
-        source_root / "android" / ".gradle",
+def _lstat(path: Path) -> os.stat_result | None:
+    try:
+        return os.lstat(path)
+    except FileNotFoundError:
+        return None
+    except OSError:
+        fail("cleanup_failed")
+
+
+def _lexical_target(root: Path, relative: str) -> Path:
+    root = Path(os.path.abspath(root))
+    metadata = _lstat(root)
+    if (
+        metadata is None
+        or not stat.S_ISDIR(metadata.st_mode)
+        or stat.S_ISLNK(metadata.st_mode)
+    ):
+        fail("cleanup_failed")
+    parts = PurePosixPath(relative).parts
+    if not parts or ".." in parts:
+        fail("cleanup_failed")
+    target = root.joinpath(*parts)
+    current = root
+    for part in parts[:-1]:
+        current /= part
+        current_metadata = _lstat(current)
+        if current_metadata is None:
+            break
+        if (
+            not stat.S_ISDIR(current_metadata.st_mode)
+            or stat.S_ISLNK(current_metadata.st_mode)
+        ):
+            fail("cleanup_failed")
+    return target
+
+
+def _remove_no_follow(path: Path) -> None:
+    metadata = _lstat(path)
+    if metadata is None:
+        return
+    try:
+        if stat.S_ISLNK(metadata.st_mode) or stat.S_ISREG(metadata.st_mode):
+            os.unlink(path)
+        elif stat.S_ISDIR(metadata.st_mode):
+            with os.scandir(path) as entries:
+                children = [path / entry.name for entry in entries]
+            for child in children:
+                _remove_no_follow(child)
+            os.rmdir(path)
+        else:
+            fail("cleanup_failed")
+    except FlutterValidationError:
+        raise
+    except OSError:
+        fail("cleanup_failed")
+    if _lstat(path) is not None:
+        fail("cleanup_failed")
+
+
+def _cleanup_targets(source_root: Path, state_root: Path) -> tuple[Path, ...]:
+    return (
+        _lexical_target(state_root, "flutter-validation"),
+        _lexical_target(source_root, "build"),
+        _lexical_target(source_root, ".dart_tool"),
+        _lexical_target(source_root, "coverage"),
+        _lexical_target(source_root, "ios/Pods"),
+        _lexical_target(source_root, "ios/.symlinks"),
+        _lexical_target(source_root, "ios/Flutter/ephemeral"),
+        _lexical_target(source_root, "ios/Flutter/Generated.xcconfig"),
+        _lexical_target(
+            source_root,
+            "ios/Flutter/flutter_export_environment.sh",
+        ),
+        _lexical_target(source_root, "android/.gradle"),
     )
-    for path in targets:
-        if path.is_symlink() or path.is_file():
-            path.unlink(missing_ok=True)
-        elif path.is_dir():
-            shutil.rmtree(path)
+
+
+def cleanup_flutter_state(source_root: Path, state_root: Path) -> None:
+    for path in _cleanup_targets(source_root, state_root):
+        _remove_no_follow(path)
 
 
 def assert_zero_flutter_residue(source_root: Path, state_root: Path) -> None:
     remaining = [
         str(path)
-        for path in (
-            state_root / "flutter-validation",
-            source_root / "build",
-            source_root / ".dart_tool",
-            source_root / "coverage",
-            source_root / "ios" / "Pods",
-            source_root / "ios" / ".symlinks",
-            source_root / "ios" / "Flutter" / "ephemeral",
-            source_root / "ios" / "Flutter" / "Generated.xcconfig",
-            source_root / "ios" / "Flutter" / "flutter_export_environment.sh",
-            source_root / "android" / ".gradle",
-        )
-        if path.exists() or path.is_symlink()
+        for path in _cleanup_targets(source_root, state_root)
+        if _lstat(path) is not None
     ]
     if remaining:
         fail("cleanup_failed")
