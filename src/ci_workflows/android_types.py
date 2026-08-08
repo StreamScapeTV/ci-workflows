@@ -126,7 +126,7 @@ class AndroidValidationPlan:
             "evidence_id": "",
             "runner_profile": self.runner_profile,
             "planner_runner_profile": self.planner_runner_profile,
-            "workspace_profile": "android-isolated",
+            "workspace_profile": "gradle",
             "timeout_minutes": str(self.timeout_minutes),
             "source_trust": self.source_trust,
         }
