@@ -10,7 +10,7 @@ tasks.register("verifyToolchainSmoke") {
         check(JavaVersion.current().majorVersion == "25") {
             "Gradle did not execute on JDK 25"
         }
-        check(file("$sdkRoot/platforms/android-37.0/android.jar").isFile) {
+        check(file("$sdkRoot/platforms/android-37/android.jar").isFile) {
             "Android API 37 is missing"
         }
         check(file("$sdkRoot/build-tools/37.0.0/aapt2").isFile) {
