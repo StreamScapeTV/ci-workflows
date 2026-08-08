@@ -5,7 +5,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping
 
 from .flutter_types import (
     FlutterCommand,
@@ -18,12 +18,29 @@ from .flutter_types import (
     RunnerCapability,
 )
 
-EXACT_VERSION = re.compile(r"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$")
+EXACT_VERSION = re.compile(
+    r"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$"
+)
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 SHORT_OR_FULL_SHA = re.compile(r"^[0-9a-f]{7,40}$")
 SAFE_ID = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 SOURCE_SHA = re.compile(r"^[0-9a-f]{40}$")
-FORBIDDEN_VERSION_TOKENS = ("stable", "beta", "dev", "master", "main", "^", "~", ">", "<", "*", "x", "X", " ")
+REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+FORBIDDEN_VERSION_TOKENS = (
+    "stable",
+    "beta",
+    "dev",
+    "master",
+    "main",
+    "^",
+    "~",
+    ">",
+    "<",
+    "*",
+    "x",
+    "X",
+    " ",
+)
 FORBIDDEN_COMMAND_TOKENS = (
     "--release",
     "--profile",
@@ -45,6 +62,7 @@ FORBIDDEN_COMMAND_TOKENS = (
 ALLOWED_PROFILES = tuple(profile.value for profile in FlutterProfile)
 ALLOWED_RUNNERS = tuple(value.value for value in RunnerCapability)
 ALLOWED_TRUST = {"untrusted-fork", "trusted-pr", "trusted-exact"}
+PIN_SOURCES = {".fvmrc", ".flutter-version", "contract"}
 
 
 class FlutterValidationError(RuntimeError):
@@ -59,7 +77,11 @@ def fail(code: str) -> None:
     raise FlutterValidationError(code)
 
 
-def _exact_dict(value: object, keys: set[str], code: str) -> dict[str, Any]:
+def _exact_dict(
+    value: object,
+    keys: set[str],
+    code: str,
+) -> dict[str, Any]:
     if not isinstance(value, dict) or set(value) != keys:
         fail(code)
     return dict(value)
@@ -84,7 +106,12 @@ def exact_version(value: object) -> str:
 
 
 def safe_relative(value: object, *, allow_dot: bool = True) -> Path:
-    if not isinstance(value, str) or not value or "\x00" in value or "\\" in value:
+    if (
+        not isinstance(value, str)
+        or not value
+        or "\x00" in value
+        or "\\" in value
+    ):
         fail("invalid_input")
     path = Path(value)
     if path.is_absolute() or any(part in {"", ".."} for part in path.parts):
@@ -94,7 +121,12 @@ def safe_relative(value: object, *, allow_dot: bool = True) -> Path:
     return path
 
 
-def bounded_path(root: Path, relative: Path, *, must_exist: bool = False) -> Path:
+def bounded_path(
+    root: Path,
+    relative: Path,
+    *,
+    must_exist: bool = False,
+) -> Path:
     base = root.resolve()
     candidate = root / relative
     current = root
@@ -111,7 +143,11 @@ def bounded_path(root: Path, relative: Path, *, must_exist: bool = False) -> Pat
 
 
 def regular_file(root: Path, relative: str, code: str) -> Path:
-    path = bounded_path(root, safe_relative(relative, allow_dot=False), must_exist=True)
+    path = bounded_path(
+        root,
+        safe_relative(relative, allow_dot=False),
+        must_exist=True,
+    )
     if not path.is_file() or path.is_symlink():
         fail(code)
     return path
@@ -136,7 +172,10 @@ def _read_fvm_pin(path: Path) -> str:
     return exact_version(value)
 
 
-def discover_flutter_pin(source_root: Path, consumer: Mapping[str, Any]) -> FlutterPin:
+def discover_flutter_pin(
+    source_root: Path,
+    consumer: Mapping[str, Any],
+) -> FlutterPin:
     declared = consumer["pin_sources"]
     if not isinstance(declared, list) or not declared:
         fail("missing_runtime_pin")
@@ -146,15 +185,23 @@ def discover_flutter_pin(source_root: Path, consumer: Mapping[str, Any]) -> Flut
         candidate = source_root / name
         if candidate.exists() or candidate.is_symlink():
             path = regular_file(source_root, name, "invalid_runtime_source")
-            version = _read_fvm_pin(path) if name == ".fvmrc" else _read_plain_pin(path)
+            version = (
+                _read_fvm_pin(path)
+                if name == ".fvmrc"
+                else _read_plain_pin(path)
+            )
             versions.append((name, version))
     for source in declared:
-        if source in recognized and not any(name == source for name, _ in versions):
+        if source in recognized and not any(
+            name == source for name, _ in versions
+        ):
             fail("missing_runtime_pin")
         if source == "contract":
             if consumer.get("allow_contract_pin") is not True:
                 fail("invalid_runtime_source")
-            versions.append(("contract", exact_version(consumer.get("flutter_version"))))
+            versions.append(
+                ("contract", exact_version(consumer.get("flutter_version")))
+            )
         elif source not in recognized:
             fail("invalid_runtime_source")
     if not versions:
@@ -162,7 +209,10 @@ def discover_flutter_pin(source_root: Path, consumer: Mapping[str, Any]) -> Flut
     values = {version for _, version in versions}
     if len(values) != 1:
         fail("runtime_pin_mismatch")
-    return FlutterPin(next(iter(values)), tuple(sorted(name for name, _ in versions)))
+    return FlutterPin(
+        next(iter(values)),
+        tuple(sorted(name for name, _ in versions)),
+    )
 
 
 def file_sha256(path: Path) -> str:
@@ -171,7 +221,12 @@ def file_sha256(path: Path) -> str:
 
 def source_authority_hashes(source_root: Path) -> dict[str, str]:
     hashes: dict[str, str] = {}
-    for name in (".fvmrc", ".flutter-version", "pubspec.yaml", "pubspec.lock"):
+    for name in (
+        ".fvmrc",
+        ".flutter-version",
+        "pubspec.yaml",
+        "pubspec.lock",
+    ):
         candidate = source_root / name
         if candidate.exists() or candidate.is_symlink():
             path = regular_file(source_root, name, "source_authority_invalid")
@@ -195,14 +250,22 @@ def checked_in_script(source_root: Path, value: object) -> Path:
     return path
 
 
-def parse_runtime_identity(output: str, toolchain: FlutterToolchain) -> dict[str, str]:
+def parse_runtime_identity(
+    output: str,
+    toolchain: FlutterToolchain,
+) -> dict[str, str]:
     try:
         raw = json.loads(output)
     except json.JSONDecodeError:
         fail("runtime_identity_invalid")
     if not isinstance(raw, dict):
         fail("runtime_identity_invalid")
-    required = {"frameworkVersion", "dartSdkVersion", "frameworkRevision", "engineRevision"}
+    required = {
+        "frameworkVersion",
+        "dartSdkVersion",
+        "frameworkRevision",
+        "engineRevision",
+    }
     if not required.issubset(raw):
         fail("runtime_identity_invalid")
     values = {key: raw[key] for key in required}
@@ -219,21 +282,42 @@ def parse_runtime_identity(output: str, toolchain: FlutterToolchain) -> dict[str
             fail("runtime_mismatch")
     elif not framework.startswith(toolchain.framework_revision):
         fail("runtime_mismatch")
-    if toolchain.engine_revision and values["engineRevision"] != toolchain.engine_revision:
+    if (
+        toolchain.engine_revision
+        and values["engineRevision"] != toolchain.engine_revision
+    ):
         fail("runtime_mismatch")
-    return {"flutter_version": values["frameworkVersion"], "dart_version": dart_version, "framework_revision": framework, "engine_revision": values["engineRevision"]}
+    return {
+        "flutter_version": values["frameworkVersion"],
+        "dart_version": dart_version,
+        "framework_revision": framework,
+        "engine_revision": values["engineRevision"],
+    }
 
 
-def _toolchain(contract: Mapping[str, Any], version: str) -> FlutterToolchain:
+def _toolchain(
+    contract: Mapping[str, Any],
+    version: str,
+) -> FlutterToolchain:
     toolchains = contract["toolchains"]
     if version not in toolchains:
         fail("unsupported_runtime")
     raw = toolchains[version]
-    return FlutterToolchain(flutter_version=version, dart_version=exact_version(raw["dart_version"]), framework_revision=str(raw["framework_revision"]), engine_revision=str(raw.get("engine_revision", "")), setup_action=str(contract["setup"]["action"]))
+    return FlutterToolchain(
+        flutter_version=version,
+        dart_version=exact_version(raw["dart_version"]),
+        framework_revision=str(raw["framework_revision"]),
+        engine_revision=str(raw.get("engine_revision", "")),
+        setup_action=str(contract["setup"]["action"]),
+    )
 
 
 def _command(raw: Mapping[str, Any]) -> FlutterCommand:
-    row = _exact_dict(raw, {"id", "stage", "argv", "working_directory", "expected_outputs"}, "contract_invalid")
+    row = _exact_dict(
+        raw,
+        {"id", "stage", "argv", "working_directory", "expected_outputs"},
+        "contract_invalid",
+    )
     identifier = row["id"]
     if not isinstance(identifier, str) or SAFE_ID.fullmatch(identifier) is None:
         fail("contract_invalid")
@@ -242,28 +326,63 @@ def _command(raw: Mapping[str, Any]) -> FlutterCommand:
     except (TypeError, ValueError):
         fail("contract_invalid")
     argv = row["argv"]
-    if not isinstance(argv, list) or not argv or any(not isinstance(item, str) or not item for item in argv):
+    if (
+        not isinstance(argv, list)
+        or not argv
+        or any(not isinstance(item, str) or not item for item in argv)
+    ):
         fail("contract_invalid")
     joined = " ".join(argv).lower()
     if any(token in joined for token in FORBIDDEN_COMMAND_TOKENS):
         fail("command_boundary_rejected")
     if any(item.lower() == "deploy" for item in argv):
         fail("command_boundary_rejected")
-    if argv[0] in {"sh", "zsh", "pwsh", "powershell", "cmd", "sudo", "curl", "wget"}:
+    if argv[0] in {
+        "sh",
+        "zsh",
+        "pwsh",
+        "powershell",
+        "cmd",
+        "sudo",
+        "curl",
+        "wget",
+    }:
         fail("command_boundary_rejected")
+    working_directory = str(row["working_directory"])
+    safe_relative(working_directory)
     expected = row["expected_outputs"]
-    if not isinstance(expected, list) or any(not isinstance(item, str) for item in expected):
+    if not isinstance(expected, list) or any(
+        not isinstance(item, str) for item in expected
+    ):
         fail("contract_invalid")
-    return FlutterCommand(identifier, stage, tuple(argv), str(row["working_directory"]), tuple(expected))
+    for output in expected:
+        safe_relative(output, allow_dot=False)
+    return FlutterCommand(
+        identifier,
+        stage,
+        tuple(argv),
+        working_directory,
+        tuple(expected),
+    )
 
 
-def build_plan(contract: Mapping[str, Any], request: FlutterRequest, source_root: Path | None) -> FlutterPlan:
-    if request.source_trust not in ALLOWED_TRUST or SOURCE_SHA.fullmatch(request.admitted_sha) is None:
+def build_plan(
+    contract: Mapping[str, Any],
+    request: FlutterRequest,
+    source_root: Path | None,
+) -> FlutterPlan:
+    if (
+        request.source_trust not in ALLOWED_TRUST
+        or SOURCE_SHA.fullmatch(request.admitted_sha) is None
+        or REPOSITORY.fullmatch(request.repository) is None
+    ):
         fail("invalid_input")
     consumers = contract["consumer_contracts"]
     if request.consumer_contract not in consumers:
         fail("consumer_contract_rejected")
     consumer = consumers[request.consumer_contract]
+    if consumer["repository"] != request.repository:
+        fail("consumer_contract_rejected")
     profile_key = request.validation_profile.value
     if profile_key not in consumer["profiles"]:
         fail("profile_consumer_mismatch")
@@ -272,65 +391,183 @@ def build_plan(contract: Mapping[str, Any], request: FlutterRequest, source_root
         fail("source_trust_rejected")
     runner = RunnerCapability(profile["runner"])
     install_required = bool(profile["install_required"])
-    pin = discover_flutter_pin(source_root, consumer) if source_root is not None else None
-    version = pin.version if pin is not None else exact_version(consumer["flutter_version"])
+    pin = (
+        discover_flutter_pin(source_root, consumer)
+        if source_root is not None
+        else None
+    )
+    version = (
+        pin.version
+        if pin is not None
+        else exact_version(consumer["flutter_version"])
+    )
     toolchain = _toolchain(contract, version)
-    commands = tuple(_command(contract["commands"][identifier]) for identifier in consumer["profiles"][profile_key]["commands"])
+    commands = tuple(
+        _command(contract["commands"][identifier])
+        for identifier in consumer["profiles"][profile_key]["commands"]
+    )
     stage_values = tuple(FlutterStage(value) for value in profile["stages"])
     command_stages = tuple(command.stage for command in commands)
-    expected_stages = tuple(stage for stage in stage_values if stage not in {FlutterStage.RUNTIME_VERIFY, FlutterStage.CLEANUP, FlutterStage.DEVICE_HANDOFF})
-    collapsed_stages = tuple(stage for index, stage in enumerate(command_stages) if index == 0 or command_stages[index - 1] != stage)
+    expected_stages = tuple(
+        stage
+        for stage in stage_values
+        if stage
+        not in {
+            FlutterStage.RUNTIME_VERIFY,
+            FlutterStage.CLEANUP,
+            FlutterStage.DEVICE_HANDOFF,
+        }
+    )
+    collapsed_stages = tuple(
+        stage
+        for index, stage in enumerate(command_stages)
+        if index == 0 or command_stages[index - 1] != stage
+    )
     if collapsed_stages != expected_stages:
         fail("stage_order_invalid")
     gate_path = consumer["profiles"][profile_key].get("gate_path")
     if source_root is not None and gate_path:
         checked_in_script(source_root, gate_path)
-    node_composition = consumer["profiles"][profile_key].get("node_composition")
+    node_composition = consumer["profiles"][profile_key].get(
+        "node_composition"
+    )
     device_handoff = consumer["profiles"][profile_key].get("device_handoff")
     if request.validation_profile is FlutterProfile.DEVICE_HANDOFF:
-        if runner is not RunnerCapability.PORTABLE or install_required or not isinstance(device_handoff, dict):
+        if (
+            runner is not RunnerCapability.PORTABLE
+            or install_required
+            or not isinstance(device_handoff, dict)
+        ):
             fail("device_boundary_rejected")
-    if request.validation_profile is FlutterProfile.IOS_SIMULATOR and runner is not RunnerCapability.APPLE:
+    if (
+        request.validation_profile is FlutterProfile.IOS_SIMULATOR
+        and runner is not RunnerCapability.APPLE
+    ):
         fail("platform_runner_mismatch")
-    if request.validation_profile in {FlutterProfile.QUALITY, FlutterProfile.CANONICAL_GATE, FlutterProfile.ANDROID_DEBUG, FlutterProfile.COMPATIBILITY_SMOKE} and runner is not RunnerCapability.MOBILE:
+    if (
+        request.validation_profile
+        in {
+            FlutterProfile.QUALITY,
+            FlutterProfile.CANONICAL_GATE,
+            FlutterProfile.ANDROID_DEBUG,
+            FlutterProfile.COMPATIBILITY_SMOKE,
+        }
+        and runner is not RunnerCapability.MOBILE
+    ):
         fail("platform_runner_mismatch")
-    if request.validation_profile is FlutterProfile.SOURCE_AUDIT and (runner is not RunnerCapability.PORTABLE or install_required):
+    if request.validation_profile is FlutterProfile.SOURCE_AUDIT and (
+        runner is not RunnerCapability.PORTABLE or install_required
+    ):
         fail("source_audit_install_rejected")
-    return FlutterPlan(request=request, runner_profile=runner, install_required=install_required, workspace_profile=str(profile["workspace_profile"]), timeout_minutes=int(profile["timeout_minutes"]), pin=pin, toolchain=toolchain, stages=stage_values, commands=commands, node_composition=node_composition if isinstance(node_composition, dict) else None, gate_path=str(gate_path) if gate_path else None, device_handoff=device_handoff if isinstance(device_handoff, dict) else None)
+    return FlutterPlan(
+        request=request,
+        runner_profile=runner,
+        install_required=install_required,
+        workspace_profile=str(profile["workspace_profile"]),
+        timeout_minutes=int(profile["timeout_minutes"]),
+        pin=pin,
+        toolchain=toolchain,
+        stages=stage_values,
+        commands=commands,
+        node_composition=(
+            node_composition if isinstance(node_composition, dict) else None
+        ),
+        gate_path=str(gate_path) if gate_path else None,
+        device_handoff=(
+            device_handoff if isinstance(device_handoff, dict) else None
+        ),
+    )
 
 
 def validate_contract(raw: object) -> None:
-    keys = {"schema_version", "contract_version", "organization", "workflow_api", "stable_check_name", "setup", "toolchains", "profiles", "commands", "consumer_contracts", "source_trust", "forbidden_inputs", "cleanup", "failure_codes"}
+    keys = {
+        "schema_version",
+        "contract_version",
+        "organization",
+        "workflow_api",
+        "stable_check_name",
+        "setup",
+        "toolchains",
+        "profiles",
+        "commands",
+        "consumer_contracts",
+        "source_trust",
+        "forbidden_inputs",
+        "cleanup",
+        "failure_codes",
+    }
     contract = _exact_dict(raw, keys, "contract_invalid")
-    if contract["schema_version"] != 1 or contract["contract_version"] != "1.0.0":
+    if (
+        contract["schema_version"] != 1
+        or contract["contract_version"] != "1.0.0"
+    ):
         fail("contract_invalid")
-    if contract["workflow_api"] != "validation.flutter" or contract["stable_check_name"] != "CI / Flutter validation":
+    if (
+        contract["workflow_api"] != "validation.flutter"
+        or contract["stable_check_name"] != "CI / Flutter validation"
+    ):
         fail("contract_invalid")
-    setup = _exact_dict(contract["setup"], {"action", "immutable", "caller_download_url", "caller_runtime"}, "contract_invalid")
-    if not isinstance(setup["action"], str) or "@" not in setup["action"] or FULL_SHA.fullmatch(setup["action"].rsplit("@", 1)[1]) is None:
+    setup = _exact_dict(
+        contract["setup"],
+        {"action", "immutable", "caller_download_url", "caller_runtime"},
+        "contract_invalid",
+    )
+    if (
+        not isinstance(setup["action"], str)
+        or "@" not in setup["action"]
+        or FULL_SHA.fullmatch(setup["action"].rsplit("@", 1)[1]) is None
+    ):
         fail("contract_invalid")
-    if setup["immutable"] is not True or setup["caller_download_url"] is not False or setup["caller_runtime"] is not False:
+    if (
+        setup["immutable"] is not True
+        or setup["caller_download_url"] is not False
+        or setup["caller_runtime"] is not False
+    ):
         fail("contract_invalid")
     if not isinstance(contract["toolchains"], dict) or not contract["toolchains"]:
         fail("contract_invalid")
     for version, value in contract["toolchains"].items():
         exact_version(version)
-        row = _exact_dict(value, {"dart_version", "framework_revision", "engine_revision"}, "contract_invalid")
+        row = _exact_dict(
+            value,
+            {"dart_version", "framework_revision", "engine_revision"},
+            "contract_invalid",
+        )
         exact_version(row["dart_version"])
         if SHORT_OR_FULL_SHA.fullmatch(str(row["framework_revision"])) is None:
             fail("contract_invalid")
-        if row["engine_revision"] and FULL_SHA.fullmatch(str(row["engine_revision"])) is None:
+        if row["engine_revision"] and FULL_SHA.fullmatch(
+            str(row["engine_revision"])
+        ) is None:
             fail("contract_invalid")
     profiles = contract["profiles"]
-    if set(profiles) != set(ALLOWED_PROFILES):
+    if not isinstance(profiles, dict) or set(profiles) != set(ALLOWED_PROFILES):
         fail("contract_invalid")
     for profile in profiles.values():
-        row = _exact_dict(profile, {"runner", "install_required", "workspace_profile", "timeout_minutes", "allowed_source_trust", "stages"}, "contract_invalid")
-        if row["runner"] not in ALLOWED_RUNNERS or not isinstance(row["install_required"], bool):
+        row = _exact_dict(
+            profile,
+            {
+                "runner",
+                "install_required",
+                "workspace_profile",
+                "timeout_minutes",
+                "allowed_source_trust",
+                "stages",
+            },
+            "contract_invalid",
+        )
+        if row["runner"] not in ALLOWED_RUNNERS or not isinstance(
+            row["install_required"], bool
+        ):
             fail("contract_invalid")
-        if not isinstance(row["timeout_minutes"], int) or not 1 <= row["timeout_minutes"] <= 120:
+        if (
+            not isinstance(row["timeout_minutes"], int)
+            or not 1 <= row["timeout_minutes"] <= 120
+        ):
             fail("contract_invalid")
-        if not isinstance(row["allowed_source_trust"], list) or not set(row["allowed_source_trust"]).issubset(ALLOWED_TRUST):
+        if not isinstance(row["allowed_source_trust"], list) or not set(
+            row["allowed_source_trust"]
+        ).issubset(ALLOWED_TRUST):
             fail("contract_invalid")
         try:
             tuple(FlutterStage(value) for value in row["stages"])
@@ -341,22 +578,62 @@ def validate_contract(raw: object) -> None:
     for identifier, command in contract["commands"].items():
         if _command(command).command_id != identifier:
             fail("contract_invalid")
-    if not isinstance(contract["consumer_contracts"], dict) or not contract["consumer_contracts"]:
+    consumers = contract["consumer_contracts"]
+    if not isinstance(consumers, dict) or not consumers:
         fail("contract_invalid")
-    for identifier, consumer in contract["consumer_contracts"].items():
+    repositories: set[str] = set()
+    for identifier, consumer in consumers.items():
         if SAFE_ID.fullmatch(identifier) is None:
             fail("contract_invalid")
-        row = _exact_dict(consumer, {"repository", "flutter_version", "pin_sources", "allow_contract_pin", "profiles"}, "contract_invalid")
+        row = _exact_dict(
+            consumer,
+            {
+                "repository",
+                "flutter_version",
+                "pin_sources",
+                "allow_contract_pin",
+                "profiles",
+            },
+            "contract_invalid",
+        )
+        repository = row["repository"]
+        if (
+            not isinstance(repository, str)
+            or REPOSITORY.fullmatch(repository) is None
+            or repository in repositories
+        ):
+            fail("contract_invalid")
+        repositories.add(repository)
         exact_version(row["flutter_version"])
+        pin_sources = row["pin_sources"]
+        if (
+            not isinstance(pin_sources, list)
+            or not pin_sources
+            or len(pin_sources) != len(set(pin_sources))
+            or not set(pin_sources).issubset(PIN_SOURCES)
+            or not isinstance(row["allow_contract_pin"], bool)
+            or ("contract" in pin_sources) != row["allow_contract_pin"]
+        ):
+            fail("contract_invalid")
         if not isinstance(row["profiles"], dict) or not row["profiles"]:
             fail("contract_invalid")
         for profile_name, profile_value in row["profiles"].items():
             if profile_name not in profiles:
                 fail("contract_invalid")
-            profile_row = _exact_dict(profile_value, {"commands", "gate_path", "node_composition", "device_handoff"}, "contract_invalid")
-            if not isinstance(profile_row["commands"], list) or any(command not in contract["commands"] for command in profile_row["commands"]):
+            profile_row = _exact_dict(
+                profile_value,
+                {"commands", "gate_path", "node_composition", "device_handoff"},
+                "contract_invalid",
+            )
+            if not isinstance(profile_row["commands"], list) or any(
+                command not in contract["commands"]
+                for command in profile_row["commands"]
+            ):
                 fail("contract_invalid")
     if contract["source_trust"] != sorted(ALLOWED_TRUST):
         fail("contract_invalid")
-    if not isinstance(contract["forbidden_inputs"], list) or not contract["forbidden_inputs"]:
+    if (
+        not isinstance(contract["forbidden_inputs"], list)
+        or not contract["forbidden_inputs"]
+    ):
         fail("contract_invalid")
