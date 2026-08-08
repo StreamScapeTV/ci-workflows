@@ -9,16 +9,36 @@ inputs:
   admitted_sha:
     description: Exact admitted caller source SHA
     required: true
-  consumer_contract:
+  validation_profile:
+    description: Bounded Flutter validation profile
+    required: true
+  version_file:
+    description: Optional exact contract-matching pin file
+    required: false
+    default: ""
+  working_directory:
+    description: Optional exact contract-matching working directory
+    required: false
+    default: "."
+  command_profile:
     description: Reviewed product-neutral Flutter consumer contract identifier
     required: true
-  validation_profile:
-    description: source-audit, quality, canonical-gate, android-debug, ios-simulator, compatibility-smoke, or device-handoff
-    required: true
-  source_trust:
-    description: Exact admitted source trust class
+  script_path:
+    description: Optional exact contract-matching checked-in gate
     required: false
-    default: trusted-pr
+    default: ""
+  platform:
+    description: Optional exact contract-matching platform boundary
+    required: false
+    default: ""
+  artifact_exception_id:
+    description: Reserved zero-artifact field; non-empty values are rejected
+    required: false
+    default: ""
+  source_trust:
+    description: Internal exact admitted source trust class
+    required: false
+    default: ""
 
 outputs:
   result:
@@ -51,6 +71,8 @@ outputs:
     value: ${{ steps.flutter.outputs.lockfile_sha256 }}
   stage_summary_json:
     value: ${{ steps.flutter.outputs.stage_summary_json }}
+  test_summary:
+    value: ${{ steps.flutter.outputs.stage_summary_json }}
   clean_tree:
     value: ${{ steps.flutter.outputs.clean_tree }}
   cleanup_result:
@@ -79,8 +101,13 @@ runs:
       env:
         PYTHONDONTWRITEBYTECODE: "1"
         INPUT_ADMITTED_SHA: ${{ inputs.admitted_sha }}
-        INPUT_CONSUMER_CONTRACT: ${{ inputs.consumer_contract }}
         INPUT_VALIDATION_PROFILE: ${{ inputs.validation_profile }}
+        INPUT_VERSION_FILE: ${{ inputs.version_file }}
+        INPUT_WORKING_DIRECTORY: ${{ inputs.working_directory }}
+        INPUT_COMMAND_PROFILE: ${{ inputs.command_profile }}
+        INPUT_SCRIPT_PATH: ${{ inputs.script_path }}
+        INPUT_PLATFORM: ${{ inputs.platform }}
+        INPUT_ARTIFACT_EXCEPTION_ID: ${{ inputs.artifact_exception_id }}
         INPUT_SOURCE_TRUST: ${{ inputs.source_trust }}
       run: |
         set -Eeuo pipefail

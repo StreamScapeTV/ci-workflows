@@ -5,11 +5,14 @@
 `CI / Flutter validation`.
 
 The workflow accepts only an exact admitted source SHA, one reviewed
-product-neutral consumer-contract identifier, one bounded validation profile,
-and the admitted source-trust class. It does not accept a runner, label, matrix,
-Flutter download URL, runtime, package manager, command, argument list, shell,
-callback, device, engine, signing identity, registry, database, Flux target, or
-deployment input.
+product-neutral consumer-contract identifier through the historical bounded
+`command_profile` field, one bounded validation profile, and exact optional
+contract-match assertions for version file, working directory, script path,
+platform, and the reserved empty artifact-exception field. Source trust is
+derived internally from the admitted GitHub event. It does not accept a runner,
+label, matrix, Flutter download URL, runtime, package manager, command, argument
+list, shell, callback, device, engine, signing identity, registry, database,
+Flux target, or deployment input.
 
 ## Profiles
 
@@ -66,8 +69,8 @@ cleanup path.
 The current reviewed shapes cover:
 
 - Directus Front: exact `.flutter-version`, canonical `tool/ci_gate.sh`, analysis,
-  tests, debug Android app-bundle verification, iOS simulator verification, and
-  checked-in compatibility execution;
+  tests, split-per-ABI arm64 debug APK verification, iOS simulator verification,
+  and checked-in compatibility execution;
 - Finance Hub: exact `.fvmrc`, repository audit, quality, debug Android APK,
   unsigned iOS simulator compile, and embedded web-asset validation through the
   checked-in quality gate plus bounded Node composition.
@@ -78,11 +81,14 @@ Android outputs are debug and unsigned only. iOS outputs are simulator and
 unsigned only. Outputs are checked for existence and then removed. No APK, AAB,
 app bundle, result bundle, log, report, or diagnostic is uploaded.
 
-Validation isolates `HOME`, `PUB_CACHE`, Flutter state, Gradle state, CocoaPods
-state, DerivedData, temporary files, logs, reports, and build output. Cleanup is
-terminal and fail closed. It removes Flutter/Dart, Gradle, Pods, DerivedData,
-coverage, logs, reports, and build residue; verifies pin and lock hashes; and
-requires a clean admitted source. Routine Actions artifacts remain zero.
+Validation uses the existing `minimal`, `gradle`, and `apple` workspace
+profiles and then creates a Flutter-specific marker-bound subtree. It isolates
+`HOME`, `PUB_CACHE`, Flutter state, Gradle state, CocoaPods state, DerivedData,
+temporary files, logs, reports, and build output. Real consumer iOS profiles run
+`pod install --deployment` before the simulator compile. Cleanup is terminal and
+fail closed. It removes Flutter/Dart, Gradle, Pods, DerivedData, coverage, logs,
+reports, and build residue; verifies pin and lock hashes; and requires a clean
+admitted source. Routine Actions artifacts remain zero.
 
 ## Caller example
 
@@ -92,9 +98,16 @@ jobs:
     uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-flutter.yml@<full-sha>
     with:
       admitted_sha: ${{ needs.source.outputs.admitted_sha }}
-      consumer_contract: directus-canonical
       validation_profile: canonical-gate
-      source_trust: trusted-pr
+      command_profile: directus-canonical
+      version_file: .flutter-version
+      working_directory: .
+      script_path: tool/ci_gate.sh
+      platform: flutter
+      artifact_exception_id: ""
 ```
 
 The caller selects reviewed contract data, not infrastructure or commands.
+`command_profile` is retained only to preserve the versioned public workflow
+surface; it names a checked-in consumer contract and is never interpreted as an
+arbitrary command.

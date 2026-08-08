@@ -48,7 +48,8 @@ class FakeRunner(CommandRunner):
         if self.mutate_lock and command[:3] == ("flutter", "pub", "get"):
             (cwd / "pubspec.lock").write_text("changed\n", encoding="utf-8")
         if command[:3] == ("flutter", "build", "apk"):
-            target = cwd / "build/app/outputs/flutter-apk/app-debug.apk"
+            filename = "app-arm64-v8a-debug.apk" if "--split-per-abi" in command else "app-debug.apk"
+            target = cwd / "build/app/outputs/flutter-apk" / filename
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(b"apk")
         if command[:3] == ("flutter", "build", "appbundle"):
@@ -81,10 +82,9 @@ class FlutterValidationTests(unittest.TestCase):
         self.copy_index = 0
 
     def fixture_copy(self, name: str) -> Path:
-        source = FIXTURES / name
         self.copy_index += 1
         target = self.temp / f"{name}-{self.copy_index}"
-        shutil.copytree(source, target)
+        shutil.copytree(FIXTURES / name, target)
         return target
 
     def assert_code(self, code: str, operation) -> None:
@@ -103,20 +103,17 @@ class FlutterValidationTests(unittest.TestCase):
         self.assertFalse(self.contract["setup"]["caller_runtime"])
 
     def test_exact_flutter_version_file(self) -> None:
-        source = self.fixture_copy("directus")
-        pin = discover_flutter_pin(source, self.contract["consumer_contracts"]["directus-canonical"])
+        pin = discover_flutter_pin(self.fixture_copy("directus"), self.contract["consumer_contracts"]["directus-canonical"])
         self.assertEqual("3.44.6", pin.version)
         self.assertEqual((".flutter-version",), pin.sources)
 
     def test_exact_fvm_json_shape(self) -> None:
-        source = self.fixture_copy("finance")
-        pin = discover_flutter_pin(source, self.contract["consumer_contracts"]["finance-embedded-web"])
+        pin = discover_flutter_pin(self.fixture_copy("finance"), self.contract["consumer_contracts"]["finance-embedded-web"])
         self.assertEqual("3.41.4", pin.version)
         self.assertEqual((".fvmrc",), pin.sources)
 
     def test_exact_contract_pin_is_bounded_to_reviewed_smoke_consumer(self) -> None:
-        source = self.fixture_copy("smoke")
-        pin = discover_flutter_pin(source, self.contract["consumer_contracts"]["synthetic-smoke"])
+        pin = discover_flutter_pin(self.fixture_copy("smoke"), self.contract["consumer_contracts"]["synthetic-smoke"])
         self.assertEqual("3.41.4", pin.version)
         self.assertEqual(("contract",), pin.sources)
 
@@ -182,13 +179,21 @@ class FlutterValidationTests(unittest.TestCase):
         android_text = " ".join(" ".join(command.argv) for command in android.commands)
         ios_text = " ".join(" ".join(command.argv) for command in ios.commands)
         self.assertIn("--debug", android_text)
+        self.assertIn("--split-per-abi", android_text)
+        self.assertIn("android-arm64", android_text)
         self.assertNotIn("--release", android_text)
+        self.assertIn("pod install --deployment", ios_text)
         self.assertIn("--simulator", ios_text)
         self.assertIn("--debug", ios_text)
         self.assertNotIn("--release", ios_text)
         modified = copy.deepcopy(self.contract)
         modified["commands"]["ios-simulator-debug"]["argv"].append("--release")
         self.assert_code("command_boundary_rejected", lambda: validate_contract(modified))
+        for token in ("TestFlight", "keychain", "provision", "deploy"):
+            with self.subTest(token=token):
+                changed = copy.deepcopy(self.contract)
+                changed["commands"]["ios-simulator-debug"]["argv"].append(token)
+                self.assert_code("command_boundary_rejected", lambda changed=changed: validate_contract(changed))
 
     def test_checked_in_gate_and_device_handoff_are_bounded(self) -> None:
         source = self.fixture_copy("directus")
@@ -201,8 +206,7 @@ class FlutterValidationTests(unittest.TestCase):
 
     def test_execution_success_lockfile_integrity_outputs_and_cleanup(self) -> None:
         source = self.fixture_copy("directus")
-        fake = FakeRunner(runtime("runtime-3.44.6.json"))
-        result = flutter.validate(contract_root=ROOT, source_root=source, state_root=self.temp / "state", request=request("android-debug"), phase="execute", runner=fake, environment={"GITHUB_RUN_NUMBER": "12"})
+        result = flutter.validate(contract_root=ROOT, source_root=source, state_root=self.temp / "state", request=request("android-debug"), phase="execute", runner=FakeRunner(runtime("runtime-3.44.6.json")), environment={"GITHUB_RUN_NUMBER": "12"})
         self.assertEqual("success", result.status)
         self.assertTrue(result.output_verified)
         self.assertTrue(result.clean_tree)
@@ -225,9 +229,43 @@ class FlutterValidationTests(unittest.TestCase):
         residue.mkdir(parents=True)
         self.assert_code("cleanup_failed", lambda: flutter.assert_zero_flutter_residue(self.fixture_copy("directus"), self.temp / "residue"))
 
+    def test_public_workflow_input_mapping_and_exact_optional_matches(self) -> None:
+        base = {"INPUT_ADMITTED_SHA": SHA, "INPUT_VALIDATION_PROFILE": "canonical-gate", "INPUT_COMMAND_PROFILE": "directus-canonical", "INPUT_VERSION_FILE": ".flutter-version", "INPUT_WORKING_DIRECTORY": ".", "INPUT_SCRIPT_PATH": "tool/ci_gate.sh", "INPUT_PLATFORM": "flutter", "INPUT_ARTIFACT_EXCEPTION_ID": "", "INPUT_SOURCE_TRUST": "trusted-pr"}
+        value = flutter.request_from_environment(base, self.contract)
+        self.assertEqual("directus-canonical", value.consumer_contract)
+        for key, bad in (("INPUT_VERSION_FILE", ".fvmrc"), ("INPUT_WORKING_DIRECTORY", "subdir"), ("INPUT_SCRIPT_PATH", "tool/other.sh"), ("INPUT_PLATFORM", "android"), ("INPUT_ARTIFACT_EXCEPTION_ID", "retain-output")):
+            with self.subTest(key=key):
+                changed = dict(base)
+                changed[key] = bad
+                self.assert_code("forbidden_input", lambda changed=changed: flutter.request_from_environment(changed, self.contract))
+
+    def test_source_trust_is_derived_from_same_repository_event(self) -> None:
+        event = self.temp / "event.json"
+        event.write_text(json.dumps({"pull_request": {"head": {"repo": {"full_name": "StreamScapeTV/ci-workflows"}}}}), encoding="utf-8")
+        environment = {"GITHUB_EVENT_NAME": "pull_request", "GITHUB_EVENT_PATH": str(event), "GITHUB_REPOSITORY": "StreamScapeTV/ci-workflows"}
+        self.assertEqual("trusted-pr", flutter.source_trust_from_environment(environment))
+        event.write_text(json.dumps({"pull_request": {"head": {"repo": {"full_name": "external/fork"}}}}), encoding="utf-8")
+        self.assertEqual("untrusted-fork", flutter.source_trust_from_environment(environment))
+
+    def test_output_missing_and_evidence_are_deterministic(self) -> None:
+        class NoOutputRunner(FakeRunner):
+            def run(self, argv, *, cwd, env):
+                outcome = super().run(argv, cwd=cwd, env=env)
+                if argv[:3] == ("flutter", "build", "apk"):
+                    shutil.rmtree(cwd / "build", ignore_errors=True)
+                return outcome
+        source = self.fixture_copy("directus")
+        self.assert_code("output_missing", lambda: flutter.validate(contract_root=ROOT, source_root=source, state_root=self.temp / "state-output", request=request("android-debug"), phase="execute", runner=NoOutputRunner(runtime("runtime-3.44.6.json"))))
+        evidence = []
+        for index in range(2):
+            source = self.fixture_copy("directus")
+            result = flutter.validate(contract_root=ROOT, source_root=source, state_root=self.temp / f"state-evidence-{index}", request=request("quality"), phase="execute", runner=FakeRunner(runtime("runtime-3.44.6.json")))
+            evidence.append(result.evidence_id)
+        self.assertEqual(evidence[0], evidence[1])
+
     def test_caller_selected_runner_device_engine_registry_and_deployment_fail(self) -> None:
         base = {"INPUT_ADMITTED_SHA": SHA, "INPUT_CONSUMER_CONTRACT": "directus-canonical", "INPUT_VALIDATION_PROFILE": "quality", "INPUT_SOURCE_TRUST": "trusted-pr"}
-        for key in ("RUNNER", "DEVICE", "ENGINE", "REGISTRY", "DEPLOYMENT", "DOWNLOAD_URL", "RUNTIME"):
+        for key in ("RUNNER", "DEVICE", "ENGINE", "REGISTRY", "DEPLOYMENT", "DOWNLOAD_URL", "RUNTIME", "PACKAGE_MANAGER", "SHELL", "ARBITRARY_COMMAND"):
             with self.subTest(key=key):
                 environment = dict(base)
                 environment[f"INPUT_{key}"] = "caller-value"

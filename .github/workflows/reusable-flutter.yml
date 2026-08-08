@@ -7,35 +7,49 @@ on:
         description: Exact lowercase source SHA admitted by source.resolve
         required: true
         type: string
-      consumer_contract:
-        description: Reviewed product-neutral Flutter consumer contract identifier
-        required: true
-        type: string
       validation_profile:
         description: Bounded Flutter validation profile
         required: true
         type: string
-      source_trust:
-        description: Exact admitted source trust class
+      version_file:
+        description: Optional exact contract-matching Flutter pin file
         required: false
-        default: trusted-pr
+        default: ""
+        type: string
+      working_directory:
+        description: Optional exact contract-matching source directory
+        required: false
+        default: "."
+        type: string
+      command_profile:
+        description: Reviewed product-neutral Flutter consumer contract identifier
+        required: true
+        type: string
+      script_path:
+        description: Optional exact contract-matching checked-in gate
+        required: false
+        default: ""
+        type: string
+      platform:
+        description: Optional exact contract-matching platform boundary
+        required: false
+        default: ""
+        type: string
+      artifact_exception_id:
+        description: Reserved zero-artifact field; non-empty values are rejected
+        required: false
+        default: ""
         type: string
     outputs:
       result:
         description: Success only after selected semantic runner validation and cleanup
         value: ${{ jobs.validate.outputs.result }}
-      flutter_version:
-        description: Exact verified Flutter version
-        value: ${{ jobs.validate.outputs.flutter_version }}
-      dart_version:
-        description: Exact verified compatible Dart version
-        value: ${{ jobs.validate.outputs.dart_version }}
-      evidence_id:
-        description: Deterministic bounded evidence identity
-        value: ${{ jobs.validate.outputs.evidence_id }}
-      device_handoff_json:
-        description: Bounded deferred packet for the future physical-device API
-        value: ${{ jobs.validate.outputs.device_handoff_json }}
+      test_summary:
+        description: Deterministic bounded stage summary
+        value: ${{ jobs.validate.outputs.test_summary }}
+      artifact_exception_used:
+        description: Always false for Flutter validation 1.0.0
+        value: ${{ jobs.validate.outputs.artifact_exception_used }}
 
 permissions:
   contents: read
@@ -51,12 +65,9 @@ jobs:
       timeout_minutes: ${{ steps.plan.outputs.timeout_minutes }}
       source_trust: ${{ steps.plan.outputs.source_trust }}
       flutter_version: ${{ steps.plan.outputs.flutter_version }}
-      dart_version: ${{ steps.plan.outputs.dart_version }}
-      install_required: ${{ steps.plan.outputs.install_required }}
-      node_composition: ${{ steps.plan.outputs.node_composition }}
     steps:
       - name: Check out exact central workflow source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: StreamScapeTV/ci-workflows
           ref: ${{ github.workflow_sha }}
@@ -68,9 +79,14 @@ jobs:
 
       - name: Verify exact central workflow source
         shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.workflow_sha }}
         run: |
           set -Eeuo pipefail
-          test "$(git -C .ciw rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+          )
 
       - id: plan
         name: Resolve contract-owned Flutter plan
@@ -78,9 +94,13 @@ jobs:
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
-          consumer_contract: ${{ inputs.consumer_contract }}
           validation_profile: ${{ inputs.validation_profile }}
-          source_trust: ${{ inputs.source_trust }}
+          version_file: ${{ inputs.version_file }}
+          working_directory: ${{ inputs.working_directory }}
+          command_profile: ${{ inputs.command_profile }}
+          script_path: ${{ inputs.script_path }}
+          platform: ${{ inputs.platform }}
+          artifact_exception_id: ${{ inputs.artifact_exception_id }}
 
   portable:
     name: Execute portable Flutter source or handoff validation
@@ -90,14 +110,11 @@ jobs:
     timeout-minutes: 30
     outputs:
       result: ${{ steps.execute.outputs.result }}
-      flutter_version: ${{ steps.execute.outputs.flutter_version }}
-      dart_version: ${{ steps.execute.outputs.dart_version }}
-      evidence_id: ${{ steps.execute.outputs.evidence_id }}
-      device_handoff_json: ${{ steps.execute.outputs.device_handoff_json }}
+      test_summary: ${{ steps.execute.outputs.test_summary }}
+      artifact_exception_used: ${{ steps.execute.outputs.artifact_exception_used }}
     steps:
-      - &central-checkout
-        name: Check out exact central workflow source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Check out exact central workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: StreamScapeTV/ci-workflows
           ref: ${{ github.workflow_sha }}
@@ -106,16 +123,28 @@ jobs:
           clean: true
           persist-credentials: false
           set-safe-directory: false
-      - &source-checkout
-        name: Check out exact admitted caller source
+      - name: Verify exact central workflow source
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -Eeuo pipefail
+          (cd .ciw && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
+      - name: Check out exact admitted caller source
         uses: ./.ciw/actions/exact-checkout
         with:
           repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
           admitted_sha: ${{ inputs.admitted_sha }}
           path: source
           fetch_depth: "1"
-      - &workspace
-        id: workspace
+      - name: Verify exact admitted caller source
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.admitted_sha }}
+        run: |
+          set -Eeuo pipefail
+          (cd source && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
+      - id: workspace
         name: Prepare isolated Flutter state
         uses: ./.ciw/actions/prepare-workspace
         with:
@@ -123,37 +152,41 @@ jobs:
           cache_mode: disabled
           source_sha: ${{ inputs.admitted_sha }}
           trust_mode: ${{ needs.plan.outputs.source_trust }}
-      - &execute
-        id: execute
+      - id: execute
         name: Execute bounded Flutter validation
         uses: ./.ciw/actions/validate-flutter
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
-          consumer_contract: ${{ inputs.consumer_contract }}
           validation_profile: ${{ inputs.validation_profile }}
-          source_trust: ${{ inputs.source_trust }}
-      - &flutter-cleanup
+          version_file: ${{ inputs.version_file }}
+          working_directory: ${{ inputs.working_directory }}
+          command_profile: ${{ inputs.command_profile }}
+          script_path: ${{ inputs.script_path }}
+          platform: ${{ inputs.platform }}
+          artifact_exception_id: ${{ inputs.artifact_exception_id }}
+          source_trust: ${{ needs.plan.outputs.source_trust }}
+      - id: flutter_cleanup
         name: Remove Flutter-specific state
         if: always()
         uses: ./.ciw/actions/validate-flutter
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
-          consumer_contract: ${{ inputs.consumer_contract }}
           validation_profile: ${{ inputs.validation_profile }}
-          source_trust: ${{ inputs.source_trust }}
-      - &flutter-residue
+          command_profile: ${{ inputs.command_profile }}
+          source_trust: ${{ needs.plan.outputs.source_trust }}
+      - id: flutter_residue
         name: Verify zero Flutter-specific residue
         if: always()
         uses: ./.ciw/actions/validate-flutter
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
-          consumer_contract: ${{ inputs.consumer_contract }}
           validation_profile: ${{ inputs.validation_profile }}
-          source_trust: ${{ inputs.source_trust }}
-      - &workspace-cleanup
+          command_profile: ${{ inputs.command_profile }}
+          source_trust: ${{ needs.plan.outputs.source_trust }}
+      - id: workspace_cleanup
         name: Remove and verify all registered workflow state
         if: always()
         uses: ./.ciw/actions/cleanup-workspace
@@ -166,23 +199,91 @@ jobs:
     timeout-minutes: 100
     outputs:
       result: ${{ steps.execute.outputs.result }}
-      flutter_version: ${{ steps.execute.outputs.flutter_version }}
-      dart_version: ${{ steps.execute.outputs.dart_version }}
-      evidence_id: ${{ steps.execute.outputs.evidence_id }}
-      device_handoff_json: ${{ steps.execute.outputs.device_handoff_json }}
+      test_summary: ${{ steps.execute.outputs.test_summary }}
+      artifact_exception_used: ${{ steps.execute.outputs.artifact_exception_used }}
     steps:
-      - *central-checkout
-      - *source-checkout
-      - *workspace
+      - name: Check out exact central workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+      - name: Verify exact central workflow source
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -Eeuo pipefail
+          (cd .ciw && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
+      - name: Check out exact admitted caller source
+        uses: ./.ciw/actions/exact-checkout
+        with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          admitted_sha: ${{ inputs.admitted_sha }}
+          path: source
+          fetch_depth: "1"
+      - name: Verify exact admitted caller source
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.admitted_sha }}
+        run: |
+          set -Eeuo pipefail
+          (cd source && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
+      - id: workspace
+        name: Prepare isolated Flutter state
+        uses: ./.ciw/actions/prepare-workspace
+        with:
+          profile: ${{ needs.plan.outputs.workspace_profile }}
+          cache_mode: disabled
+          source_sha: ${{ inputs.admitted_sha }}
+          trust_mode: ${{ needs.plan.outputs.source_trust }}
       - name: Set up exact immutable Flutter runtime
-        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # reviewed 2026-03-25
         with:
           flutter-version: ${{ needs.plan.outputs.flutter_version }}
           cache: false
-      - *execute
-      - *flutter-cleanup
-      - *flutter-residue
-      - *workspace-cleanup
+      - id: execute
+        name: Execute bounded Flutter validation
+        uses: ./.ciw/actions/validate-flutter
+        with:
+          phase: execute
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          version_file: ${{ inputs.version_file }}
+          working_directory: ${{ inputs.working_directory }}
+          command_profile: ${{ inputs.command_profile }}
+          script_path: ${{ inputs.script_path }}
+          platform: ${{ inputs.platform }}
+          artifact_exception_id: ${{ inputs.artifact_exception_id }}
+          source_trust: ${{ needs.plan.outputs.source_trust }}
+      - id: flutter_cleanup
+        name: Remove Flutter-specific state
+        if: always()
+        uses: ./.ciw/actions/validate-flutter
+        with:
+          phase: cleanup
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          command_profile: ${{ inputs.command_profile }}
+          source_trust: ${{ needs.plan.outputs.source_trust }}
+      - id: flutter_residue
+        name: Verify zero Flutter-specific residue
+        if: always()
+        uses: ./.ciw/actions/validate-flutter
+        with:
+          phase: residue
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          command_profile: ${{ inputs.command_profile }}
+          source_trust: ${{ needs.plan.outputs.source_trust }}
+      - id: workspace_cleanup
+        name: Remove and verify all registered workflow state
+        if: always()
+        uses: ./.ciw/actions/cleanup-workspace
 
   apple:
     name: Execute Apple Flutter iOS simulator validation
@@ -192,23 +293,91 @@ jobs:
     timeout-minutes: 100
     outputs:
       result: ${{ steps.execute.outputs.result }}
-      flutter_version: ${{ steps.execute.outputs.flutter_version }}
-      dart_version: ${{ steps.execute.outputs.dart_version }}
-      evidence_id: ${{ steps.execute.outputs.evidence_id }}
-      device_handoff_json: ${{ steps.execute.outputs.device_handoff_json }}
+      test_summary: ${{ steps.execute.outputs.test_summary }}
+      artifact_exception_used: ${{ steps.execute.outputs.artifact_exception_used }}
     steps:
-      - *central-checkout
-      - *source-checkout
-      - *workspace
+      - name: Check out exact central workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+      - name: Verify exact central workflow source
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -Eeuo pipefail
+          (cd .ciw && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
+      - name: Check out exact admitted caller source
+        uses: ./.ciw/actions/exact-checkout
+        with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          admitted_sha: ${{ inputs.admitted_sha }}
+          path: source
+          fetch_depth: "1"
+      - name: Verify exact admitted caller source
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.admitted_sha }}
+        run: |
+          set -Eeuo pipefail
+          (cd source && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
+      - id: workspace
+        name: Prepare isolated Flutter state
+        uses: ./.ciw/actions/prepare-workspace
+        with:
+          profile: ${{ needs.plan.outputs.workspace_profile }}
+          cache_mode: disabled
+          source_sha: ${{ inputs.admitted_sha }}
+          trust_mode: ${{ needs.plan.outputs.source_trust }}
       - name: Set up exact immutable Flutter runtime
-        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # reviewed 2026-03-25
         with:
           flutter-version: ${{ needs.plan.outputs.flutter_version }}
           cache: false
-      - *execute
-      - *flutter-cleanup
-      - *flutter-residue
-      - *workspace-cleanup
+      - id: execute
+        name: Execute bounded Flutter validation
+        uses: ./.ciw/actions/validate-flutter
+        with:
+          phase: execute
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          version_file: ${{ inputs.version_file }}
+          working_directory: ${{ inputs.working_directory }}
+          command_profile: ${{ inputs.command_profile }}
+          script_path: ${{ inputs.script_path }}
+          platform: ${{ inputs.platform }}
+          artifact_exception_id: ${{ inputs.artifact_exception_id }}
+          source_trust: ${{ needs.plan.outputs.source_trust }}
+      - id: flutter_cleanup
+        name: Remove Flutter-specific state
+        if: always()
+        uses: ./.ciw/actions/validate-flutter
+        with:
+          phase: cleanup
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          command_profile: ${{ inputs.command_profile }}
+          source_trust: ${{ needs.plan.outputs.source_trust }}
+      - id: flutter_residue
+        name: Verify zero Flutter-specific residue
+        if: always()
+        uses: ./.ciw/actions/validate-flutter
+        with:
+          phase: residue
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          command_profile: ${{ inputs.command_profile }}
+          source_trust: ${{ needs.plan.outputs.source_trust }}
+      - id: workspace_cleanup
+        name: Remove and verify all registered workflow state
+        if: always()
+        uses: ./.ciw/actions/cleanup-workspace
 
   validate:
     name: CI / Flutter validation
@@ -218,10 +387,8 @@ jobs:
     timeout-minutes: 10
     outputs:
       result: ${{ steps.result.outputs.result }}
-      flutter_version: ${{ steps.result.outputs.flutter_version }}
-      dart_version: ${{ steps.result.outputs.dart_version }}
-      evidence_id: ${{ steps.result.outputs.evidence_id }}
-      device_handoff_json: ${{ steps.result.outputs.device_handoff_json }}
+      test_summary: ${{ steps.result.outputs.test_summary }}
+      artifact_exception_used: ${{ steps.result.outputs.artifact_exception_used }}
     steps:
       - id: result
         name: Require selected semantic execution and zero skipped-path authority
@@ -233,23 +400,20 @@ jobs:
           PORTABLE_STATUS: ${{ needs.portable.outputs.result }}
           MOBILE_STATUS: ${{ needs.mobile.outputs.result }}
           APPLE_STATUS: ${{ needs.apple.outputs.result }}
-          FLUTTER_VERSION: ${{ needs.portable.outputs.flutter_version || needs.mobile.outputs.flutter_version || needs.apple.outputs.flutter_version }}
-          DART_VERSION: ${{ needs.portable.outputs.dart_version || needs.mobile.outputs.dart_version || needs.apple.outputs.dart_version }}
-          EVIDENCE_ID: ${{ needs.portable.outputs.evidence_id || needs.mobile.outputs.evidence_id || needs.apple.outputs.evidence_id }}
-          DEVICE_HANDOFF_JSON: ${{ needs.portable.outputs.device_handoff_json || needs.mobile.outputs.device_handoff_json || needs.apple.outputs.device_handoff_json }}
+          TEST_SUMMARY: ${{ needs.portable.outputs.test_summary || needs.mobile.outputs.test_summary || needs.apple.outputs.test_summary }}
+          ARTIFACT_EXCEPTION_USED: ${{ needs.portable.outputs.artifact_exception_used || needs.mobile.outputs.artifact_exception_used || needs.apple.outputs.artifact_exception_used }}
         shell: bash
         run: |
           set -Eeuo pipefail
-          case "$SELECTED" in
-            portable) test "$PORTABLE_RESULT" = success; test "$PORTABLE_STATUS" = success ;;
-            mobile) test "$MOBILE_RESULT" = success; test "$MOBILE_STATUS" = success ;;
-            apple) test "$APPLE_RESULT" = success; test "$APPLE_STATUS" = success ;;
+          case "${SELECTED}" in
+            portable) test "${PORTABLE_RESULT}" = success; test "${PORTABLE_STATUS}" = success ;;
+            mobile) test "${MOBILE_RESULT}" = success; test "${MOBILE_STATUS}" = success ;;
+            apple) test "${APPLE_RESULT}" = success; test "${APPLE_STATUS}" = success ;;
             *) exit 1 ;;
           esac
+          test "${ARTIFACT_EXCEPTION_USED}" = false
           {
             echo "result=success"
-            echo "flutter_version=$FLUTTER_VERSION"
-            echo "dart_version=$DART_VERSION"
-            echo "evidence_id=$EVIDENCE_ID"
-            echo "device_handoff_json=$DEVICE_HANDOFF_JSON"
-          } >> "$GITHUB_OUTPUT"
+            echo "test_summary=${TEST_SUMMARY}"
+            echo "artifact_exception_used=false"
+          } >> "${GITHUB_OUTPUT}"

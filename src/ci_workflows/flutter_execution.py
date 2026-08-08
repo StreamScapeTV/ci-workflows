@@ -14,7 +14,6 @@ from .flutter_contract import (
     FlutterValidationError,
     checked_in_script,
     fail,
-    file_sha256,
     parse_runtime_identity,
     source_authority_hashes,
 )
@@ -47,8 +46,13 @@ class SubprocessCommandRunner:
         env: Mapping[str, str],
     ) -> CommandOutcome:
         completed = subprocess.run(
-            list(argv), cwd=cwd, env=dict(env), text=True,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+            list(argv),
+            cwd=cwd,
+            env=dict(env),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
         )
         return CommandOutcome(completed.returncode, completed.stdout, completed.stderr)
 
@@ -69,8 +73,16 @@ def isolated_environment(
     directories = {
         name: root / name
         for name in (
-            "home", "pub-cache", "flutter-state", "gradle-home", "cocoapods-home",
-            "derived-data", "tmp", "logs", "reports", "build-output",
+            "home",
+            "pub-cache",
+            "flutter-state",
+            "gradle-home",
+            "cocoapods-home",
+            "derived-data",
+            "tmp",
+            "logs",
+            "reports",
+            "build-output",
         )
     }
     for path in directories.values():
@@ -78,12 +90,25 @@ def isolated_environment(
             fail("cleanup_failed")
         path.mkdir(parents=True, exist_ok=True)
     blocked = {
-        "FLUTTER_STORAGE_BASE_URL", "PUB_HOSTED_URL", "CI_FLUTTER_VERSION",
-        "FLUTTER_VERSION", "DEVICE_ID", "ANDROID_SERIAL", "FASTLANE_SESSION",
-        "MATCH_PASSWORD", "APPLE_CERTIFICATE", "APPLE_CERTIFICATE_PASSWORD",
-        "APP_STORE_CONNECT_API_KEY", "SUPABASE_ACCESS_TOKEN", "DATABASE_URL",
+        "FLUTTER_STORAGE_BASE_URL",
+        "PUB_HOSTED_URL",
+        "CI_FLUTTER_VERSION",
+        "FLUTTER_VERSION",
+        "DEVICE_ID",
+        "ANDROID_SERIAL",
+        "FASTLANE_SESSION",
+        "MATCH_PASSWORD",
+        "APPLE_CERTIFICATE",
+        "APPLE_CERTIFICATE_PASSWORD",
+        "APP_STORE_CONNECT_API_KEY",
+        "SUPABASE_ACCESS_TOKEN",
+        "DATABASE_URL",
     }
-    env = {key: value for key, value in (base or os.environ).items() if key not in blocked}
+    env = {
+        key: value
+        for key, value in (base or os.environ).items()
+        if key not in blocked
+    }
     env.update(
         HOME=str(directories["home"]),
         PUB_CACHE=str(directories["pub-cache"]),
@@ -134,17 +159,21 @@ def _verify_authority(source_root: Path, before: Mapping[str, str]) -> str:
     return after["pubspec.lock"]
 
 
-
 def _assert_clean_source(source_root: Path) -> None:
     git_marker = source_root / ".git"
     if not git_marker.exists() and not git_marker.is_file():
         return
     completed = subprocess.run(
         ["git", "status", "--porcelain=v1", "--untracked-files=all"],
-        cwd=source_root, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+        cwd=source_root,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
     )
     if completed.returncode != 0 or completed.stdout.strip():
         fail("dirty_source")
+
 
 def _verify_expected_outputs(source_root: Path, expected: Sequence[str]) -> bool:
     for value in expected:
@@ -187,7 +216,14 @@ def _compose_node(
     )
     _run_checked(
         runner,
-        ("python3", str(node_script), "--phase", "execute", "--source-root", source_root.name),
+        (
+            "python3",
+            str(node_script),
+            "--phase",
+            "execute",
+            "--source-root",
+            source_root.name,
+        ),
         cwd=contract_root,
         env=node_env,
         failure_code="node_composition_failed",
@@ -234,7 +270,14 @@ def execute_flutter_plan(
             completed.append(FlutterStage.RUNTIME_VERIFY)
 
         if plan.node_composition is not None:
-            _compose_node(plan, contract_root, source_root, state_root, command_runner, env)
+            _compose_node(
+                plan,
+                contract_root,
+                source_root,
+                state_root,
+                command_runner,
+                env,
+            )
             completed.append(FlutterStage.NODE_COMPOSITION)
 
         values = {
@@ -263,7 +306,10 @@ def execute_flutter_plan(
             )
             completed.append(command.stage)
             if command.expected_outputs:
-                output_verified = _verify_expected_outputs(source_root, command.expected_outputs) or output_verified
+                output_verified = (
+                    _verify_expected_outputs(source_root, command.expected_outputs)
+                    or output_verified
+                )
 
         lock_hash = _verify_authority(source_root, before)
         cleanup_flutter_state(source_root, state_root)
@@ -314,6 +360,9 @@ def cleanup_flutter_state(source_root: Path, state_root: Path) -> None:
         source_root / "coverage",
         source_root / "ios" / "Pods",
         source_root / "ios" / ".symlinks",
+        source_root / "ios" / "Flutter" / "ephemeral",
+        source_root / "ios" / "Flutter" / "Generated.xcconfig",
+        source_root / "ios" / "Flutter" / "flutter_export_environment.sh",
         source_root / "android" / ".gradle",
     )
     for path in targets:
@@ -333,6 +382,9 @@ def assert_zero_flutter_residue(source_root: Path, state_root: Path) -> None:
             source_root / "coverage",
             source_root / "ios" / "Pods",
             source_root / "ios" / ".symlinks",
+            source_root / "ios" / "Flutter" / "ephemeral",
+            source_root / "ios" / "Flutter" / "Generated.xcconfig",
+            source_root / "ios" / "Flutter" / "flutter_export_environment.sh",
             source_root / "android" / ".gradle",
         )
         if path.exists() or path.is_symlink()
