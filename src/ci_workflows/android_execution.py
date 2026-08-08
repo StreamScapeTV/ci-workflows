@@ -17,6 +17,7 @@ _MAJOR = re.compile(r'(?:openjdk version |java version |javac )?"?([0-9]+)')
 _GRADLE = re.compile(r'(?m)^Gradle\s+([0-9]+\.[0-9]+\.[0-9]+)\s*$')
 _SECRET = re.compile(r'(?i)(token|password|authorization|secret|keystore)\s*[:=]\s*\S+')
 CMDLINE_REVISION = "19.0"
+SYNTHETIC_SMOKE_TASK = ":verifyToolchainSmoke"
 
 
 def sanitize(text: str, roots: Sequence[Path] = ()) -> str:
@@ -176,6 +177,16 @@ def verify_wrapper(copy: Path, state: Path, plan: AndroidValidationPlan,
                          state_root=state, stage="gradle-version")
     match = _GRADLE.search(result.stdout + result.stderr)
     require(match is not None and match.group(1) == plan.wrapper.version, "wrapper_distribution_drift")
+    if plan.wrapper.mode == "synthetic-smoke":
+        run_command(
+            [str(wrapper), *plan.fixed_gradle_arguments, SYNTHETIC_SMOKE_TASK],
+            cwd=working,
+            environment=environment,
+            timeout_seconds=plan.timeout_minutes * 60,
+            failure_code="toolchain_mismatch",
+            state_root=state,
+            stage="gradle-toolchain-smoke",
+        )
     return plan.wrapper.version
 
 
