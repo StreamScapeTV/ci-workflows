@@ -265,6 +265,68 @@ class AndroidValidationContractTests(unittest.TestCase):
             for name in ("home", "gradle-home", "android-home", "tmp"):
                 self.assertTrue((expected / name).is_dir())
 
+    def test_synthetic_smoke_downloads_verified_gradle_and_executes_a_real_task(self) -> None:
+        fixture = ROOT / "tests/fixtures/android-validation/smoke-project"
+        launcher = (fixture / "gradlew").read_text(encoding="utf-8")
+        build = (fixture / "build.gradle.kts").read_text(encoding="utf-8")
+        properties = (
+            fixture / "gradle/wrapper/gradle-wrapper.properties"
+        ).read_text(encoding="utf-8")
+
+        expected_sha = "9c0f7faeeb306cb14e4279a3e084ca6b596894089a0638e68a07c945a32c9e14"
+        self.assertIn('version="9.6.1"', launcher)
+        self.assertIn(f'expected_sha256="{expected_sha}"', launcher)
+        self.assertIn(
+            'distribution_url="https://services.gradle.org/distributions/'
+            'gradle-${version}-bin.zip"',
+            launcher,
+        )
+        self.assertIn("--proto '=https'", launcher)
+        self.assertIn("Gradle archive path escaped extraction root.", launcher)
+        self.assertIn("Gradle archive contains a duplicate destination.", launcher)
+        self.assertLess(launcher.index("actual_sha256"), launcher.index("zipfile.ZipFile"))
+        self.assertIn("distributionSha256Sum=" + expected_sha, properties)
+        self.assertIn('tasks.register("verifyToolchainSmoke")', build)
+        self.assertIn('JavaVersion.current().majorVersion == "25"', build)
+        self.assertIn("platforms/android-37.0/android.jar", build)
+        self.assertIn("build-tools/37.0.0/aapt2", build)
+
+        request = android_contract.request_from_environment(
+            dict(self.cases["positive"][0]["environment"]), self.contract
+        )
+        plan = android_contract.resolve_validation_plan(self.contract, request)
+        seen: list[tuple[str, ...]] = []
+
+        def runner(argv, **kwargs):
+            seen.append(tuple(argv))
+            if argv[-1] == "--version":
+                return subprocess.CompletedProcess(argv, 0, "Gradle 9.6.1\n", "")
+            return subprocess.CompletedProcess(
+                argv, 0, "Synthetic Android Gradle smoke passed.\n", ""
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "state"
+            state.mkdir()
+            environment = {
+                "PATH": "/usr/bin:/bin",
+                "GRADLE_USER_HOME": str(state / "android-validation/gradle-home"),
+            }
+            with mock.patch.object(android_execution, "run_command", side_effect=runner):
+                self.assertEqual(
+                    android_execution.verify_wrapper(
+                        ROOT, state, plan, environment
+                    ),
+                    "9.6.1",
+                )
+
+        self.assertEqual(len(seen), 2)
+        self.assertEqual(seen[0][-1], "--version")
+        self.assertEqual(
+            seen[1][-1], android_execution.SYNTHETIC_SMOKE_TASK
+        )
+        self.assertIn("--no-daemon", seen[1])
+
     def test_contract_hash_is_deterministic(self) -> None:
         path = ROOT / android_contract.CONTRACT_PATH
         first = android_contract.file_sha256(path)
