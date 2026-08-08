@@ -6,7 +6,7 @@ import os
 import shutil
 import stat
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Mapping, Sequence
 
 from .foundation_types import stable_identifier
@@ -17,9 +17,14 @@ from .node_contract import (
     load_package_manifest,
     require,
     resolve_exact_node_version,
+    safe_relative,
     verify_manifest_engines,
 )
-from .node_types import NodeValidationError, NodeValidationPlan, NodeValidationResult
+from .node_types import (
+    NodeValidationError,
+    NodeValidationPlan,
+    NodeValidationResult,
+)
 
 
 def run_command(
@@ -54,16 +59,24 @@ def git_output(root: Path, arguments: Sequence[str], code: str) -> str:
     return run_command(
         ["git", *arguments],
         cwd=root,
-        environment={"PATH": os.environ.get("PATH", ""), "LC_ALL": "C", "LANG": "C"},
+        environment={
+            "PATH": os.environ.get("PATH", ""),
+            "LC_ALL": "C",
+            "LANG": "C",
+        },
         timeout_seconds=60,
         code=code,
     ).stdout.strip()
 
 
 def verify_exact_source(source_root: Path, admitted_sha: str) -> None:
-    require(source_root.is_dir() and (source_root / ".git").exists(), "dirty_tree")
     require(
-        git_output(source_root, ["rev-parse", "HEAD"], "dirty_tree") == admitted_sha,
+        source_root.is_dir() and (source_root / ".git").exists(),
+        "dirty_tree",
+    )
+    require(
+        git_output(source_root, ["rev-parse", "HEAD"], "dirty_tree")
+        == admitted_sha,
         "dirty_tree",
     )
     require(
@@ -80,18 +93,34 @@ def copy_source(source_root: Path, destination: Path) -> None:
     """Copy exact source into registered state while rejecting symlinks."""
 
     require(not destination.exists(), "cleanup_failed")
-    for current, directories, files in os.walk(source_root, followlinks=False):
+    for current, directories, files in os.walk(
+        source_root,
+        followlinks=False,
+    ):
         current_path = Path(current)
         relative = current_path.relative_to(source_root)
         for name in [*directories, *files]:
-            require(not (current_path / name).is_symlink(), "invalid_input")
+            require(
+                not (current_path / name).is_symlink(),
+                "invalid_input",
+            )
         target = destination / relative
         target.mkdir(parents=True, exist_ok=True)
         for name in files:
-            shutil.copy2(current_path / name, target / name, follow_symlinks=False)
+            shutil.copy2(
+                current_path / name,
+                target / name,
+                follow_symlinks=False,
+            )
 
 
-def _version(executable: str, argument: str, *, cwd: Path, environment: Mapping[str, str]) -> str:
+def _version(
+    executable: str,
+    argument: str,
+    *,
+    cwd: Path,
+    environment: Mapping[str, str],
+) -> str:
     completed = run_command(
         [executable, argument],
         cwd=cwd,
@@ -102,8 +131,21 @@ def _version(executable: str, argument: str, *, cwd: Path, environment: Mapping[
     value = completed.stdout.strip()
     if executable == "node" and value.startswith("v"):
         value = value[1:]
-    require(value and value.count(".") == 2 and all(part.isdigit() for part in value.split(".")), "runtime_mismatch")
+    require(
+        value
+        and value.count(".") == 2
+        and all(part.isdigit() for part in value.split(".")),
+        "runtime_mismatch",
+    )
     return value
+
+
+def _require_public_environment_scope(plan: NodeValidationPlan) -> None:
+    require(
+        set(plan.public_environment.keys())
+        <= set(plan.allowed_public_environment),
+        "public_environment_rejected",
+    )
 
 
 def _execution_environment(
@@ -111,6 +153,7 @@ def _execution_environment(
     state_root: Path,
     inherited: Mapping[str, str],
 ) -> tuple[dict[str, str], tuple[Path, ...]]:
+    _require_public_environment_scope(plan)
     node_root = state_root / "node-validation"
     paths = (
         node_root / "home",
@@ -167,24 +210,41 @@ def _stage_code(stage: str) -> str:
     return "command_profile_rejected"
 
 
-def _checked_in_regular(source_root: Path, relative: str, code: str) -> Path:
+def _checked_in_regular(
+    source_root: Path,
+    relative: str,
+    code: str,
+) -> Path:
     path = bounded_path(source_root, relative)
     require(path.is_file() and not path.is_symlink(), code)
-    tracked = git_output(source_root, ["ls-files", "--error-unmatch", relative], code)
+    tracked = git_output(
+        source_root,
+        ["ls-files", "--error-unmatch", relative],
+        code,
+    )
     require(tracked == relative, code)
     return path
 
 
-def _verify_command_hooks(source_root: Path, plan: NodeValidationPlan) -> None:
+def _verify_command_hooks(
+    source_root: Path,
+    plan: NodeValidationPlan,
+) -> None:
     if plan.script_path:
-        _checked_in_regular(source_root, plan.script_path, "command_profile_rejected")
+        _checked_in_regular(
+            source_root,
+            plan.script_path,
+            "command_profile_rejected",
+        )
     if plan.output_verifier_path:
         _checked_in_regular(
             source_root,
             plan.output_verifier_path,
             "output_verifier_failed",
         )
-    serialized = "\n".join("\0".join(command.argv) for command in plan.commands)
+    serialized = "\n".join(
+        "\0".join(command.argv) for command in plan.commands
+    )
     for forbidden in (
         "npm\0install",
         "yarn",
@@ -192,18 +252,28 @@ def _verify_command_hooks(source_root: Path, plan: NodeValidationPlan) -> None:
         "bun",
         "corepack",
         "wrangler",
-        "cloudflare",
         "docker",
         "buildah",
         "kubectl",
         "helm",
     ):
-        require(forbidden not in serialized.casefold(), "command_profile_rejected")
+        require(
+            forbidden not in serialized.casefold(),
+            "command_profile_rejected",
+        )
 
 
-def _allowed_generated_path(relative: str, plan: NodeValidationPlan, cleanup_names: Sequence[str]) -> bool:
+def _allowed_generated_path(
+    relative: str,
+    plan: NodeValidationPlan,
+    cleanup_names: Sequence[str],
+) -> bool:
     normalized = relative.strip("/")
-    working_prefix = "" if plan.working_directory == "." else plan.working_directory + "/"
+    working_prefix = (
+        ""
+        if plan.working_directory == "."
+        else plan.working_directory + "/"
+    )
     candidates = {name.strip("/") for name in cleanup_names}
     if plan.static_output_directory:
         candidates.add(plan.static_output_directory.strip("/"))
@@ -220,9 +290,16 @@ def _verify_copy_mutations(
     plan: NodeValidationPlan,
     cleanup_names: Sequence[str],
 ) -> None:
-    require(not git_output(copy_root, ["diff", "--name-only"], "dirty_tree"), "dirty_tree")
     require(
-        not git_output(copy_root, ["diff", "--cached", "--name-only"], "dirty_tree"),
+        not git_output(copy_root, ["diff", "--name-only"], "dirty_tree"),
+        "dirty_tree",
+    )
+    require(
+        not git_output(
+            copy_root,
+            ["diff", "--cached", "--name-only"],
+            "dirty_tree",
+        ),
         "dirty_tree",
     )
     status = git_output(
@@ -236,26 +313,103 @@ def _verify_copy_mutations(
         path = row[3:]
         if " -> " in path:
             path = path.split(" -> ", 1)[1]
-        require(_allowed_generated_path(path, plan, cleanup_names), "dirty_tree")
+        require(
+            _allowed_generated_path(path, plan, cleanup_names),
+            "dirty_tree",
+        )
+
+
+def _absolute_lexical(path: Path) -> Path:
+    return Path(os.path.abspath(os.fspath(path)))
+
+
+def _lstat(path: Path) -> os.stat_result | None:
+    try:
+        return os.lstat(path)
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        raise NodeValidationError("cleanup_failed") from error
+
+
+def _require_real_directory(path: Path) -> None:
+    metadata = _lstat(path)
+    require(
+        metadata is not None
+        and stat.S_ISDIR(metadata.st_mode)
+        and not stat.S_ISLNK(metadata.st_mode),
+        "cleanup_failed",
+    )
+
+
+def _lexical_cleanup_target(root: Path, relative: str) -> Path:
+    """Return an anchored target without resolving its final symlink object."""
+
+    root = _absolute_lexical(root)
+    _require_real_directory(root)
+    normalized = safe_relative(relative, "cleanup_failed")
+    parts = PurePosixPath(normalized).parts
+    target = root.joinpath(*parts)
+    require(root in target.parents, "cleanup_failed")
+    current = root
+    for part in parts[:-1]:
+        current /= part
+        metadata = _lstat(current)
+        if metadata is None:
+            break
+        require(
+            stat.S_ISDIR(metadata.st_mode)
+            and not stat.S_ISLNK(metadata.st_mode),
+            "cleanup_failed",
+        )
+    return target
 
 
 def _remove_no_follow(path: Path) -> None:
-    if not path.exists() and not path.is_symlink():
+    """Remove one object tree through lstat without following any symlink."""
+
+    metadata = _lstat(path)
+    if metadata is None:
         return
-    if path.is_symlink() or path.is_file():
-        path.unlink()
-        return
-    require(path.is_dir(), "cleanup_failed")
-    with os.scandir(path) as entries:
-        for entry in entries:
-            child = path / entry.name
-            if entry.is_symlink():
-                child.unlink()
-            elif entry.is_dir(follow_symlinks=False):
+    mode = metadata.st_mode
+    try:
+        if stat.S_ISLNK(mode) or stat.S_ISREG(mode):
+            os.unlink(path)
+        elif stat.S_ISDIR(mode):
+            os.chmod(
+                path,
+                mode | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
+                follow_symlinks=False,
+            )
+            with os.scandir(path) as entries:
+                children = [path / entry.name for entry in entries]
+            for child in children:
                 _remove_no_follow(child)
-            else:
-                child.unlink()
-    path.rmdir()
+            os.rmdir(path)
+        else:
+            raise NodeValidationError("cleanup_failed")
+    except NodeValidationError:
+        raise
+    except (OSError, NotImplementedError) as error:
+        raise NodeValidationError("cleanup_failed") from error
+    require(_lstat(path) is None, "cleanup_failed")
+
+
+def _validated_cleanup_roots(
+    copy_root: Path,
+    state_root: Path,
+) -> tuple[Path, Path, Path]:
+    state_lexical = _absolute_lexical(state_root)
+    copy_lexical = _absolute_lexical(copy_root)
+    _require_real_directory(state_lexical)
+    _require_real_directory(copy_lexical)
+    state = state_lexical.resolve(strict=True)
+    copy = copy_lexical.resolve(strict=True)
+    node_state = state / "node-validation"
+    _require_real_directory(node_state)
+    node_state = node_state.resolve(strict=True)
+    require(copy == node_state / "source", "cleanup_failed")
+    return state, node_state, copy
 
 
 def cleanup_generated(
@@ -264,20 +418,35 @@ def cleanup_generated(
     plan: NodeValidationPlan,
     cleanup_names: Sequence[str],
 ) -> None:
-    working = bounded_path(copy_root, plan.working_directory)
+    """Remove only registered Node state and generated objects, without follow."""
+
+    _state, node_state, copy = _validated_cleanup_roots(
+        copy_root,
+        state_root,
+    )
+    working = bounded_path(copy, plan.working_directory)
+    require(copy == working or copy in working.parents, "cleanup_failed")
     targets: list[Path] = []
     for name in cleanup_names:
-        targets.append(bounded_path(copy_root, name))
-        targets.append(bounded_path(working, name))
+        targets.append(_lexical_cleanup_target(copy, name))
+        targets.append(_lexical_cleanup_target(working, name))
     if plan.static_output_directory:
-        targets.append(bounded_path(working, plan.static_output_directory))
-    unique = sorted({path for path in targets}, key=lambda value: len(value.parts), reverse=True)
+        targets.append(
+            _lexical_cleanup_target(
+                working,
+                plan.static_output_directory,
+            )
+        )
+    unique = sorted(
+        set(targets),
+        key=lambda value: len(value.parts),
+        reverse=True,
+    )
     for path in unique:
-        require(copy_root == path or copy_root in path.parents, "cleanup_failed")
+        require(copy in path.parents, "cleanup_failed")
         _remove_no_follow(path)
-    node_state = state_root / "node-validation"
     _remove_no_follow(node_state)
-    require(not node_state.exists(), "cleanup_failed")
+    require(_lstat(node_state) is None, "cleanup_failed")
 
 
 def verify_static_output(
@@ -293,36 +462,68 @@ def verify_static_output(
     require(output.is_dir() and not output.is_symlink(), "output_missing")
     max_files = int(limits["max_files"])
     max_bytes = int(limits["max_bytes"])
-    forbidden_names = {str(value).casefold() for value in limits["forbidden_names"]}
-    forbidden_parts = {str(value).casefold() for value in limits["forbidden_path_parts"]}
-    required_extensions = {str(value).casefold() for value in limits["required_extensions"]}
+    forbidden_names = {
+        str(value).casefold() for value in limits["forbidden_names"]
+    }
+    forbidden_parts = {
+        str(value).casefold()
+        for value in limits["forbidden_path_parts"]
+    }
+    required_extensions = {
+        str(value).casefold()
+        for value in limits["required_extensions"]
+    }
     files: list[tuple[str, str]] = []
     total_bytes = 0
     extensions: set[str] = set()
-    for current, directories, names in os.walk(output, followlinks=False):
+    for current, directories, names in os.walk(
+        output,
+        followlinks=False,
+    ):
         current_path = Path(current)
         for directory in directories:
             child = current_path / directory
             require(not child.is_symlink(), "output_malformed")
             relative_parts = {
-                part.casefold() for part in child.relative_to(output).parts
+                part.casefold()
+                for part in child.relative_to(output).parts
             }
-            require(not (relative_parts & forbidden_parts), "output_malformed")
+            require(
+                not (relative_parts & forbidden_parts),
+                "output_malformed",
+            )
         for name in names:
             path = current_path / name
-            require(path.is_file() and not path.is_symlink(), "output_malformed")
+            require(
+                path.is_file() and not path.is_symlink(),
+                "output_malformed",
+            )
             relative = path.relative_to(output).as_posix()
-            parts = {part.casefold() for part in Path(relative).parts}
-            require(name.casefold() not in forbidden_names, "output_malformed")
+            parts = {
+                part.casefold() for part in Path(relative).parts
+            }
+            require(
+                name.casefold() not in forbidden_names,
+                "output_malformed",
+            )
             require(not (parts & forbidden_parts), "output_malformed")
             size = path.stat().st_size
             total_bytes += size
-            require(len(files) + 1 <= max_files and total_bytes <= max_bytes, "output_malformed")
+            require(
+                len(files) + 1 <= max_files
+                and total_bytes <= max_bytes,
+                "output_malformed",
+            )
             extensions.add(path.suffix.casefold())
-            files.append((relative, file_sha256(path, "output_malformed")))
+            files.append(
+                (relative, file_sha256(path, "output_malformed"))
+            )
     require(files, "output_malformed")
     require(required_extensions <= extensions, "output_malformed")
-    material = "".join(f"{relative}\0{digest}\n" for relative, digest in sorted(files))
+    material = "".join(
+        f"{relative}\0{digest}\n"
+        for relative, digest in sorted(files)
+    )
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
@@ -335,17 +536,24 @@ def execute_node_plan(
 ) -> NodeValidationResult:
     """Execute one checked-in plan in copied state and clean every terminal path."""
 
+    _require_public_environment_scope(plan)
     verify_exact_source(source_root, plan.admitted_sha)
     resolve_exact_node_version(source_root, plan)
     manifest = load_package_manifest(source_root, plan)
     load_lockfile(source_root, plan)
     manifest_hash = (
-        file_sha256(bounded_path(source_root, plan.manifest_path), "lockfile_drift")
+        file_sha256(
+            bounded_path(source_root, plan.manifest_path),
+            "lockfile_drift",
+        )
         if plan.manifest_path
         else None
     )
     lock_hash = (
-        file_sha256(bounded_path(source_root, plan.lockfile_path), "lockfile_drift")
+        file_sha256(
+            bounded_path(source_root, plan.lockfile_path),
+            "lockfile_drift",
+        )
         if plan.lockfile_path
         else None
     )
@@ -353,9 +561,23 @@ def execute_node_plan(
     copy_source(source_root, copy_root)
     working = bounded_path(copy_root, plan.working_directory)
     _verify_command_hooks(copy_root, plan)
-    environment, _paths = _execution_environment(plan, state_root, inherited_environment)
-    node_version = _version("node", "--version", cwd=working, environment=environment)
-    npm_version = _version("npm", "--version", cwd=working, environment=environment)
+    environment, _paths = _execution_environment(
+        plan,
+        state_root,
+        inherited_environment,
+    )
+    node_version = _version(
+        "node",
+        "--version",
+        cwd=working,
+        environment=environment,
+    )
+    npm_version = _version(
+        "npm",
+        "--version",
+        cwd=working,
+        environment=environment,
+    )
     require(node_version == plan.node_version, "runtime_mismatch")
     verify_manifest_engines(manifest, node_version, npm_version)
     install_result = "skipped"
@@ -373,7 +595,10 @@ def execute_node_plan(
             )
             install_result = "success"
         else:
-            require(plan.install_profile == "none", "unsupported_package_manager")
+            require(
+                plan.install_profile == "none",
+                "unsupported_package_manager",
+            )
         for command in plan.commands:
             run_command(
                 command.argv,
@@ -384,22 +609,36 @@ def execute_node_plan(
             )
             if command.stage == "build":
                 build_result = "success"
-        output_digest = verify_static_output(copy_root, plan, contract["output_limits"])
+        output_digest = verify_static_output(
+            copy_root,
+            plan,
+            contract["output_limits"],
+        )
         if plan.output_mode != "none":
             build_result = "success"
         if plan.manifest_path:
             require(
-                file_sha256(bounded_path(copy_root, plan.manifest_path), "lockfile_drift")
+                file_sha256(
+                    bounded_path(copy_root, plan.manifest_path),
+                    "lockfile_drift",
+                )
                 == manifest_hash,
                 "lockfile_drift",
             )
         if plan.lockfile_path:
             require(
-                file_sha256(bounded_path(copy_root, plan.lockfile_path), "lockfile_drift")
+                file_sha256(
+                    bounded_path(copy_root, plan.lockfile_path),
+                    "lockfile_drift",
+                )
                 == lock_hash,
                 "lockfile_drift",
             )
-        _verify_copy_mutations(copy_root, plan, contract["generated_cleanup_names"])
+        _verify_copy_mutations(
+            copy_root,
+            plan,
+            contract["generated_cleanup_names"],
+        )
         verify_exact_source(source_root, plan.admitted_sha)
     except BaseException as error:
         original_error = error
@@ -433,7 +672,9 @@ def execute_node_plan(
         validation_profile=plan.validation_profile,
         command_profile=plan.command_profile,
         install_result=install_result,
-        test_count=sum(command.stage == "tests" for command in plan.commands),
+        test_count=sum(
+            command.stage == "tests" for command in plan.commands
+        ),
         build_result=build_result,
         output_verified=plan.output_mode != "none",
         output_digest=output_digest,

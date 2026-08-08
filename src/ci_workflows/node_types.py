@@ -53,6 +53,7 @@ class NodeValidationPlan:
     timeout_minutes: int
     workspace_profile: str
     source_trust: str
+    version_file: str | None
     node_version: str
     working_directory: str
     install_profile: str
@@ -66,6 +67,12 @@ class NodeValidationPlan:
     public_environment: Mapping[str, str]
     commands: tuple[NodeCommand, ...]
     adoption_ready: bool
+
+    @property
+    def version_authority(self) -> str:
+        """Return the single selected runtime authority without exposing source data."""
+
+        return "version-file" if self.version_file is not None else "exact-api"
 
     def planning_outputs(self) -> dict[str, str]:
         summary = json.dumps(

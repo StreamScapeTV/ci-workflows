@@ -42,7 +42,11 @@ def request(
         working_directory=working_directory,
         install_profile=install_profile,
         command_profile=command,
-        script_path="tool/ci_quality_gate.sh" if command == "source-audit" else None,
+        script_path=(
+            "tool/ci_quality_gate.sh"
+            if command == "source-audit"
+            else None
+        ),
         static_output_directory=output,
         output_verifier_path=verifier,
         public_environment=public_environment or {},
@@ -59,6 +63,36 @@ class NodeContractTests(unittest.TestCase):
             (ROOT / "tests/fixtures/node-validation/cases.json").read_text(
                 encoding="utf-8"
             )
+        )
+
+    def web_plan(self):
+        return resolve_validation_plan(
+            self.contract,
+            request(
+                "StreamScapeTV/StreamScapeWeb",
+                "locked-node",
+                "quality-test",
+                version_file=".nvmrc",
+                node_version=None,
+            ),
+        )
+
+    def direct_plan(self):
+        return resolve_validation_plan(
+            self.contract,
+            request(
+                "StreamScapeTV/agent-state",
+                "frontend-contract-static",
+                "contract-test-build",
+                version_file=None,
+                node_version="22.18.0",
+                working_directory="frontend",
+                output="out",
+                public_environment={
+                    "NEXT_PUBLIC_API_BASE_URL": "http://127.0.0.1:7878",
+                    "NEXT_PUBLIC_PROJECT": "iptv-apple",
+                },
+            ),
         )
 
     def test_profiles_commands_and_consumer_matrix_are_exact(self) -> None:
@@ -110,7 +144,9 @@ class NodeContractTests(unittest.TestCase):
                 node_version=None,
                 output="out",
                 verifier="scripts/verify-cloudflare-pages-output.ts",
-                public_environment={"NEXT_PUBLIC_API_URL": "https://example.invalid"},
+                public_environment={
+                    "NEXT_PUBLIC_API_URL": "https://example.invalid"
+                },
             ),
             request(
                 "StreamScapeTV/agent-state",
@@ -134,39 +170,70 @@ class NodeContractTests(unittest.TestCase):
                 install_profile="none",
             ),
         )
-        plans = [resolve_validation_plan(self.contract, value) for value in cases]
+        plans = [
+            resolve_validation_plan(self.contract, value)
+            for value in cases
+        ]
         self.assertEqual(
             [plan.node_version for plan in plans],
             ["22.18.0", "22.18.0", "22.18.0", "22.16.0"],
+        )
+        self.assertEqual(
+            [plan.version_file for plan in plans],
+            [".nvmrc", ".nvmrc", None, ".node-version"],
+        )
+        self.assertEqual(
+            [plan.version_authority for plan in plans],
+            ["version-file", "version-file", "exact-api", "version-file"],
         )
         self.assertEqual({plan.runner_profile for plan in plans}, {"portable"})
         self.assertFalse(plans[2].adoption_ready)
         self.assertTrue(plans[0].adoption_ready)
         self.assertEqual(plans[3].install_profile, "none")
 
+    def test_version_authority_round_trips_through_the_typed_plan(self) -> None:
+        version_file_plan = self.web_plan()
+        self.assertEqual(version_file_plan.version_file, ".nvmrc")
+        self.assertEqual(version_file_plan.node_version, "22.18.0")
+        self.assertEqual(version_file_plan.version_authority, "version-file")
+
+        direct_plan = self.direct_plan()
+        self.assertIsNone(direct_plan.version_file)
+        self.assertEqual(direct_plan.node_version, "22.18.0")
+        self.assertEqual(direct_plan.version_authority, "exact-api")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(
+                resolve_exact_node_version(root, direct_plan),
+                "22.18.0",
+            )
+
     def test_exact_version_sources_and_engine_bounds(self) -> None:
-        plan = resolve_validation_plan(
-            self.contract,
-            request(
-                "StreamScapeTV/StreamScapeWeb",
-                "locked-node",
-                "quality-test",
-                version_file=".nvmrc",
-                node_version=None,
-            ),
-        )
+        plan = self.web_plan()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / ".nvmrc").write_text("22.18.0\n", encoding="utf-8")
-            self.assertEqual(resolve_exact_node_version(root, plan), "22.18.0")
+            self.assertEqual(
+                resolve_exact_node_version(root, plan),
+                "22.18.0",
+            )
             (root / ".nvmrc").write_text("lts/*\n", encoding="utf-8")
-            with self.assertRaisesRegex(NodeValidationError, "invalid_runtime_source"):
+            with self.assertRaisesRegex(
+                NodeValidationError,
+                "invalid_runtime_source",
+            ):
                 resolve_exact_node_version(root, plan)
         self.assertTrue(version_satisfies("22.18.0", ">=22.18.0 <23"))
         self.assertTrue(version_satisfies("10.9.2", ">=10.9.2 <11"))
         self.assertFalse(version_satisfies("23.0.0", ">=22.18.0 <23"))
         verify_manifest_engines(
-            {"engines": {"node": ">=22.18.0 <23", "npm": ">=10.9.2 <11"}},
+            {
+                "engines": {
+                    "node": ">=22.18.0 <23",
+                    "npm": ">=10.9.2 <11",
+                }
+            },
             "22.18.0",
             "10.9.2",
         )
@@ -177,17 +244,75 @@ class NodeContractTests(unittest.TestCase):
                 "10.9.2",
             )
 
-    def test_npm_only_lockfile_contract(self) -> None:
+    def test_version_file_missing_symlink_wrong_and_malformed_fail_closed(self) -> None:
+        plan = self.web_plan()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaisesRegex(
+                NodeValidationError,
+                "invalid_runtime_source",
+            ):
+                resolve_exact_node_version(root, plan)
+
+            outside = root / "outside-version"
+            outside.write_text("22.18.0\n", encoding="utf-8")
+            (root / ".nvmrc").symlink_to(outside)
+            with self.assertRaisesRegex(
+                NodeValidationError,
+                "invalid_runtime_source",
+            ):
+                resolve_exact_node_version(root, plan)
+            self.assertEqual(outside.read_text(encoding="utf-8"), "22.18.0\n")
+            (root / ".nvmrc").unlink()
+
+            (root / ".nvmrc").write_text("22.17.0\n", encoding="utf-8")
+            with self.assertRaisesRegex(NodeValidationError, "runtime_mismatch"):
+                resolve_exact_node_version(root, plan)
+
+            for malformed in (
+                "lts/*\n",
+                ">=22\n",
+                "v22.18.0\n",
+                "22.18.0  # comment\n",
+                "22.18.0\n22.18.0\n",
+                "22.18.0",
+            ):
+                with self.subTest(malformed=malformed):
+                    (root / ".nvmrc").write_text(
+                        malformed,
+                        encoding="utf-8",
+                    )
+                    with self.assertRaisesRegex(
+                        NodeValidationError,
+                        "invalid_runtime_source",
+                    ):
+                        resolve_exact_node_version(root, plan)
+
+    def test_node_version_file_authority_supports_dot_node_version(self) -> None:
         plan = resolve_validation_plan(
             self.contract,
             request(
-                "StreamScapeTV/StreamScapeWeb",
-                "locked-node",
-                "quality-test",
-                version_file=".nvmrc",
+                "StreamScapeTV/finance-hub",
+                "node-source-audit",
+                "source-audit",
+                version_file=".node-version",
                 node_version=None,
+                install_profile="none",
             ),
         )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".node-version").write_text(
+                "22.16.0\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                resolve_exact_node_version(root, plan),
+                "22.16.0",
+            )
+
+    def test_npm_only_lockfile_contract(self) -> None:
+        plan = self.web_plan()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "package.json").write_text(
@@ -202,7 +327,8 @@ class NodeContractTests(unittest.TestCase):
             self.assertIsNotNone(load_lockfile(root, plan))
             (root / "yarn.lock").write_text("", encoding="utf-8")
             with self.assertRaisesRegex(
-                NodeValidationError, "unsupported_package_manager"
+                NodeValidationError,
+                "unsupported_package_manager",
             ):
                 load_package_manifest(root, plan)
             (root / "yarn.lock").unlink()
