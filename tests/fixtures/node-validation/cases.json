@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "positive": [
+    {
+      "id": "web-locked-quality",
+      "repository": "StreamScapeTV/StreamScapeWeb",
+      "validation_profile": "locked-node",
+      "command_profile": "quality-test",
+      "version_source": ".nvmrc"
+    },
+    {
+      "id": "web-static-export",
+      "repository": "StreamScapeTV/StreamScapeWeb",
+      "validation_profile": "next-static-export",
+      "command_profile": "quality-test-build",
+      "version_source": ".nvmrc"
+    },
+    {
+      "id": "agent-state-frontend-contract",
+      "repository": "StreamScapeTV/agent-state",
+      "validation_profile": "frontend-contract-static",
+      "command_profile": "contract-test-build",
+      "version_source": "exact-api"
+    },
+    {
+      "id": "finance-source-audit",
+      "repository": "StreamScapeTV/finance-hub",
+      "validation_profile": "node-source-audit",
+      "command_profile": "source-audit",
+      "version_source": ".node-version"
+    }
+  ],
+  "negative": [
+    {"id": "missing-version-source", "failure": "invalid_runtime_source"},
+    {"id": "contradictory-version-sources", "failure": "invalid_runtime_source"},
+    {"id": "ranged-version", "failure": "invalid_runtime_source"},
+    {"id": "engine-disagreement", "failure": "runtime_mismatch"},
+    {"id": "missing-lockfile", "failure": "missing_lockfile"},
+    {"id": "mutated-lockfile", "failure": "lockfile_drift"},
+    {"id": "alternate-package-manager", "failure": "unsupported_package_manager"},
+    {"id": "npm-install", "failure": "unsupported_package_manager"},
+    {"id": "wrong-stage-order", "failure": "command_profile_rejected"},
+    {"id": "path-traversal", "failure": "invalid_input"},
+    {"id": "symlink-escape", "failure": "invalid_input"},
+    {"id": "unknown-public-environment", "failure": "public_environment_rejected"},
+    {"id": "secret-expression", "failure": "public_environment_rejected"},
+    {"id": "token-like-public-value", "failure": "public_environment_rejected"},
+    {"id": "output-missing", "failure": "output_missing"},
+    {"id": "output-empty", "failure": "output_malformed"},
+    {"id": "output-server-bundle", "failure": "output_malformed"},
+    {"id": "output-worker-bundle", "failure": "output_malformed"},
+    {"id": "verifier-mutation", "failure": "output_verifier_failed"},
+    {"id": "source-mutation", "failure": "dirty_tree"},
+    {"id": "artifact-exception", "failure": "artifact_policy_failed"},
+    {"id": "cleanup-residue", "failure": "cleanup_failed"},
+    {"id": "unsupported-repository-profile", "failure": "unsupported_profile"},
+    {"id": "caller-runner", "failure": "invalid_input"},
+    {"id": "caller-deployment", "failure": "invalid_input"}
+  ]
+}
