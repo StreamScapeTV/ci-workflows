@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from ci_workflows import android_contract
+from ci_workflows import android_contract, android_execution
 from ci_workflows.android_types import AndroidValidationError
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -173,6 +175,95 @@ class AndroidValidationContractTests(unittest.TestCase):
                     android_contract.request_from_environment(environment, self.contract),
                 )
             self.assertEqual(failure.exception.code, "source_trust_rejected")
+
+    def test_toolchain_probes_use_only_registered_isolated_state(self) -> None:
+        request = android_contract.request_from_environment(
+            dict(self.cases["positive"][0]["environment"]), self.contract
+        )
+        plan = android_contract.resolve_validation_plan(self.contract, request)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"
+            state = root / "registered-state"
+            outside_home = root / "outside-home"
+            outside_tmp = root / "outside-tmp"
+            source.mkdir()
+            state.mkdir()
+            outside_home.mkdir()
+            outside_tmp.mkdir()
+
+            sdk = root / "sdk"
+            manager = sdk / "cmdline-tools/latest/bin/sdkmanager"
+            manager.parent.mkdir(parents=True)
+            manager.write_text("#!/bin/sh\n", encoding="utf-8")
+            manager.chmod(0o700)
+            (sdk / "cmdline-tools/latest/source.properties").write_text(
+                "Pkg.Revision=19.0\n", encoding="utf-8"
+            )
+            platform = sdk / "platforms/android-37.0"
+            platform.mkdir(parents=True)
+            (platform / "android.jar").write_bytes(b"jar")
+            build = sdk / "build-tools/37.0.0"
+            build.mkdir(parents=True)
+            (build / "aapt2").write_bytes(b"aapt2")
+            (build / "source.properties").write_text(
+                "Pkg.Revision=37.0.0\n", encoding="utf-8"
+            )
+
+            observed_environments: list[dict[str, str]] = []
+
+            def runner(argv, **kwargs):
+                observed_environments.append(dict(kwargs["environment"]))
+                name = Path(argv[0]).name
+                if name == "java":
+                    return subprocess.CompletedProcess(argv, 0, "", 'openjdk version "25"\n')
+                if name == "javac":
+                    return subprocess.CompletedProcess(argv, 0, "javac 25\n", "")
+                if argv[-1] == "--version":
+                    return subprocess.CompletedProcess(argv, 0, "19.0\n", "")
+                return subprocess.CompletedProcess(
+                    argv,
+                    0,
+                    (
+                        "platform-tools | 36\n"
+                        "platforms;android-37.0 | 2\n"
+                        "build-tools;37.0.0 | 37.0.0\n"
+                    ),
+                    "",
+                )
+
+            inherited = {
+                "PATH": "/usr/bin:/bin",
+                "JAVA_HOME": "/opt/jdk-25",
+                "ANDROID_SDK_ROOT": str(sdk),
+                "HOME": str(outside_home),
+                "TMPDIR": str(outside_tmp),
+            }
+            with mock.patch.object(android_execution, "run_command", side_effect=runner):
+                self.assertEqual(
+                    android_execution.verify_toolchain(
+                        source, state, plan, self.contract, inherited
+                    ),
+                    (25, 37),
+                )
+
+            expected = state / "android-validation"
+            self.assertEqual(len(observed_environments), 4)
+            for environment in observed_environments:
+                self.assertEqual(environment["HOME"], str(expected / "home"))
+                self.assertEqual(
+                    environment["GRADLE_USER_HOME"], str(expected / "gradle-home")
+                )
+                self.assertEqual(
+                    environment["ANDROID_USER_HOME"], str(expected / "android-home")
+                )
+                self.assertEqual(environment["TMPDIR"], str(expected / "tmp"))
+                self.assertEqual(environment["ANDROID_SDK_ROOT"], str(sdk.resolve()))
+                self.assertEqual(environment["ANDROID_HOME"], str(sdk.resolve()))
+                self.assertNotEqual(environment["HOME"], str(outside_home))
+                self.assertNotEqual(environment["TMPDIR"], str(outside_tmp))
+            for name in ("home", "gradle-home", "android-home", "tmp"):
+                self.assertTrue((expected / name).is_dir())
 
     def test_contract_hash_is_deterministic(self) -> None:
         path = ROOT / android_contract.CONTRACT_PATH
