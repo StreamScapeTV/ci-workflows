@@ -27,6 +27,15 @@ class FlutterWorkflowContractTests(unittest.TestCase):
         self.action = (ROOT / "actions/validate-flutter/action.yml").read_text(
             encoding="utf-8"
         )
+        self.facade = (ROOT / "src/ci_workflows/flutter.py").read_text(
+            encoding="utf-8"
+        )
+        self.planner = (
+            ROOT / "src/ci_workflows/flutter_contract.py"
+        ).read_text(encoding="utf-8")
+        self.execution = (
+            ROOT / "src/ci_workflows/flutter_execution.py"
+        ).read_text(encoding="utf-8")
 
     def test_public_api_and_stable_check(self) -> None:
         self.assertEqual("validation.flutter", self.contract["workflow_api"])
@@ -198,6 +207,39 @@ class FlutterWorkflowContractTests(unittest.TestCase):
         self.assertIn("  zero_artifacts:", self.apple_smoke)
         self.assertNotIn("  source-audit:", self.smoke)
         self.assertNotIn("  zero-artifacts:", self.smoke + self.apple_smoke)
+
+    def test_live_consumer_repository_pin_and_command_contracts(self) -> None:
+        directus = self.contract["consumer_contracts"]["directus-canonical"]
+        finance = self.contract["consumer_contracts"]["finance-embedded-web"]
+        self.assertEqual("StreamScapeTV/directus-front", directus["repository"])
+        self.assertEqual([".fvmrc"], directus["pin_sources"])
+        self.assertEqual("StreamScapeTV/finance-hub", finance["repository"])
+        self.assertEqual([".fvmrc"], finance["pin_sources"])
+        compatibility = directus["profiles"]["compatibility-smoke"]
+        self.assertEqual("tool/run_directus_smoke.sh", compatibility["gate_path"])
+        command_id = compatibility["commands"][0]
+        self.assertEqual(
+            ["checked-in-script", "tool/run_directus_smoke.sh"],
+            self.contract["commands"][command_id]["argv"],
+        )
+
+    def test_repository_binding_tracked_hooks_and_no_follow_cleanup(self) -> None:
+        self.assertIn(
+            'consumer.get("repository") != repository',
+            self.facade,
+        )
+        self.assertIn(
+            'consumer["repository"] != request.repository',
+            self.planner,
+        )
+        self.assertIn(
+            '["ls-files", "--error-unmatch", "--", relative]',
+            self.execution,
+        )
+        self.assertIn("os.lstat", self.execution)
+        self.assertIn("stat.S_ISLNK", self.execution)
+        self.assertIn("_remove_no_follow", self.execution)
+        self.assertIn("bounded_path(", self.execution)
 
 
 if __name__ == "__main__":
