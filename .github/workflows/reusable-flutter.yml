@@ -60,6 +60,7 @@ jobs:
     runs-on: portable
     timeout-minutes: 10
     outputs:
+      consumer_contract: ${{ steps.plan.outputs.consumer_contract }}
       runner_profile: ${{ steps.plan.outputs.runner_profile }}
       runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
       workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
@@ -221,6 +222,7 @@ jobs:
           set -Eeuo pipefail
           (cd .ciw && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
       - name: Check out exact admitted caller source
+        if: ${{ needs.plan.outputs.consumer_contract != 'synthetic-smoke' }}
         uses: ./.ciw/actions/exact-checkout
         with:
           repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
@@ -228,6 +230,7 @@ jobs:
           path: source
           fetch_depth: "1"
       - name: Verify exact admitted caller source
+        if: ${{ needs.plan.outputs.consumer_contract != 'synthetic-smoke' }}
         shell: bash
         env:
           EXPECTED_SHA: ${{ inputs.admitted_sha }}
@@ -249,6 +252,14 @@ jobs:
           cache: false
           cache-path: ${{ format('{0}/flutter-sdk-{1}', env.CI_TOOL_ROOT, needs.plan.outputs.flutter_version) }}
           pub-cache-path: ${{ format('{0}/.pub-cache', env.HOME) }}
+      - name: Create disposable contract-owned Android smoke source
+        if: ${{ needs.plan.outputs.consumer_contract == 'synthetic-smoke' }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          flutter create --no-pub --platforms=android --project-name ciw_flutter_smoke source
+          (cd source && flutter pub get)
+          test -f source/pubspec.lock
       - id: execute
         name: Execute bounded Flutter validation
         uses: ./.ciw/actions/validate-flutter
@@ -283,6 +294,13 @@ jobs:
           validation_profile: ${{ inputs.validation_profile }}
           command_profile: ${{ inputs.command_profile }}
           source_trust: ${{ needs.plan.outputs.source_trust }}
+      - name: Remove disposable synthetic Android source
+        if: ${{ always() && needs.plan.outputs.consumer_contract == 'synthetic-smoke' }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf source
+          test ! -e source
       - id: workspace_cleanup
         name: Remove and verify all registered workflow state
         if: always()
@@ -317,6 +335,7 @@ jobs:
           set -Eeuo pipefail
           (cd .ciw && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
       - name: Check out exact admitted caller source
+        if: ${{ needs.plan.outputs.consumer_contract != 'synthetic-smoke' }}
         uses: ./.ciw/actions/exact-checkout
         with:
           repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
@@ -324,6 +343,7 @@ jobs:
           path: source
           fetch_depth: "1"
       - name: Verify exact admitted caller source
+        if: ${{ needs.plan.outputs.consumer_contract != 'synthetic-smoke' }}
         shell: bash
         env:
           EXPECTED_SHA: ${{ inputs.admitted_sha }}
@@ -345,6 +365,14 @@ jobs:
           cache: false
           cache-path: ${{ format('{0}/flutter-sdk-{1}', env.CI_TOOL_ROOT, needs.plan.outputs.flutter_version) }}
           pub-cache-path: ${{ format('{0}/.pub-cache', env.HOME) }}
+      - name: Create disposable contract-owned iOS smoke source
+        if: ${{ needs.plan.outputs.consumer_contract == 'synthetic-smoke' }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          flutter create --no-pub --platforms=ios --project-name ciw_flutter_smoke source
+          (cd source && flutter pub get)
+          test -f source/pubspec.lock
       - id: execute
         name: Execute bounded Flutter validation
         uses: ./.ciw/actions/validate-flutter
@@ -379,6 +407,13 @@ jobs:
           validation_profile: ${{ inputs.validation_profile }}
           command_profile: ${{ inputs.command_profile }}
           source_trust: ${{ needs.plan.outputs.source_trust }}
+      - name: Remove disposable synthetic iOS source
+        if: ${{ always() && needs.plan.outputs.consumer_contract == 'synthetic-smoke' }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf source
+          test ! -e source
       - id: workspace_cleanup
         name: Remove and verify all registered workflow state
         if: always()
