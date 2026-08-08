@@ -85,6 +85,8 @@ def request_from_environment(
             "INPUT_CONSUMER_CONTRACT"
         ]
         consumer = contract["consumer_contracts"][consumer_id]
+        if consumer.get("repository") != repository:
+            raise FlutterValidationError("consumer_contract_rejected")
         profile_contract = consumer["profiles"][profile.value]
         pin_sources = [
             value for value in consumer["pin_sources"] if value != "contract"
