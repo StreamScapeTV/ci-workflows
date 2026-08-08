@@ -33,12 +33,8 @@ jobs:
     runs-on: portable
     timeout-minutes: 10
     outputs:
-      ios_runs_on_json: ${{ steps.ios.outputs.runs_on_json }}
-      tvos_runs_on_json: ${{ steps.tvos.outputs.runs_on_json }}
-      macos_runs_on_json: ${{ steps.macos.outputs.runs_on_json }}
-      ios_workspace_profile: ${{ steps.ios.outputs.workspace_profile }}
-      tvos_workspace_profile: ${{ steps.tvos.outputs.workspace_profile }}
-      macos_workspace_profile: ${{ steps.macos.outputs.workspace_profile }}
+      runs_on_json: ${{ steps.ios.outputs.runs_on_json }}
+      workspace_profile: ${{ steps.ios.outputs.workspace_profile }}
     steps:
       - name: Check out exact pull request source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -103,7 +99,7 @@ jobs:
   ios:
     name: Real iOS simulator smoke
     needs: plan
-    runs-on: ${{ fromJSON(needs.plan.outputs.ios_runs_on_json) }}
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
     timeout-minutes: 120
     steps:
       - name: Check out exact validation implementation
@@ -136,7 +132,7 @@ jobs:
       - name: Prepare isolated Apple state
         uses: ./.ciw/actions/prepare-workspace
         with:
-          profile: ${{ needs.plan.outputs.ios_workspace_profile }}
+          profile: ${{ needs.plan.outputs.workspace_profile }}
           cache_mode: disabled
           source_sha: ${{ github.event.pull_request.head.sha }}
           trust_mode: trusted-pr
@@ -190,7 +186,7 @@ jobs:
   tvos:
     name: Real tvOS simulator smoke
     needs: plan
-    runs-on: ${{ fromJSON(needs.plan.outputs.tvos_runs_on_json) }}
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
     timeout-minutes: 120
     steps:
       - name: Check out exact validation implementation
@@ -223,7 +219,7 @@ jobs:
       - name: Prepare isolated Apple state
         uses: ./.ciw/actions/prepare-workspace
         with:
-          profile: ${{ needs.plan.outputs.tvos_workspace_profile }}
+          profile: ${{ needs.plan.outputs.workspace_profile }}
           cache_mode: disabled
           source_sha: ${{ github.event.pull_request.head.sha }}
           trust_mode: trusted-pr
@@ -277,7 +273,7 @@ jobs:
   macos:
     name: Real unsigned macOS smoke
     needs: plan
-    runs-on: ${{ fromJSON(needs.plan.outputs.macos_runs_on_json) }}
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
     timeout-minutes: 120
     steps:
       - name: Check out exact validation implementation
@@ -310,7 +306,7 @@ jobs:
       - name: Prepare isolated Apple state
         uses: ./.ciw/actions/prepare-workspace
         with:
-          profile: ${{ needs.plan.outputs.macos_workspace_profile }}
+          profile: ${{ needs.plan.outputs.workspace_profile }}
           cache_mode: disabled
           source_sha: ${{ github.event.pull_request.head.sha }}
           trust_mode: trusted-pr
