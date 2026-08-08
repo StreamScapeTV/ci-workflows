@@ -31,13 +31,17 @@ The only request-derived command value is an optional targeted test selector. It
 
 Repository-specific values are data, not code branches. The contract currently describes the Android application, Streamscape Media's Android build, and the central synthetic smoke fixture. Consumers remain responsible for the meaning of their tasks and product assertions.
 
+The `synthetic-smoke` wrapper mode has one fixed internal behavior: after exact wrapper/distribution version verification, execution invokes `:verifyToolchainSmoke`. The task belongs to the issue-owned synthetic fixture and cannot be selected or replaced by a caller. Other wrapper modes receive no implicit task and continue to execute only their resolved contract command sequence.
+
 ## Runtime isolation
 
 Before execution, the exact caller worktree must equal the admitted SHA and have no tracked or untracked changes. Source is copied without following symlinks into registered disposable state. Execution never mutates the caller checkout.
 
-The runtime exposes only the required host paths and creates private mode-0700 locations for home, temporary files, Gradle state, Android user state, and logs. `GRADLE_OPTS` disables the daemon and enforces UTF-8. The checked-in wrapper receives `--no-daemon` on every invocation. The gate does not provision JDK, SDK, Gradle, container engines, emulators, signing tools, or publication tooling.
+The runtime creates private mode-0700 locations for home, temporary files, Gradle state, Android user state, and logs beneath the registered Android state root. Java, Javac, SDK manager, Gradle wrapper, and Gradle tasks all receive those same paths. Inherited host `HOME` and `TMPDIR` values are not part of the execution environment. `GRADLE_OPTS` disables the daemon and enforces UTF-8. The checked-in wrapper receives `--no-daemon` on every invocation.
 
-JDK/Javac and SDK package inventory are verified before Gradle. Wrapper properties are parsed without shell evaluation. Distribution URL, checksum, Git blob identities, and `Gradle <version>` output are verified against the contract. Streamscape Media's checked-in launcher and IPTV Android's standard wrapper have distinct reviewed wrapper modes.
+JDK/Javac and SDK package inventory are verified before Gradle. Wrapper properties are parsed without shell evaluation. Distribution URL, checksum, Git blob identities where declared, and `Gradle <version>` output are verified against the contract. Streamscape Media's checked-in launcher and IPTV Android's standard wrapper have distinct reviewed wrapper modes.
+
+The central synthetic fixture is the only mode that obtains Gradle at runtime. Its checked-in launcher contains a fixed official Gradle `9.6.1` HTTPS URL and SHA-256, downloads beneath isolated `GRADLE_USER_HOME`, verifies the digest before extraction, and performs bounded no-follow extraction that rejects traversal, duplicate destinations, unsupported members, excessive member counts, and excessive expanded size. It then executes the fixed synthetic task through the installed binary. This does not install a system package, modify the host, use sudo, or create state outside the registered root. Consumer profiles continue to use their own checked-in wrapper or launcher contracts.
 
 ## Private dependency composition
 
@@ -55,7 +59,7 @@ Diagnostic exceptions are named contract records, not arbitrary artifact paths. 
 
 ## Cleanup invariants
 
-Android cleanup receives only the marker-resolved temporary state root. It removes copied source, Android runtime state, logs, Gradle/Android caches, and generated output with descriptor-style no-follow traversal. The independent terminal workspace cleanup removes the separately registered private dependency. Neither path follows a symlink or accepts a caller deletion path.
+Android cleanup receives only the marker-resolved temporary state root. It removes copied source, Android runtime state, logs, Gradle/Android caches, the synthetic Gradle archive and installation, and generated output with descriptor-style no-follow traversal. The independent terminal workspace cleanup removes the separately registered private dependency. Neither path follows a symlink or accepts a caller deletion path.
 
 The reusable workflow invokes Android cleanup, residue verification, and foundation workspace cleanup independently under `if: always()`. It then verifies the original admitted caller worktree remains exact and clean. Terminal status requires all phases to pass, so cleanup cannot hide an earlier execution failure and an execution success cannot hide cleanup residue.
 
