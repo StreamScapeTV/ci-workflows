@@ -136,6 +136,13 @@ jobs:
           validation_profile: ios-simulator
           command_profile: synthetic-smoke
           source_trust: trusted-pr
+      - name: Remove disposable iOS smoke source
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf source
+          test ! -e source
       - id: workspace_cleanup
         name: Cleanup Apple workspace
         if: always()
