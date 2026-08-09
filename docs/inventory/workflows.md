@@ -1,6 +1,6 @@
 # Organization workflow inventory
 
-Capture date: `2026-08-06`
+Capture date: `2026-08-09`
 
 This contract classifies **87 live workflow files across 11 repositories**. Capture commits are evidence anchors; the live drift check compares workflow paths and available Git blob identities without checking out or executing consumer source.
 
@@ -9,14 +9,14 @@ This contract classifies **87 live workflow files across 11 repositories**. Capt
 | Repository | Captured source | Workflows | Active | Retire | Publication | Device | Flux-authorized |
 |---|---|---:|---:|---:|---:|---:|---:|
 | StreamScapeTV/agent-state | `main@bf4b6122db1f248058a27b4b449cd1ecb9688a85` | 10 | 5 | 5 | 2 | 0 | 0 |
-| StreamScapeTV/ci-workflows | `main@9325b3262b7753d0e2d8ef9f3684b230647183de` | 2 | 2 | 0 | 1 | 0 | 0 |
+| StreamScapeTV/ci-workflows | `main@a92863f5e0ac2988b0216f934c0aa3d780a05dfd` | 2 | 2 | 0 | 1 | 0 | 0 |
 | StreamScapeTV/directus-front | `main@b7b21be7129859e45fdc57befcf85b86b82e7575` | 5 | 3 | 2 | 0 | 0 | 0 |
 | StreamScapeTV/finance-hub | `main@a549e610dee8f7f80b1a38ae4b709b8d2bd53461` | 4 | 2 | 2 | 0 | 0 | 0 |
 | StreamScapeTV/flux | `main@8e611816f11c4ebaf126217646e030b9c2df18b9` | 18 | 17 | 1 | 2 | 0 | 2 |
 | StreamScapeTV/iptv-android | `develop@898b95fdbfec894299428ccfb8eb491be89030da` | 7 | 5 | 2 | 0 | 1 | 0 |
 | StreamScapeTV/iptv-apple | `develop@258ca9f70f432b5364ebeea9f55e3a42e1cc3281` | 13 | 7 | 6 | 0 | 0 | 0 |
 | StreamScapeTV/iptv-backend | `main@982275628f41c4fac1d652b05ca8ff1cee7eb151` | 6 | 3 | 3 | 1 | 0 | 0 |
-| StreamScapeTV/organization-rules | `main@c6d255885f9567f275b53f4fdccaa4927267d2b1` | 0 | 0 | 0 | 0 | 0 | 0 |
+| StreamScapeTV/organization-rules | `main@ee4ec47cae055c77b574f029182357d0b4bf0350` | 0 | 0 | 0 | 0 | 0 | 0 |
 | StreamScapeTV/streamscape-media | `develop@7cf106c5fea32583cd12fea56bda6bb402ed49f6` | 18 | 12 | 6 | 2 | 4 | 0 |
 | StreamScapeTV/StreamScapeWeb | `main@3cd28e7ae45b6503464ece2e0df70b4cb2031b81` | 4 | 2 | 2 | 0 | 0 | 0 |
 
@@ -78,8 +78,8 @@ This contract classifies **87 live workflow files across 11 repositories**. Capt
 
 ### StreamScapeTV/ci-workflows
 
-- Capture: `main@9325b3262b7753d0e2d8ef9f3684b230647183de`
-- Evidence basis: exact issue #37 parameterized Agent State command checkpoint
+- Capture: `main@a92863f5e0ac2988b0216f934c0aa3d780a05dfd`
+- Evidence basis: exact issue #55 legacy Agent State transport retirement checkpoint
 
 | Workflow | Name | Status | Disposition | Migration | Trust | Blob |
 |---|---|---|---|---|---|---|
@@ -189,8 +189,8 @@ This contract classifies **87 live workflow files across 11 repositories**. Capt
 
 ### StreamScapeTV/organization-rules
 
-- Capture: `main@c6d255885f9567f275b53f4fdccaa4927267d2b1`
-- Evidence basis: exact current policy reduction commit; repository intentionally contains no GitHub Actions workflows
+- Capture: `main@ee4ec47cae055c77b574f029182357d0b4bf0350`
+- Evidence basis: exact issue #14 direct Supabase Agent State operating-policy adoption
 
 | Workflow | Name | Status | Disposition | Migration | Trust | Blob |
 |---|---|---|---|---|---|---|
