@@ -1,0 +1,577 @@
+{
+  "allowed_events": [
+    "workflow_call",
+    "workflow_dispatch"
+  ],
+  "allowed_source_trust": [
+    "trusted-exact"
+  ],
+  "artifact_exceptions": {
+    "redacted-device-diagnostics": {
+      "allowed_media_types": [
+        "application/json",
+        "text/plain"
+      ],
+      "forbidden_extensions": [
+        ".apk",
+        ".aab",
+        ".ipa",
+        ".mobileprovision",
+        ".p12",
+        ".keychain-db",
+        ".mov",
+        ".mp4"
+      ],
+      "maximum_bytes": 8388608,
+      "maximum_files": 12,
+      "redaction_required": true,
+      "retention_days": 3
+    }
+  },
+  "artifact_policy": "zero-default",
+  "cleanup": {
+    "reject_symlink_follow": true,
+    "release_lock": true,
+    "remove_local_outputs": true,
+    "remove_owned_temporary_install": true,
+    "remove_registered_workspace": true,
+    "remove_workflow_credentials": true,
+    "restore_captured_state": true,
+    "terminate_owned_application": true,
+    "zero_routine_artifacts": true
+  },
+  "command_profiles": {
+    "ciw-device-synthetic": {
+      "cleanup_script": "tests/fixtures/device-validation/scripts/cleanup.sh",
+      "evidence_script": "tests/fixtures/device-validation/scripts/evidence.sh",
+      "fixed_arguments": [],
+      "live_backend_profile": null,
+      "prepare_script": "tests/fixtures/device-validation/scripts/prepare.sh",
+      "state_restoration": [
+        "terminate-owned-test",
+        "remove-owned-install",
+        "restore-captured-state"
+      ],
+      "test_script": "tests/fixtures/device-validation/scripts/test.sh"
+    },
+    "iptv-android-device": {
+      "cleanup_script": "build.sh",
+      "evidence_script": "build.sh",
+      "fixed_arguments": [
+        "test"
+      ],
+      "live_backend_profile": "android-test-backend",
+      "prepare_script": "build.sh",
+      "state_restoration": [
+        "terminate-owned-test",
+        "remove-owned-install",
+        "restore-captured-state"
+      ],
+      "test_script": "build.sh"
+    },
+    "iptv-apple-ios-device": {
+      "cleanup_script": "scripts/ci/cleanup-ci-evidence.sh",
+      "evidence_script": "scripts/ci/validate-physical-evidence-policy.sh",
+      "fixed_arguments": [
+        "app-acceptance"
+      ],
+      "live_backend_profile": "apple-test-backend",
+      "prepare_script": "scripts/ci/preflight-ios-device.sh",
+      "state_restoration": [
+        "terminate-owned-test",
+        "remove-owned-install",
+        "restore-captured-state"
+      ],
+      "test_script": "scripts/ci/run-ios-device-packet.sh"
+    },
+    "streamscape-media-android-device": {
+      "cleanup_script": "scripts/ci/cleanup-ci-evidence.sh",
+      "evidence_script": "scripts/ci/validate-physical-evidence-policy.sh",
+      "fixed_arguments": [
+        "device-full"
+      ],
+      "live_backend_profile": null,
+      "prepare_script": "scripts/ci/android-device-preflight.sh",
+      "state_restoration": [
+        "terminate-owned-test",
+        "remove-owned-install",
+        "restore-captured-state"
+      ],
+      "test_script": "scripts/ci/run-validation-scope.sh"
+    },
+    "streamscape-media-ios-device": {
+      "cleanup_script": "scripts/ci/cleanup-ci-evidence.sh",
+      "evidence_script": "scripts/ci/validate-physical-evidence-policy.sh",
+      "fixed_arguments": [
+        "native-failover"
+      ],
+      "live_backend_profile": null,
+      "prepare_script": "scripts/ci/preflight-ios-device.sh",
+      "state_restoration": [
+        "terminate-owned-test",
+        "remove-owned-install",
+        "restore-captured-state"
+      ],
+      "test_script": "scripts/ci/run-ios-device-packet.sh"
+    },
+    "streamscape-media-tvos-device": {
+      "cleanup_script": "scripts/ci/cleanup-ci-evidence.sh",
+      "evidence_script": "scripts/ci/validate-physical-evidence-policy.sh",
+      "fixed_arguments": [
+        "avfoundation-core"
+      ],
+      "live_backend_profile": null,
+      "prepare_script": "scripts/ci/preflight-tvos-device.sh",
+      "state_restoration": [
+        "terminate-owned-test",
+        "remove-owned-install",
+        "restore-captured-state"
+      ],
+      "test_script": "scripts/ci/run-tvos-avfoundation-device-packet.sh"
+    }
+  },
+  "contract_version": "1.0.0",
+  "execution_overlay_profile": "physical-device",
+  "failure_codes": [
+    "artifact_exception_rejected",
+    "authorization_rejected",
+    "cleanup_failed",
+    "command_profile_rejected",
+    "device_conflict",
+    "device_disconnected",
+    "device_family_mismatch",
+    "device_identifier_rejected",
+    "device_inventory_malformed",
+    "device_multiple_matches",
+    "device_no_match",
+    "device_offline",
+    "device_profile_rejected",
+    "device_restoration_failed",
+    "evidence_overclaim",
+    "evidence_policy_failed",
+    "forbidden_input",
+    "invalid_input",
+    "live_backend_rejected",
+    "lock_backend_unavailable",
+    "lock_collision",
+    "lock_release_failed",
+    "lock_stale_epoch",
+    "lock_timeout",
+    "prepare_failed",
+    "request_identity_rejected",
+    "source_mismatch",
+    "source_trust_rejected",
+    "stage_failed",
+    "unsupported_family",
+    "unsupported_profile"
+  ],
+  "families": [
+    "android",
+    "ios",
+    "tvos"
+  ],
+  "forbidden_inputs": [
+    "arbitrary_command",
+    "arguments",
+    "callback",
+    "command",
+    "database_url",
+    "deletion_path",
+    "deployment",
+    "device_selector",
+    "environment_dump",
+    "keychain",
+    "keystore",
+    "kubernetes",
+    "live_backend_url",
+    "notarization",
+    "physical_device",
+    "production_endpoint",
+    "provisioning_profile",
+    "registry",
+    "release",
+    "runner",
+    "runner_labels",
+    "runs_on",
+    "secret_name",
+    "shell",
+    "signing_identity",
+    "store",
+    "testflight",
+    "workspace_root"
+  ],
+  "hard_timeout_minutes": 240,
+  "live_backend_profiles": {
+    "android-test-backend": {
+      "allowed_repositories": [
+        "StreamScapeTV/iptv-android"
+      ],
+      "production_forbidden": true,
+      "secret_contract": "live_test_credentials"
+    },
+    "apple-test-backend": {
+      "allowed_repositories": [
+        "StreamScapeTV/iptv-apple"
+      ],
+      "production_forbidden": true,
+      "secret_contract": "live_test_credentials"
+    }
+  },
+  "lock_contract": {
+    "backend": "canonical-resource-rpc-required",
+    "legacy_agent_state_forbidden": true,
+    "ordinary_provisional_rpc_forbidden": true,
+    "required_fields": [
+      "resource_key",
+      "request_id",
+      "run_id",
+      "device_family",
+      "device_profile",
+      "epoch",
+      "token",
+      "accepted",
+      "owner_hash",
+      "expires_at",
+      "release_receipt",
+      "next_actor",
+      "next_action"
+    ],
+    "temporary_reference_adapter": "in-memory-tests-only"
+  },
+  "organization": "StreamScapeTV",
+  "planner_runner_profile": "portable",
+  "profiles": {
+    "ciw-synthetic-android": {
+      "artifact_exception_ids": [],
+      "base_runner_profile": "mobile",
+      "capabilities": [
+        "synthetic-android"
+      ],
+      "command_profile": "ciw-device-synthetic",
+      "connection_states": [
+        "usb"
+      ],
+      "execution_allowed": false,
+      "family": "android",
+      "health_states": [
+        "online"
+      ],
+      "live_backend_profiles": [],
+      "models": [
+        "synthetic-phone",
+        "synthetic-tablet"
+      ],
+      "products": [
+        "synthetic-contract"
+      ],
+      "repositories": [
+        "StreamScapeTV/ci-workflows"
+      ],
+      "selection_policy": "identity-hash",
+      "serial_policy": "forbidden",
+      "timeout_minutes": 15,
+      "version_policy": {
+        "api_max": 37,
+        "api_min": 29
+      },
+      "workspace_profile": "native"
+    },
+    "ciw-synthetic-ios": {
+      "artifact_exception_ids": [],
+      "base_runner_profile": "apple",
+      "capabilities": [
+        "synthetic-ios"
+      ],
+      "command_profile": "ciw-device-synthetic",
+      "connection_states": [
+        "usb",
+        "paired"
+      ],
+      "execution_allowed": false,
+      "family": "ios",
+      "health_states": [
+        "online"
+      ],
+      "live_backend_profiles": [],
+      "models": [
+        "synthetic-iphone"
+      ],
+      "products": [
+        "synthetic-contract"
+      ],
+      "repositories": [
+        "StreamScapeTV/ci-workflows"
+      ],
+      "selection_policy": "identity-hash",
+      "serial_policy": "forbidden",
+      "timeout_minutes": 15,
+      "version_policy": {
+        "os_max": "26.5",
+        "os_min": "17.0"
+      },
+      "workspace_profile": "apple"
+    },
+    "ciw-synthetic-tvos": {
+      "artifact_exception_ids": [],
+      "base_runner_profile": "apple",
+      "capabilities": [
+        "synthetic-tvos"
+      ],
+      "command_profile": "ciw-device-synthetic",
+      "connection_states": [
+        "usb",
+        "paired"
+      ],
+      "execution_allowed": false,
+      "family": "tvos",
+      "health_states": [
+        "online"
+      ],
+      "live_backend_profiles": [],
+      "models": [
+        "synthetic-apple-tv"
+      ],
+      "products": [
+        "synthetic-contract"
+      ],
+      "repositories": [
+        "StreamScapeTV/ci-workflows"
+      ],
+      "selection_policy": "identity-hash",
+      "serial_policy": "forbidden",
+      "timeout_minutes": 15,
+      "version_policy": {
+        "os_max": "26.5",
+        "os_min": "17.0"
+      },
+      "workspace_profile": "apple"
+    },
+    "iptv-android-acceptance": {
+      "artifact_exception_ids": [
+        "redacted-device-diagnostics"
+      ],
+      "base_runner_profile": "mobile",
+      "capabilities": [
+        "instrumentation",
+        "live-backend-acceptance"
+      ],
+      "command_profile": "iptv-android-device",
+      "connection_states": [
+        "usb"
+      ],
+      "execution_allowed": true,
+      "family": "android",
+      "health_states": [
+        "online"
+      ],
+      "live_backend_profiles": [
+        "android-test-backend"
+      ],
+      "models": [
+        "phone",
+        "tablet",
+        "television"
+      ],
+      "products": [
+        "iptv-android"
+      ],
+      "repositories": [
+        "StreamScapeTV/iptv-android"
+      ],
+      "selection_policy": "unique",
+      "serial_policy": "exact-caller",
+      "timeout_minutes": 120,
+      "version_policy": {
+        "api_max": 37,
+        "api_min": 29
+      },
+      "workspace_profile": "native"
+    },
+    "iptv-apple-ios-acceptance": {
+      "artifact_exception_ids": [
+        "redacted-device-diagnostics"
+      ],
+      "base_runner_profile": "apple",
+      "capabilities": [
+        "app-acceptance"
+      ],
+      "command_profile": "iptv-apple-ios-device",
+      "connection_states": [
+        "usb",
+        "paired"
+      ],
+      "execution_allowed": true,
+      "family": "ios",
+      "health_states": [
+        "online"
+      ],
+      "live_backend_profiles": [
+        "apple-test-backend"
+      ],
+      "models": [
+        "iphone",
+        "ipad"
+      ],
+      "products": [
+        "iptv-apple"
+      ],
+      "repositories": [
+        "StreamScapeTV/iptv-apple"
+      ],
+      "selection_policy": "unique",
+      "serial_policy": "exact-caller",
+      "timeout_minutes": 120,
+      "version_policy": {
+        "os_max": "26.5",
+        "os_min": "17.0"
+      },
+      "workspace_profile": "apple"
+    },
+    "streamscape-media-android": {
+      "artifact_exception_ids": [
+        "redacted-device-diagnostics"
+      ],
+      "base_runner_profile": "mobile",
+      "capabilities": [
+        "media3",
+        "mpv",
+        "vlc",
+        "full"
+      ],
+      "command_profile": "streamscape-media-android-device",
+      "connection_states": [
+        "usb"
+      ],
+      "execution_allowed": true,
+      "family": "android",
+      "health_states": [
+        "online"
+      ],
+      "live_backend_profiles": [],
+      "models": [
+        "phone",
+        "tablet",
+        "television"
+      ],
+      "products": [
+        "streamscape-media"
+      ],
+      "repositories": [
+        "StreamScapeTV/streamscape-media"
+      ],
+      "selection_policy": "unique",
+      "serial_policy": "exact-caller",
+      "timeout_minutes": 180,
+      "version_policy": {
+        "api_max": 37,
+        "api_min": 29
+      },
+      "workspace_profile": "native"
+    },
+    "streamscape-media-ios": {
+      "artifact_exception_ids": [
+        "redacted-device-diagnostics"
+      ],
+      "base_runner_profile": "apple",
+      "capabilities": [
+        "avfoundation",
+        "native-failover",
+        "video-output",
+        "dynamic-range"
+      ],
+      "command_profile": "streamscape-media-ios-device",
+      "connection_states": [
+        "usb",
+        "paired"
+      ],
+      "execution_allowed": true,
+      "family": "ios",
+      "health_states": [
+        "online"
+      ],
+      "live_backend_profiles": [],
+      "models": [
+        "iphone",
+        "ipad"
+      ],
+      "products": [
+        "streamscape-media"
+      ],
+      "repositories": [
+        "StreamScapeTV/streamscape-media"
+      ],
+      "selection_policy": "unique",
+      "serial_policy": "exact-caller",
+      "timeout_minutes": 120,
+      "version_policy": {
+        "os_max": "26.5",
+        "os_min": "17.0"
+      },
+      "workspace_profile": "apple"
+    },
+    "streamscape-media-tvos": {
+      "artifact_exception_ids": [
+        "redacted-device-diagnostics"
+      ],
+      "base_runner_profile": "apple",
+      "capabilities": [
+        "avfoundation"
+      ],
+      "command_profile": "streamscape-media-tvos-device",
+      "connection_states": [
+        "usb",
+        "paired"
+      ],
+      "execution_allowed": true,
+      "family": "tvos",
+      "health_states": [
+        "online"
+      ],
+      "live_backend_profiles": [],
+      "models": [
+        "apple-tv"
+      ],
+      "products": [
+        "streamscape-media"
+      ],
+      "repositories": [
+        "StreamScapeTV/streamscape-media"
+      ],
+      "selection_policy": "unique",
+      "serial_policy": "exact-caller",
+      "timeout_minutes": 240,
+      "version_policy": {
+        "os_max": "26.5",
+        "os_min": "17.0"
+      },
+      "workspace_profile": "apple"
+    }
+  },
+  "public_inputs": [
+    "admitted_sha",
+    "device_family",
+    "device_capability",
+    "device_identifier",
+    "command_profile",
+    "script_path",
+    "max_duration_minutes",
+    "evidence_exception_id",
+    "request_id"
+  ],
+  "public_outputs": [
+    "result",
+    "device_evidence_id",
+    "artifact_exception_used",
+    "request_id"
+  ],
+  "public_secrets": [
+    "live_test_credentials"
+  ],
+  "request_id_regex": "^issue-([1-9][0-9]*)-([a-z0-9][a-z0-9-]{7,63})$",
+  "run_id_regex": "^[1-9][0-9]{0,19}:[1-9][0-9]{0,3}$",
+  "schema_version": 1,
+  "stable_check_name": "CI / Physical device validation",
+  "synthetic_allowed_event": "pull_request",
+  "synthetic_allowed_source_trust": "trusted-pr",
+  "workflow_api": "validation.device"
+}

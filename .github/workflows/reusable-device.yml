@@ -1,0 +1,235 @@
+name: CI / Physical device validation
+
+on:
+  workflow_call:
+    inputs:
+      admitted_sha:
+        description: Exact lowercase source SHA admitted by source.resolve
+        required: true
+        type: string
+      device_family:
+        description: Bounded Android, iOS, or tvOS physical-device family
+        required: true
+        type: string
+      device_capability:
+        description: Reviewed capability selected by the checked-in profile
+        required: true
+        type: string
+      device_identifier:
+        description: Optional exact identifier only when the selected profile permits it
+        required: false
+        type: string
+      command_profile:
+        description: Reviewed product-owned command-profile identifier
+        required: true
+        type: string
+      script_path:
+        description: Exact contract-matching checked-in test script
+        required: true
+        type: string
+      max_duration_minutes:
+        description: Bounded duration within the selected profile
+        required: false
+        default: 60
+        type: number
+      evidence_exception_id:
+        description: Optional named bounded redacted evidence exception
+        required: false
+        type: string
+      request_id:
+        description: Exact issue-scoped request identity
+        required: true
+        type: string
+    secrets:
+      live_test_credentials:
+        description: Optional fixed live-test secret contract; never a production credential
+        required: false
+    outputs:
+      result:
+        description: Success only after authorized physical execution and terminal cleanup
+        value: ${{ jobs.device.outputs.result }}
+      device_evidence_id:
+        description: Deterministic redacted evidence packet digest
+        value: ${{ jobs.device.outputs.device_evidence_id }}
+      artifact_exception_used:
+        description: Whether one named bounded evidence exception was used
+        value: ${{ jobs.device.outputs.artifact_exception_used }}
+      request_id:
+        description: Exact issue-scoped request identity
+        value: ${{ jobs.plan.outputs.request_id }}
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Resolve bounded physical-device validation plan
+    runs-on: portable
+    timeout-minutes: 10
+    outputs:
+      request_id: ${{ steps.plan.outputs.request_id }}
+      runner_profile: ${{ steps.plan.outputs.runner_profile }}
+      base_runner_profile: ${{ steps.plan.outputs.base_runner_profile }}
+      runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
+      workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
+      timeout_minutes: ${{ steps.plan.outputs.timeout_minutes }}
+      source_trust: ${{ steps.plan.outputs.source_trust }}
+      execution_authorized: ${{ steps.plan.outputs.execution_authorized }}
+      lock_backend: ${{ steps.plan.outputs.lock_backend }}
+    steps:
+      - name: Check out exact central workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact central workflow source
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -Eeuo pipefail
+          (cd .ciw && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
+
+      - id: plan
+        name: Resolve contract-owned physical-device plan
+        uses: ./.ciw/actions/validate-device
+        env:
+          CIW_DEVICE_LIVE_BACKEND_PRESENT: ${{ secrets.live_test_credentials != '' && 'true' || 'false' }}
+        with:
+          phase: plan
+          admitted_sha: ${{ inputs.admitted_sha }}
+          device_family: ${{ inputs.device_family }}
+          device_capability: ${{ inputs.device_capability }}
+          device_identifier: ${{ inputs.device_identifier }}
+          command_profile: ${{ inputs.command_profile }}
+          script_path: ${{ inputs.script_path }}
+          max_duration_minutes: ${{ inputs.max_duration_minutes }}
+          evidence_exception_id: ${{ inputs.evidence_exception_id }}
+          request_id: ${{ inputs.request_id }}
+          source_trust: trusted-exact
+
+  device:
+    name: Execute authorized physical-device validation
+    needs: plan
+    if: ${{ needs.plan.outputs.execution_authorized == 'true' }}
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
+    timeout-minutes: 240
+    outputs:
+      result: ${{ steps.execute.outputs.result }}
+      device_evidence_id: ${{ steps.execute.outputs.device_evidence_id }}
+      artifact_exception_used: ${{ steps.execute.outputs.artifact_exception_used }}
+    steps:
+      - name: Check out exact central workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Clear fixed admitted source checkout root
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf source
+          test ! -e source
+
+      - name: Check out exact admitted caller source
+        uses: ./.ciw/actions/exact-checkout
+        with:
+          repository: ${{ github.repository }}
+          admitted_sha: ${{ inputs.admitted_sha }}
+          path: source
+          fetch_depth: "1"
+
+      - name: Verify exact admitted caller source
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.admitted_sha }}
+        run: |
+          set -Eeuo pipefail
+          (
+            cd source
+            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+            test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          )
+
+      - id: workspace
+        name: Prepare isolated physical-device state
+        uses: ./.ciw/actions/prepare-workspace
+        with:
+          profile: ${{ needs.plan.outputs.workspace_profile }}
+          cache_mode: disabled
+          source_sha: ${{ inputs.admitted_sha }}
+          trust_mode: trusted-exact
+
+      - id: execute
+        name: Execute accepted lock-fenced device profile
+        uses: ./.ciw/actions/validate-device
+        env:
+          CIW_DEVICE_LIVE_BACKEND_PRESENT: ${{ secrets.live_test_credentials != '' && 'true' || 'false' }}
+        with:
+          phase: execute
+          admitted_sha: ${{ inputs.admitted_sha }}
+          device_family: ${{ inputs.device_family }}
+          device_capability: ${{ inputs.device_capability }}
+          device_identifier: ${{ inputs.device_identifier }}
+          command_profile: ${{ inputs.command_profile }}
+          script_path: ${{ inputs.script_path }}
+          max_duration_minutes: ${{ inputs.max_duration_minutes }}
+          evidence_exception_id: ${{ inputs.evidence_exception_id }}
+          request_id: ${{ inputs.request_id }}
+          source_trust: trusted-exact
+
+      - name: Remove physical-device-specific state
+        if: always()
+        uses: ./.ciw/actions/validate-device
+        with:
+          phase: cleanup
+          admitted_sha: ${{ inputs.admitted_sha }}
+          device_family: ${{ inputs.device_family }}
+          device_capability: ${{ inputs.device_capability }}
+          device_identifier: ${{ inputs.device_identifier }}
+          command_profile: ${{ inputs.command_profile }}
+          script_path: ${{ inputs.script_path }}
+          max_duration_minutes: ${{ inputs.max_duration_minutes }}
+          evidence_exception_id: ${{ inputs.evidence_exception_id }}
+          request_id: ${{ inputs.request_id }}
+          source_trust: trusted-exact
+
+      - name: Verify zero physical-device-specific residue
+        if: always()
+        uses: ./.ciw/actions/validate-device
+        with:
+          phase: residue
+          admitted_sha: ${{ inputs.admitted_sha }}
+          device_family: ${{ inputs.device_family }}
+          device_capability: ${{ inputs.device_capability }}
+          device_identifier: ${{ inputs.device_identifier }}
+          command_profile: ${{ inputs.command_profile }}
+          script_path: ${{ inputs.script_path }}
+          max_duration_minutes: ${{ inputs.max_duration_minutes }}
+          evidence_exception_id: ${{ inputs.evidence_exception_id }}
+          request_id: ${{ inputs.request_id }}
+          source_trust: trusted-exact
+
+      - name: Remove exact admitted source checkout
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf source
+          test ! -e source
+
+      - name: Remove and verify all registered workflow state
+        if: always()
+        uses: ./.ciw/actions/cleanup-workspace

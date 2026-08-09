@@ -1,0 +1,256 @@
+"""Bounded ``ciw device validate`` adapter and standalone compatibility CLI."""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from pathlib import Path, PurePosixPath
+from typing import Mapping, Sequence
+
+from . import device as device_validation
+
+try:
+    from . import runners
+    from .ciw_types import CIWContext, CIWResult
+    from .workspace import resolve_state_root
+except ImportError:  # pragma: no cover - standalone source-package use
+    CIWContext = object  # type: ignore[assignment,misc]
+    CIWResult = object  # type: ignore[assignment,misc]
+
+
+def configure_device_validate(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--phase",
+        choices=("plan", "synthetic", "execute", "cleanup", "residue"),
+        default="plan",
+    )
+    parser.add_argument("--source-root", default="source")
+    parser.add_argument("--inventory-fixture", default="")
+
+
+def _resolved_state_root(
+    root: Path,
+    environment: Mapping[str, str],
+) -> Path:
+    runner_temp = Path(environment.get("RUNNER_TEMP", root / ".validation-state"))
+    declared = environment.get(
+        "CI_WORKFLOW_ROOT",
+        str(runner_temp / "ciw-device"),
+    )
+    state_id = environment.get(
+        "CI_WORKFLOW_STATE_ID",
+        "device-validation",
+    )
+    try:
+        resolver = resolve_state_root  # type: ignore[name-defined]
+    except NameError:
+        path = Path(declared).resolve()
+        path.mkdir(parents=True, exist_ok=True)
+        (path / "tmp").mkdir(parents=True, exist_ok=True)
+        return path / "tmp"
+    path = resolver(
+        runner_temp=runner_temp,
+        state_id=state_id,
+        declared_root=declared,
+        contract_root=root,
+    )
+    temporary = path / "tmp"
+    if not temporary.is_dir() or temporary.is_symlink():
+        raise device_validation.DeviceValidationError("invalid_input")
+    return temporary
+
+
+def _fixture_path(root: Path, value: str) -> Path:
+    path = PurePosixPath(value)
+    if (
+        not value
+        or path.is_absolute()
+        or "\\" in value
+        or ".." in path.parts
+        or any(part in {"", "."} for part in path.parts)
+    ):
+        raise device_validation.DeviceValidationError("invalid_input")
+    target = root.joinpath(*path.parts)
+    current = root
+    for part in path.parts:
+        current /= part
+        if current.is_symlink():
+            raise device_validation.DeviceValidationError("invalid_input")
+    if not target.is_file() or target.is_symlink():
+        raise device_validation.DeviceValidationError("invalid_input")
+    return target
+
+
+def _standalone_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--root", type=Path, required=True)
+    parser.add_argument(
+        "command",
+        choices=("plan", "synthetic", "execute", "cleanup", "residue"),
+    )
+    parser.add_argument("--source-root", default="source")
+    parser.add_argument("--inventory-fixture", default="")
+    parser.add_argument("--output")
+    return parser
+
+
+def _write_outputs(values: Mapping[str, str], target: str | None) -> None:
+    if target:
+        with Path(target).open("a", encoding="utf-8") as handle:
+            for key, value in sorted(values.items()):
+                handle.write(f"{key}={value}\n")
+    print(json.dumps(dict(values), sort_keys=True, separators=(",", ":")))
+
+
+def _runs_on_json(
+    root: Path,
+    plan: device_validation.DevicePlan,
+) -> str:
+    try:
+        contract = runners.load_runner_contract(root)  # type: ignore[name-defined]
+        resolved = runners.resolve_runner_profile(  # type: ignore[name-defined]
+            contract,
+            workflow_api="validation.device",
+            source_trust=plan.request.source_trust,
+            requested_profile=plan.profile.base_runner_profile,
+        )
+        value = resolved.as_dict()["runs_on_json"]
+    except (NameError, AttributeError, OSError, ValueError) as error:
+        raise device_validation.DeviceValidationError(
+            "device_profile_rejected"
+        ) from error
+    if not isinstance(value, str) or not value:
+        raise device_validation.DeviceValidationError("device_profile_rejected")
+    return value
+
+
+def _planning_outputs(
+    root: Path,
+    plan: device_validation.DevicePlan,
+) -> dict[str, str]:
+    return plan.planning_outputs(runs_on_json=_runs_on_json(root, plan))
+
+
+def _source_path(root: Path, relative: str, environment: Mapping[str, str]) -> Path:
+    workspace = Path(environment.get("GITHUB_WORKSPACE", root)).resolve()
+    path = PurePosixPath(relative)
+    if (
+        not relative
+        or path.is_absolute()
+        or "\\" in relative
+        or ".." in path.parts
+    ):
+        raise device_validation.DeviceValidationError("invalid_input")
+    source = workspace.joinpath(*path.parts).resolve(strict=False)
+    if workspace not in source.parents:
+        raise device_validation.DeviceValidationError("invalid_input")
+    return source
+
+
+def _execute_command(
+    *,
+    root: Path,
+    command: str,
+    source_root: str,
+    inventory_fixture: str,
+    environment: Mapping[str, str],
+) -> dict[str, str]:
+    contract = device_validation.load_device_contract(root)
+    request = device_validation.request_from_environment(environment, contract)
+    plan = device_validation.build_plan(contract, request)
+    if command == "plan":
+        return _planning_outputs(root, plan)
+    if command == "synthetic":
+        _source_path(root, source_root, environment)
+        inventory = _fixture_path(root, inventory_fixture).read_text(encoding="utf-8")
+        result = device_validation.synthetic_validate(
+            contract_root=root,
+            environment=environment,
+            inventory_text=inventory,
+        )
+        return {
+            **result.output_values(),
+            "runner_profile": plan.execution_overlay_profile,
+            "base_runner_profile": plan.profile.base_runner_profile,
+            "runs_on_json": _runs_on_json(root, plan),
+            "workspace_profile": plan.profile.workspace_profile,
+            "timeout_minutes": str(plan.request.max_duration_minutes),
+            "source_trust": plan.request.source_trust,
+            "execution_authorized": "false",
+            "lock_backend": plan.lock_backend,
+        }
+    state = _resolved_state_root(root, environment)
+    if command == "cleanup":
+        device_validation.cleanup_device_state(state)
+        return {
+            "result": "success",
+            "request_id": request.request_id,
+            "cleanup_result": "success",
+            "failure_code": "",
+        }
+    if command == "residue":
+        device_validation.assert_zero_device_residue(state)
+        return {
+            "result": "success",
+            "request_id": request.request_id,
+            "cleanup_result": "success",
+            "failure_code": "",
+        }
+    if command == "execute":
+        # Live execution remains intentionally unavailable until the canonical
+        # fencing adapter or an owner-approved temporary adapter is integrated.
+        raise device_validation.DeviceValidationError(
+            "lock_backend_unavailable"
+        )
+    raise device_validation.DeviceValidationError("invalid_input")
+
+
+def standalone_main(argv: Sequence[str] | None = None) -> int:
+    args = _standalone_parser().parse_args(argv)
+    root = args.root.resolve()
+    try:
+        values = _execute_command(
+            root=root,
+            command=args.command,
+            source_root=args.source_root,
+            inventory_fixture=args.inventory_fixture,
+            environment=os.environ,
+        )
+        _write_outputs(values, args.output or os.environ.get("GITHUB_OUTPUT"))
+        return 0 if values.get("result") != "failure" else 1
+    except device_validation.DeviceValidationError as error:
+        _write_outputs(
+            {
+                "result": "failure",
+                "request_id": os.environ.get("INPUT_REQUEST_ID", ""),
+                "device_evidence_id": "",
+                "artifact_exception_used": "false",
+                "cleanup_result": "failed",
+                "failure_code": error.code,
+            },
+            args.output or os.environ.get("GITHUB_OUTPUT"),
+        )
+        return 1
+
+
+def execute_device_validate(
+    args: argparse.Namespace,
+    context: "CIWContext",
+) -> "CIWResult":
+    values = _execute_command(
+        root=context.root,
+        command=args.phase,
+        source_root=args.source_root,
+        inventory_fixture=args.inventory_fixture,
+        environment=context.environment,
+    )
+    return CIWResult("device", "validate", outputs=values)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    return standalone_main(argv)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

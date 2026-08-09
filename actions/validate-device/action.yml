@@ -1,0 +1,114 @@
+name: Validate exact physical-device request
+description: Plan, synthetically validate, clean, or execute one reviewed physical-device profile
+
+inputs:
+  phase:
+    description: Bounded internal phase
+    required: false
+    default: plan
+  admitted_sha:
+    description: Exact admitted lowercase source SHA
+    required: true
+  device_family:
+    description: Android, iOS, or tvOS physical-device family
+    required: true
+  device_capability:
+    description: Reviewed bounded capability selected by contract
+    required: true
+  device_identifier:
+    description: Optional exact identifier only when the selected contract permits it
+    required: false
+    default: ""
+  command_profile:
+    description: Reviewed command-profile identifier
+    required: true
+  script_path:
+    description: Exact contract-matching checked-in test script
+    required: true
+  max_duration_minutes:
+    description: Bounded duration not exceeding the profile limit
+    required: false
+    default: "60"
+  evidence_exception_id:
+    description: Optional named redacted evidence exception
+    required: false
+    default: ""
+  request_id:
+    description: Exact issue-scoped request identity
+    required: true
+  source_trust:
+    description: Internal admitted source trust
+    required: false
+    default: ""
+  inventory_fixture:
+    description: Internal synthetic inventory fixture used only by contract smoke
+    required: false
+    default: ""
+  synthetic_mode:
+    description: Internal same-repository contract-smoke gate
+    required: false
+    default: "false"
+
+outputs:
+  result:
+    value: ${{ steps.device.outputs.result }}
+  request_id:
+    value: ${{ steps.device.outputs.request_id }}
+  device_evidence_id:
+    value: ${{ steps.device.outputs.device_evidence_id }}
+  artifact_exception_used:
+    value: ${{ steps.device.outputs.artifact_exception_used }}
+  selected_device_hash:
+    value: ${{ steps.device.outputs.selected_device_hash }}
+  runner_profile:
+    value: ${{ steps.device.outputs.runner_profile }}
+  base_runner_profile:
+    value: ${{ steps.device.outputs.base_runner_profile }}
+  runs_on_json:
+    value: ${{ steps.device.outputs.runs_on_json }}
+  workspace_profile:
+    value: ${{ steps.device.outputs.workspace_profile }}
+  timeout_minutes:
+    value: ${{ steps.device.outputs.timeout_minutes }}
+  source_trust:
+    value: ${{ steps.device.outputs.source_trust }}
+  execution_authorized:
+    value: ${{ steps.device.outputs.execution_authorized }}
+  lock_backend:
+    value: ${{ steps.device.outputs.lock_backend }}
+  test_summary:
+    value: ${{ steps.device.outputs.test_summary }}
+  cleanup_result:
+    value: ${{ steps.device.outputs.cleanup_result }}
+  failure_code:
+    value: ${{ steps.device.outputs.failure_code }}
+
+runs:
+  using: composite
+  steps:
+    - id: device
+      name: Dispatch bounded physical-device validation
+      shell: bash
+      env:
+        PYTHONDONTWRITEBYTECODE: "1"
+        INPUT_ADMITTED_SHA: ${{ inputs.admitted_sha }}
+        INPUT_DEVICE_FAMILY: ${{ inputs.device_family }}
+        INPUT_DEVICE_CAPABILITY: ${{ inputs.device_capability }}
+        INPUT_DEVICE_IDENTIFIER: ${{ inputs.device_identifier }}
+        INPUT_COMMAND_PROFILE: ${{ inputs.command_profile }}
+        INPUT_SCRIPT_PATH: ${{ inputs.script_path }}
+        INPUT_MAX_DURATION_MINUTES: ${{ inputs.max_duration_minutes }}
+        INPUT_EVIDENCE_EXCEPTION_ID: ${{ inputs.evidence_exception_id }}
+        INPUT_REQUEST_ID: ${{ inputs.request_id }}
+        INPUT_SOURCE_TRUST: ${{ inputs.source_trust }}
+        CIW_DEVICE_SYNTHETIC_MODE: ${{ inputs.synthetic_mode }}
+      run: |
+        set -Eeuo pipefail
+        arguments=(
+          "${{ inputs.phase }}"
+          --source-root source
+        )
+        if [[ -n "${{ inputs.inventory_fixture }}" ]]; then
+          arguments+=(--inventory-fixture "${{ inputs.inventory_fixture }}")
+        fi
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/device.py" "${arguments[@]}"

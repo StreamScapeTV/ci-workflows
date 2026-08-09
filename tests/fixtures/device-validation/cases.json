@@ -1,0 +1,27 @@
+{
+  "negative": [
+    "fork or untrusted source",
+    "missing request identity",
+    "wrong family or version",
+    "offline, personal, conflicting, or malformed device",
+    "multiple matches without tie-break",
+    "serial policy violation",
+    "lock collision, timeout, stale epoch, or failed release",
+    "prepare, test, evidence, restoration, cleanup, or disconnect failure",
+    "live backend without named profile",
+    "arbitrary command, script traversal, symlink, runner, secret, signing, store, release, or deployment input",
+    "evidence overclaim or raw identifier leak",
+    "artifact exception violation"
+  ],
+  "positive": [
+    "trusted exact workflow_dispatch",
+    "synthetic same-repository pull-request planning",
+    "Android inventory",
+    "iOS inventory",
+    "tvOS inventory",
+    "deterministic identity-hash selection",
+    "lock acquire and release",
+    "redacted evidence"
+  ],
+  "schema_version": 1
+}
