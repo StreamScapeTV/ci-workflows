@@ -134,11 +134,10 @@ The combined lowercase aliases `buildah-tiny`, `buildah-small`,
 `buildah-medium`, and `buildah-high` remain temporarily for existing workflows.
 They are deprecated selection aliases, not the preferred label model.
 
-The semantic resolver has a separate compatibility rule: Generic `buildah` maps
-only to `buildah-small`. That sentence describes the current bounded resolver
-alias, not a safe live `runs-on: buildah` selector. New workflows should request
-an explicit semantic tier or use the independent runtime-plus-size labels shown
-above.
+The semantic resolver has a separate compatibility rule: Generic `buildah` maps only to `buildah-small`.
+That sentence describes the current bounded resolver alias, not a safe live
+`runs-on: buildah` selector. New workflows should request an explicit semantic
+tier or use the independent runtime-plus-size labels shown above.
 
 Select the smallest tier whose memory and local-storage limits cover measured
 peaks plus reviewed headroom. Escalation evidence records:
