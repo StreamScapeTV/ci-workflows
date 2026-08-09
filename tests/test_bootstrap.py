@@ -71,7 +71,7 @@ class BootstrapContractTests(unittest.TestCase):
         self.assertNotIn("runs-on: portable", source)
         self.assertEqual(
             harness["allowed_runner_profiles"],
-            ["portable", "agent-state"],
+            ["portable"],
         )
         exception = [
             item

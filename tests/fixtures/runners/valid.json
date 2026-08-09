@@ -8,7 +8,9 @@
       "requested_profile": "portable",
       "expected_profile": "portable",
       "expected_execution_profile": "portable",
-      "expected_runs_on": ["homelab-portable-linux-x64"]
+      "expected_runs_on": [
+        "homelab-portable-linux-x64"
+      ]
     },
     {
       "id": "mobile-android-validation",
@@ -17,7 +19,9 @@
       "requested_profile": "mobile",
       "expected_profile": "mobile",
       "expected_execution_profile": "mobile",
-      "expected_runs_on": ["homelab-mobile-linux-x64"]
+      "expected_runs_on": [
+        "homelab-mobile-linux-x64"
+      ]
     },
     {
       "id": "buildah-tiny-validation",
@@ -26,7 +30,9 @@
       "requested_profile": "buildah-tiny",
       "expected_profile": "buildah-tiny",
       "expected_execution_profile": "buildah-tiny",
-      "expected_runs_on": ["homelab-buildah-tiny-linux-x64"]
+      "expected_runs_on": [
+        "homelab-buildah-tiny-linux-x64"
+      ]
     },
     {
       "id": "generic-buildah-small",
@@ -35,7 +41,9 @@
       "requested_profile": "buildah",
       "expected_profile": "buildah-small",
       "expected_execution_profile": "buildah-small",
-      "expected_runs_on": ["homelab-buildah-small-linux-x64"]
+      "expected_runs_on": [
+        "homelab-buildah-small-linux-x64"
+      ]
     },
     {
       "id": "buildah-medium-publication",
@@ -44,7 +52,9 @@
       "requested_profile": "buildah-medium",
       "expected_profile": "buildah-medium",
       "expected_execution_profile": "buildah-medium",
-      "expected_runs_on": ["homelab-buildah-medium-linux-x64"]
+      "expected_runs_on": [
+        "homelab-buildah-medium-linux-x64"
+      ]
     },
     {
       "id": "buildah-high-publication",
@@ -53,7 +63,9 @@
       "requested_profile": "buildah-high",
       "expected_profile": "buildah-high",
       "expected_execution_profile": "buildah-high",
-      "expected_runs_on": ["homelab-buildah-high-linux-x64"]
+      "expected_runs_on": [
+        "homelab-buildah-high-linux-x64"
+      ]
     },
     {
       "id": "apple-simulator-validation",
@@ -62,7 +74,10 @@
       "requested_profile": "apple",
       "expected_profile": "apple",
       "expected_execution_profile": "apple",
-      "expected_runs_on": ["self-hosted", "macOS"]
+      "expected_runs_on": [
+        "self-hosted",
+        "macOS"
+      ]
     },
     {
       "id": "physical-ios-device",
@@ -80,16 +95,10 @@
       },
       "expected_profile": "physical-device",
       "expected_execution_profile": "apple",
-      "expected_runs_on": ["self-hosted", "macOS"]
-    },
-    {
-      "id": "agent-state-control",
-      "workflow_api": "agent-state.lifecycle",
-      "source_trust": "no-caller-source",
-      "requested_profile": "agent-state-control",
-      "expected_profile": "agent-state-control",
-      "expected_execution_profile": "agent-state-control",
-      "expected_runs_on": ["agent-state"]
+      "expected_runs_on": [
+        "self-hosted",
+        "macOS"
+      ]
     },
     {
       "id": "flux-control",
@@ -98,7 +107,9 @@
       "requested_profile": "flux-control",
       "expected_profile": "flux-control",
       "expected_execution_profile": "flux-control",
-      "expected_runs_on": ["homelab-flux-control-plane-linux-x64"]
+      "expected_runs_on": [
+        "homelab-flux-control-plane-linux-x64"
+      ]
     }
   ]
 }

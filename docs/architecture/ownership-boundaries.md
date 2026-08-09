@@ -33,7 +33,6 @@ This repository owns:
 - engine-neutral OCI build, immutable publication, and registry read-back;
 - Helm validation, deterministic packaging, publication, and read-back;
 - tag-driven release manifests and bounded handoff orchestration;
-- reusable Agent State GitHub transport;
 - reusable Flux infrastructure-asset and trusted reconciliation wrappers;
 - domain-neutral organization maintenance and conformance checks;
 - generic evidence, redaction, artifact, clean-tree, and residue-aware cleanup behavior.
@@ -42,18 +41,16 @@ Consumers do not choose a concrete runner label, image builder, registry command
 
 ## Agent State
 
-`StreamScapeTV/agent-state` remains the sole authority for:
+`StreamScapeTV/agent-state-supabase` is the sole authority for:
 
 - project and execution-identity mapping;
 - sessions, assignment resume, claims, files, packages, and shared resources;
 - collision, takeover, transfer, lifecycle, retry, replay, idempotency, and receipt decisions;
-- API/database state and compatibility;
+- canonical schema, migrations, RPC contracts, deployment, and database compatibility;
 - sanitized lifecycle and ownership projection payloads;
 - pull-request ownership results.
 
-The lifecycle and ownership workflow implementation moves to `ci-workflows`. The central workflow performs trusted event admission, bounded transport, API-declared transient retry, redaction, and faithful projection. It does not infer decisions from GitHub labels or comments and does not maintain a second policy table.
-
-The Agent State product repository retains its backend, frontend, Compose, image, chart, and domain-test commands. Its current organization-maintenance workflows are central candidates only when their decision logic is domain-neutral.
+Lifecycle and ownership do not move to `ci-workflows`. Approved agents call the canonical bounded `agent_api.*` RPCs directly under organization policy. The retired API, GitHub workflow transport, and local client are not fallback authorities.
 
 ## Flux
 
@@ -116,7 +113,7 @@ Issue-specific dispatchers, historical recovery publishers, one-time baselines, 
 1. Capture and review the exact workflow/product inventory.
 2. Define public APIs and compatibility policy.
 3. Build the security, readability, and drift harness.
-4. Centralize source, runners, workspace, functions, Agent State transport, platform validation, products, release, Flux assets, and maintenance in dependency order.
+4. Centralize source, runners, workspace, functions, platform validation, products, release, Flux assets, and maintenance in dependency order.
 5. Migrate each consumer through a linked issue and same-SHA parity proof.
 6. Atomically switch required checks, remove duplicate implementation, publish a stable tag, and prove rollback.
 

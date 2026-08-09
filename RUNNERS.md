@@ -16,7 +16,6 @@ Use semantic capability or workflow intent. Do not discover hosts, copy concrete
 | `buildah-high` | `buildah-high` | Same daemonless OCI tools; 4 / 8 Gi; 44 Gi storage; cap 1 | Privileged daemonless OCI pod, tokenless, one exact trusted job | Defaulting every image build to the largest tier |
 | `apple` | `macOS` | Organization-managed macOS capacity; Xcode, Swift, SDKs, and simulator runtimes are verified at job start | Persistent/manual capacity; trusted PR or exact source; workflow must clean DerivedData, result bundles, simulators, temporary files, and credentials | Assuming signing identities, store credentials, or an attached physical device |
 | `physical-device` | No direct tag | Guarded overlay: Android uses `mobile`; iOS/tvOS uses `apple` only after authorization, exclusive resource locking, deterministic discovery, exact source, evidence, and cleanup | Trusted exact source; concurrency one per device; lock held only for device access | Treating `mobile` or `apple` selection as proof that a device is attached |
-| `agent-state-control` | No consumer-selectable tag | Central Agent State transport functions and protected central source only | Repository-scoped trusted control; never executes caller/product source | Product builds, issue/PR source, release, signing, deployment |
 | `flux-control` | No consumer-selectable tag | Flux-owned Kubernetes service account and protected Flux policy/tooling | Ephemeral, repository-scoped to Flux, no caller source | Product PR source, arbitrary clusters/namespaces/service accounts, general builds |
 
 The direct tags above exist only for controlled migration of current workflows. New and migrated consumers call a central reusable workflow with bounded product or validation inputs. They do not pass runner labels, hosts, engines, storage drivers, clusters, namespaces, service accounts, or secret names.
@@ -30,7 +29,6 @@ The direct tags above exist only for controlled migration of current workflows. 
 | Apple compilation, Swift tests, macOS, iOS/tvOS simulator validation | `apple` |
 | OCI build or publication | Smallest measured `buildah-*` tier allowed by the central product contract |
 | Physical Android/iOS/tvOS validation | `physical-device` guarded overlay plus authorization and lock evidence |
-| Agent State lifecycle or ownership transport | `agent-state-control` |
 | Flux-authorized reconciliation | `flux-control` |
 
 A reusable workflow with more than one possible profile uses a protected `portable` planning job. The planner validates semantic intent and emits a JSON selector from the checked-in mapping. A dependent job uses that output in `runs-on`. A composite action cannot change the runner after a job is scheduled.

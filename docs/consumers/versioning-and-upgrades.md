@@ -4,14 +4,14 @@ Consumer repositories use thin callers and update shared workflow configuration 
 
 ## Reference policy
 
-During the first organization migration, every public workflow family may be called through protected `StreamScapeTV/ci-workflows@main`. This includes validation, Agent State transport, physical-device validation, OCI and Helm work, release orchestration, Flux-authorized wrappers, and trusted maintenance. The user-selected purpose is rapid central iteration while the shared function and workflow library is still being established.
+During the first organization migration, every public workflow family may be called through protected `StreamScapeTV/ci-workflows@main`. This includes validation, physical-device validation, OCI and Helm work, release orchestration, Flux-authorized wrappers, and trusted maintenance. Agent State is not a workflow family and uses the separately governed direct Supabase RPC authority. The user-selected purpose is rapid central iteration while the shared function and workflow library is still being established.
 
 Two fixed reference forms remain supported from the beginning:
 
 - an immutable full commit SHA;
 - an immutable SemVer tag such as `v1.2.3`.
 
-A consumer may therefore stay on `@main`, pin a known-good full SHA, or move to a tagged version without changing the workflow API. A migration pull request records the selected reference and a known-good rollback SHA or tag. Protected `main` is a workflow implementation channel; exact product source, release tags, pull-request heads, Agent State requests, device commands, and Flux policy are still validated independently by the called workflow.
+A consumer may therefore stay on `@main`, pin a known-good full SHA, or move to a tagged version without changing the workflow API. A migration pull request records the selected reference and a known-good rollback SHA or tag. Protected `main` is a workflow implementation channel; exact product source, release tags, pull-request heads, device commands, and Flux policy are still validated independently by the called workflow.
 
 ## Upgrade pull request
 

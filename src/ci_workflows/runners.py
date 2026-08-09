@@ -15,7 +15,7 @@ MAPPINGS_PATH = Path("generated/runner-mappings.json")
 COMPATIBILITY_DOC_PATH = Path("docs/inventory/runner-compatibility.md")
 PROFILE_IDS = {
     "portable", "mobile", "buildah-tiny", "buildah-small", "buildah-medium",
-    "buildah-high", "apple", "physical-device", "agent-state-control", "flux-control",
+    "buildah-high", "apple", "physical-device", "flux-control",
 }
 PROFILE_FIELDS = {
     "id", "public_name", "kind", "public_labels", "internal_selectors",
@@ -120,7 +120,7 @@ def approved_selector_index(contract: Mapping[str, Any]) -> dict[tuple[str, ...]
 
 def validate_runner_contract(contract: Mapping[str, Any]) -> None:
     require(contract.get("schema_version") == 1, "invalid-contract", "schema_version")
-    require(contract.get("contract_version") == "1.0.0", "invalid-contract", "contract_version")
+    require(contract.get("contract_version") == "2.0.0", "invalid-contract", "contract_version")
     require(contract.get("organization") == "StreamScapeTV", "invalid-contract", "organization")
     mechanism = contract.get("scheduling_mechanism")
     require(isinstance(mechanism, dict), "invalid-contract", "scheduling_mechanism")
