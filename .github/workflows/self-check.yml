@@ -136,7 +136,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           "${VERIFIED_PYTHON}" scripts/ci/public_api_contract.py validate
-          "${VERIFIED_PYTHON}" scripts/ci/public_api_contract.py render
+          "${VERIFIED_PYTHON}" scripts/ci/public_api_contract.py render --check
           cat docs/workflows/public-api-reference.md
 
       - name: Run automatically discovered unit tests
@@ -152,8 +152,7 @@ jobs:
           set -Eeuo pipefail
           git diff --exit-code
           git diff --cached --exit-code
-          unexpected="$({ git status --porcelain --untracked-files=all || true; } | grep -v '^?? docs/workflows/public-api-reference.md$' || true)"
-          test -z "${unexpected}"
+          test -z "$(git status --porcelain --untracked-files=all)"
 
       - name: Remove validation state
         if: always()
@@ -161,7 +160,6 @@ jobs:
         run: |
           set +e
           cleanup_failed=0
-          rm -f docs/workflows/public-api-reference.md || cleanup_failed=1
           if [[ -n "${VALIDATION_ROOT:-}" ]]; then
             rm -rf "${VALIDATION_ROOT}" || cleanup_failed=1
             [[ ! -e "${VALIDATION_ROOT}" ]] || cleanup_failed=1
