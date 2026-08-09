@@ -1,6 +1,5 @@
 {
   "aliases": {
-    "agent-state-control": "agent-state-control",
     "apple": "apple",
     "buildah": "buildah-small",
     "buildah-high": "buildah-high",
@@ -13,47 +12,9 @@
     "physical-device": "physical-device",
     "portable": "portable"
   },
-  "contract_version": "1.0.0",
+  "contract_version": "2.0.0",
   "generated_from": "contracts/runner-profiles.json",
   "profiles": {
-    "agent-state-control": {
-      "allowed_source_trust": [
-        "no-caller-source"
-      ],
-      "allowed_workflow_apis": [
-        "agent-state.lifecycle",
-        "agent-state.ownership",
-        "agent-state.command"
-      ],
-      "approved_selectors": [
-        [
-          "agent-state"
-        ]
-      ],
-      "capacity_owner": "agent-state-control-owner",
-      "evidence_fields": [
-        "accepted",
-        "decision",
-        "instruction",
-        "receipt_id",
-        "agent_id",
-        "lifecycle_status",
-        "request_id"
-      ],
-      "kind": "runner",
-      "lifecycle": "repository-scoped-trusted-control",
-      "privilege": {
-        "device_locked": false,
-        "kubernetes_token": false,
-        "manual_capacity": false,
-        "privileged_container": false,
-        "repository_scoped": true
-      },
-      "public_labels": [],
-      "runs_on": [
-        "agent-state"
-      ]
-    },
     "apple": {
       "allowed_source_trust": [
         "trusted-pr",
@@ -451,24 +412,6 @@
   },
   "schema_version": 1,
   "workflow_bindings": {
-    "agent-state.command": {
-      "profiles": [
-        "agent-state-control"
-      ],
-      "strategy": "fixed"
-    },
-    "agent-state.lifecycle": {
-      "profiles": [
-        "agent-state-control"
-      ],
-      "strategy": "fixed"
-    },
-    "agent-state.ownership": {
-      "profiles": [
-        "agent-state-control"
-      ],
-      "strategy": "fixed"
-    },
     "flux.assets": {
       "profiles": [
         "portable",

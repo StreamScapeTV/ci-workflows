@@ -175,10 +175,8 @@ def _validate_emergency_exception() -> None:
         read_json("contracts/validation-harness.json"),
         "validation harness contract is invalid",
     )
-    if harness.get("allowed_runner_profiles") != ["portable", "agent-state"]:
-        raise SystemExit(
-            "general validation runner profiles must remain portable and agent-state"
-        )
+    if harness.get("allowed_runner_profiles") != ["portable"]:
+        raise SystemExit("general validation runner profiles must remain portable")
     exceptions = harness.get("exceptions")
     if not isinstance(exceptions, list):
         raise SystemExit("validation harness exceptions must be a list")

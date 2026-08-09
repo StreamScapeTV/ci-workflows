@@ -6,22 +6,18 @@ Before working in this repository, read `StreamScapeTV/organization-rules@main/A
 
 ## Repository identity and integration
 
-This private repository owns reusable GitHub Actions orchestration for supported StreamScapeTV repositories, including central source admission, runner resolution, validation, release, Flux orchestration, and temporary Agent State compatibility transport. Consumer repositories retain thin event callers, minimum permissions, bounded product configuration, and product-owned scripts, contracts, policy, credentials, and deployment data.
+This private repository owns reusable GitHub Actions orchestration for supported StreamScapeTV repositories, including central source admission, runner resolution, validation, release, and Flux orchestration. Consumer repositories retain thin event callers, minimum permissions, bounded product configuration, and product-owned scripts, contracts, policy, credentials, and deployment data.
 
 `main` is the integration branch and initial bootstrap consumer channel. This repository is released by an exact compatible Git tag; it does not require a GitHub Release object, attached archive, container image, or Helm chart for its own release.
 
-## Agent State transition boundary
+## Agent State authority boundary
 
 - Issue #32 is closed as superseded. Do not implement the reusable GitHub Actions lifecycle and ownership architecture formerly planned by #32.
-- `StreamScapeTV/agent-state-supabase#1` is the canonical Supabase Agent State implementation tracker. In that repository, #2 owns repository and deployment bootstrap, #3 owns the transactional core and canonical migration/RPC reconciliation, #4 owns structured multi-work, #5 owns exact-head review and administration, and #6 owns canonical live proof, active-state reconciliation, final cutover, and legacy retirement.
-- This repository's open #51–#55 issues are transition mirrors only. They preserve coordination and evidence while work is re-homed; they are not the canonical Supabase migration repository or authoritative migration history.
-- `ci-workflows` owns reusable workflow orchestration and the protected manual compatibility workflow completed by #37. It does not own the authoritative Supabase schema, canonical migration/deployment history, or Agent State decision engine.
-- Keep #37 available until `StreamScapeTV/agent-state-supabase#6` proves the canonical live connector path, reconciles active state, completes separate reviewed organization-rules adoption, and confirms that no legacy consumer remains.
-- The canonical `agent-state-supabase` repository may contain bootstrap work, but it is not yet the accepted canonical core migration/deployment source. Repository existence or bootstrap progress alone does not establish schema or operating-path readiness.
-- Provisional directly applied `agent_private` / `agent_api` schema, RPC, or migration-ledger state from transition work is not accepted canonical deployment evidence until reconciled to the reviewed `agent-state-supabase` migration history and proven by that repository.
-- Direct Supabase Agent State operation is forbidden for ordinary agents until `agent-state-supabase#6` completes canonical live proof and the separate organization-rules cutover makes that path authoritative. Provisional RPCs are not an ordinary coordination surface.
-- During this transition, follow the execution path routed by the current organization-rules entry point unless the repository owner gives explicit bounded bootstrap authorization. Never invent an Agent State receipt, ownership grant, schema state, deployment result, or fallback transport.
-- `ci-workflows` changes must not bundle organization-rules adoption. That remains a separate reviewed change after canonical live proof.
+- `StreamScapeTV/agent-state-supabase` is the sole canonical Agent State schema, migration, RPC, deployment, test, fixture, and operator authority.
+- Ordinary Agent State operation follows the direct approved `agent_api.*` Supabase RPC contract routed by `StreamScapeTV/organization-rules@main`; it does not use a GitHub workflow, issue comment, lifecycle commit, runner, local client, or compatibility dispatcher.
+- Issue #32 remains superseded. The temporary manual compatibility transport completed by #37 was retired through #55 after canonical production proof, active-state reconciliation, and the separate organization-rules adoption.
+- Do not restore an Agent State workflow API, command workflow, runner profile, secret contract, Python transport, project mapping, or compatibility fixture in this repository. A new transport would require a separate owner-reviewed architecture change and must call the same canonical RPC authority without recreating decision logic.
+- Never invent an Agent State receipt, ownership grant, schema state, deployment result, or fallback transport.
 
 ## Reusable workflow architecture
 
@@ -35,7 +31,7 @@ This private repository owns reusable GitHub Actions orchestration for supported
 
 ## Authority boundaries
 
-- `StreamScapeTV/agent-state-supabase` owns the canonical Supabase schema, versioned migrations, reviewed RPC contracts, fixtures, tests, deployment configuration, and transactional Agent State decisions once those changes are accepted there. This repository must not duplicate that authority or maintain a competing canonical migration history.
+- `StreamScapeTV/agent-state-supabase` owns the canonical Supabase schema, versioned migrations, reviewed RPC contracts, fixtures, tests, deployment configuration, and transactional Agent State decisions. This repository must not duplicate that authority or maintain a competing canonical migration history.
 - Flux remains the sole authority for desired state, target and product allowlists, SOPS data, Kubernetes credentials, reconciliation policy, canary selection, live health, and rollback acceptance. This repository owns only the reviewed orchestration around exact Flux-owned policy source.
 - Product repositories retain toolchain pins, product commands, schemas, assertions, test selection, signing, release inputs, and deployment-specific data.
 

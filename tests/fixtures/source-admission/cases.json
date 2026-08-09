@@ -93,18 +93,6 @@
       "expected_branch": "develop"
     },
     {
-      "id": "agent-state-lifecycle-metadata",
-      "event": "issue_comment.json",
-      "source_mode": "trusted-maintenance",
-      "executes_untrusted_pr_source": false
-    },
-    {
-      "id": "agent-state-ownership-metadata",
-      "event": "pull_request_target.json",
-      "source_mode": "trusted-maintenance",
-      "executes_untrusted_pr_source": false
-    },
-    {
       "id": "tag-image-chart-historical-release",
       "event": "tag_annotated.json",
       "source_mode": "tag",

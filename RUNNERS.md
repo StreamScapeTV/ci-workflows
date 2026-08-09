@@ -216,15 +216,11 @@ physical device is attached or authorized.
 
 ## Control-only capacity
 
-`agent-state-control` and `flux-control` are not ordinary product runner choices.
-
-- Agent State control executes only the approved central transport and protected
-  central source. It never runs caller or product source.
-- Flux control executes only protected Flux policy and bounded reconciliation.
-  It never runs product pull-request source.
-
-Do not route product builds, release source, signing, deployment, or arbitrary
-issue/PR content to either control identity.
+`flux-control` is not an ordinary product runner choice. It executes only
+protected Flux policy and bounded reconciliation and never runs product
+pull-request source. Do not route product builds, release source, signing,
+deployment, or arbitrary issue/PR content to this control identity. Agent State
+uses direct approved Supabase RPCs and has no runner capability.
 
 ## Selection by intent
 
@@ -236,7 +232,6 @@ issue/PR content to either control identity.
 | Flutter or native Apple validation on macOS | `apple` |
 | OCI build or publication | the smallest measured `buildah-*` semantic tier; direct infrastructure jobs use `buildah` plus one size |
 | Physical Android/iOS/tvOS validation | `physical-device` guarded overlay with authorization and locking |
-| Agent State lifecycle or ownership transport | `agent-state-control` through the approved control path |
 | Flux reconciliation | `flux-control` through protected Flux source |
 
 A reusable workflow with more than one possible profile uses a protected

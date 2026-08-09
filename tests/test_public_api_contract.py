@@ -22,10 +22,10 @@ class PublicApiContractTests(unittest.TestCase):
         cls.workflows = contract.validate_workflows(cls.data, cls.profiles)
 
     def test_registry_is_complete_and_deterministic(self) -> None:
-        self.assertEqual(len(self.data.workflows), 22)
-        self.assertEqual(len(self.profiles), 13)
-        self.assertEqual(len(self.data.types["trust_classes"]), 7)
-        self.assertEqual("1.1.0", self.data.index["contract_version"])
+        self.assertEqual(len(self.data.workflows), 20)
+        self.assertEqual(len(self.profiles), 11)
+        self.assertEqual(len(self.data.types["trust_classes"]), 6)
+        self.assertEqual("2.0.0", self.data.index["contract_version"])
         self.assertEqual(
             [row["api_name"] for row in self.data.workflows],
             sorted(row["api_name"] for row in self.data.workflows),
@@ -209,10 +209,10 @@ class PublicApiContractTests(unittest.TestCase):
         reference = ROOT / "docs/workflows/public-api-reference.md"
         if reference.exists():
             self.assertEqual(reference.read_text(encoding="utf-8"), rendered)
-        self.assertIn("22", str(len(self.data.workflows)))
+        self.assertIn("20", str(len(self.data.workflows)))
         self.assertIn("release.orchestrate", rendered)
         self.assertIn("flux.reconcile", rendered)
-        self.assertIn("agent-state.lifecycle", rendered)
+        self.assertNotIn("agent-state.lifecycle", rendered)
         self.assertIn("`release_mode` (default `tag-push`)", rendered)
         self.assertIn("`release_source_sha`", rendered)
         self.assertIn("`workflow_dispatch-existing-tag`", rendered)

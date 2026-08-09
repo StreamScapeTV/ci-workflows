@@ -9,7 +9,6 @@
     "bootstrap_mutable_allowed_trust_classes": [
       "source-admission",
       "read-only-validation",
-      "agent-state-transport",
       "physical-device-validation",
       "trusted-publication",
       "flux-authorized",
@@ -91,12 +90,6 @@
       "executes_caller_source": true,
       "privileged": false
     },
-    "agent-state-transport": {
-      "reference_policy": "bootstrap-main-or-immutable",
-      "allowed_events": ["issue_comment", "pull_request", "pull_request_target", "workflow_dispatch", "workflow_call"],
-      "executes_caller_source": false,
-      "privileged": true
-    },
     "physical-device-validation": {
       "reference_policy": "bootstrap-main-or-immutable",
       "allowed_events": ["workflow_dispatch", "workflow_call"],
@@ -129,15 +122,8 @@
     "expected_branch": {"type": "string", "pattern": "^[A-Za-z0-9._/-]{1,255}$", "nullable": true},
     "release_contract": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$", "nullable": true},
     "project_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$"},
-    "action": {"type": "string", "enum": ["resume", "start", "claim", "release", "reconcile_base", "block", "review", "done", "cancel", "takeover"]},
-    "session_name": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
-    "issue_number": {"type": "integer", "minimum": 1, "nullable": true},
     "pr_number": {"type": "integer", "minimum": 1, "nullable": true},
     "request_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"},
-    "head_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$", "nullable": true},
-    "base_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$", "nullable": true},
-    "claims_json": {"type": "json-array", "max_items": 256, "nullable": true},
-    "summary": {"type": "string", "max_length": 2000, "nullable": true},
     "validation_profile": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$"},
     "version_file": {"type": "path", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$", "nullable": true},
     "node_version": {"type": "string", "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$", "nullable": true},
@@ -186,7 +172,6 @@
   },
   "secret_catalog": {
     "private_dependency_token": {"required_scope": "contents:read", "exposed_to_product_source": false},
-    "agent_state_api_token": {"required_scope": "agent-state-api", "exposed_to_product_source": false},
     "registry_username": {"required_scope": "registry-write", "exposed_to_product_source": false},
     "registry_token": {"required_scope": "registry-write", "exposed_to_product_source": false},
     "live_test_credentials": {"required_scope": "test-environment", "exposed_to_product_source": true},
@@ -203,13 +188,6 @@
     "tag_name": {"type": "string", "nullable": true},
     "version": {"type": "string", "nullable": true},
     "request_id": {"type": "string"},
-    "accepted": {"type": "boolean"},
-    "decision": {"type": "string", "nullable": true},
-    "instruction": {"type": "string", "nullable": true},
-    "receipt_id": {"type": "string", "nullable": true},
-    "agent_id": {"type": "string", "nullable": true},
-    "lifecycle_status": {"type": "string", "nullable": true},
-    "ownership_status": {"type": "string", "nullable": true},
     "result": {"type": "string", "enum": ["success", "failure", "skipped"]},
     "test_summary": {"type": "json-object", "nullable": true},
     "artifact_exception_used": {"type": "boolean"},

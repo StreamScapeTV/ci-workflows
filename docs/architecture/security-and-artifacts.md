@@ -2,13 +2,13 @@
 
 ## Trust classes
 
-Shared workflows classify execution as read-only validation, Agent State transport, trusted publication, trusted Flux reconciliation, or organization maintenance. Permissions, runners, secrets, source admission, and cleanup are reviewed independently for each class.
+Shared workflows classify execution as read-only validation, trusted publication, trusted Flux reconciliation, or organization maintenance. Permissions, runners, secrets, source admission, and cleanup are reviewed independently for each class.
 
 ## Source and credentials
 
 Use exact immutable source identities and `persist-credentials: false`. Privileged events never execute pull-request, fork, issue-comment, or caller-controlled source. Secrets are explicit and named; `secrets: inherit` is forbidden.
 
-Agent State transport sends bounded event context to the API and projects only sanitized API results. Flux-authorized orchestration executes exact protected Flux policy source and cannot accept an arbitrary target or command.
+This repository stores no Agent State endpoint or credential and exposes no Agent State transport. Flux-authorized orchestration executes exact protected Flux policy source and cannot accept an arbitrary target or command.
 
 ## Artifact policy
 

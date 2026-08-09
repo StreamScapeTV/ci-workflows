@@ -4,7 +4,7 @@ Reusable GitHub Actions orchestration for the StreamScapeTV organization.
 
 ## Scope
 
-This repository centralizes exact-source handling, runner selection, shared validation, Agent State API transport, OCI and Helm pipelines, tag releases, Flux infrastructure assets, trusted Flux orchestration, maintenance, and conformance. It supports:
+This repository centralizes exact-source handling, runner selection, shared validation, OCI and Helm pipelines, tag releases, Flux infrastructure assets, trusted Flux orchestration, maintenance, and conformance. It supports:
 
 - `iptv-backend`
 - `StreamScapeWeb`
@@ -17,7 +17,7 @@ This repository centralizes exact-source handling, runner selection, shared vali
 - `flux`
 - `ci-workflows`
 
-Consumer repositories keep triggers, minimum permissions, concurrency and environments, bounded identifiers, and product-owned commands/contracts. Agent State remains the claim/session decision authority. Flux remains the desired-state, allowlist, credential, and live-rollout authority.
+Consumer repositories keep triggers, minimum permissions, concurrency and environments, bounded identifiers, and product-owned commands/contracts. `StreamScapeTV/agent-state-supabase` owns Agent State decisions through approved direct RPCs; this repository owns no Agent State transport. Flux remains the desired-state, allowlist, credential, and live-rollout authority.
 
 ## Reuse layers
 
@@ -133,6 +133,6 @@ Organization settings must allow supported private repositories to call workflow
 - no consumer-selected runner label or container engine;
 - zero routine Actions artifacts;
 - unconditional, residue-aware cleanup;
-- separate trust profiles for validation, Agent State transport, publication, Flux reconciliation, and maintenance.
+- separate trust profiles for validation, publication, Flux reconciliation, and maintenance.
 
 See [`docs/architecture/ADR-0001-reuse-layers.md`](docs/architecture/ADR-0001-reuse-layers.md) and [`docs/architecture/security-and-artifacts.md`](docs/architecture/security-and-artifacts.md).

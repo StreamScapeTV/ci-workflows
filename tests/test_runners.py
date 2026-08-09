@@ -33,7 +33,6 @@ class RunnerContractTests(unittest.TestCase):
                 "buildah-high",
                 "apple",
                 "physical-device",
-                "agent-state-control",
                 "flux-control",
             },
         )
@@ -184,10 +183,8 @@ class RunnerContractTests(unittest.TestCase):
         self.assertEqual(result.execution_profile, "mobile")
         self.assertTrue(result.resource_lock_required)
 
-    def test_control_profiles_execute_no_caller_source(self) -> None:
-        for profile_id in ("agent-state-control", "flux-control"):
-            with self.subTest(profile=profile_id):
-                self.assertFalse(self.profiles[profile_id]["trust"]["executes_caller_source"])
+    def test_control_profile_executes_no_caller_source(self) -> None:
+        self.assertFalse(self.profiles["flux-control"]["trust"]["executes_caller_source"])
 
     def test_privileged_buildah_profiles_are_exact_source_only(self) -> None:
         for profile_id in self.contract["buildah_escalation"]["order"]:

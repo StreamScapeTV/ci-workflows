@@ -165,7 +165,7 @@ def validate(root: Path) -> dict[str, Any]:
         require(counts["disposition"][code] > 0, f"missing disposition: {code}")
     for code in ("publish", "device", "flux"):
         require(counts["trust"][code] > 0, f"missing trust class: {code}")
-    for code in ("agent-state-lifecycle", "agent-state-ownership", "flux-assets", "flux-reconcile"):
+    for code in ("flux-assets", "flux-reconcile"):
         require(counts["migration"][code] > 0, f"missing migration class: {code}")
 
     require(products.get("schema_version") == 1, "unsupported products schema")
