@@ -48,6 +48,10 @@ class AgentStateRetirementTests(unittest.TestCase):
             all(not row["api"].startswith("agent-state.") for row in runners["workflow_bindings"])
         )
         self.assertNotIn("no-caller-source", runners["source_trust_values"])
+        self.assertNotIn(
+            "agent-state-control",
+            (ROOT / "RUNNERS.md").read_text(encoding="utf-8"),
+        )
 
     def test_inventory_removes_central_transport_and_retires_legacy_files(self) -> None:
         inventory = read_json("contracts/workflow-inventory.json")
