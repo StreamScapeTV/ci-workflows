@@ -238,21 +238,32 @@ class PublicApiContractTests(unittest.TestCase):
             "breaking-acknowledged",
         )
 
-    def test_self_check_runs_validator_renderer_and_tests(self) -> None:
+    def test_self_check_validates_reference_without_mutating_it(self) -> None:
         source = (
             ROOT / ".github/workflows/self-check.yml"
         ).read_text(encoding="utf-8")
+        commands = {line.strip() for line in source.splitlines()}
         for required in (
             '"${VERIFIED_PYTHON}" scripts/ci/public_api_contract.py validate',
-            '"${VERIFIED_PYTHON}" scripts/ci/public_api_contract.py render',
+            '"${VERIFIED_PYTHON}" scripts/ci/public_api_contract.py render --check',
+            "cat docs/workflows/public-api-reference.md",
             '"${VERIFIED_PYTHON}" -m unittest discover -s tests -p \'test_*.py\' -v',
-            "rm -f docs/workflows/public-api-reference.md",
+            'test -z "$(git status --porcelain --untracked-files=all)"',
         ):
-            self.assertIn(required, source)
-        self.assertNotIn(
-            '"${VERIFIED_PYTHON}" -m unittest -v tests/test_public_api_contract.py',
-            source,
+            self.assertIn(required, commands)
+        self.assertEqual(
+            source.count("docs/workflows/public-api-reference.md"), 1
         )
+        self.assertNotIn(
+            '"${VERIFIED_PYTHON}" scripts/ci/public_api_contract.py render',
+            commands,
+        )
+        for forbidden in (
+            '"${VERIFIED_PYTHON}" -m unittest -v tests/test_public_api_contract.py',
+            "rm -f docs/workflows/public-api-reference.md",
+            "grep -v '^?? docs/workflows/public-api-reference.md$'",
+        ):
+            self.assertNotIn(forbidden, source)
 
     @staticmethod
     def _example_input(name: str) -> object:
