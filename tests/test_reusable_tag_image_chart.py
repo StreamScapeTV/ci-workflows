@@ -16,7 +16,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "reusable-tag-image-chart.yml"
 SELF_CHECK = ROOT / ".github" / "workflows" / "self-check.yml"
 README = ROOT / "README.md"
 ACTION_LOCK = ROOT / "contracts" / "action-tool-lock.json"
-HELPER_SHA = "bd03c2b312e820d2c91097ecde4c076286e1bb24"
+HELPER_SHA = "2b0443fdad002d47625386a959ebe68545cfe022"
 
 
 class ReusableTagImageChartTests(unittest.TestCase):
