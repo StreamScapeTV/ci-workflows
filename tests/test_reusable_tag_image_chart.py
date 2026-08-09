@@ -442,6 +442,99 @@ class ReusableTagImageChartTests(unittest.TestCase):
         self.assertIn("registry logout", self.text)
         self.assertIn('"${STATE_ROOT:-${RUNNER_TEMP}/central-tag-release}"', self.text)
 
+    def test_state_prepares_valid_private_json_auth_files(self) -> None:
+        prepare_start = self.text.index(
+            "Prepare isolated publication and authentication state"
+        )
+        prepare_end = self.text.index(
+            "\n      - name: Prepare locked Helm chart dependencies",
+            prepare_start,
+        )
+        prepare = self.text[prepare_start:prepare_end]
+        self.assertIn('registry_auth="${state_root}/auth/containers.json"', prepare)
+        self.assertIn('helm_auth="${state_root}/auth/helm.json"', prepare)
+        self.assertEqual(
+            2,
+            prepare.count('"$(dirname "${registry_auth}")"'),
+        )
+        self.assertIn("chmod 0700", prepare)
+        self.assertIn("printf '{}\\n' > \"${registry_auth}\"", prepare)
+        self.assertIn("printf '{}\\n' > \"${helm_auth}\"", prepare)
+        self.assertIn('chmod 0600 "${registry_auth}" "${helm_auth}"', prepare)
+        self.assertNotIn(': > "${registry_auth}"', prepare)
+        self.assertNotIn(': > "${helm_auth}"', prepare)
+        self.assertNotIn('touch "${registry_auth}"', prepare)
+        self.assertNotIn('touch "${helm_auth}"', prepare)
+
+        script_marker = "        run: |\n"
+        script_start = self.text.index(script_marker, prepare_start)
+        script = textwrap.dedent(
+            self.text[script_start + len(script_marker):prepare_end]
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runner_temp = root / "runner"
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            fake_buildah = fake_bin / "buildah"
+            fake_buildah.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            fake_buildah.chmod(0o700)
+            fake_timeout = fake_bin / "timeout"
+            fake_timeout.write_text(
+                "#!/bin/sh\n"
+                "while [ \"$#\" -gt 0 ]; do\n"
+                "  case \"$1\" in\n"
+                "    --signal=*|--kill-after=*) shift ;;\n"
+                "    *s) shift; break ;;\n"
+                "    *) break ;;\n"
+                "  esac\n"
+                "done\n"
+                "exec \"$@\"\n",
+                encoding="utf-8",
+            )
+            fake_timeout.chmod(0o700)
+            github_env = root / "github-env"
+            result = subprocess.run(
+                ["bash", "-c", script],
+                env={
+                    **os.environ,
+                    "GITHUB_ENV": str(github_env),
+                    "GITHUB_RUN_ATTEMPT": "1",
+                    "GITHUB_RUN_ID": "83",
+                    "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                    "RUNNER_TEMP": str(runner_temp),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            auth_root = runner_temp / "central-tag-release" / "auth"
+            self.assertEqual(0o700, auth_root.stat().st_mode & 0o777)
+            for filename in ("containers.json", "helm.json"):
+                auth_file = auth_root / filename
+                with self.subTest(filename=filename):
+                    self.assertEqual({}, json.loads(auth_file.read_text()))
+                    self.assertEqual(0o600, auth_file.stat().st_mode & 0o777)
+
+        login_start = self.text.index("Authenticate to fixed private OCI registry")
+        login_end = self.text.index(
+            "Build publish and verify exact-tag image",
+            login_start,
+        )
+        login = self.text[login_start:login_end]
+        self.assertIn("umask 077", login)
+        buildah_login = login.index("buildah login")
+        registry_nonempty = login.index('test -s "${REGISTRY_AUTH_FILE}"')
+        registry_mode = login.index('chmod 0600 "${REGISTRY_AUTH_FILE}"')
+        helm_login = login.index('"${HELM_BIN}" registry login')
+        helm_nonempty = login.index('test -s "${HELM_REGISTRY_CONFIG}"')
+        helm_mode = login.index('chmod 0600 "${HELM_REGISTRY_CONFIG}"')
+        self.assertLess(buildah_login, registry_nonempty)
+        self.assertLess(registry_nonempty, registry_mode)
+        self.assertLess(helm_login, helm_nonempty)
+        self.assertLess(helm_nonempty, helm_mode)
+
     def test_self_check_and_documented_callers_are_thin(self) -> None:
         self.assertIn(
             '"${VERIFIED_PYTHON}" -m unittest discover -s tests -p \'test_*.py\' -v',
