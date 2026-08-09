@@ -596,69 +596,122 @@ jobs:
             "${local_manifest}" \
             "oci:${OCI_LAYOUT}:${VERSION}"
           local_raw="${STATE_ROOT}/image-local-index.json"
-          skopeo inspect --raw "oci:${OCI_LAYOUT}:${VERSION}" > "${local_raw}"
-          local_digest="sha256:$(sha256sum "${local_raw}" | awk '{print $1}')"
+          skopeo inspect --raw \
+            "oci:${OCI_LAYOUT}:${VERSION}" > "${local_raw}"
+
+          image_repository="${IMAGE_REFERENCE%:${VERSION}}"
+          test "${image_repository}:${VERSION}" = "${IMAGE_REFERENCE}"
+          remote_tags="${STATE_ROOT}/image-remote-tags.json"
+          skopeo list-tags \
+            --authfile "${REGISTRY_AUTH_FILE}" \
+            "docker://${image_repository}" > "${remote_tags}"
+          remote_exists="$(
+            REMOTE_TAGS="${remote_tags}" python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(
+              Path(os.environ["REMOTE_TAGS"]).read_text(encoding="utf-8")
+          )
+          tags = payload.get("Tags") if isinstance(payload, dict) else None
+          if not isinstance(tags, list) or not all(
+              isinstance(tag, str) for tag in tags
+          ):
+              raise SystemExit("registry tag listing is invalid")
+          print("true" if os.environ["VERSION"] in tags else "false")
+          PY
+          )"
 
           remote_raw="${STATE_ROOT}/image-remote-index.json"
-          remote_exists=false
-          if skopeo inspect \
-              --authfile "${REGISTRY_AUTH_FILE}" \
-              "docker://${IMAGE_REFERENCE}" >/dev/null 2>&1; then
-            remote_exists=true
-            skopeo inspect --raw \
-              --authfile "${REGISTRY_AUTH_FILE}" \
-              "docker://${IMAGE_REFERENCE}" > "${remote_raw}"
-            remote_digest="sha256:$(sha256sum "${remote_raw}" | awk '{print $1}')"
-            test "${remote_digest}" = "${local_digest}"
-          else
+          if [[ "${remote_exists}" == "false" ]]; then
             skopeo copy --all \
               --authfile "${REGISTRY_AUTH_FILE}" \
               "oci:${OCI_LAYOUT}:${VERSION}" \
               "docker://${IMAGE_REFERENCE}"
-            skopeo inspect --raw \
-              --authfile "${REGISTRY_AUTH_FILE}" \
-              "docker://${IMAGE_REFERENCE}" > "${remote_raw}"
-            remote_digest="sha256:$(sha256sum "${remote_raw}" | awk '{print $1}')"
-            test "${remote_digest}" = "${local_digest}"
+          else
+            test "${remote_exists}" = "true"
           fi
+          skopeo inspect --raw \
+            --authfile "${REGISTRY_AUTH_FILE}" \
+            "docker://${IMAGE_REFERENCE}" > "${remote_raw}"
+          remote_digest="sha256:$(sha256sum "${remote_raw}" | awk '{print $1}')"
 
-          REMOTE_RAW="${remote_raw}" python3 - <<'PY'
+          LOCAL_RAW="${local_raw}" REMOTE_RAW="${remote_raw}" python3 - <<'PY'
           from __future__ import annotations
 
           import json
           import os
           from pathlib import Path
 
-          manifest = json.loads(Path(os.environ["REMOTE_RAW"]).read_text(encoding="utf-8"))
-          platforms = {
-              (
-                  item.get("platform", {}).get("os"),
-                  item.get("platform", {}).get("architecture"),
-              )
-              for item in manifest.get("manifests", [])
-              if item.get("platform", {}).get("os") != "unknown"
-          }
           expected = {("linux", "amd64"), ("linux", "arm64")}
-          if platforms != expected:
-              raise SystemExit(
-                  f"remote image platforms {platforms} do not equal {expected}"
+          platform_indexes = {}
+
+          for source in ("LOCAL_RAW", "REMOTE_RAW"):
+              manifest = json.loads(
+                  Path(os.environ[source]).read_text(encoding="utf-8")
               )
+              items = manifest.get("manifests")
+              if not isinstance(items, list):
+                  raise SystemExit(f"{source.lower()} image index has no manifest list")
+              platforms = {}
+              for item in items:
+                  platform = item.get("platform") if isinstance(item, dict) else None
+                  if not isinstance(platform, dict):
+                      raise SystemExit(
+                          f"{source.lower()} image index has an invalid platform entry"
+                      )
+                  identity = (platform.get("os"), platform.get("architecture"))
+                  if identity in platforms:
+                      raise SystemExit(
+                          f"{source.lower()} image has duplicate platform {identity}"
+                      )
+                  platforms[identity] = platform
+              if len(platforms) != len(expected) or set(platforms) != expected:
+                  raise SystemExit(
+                      f"{source.lower()} image platforms {set(platforms)} "
+                      f"do not equal {expected}"
+                  )
+              platform_indexes[source] = platforms
+          if platform_indexes["LOCAL_RAW"] != platform_indexes["REMOTE_RAW"]:
+              raise SystemExit("remote image platform metadata differs from local")
+          if (
+              platform_indexes["REMOTE_RAW"][("linux", "arm64")].get("variant")
+              != "v8"
+          ):
+              raise SystemExit("remote linux/arm64 image variant is not v8")
           PY
 
           for architecture in amd64 arm64; do
-            config="$(
-              skopeo inspect \
+            local_config="${STATE_ROOT}/image-local-${architecture}-config.json"
+            remote_config="${STATE_ROOT}/image-remote-${architecture}-config.json"
+            skopeo inspect \
+              --override-os linux \
+              --override-arch "${architecture}" \
+              --config \
+              --raw \
+              "oci:${OCI_LAYOUT}:${VERSION}" > "${local_config}"
+            skopeo inspect \
                 --authfile "${REGISTRY_AUTH_FILE}" \
                 --override-os linux \
                 --override-arch "${architecture}" \
                 --config \
-                "docker://${IMAGE_REFERENCE}"
-            )"
-            CONFIG_JSON="${config}" python3 - <<'PY'
+                --raw \
+                "docker://${IMAGE_REFERENCE}" > "${remote_config}"
+            test -s "${local_config}"
+            test -s "${remote_config}"
+            if ! cmp -s "${local_config}" "${remote_config}"; then
+              echo "Remote ${architecture} image config does not match the local build." >&2
+              exit 1
+            fi
+            REMOTE_CONFIG="${remote_config}" python3 - <<'PY'
           import json
           import os
+          from pathlib import Path
 
-          config = json.loads(os.environ["CONFIG_JSON"])
+          config = json.loads(
+              Path(os.environ["REMOTE_CONFIG"]).read_text(encoding="utf-8")
+          )
           labels = config.get("config", {}).get("Labels", {})
           expected = {
               "org.opencontainers.image.source": (

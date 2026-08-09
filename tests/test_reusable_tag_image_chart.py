@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -25,6 +26,196 @@ class ReusableTagImageChartTests(unittest.TestCase):
         cls.text = WORKFLOW.read_text(encoding="utf-8")
         cls.self_check = SELF_CHECK.read_text(encoding="utf-8")
         cls.readme = README.read_text(encoding="utf-8")
+
+    def _run_image_scenario(
+        self,
+        scenario: str,
+    ) -> tuple[subprocess.CompletedProcess[str], list[list[str]], str, bytes, bytes]:
+        step_start = self.text.index("      - id: image\n")
+        run_marker = "        run: |\n"
+        script_start = self.text.index(run_marker, step_start)
+        step_end = self.text.index("\n      - id: chart\n", script_start)
+        script = textwrap.dedent(
+            self.text[script_start + len(run_marker):step_end]
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_bin = root / "bin"
+            state_root = root / "state"
+            fake_bin.mkdir()
+            state_root.mkdir()
+            calls_path = root / "skopeo-calls.jsonl"
+            output_path = root / "github-output"
+
+            for name, source in (
+                ("buildah", "#!/bin/sh\nexit 0\n"),
+                ("git", "#!/bin/sh\nprintf '1700000000\\n'\n"),
+                (
+                    "sha256sum",
+                    "#!/usr/bin/env python3\n"
+                    "import hashlib, pathlib, sys\n"
+                    "path = pathlib.Path(sys.argv[1])\n"
+                    "print(f'{hashlib.sha256(path.read_bytes()).hexdigest()}  {path}')\n",
+                ),
+            ):
+                executable = fake_bin / name
+                executable.write_text(source, encoding="utf-8")
+                executable.chmod(0o700)
+
+            fake_skopeo = fake_bin / "skopeo"
+            fake_skopeo.write_text(
+                textwrap.dedent(
+                    """\
+                    #!/usr/bin/env python3
+                    import json
+                    import os
+                    from pathlib import Path
+                    import sys
+
+                    args = sys.argv[1:]
+                    with Path(os.environ["SKOPEO_CALLS"]).open("a", encoding="utf-8") as stream:
+                        stream.write(json.dumps(args) + "\\n")
+                    scenario = os.environ["IMAGE_SCENARIO"]
+                    operation = args[0]
+                    target = args[-1]
+                    remote = target.startswith("docker://")
+
+                    if operation == "copy":
+                        raise SystemExit(0)
+                    if operation == "list-tags":
+                        if scenario == "list-tags-auth-failure":
+                            raise SystemExit(1)
+                        if scenario == "list-tags-transient-failure":
+                            raise SystemExit(2)
+                        if scenario == "list-tags-malformed":
+                            sys.stdout.write("{")
+                            raise SystemExit(0)
+                        tags = [] if scenario == "publish-match" else ["1.0.4"]
+                        sys.stdout.write(json.dumps({"Repository": target, "Tags": tags}))
+                        raise SystemExit(0)
+                    if operation != "inspect":
+                        raise SystemExit(2)
+
+                    if "--config" in args:
+                        architecture = args[args.index("--override-arch") + 1]
+                        config = {
+                            "architecture": architecture,
+                            "config": {
+                                "Entrypoint": ["/app/start"],
+                                "Labels": {
+                                    "org.opencontainers.image.revision": os.environ["SOURCE_SHA"],
+                                    "org.opencontainers.image.source": (
+                                        f"{os.environ['GITHUB_SERVER_URL']}/"
+                                        f"{os.environ['GITHUB_REPOSITORY']}"
+                                    ),
+                                    "org.opencontainers.image.version": os.environ["VERSION"],
+                                },
+                            },
+                            "history": [{"created_by": "bounded-build"}],
+                            "os": "linux",
+                            "rootfs": {
+                                "diff_ids": [f"sha256:{architecture}-rootfs"],
+                                "type": "layers",
+                            },
+                        }
+                        if remote and architecture == "arm64":
+                            if scenario == "replay-runtime-change":
+                                config["config"]["Entrypoint"] = ["/other/start"]
+                            elif scenario == "replay-rootfs-change":
+                                config["rootfs"]["diff_ids"] = ["sha256:changed-rootfs"]
+                        if remote and scenario == "replay-reserialized-config":
+                            sys.stdout.write(json.dumps(config, indent=2, sort_keys=False))
+                        else:
+                            sys.stdout.write(
+                                json.dumps(
+                                    config,
+                                    separators=(",", ":"),
+                                    sort_keys=True,
+                                )
+                            )
+                        raise SystemExit(0)
+
+                    manifests = [
+                        {
+                            "digest": "sha256:amd64-" + ("remote" if remote else "local"),
+                            "platform": {"architecture": "amd64", "os": "linux"},
+                        },
+                        {
+                            "digest": "sha256:arm64-" + ("remote" if remote else "local"),
+                            "platform": {
+                                "architecture": "arm64",
+                                "os": "linux",
+                                "variant": (
+                                    "v9"
+                                    if remote and scenario == "replay-platform-change"
+                                    else "v8"
+                                ),
+                            },
+                        },
+                    ]
+                    if remote and scenario == "replay-platform-set-change":
+                        manifests[1]["platform"] = {
+                            "architecture": "s390x",
+                            "os": "linux",
+                        }
+                    sys.stdout.write(
+                        json.dumps(
+                            {
+                                "manifests": manifests,
+                                "normalization": "remote" if remote else "local",
+                            },
+                            separators=(",", ":"),
+                            sort_keys=True,
+                        )
+                    )
+                    """
+                ),
+                encoding="utf-8",
+            )
+            fake_skopeo.chmod(0o700)
+
+            result = subprocess.run(
+                ["bash", "-c", script],
+                env={
+                    **os.environ,
+                    "BUILD_CONTEXT": ".",
+                    "CONTAINER_RUN_ROOT": str(root / "run"),
+                    "CONTAINER_STORAGE_ROOT": str(root / "storage"),
+                    "DOCKERFILE_PATH": "Dockerfile",
+                    "GITHUB_OUTPUT": str(output_path),
+                    "GITHUB_REPOSITORY": "StreamScapeTV/iptv-backend",
+                    "GITHUB_RUN_ATTEMPT": "1",
+                    "GITHUB_RUN_ID": "90",
+                    "GITHUB_SERVER_URL": "https://github.com",
+                    "IMAGE_REFERENCE": "registry.example/backend:1.0.4",
+                    "IMAGE_SCENARIO": scenario,
+                    "OCI_LAYOUT": str(root / "oci"),
+                    "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                    "REGISTRY_AUTH_FILE": str(root / "auth.json"),
+                    "SKOPEO_CALLS": str(calls_path),
+                    "SOURCE_SHA": "a" * 40,
+                    "STATE_ROOT": str(state_root),
+                    "VERSION": "1.0.4",
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            calls = [
+                json.loads(line)
+                for line in calls_path.read_text(encoding="utf-8").splitlines()
+            ]
+            output = (
+                output_path.read_text(encoding="utf-8")
+                if output_path.exists()
+                else ""
+            )
+            local_path = state_root / "image-local-index.json"
+            remote_path = state_root / "image-remote-index.json"
+            local_index = local_path.read_bytes() if local_path.exists() else b""
+            remote_index = remote_path.read_bytes() if remote_path.exists() else b""
+            return result, calls, output, local_index, remote_index
 
     def test_public_workflow_is_workflow_call_only(self) -> None:
         header = self.text.split("\npermissions:", 1)[0]
@@ -249,9 +440,83 @@ class ReusableTagImageChartTests(unittest.TestCase):
         self.assertIn('"oci:${OCI_LAYOUT}:${VERSION}"', self.text)
         self.assertIn('"docker://${IMAGE_REFERENCE}"', self.text)
         self.assertIn("skopeo copy --all", self.text)
-        self.assertIn("remote image platforms", self.text)
+        self.assertIn("image platforms", self.text)
         self.assertIn("--override-arch", self.text)
-        self.assertIn('test "${remote_digest}" = "${local_digest}"', self.text)
+        self.assertIn("--config", self.text)
+        self.assertIn("--raw", self.text)
+        self.assertIn('cmp -s "${local_config}" "${remote_config}"', self.text)
+        self.assertNotIn("local_digest=", self.text)
+        self.assertNotIn('test "${remote_digest}" = "${local_digest}"', self.text)
+
+    def test_normalized_indexes_accept_only_identical_raw_platform_configs(self) -> None:
+        result, calls, output, local_index, remote_index = self._run_image_scenario(
+            "replay-match"
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertNotEqual(local_index, remote_index)
+        self.assertEqual(0, sum(call[0] == "copy" for call in calls))
+        tag_lists = [call for call in calls if call[0] == "list-tags"]
+        self.assertEqual(1, len(tag_lists))
+        self.assertEqual(
+            "docker://registry.example/backend",
+            tag_lists[0][-1],
+        )
+        self.assertIn("replayed=true\n", output)
+        self.assertIn(
+            f"digest=sha256:{hashlib.sha256(remote_index).hexdigest()}\n",
+            output,
+        )
+
+        for scenario in (
+            "replay-runtime-change",
+            "replay-rootfs-change",
+            "replay-reserialized-config",
+        ):
+            with self.subTest(scenario=scenario):
+                result, calls, _, _, _ = self._run_image_scenario(scenario)
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("image config does not match", result.stderr)
+                self.assertEqual(0, sum(call[0] == "copy" for call in calls))
+
+        result, calls, _, _, _ = self._run_image_scenario(
+            "replay-platform-change"
+        )
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("platform metadata differs", result.stderr)
+        self.assertEqual(0, sum(call[0] == "copy" for call in calls))
+
+        result, calls, _, _, _ = self._run_image_scenario(
+            "replay-platform-set-change"
+        )
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("image platforms", result.stderr)
+        self.assertEqual(0, sum(call[0] == "copy" for call in calls))
+
+    def test_absent_remote_tag_is_copied_once_then_verified(self) -> None:
+        result, calls, output, local_index, remote_index = self._run_image_scenario(
+            "publish-match"
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertNotEqual(local_index, remote_index)
+        self.assertEqual(1, sum(call[0] == "copy" for call in calls))
+        self.assertEqual(1, sum(call[0] == "list-tags" for call in calls))
+        self.assertIn("replayed=false\n", output)
+
+    def test_tag_listing_failures_never_attempt_publication(self) -> None:
+        for scenario in (
+            "list-tags-auth-failure",
+            "list-tags-transient-failure",
+            "list-tags-malformed",
+        ):
+            with self.subTest(scenario=scenario):
+                result, calls, output, _, remote_index = self._run_image_scenario(
+                    scenario
+                )
+                self.assertNotEqual(0, result.returncode)
+                self.assertEqual(1, sum(call[0] == "list-tags" for call in calls))
+                self.assertEqual(0, sum(call[0] == "copy" for call in calls))
+                self.assertEqual("", output)
+                self.assertEqual(b"", remote_index)
 
     def test_chart_builds_locked_dependencies_before_lint_and_package(self) -> None:
         prepare = self.text.index("Prepare locked Helm chart dependencies")
@@ -400,8 +665,16 @@ class ReusableTagImageChartTests(unittest.TestCase):
         self.assertIn("Rendered chart contains forbidden latest identity", self.text)
 
     def test_replay_is_idempotent_and_conflicts_fail_closed(self) -> None:
-        self.assertIn("remote_exists=false", self.text)
-        self.assertIn('test "${remote_digest}" = "${local_digest}"', self.text)
+        image_start = self.text.index("      - id: image\n")
+        image_end = self.text.index("\n      - id: chart\n", image_start)
+        image = self.text[image_start:image_end]
+        self.assertIn("skopeo list-tags", image)
+        self.assertIn(
+            'print("true" if os.environ["VERSION"] in tags else "false")',
+            image,
+        )
+        self.assertNotIn("if skopeo inspect", image)
+        self.assertIn('if ! cmp -s "${local_config}" "${remote_config}"', image)
         self.assertIn('test "$(sha256sum "${remote_package}"', self.text)
         self.assertIn("replayed=%s", self.text)
 
