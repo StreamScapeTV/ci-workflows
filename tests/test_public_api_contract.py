@@ -204,11 +204,11 @@ class PublicApiContractTests(unittest.TestCase):
             schema["properties"]["shared_release"]["additionalProperties"]
         )
 
-    def test_generated_reference_is_exact_when_present(self) -> None:
+    def test_generated_reference_is_required_and_exact(self) -> None:
         rendered = contract.render(self.data)
         reference = ROOT / "docs/workflows/public-api-reference.md"
-        if reference.exists():
-            self.assertEqual(reference.read_text(encoding="utf-8"), rendered)
+        self.assertTrue(reference.is_file())
+        self.assertEqual(reference.read_text(encoding="utf-8"), rendered)
         self.assertIn("20", str(len(self.data.workflows)))
         self.assertIn("release.orchestrate", rendered)
         self.assertIn("flux.reconcile", rendered)
