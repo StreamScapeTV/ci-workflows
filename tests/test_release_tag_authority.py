@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import io
+import json
 import unittest
+import urllib.error
+import urllib.request
 from typing import Any, Mapping
 
 from ci_workflows.release_tag_authority import (
+    GitHubTagProvider,
     MAX_TAG_DEREFERENCE_DEPTH,
     ReleaseAuthority,
     ReleaseEvent,
@@ -21,6 +26,88 @@ TAG_B = "d" * 40
 TAG_C = "e" * 40
 CALLER_SHA = "f" * 40
 REPOSITORY = "StreamScapeTV/iptv-backend"
+
+
+class GitHubTagProviderTransportTest(unittest.TestCase):
+    def test_metadata_and_nested_endpoint_use_exact_urls_and_request_contract(self) -> None:
+        calls: list[tuple[urllib.request.Request, int]] = []
+        responses = iter(
+            (
+                {"full_name": REPOSITORY},
+                object_payload("commit", COMMIT_A),
+            )
+        )
+
+        def opener(
+            request: urllib.request.Request,
+            *,
+            timeout: int,
+        ) -> io.BytesIO:
+            calls.append((request, timeout))
+            return io.BytesIO(json.dumps(next(responses)).encode("utf-8"))
+
+        provider = GitHubTagProvider(
+            api_url="https://api.github.com/",
+            token="test-token",
+            opener=opener,
+        )
+
+        self.assertEqual(
+            {"full_name": REPOSITORY},
+            provider.repository_metadata(REPOSITORY),
+        )
+        self.assertEqual(
+            object_payload("commit", COMMIT_A),
+            provider.tag_ref(REPOSITORY, "1.0.4-rc.1"),
+        )
+
+        self.assertEqual(
+            [
+                "https://api.github.com/repos/StreamScapeTV/iptv-backend",
+                (
+                    "https://api.github.com/repos/StreamScapeTV/iptv-backend/"
+                    "git/ref/tags/1.0.4-rc.1"
+                ),
+            ],
+            [request.full_url for request, _ in calls],
+        )
+        for request, timeout in calls:
+            self.assertEqual(30, timeout)
+            self.assertEqual(
+                "application/vnd.github+json",
+                request.get_header("Accept"),
+            )
+            self.assertEqual(
+                "Bearer test-token",
+                request.get_header("Authorization"),
+            )
+            self.assertEqual(
+                "2022-11-28",
+                request.get_header("X-github-api-version"),
+            )
+
+    def test_metadata_404_maps_to_sanitized_repository_missing(self) -> None:
+        def opener(
+            request: urllib.request.Request,
+            *,
+            timeout: int,
+        ) -> io.BytesIO:
+            raise urllib.error.HTTPError(
+                request.full_url,
+                404,
+                "sensitive provider response",
+                hdrs=None,
+                fp=None,
+            )
+
+        provider = GitHubTagProvider(
+            api_url="https://api.github.com",
+            token="test-token",
+            opener=opener,
+        )
+
+        with self.assertRaisesRegex(ReleaseTagError, r"^repository_missing$"):
+            provider.repository_metadata(REPOSITORY)
 
 
 class FakeProvider:

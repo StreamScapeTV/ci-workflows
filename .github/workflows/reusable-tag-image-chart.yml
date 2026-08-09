@@ -90,7 +90,7 @@ jobs:
     steps:
       - id: authority
         name: Admit exact trusted release mode and tag tuple
-        uses: StreamScapeTV/ci-workflows/actions/resolve-release-tag@bd03c2b312e820d2c91097ecde4c076286e1bb24 # issue #59 immutable helper checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/resolve-release-tag@2b0443fdad002d47625386a959ebe68545cfe022 # issue #59 immutable helper checkpoint
         with:
           release_mode: ${{ inputs.release_mode }}
           release_version: ${{ inputs.release_version }}
@@ -117,7 +117,7 @@ jobs:
 
     steps:
       - name: Revalidate exact release tag before checkout
-        uses: StreamScapeTV/ci-workflows/actions/resolve-release-tag@bd03c2b312e820d2c91097ecde4c076286e1bb24 # issue #59 immutable helper checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/resolve-release-tag@2b0443fdad002d47625386a959ebe68545cfe022 # issue #59 immutable helper checkpoint
         with:
           phase: revalidate
           release_mode: ${{ needs.admit.outputs.release_mode }}
@@ -524,7 +524,7 @@ jobs:
           PY
 
       - name: Revalidate exact release tag immediately before publication
-        uses: StreamScapeTV/ci-workflows/actions/resolve-release-tag@bd03c2b312e820d2c91097ecde4c076286e1bb24 # issue #59 immutable helper checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/resolve-release-tag@2b0443fdad002d47625386a959ebe68545cfe022 # issue #59 immutable helper checkpoint
         with:
           phase: revalidate
           release_mode: ${{ needs.admit.outputs.release_mode }}
