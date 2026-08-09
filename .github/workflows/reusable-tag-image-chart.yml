@@ -357,8 +357,8 @@ jobs:
             "${chart_source}" \
             "${chart_local}" \
             "${chart_remote}"
-          : > "${registry_auth}"
-          : > "${helm_auth}"
+          printf '{}\n' > "${registry_auth}"
+          printf '{}\n' > "${helm_auth}"
           chmod 0600 "${registry_auth}" "${helm_auth}"
 
           {
