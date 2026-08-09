@@ -1,0 +1,1 @@
+{"devices":[{"identifier":"synthetic-tvos-wrong-family","family":"tvos","state":"available","connection":"paired","model_class":"apple-tv","os_version":"18.4","runtime_version":"18.4","capabilities":["avfoundation"],"personal":false,"conflicting":false}]}
