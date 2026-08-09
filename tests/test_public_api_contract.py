@@ -170,13 +170,15 @@ class PublicApiContractTests(unittest.TestCase):
 
     def test_existing_bootstrap_workflow_matches_its_versioned_api_record(self) -> None:
         row = self.workflows["release.tag-image-chart-bootstrap"]
-        self.assertEqual("1.1.0", row["api_version"])
+        self.assertEqual("1.2.0", row["api_version"])
         self.assertEqual(row["status"], "deprecated-bootstrap-exception")
         self.assertEqual(row["deprecation"]["replacement"], "release.orchestrate")
         input_map = {item["name"]: item for item in row["inputs"]}
         self.assertEqual("tag-push", input_map["release_mode"]["default"])
         self.assertFalse(input_map["release_version"]["required"])
         self.assertFalse(input_map["release_source_sha"]["required"])
+        self.assertFalse(input_map["image_recovery_authority"]["required"])
+        self.assertEqual("", input_map["image_recovery_authority"]["default"])
         self.assertIn("tag-push", row["permitted_events"])
         self.assertIn("workflow_dispatch-existing-tag", row["permitted_events"])
         self.assertIn(
@@ -215,6 +217,7 @@ class PublicApiContractTests(unittest.TestCase):
         self.assertNotIn("agent-state.lifecycle", rendered)
         self.assertIn("`release_mode` (default `tag-push`)", rendered)
         self.assertIn("`release_source_sha`", rendered)
+        self.assertIn("`image_recovery_authority` (default ``)", rendered)
         self.assertIn("`workflow_dispatch-existing-tag`", rendered)
 
     def test_breaking_changes_fail_without_a_complete_acknowledgement(self) -> None:
@@ -288,6 +291,7 @@ class PublicApiContractTests(unittest.TestCase):
             "release_mode": "tag-push",
             "release_version": "1.2.3",
             "release_source_sha": "5" * 40,
+            "image_recovery_authority": "",
             "release_contract": "backend",
             "release_tag": "v1.2.3",
             "target_id": "backend-production",

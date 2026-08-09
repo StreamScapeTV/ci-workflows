@@ -30,7 +30,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. D
 | `oci.build` `1.0.0` | `.github/workflows/reusable-oci-build.yml` | `planned` | `read-only-validation` | `validation-read` | `contract:oci-build` | CI / OCI build validation | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | iptv-backend-image, agent-state-image, flux-runner-images |
 | `oci.publish` `1.0.0` | `.github/workflows/reusable-oci-publish.yml` | `planned` | `trusted-publication` | `oci-publication` | `contract:oci-publish` | Release / OCI publication | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | iptv-backend-image, agent-state-image, flux-runner-images |
 | `release.orchestrate` `1.0.0` | `.github/workflows/reusable-release.yml` | `planned` | `trusted-publication` | `release-orchestration` | `contract:release` | Release / Verified products | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | — |
-| `release.tag-image-chart-bootstrap` `1.1.0` | `.github/workflows/reusable-tag-image-chart.yml` | `deprecated-bootstrap-exception` | `trusted-publication` | `bootstrap-tag-publication` | `contract:oci-publish` | Release / Bootstrap image and chart | StreamScapeTV/iptv-backend | iptv-backend-image, iptv-backend-chart |
+| `release.tag-image-chart-bootstrap` `1.2.0` | `.github/workflows/reusable-tag-image-chart.yml` | `deprecated-bootstrap-exception` | `trusted-publication` | `bootstrap-tag-publication` | `contract:oci-publish` | Release / Bootstrap image and chart | StreamScapeTV/iptv-backend | iptv-backend-image, iptv-backend-chart |
 | `source.resolve` `1.0.0` | `.github/workflows/reusable-resolve-source.yml` | `implemented` | `source-admission` | `source-read` | `portable` | Shared / Source admission | * | — |
 | `validation.android` `1.0.0` | `.github/workflows/reusable-android.yml` | `planned` | `read-only-validation` | `validation-read` | `contract:android` | CI / Android validation | StreamScapeTV/iptv-android, StreamScapeTV/streamscape-media | — |
 | `validation.apple` `1.0.0` | `.github/workflows/reusable-apple.yml` | `planned` | `read-only-validation` | `validation-read` | `contract:apple-simulator` | CI / Apple validation | StreamScapeTV/iptv-apple, StreamScapeTV/streamscape-media | — |
@@ -178,7 +178,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. D
 - Events: `tag-push`, `workflow_call`, `workflow_dispatch-existing-tag`
 - Timeout / matrix maximum: `240 minutes` / `2` jobs
 - Maximum reusable-workflow depth: `1`
-- Inputs: `release_mode` (default `tag-push`), `release_version`, `release_source_sha`, `image_name` (required), `chart_name` (required), `chart_path` (required), `dockerfile_path` (default `Dockerfile`), `build_context` (default `.`)
+- Inputs: `release_mode` (default `tag-push`), `release_version`, `release_source_sha`, `image_recovery_authority` (default ``), `image_name` (required), `chart_name` (required), `chart_path` (required), `dockerfile_path` (default `Dockerfile`), `build_context` (default `.`)
 - Secrets: `registry_username`, `registry_token`
 - Outputs: `version`, `source_sha`, `image_reference`, `image_digest`, `chart_reference`, `chart_package_sha256`
 - Repository-owned hooks: none
