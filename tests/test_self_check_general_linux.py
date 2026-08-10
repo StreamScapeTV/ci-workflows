@@ -185,7 +185,7 @@ class GeneralLinuxSelfCheckTest(unittest.TestCase):
                 '"${implementation}" == "pypy"',
             ),
             ('"${system}" == "Linux"', '"${system}" == "Darwin"'),
-            ("x86_64)", "arm64|x86_64)"),
+            ("x86_64)", "ppc64)"),
         )
         for old, new in mutations:
             with self.subTest(new=new):
