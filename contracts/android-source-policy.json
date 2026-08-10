@@ -46,6 +46,10 @@
         {
           "path": "tests/test_node_regression.py",
           "git_blob_sha1": "e9c5b05b1a2288db5158dfca30a884312ca5c88e"
+        },
+        {
+          "path": "tests/test_node_validation.py",
+          "git_blob_sha1": "3ee82fcca0447c6ce244bb83114cac4d0e12e307"
         }
       ]
     },
