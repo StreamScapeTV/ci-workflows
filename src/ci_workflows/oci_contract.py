@@ -160,6 +160,7 @@ def load_contract(root: Path) -> Mapping[str, Any]:
     require(payload.get("publication") is False, "publication_forbidden")
     require(payload.get("registry_credentials") is False, "registry_credentials_forbidden")
     require(payload.get("artifact_policy") == "zero-default", "artifact_policy_failed")
+    require(strings(payload.get("allowed_source_trust"), nonempty=True) == ("trusted-exact", "trusted-pr"), "invalid_contract")
     require(payload.get("storage_driver") == "vfs", "invalid_contract")
     require(set(strings(payload.get("required_metadata_labels"), nonempty=True)) == _REQUIRED_LABELS, "invalid_contract")
     require(_FORBIDDEN <= set(strings(payload.get("forbidden_public_inputs"), nonempty=True)), "invalid_contract")
@@ -260,6 +261,7 @@ def resolve_plan(root: Path, request: OciBuildRequest) -> OciBuildPlan:
     require(request.product_id in products, "unsupported_product")
     product = products[request.product_id]
     require(product["repository"] == request.repository, "unsupported_consumer")
+    require(request.source_trust in contract["allowed_source_trust"], "unsupported_consumer")
     if request.platform_set:
         expected = tuple(contract["platform_sets"].get(request.platform_set, ()))
         require(expected, "invalid_platform_set")
