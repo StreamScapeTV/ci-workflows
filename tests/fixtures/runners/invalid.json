@@ -62,7 +62,7 @@
       "mode": "selector",
       "labels": [
         "mobile",
-        "buildah-small"
+        "buildah"
       ],
       "expected_error": "contradictory-labels"
     },
