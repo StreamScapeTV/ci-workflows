@@ -1,0 +1,430 @@
+"""Engine-neutral execution with one reviewed daemonless Buildah adapter."""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+import shutil
+import stat
+import subprocess
+from dataclasses import replace
+from pathlib import Path, PurePosixPath
+from typing import Mapping, Sequence
+
+from .oci_contract import bounded_path, load_contract, metadata_labels
+from .oci_types import (
+    OciBuildError,
+    OciBuildPlan,
+    OciBuildResult,
+    OciPlatformResult,
+    OciTarget,
+    OciTargetResult,
+)
+
+_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+_FROM = re.compile(r"^\s*FROM(?:\s+--platform=[^\s]+)?\s+([^\s]+)(?:\s+AS\s+[^\s]+)?\s*$", re.I)
+
+
+def run(
+    argv: Sequence[str],
+    *,
+    cwd: Path | None = None,
+    capture: bool = False,
+    env: Mapping[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        list(argv),
+        cwd=cwd,
+        env=None if env is None else dict(env),
+        check=True,
+        text=True,
+        capture_output=capture,
+    )
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return f"sha256:{digest.hexdigest()}"
+
+
+def state_root(environment: Mapping[str, str]) -> Path:
+    runner_temp = Path(environment.get("RUNNER_TEMP", ".ci-state"))
+    run_id = environment.get("GITHUB_RUN_ID", "local")
+    attempt = environment.get("GITHUB_RUN_ATTEMPT", "1")
+    token = hashlib.sha256(f"oci-build:{run_id}:{attempt}".encode()).hexdigest()[:16]
+    return runner_temp / f"ciw-oci-{token}"
+
+
+def exact_git_head(source_root: Path) -> str:
+    result = run(["git", "rev-parse", "HEAD"], cwd=source_root, capture=True)
+    return result.stdout.strip()
+
+
+def assert_clean_source(source_root: Path, admitted_sha: str) -> None:
+    if exact_git_head(source_root) != admitted_sha:
+        raise OciBuildError("source_mismatch")
+    status = run(
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        cwd=source_root,
+        capture=True,
+    ).stdout
+    if status.strip():
+        raise OciBuildError("dirty_tree")
+
+
+def source_date_epoch(source_root: Path) -> int:
+    value = run(["git", "show", "-s", "--format=%ct", "HEAD"], cwd=source_root, capture=True).stdout.strip()
+    if not value.isdigit() or int(value) <= 0:
+        raise OciBuildError("source_mismatch")
+    return int(value)
+
+
+def validate_dockerfile_bases(path: Path) -> tuple[str, ...]:
+    if not path.is_file() or path.is_symlink():
+        raise OciBuildError("invalid_path")
+    images: list[str] = []
+    logical = ""
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        stripped = raw.rstrip()
+        logical += stripped[:-1] + " " if stripped.endswith("\\") else stripped
+        if stripped.endswith("\\"):
+            continue
+        line = logical.strip()
+        logical = ""
+        match = _FROM.fullmatch(line)
+        if match:
+            image = match.group(1)
+            if "$" in image or (image != "scratch" and "@sha256:" not in image):
+                raise OciBuildError("base_identity_mutable")
+            if image != "scratch":
+                digest = image.rsplit("@", 1)[1]
+                if _DIGEST.fullmatch(digest) is None:
+                    raise OciBuildError("base_identity_mutable")
+            images.append(image)
+    if logical:
+        raise OciBuildError("base_identity_mutable")
+    if not images:
+        raise OciBuildError("base_identity_mutable")
+    return tuple(images)
+
+
+def _tracked_files(source_root: Path, context_path: str) -> tuple[Path, ...]:
+    args = ["git", "ls-files", "-z"]
+    if context_path != ".":
+        args.extend(["--", context_path])
+    payload = run(args, cwd=source_root, capture=True).stdout
+    files = tuple(Path(item) for item in payload.split("\0") if item)
+    if not files:
+        raise OciBuildError("dirty_context")
+    status_args = ["git", "status", "--porcelain", "--untracked-files=all"]
+    if context_path != ".":
+        status_args.extend(["--", context_path])
+    if run(status_args, cwd=source_root, capture=True).stdout.strip():
+        raise OciBuildError("dirty_context")
+    return files
+
+
+def stage_context(source_root: Path, target: OciTarget, destination: Path) -> Path:
+    context = bounded_path(source_root, target.context_path, allow_root=True)
+    dockerfile = bounded_path(source_root, target.dockerfile_path)
+    if context != source_root.resolve() and context not in dockerfile.parents:
+        raise OciBuildError("invalid_path")
+    validate_dockerfile_bases(dockerfile)
+    if target.smoke_script:
+        smoke = bounded_path(source_root, target.smoke_script)
+        if not smoke.is_file() or smoke.is_symlink():
+            raise OciBuildError("invalid_path")
+    destination.mkdir(parents=True, mode=0o700)
+    for relative in _tracked_files(source_root, target.context_path):
+        source = source_root / relative
+        info = source.lstat()
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+            raise OciBuildError("symlink_path_forbidden")
+        output = destination / relative
+        output.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, output, follow_symlinks=False)
+    copied_dockerfile = destination / target.dockerfile_path
+    if not copied_dockerfile.is_file():
+        raise OciBuildError("invalid_path")
+    return destination
+
+
+def _read_json(path: Path) -> object:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise OciBuildError("oci_layout_malformed") from error
+
+
+def _blob(layout: Path, digest: str) -> Path:
+    if _DIGEST.fullmatch(digest) is None:
+        raise OciBuildError("oci_layout_malformed")
+    path = layout / "blobs" / "sha256" / digest.removeprefix("sha256:")
+    if not path.is_file() or path.is_symlink() or sha256_file(path) != digest:
+        raise OciBuildError("oci_digest_mismatch")
+    return path
+
+
+def inspect_layout(layout: Path, target: OciTarget, labels: Mapping[str, str]) -> OciTargetResult:
+    if not layout.is_dir() or layout.is_symlink():
+        raise OciBuildError("oci_layout_malformed")
+    if _read_json(layout / "oci-layout") != {"imageLayoutVersion": "1.0.0"}:
+        raise OciBuildError("oci_layout_malformed")
+    index_path = layout / "index.json"
+    index = _read_json(index_path)
+    if not isinstance(index, dict) or index.get("schemaVersion") != 2 or not isinstance(index.get("manifests"), list):
+        raise OciBuildError("oci_layout_malformed")
+    results: dict[str, OciPlatformResult] = {}
+    for descriptor in index["manifests"]:
+        if not isinstance(descriptor, dict) or not isinstance(descriptor.get("platform"), dict):
+            raise OciBuildError("oci_layout_malformed")
+        platform = descriptor["platform"]
+        name = f"{platform.get('os')}/{platform.get('architecture')}"
+        if platform.get("variant"):
+            name += f"/{platform['variant']}"
+        manifest_digest = descriptor.get("digest")
+        if not isinstance(manifest_digest, str) or name in results:
+            raise OciBuildError("oci_layout_malformed")
+        manifest = _read_json(_blob(layout, manifest_digest))
+        if not isinstance(manifest, dict) or manifest.get("schemaVersion") != 2:
+            raise OciBuildError("oci_layout_malformed")
+        config = manifest.get("config")
+        layers = manifest.get("layers")
+        if not isinstance(config, dict) or not isinstance(layers, list) or not isinstance(config.get("digest"), str):
+            raise OciBuildError("oci_layout_malformed")
+        config_digest = config["digest"]
+        config_payload = _read_json(_blob(layout, config_digest))
+        if not isinstance(config_payload, dict) or not isinstance(config_payload.get("config"), dict):
+            raise OciBuildError("oci_layout_malformed")
+        runtime = config_payload["config"]
+        actual_labels = runtime.get("Labels") or {}
+        if not isinstance(actual_labels, dict) or any(actual_labels.get(key) != value for key, value in labels.items()):
+            raise OciBuildError("metadata_mismatch")
+        if target.required_user is not None and runtime.get("User", "") != target.required_user:
+            raise OciBuildError("assertion_failed")
+        if target.required_entrypoint and tuple(runtime.get("Entrypoint") or ()) != target.required_entrypoint:
+            raise OciBuildError("assertion_failed")
+        if target.required_command and tuple(runtime.get("Cmd") or ()) != target.required_command:
+            raise OciBuildError("assertion_failed")
+        if target.required_ports and tuple(sorted((runtime.get("ExposedPorts") or {}).keys())) != tuple(sorted(target.required_ports)):
+            raise OciBuildError("assertion_failed")
+        layer_digests: list[str] = []
+        for layer in layers:
+            if not isinstance(layer, dict) or not isinstance(layer.get("digest"), str):
+                raise OciBuildError("oci_layout_malformed")
+            _blob(layout, layer["digest"])
+            layer_digests.append(layer["digest"])
+        results[name] = OciPlatformResult(name, manifest_digest, config_digest, tuple(layer_digests))
+    if tuple(sorted(results)) != tuple(sorted(target.platforms)):
+        raise OciBuildError("platform_mismatch")
+    return OciTargetResult(
+        target_id=target.target_id,
+        index_digest=sha256_file(index_path),
+        platform_results=tuple(results[name] for name in sorted(results)),
+        labels=dict(sorted(labels.items())),
+        smoke_result="not-run",
+    )
+
+
+def verify_no_secret_leakage(layout: Path, secret_files: Mapping[str, Path]) -> None:
+    needles: set[bytes] = set()
+    for path in secret_files.values():
+        if not path.is_file() or path.is_symlink() or path.stat().st_mode & 0o077:
+            raise OciBuildError("secret_permissions_invalid")
+        value = path.read_bytes()
+        needles.add(value)
+        needles.add(hashlib.sha256(value).hexdigest().encode())
+    if not needles:
+        return
+    for file in layout.rglob("*"):
+        if file.is_file() and not file.is_symlink():
+            content = file.read_bytes()
+            if any(needle and needle in content for needle in needles):
+                raise OciBuildError("secret_leakage")
+
+
+def _buildah_base(root: Path, driver: str) -> list[str]:
+    return [
+        "buildah", "--storage-driver", driver,
+        "--root", str(root / "storage"), "--runroot", str(root / "runroot"),
+    ]
+
+
+def verify_builder_runtime() -> None:
+    for tool in ("buildah", "skopeo", "podman"):
+        if shutil.which(tool) is None:
+            raise OciBuildError("builder_unavailable")
+    for tool in ("docker", "dockerd"):
+        if shutil.which(tool) is not None:
+            raise OciBuildError("forbidden_engine_present")
+    for socket in (Path("/var/run/docker.sock"), Path("/run/docker.sock")):
+        if socket.exists():
+            raise OciBuildError("forbidden_socket_present")
+    for tool in ("buildah", "skopeo", "podman"):
+        run([tool, "--version"], capture=True)
+
+
+def build_target(
+    plan: OciBuildPlan,
+    target: OciTarget,
+    staged_root: Path,
+    root: Path,
+    labels: Mapping[str, str],
+    epoch: int,
+    secret_files: Mapping[str, Path],
+) -> tuple[OciTargetResult, str]:
+    base = _buildah_base(root, plan.storage_driver)
+    token = hashlib.sha256(f"{plan.admitted_sha}:{target.target_id}".encode()).hexdigest()[:16]
+    manifest = f"ciw-{target.target_id}-{token}"
+    run([*base, "manifest", "create", manifest])
+    state_file = root / "manifests.json"
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    current = [] if not state_file.exists() else json.loads(state_file.read_text())
+    current.append(manifest)
+    state_file.write_text(json.dumps(current, sort_keys=True) + "\n")
+    context = staged_root if target.context_path == "." else staged_root / target.context_path
+    dockerfile = staged_root / target.dockerfile_path
+    for platform in target.platforms:
+        argv = [
+            *base, "bud", "--pull=never", "--layers=false", "--no-cache",
+            "--platform", platform, "--manifest", manifest,
+            "--timestamp", str(epoch), "--file", str(dockerfile),
+        ]
+        if target.target_stage:
+            argv.extend(["--target", target.target_stage])
+        for key, value in sorted(target.fixed_build_args.items()):
+            argv.extend(["--build-arg", f"{key}={value}"])
+        for key, value in sorted(labels.items()):
+            argv.extend(["--label", f"{key}={value}"])
+        for secret_id in target.secret_mount_ids:
+            path = secret_files.get(secret_id)
+            if path is None:
+                raise OciBuildError("secret_mount_missing")
+            argv.extend(["--secret", f"id={secret_id},src={path}"])
+        argv.append(str(context))
+        run(argv, cwd=staged_root)
+    layout = root / "layouts" / target.target_id
+    layout.parent.mkdir(parents=True, exist_ok=True)
+    run([*base, "manifest", "push", "--all", manifest, f"oci:{layout}:validation"])
+    result = inspect_layout(layout, target, labels)
+    verify_no_secret_leakage(layout, secret_files)
+    smoke = "skipped"
+    if target.smoke_script:
+        script = staged_root / target.smoke_script
+        env = {
+            **os.environ,
+            "OCI_LAYOUT": str(layout),
+            "OCI_INDEX_DIGEST": result.index_digest,
+            "OCI_TARGET_ID": target.target_id,
+            "OCI_SOURCE_SHA": plan.admitted_sha,
+            "OCI_REQUIRED_FILES_JSON": json.dumps(list(target.required_files), separators=(",", ":")),
+            "OCI_REQUIRED_TOOLS_JSON": json.dumps(list(target.required_tools), separators=(",", ":")),
+            "OCI_FORBIDDEN_TOOLS_JSON": json.dumps(list(target.forbidden_tools), separators=(",", ":")),
+        }
+        try:
+            run(["/bin/bash", str(script)], cwd=staged_root, capture=True, env=env)
+        except (OSError, subprocess.CalledProcessError) as error:
+            raise OciBuildError("smoke_failed") from error
+        smoke = "passed"
+    return replace(result, smoke_result=smoke), manifest
+
+
+def execute_plan(
+    repository_root: Path,
+    source_root: Path,
+    plan: OciBuildPlan,
+    environment: Mapping[str, str],
+    secret_files: Mapping[str, Path] | None = None,
+) -> OciBuildResult:
+    if plan.builder_id != "buildah-v1":
+        raise OciBuildError("invalid_contract")
+    assert_clean_source(source_root, plan.admitted_sha)
+    verify_builder_runtime()
+    root = state_root(environment)
+    if root.exists() or root.is_symlink():
+        raise OciBuildError("residue_detected")
+    root.mkdir(parents=True, mode=0o700)
+    contract = load_contract(repository_root)
+    epoch = source_date_epoch(source_root)
+    secrets = dict(secret_files or {})
+    results: list[OciTargetResult] = []
+    for target in plan.targets:
+        staged = stage_context(source_root, target, root / "staged" / target.target_id)
+        labels = metadata_labels(contract, plan, target, epoch)
+        result, _ = build_target(plan, target, staged, root, labels, epoch, secrets)
+        results.append(result)
+    assert_clean_source(source_root, plan.admitted_sha)
+    evidence_payload = {
+        "api": "oci.build",
+        "version": "1.0.0",
+        "source": plan.admitted_sha,
+        "product": plan.product_id,
+        "release_version": plan.release_version,
+        "targets": [row.to_dict() for row in results],
+        "flux": {
+            "canary_id": plan.canary_id,
+            "previous_known_good": plan.previous_known_good,
+            "rollback_id": plan.rollback_id,
+        },
+    }
+    evidence_id = hashlib.sha256(json.dumps(evidence_payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    result = OciBuildResult(
+        product_id=plan.product_id,
+        admitted_sha=plan.admitted_sha,
+        release_version=plan.release_version,
+        source_date_epoch=epoch,
+        targets=tuple(results),
+        clean_tree=True,
+        cleanup_result="not-run",
+        evidence_id=evidence_id,
+        canary_id=plan.canary_id,
+        previous_known_good=plan.previous_known_good,
+        rollback_id=plan.rollback_id,
+    )
+    (root / "result.json").write_text(json.dumps(result.output_values(), sort_keys=True) + "\n")
+    return result
+
+
+def cleanup(environment: Mapping[str, str], storage_driver: str = "vfs") -> None:
+    root = state_root(environment)
+    if not root.exists() and not root.is_symlink():
+        return
+    failures = False
+    state_file = root / "manifests.json"
+    manifests: list[str] = []
+    if state_file.exists():
+        try:
+            value = json.loads(state_file.read_text(encoding="utf-8"))
+            if isinstance(value, list) and all(isinstance(item, str) for item in value):
+                manifests = value
+            else:
+                failures = True
+        except (OSError, json.JSONDecodeError):
+            failures = True
+    base = _buildah_base(root, storage_driver)
+    if shutil.which("buildah"):
+        for manifest in reversed(manifests):
+            result = subprocess.run([*base, "manifest", "rm", manifest], text=True, capture_output=True)
+            if result.returncode != 0 and "no such" not in result.stderr.lower():
+                failures = True
+        subprocess.run([*base, "rm", "--all"], text=True, capture_output=True)
+        subprocess.run([*base, "rmi", "--all", "--force"], text=True, capture_output=True)
+    try:
+        if root.is_symlink():
+            root.unlink()
+        else:
+            shutil.rmtree(root)
+    except OSError:
+        failures = True
+    if failures:
+        raise OciBuildError("cleanup_failed")
+
+
+def residue(environment: Mapping[str, str]) -> None:
+    root = state_root(environment)
+    if root.exists() or root.is_symlink():
+        raise OciBuildError("residue_detected")
