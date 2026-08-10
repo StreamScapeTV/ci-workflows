@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["replicaCount", "image", "message"],
+  "properties": {
+    "replicaCount": {"type": "integer", "minimum": 1},
+    "image": {
+      "type": "object",
+      "required": ["repository", "tag"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "tag": {"type": "string", "pattern": "^sha-[0-9a-f]{40}$"}
+      },
+      "additionalProperties": false
+    },
+    "message": {"type": "string", "minLength": 1},
+    "fixtureLib": {"type": "object"}
+  },
+  "additionalProperties": false
+}
