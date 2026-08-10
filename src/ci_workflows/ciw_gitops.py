@@ -127,11 +127,7 @@ def _run(
 ) -> dict[str, str]:
     contract = gitops_validation.load_gitops_contract(root)
     request = gitops_validation.request_from_environment(environment, contract)
-    state_root = (
-        None
-        if command == "plan"
-        else _resolved_state_root(root, environment)
-    )
+    state_root = None if command == "plan" else _resolved_state_root(root, environment)
     if command == "cleanup":
         assert state_root is not None
         gitops_validation.cleanup_gitops_state(state_root)
@@ -206,10 +202,7 @@ def execute_gitops_validate(
             except NameError:
                 _write_outputs(_failure_outputs(context.environment, error.code), path)
             else:
-                writer(
-                    Path(path),
-                    _failure_outputs(context.environment, error.code),
-                )
+                writer(Path(path), _failure_outputs(context.environment, error.code))
         raise
 
 
