@@ -84,12 +84,12 @@ class GeneralLinuxSelfCheckTest(unittest.TestCase):
         self.assertLess(
             source.index("Admit trusted workflow source"),
             source.index(
-                "Verify pre-provisioned general-Linux CPython 3.12.13"
+                "Verify pre-provisioned general-Linux CPython 3.12"
             ),
         )
         self.assertLess(
             source.index(
-                "Verify pre-provisioned general-Linux CPython 3.12.13"
+                "Verify pre-provisioned general-Linux CPython 3.12"
             ),
             source.index("Check out exact source"),
         )
@@ -179,7 +179,7 @@ class GeneralLinuxSelfCheckTest(unittest.TestCase):
     def test_exact_linux_host_identity_mutations_are_rejected(self) -> None:
         original = workflow_source()
         mutations = (
-            ('"${version}" == "3.12.13"', '"${version}" == "3.12.12"'),
+            ('"${version}" == 3.12.*', '"${version}" == 3.11.*'),
             (
                 '"${implementation}" == "cpython"',
                 '"${implementation}" == "pypy"',
@@ -193,6 +193,27 @@ class GeneralLinuxSelfCheckTest(unittest.TestCase):
                 self.assertNotEqual(original, mutated)
                 with self.assertRaises(SystemExit):
                     validate_mutation(mutated)
+
+    def test_portable_runtime_uses_minor_contract_and_locked_dependencies(
+        self,
+    ) -> None:
+        source = workflow_source()
+        self.assertIn('[[ "${version}" == 3.12.* ]]', source)
+        self.assertNotIn('[[ "${version}" == "3.12.13" ]]', source)
+        self.assertIn(
+            '"${VERIFIED_PYTHON}" scripts/ci/bootstrap_validation_runtime.py',
+            source,
+        )
+
+    def test_absolute_interpreter_is_exported_before_identity_rejection(
+        self,
+    ) -> None:
+        source = workflow_source()
+        export = source.index("VERIFIED_PYTHON=%s")
+        identity = source.index('[[ "${implementation}" == "cpython" ]]')
+        checkout = source.index("Check out exact source")
+        self.assertLess(export, identity)
+        self.assertLess(identity, checkout)
 
     def test_relative_or_unverified_interpreter_is_rejected(self) -> None:
         original = workflow_source()
