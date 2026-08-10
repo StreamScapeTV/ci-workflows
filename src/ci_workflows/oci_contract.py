@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
@@ -293,7 +294,7 @@ def metadata_labels(contract: Mapping[str, Any], plan: OciBuildPlan, target: Oci
     meta = product["metadata"]
     return {
         "dev.streamscape.product": target.target_id,
-        "org.opencontainers.image.created": str(epoch),
+        "org.opencontainers.image.created": datetime.fromtimestamp(epoch, timezone.utc).isoformat().replace("+00:00", "Z"),
         "org.opencontainers.image.description": meta["description"],
         "org.opencontainers.image.licenses": meta["licenses"],
         "org.opencontainers.image.revision": plan.admitted_sha,
