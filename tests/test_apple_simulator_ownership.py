@@ -93,30 +93,32 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
         return temporary, root, sha
 
     def plan(self, sha: str = "a" * 40):
-        request = apple.AppleValidationRequest(
-            repository="StreamScapeTV/ci-workflows",
-            admitted_sha=sha,
-            consumer_contract="ciw-apple-smoke",
-            validation_profile=AppleProfile.IOS_SIMULATOR,
-            source_trust="trusted-pr",
+        return build_plan(
+            self.contract,
+            apple.AppleValidationRequest(
+                repository="StreamScapeTV/ci-workflows",
+                admitted_sha=sha,
+                consumer_contract="ciw-apple-smoke",
+                validation_profile=AppleProfile.IOS_SIMULATOR,
+                source_trust="trusted-pr",
+            ),
         )
-        return build_plan(self.contract, request)
 
-    @staticmethod
-    def environment(root: Path) -> tuple[dict[str, str], Path]:
-        workspace = root / "runner-workspace"
+    def host_environment(
+        self,
+    ) -> tuple[tempfile.TemporaryDirectory[str], dict[str, str], Path]:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        workspace = Path(temporary.name) / "runner-workspace"
         workspace.mkdir()
-        return {"RUNNER_WORKSPACE": str(workspace)}, workspace
+        return temporary, {"RUNNER_WORKSPACE": str(workspace)}, workspace
 
     @staticmethod
     def write_registry(workspace: Path, rows: list[dict[str, str]]) -> None:
         root = workspace / _OWNERSHIP_DIRECTORY
         root.mkdir(exist_ok=True)
         (root / _OWNERSHIP_REGISTRY).write_text(
-            json.dumps(
-                {"schema_version": 1, "owners": rows},
-                sort_keys=True,
-            ),
+            json.dumps({"schema_version": 1, "owners": rows}, sort_keys=True),
             encoding="utf-8",
         )
 
@@ -135,8 +137,9 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
     def test_force_cancellation_recovers_only_exact_owned_simulator(self) -> None:
         temporary, source, sha = self.make_repo()
         self.addCleanup(temporary.cleanup)
-        environment, runner_workspace = self.environment(source.parent)
-        sentinel = runner_workspace / "outside-sentinel.txt"
+        _, environment, workspace = self.host_environment()
+        state_root = Path(environment["RUNNER_WORKSPACE"]).parent
+        sentinel = workspace / "outside-sentinel.txt"
         sentinel.write_text("keep\n", encoding="utf-8")
         unrelated = {
             "name": "Personal Unrelated Simulator",
@@ -149,83 +152,62 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
         }
         runner = CancellationRunner(devices=[unrelated])
         plan = self.plan(sha)
-        first_state = source.parent / "first-state"
-        second_state = source.parent / "second-state"
 
         with self.assertRaises(ForcedCancellation):
             execute_apple_plan(
                 plan=plan,
                 source_root=source,
-                state_root=first_state,
+                state_root=state_root / "first-state",
                 runner=runner,
                 environment=environment,
             )
 
-        expected_name = _simulator_device_name(plan, first_state)
-        self.assertTrue(
-            any(row.get("name") == expected_name for row in runner.devices)
-        )
-        registry = json.loads(
-            (
-                runner_workspace
-                / _OWNERSHIP_DIRECTORY
-                / _OWNERSHIP_REGISTRY
-            ).read_text(encoding="utf-8")
-        )
+        expected_name = _simulator_device_name(plan)
+        self.assertTrue(any(row.get("name") == expected_name for row in runner.devices))
+        registry_path = workspace / _OWNERSHIP_DIRECTORY / _OWNERSHIP_REGISTRY
+        registry = json.loads(registry_path.read_text(encoding="utf-8"))
         self.assertEqual(registry["owners"][0]["status"], "pending-create")
 
         runner.cancel_after_create = False
         result = execute_apple_plan(
             plan=plan,
             source_root=source,
-            state_root=second_state,
+            state_root=state_root / "second-state",
             runner=runner,
             environment=environment,
         )
 
         self.assertEqual(result.status, "success")
-        self.assertEqual(
-            _simulator_device_name(plan, first_state),
-            _simulator_device_name(plan, second_state),
-        )
         self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep\n")
-        self.assertTrue(
-            any(row.get("udid") == SECOND_UDID for row in runner.devices)
-        )
-        self.assertFalse(
-            any(row.get("name") == expected_name for row in runner.devices)
-        )
+        self.assertTrue(any(row.get("udid") == SECOND_UDID for row in runner.devices))
+        self.assertFalse(any(row.get("name") == expected_name for row in runner.devices))
         self.assertGreaterEqual(
             runner.calls.count(("xcrun", "simctl", "delete", GOOD_UDID)),
             2,
         )
-        final_registry = json.loads(
-            (
-                runner_workspace
-                / _OWNERSHIP_DIRECTORY
-                / _OWNERSHIP_REGISTRY
-            ).read_text(encoding="utf-8")
+        self.assertEqual(
+            json.loads(registry_path.read_text(encoding="utf-8"))["owners"],
+            [],
         )
-        self.assertEqual(final_registry["owners"], [])
 
     def test_runner_local_lock_contention_fails_closed(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            environment, _ = self.environment(root)
-            state = root / "state"
-            state.mkdir()
-            with _simulator_ownership(environment, state):
-                with self.assertRaises(apple.AppleValidationError) as captured:
-                    with _simulator_ownership(environment, state):
-                        pass
-            self.assertEqual(captured.exception.code, "simulator_ownership_locked")
+        _, environment, workspace = self.host_environment()
+        state = workspace.parent / "state"
+        state.mkdir()
+        with _simulator_ownership(environment, state):
+            with self.assertRaises(apple.AppleValidationError) as captured:
+                with _simulator_ownership(environment, state):
+                    pass
+        self.assertEqual(captured.exception.code, "simulator_ownership_locked")
 
     def test_registry_root_and_file_symlinks_are_rejected_without_following(self) -> None:
         for target_kind in ("root", "registry", "lock"):
             with self.subTest(target_kind=target_kind):
                 with tempfile.TemporaryDirectory() as directory:
                     base = Path(directory)
-                    environment, workspace = self.environment(base)
+                    workspace = base / "runner-workspace"
+                    workspace.mkdir()
+                    environment = {"RUNNER_WORKSPACE": str(workspace)}
                     outside = base / "outside"
                     outside.mkdir()
                     state = base / "state"
@@ -254,7 +236,7 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
                         },
                     )
                     outside_value = outside / target_kind
-                    if outside_value.exists() and outside_value.is_file():
+                    if outside_value.is_file():
                         self.assertEqual(
                             outside_value.read_text(encoding="utf-8"),
                             "outside\n",
@@ -275,30 +257,19 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
                     state,
                 ):
                     pass
-            self.assertEqual(
-                captured.exception.code,
-                "simulator_ownership_invalid",
-            )
+            self.assertEqual(captured.exception.code, "simulator_ownership_invalid")
 
     def test_corrupted_registry_fails_closed(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            environment, workspace = self.environment(root)
-            ownership_root = workspace / _OWNERSHIP_DIRECTORY
-            ownership_root.mkdir()
-            (ownership_root / _OWNERSHIP_REGISTRY).write_text(
-                "{not-json",
-                encoding="utf-8",
-            )
-            state = root / "state"
-            state.mkdir()
-            with self.assertRaises(apple.AppleValidationError) as captured:
-                with _simulator_ownership(environment, state):
-                    pass
-            self.assertEqual(
-                captured.exception.code,
-                "simulator_ownership_corrupt",
-            )
+        _, environment, workspace = self.host_environment()
+        root = workspace / _OWNERSHIP_DIRECTORY
+        root.mkdir()
+        (root / _OWNERSHIP_REGISTRY).write_text("{not-json", encoding="utf-8")
+        state = workspace.parent / "state"
+        state.mkdir()
+        with self.assertRaises(apple.AppleValidationError) as captured:
+            with _simulator_ownership(environment, state):
+                pass
+        self.assertEqual(captured.exception.code, "simulator_ownership_corrupt")
 
     def test_stale_runtime_or_device_identity_is_rejected(self) -> None:
         for field, value in (
@@ -309,44 +280,39 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
             ),
         ):
             with self.subTest(field=field):
-                with tempfile.TemporaryDirectory() as directory:
-                    root = Path(directory)
-                    environment, workspace = self.environment(root)
-                    state = root / "state"
-                    state.mkdir()
-                    source = root / "source"
-                    source.mkdir()
-                    plan = self.plan()
-                    row = _ownership_record(plan, status="pending-create")
-                    row[field] = value
-                    self.write_registry(workspace, [row])
-                    with _simulator_ownership(environment, state) as ownership:
-                        with self.assertRaises(
-                            apple.AppleValidationError
-                        ) as captured:
-                            select_simulator(
-                                plan,
-                                source,
-                                state,
-                                FakeRunner(),
-                                environment,
-                                ownership=ownership,
-                            )
-                    self.assertEqual(
-                        captured.exception.code,
-                        "simulator_ownership_identity_mismatch",
-                    )
+                _, environment, workspace = self.host_environment()
+                state = workspace.parent / f"state-{field}"
+                state.mkdir()
+                source = workspace.parent / f"source-{field}"
+                source.mkdir()
+                plan = self.plan()
+                row = _ownership_record(plan, status="pending-create")
+                row[field] = value
+                self.write_registry(workspace, [row])
+                with _simulator_ownership(environment, state) as ownership:
+                    with self.assertRaises(apple.AppleValidationError) as captured:
+                        select_simulator(
+                            plan,
+                            source,
+                            state,
+                            FakeRunner(),
+                            environment,
+                            ownership=ownership,
+                        )
+                self.assertEqual(
+                    captured.exception.code,
+                    "simulator_ownership_identity_mismatch",
+                )
 
     def test_cleanup_failure_preserves_primary_failure_with_host_registry(self) -> None:
         temporary, source, sha = self.make_repo()
         self.addCleanup(temporary.cleanup)
-        environment, _ = self.environment(source.parent)
-        plan = self.plan(sha)
+        _, environment, workspace = self.host_environment()
         with self.assertRaises(apple.AppleValidationError) as captured:
             execute_apple_plan(
-                plan=plan,
+                plan=self.plan(sha),
                 source_root=source,
-                state_root=source.parent / "primary-and-cleanup",
+                state_root=workspace.parent / "primary-and-cleanup",
                 runner=FakeRunner(
                     fail_token="AppleValidationSmoke.xcodeproj",
                     retain_deleted_device=True,
