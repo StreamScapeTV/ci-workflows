@@ -7,6 +7,10 @@
   "publication": false,
   "registry_credentials": false,
   "artifact_policy": "zero-default",
+  "allowed_source_trust": [
+    "trusted-exact",
+    "trusted-pr"
+  ],
   "storage_driver": "vfs",
   "required_metadata_labels": [
     "dev.streamscape.product",
