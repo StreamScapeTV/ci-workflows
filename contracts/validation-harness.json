@@ -45,14 +45,6 @@
         "stable-check-drift",
         "public-api-doc-drift"
       ]
-    },
-    {
-      "path": ".github/workflows/self-check.yml",
-      "issue": 60,
-      "reason": "Owner-directed emergency macOS execution for the canonical self-check while portable ARC recovery remains open in Flux #268; remove in a later bounded change after portable service recovery.",
-      "rules": [
-        "unknown-runner-profile"
-      ]
     }
   ]
 }

@@ -68,6 +68,11 @@ Linux class. New direct selectors should use `general`; central reusable
 workflows may continue to use the semantic profile `portable` until the resolver
 and all consumers complete their migration.
 
+The repository Central self-check uses the semantic `portable` contract. It
+verifies its pre-provisioned Linux runtime before checkout and does not install,
+elevate, or persist a host runtime. The former emergency macOS exception is
+retired and must not be restored or copied into another validation workflow.
+
 ### Android and mobile labels
 
 The mobile class currently advertises these independent lowercase capabilities:
@@ -252,11 +257,6 @@ from becoming unschedulable during migration. They include:
 The presence of a compatibility alias in the GitHub runner UI does not make it
 the preferred contract. New work uses semantic central APIs or the independent
 capability selectors documented here.
-
-The historical emergency central self-check exception may still use a verified
-organization-managed Mac until its separate cleanup change is merged. Do not
-copy that exception into other validation workflows; ordinary validation belongs
-on general Linux capacity now that ARC scheduling is restored.
 
 ## Mandatory rules
 

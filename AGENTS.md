@@ -38,11 +38,10 @@ This private repository owns reusable GitHub Actions orchestration for supported
 ## Runner and central self-check boundary
 
 - Semantic runner intent remains authoritative. Ordinary Python, policy, source-admission, and GitOps validation use the `portable` capability; consumers do not select concrete runner labels or hosts.
-- Issue #60 is complete. While Flux #268 tracks recovery of portable ARC scheduling, the repository's central self-check has one owner-authorized temporary exception that runs only that merge gate on organization-managed macOS capacity.
-- The exception does not reclassify ordinary validation as Apple work and does not change the public runner-profile contract or generated mappings.
-- The central self-check verifies an exact pre-provisioned host CPython runtime before checkout and does not install or elevate a runtime on the persistent host.
-- The exception grants no signing, provisioning, simulator, physical-device, notarization, store, registry, Kubernetes, production, or Agent State credential or authority.
-- Remove the temporary macOS exception through a later bounded reviewed change after Flux #268 proves portable ARC recovery.
+- Issue #94 restored the repository Central self-check to the reviewed semantic `portable` general Linux capacity after the current runner inventory proved ARC recovery.
+- The Central self-check rejects fork source and verifies an absolute pre-provisioned CPython 3.12 Linux runtime before checkout. It installs or elevates no host runtime, applies the repository’s digest-locked validation dependency bootstrap, and uses the verified absolute interpreter for every later Python command.
+- General Linux validation grants no signing, provisioning, simulator, physical-device, notarization, store, registry, Kubernetes, production, or Agent State credential or authority.
+- Do not restore the retired emergency macOS exception or copy it into another workflow. Apple-specific work continues to use the separately reviewed `apple` capacity.
 
 ## Security, artifacts, and cleanup
 

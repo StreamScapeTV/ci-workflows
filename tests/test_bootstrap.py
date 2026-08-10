@@ -62,13 +62,13 @@ class BootstrapContractTests(unittest.TestCase):
         )
         self.assertNotIn("actions/setup-python@", source)
 
-    def test_self_check_uses_bounded_emergency_macos_contract(self) -> None:
+    def test_self_check_uses_general_linux_portable_contract(self) -> None:
         source = (ROOT / ".github/workflows/self-check.yml").read_text()
         harness = json.loads(
             (ROOT / "contracts/validation-harness.json").read_text()
         )
-        self.assertEqual(source.count("runs-on: macOS"), 1)
-        self.assertNotIn("runs-on: portable", source)
+        self.assertEqual(source.count("runs-on: portable"), 1)
+        self.assertNotIn("runs-on: macOS", source)
         self.assertEqual(
             harness["allowed_runner_profiles"],
             ["portable"],
@@ -78,12 +78,7 @@ class BootstrapContractTests(unittest.TestCase):
             for item in harness["exceptions"]
             if item["path"] == ".github/workflows/self-check.yml"
         ]
-        self.assertEqual(1, len(exception))
-        self.assertEqual(60, exception[0]["issue"])
-        self.assertEqual(
-            ["unknown-runner-profile"],
-            exception[0]["rules"],
-        )
+        self.assertEqual([], exception)
 
     def test_self_check_rejects_obsolete_concrete_selector(self) -> None:
         source = (ROOT / ".github/workflows/self-check.yml").read_text()
