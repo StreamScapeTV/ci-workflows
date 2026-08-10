@@ -1,0 +1,180 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from ci_workflows import oci_execution_safe as safe  # noqa: E402
+from ci_workflows.oci_types import (  # noqa: E402
+    OciBuildPlan,
+    OciBuildResult,
+    OciTarget,
+    OciTargetResult,
+)
+
+SHA = "a" * 40
+
+
+def target(smoke: str | None = "ci/verify.sh") -> OciTarget:
+    return OciTarget(
+        target_id="fixture",
+        context_path=".",
+        dockerfile_path="Containerfile",
+        target_stage=None,
+        platforms=("linux/amd64",),
+        smoke_script=smoke,
+        required_user=None,
+        required_entrypoint=(),
+        required_command=(),
+        required_ports=(),
+        required_files=("/hello",),
+        required_tools=(),
+        forbidden_tools=("docker",),
+        fixed_build_args={},
+        secret_mount_ids=(),
+    )
+
+
+def plan(source_trust: str = "trusted-exact") -> OciBuildPlan:
+    return OciBuildPlan(
+        repository="StreamScapeTV/ci-workflows",
+        admitted_sha=SHA,
+        product_id="fixture-product",
+        release_version="1.0.0",
+        source_trust=source_trust,
+        runner_profile="buildah-tiny",
+        runs_on=("linux", "amd64", "buildah", "tiny"),
+        workspace_profile="minimal",
+        timeout_minutes=30,
+        builder_id="buildah-v1",
+        storage_driver="vfs",
+        targets=(target(),),
+        flux_asset=False,
+        canary_id=None,
+        previous_known_good=None,
+        rollback_id=None,
+        adoption_ready=True,
+    )
+
+
+class OciExecutionSecurityTests(unittest.TestCase):
+    def test_isolated_smoke_uses_networkless_capability_dropped_container(self) -> None:
+        commands: list[list[str]] = []
+
+        def fake_run(argv, **kwargs):
+            commands.append(list(argv))
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(
+            safe.base, "run", side_effect=fake_run
+        ), mock.patch.object(
+            safe.subprocess,
+            "run",
+            return_value=subprocess.CompletedProcess([], 0, "", ""),
+        ):
+            script = Path(temp) / "verify.sh"
+            script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            result = safe._run_isolated_smoke(Path(temp), plan(), target(), script)
+        self.assertEqual("isolated-script-passed", result)
+        joined = "\n".join(" ".join(command) for command in commands)
+        self.assertIn("run --network none --cap-drop all", joined)
+        self.assertIn("--security-opt no-new-privileges", joined)
+        self.assertIn("copy", joined)
+        self.assertNotIn(f"/bin/bash {script}", joined)
+
+    def test_execute_masks_consumer_script_before_base_builder(self) -> None:
+        captured: list[OciBuildPlan] = []
+        original = plan()
+        base_result = OciBuildResult(
+            product_id=original.product_id,
+            admitted_sha=SHA,
+            release_version="1.0.0",
+            source_date_epoch=1,
+            targets=(OciTargetResult("fixture", "sha256:" + "b" * 64, (), {}, "not-run"),),
+            clean_tree=True,
+            cleanup_result="not-run",
+            evidence_id="c" * 64,
+            canary_id=None,
+            previous_known_good=None,
+            rollback_id=None,
+        )
+
+        def fake_execute(repository_root, source_root, received, environment, secret_files):
+            captured.append(received)
+            safe.base.state_root(environment).mkdir(parents=True)
+            return base_result
+
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(
+            safe.base, "execute_plan", side_effect=fake_execute
+        ), mock.patch.object(
+            safe, "_assert_target_filesystem"
+        ), mock.patch.object(
+            safe, "_run_isolated_smoke", return_value="isolated-script-passed"
+        ) as isolated:
+            result = safe.execute_plan(
+                ROOT,
+                Path(temp),
+                original,
+                {"RUNNER_TEMP": temp, "GITHUB_RUN_ID": "1", "GITHUB_RUN_ATTEMPT": "1"},
+            )
+        self.assertIsNone(captured[0].targets[0].smoke_script)
+        isolated.assert_called_once()
+        self.assertEqual("isolated-script-passed", result.targets[0].smoke_result)
+
+    def test_trusted_pr_defers_consumer_script_but_keeps_central_inspection(self) -> None:
+        original = plan("trusted-pr")
+        base_result = OciBuildResult(
+            product_id=original.product_id,
+            admitted_sha=SHA,
+            release_version="1.0.0",
+            source_date_epoch=1,
+            targets=(OciTargetResult("fixture", "sha256:" + "d" * 64, (), {}, "not-run"),),
+            clean_tree=True,
+            cleanup_result="not-run",
+            evidence_id="e" * 64,
+            canary_id=None,
+            previous_known_good=None,
+            rollback_id=None,
+        )
+
+        def fake_execute(repository_root, source_root, received, environment, secret_files):
+            safe.base.state_root(environment).mkdir(parents=True)
+            return base_result
+
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(
+            safe.base, "execute_plan", side_effect=fake_execute
+        ), mock.patch.object(
+            safe, "_assert_target_filesystem"
+        ) as asserted, mock.patch.object(
+            safe, "_run_isolated_smoke"
+        ) as isolated:
+            result = safe.execute_plan(
+                ROOT,
+                Path(temp),
+                original,
+                {"RUNNER_TEMP": temp, "GITHUB_RUN_ID": "2", "GITHUB_RUN_ATTEMPT": "1"},
+            )
+        asserted.assert_called_once()
+        isolated.assert_not_called()
+        self.assertEqual("inspection-passed-script-deferred", result.targets[0].smoke_result)
+
+    def test_security_adapter_contains_no_direct_host_script_execution(self) -> None:
+        source = (ROOT / "src/ci_workflows/oci_execution_safe.py").read_text()
+        self.assertNotIn('["/bin/bash", str(script)]', source)
+        self.assertIn('"--network",', source)
+        self.assertIn('"none",', source)
+        self.assertIn('"--cap-drop",', source)
+        self.assertIn('"all",', source)
+        self.assertIn('"no-new-privileges",', source)
+        self.assertIn("smoke_script=None", source)
+
+
+if __name__ == "__main__":
+    unittest.main()
