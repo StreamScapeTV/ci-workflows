@@ -141,6 +141,24 @@ class OciBuildTests(unittest.TestCase):
                 with self.assertRaisesRegex(OciBuildError, "forbidden_input"):
                     request_from_mapping({**base, field: "attacker"}, {"GITHUB_EVENT_NAME": "push"})
 
+    def test_fork_source_cannot_reach_privileged_buildah_capacity(self) -> None:
+        event = Path(self._testMethodName + "-event.json")
+        try:
+            event.write_text(json.dumps({"pull_request": {"head": {"repo": {"full_name": "attacker/fork"}}}}))
+            request = request_from_mapping(
+                {"repository": "StreamScapeTV/ci-workflows", "admitted_sha": SHA, "product_id": "ciw-oci-smoke"},
+                {
+                    "GITHUB_EVENT_NAME": "pull_request",
+                    "GITHUB_EVENT_PATH": str(event),
+                    "GITHUB_REPOSITORY": "StreamScapeTV/ci-workflows",
+                },
+            )
+            self.assertEqual("untrusted-fork", request.source_trust)
+            with self.assertRaisesRegex(OciBuildError, "unsupported_consumer"):
+                resolve_plan(ROOT, request)
+        finally:
+            event.unlink(missing_ok=True)
+
     def test_unsupported_consumers_and_web_mobile_apple_products_fail_closed(self) -> None:
         for repository, product in (
             ("StreamScapeTV/StreamScapeWeb", "streamscape-web-image"),
