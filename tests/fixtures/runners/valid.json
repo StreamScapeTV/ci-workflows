@@ -9,7 +9,9 @@
       "expected_profile": "portable",
       "expected_execution_profile": "portable",
       "expected_runs_on": [
-        "homelab-portable-linux-x64"
+        "linux",
+        "amd64",
+        "general"
       ]
     },
     {
@@ -20,7 +22,9 @@
       "expected_profile": "mobile",
       "expected_execution_profile": "mobile",
       "expected_runs_on": [
-        "homelab-mobile-linux-x64"
+        "linux",
+        "amd64",
+        "mobile"
       ]
     },
     {
@@ -31,7 +35,10 @@
       "expected_profile": "buildah-tiny",
       "expected_execution_profile": "buildah-tiny",
       "expected_runs_on": [
-        "homelab-buildah-tiny-linux-x64"
+        "linux",
+        "amd64",
+        "buildah",
+        "tiny"
       ]
     },
     {
@@ -42,7 +49,10 @@
       "expected_profile": "buildah-small",
       "expected_execution_profile": "buildah-small",
       "expected_runs_on": [
-        "homelab-buildah-small-linux-x64"
+        "linux",
+        "amd64",
+        "buildah",
+        "small"
       ]
     },
     {
@@ -53,7 +63,10 @@
       "expected_profile": "buildah-medium",
       "expected_execution_profile": "buildah-medium",
       "expected_runs_on": [
-        "homelab-buildah-medium-linux-x64"
+        "linux",
+        "amd64",
+        "buildah",
+        "medium"
       ]
     },
     {
@@ -64,7 +77,10 @@
       "expected_profile": "buildah-high",
       "expected_execution_profile": "buildah-high",
       "expected_runs_on": [
-        "homelab-buildah-high-linux-x64"
+        "linux",
+        "amd64",
+        "buildah",
+        "high"
       ]
     },
     {
@@ -108,7 +124,9 @@
       "expected_profile": "flux-control",
       "expected_execution_profile": "flux-control",
       "expected_runs_on": [
-        "homelab-flux-control-plane-linux-x64"
+        "linux",
+        "amd64",
+        "flux-control"
       ]
     }
   ]

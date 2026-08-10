@@ -118,9 +118,52 @@ class RunnerContractTests(unittest.TestCase):
         self.assertNotIn("docker", aliases)
         self.assertNotIn("dind", aliases)
 
-    def test_generic_buildah_maps_only_to_small(self) -> None:
-        self.assertEqual(runners.profile_alias_index(self.contract)["buildah"], "buildah-small")
-        self.assertEqual(runners.validate_direct_selector(self.contract, ["buildah"]), "buildah-small")
+    def test_generic_buildah_semantic_profile_maps_only_to_small(self) -> None:
+        self.assertEqual(
+            runners.profile_alias_index(self.contract)["buildah"],
+            "buildah-small",
+        )
+        resolved = runners.resolve_runner_profile(
+            self.contract,
+            workflow_api="oci.build",
+            source_trust="trusted-exact",
+            requested_profile="buildah",
+        )
+        self.assertEqual(resolved.profile, "buildah-small")
+        self.assertEqual(
+            resolved.runs_on,
+            ("linux", "amd64", "buildah", "small"),
+        )
+        with self.assertRaisesRegex(
+            runners.RunnerContractError,
+            "ambiguous-buildah",
+        ):
+            runners.validate_direct_selector(self.contract, ["buildah"])
+
+    def test_linux_arc_selectors_match_the_hard_cutover(self) -> None:
+        expected = {
+            profile_id: [list(selector) for selector in selectors]
+            for profile_id, selectors in runners.FINAL_LINUX_ARC_SELECTORS.items()
+        }
+        for profile_id, selectors in expected.items():
+            with self.subTest(profile=profile_id):
+                profile = self.profiles[profile_id]
+                self.assertEqual(profile["internal_selectors"], selectors)
+                self.assertEqual(
+                    profile["default_internal_selector"],
+                    selectors[0],
+                )
+                flattened = {
+                    label
+                    for selector in selectors
+                    for label in selector
+                }
+                self.assertFalse(
+                    flattened & runners.RETIRED_LINUX_SELECTOR_TOKENS
+                )
+                self.assertFalse(
+                    any(label.startswith("homelab-") for label in flattened)
+                )
 
     def test_buildah_tier_selection_uses_measured_headroom(self) -> None:
         mib = 1024**2
@@ -236,7 +279,14 @@ class RunnerContractTests(unittest.TestCase):
         self.assertNotIn("homelab-", source)
         self.assertNotIn("docker-capable-validation", source)
         self.assertIn("Never use bare `self-hosted`", source)
-        self.assertIn("Generic `buildah` maps only to `buildah-small`", source)
+        self.assertIn(
+            "Semantic profile IDs are not GitHub runner labels",
+            source,
+        )
+        self.assertIn(
+            "No deprecated Linux ARC scheduling alias remains registered",
+            source,
+        )
         self.assertIn("physical-device", source)
 
     def test_architecture_records_planner_and_flux_boundary(self) -> None:
