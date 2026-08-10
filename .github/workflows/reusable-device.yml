@@ -4,20 +4,20 @@ on:
   workflow_call:
     inputs:
       admitted_sha:
-        description: Exact lowercase source SHA admitted by source.resolve
+        description: Exact lowercase source SHA admitted by current source admission
         required: true
         type: string
       device_family:
-        description: Bounded Android, iOS, or tvOS physical-device family
+        description: Bounded Android, iOS, or tvOS family
         required: true
         type: string
       device_capability:
         description: Reviewed capability selected by the checked-in profile
         required: true
         type: string
-      device_identifier:
-        description: Optional exact identifier only when the selected profile permits it
-        required: false
+      device_alias:
+        description: Bounded opaque alias resolved to host inventory only after admission
+        required: true
         type: string
       command_profile:
         description: Reviewed product-owned command-profile identifier
@@ -42,11 +42,11 @@ on:
         type: string
     secrets:
       live_test_credentials:
-        description: Optional fixed live-test secret contract; never a production credential
+        description: Optional fixed non-production test secret contract
         required: false
     outputs:
       result:
-        description: Success only after authorized physical execution and terminal cleanup
+        description: Success only after explicitly authorized physical execution and cleanup
         value: ${{ jobs.device.outputs.result }}
       device_evidence_id:
         description: Deterministic redacted evidence packet digest
@@ -63,19 +63,19 @@ permissions:
 
 jobs:
   plan:
-    name: Resolve bounded physical-device validation plan
+    name: Derive bounded device plan from current GitHub source admission
     runs-on: portable
     timeout-minutes: 10
     outputs:
+      admitted_sha: ${{ steps.plan.outputs.admitted_sha }}
       request_id: ${{ steps.plan.outputs.request_id }}
-      runner_profile: ${{ steps.plan.outputs.runner_profile }}
-      base_runner_profile: ${{ steps.plan.outputs.base_runner_profile }}
       runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
       workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
-      timeout_minutes: ${{ steps.plan.outputs.timeout_minutes }}
-      source_trust: ${{ steps.plan.outputs.source_trust }}
       execution_authorized: ${{ steps.plan.outputs.execution_authorized }}
-      lock_backend: ${{ steps.plan.outputs.lock_backend }}
+      authorization_failure: ${{ steps.plan.outputs.authorization_failure }}
+      concurrency_group: ${{ steps.plan.outputs.concurrency_group }}
+      validated_plan: ${{ steps.plan.outputs.validated_plan }}
+      validated_plan_sha256: ${{ steps.plan.outputs.validated_plan_sha256 }}
     steps:
       - name: Check out exact central workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -94,10 +94,14 @@ jobs:
           EXPECTED_SHA: ${{ github.workflow_sha }}
         run: |
           set -Eeuo pipefail
-          (cd .ciw && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+            test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          )
 
       - id: plan
-        name: Resolve contract-owned physical-device plan
+        name: Resolve contract-owned typed device plan
         uses: ./.ciw/actions/validate-device
         env:
           CIW_DEVICE_LIVE_BACKEND_PRESENT: ${{ secrets.live_test_credentials != '' && 'true' || 'false' }}
@@ -106,20 +110,36 @@ jobs:
           admitted_sha: ${{ inputs.admitted_sha }}
           device_family: ${{ inputs.device_family }}
           device_capability: ${{ inputs.device_capability }}
-          device_identifier: ${{ inputs.device_identifier }}
+          device_alias: ${{ inputs.device_alias }}
           command_profile: ${{ inputs.command_profile }}
           script_path: ${{ inputs.script_path }}
           max_duration_minutes: ${{ inputs.max_duration_minutes }}
           evidence_exception_id: ${{ inputs.evidence_exception_id }}
           request_id: ${{ inputs.request_id }}
-          source_trust: trusted-exact
+
+      - name: Remove exact central workflow source without following links
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ -L .ciw || -f .ciw ]]; then
+            unlink .ciw
+          elif [[ -d .ciw ]]; then
+            PYTHONDONTWRITEBYTECODE=1 \
+              python3 .ciw/scripts/ci/device.py cleanup-checkout --source-root .ciw
+          fi
+          test ! -e .ciw
+          test ! -L .ciw
 
   device:
-    name: Execute authorized physical-device validation
+    name: Execute explicitly authorized physical-device validation
     needs: plan
     if: ${{ needs.plan.outputs.execution_authorized == 'true' }}
     runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
     timeout-minutes: 240
+    concurrency:
+      group: ${{ needs.plan.outputs.concurrency_group }}
+      cancel-in-progress: false
     outputs:
       result: ${{ steps.execute.outputs.result }}
       device_evidence_id: ${{ steps.execute.outputs.device_evidence_id }}
@@ -136,25 +156,27 @@ jobs:
           persist-credentials: false
           set-safe-directory: false
 
-      - name: Clear fixed admitted source checkout root
+      - name: Clear fixed admitted-source checkout root without following links
         shell: bash
         run: |
           set -Eeuo pipefail
-          rm -rf source
+          PYTHONDONTWRITEBYTECODE=1 \
+            python3 .ciw/scripts/ci/device.py cleanup-checkout --source-root source
           test ! -e source
+          test ! -L source
 
       - name: Check out exact admitted caller source
         uses: ./.ciw/actions/exact-checkout
         with:
           repository: ${{ github.repository }}
-          admitted_sha: ${{ inputs.admitted_sha }}
+          admitted_sha: ${{ needs.plan.outputs.admitted_sha }}
           path: source
           fetch_depth: "1"
 
-      - name: Verify exact admitted caller source
+      - name: Revalidate exact admitted caller source in executor
         shell: bash
         env:
-          EXPECTED_SHA: ${{ inputs.admitted_sha }}
+          EXPECTED_SHA: ${{ needs.plan.outputs.admitted_sha }}
         run: |
           set -Eeuo pipefail
           (
@@ -169,67 +191,63 @@ jobs:
         with:
           profile: ${{ needs.plan.outputs.workspace_profile }}
           cache_mode: disabled
-          source_sha: ${{ inputs.admitted_sha }}
+          source_sha: ${{ needs.plan.outputs.admitted_sha }}
           trust_mode: trusted-exact
 
       - id: execute
-        name: Execute accepted lock-fenced device profile
+        name: Execute only the exact typed plan emitted by the planner
         uses: ./.ciw/actions/validate-device
         env:
           CIW_DEVICE_LIVE_BACKEND_PRESENT: ${{ secrets.live_test_credentials != '' && 'true' || 'false' }}
         with:
           phase: execute
-          admitted_sha: ${{ inputs.admitted_sha }}
-          device_family: ${{ inputs.device_family }}
-          device_capability: ${{ inputs.device_capability }}
-          device_identifier: ${{ inputs.device_identifier }}
-          command_profile: ${{ inputs.command_profile }}
-          script_path: ${{ inputs.script_path }}
-          max_duration_minutes: ${{ inputs.max_duration_minutes }}
-          evidence_exception_id: ${{ inputs.evidence_exception_id }}
-          request_id: ${{ inputs.request_id }}
-          source_trust: trusted-exact
+          admitted_sha: ${{ needs.plan.outputs.admitted_sha }}
+          validated_plan: ${{ needs.plan.outputs.validated_plan }}
+          validated_plan_sha256: ${{ needs.plan.outputs.validated_plan_sha256 }}
+          source_root: source
 
       - name: Remove physical-device-specific state
         if: always()
         uses: ./.ciw/actions/validate-device
         with:
           phase: cleanup
-          admitted_sha: ${{ inputs.admitted_sha }}
-          device_family: ${{ inputs.device_family }}
-          device_capability: ${{ inputs.device_capability }}
-          device_identifier: ${{ inputs.device_identifier }}
-          command_profile: ${{ inputs.command_profile }}
-          script_path: ${{ inputs.script_path }}
-          max_duration_minutes: ${{ inputs.max_duration_minutes }}
-          evidence_exception_id: ${{ inputs.evidence_exception_id }}
-          request_id: ${{ inputs.request_id }}
-          source_trust: trusted-exact
+          admitted_sha: ${{ needs.plan.outputs.admitted_sha }}
+          validated_plan: ${{ needs.plan.outputs.validated_plan }}
+          validated_plan_sha256: ${{ needs.plan.outputs.validated_plan_sha256 }}
 
       - name: Verify zero physical-device-specific residue
         if: always()
         uses: ./.ciw/actions/validate-device
         with:
           phase: residue
-          admitted_sha: ${{ inputs.admitted_sha }}
-          device_family: ${{ inputs.device_family }}
-          device_capability: ${{ inputs.device_capability }}
-          device_identifier: ${{ inputs.device_identifier }}
-          command_profile: ${{ inputs.command_profile }}
-          script_path: ${{ inputs.script_path }}
-          max_duration_minutes: ${{ inputs.max_duration_minutes }}
-          evidence_exception_id: ${{ inputs.evidence_exception_id }}
-          request_id: ${{ inputs.request_id }}
-          source_trust: trusted-exact
+          admitted_sha: ${{ needs.plan.outputs.admitted_sha }}
+          validated_plan: ${{ needs.plan.outputs.validated_plan }}
+          validated_plan_sha256: ${{ needs.plan.outputs.validated_plan_sha256 }}
 
-      - name: Remove exact admitted source checkout
+      - name: Remove exact admitted source without following links
         if: always()
         shell: bash
         run: |
           set -Eeuo pipefail
-          rm -rf source
+          PYTHONDONTWRITEBYTECODE=1 \
+            python3 .ciw/scripts/ci/device.py cleanup-checkout --source-root source
           test ! -e source
+          test ! -L source
 
       - name: Remove and verify all registered workflow state
         if: always()
         uses: ./.ciw/actions/cleanup-workspace
+
+      - name: Remove exact central workflow source without following links
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ -L .ciw || -f .ciw ]]; then
+            unlink .ciw
+          elif [[ -d .ciw ]]; then
+            PYTHONDONTWRITEBYTECODE=1 \
+              python3 .ciw/scripts/ci/device.py cleanup-checkout --source-root .ciw
+          fi
+          test ! -e .ciw
+          test ! -L .ciw

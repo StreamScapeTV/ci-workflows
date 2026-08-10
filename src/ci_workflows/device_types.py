@@ -1,6 +1,7 @@
-"""Typed models and stable failures for physical-device validation."""
+"""Typed models and stable failures for bounded physical-device validation."""
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -11,7 +12,7 @@ _SAFE_CODE = re.compile(r"^[a-z][a-z0-9_]{2,95}$")
 
 
 class DeviceValidationError(RuntimeError):
-    """Fail-closed validation error carrying one stable public code."""
+    """Fail closed with one stable, non-sensitive public error code."""
 
     def __init__(self, code: str) -> None:
         if _SAFE_CODE.fullmatch(code) is None:
@@ -26,19 +27,13 @@ class DeviceFamily(str, Enum):
     TVOS = "tvos"
 
 
-class SerialPolicy(str, Enum):
-    FORBIDDEN = "forbidden"
-    CONTRACT_OWNED = "contract-owned"
-    EXACT_CALLER = "exact-caller"
-
-
 @dataclass(frozen=True, slots=True)
 class DeviceRequest:
     repository: str
     admitted_sha: str
     family: DeviceFamily
     capability: str
-    device_identifier: str | None
+    device_alias: str
     command_profile: str
     script_path: str
     max_duration_minutes: int
@@ -72,7 +67,7 @@ class DeviceProfile:
     capabilities: tuple[str, ...]
     models: tuple[str, ...]
     version_policy: Mapping[str, object]
-    serial_policy: SerialPolicy
+    aliases: Mapping[str, str]
     selection_policy: str
     base_runner_profile: str
     workspace_profile: str
@@ -80,7 +75,7 @@ class DeviceProfile:
     timeout_minutes: int
     artifact_exception_ids: tuple[str, ...]
     live_backend_profiles: tuple[str, ...]
-    execution_allowed: bool
+    synthetic_only: bool
     connection_states: tuple[str, ...]
     health_states: tuple[str, ...]
 
@@ -124,28 +119,65 @@ class SelectedDevice:
 class DevicePlan:
     request: DeviceRequest
     profile: DeviceProfile
+    alias_class: str
     execution_authorized: bool
-    lock_backend: str
+    authorization_failure: str
     planner_runner_profile: str
     execution_overlay_profile: str
+    serialization_backend: str
+    concurrency_group: str
 
-    def planning_outputs(
-        self,
-        *,
-        runs_on_json: str,
-    ) -> dict[str, str]:
-        summary = json.dumps(
+    def packet(self, *, runs_on_json: str) -> dict[str, object]:
+        """Return the complete bounded plan passed from planner to executor."""
+
+        return {
+            "packet_version": "device-plan/1",
+            "repository": self.request.repository,
+            "admitted_sha": self.request.admitted_sha,
+            "source_trust": self.request.source_trust,
+            "event_name": self.request.event_name,
+            "run_id": self.request.run_id,
+            "request_id": self.request.request_id,
+            "issue_number": self.request.issue_number,
+            "device_family": self.request.family.value,
+            "device_capability": self.request.capability,
+            "device_alias": self.request.device_alias,
+            "alias_class": self.alias_class,
+            "device_profile": self.profile.profile_id,
+            "command_profile": self.profile.command_profile.profile_id,
+            "script_path": self.request.script_path,
+            "max_duration_minutes": min(
+                self.request.max_duration_minutes, self.profile.timeout_minutes
+            ),
+            "evidence_exception_id": self.request.evidence_exception_id or "",
+            "planner_runner_profile": self.planner_runner_profile,
+            "execution_overlay_profile": self.execution_overlay_profile,
+            "base_runner_profile": self.profile.base_runner_profile,
+            "runs_on_json": runs_on_json,
+            "workspace_profile": self.profile.workspace_profile,
+            "serialization_backend": self.serialization_backend,
+            "concurrency_group": self.concurrency_group,
+            "cancel_in_progress": False,
+            "execution_authorized": self.execution_authorized,
+            "authorization_failure": self.authorization_failure,
+        }
+
+    def planning_outputs(self, *, runs_on_json: str) -> dict[str, str]:
+        packet = self.packet(runs_on_json=runs_on_json)
+        canonical = canonical_json(packet)
+        packet_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        summary = canonical_json(
             {
-                "capability": self.request.capability,
+                "alias_class": self.alias_class,
                 "device_family": self.request.family.value,
                 "device_profile": self.profile.profile_id,
+                "execution_authorized": self.execution_authorized,
                 "status": "planned",
-            },
-            sort_keys=True,
-            separators=(",", ":"),
+            }
         )
         return {
             "result": "planned",
+            "admitted_sha": self.request.admitted_sha,
             "request_id": self.request.request_id,
             "test_summary": summary,
             "device_evidence_id": "",
@@ -154,12 +186,14 @@ class DevicePlan:
             "base_runner_profile": self.profile.base_runner_profile,
             "runs_on_json": runs_on_json,
             "workspace_profile": self.profile.workspace_profile,
-            "timeout_minutes": str(
-                min(self.request.max_duration_minutes, self.profile.timeout_minutes)
-            ),
-            "source_trust": self.request.source_trust,
+            "timeout_minutes": str(packet["max_duration_minutes"]),
+            "derived_source_trust": self.request.source_trust,
             "execution_authorized": str(self.execution_authorized).lower(),
-            "lock_backend": self.lock_backend,
+            "authorization_failure": self.authorization_failure,
+            "concurrency_group": self.concurrency_group,
+            "cancel_in_progress": "false",
+            "validated_plan": canonical,
+            "validated_plan_sha256": packet_hash,
             "failure_code": "",
             "cleanup_result": "not-run",
         }
@@ -210,16 +244,18 @@ class DeviceResult:
             "selected_device_hash": self.selected_device_hash,
             "cleanup_result": self.cleanup_result,
             "failure_code": self.failure_code,
-            "test_summary": json.dumps(
+            "test_summary": canonical_json(
                 {
                     "cleanup": self.cleanup_result,
                     "result": self.result,
                     "selected_device_hash": self.selected_device_hash,
-                },
-                sort_keys=True,
-                separators=(",", ":"),
+                }
             ),
         }
+
+
+def canonical_json(value: object) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
 
 def stable_failure(code: str) -> DeviceValidationError:

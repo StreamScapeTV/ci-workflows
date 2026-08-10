@@ -1,5 +1,5 @@
 name: Validate exact physical-device request
-description: Plan, synthetically validate, clean, or execute one reviewed physical-device profile
+description: Derive, plan, synthetically validate, or fail closed for one reviewed device profile
 
 inputs:
   phase:
@@ -8,25 +8,30 @@ inputs:
     default: plan
   admitted_sha:
     description: Exact admitted lowercase source SHA
-    required: true
+    required: false
+    default: ""
   device_family:
-    description: Android, iOS, or tvOS physical-device family
-    required: true
+    description: Android, iOS, or tvOS family
+    required: false
+    default: ""
   device_capability:
-    description: Reviewed bounded capability selected by contract
-    required: true
-  device_identifier:
-    description: Optional exact identifier only when the selected contract permits it
+    description: Reviewed bounded capability
+    required: false
+    default: ""
+  device_alias:
+    description: Opaque contract alias resolved on the trusted host
     required: false
     default: ""
   command_profile:
     description: Reviewed command-profile identifier
-    required: true
+    required: false
+    default: ""
   script_path:
     description: Exact contract-matching checked-in test script
-    required: true
+    required: false
+    default: ""
   max_duration_minutes:
-    description: Bounded duration not exceeding the profile limit
+    description: Bounded duration
     required: false
     default: "60"
   evidence_exception_id:
@@ -35,11 +40,20 @@ inputs:
     default: ""
   request_id:
     description: Exact issue-scoped request identity
-    required: true
-  source_trust:
-    description: Internal admitted source trust
     required: false
     default: ""
+  validated_plan:
+    description: Internal canonical typed plan emitted by the planner
+    required: false
+    default: ""
+  validated_plan_sha256:
+    description: Internal canonical typed-plan digest
+    required: false
+    default: ""
+  source_root:
+    description: Fixed internal exact checkout root
+    required: false
+    default: source
   inventory_fixture:
     description: Internal synthetic inventory fixture used only by contract smoke
     required: false
@@ -52,6 +66,8 @@ inputs:
 outputs:
   result:
     value: ${{ steps.device.outputs.result }}
+  admitted_sha:
+    value: ${{ steps.device.outputs.admitted_sha }}
   request_id:
     value: ${{ steps.device.outputs.request_id }}
   device_evidence_id:
@@ -70,12 +86,20 @@ outputs:
     value: ${{ steps.device.outputs.workspace_profile }}
   timeout_minutes:
     value: ${{ steps.device.outputs.timeout_minutes }}
-  source_trust:
-    value: ${{ steps.device.outputs.source_trust }}
+  derived_source_trust:
+    value: ${{ steps.device.outputs.derived_source_trust }}
   execution_authorized:
     value: ${{ steps.device.outputs.execution_authorized }}
-  lock_backend:
-    value: ${{ steps.device.outputs.lock_backend }}
+  authorization_failure:
+    value: ${{ steps.device.outputs.authorization_failure }}
+  concurrency_group:
+    value: ${{ steps.device.outputs.concurrency_group }}
+  cancel_in_progress:
+    value: ${{ steps.device.outputs.cancel_in_progress }}
+  validated_plan:
+    value: ${{ steps.device.outputs.validated_plan }}
+  validated_plan_sha256:
+    value: ${{ steps.device.outputs.validated_plan_sha256 }}
   test_summary:
     value: ${{ steps.device.outputs.test_summary }}
   cleanup_result:
@@ -94,19 +118,24 @@ runs:
         INPUT_ADMITTED_SHA: ${{ inputs.admitted_sha }}
         INPUT_DEVICE_FAMILY: ${{ inputs.device_family }}
         INPUT_DEVICE_CAPABILITY: ${{ inputs.device_capability }}
-        INPUT_DEVICE_IDENTIFIER: ${{ inputs.device_identifier }}
+        INPUT_DEVICE_ALIAS: ${{ inputs.device_alias }}
         INPUT_COMMAND_PROFILE: ${{ inputs.command_profile }}
         INPUT_SCRIPT_PATH: ${{ inputs.script_path }}
         INPUT_MAX_DURATION_MINUTES: ${{ inputs.max_duration_minutes }}
         INPUT_EVIDENCE_EXCEPTION_ID: ${{ inputs.evidence_exception_id }}
         INPUT_REQUEST_ID: ${{ inputs.request_id }}
-        INPUT_SOURCE_TRUST: ${{ inputs.source_trust }}
+        INPUT_VALIDATED_PLAN: ${{ inputs.validated_plan }}
+        INPUT_VALIDATED_PLAN_SHA256: ${{ inputs.validated_plan_sha256 }}
         CIW_DEVICE_SYNTHETIC_MODE: ${{ inputs.synthetic_mode }}
+        CIW_DEVICE_EVENT_REPOSITORY: ${{ github.event.repository.full_name || github.repository }}
+        CIW_DEVICE_EVENT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        CIW_DEVICE_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+        CIW_DEVICE_HEAD_FORK: ${{ github.event.pull_request.head.repo.fork && 'true' || 'false' }}
       run: |
         set -Eeuo pipefail
         arguments=(
           "${{ inputs.phase }}"
-          --source-root source
+          --source-root "${{ inputs.source_root }}"
         )
         if [[ -n "${{ inputs.inventory_fixture }}" ]]; then
           arguments+=(--inventory-fixture "${{ inputs.inventory_fixture }}")

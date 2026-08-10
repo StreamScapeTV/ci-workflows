@@ -10,6 +10,7 @@ from .device_contract import (
     load_evidence_contract,
     request_from_environment,
     source_trust_from_environment,
+    validate_typed_plan,
 )
 from .device_execution import (
     DeviceLockAdapter,
@@ -17,6 +18,7 @@ from .device_execution import (
     InMemoryDeviceLockAdapter,
     SyntheticDeviceRuntime,
     assert_zero_device_residue,
+    cleanup_checkout_path,
     cleanup_device_state,
     execute_device_plan,
     parse_android_inventory,
@@ -25,6 +27,7 @@ from .device_execution import (
     select_device,
     stable_identity_hash,
     validate_evidence_packet,
+    validate_exact_checkout,
 )
 from .device_types import (
     DeviceFamily,
@@ -38,46 +41,21 @@ from .device_types import (
     SelectedDevice,
 )
 
-__all__ = [
-    "DeviceFamily",
-    "DeviceLockAdapter",
-    "DevicePlan",
-    "DeviceProfile",
-    "DeviceRecord",
-    "DeviceRequest",
-    "DeviceResult",
-    "DeviceRuntime",
-    "DeviceValidationError",
-    "InMemoryDeviceLockAdapter",
-    "LockReceipt",
-    "SelectedDevice",
-    "SyntheticDeviceRuntime",
-    "assert_zero_device_residue",
-    "build_plan",
-    "cleanup_device_state",
-    "execute_device_plan",
-    "load_device_contract",
-    "load_evidence_contract",
-    "parse_android_inventory",
-    "parse_apple_inventory",
-    "parse_inventory",
-    "plan_from_environment",
-    "request_from_environment",
-    "select_device",
-    "source_trust_from_environment",
-    "stable_identity_hash",
+__all__ = [name for name in globals() if name.startswith("Device") or name in {
+    "InMemoryDeviceLockAdapter", "SyntheticDeviceRuntime", "LockReceipt",
+    "SelectedDevice", "build_plan", "load_device_contract", "load_evidence_contract",
+    "request_from_environment", "source_trust_from_environment", "validate_typed_plan",
+    "assert_zero_device_residue", "cleanup_checkout_path", "cleanup_device_state",
+    "execute_device_plan", "parse_android_inventory", "parse_apple_inventory",
+    "parse_inventory", "select_device", "stable_identity_hash",
+    "validate_evidence_packet", "validate_exact_checkout", "plan_from_environment",
     "synthetic_validate",
-    "validate_evidence_packet",
-]
+}]
 
 
-def plan_from_environment(
-    contract_root: Path,
-    environment: Mapping[str, str],
-) -> DevicePlan:
+def plan_from_environment(contract_root: Path, environment: Mapping[str, str]) -> DevicePlan:
     contract = load_device_contract(contract_root)
-    request = request_from_environment(environment, contract)
-    return build_plan(contract, request)
+    return build_plan(contract, request_from_environment(environment, contract))
 
 
 def synthetic_validate(
@@ -89,9 +67,8 @@ def synthetic_validate(
 ) -> DeviceResult:
     contract = load_device_contract(contract_root)
     evidence = load_evidence_contract(contract_root)
-    request = request_from_environment(environment, contract)
-    plan = build_plan(contract, request)
-    records = parse_inventory(request.family, inventory_text)
+    plan = build_plan(contract, request_from_environment(environment, contract))
+    records = parse_inventory(plan.request.family, inventory_text)
     values = iter(now_values)
     return execute_device_plan(
         plan=plan,

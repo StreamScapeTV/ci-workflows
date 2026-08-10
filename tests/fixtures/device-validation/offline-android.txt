@@ -1,1 +1,0 @@
-serial-android-offline	state=offline	model=phone	api=35	connection=usb	capabilities=media3,mpv,vlc,full-device	personal=false	conflict=false

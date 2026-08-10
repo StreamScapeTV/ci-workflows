@@ -1,2 +1,2 @@
-serial-android-alpha	state=device	model=phone	api=35	connection=usb	capabilities=media3,mpv,vlc,full-device	personal=false	conflict=false
-serial-android-beta	state=device	model=phone	api=35	connection=usb	capabilities=media3,mpv,vlc,full-device	personal=false	conflict=false
+SYNTHETIC-ANDROID-C	online	model=synthetic-phone	api=37	connection=usb	capabilities=synthetic-android	personal=false	conflict=false
+SYNTHETIC-ANDROID-D	online	model=synthetic-tablet	api=36	connection=usb	capabilities=synthetic-android	personal=false	conflict=false

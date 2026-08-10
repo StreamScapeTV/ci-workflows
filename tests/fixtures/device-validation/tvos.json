@@ -1,18 +1,1 @@
-{
-  "devices": [
-    {
-      "capabilities": [
-        "synthetic-tvos",
-        "video"
-      ],
-      "conflict": false,
-      "connection": "paired",
-      "family": "tvos",
-      "identifier": "SYNTHETIC-TVOS-001",
-      "model": "synthetic-apple-tv",
-      "os_version": "26.5",
-      "personal": false,
-      "state": "online"
-    }
-  ]
-}
+{"devices":[{"capabilities":["synthetic-tvos","video"],"conflict":false,"connection":"paired","family":"tvos","identifier":"SYNTHETIC-TVOS-001","model":"synthetic-apple-tv","os_version":"26.5","personal":false,"state":"online"}]}

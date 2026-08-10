@@ -12,6 +12,5 @@ if str(SRC) not in sys.path:
 
 from ci_workflows.ciw_device import main  # noqa: E402
 
-
 if __name__ == "__main__":
     raise SystemExit(main(["--root", str(ROOT), *sys.argv[1:]]))
