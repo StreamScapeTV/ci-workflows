@@ -16,7 +16,6 @@ from .android_types import AndroidValidationError, AndroidValidationPlan, Androi
 _MAJOR = re.compile(r'(?:openjdk version |java version |javac )?"?([0-9]+)')
 _GRADLE = re.compile(r'(?m)^Gradle\s+([0-9]+\.[0-9]+\.[0-9]+)\s*$')
 _SECRET = re.compile(r'(?i)(token|password|authorization|secret|keystore)\s*[:=]\s*\S+')
-CMDLINE_REVISION = "19.0"
 SYNTHETIC_SMOKE_TASK = ":verifyToolchainSmoke"
 
 
@@ -176,6 +175,19 @@ def _major(output: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def _has_installed_package(listing: str, package: str) -> bool:
+    """Match a reviewed installed-package identity without weakening package checks."""
+    identities = (
+        (package, "platforms;android-37.0")
+        if package == "platforms;android-37"
+        else (package,)
+    )
+    return any(
+        re.search(rf'(?m)^\s*{re.escape(identity)}\s*\|', listing) is not None
+        for identity in identities
+    )
+
+
 def _isolated_runtime_directories(state: Path) -> dict[str, Path]:
     require(state.is_absolute(), "invalid_input")
     base = state / "android-validation"
@@ -198,6 +210,10 @@ def verify_toolchain(
     inherited: Mapping[str, str],
 ) -> tuple[int, int]:
     directories = _isolated_runtime_directories(state)
+    toolchain = contract.get("toolchain")
+    require(isinstance(toolchain, Mapping), "toolchain_mismatch")
+    expected_cmdline_revision = toolchain.get("command_line_tools_version")
+    require(isinstance(expected_cmdline_revision, str), "toolchain_mismatch")
     sdk_value = inherited.get("ANDROID_SDK_ROOT") or inherited.get("ANDROID_HOME")
     require(bool(sdk_value), "sdk_package_missing")
     sdk = Path(str(sdk_value)).resolve()
@@ -252,13 +268,13 @@ def verify_toolchain(
         state_root=state,
         stage="sdkmanager-version",
     ).stdout.strip()
-    require(version == CMDLINE_REVISION, "toolchain_mismatch")
+    require(version == expected_cmdline_revision, "toolchain_mismatch")
     require(
         _properties(
             sdk / "cmdline-tools/latest/source.properties",
             "sdk_package_missing",
         ).get("Pkg.Revision")
-        == CMDLINE_REVISION,
+        == expected_cmdline_revision,
         "toolchain_mismatch",
     )
     listing = run_command(
@@ -270,11 +286,8 @@ def verify_toolchain(
         state_root=state,
         stage="sdk-packages",
     ).stdout
-    for package in contract["toolchain"]["packages"]:
-        require(
-            re.search(rf'(?m)^\s*{re.escape(package)}\s*\|', listing) is not None,
-            "sdk_package_missing",
-        )
+    for package in toolchain["packages"]:
+        require(_has_installed_package(listing, package), "sdk_package_missing")
     require((sdk / "platforms/android-37/android.jar").is_file(), "sdk_package_missing")
     build = sdk / "build-tools/37.0.0"
     require((build / "aapt2").is_file(), "sdk_package_missing")

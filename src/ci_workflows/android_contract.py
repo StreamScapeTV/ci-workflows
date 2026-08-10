@@ -169,7 +169,7 @@ def load_android_contract(root: Path) -> Mapping[str, Any]:
     require(contract.get("hard_timeout_minutes") == 120 and contract.get("cache_mode") == "disabled" and contract.get("artifact_policy") == "zero-default", "invalid_input")
     toolchain = contract.get("toolchain")
     require(isinstance(toolchain, Mapping), "toolchain_mismatch")
-    require((toolchain.get("java_major"), toolchain.get("javac_major"), toolchain.get("android_api"), toolchain.get("command_line_tools_version"), toolchain.get("build_tools_version"), toolchain.get("locale"), toolchain.get("gradle_daemon")) == (25, 25, 37, "14742923", "37.0.0", "C.UTF-8", False), "toolchain_mismatch")
+    require((toolchain.get("java_major"), toolchain.get("javac_major"), toolchain.get("android_api"), toolchain.get("command_line_tools_version"), toolchain.get("build_tools_version"), toolchain.get("locale"), toolchain.get("gradle_daemon")) == (25, 25, 37, "22.0", "37.0.0", "C.UTF-8", False), "toolchain_mismatch")
     require(strings(toolchain.get("packages"), nonempty=True) == ["platform-tools", "platforms;android-37", "build-tools;37.0.0"], "sdk_package_missing")
     profiles = contract.get("profiles")
     require(isinstance(profiles, Mapping) and set(profiles) == PROFILES, "unsupported_profile")

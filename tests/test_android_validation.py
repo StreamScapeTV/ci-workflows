@@ -35,7 +35,7 @@ class AndroidValidationContractTests(unittest.TestCase):
         self.assertEqual(contract["toolchain"]["java_major"], 25)
         self.assertEqual(contract["toolchain"]["javac_major"], 25)
         self.assertEqual(contract["toolchain"]["android_api"], 37)
-        self.assertEqual(contract["toolchain"]["command_line_tools_version"], "14742923")
+        self.assertEqual(contract["toolchain"]["command_line_tools_version"], "22.0")
         self.assertEqual(contract["toolchain"]["build_tools_version"], "37.0.0")
         self.assertEqual(
             set(contract["profiles"]),
@@ -198,7 +198,7 @@ class AndroidValidationContractTests(unittest.TestCase):
             manager.write_text("#!/bin/sh\n", encoding="utf-8")
             manager.chmod(0o700)
             (sdk / "cmdline-tools/latest/source.properties").write_text(
-                "Pkg.Revision=19.0\n", encoding="utf-8"
+                "Pkg.Revision=22.0\n", encoding="utf-8"
             )
             platform = sdk / "platforms/android-37"
             platform.mkdir(parents=True)
@@ -220,13 +220,13 @@ class AndroidValidationContractTests(unittest.TestCase):
                 if name == "javac":
                     return subprocess.CompletedProcess(argv, 0, "javac 25\n", "")
                 if argv[-1] == "--version":
-                    return subprocess.CompletedProcess(argv, 0, "19.0\n", "")
+                    return subprocess.CompletedProcess(argv, 0, "22.0\n", "")
                 return subprocess.CompletedProcess(
                     argv,
                     0,
                     (
                         "platform-tools | 36\n"
-                        "platforms;android-37 | 1\n"
+                        "platforms;android-37.0 | 1\n"
                         "build-tools;37.0.0 | 37.0.0\n"
                     ),
                     "",
@@ -264,6 +264,41 @@ class AndroidValidationContractTests(unittest.TestCase):
                 self.assertNotEqual(environment["TMPDIR"], str(outside_tmp))
             for name in ("home", "gradle-home", "android-home", "tmp"):
                 self.assertTrue((expected / name).is_dir())
+
+            def wrong_sdkmanager(argv, **kwargs):
+                if argv[-1] == "--version":
+                    return subprocess.CompletedProcess(argv, 0, "22.1\n", "")
+                return runner(argv, **kwargs)
+
+            with mock.patch.object(
+                android_execution, "run_command", side_effect=wrong_sdkmanager
+            ), self.assertRaises(AndroidValidationError) as failure:
+                android_execution.verify_toolchain(
+                    source, state, plan, self.contract, inherited
+                )
+            self.assertEqual(failure.exception.code, "toolchain_mismatch")
+
+            def wrong_platform_identity(argv, **kwargs):
+                if argv[-1] == "--list_installed":
+                    return subprocess.CompletedProcess(
+                        argv,
+                        0,
+                        (
+                            "platform-tools | 36\n"
+                            "platforms;android-37.1 | 1\n"
+                            "build-tools;37.0.0 | 37.0.0\n"
+                        ),
+                        "",
+                    )
+                return runner(argv, **kwargs)
+
+            with mock.patch.object(
+                android_execution, "run_command", side_effect=wrong_platform_identity
+            ), self.assertRaises(AndroidValidationError) as failure:
+                android_execution.verify_toolchain(
+                    source, state, plan, self.contract, inherited
+                )
+            self.assertEqual(failure.exception.code, "sdk_package_missing")
 
     def test_synthetic_smoke_downloads_verified_gradle_and_executes_a_real_task(self) -> None:
         fixture = ROOT / "tests/fixtures/android-validation/smoke-project"

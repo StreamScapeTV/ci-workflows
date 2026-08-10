@@ -13,7 +13,7 @@
     "java_major": 25,
     "javac_major": 25,
     "android_api": 37,
-    "command_line_tools_version": "14742923",
+    "command_line_tools_version": "22.0",
     "packages": [
       "platform-tools",
       "platforms;android-37",

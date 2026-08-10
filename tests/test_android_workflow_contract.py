@@ -122,7 +122,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             manager = sdk / "cmdline-tools/latest/bin/sdkmanager"
             manager.parent.mkdir(parents=True)
             manager.write_text("#!/bin/sh\n", encoding="utf-8"); manager.chmod(0o700)
-            (sdk / "cmdline-tools/latest/source.properties").write_text("Pkg.Revision=19.0\n", encoding="utf-8")
+            (sdk / "cmdline-tools/latest/source.properties").write_text("Pkg.Revision=22.0\n", encoding="utf-8")
             platform = sdk / "platforms/android-37"; platform.mkdir(parents=True)
             (platform / "android.jar").write_bytes(b"jar")
             build = sdk / "build-tools/37.0.0"; build.mkdir(parents=True)
@@ -131,9 +131,9 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             outputs = {
                 "java": subprocess.CompletedProcess([], 0, "", 'openjdk version "25"\n'),
                 "javac": subprocess.CompletedProcess([], 0, "javac 25\n", ""),
-                "sdkmanager": subprocess.CompletedProcess([], 0, "19.0\n", ""),
+                "sdkmanager": subprocess.CompletedProcess([], 0, "22.0\n", ""),
                 "packages": subprocess.CompletedProcess([], 0,
-                    "platform-tools | 36\nplatforms;android-37 | 1\nbuild-tools;37.0.0 | 37.0.0\n", ""),
+                    "platform-tools | 36\nplatforms;android-37.0 | 1\nbuild-tools;37.0.0 | 37.0.0\n", ""),
             }
             def runner(argv, **_kwargs):
                 name = Path(argv[0]).name
