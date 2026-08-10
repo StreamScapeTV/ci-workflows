@@ -19,6 +19,7 @@ assert SPEC and SPEC.loader
 BOOTSTRAP = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(BOOTSTRAP)
 ORIGINAL_READ_TEXT = BOOTSTRAP.read_text
+SELECTOR_LINE = "runs-on: [linux, amd64, general]"
 
 
 def workflow_source() -> str:
@@ -113,19 +114,25 @@ class GeneralLinuxSelfCheckTest(unittest.TestCase):
                     run_admission(event, mismatch=True).returncode,
                 )
 
-    def test_central_uses_only_the_portable_general_linux_profile(self) -> None:
+    def test_central_uses_only_final_general_linux_selector(self) -> None:
         source = workflow_source()
-        self.assertEqual(1, source.count("runs-on: portable"))
+        workflow = yaml.safe_load(source)
+        self.assertEqual(
+            workflow["jobs"]["validate"]["runs-on"],
+            ["linux", "amd64", "general"],
+        )
+        self.assertEqual(1, source.count(SELECTOR_LINE))
         for forbidden in (
+            "runs-on: portable",
             "runs-on: macOS",
             "runs-on: apple",
             "macos-latest",
             "ubuntu-latest",
             "windows-latest",
             "self-hosted",
-            "mobile",
-            "buildah",
-            "flux-control",
+            "runs-on: mobile",
+            "runs-on: buildah",
+            "runs-on: flux-control",
             "ARM64",
         ):
             self.assertNotIn(forbidden, source)
@@ -133,27 +140,30 @@ class GeneralLinuxSelfCheckTest(unittest.TestCase):
     def test_selector_substitutions_are_rejected(self) -> None:
         original = workflow_source()
         substitutions = (
-            "macOS",
-            "apple",
-            "macos-latest",
-            "ubuntu-latest",
-            "windows-latest",
-            "self-hosted",
-            "${{ inputs.runner }}",
-            "mobile",
-            "buildah",
-            "buildah-tiny",
-            "buildah-small",
-            "buildah-medium",
-            "buildah-high",
-            "flux-control",
+            "runs-on: portable",
+            "runs-on: [linux]",
+            "runs-on: [linux, amd64]",
+            "runs-on: [linux, amd64, general, mobile]",
+            "runs-on: [linux, amd64, portable]",
+            "runs-on: macOS",
+            "runs-on: apple",
+            "runs-on: macos-latest",
+            "runs-on: ubuntu-latest",
+            "runs-on: windows-latest",
+            "runs-on: self-hosted",
+            "runs-on: ${{ inputs.runner }}",
+            "runs-on: mobile",
+            "runs-on: buildah",
+            "runs-on: buildah-tiny",
+            "runs-on: buildah-small",
+            "runs-on: buildah-medium",
+            "runs-on: buildah-high",
+            "runs-on: flux-control",
         )
-        for selector in substitutions:
-            with self.subTest(selector=selector):
-                mutated = original.replace(
-                    "runs-on: portable",
-                    f"runs-on: {selector}",
-                )
+        for replacement in substitutions:
+            with self.subTest(replacement=replacement):
+                mutated = original.replace(SELECTOR_LINE, replacement)
+                self.assertNotEqual(original, mutated)
                 with self.assertRaises(SystemExit):
                     validate_mutation(mutated)
 
@@ -203,6 +213,18 @@ class GeneralLinuxSelfCheckTest(unittest.TestCase):
         self.assertIn(
             '"${VERIFIED_PYTHON}" scripts/ci/bootstrap_validation_runtime.py',
             source,
+        )
+        contract = json.loads(
+            (ROOT / "contracts/runner-profiles.json").read_text()
+        )
+        portable = next(
+            profile
+            for profile in contract["profiles"]
+            if profile["id"] == "portable"
+        )
+        self.assertEqual(
+            portable["default_internal_selector"],
+            ["linux", "amd64", "general"],
         )
 
     def test_absolute_interpreter_is_exported_before_identity_rejection(
