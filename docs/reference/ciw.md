@@ -10,6 +10,7 @@ The registry is checked in, typed, and fail closed. It dispatches only to explic
 
 | Command | Named handler | Trust class | Inputs | Outputs | Side effects | Cleanup | Failure code |
 |---|---|---|---|---|---|---|---|
+| `ciw android validate` | `ci_workflows.ciw.handle_android_validate` | `read-only-validation` | `phase`, `admitted_sha`, `validation_profile`, `task_profile`, `working_directory`, `gradle_wrapper_path`, `targeted_test_selector`, `consumer_script_profile`, `private_dependency_contract_id`, `private_dependency_sha`, `artifact_exception_id`, `device_family`, `device_request_id`, `GitHub event identity` | `result`, `source_sha`, `validation_profile`, `task_profile`, `test_summary`, `resolved_java_major`, `resolved_android_api`, `gradle_version`, `private_dependency_used`, `artifact_exception_used`, `device_handoff_json`, `debug_output_verified`, `schema_verified`, `clean_tree`, `cleanup_result`, `failure_code`, `evidence_id`, `runner_profile`, `runs_on_json`, `workspace_profile`, `timeout_minutes`, `source_trust` | `resolves one contract-owned Android plan`, `runs exact JDK 25 and Android API 37 validation on semantic mobile capacity`, `uses the exact private dependency primitive when contract-selected`, `invokes only the checked-in Gradle wrapper with no daemon and isolated state`, `enforces mutation, schema, unsigned-debug, redaction, cleanup, and zero-artifact policy` | ciw workspace cleanup under if: always() | `AndroidValidationError.code` |
 | `ciw dependencies checkout-private` | `ci_workflows.ciw.handle_dependencies_checkout_private` | `exact-source` | `repository`, `admitted_sha`, `dependency_id`, `expected_subpath`, `fetch_depth`, `PRIVATE_DEPENDENCY_TOKEN` | `dependency_id`, `repository`, `head_sha`, `relative_path`, `expected_subpath`, `remotes_erased`, `credentials_erased`, `verified` | `uses merged #7 exact checkout and erases Git connection state` | immediate partial-failure cleanup and terminal workspace cleanup | `FoundationError.instruction` |
 | `ciw evidence render` | `ci_workflows.ciw.handle_evidence_render` | `shared-foundation` | `source_sha`, `workflow_release`, `runner_profile`, `toolchain_json`, `command_profile`, `result`, `cleanup_state`, `cleanup_removed_paths` | `evidence_id`, `evidence_json`, `redacted` | `writes deterministic evidence beneath registered state` | ciw workspace cleanup under if: always() | `FoundationError.instruction` |
 | `ciw node validate` | `ci_workflows.ciw.handle_node_validate` | `read-only-validation` | `phase`, `admitted_sha`, `validation_profile`, `version_file`, `node_version`, `working_directory`, `install_profile`, `command_profile`, `script_path`, `static_output_directory`, `output_verifier_path`, `public_environment`, `artifact_exception_id`, `GitHub event identity` | `result`, `node_version`, `npm_version`, `install_result`, `test_summary`, `build_result`, `output_verified`, `output_digest`, `clean_tree`, `cleanup_result`, `artifact_exception_used`, `evidence_id`, `runner_profile`, `runs_on_json`, `workspace_profile`, `timeout_minutes`, `source_trust` | `resolves one contract-owned Node plan`, `runs npm-only locked validation in copied registered state`, `verifies bounded static output without upload or deployment`, `enforces manifest, lock, source, redaction, cleanup, and zero-artifact policy` | ciw workspace cleanup under if: always() | `NodeValidationError.code` |
@@ -35,6 +36,7 @@ The registry is checked in, typed, and fail closed. It dispatches only to explic
 
 Existing entry points remain supported while delegating to the same registered commands:
 
+- `scripts/ci/android.py` → `ciw android validate`.
 - `scripts/ci/foundation.py` → `ciw workspace prepare`, `ciw workspace cleanup`, `ciw tooling verify`, `ciw tooling install-asset`, `ciw dependencies checkout-private`, `ciw policy verify-repository`, `ciw evidence render`.
 - `scripts/ci/node.py` → `ciw node validate`.
 - `scripts/ci/python.py` → `ciw python validate`.
@@ -53,4 +55,4 @@ Existing entry points remain supported while delegating to the same registered c
 
 The following namespaces are reserved but not implemented by this issue:
 
-`android`, `flutter`, `apple`, `gitops`, `oci`, `helm`, `release`, `device`, `github`.
+`flutter`, `apple`, `gitops`, `oci`, `helm`, `release`, `device`, `github`.

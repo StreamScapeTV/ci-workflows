@@ -2,6 +2,12 @@
   "schema_version": 1,
   "allowed": [
     {
+      "path": ".github/workflows/reusable-android.yml",
+      "issue": 11,
+      "status": "implemented-public-workflow",
+      "required_follow_up": []
+    },
+    {
       "path": ".github/workflows/reusable-node.yml",
       "issue": 10,
       "status": "implemented-public-workflow",

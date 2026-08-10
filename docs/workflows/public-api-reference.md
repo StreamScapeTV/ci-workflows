@@ -32,7 +32,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. D
 | `release.orchestrate` `1.0.0` | `.github/workflows/reusable-release.yml` | `planned` | `trusted-publication` | `release-orchestration` | `contract:release` | Release / Verified products | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | — |
 | `release.tag-image-chart-bootstrap` `1.2.0` | `.github/workflows/reusable-tag-image-chart.yml` | `deprecated-bootstrap-exception` | `trusted-publication` | `bootstrap-tag-publication` | `contract:oci-publish` | Release / Bootstrap image and chart | StreamScapeTV/iptv-backend | iptv-backend-image, iptv-backend-chart |
 | `source.resolve` `1.0.0` | `.github/workflows/reusable-resolve-source.yml` | `implemented` | `source-admission` | `source-read` | `portable` | Shared / Source admission | * | — |
-| `validation.android` `1.0.0` | `.github/workflows/reusable-android.yml` | `planned` | `read-only-validation` | `validation-read` | `contract:android` | CI / Android validation | StreamScapeTV/iptv-android, StreamScapeTV/streamscape-media | — |
+| `validation.android` `1.0.0` | `.github/workflows/reusable-android.yml` | `implemented` | `read-only-validation` | `validation-read` | `contract:android` | CI / Android validation | StreamScapeTV/iptv-android, StreamScapeTV/streamscape-media | — |
 | `validation.apple` `1.0.0` | `.github/workflows/reusable-apple.yml` | `planned` | `read-only-validation` | `validation-read` | `contract:apple-simulator` | CI / Apple validation | StreamScapeTV/iptv-apple, StreamScapeTV/streamscape-media | — |
 | `validation.device` `1.0.0` | `.github/workflows/reusable-device.yml` | `planned` | `physical-device-validation` | `device-validation` | `contract:physical-device` | CI / Physical device validation | StreamScapeTV/iptv-android, StreamScapeTV/iptv-apple, StreamScapeTV/streamscape-media, StreamScapeTV/finance-hub | — |
 | `validation.flutter` `1.0.0` | `.github/workflows/reusable-flutter.yml` | `planned` | `read-only-validation` | `validation-read` | `contract:flutter` | CI / Flutter validation | StreamScapeTV/directus-front, StreamScapeTV/finance-hub | — |
@@ -201,13 +201,13 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. D
 
 - Public file: `.github/workflows/reusable-android.yml`
 - Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
-- Timeout / matrix maximum: `180 minutes` / `12` jobs
+- Timeout / matrix maximum: `120 minutes` / `1` jobs
 - Maximum reusable-workflow depth: `1`
-- Inputs: `admitted_sha` (required), `validation_profile` (required), `version_file`, `working_directory` (default `.`), `command_profile` (required), `script_path`, `test_filter`, `private_dependency_repository`, `private_dependency_sha`, `private_dependency_subdirectory`, `artifact_exception_id`
+- Inputs: `admitted_sha` (required), `validation_profile` (required), `task_profile` (required), `working_directory` (default `.`), `gradle_wrapper_path` (default `gradlew`), `targeted_test_selector`, `consumer_script_profile`, `private_dependency_contract_id`, `private_dependency_sha`, `artifact_exception_id`, `device_family`, `device_request_id`
 - Secrets: `private_dependency_token`
 - Outputs: `result`, `test_summary`, `artifact_exception_used`
-- Repository-owned hooks: `command_profile`, `script_path`
-- Implementation components: `ci_workflows.android.validate`
+- Repository-owned hooks: `task_profile`, `consumer_script_profile`
+- Implementation components: `ci_workflows.android.validate`, `actions/validate-android`
 
 ### `validation.apple`
 
