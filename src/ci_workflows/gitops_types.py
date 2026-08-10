@@ -1,4 +1,4 @@
-"""Typed models for bounded source-only GitOps validation."""
+"""Typed models and stable failures for source-only GitOps validation."""
 from __future__ import annotations
 
 import json
@@ -13,11 +13,12 @@ _SAFE_CODE = re.compile(r"^[a-z][a-z0-9_]{2,95}$")
 class GitOpsValidationError(RuntimeError):
     """Fail-closed validation error carrying one stable public code."""
 
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, detail: str = "") -> None:
         if _SAFE_CODE.fullmatch(code) is None:
             raise ValueError("GitOps validation error code must be safe")
         self.code = code
-        super().__init__(code)
+        self.detail = detail[:512]
+        super().__init__(code if not self.detail else f"{code}: {self.detail}")
 
 
 class GitOpsProfile(str, Enum):
@@ -45,6 +46,15 @@ class GitOpsToolPin:
     max_bytes: int
     version_args: tuple[str, ...]
     version_pattern: str
+    allowed_hosts: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class VendoredDependency:
+    name: str
+    version: str
+    path: str
+    tree_sha256: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,8 +69,7 @@ class GitOpsTarget:
     sops_files: tuple[str, ...] = ()
     expected_render_path: str | None = None
     kubernetes_version: str | None = None
-    schema_locations: tuple[str, ...] = ()
-    dependency_archives: tuple[tuple[str, str], ...] = ()
+    vendored_dependencies: tuple[VendoredDependency, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,7 +130,7 @@ class GitOpsPlan:
         }
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, order=True)
 class ObjectIdentity:
     api_version: str
     kind: str
@@ -176,6 +185,12 @@ class GitOpsResult:
             "evidence_id": self.evidence_id,
             "failure_code": "",
         }
+
+
+def compact_json(value: object) -> str:
+    """Return the canonical compact JSON used by stable outputs."""
+
+    return _compact_json(value)
 
 
 def _compact_json(value: object) -> str:
