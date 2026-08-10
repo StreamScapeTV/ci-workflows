@@ -102,13 +102,25 @@ jobs:
             --lock contracts/action-tool-lock.json \
             --target "${validation_root}/python"
           test -f "${validation_root}/python/yaml/__init__.py"
+          VALIDATION_TARGET="${validation_root}/python" \
           PYTHONPATH="${validation_root}/python" "${VERIFIED_PYTHON}" - <<'PY'
+          import os
+          from pathlib import Path
+
+          import _yaml
           import yaml
 
+          target = Path(os.environ["VALIDATION_TARGET"]).resolve()
+          for module in (yaml, _yaml):
+              path = Path(module.__file__).resolve()
+              if target not in path.parents:
+                  raise SystemExit(
+                      f"validation module escaped locked target: {module.__name__}={path}"
+                  )
           if yaml.__version__ != "6.0.3":
               raise SystemExit(f"unexpected PyYAML version: {yaml.__version__}")
-          if yaml.__with_libyaml__:
-              raise SystemExit("validation runtime unexpectedly loaded LibYAML")
+          if not yaml.__with_libyaml__:
+              raise SystemExit("locked Linux validation wheel did not load LibYAML")
           PY
           {
             printf 'VALIDATION_ROOT=%s\n' "${validation_root}"
