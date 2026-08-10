@@ -195,12 +195,21 @@ def _validate_general_linux_runner_contract() -> None:
 
 def _validate_verified_interpreter_use(source: str) -> None:
     host_step = source.index(
-        "- name: Verify pre-provisioned general-Linux CPython 3.12.13"
+        "- name: Verify pre-provisioned general-Linux CPython 3.12"
     )
     checkout = source.index("- name: Check out exact source")
     if host_step >= checkout:
         raise SystemExit(
             "verified pre-provisioned Python must be established before checkout"
+        )
+    export = source.index("VERIFIED_PYTHON=%s", host_step, checkout)
+    identity_check = source.index(
+        '[[ "${implementation}" == "cpython" ]]', host_step, checkout
+    )
+    if export >= identity_check:
+        raise SystemExit(
+            "absolute Python must be exported before identity rejection so "
+            "always-run artifact verification remains executable"
         )
     after_checkout = source[checkout:]
     if re.search(
@@ -240,13 +249,13 @@ def validate_self_check() -> None:
         '"${PR_HEAD_REPOSITORY}" != "${GITHUB_REPOSITORY}"',
         "push|workflow_dispatch)",
         "SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}",
-        "Verify pre-provisioned general-Linux CPython 3.12.13",
+        "Verify pre-provisioned general-Linux CPython 3.12",
         "type -P python3.12",
         "type -P python3",
         "os.path.realpath(sys.executable)",
         '"${resolved}" != /* || ! -x "${resolved}"',
         '"${implementation}" == "cpython"',
-        '"${version}" == "3.12.13"',
+        '"${version}" == 3.12.*',
         '"${system}" == "Linux"',
         'x86_64)',
         "VERIFIED_PYTHON=%s",
@@ -285,7 +294,7 @@ def validate_self_check() -> None:
 
     admission = source.index("- name: Admit trusted workflow source")
     host = source.index(
-        "- name: Verify pre-provisioned general-Linux CPython 3.12.13"
+        "- name: Verify pre-provisioned general-Linux CPython 3.12"
     )
     checkout = source.index("- name: Check out exact source")
     if not admission < host < checkout:
@@ -409,7 +418,7 @@ def validate_authority_docs() -> None:
         "src/ci_workflows",
         "general Linux",
         "portable",
-        "CPython 3.12.13",
+        "CPython 3.12",
         "pre-provisioned",
     ):
         if required not in combined:
