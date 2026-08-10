@@ -1,0 +1,29 @@
+name: OCI build contract smoke
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/reusable-oci-build.yml"
+      - ".github/workflows/oci-build-smoke.yml"
+      - "actions/validate-oci/**"
+      - "contracts/oci-*.json"
+      - "generated/oci-engine-mapping.json"
+      - "scripts/ci/oci.py"
+      - "src/ci_workflows/ciw_oci.py"
+      - "src/ci_workflows/oci_*.py"
+      - "tests/fixtures/oci-build/**"
+      - "tests/test_oci_*.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Non-publishing Buildah smoke
+    uses: ./.github/workflows/reusable-oci-build.yml
+    with:
+      admitted_sha: ${{ github.event.pull_request.head.sha || github.sha }}
+      product_id: ciw-oci-smoke
+      release_version: 0.0.0-smoke
+      platform_set: linux-amd64
