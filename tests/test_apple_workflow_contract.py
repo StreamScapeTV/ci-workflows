@@ -136,6 +136,9 @@ class AppleWorkflowContractTests(unittest.TestCase):
         self.assertIn("phase: residue", self.workflow)
         self.assertGreaterEqual(self.workflow.count("if: always()"), 3)
         self.assertIn("cleanup-workspace", self.workflow)
+        self.assertIn("test ! -e .ciw", self.workflow)
+        self.assertIn("test ! -L .ciw", self.workflow)
+        self.assertIn("CIW_CLEANUP_OUTCOME", self.workflow)
 
     def test_no_signing_physical_device_archive_store_or_deployment_path(self) -> None:
         workflow_text = (self.workflow + self.smoke + self.action).lower()
@@ -162,14 +165,25 @@ class AppleWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("archive_path", source)
 
     def test_deterministic_simulator_creation_and_owned_cleanup_are_present(self) -> None:
-        self.assertIn('("xcrun", "simctl", "list", "devices", "available", "-j")', self.execution)
-        self.assertIn('"simctl",\n                "create"', self.execution)
+        self.assertIn(
+            '("xcrun", "simctl", "list", "devices", "available", "-j")',
+            self.execution,
+        )
+        self.assertIn('"simctl",\n            "create"', self.execution)
         self.assertIn('"simctl", "bootstatus"', self.execution)
         self.assertIn('"simctl", "shutdown"', self.execution)
         self.assertIn('"simctl", "delete"', self.execution)
-        self.assertIn("simulators.json", self.execution)
+        self.assertIn("RUNNER_WORKSPACE", self.execution)
+        self.assertIn(".ciw-apple-simulator-ownership-v1", self.execution)
+        self.assertIn("registry.json", self.execution)
+        self.assertIn("fcntl.flock", self.execution)
+        self.assertIn("pending-create", self.execution)
+        self.assertIn("simulator_ownership_locked", self.execution)
+        self.assertIn("simulator_ownership_corrupt", self.execution)
+        self.assertIn("simulator_ownership_identity_mismatch", self.execution)
         self.assertIn("simulator_unowned", self.execution)
         self.assertIn("simulator_ambiguous", self.execution)
+        self.assertNotIn("state_root.resolve()", self.execution)
         self.assertNotIn('destination = "generic/', self.execution.lower())
 
     def test_exact_toolchain_sdk_and_package_resolution_are_checked(self) -> None:
@@ -226,7 +240,7 @@ class AppleWorkflowContractTests(unittest.TestCase):
             ROOT / "tests/fixtures/apple-validation/smoke-project/Sources/SmokeApp.swift"
         ).read_text(encoding="utf-8")
         self.assertIn("SUPPORTED_PLATFORMS", project)
-        self.assertIn("iphoneos iphonesimulator appletvos appletvsimulator macosx", project)
+        self.assertIn("iphoneos iphonesimulator appletvos appletsimulator macosx", project)
         self.assertIn("CODE_SIGNING_ALLOWED = NO", project)
         self.assertIn("CODE_SIGNING_REQUIRED = NO", project)
         self.assertNotIn("tv.streamscape", project)
