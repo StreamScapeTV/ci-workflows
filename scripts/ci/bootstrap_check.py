@@ -78,11 +78,12 @@ FORBIDDEN_SELF_CHECK_PATTERNS = (
     "packages: write",
     "id-token: write",
     "homelab-portable-linux-x64",
+    "runs-on: macOS",
+    "runs-on: apple",
     "runs-on: macos-latest",
     "runs-on: ubuntu-latest",
     "runs-on: windows-latest",
     "runs-on: self-hosted",
-    "runs-on: portable",
     "runs-on: mobile",
     "runs-on: buildah",
     "runs-on: buildah-tiny",
@@ -170,7 +171,7 @@ def validate_public_workflow_exceptions() -> None:
         )
 
 
-def _validate_emergency_exception() -> None:
+def _validate_general_linux_runner_contract() -> None:
     harness = _mapping(
         read_json("contracts/validation-harness.json"),
         "validation harness contract is invalid",
@@ -186,31 +187,29 @@ def _validate_emergency_exception() -> None:
         if isinstance(entry, dict)
         and entry.get("path") == ".github/workflows/self-check.yml"
     ]
-    if len(matches) != 1:
+    if matches:
         raise SystemExit(
-            "self-check requires exactly one emergency runner exception"
+            "self-check must not retain a runner-profile exception"
         )
-    entry = matches[0]
-    if entry.get("issue") != 60 or entry.get("rules") != [
-        "unknown-runner-profile"
-    ]:
-        raise SystemExit("self-check emergency exception scope drifted")
-    reason = str(entry.get("reason", ""))
-    for required in ("macOS", "#268", "remove", "portable"):
-        if required not in reason:
-            raise SystemExit(
-                f"self-check emergency exception reason is missing {required!r}"
-            )
 
 
 def _validate_verified_interpreter_use(source: str) -> None:
     host_step = source.index(
-        "- name: Verify pre-provisioned CPython 3.12.13"
+        "- name: Verify pre-provisioned general-Linux CPython 3.12"
     )
     checkout = source.index("- name: Check out exact source")
     if host_step >= checkout:
         raise SystemExit(
             "verified pre-provisioned Python must be established before checkout"
+        )
+    export = source.index("VERIFIED_PYTHON=%s", host_step, checkout)
+    identity_check = source.index(
+        '[[ "${implementation}" == "cpython" ]]', host_step, checkout
+    )
+    if export >= identity_check:
+        raise SystemExit(
+            "absolute Python must be exported before identity rejection so "
+            "always-run artifact verification remains executable"
         )
     after_checkout = source[checkout:]
     if re.search(
@@ -242,7 +241,7 @@ def _validate_verified_interpreter_use(source: str) -> None:
 def validate_self_check() -> None:
     source = read_text(".github/workflows/self-check.yml")
     required = (
-        "runs-on: macOS",
+        "runs-on: portable",
         "timeout-minutes: 10",
         "permissions:\n  actions: read\n  contents: read",
         "Admit trusted workflow source",
@@ -250,15 +249,15 @@ def validate_self_check() -> None:
         '"${PR_HEAD_REPOSITORY}" != "${GITHUB_REPOSITORY}"',
         "push|workflow_dispatch)",
         "SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}",
-        "Verify pre-provisioned CPython 3.12.13",
+        "Verify pre-provisioned general-Linux CPython 3.12",
         "type -P python3.12",
         "type -P python3",
         "os.path.realpath(sys.executable)",
         '"${resolved}" != /* || ! -x "${resolved}"',
         '"${implementation}" == "cpython"',
-        '"${version}" == "3.12.13"',
-        '"${system}" == "Darwin"',
-        'arm64|x86_64)',
+        '"${version}" == 3.12.*',
+        '"${system}" == "Linux"',
+        'x86_64)',
         "VERIFIED_PYTHON=%s",
         "PYTHON_EXECUTABLE=%s",
         "persist-credentials: false",
@@ -281,9 +280,9 @@ def validate_self_check() -> None:
     runs_on = re.findall(
         r"^\s+runs-on:\s*([^\s#]+)\s*$", source, re.MULTILINE
     )
-    if runs_on != ["macOS"]:
+    if runs_on != ["portable"]:
         raise SystemExit(
-            "self-check must use exactly runs-on: macOS, "
+            "self-check must use exactly runs-on: portable, "
             f"found {runs_on!r}"
         )
     if re.search(r"runs-on:\s*.*\$\{\{", source):
@@ -294,7 +293,9 @@ def validate_self_check() -> None:
         )
 
     admission = source.index("- name: Admit trusted workflow source")
-    host = source.index("- name: Verify pre-provisioned CPython 3.12.13")
+    host = source.index(
+        "- name: Verify pre-provisioned general-Linux CPython 3.12"
+    )
     checkout = source.index("- name: Check out exact source")
     if not admission < host < checkout:
         raise SystemExit(
@@ -303,18 +304,7 @@ def validate_self_check() -> None:
         )
 
     _validate_verified_interpreter_use(source)
-    _validate_emergency_exception()
-
-    macos_users: list[str] = []
-    for path in sorted((ROOT / ".github/workflows").glob("*.y*ml")):
-        text = path.read_text(encoding="utf-8")
-        if re.search(r"^\s+runs-on:\s*macOS\s*$", text, re.MULTILINE):
-            macos_users.append(path.relative_to(ROOT).as_posix())
-    if macos_users != [".github/workflows/self-check.yml"]:
-        raise SystemExit(
-            "emergency macOS selector is restricted to self-check.yml: "
-            f"{macos_users!r}"
-        )
+    _validate_general_linux_runner_contract()
 
 
 def validate_runtime_lock() -> None:
@@ -426,9 +416,9 @@ def validate_authority_docs() -> None:
         "Git tag",
         "zero",
         "src/ci_workflows",
-        "ci-workflows #60",
-        "Flux #268",
-        "CPython 3.12.13",
+        "general Linux",
+        "portable",
+        "CPython 3.12",
         "pre-provisioned",
     ):
         if required not in combined:

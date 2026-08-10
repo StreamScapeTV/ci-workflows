@@ -18,7 +18,7 @@ concurrency:
 jobs:
   validate:
     name: Validate repository and reusable workflow contracts
-    runs-on: macOS
+    runs-on: portable
     timeout-minutes: 10
     env:
       SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -50,7 +50,7 @@ jobs:
               ;;
           esac
 
-      - name: Verify pre-provisioned CPython 3.12.13
+      - name: Verify pre-provisioned general-Linux CPython 3.12
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -67,16 +67,16 @@ jobs:
             echo '::error::Resolved Python path is not an absolute executable.' >&2
             exit 1
           fi
-          identity="$("${resolved}" -c 'import platform,sys; m=platform.machine().lower(); m={"amd64":"x86_64","x64":"x86_64","aarch64":"arm64"}.get(m,m); print(f"{sys.implementation.name}|{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}|{platform.system()}|{m}")')"
-          IFS='|' read -r implementation version system machine <<< "${identity}"
-          [[ "${implementation}" == "cpython" ]] || { echo "::error::Expected CPython, got ${implementation}." >&2; exit 1; }
-          [[ "${version}" == "3.12.13" ]] || { echo "::error::Expected Python 3.12.13, got ${version}." >&2; exit 1; }
-          [[ "${system}" == "Darwin" ]] || { echo "::error::Expected Darwin, got ${system}." >&2; exit 1; }
-          case "${machine}" in arm64|x86_64) ;; *) echo "::error::Unsupported macOS architecture ${machine}." >&2; exit 1 ;; esac
           {
             printf 'VERIFIED_PYTHON=%s\n' "${resolved}"
             printf 'PYTHON_EXECUTABLE=%s\n' "${resolved}"
           } >> "${GITHUB_ENV}"
+          identity="$("${resolved}" -c 'import platform,sys; m=platform.machine().lower(); m={"amd64":"x86_64","x64":"x86_64","aarch64":"arm64"}.get(m,m); print(f"{sys.implementation.name}|{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}|{platform.system()}|{m}")')"
+          IFS='|' read -r implementation version system machine <<< "${identity}"
+          [[ "${implementation}" == "cpython" ]] || { echo "::error::Expected CPython, got ${implementation}." >&2; exit 1; }
+          [[ "${version}" == 3.12.* ]] || { echo "::error::Expected Python 3.12.x, got ${version}." >&2; exit 1; }
+          [[ "${system}" == "Linux" ]] || { echo "::error::Expected Linux, got ${system}." >&2; exit 1; }
+          case "${machine}" in x86_64) ;; *) echo "::error::Unsupported general-Linux architecture ${machine}." >&2; exit 1 ;; esac
 
       - name: Check out exact source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -102,13 +102,25 @@ jobs:
             --lock contracts/action-tool-lock.json \
             --target "${validation_root}/python"
           test -f "${validation_root}/python/yaml/__init__.py"
+          VALIDATION_TARGET="${validation_root}/python" \
           PYTHONPATH="${validation_root}/python" "${VERIFIED_PYTHON}" - <<'PY'
+          import os
+          from pathlib import Path
+
+          import _yaml
           import yaml
 
+          target = Path(os.environ["VALIDATION_TARGET"]).resolve()
+          for module in (yaml, _yaml):
+              path = Path(module.__file__).resolve()
+              if target not in path.parents:
+                  raise SystemExit(
+                      f"validation module escaped locked target: {module.__name__}={path}"
+                  )
           if yaml.__version__ != "6.0.3":
               raise SystemExit(f"unexpected PyYAML version: {yaml.__version__}")
-          if yaml.__with_libyaml__:
-              raise SystemExit("validation runtime unexpectedly loaded LibYAML")
+          if not yaml.__with_libyaml__:
+              raise SystemExit("locked Linux validation wheel did not load LibYAML")
           PY
           {
             printf 'VALIDATION_ROOT=%s\n' "${validation_root}"
