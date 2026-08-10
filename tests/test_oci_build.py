@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from ci_workflows.oci_contract import (  # noqa: E402
     load_contract,
+    metadata_labels,
     render_engine_mapping,
     request_from_mapping,
     resolve_plan,
@@ -216,6 +217,15 @@ class OciBuildTests(unittest.TestCase):
         with self.assertRaisesRegex(OciBuildError, "platform_override_forbidden"):
             resolve_plan(ROOT, mismatched)
 
+    def test_created_label_is_normalized_rfc3339_utc(self) -> None:
+        request = request_from_mapping(
+            {"repository": "StreamScapeTV/ci-workflows", "admitted_sha": SHA, "product_id": "ciw-oci-smoke"},
+            {"GITHUB_EVENT_NAME": "push"},
+        )
+        plan = resolve_plan(ROOT, request)
+        labels = metadata_labels(self.contract, plan, plan.targets[0], 1)
+        self.assertEqual("1970-01-01T00:00:01Z", labels["org.opencontainers.image.created"])
+
     def test_base_identity_requires_scratch_or_exact_digest(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -282,6 +292,12 @@ class OciBuildTests(unittest.TestCase):
             config_blob.write_bytes(config_blob.read_bytes() + b"drift")
             with self.assertRaisesRegex(OciBuildError, "oci_digest_mismatch"):
                 inspect_layout(layout, target, labels)
+            rebuilt = synthetic_layout(Path(temp) / "media", labels=labels)
+            index = json.loads((rebuilt / "index.json").read_text())
+            index["mediaType"] = "application/vnd.docker.distribution.manifest.list.v2+json"
+            (rebuilt / "index.json").write_text(json.dumps(index))
+            with self.assertRaisesRegex(OciBuildError, "oci_layout_malformed"):
+                inspect_layout(rebuilt, target, labels)
 
     def test_secret_content_and_digest_are_rejected_from_layout(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
