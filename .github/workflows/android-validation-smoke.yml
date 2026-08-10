@@ -1,0 +1,240 @@
+name: Android validation smoke
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - ".github/workflows/reusable-android.yml"
+      - ".github/workflows/android-validation-smoke.yml"
+      - "actions/validate-android/action.yml"
+      - "contracts/android-validation.json"
+      - "scripts/ci/android.py"
+      - "src/ci_workflows/android.py"
+      - "src/ci_workflows/android_contract.py"
+      - "src/ci_workflows/android_execution.py"
+      - "src/ci_workflows/android_types.py"
+      - "src/ci_workflows/ciw.py"
+      - "src/ci_workflows/ciw_android.py"
+      - "tests/test_android_ciw_dispatch.py"
+      - "tests/test_android_validation.py"
+      - "tests/test_android_workflow_contract.py"
+      - "tests/fixtures/android-validation/**"
+      - "docs/workflows/android.md"
+      - "docs/architecture/android-validation.md"
+      - "docs/reference/ciw.md"
+      - "contracts/action-tool-lock.json"
+      - "contracts/bootstrap-public-workflows.json"
+      - "contracts/ciw-commands.json"
+      - "contracts/public-workflow-types.json"
+      - "contracts/public-workflows.json"
+      - "contracts/public-workflows/validation.json"
+      - "contracts/runner-profiles.json"
+      - "generated/runner-mappings.json"
+
+concurrency:
+  group: android-validation-smoke-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  plan:
+    name: Resolve bounded Android mobile smoke plan
+    runs-on: portable
+    timeout-minutes: 10
+    outputs:
+      runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
+      runner_profile: ${{ steps.plan.outputs.runner_profile }}
+      source_trust: ${{ steps.plan.outputs.source_trust }}
+      workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
+    steps:
+      - name: Admit same-repository trusted pull request source
+        shell: bash
+        env:
+          BASE_REPOSITORY: ${{ github.repository }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -Eeuo pipefail
+          test "${GITHUB_EVENT_NAME}" = "pull_request"
+          test "${HEAD_REPOSITORY}" = "${BASE_REPOSITORY}"
+          [[ "${HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]
+
+      - name: Check out exact central source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact central source
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -Eeuo pipefail
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+          )
+
+      - id: plan
+        name: Resolve contract-owned Android mobile plan
+        uses: ./.ciw/actions/validate-android
+        with:
+          phase: plan
+          admitted_sha: ${{ github.event.pull_request.head.sha }}
+          validation_profile: toolchain-smoke
+          task_profile: central-toolchain-smoke
+          working_directory: tests/fixtures/android-validation/smoke-project
+          gradle_wrapper_path: gradlew
+
+  execute_android:
+    name: Execute Android mobile toolchain smoke
+    needs: plan
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
+    timeout-minutes: 30
+    steps:
+      - name: Check out exact central source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact central source
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -Eeuo pipefail
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+          )
+
+      - name: Check out exact admitted smoke source
+        uses: ./.ciw/actions/exact-checkout
+        with:
+          repository: ${{ github.repository }}
+          admitted_sha: ${{ github.event.pull_request.head.sha }}
+          path: source
+          fetch_depth: "1"
+
+      - id: workspace
+        name: Prepare isolated marker-bound Android smoke state
+        uses: ./.ciw/actions/prepare-workspace
+        with:
+          profile: ${{ needs.plan.outputs.workspace_profile }}
+          cache_mode: disabled
+          source_sha: ${{ github.event.pull_request.head.sha }}
+          trust_mode: ${{ needs.plan.outputs.source_trust }}
+
+      - id: android
+        name: Execute bounded Android toolchain fixture validation
+        continue-on-error: true
+        uses: ./.ciw/actions/validate-android
+        with:
+          phase: execute
+          admitted_sha: ${{ github.event.pull_request.head.sha }}
+          validation_profile: toolchain-smoke
+          task_profile: central-toolchain-smoke
+          working_directory: tests/fixtures/android-validation/smoke-project
+          gradle_wrapper_path: gradlew
+
+      - id: android_cleanup
+        name: Remove Android-specific smoke state
+        if: always()
+        uses: ./.ciw/actions/validate-android
+        with:
+          phase: cleanup
+          admitted_sha: ${{ github.event.pull_request.head.sha }}
+          validation_profile: toolchain-smoke
+          task_profile: central-toolchain-smoke
+          working_directory: tests/fixtures/android-validation/smoke-project
+          gradle_wrapper_path: gradlew
+
+      - id: residue
+        name: Verify zero Android-specific smoke residue
+        if: always()
+        uses: ./.ciw/actions/validate-android
+        with:
+          phase: residue
+          admitted_sha: ${{ github.event.pull_request.head.sha }}
+          validation_profile: toolchain-smoke
+          task_profile: central-toolchain-smoke
+          working_directory: tests/fixtures/android-validation/smoke-project
+          gradle_wrapper_path: gradlew
+
+      - id: workspace_cleanup
+        name: Remove and verify registered Android smoke state
+        if: always()
+        uses: ./.ciw/actions/cleanup-workspace
+
+      - name: Verify exact smoke source remained clean
+        if: always()
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -Eeuo pipefail
+          (
+            cd source
+            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+            test -z "$(git status --porcelain --untracked-files=all)"
+          )
+
+      - name: Verify zero Actions artifacts
+        if: always()
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          request = urllib.request.Request(
+              f"{os.environ['GITHUB_API_URL'].rstrip('/')}/repos/"
+              f"{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
+              f"{os.environ['GITHUB_RUN_ID']}/artifacts",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              payload = json.load(response)
+          if payload.get("total_count") != 0 or payload.get("artifacts"):
+              raise SystemExit("android smoke retained Actions artifacts")
+          print("zero Actions artifacts verified")
+          PY
+
+      - name: Project terminal Android smoke status
+        if: always()
+        shell: bash
+        env:
+          ANDROID_OUTCOME: ${{ steps.android.outcome }}
+          ANDROID_CLEANUP_OUTCOME: ${{ steps.android_cleanup.outcome }}
+          RESIDUE_OUTCOME: ${{ steps.residue.outcome }}
+          WORKSPACE_CLEANUP_OUTCOME: ${{ steps.workspace_cleanup.outcome }}
+        run: |
+          set -Eeuo pipefail
+          test "${ANDROID_OUTCOME}" = "success"
+          test "${ANDROID_CLEANUP_OUTCOME}" = "success"
+          test "${RESIDUE_OUTCOME}" = "success"
+          test "${WORKSPACE_CLEANUP_OUTCOME}" = "success"

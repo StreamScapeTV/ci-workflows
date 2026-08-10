@@ -1,0 +1,147 @@
+name: Validate exact Android source
+description: Plan, execute, or clean one checked-in Android validation profile through ciw
+
+inputs:
+  phase:
+    description: "Bounded internal phase: plan, execute, cleanup, or residue"
+    required: false
+    default: execute
+  admitted_sha:
+    description: Exact admitted caller source SHA
+    required: true
+  validation_profile:
+    description: Reviewed Android validation profile
+    required: true
+  task_profile:
+    description: Checked-in repository/task profile
+    required: true
+  working_directory:
+    description: Contract-matched relative working directory
+    required: false
+    default: .
+  gradle_wrapper_path:
+    description: Contract-matched checked-in wrapper or launcher
+    required: false
+    default: gradlew
+  targeted_test_selector:
+    description: Optional exact selector for unit-targeted only
+    required: false
+  consumer_script_profile:
+    description: Optional checked-in consumer script profile
+    required: false
+  private_dependency_contract_id:
+    description: Optional reviewed private dependency contract identity
+    required: false
+  private_dependency_sha:
+    description: Optional contract-matched exact private dependency SHA
+    required: false
+  artifact_exception_id:
+    description: Optional named central diagnostic exception
+    required: false
+  device_family:
+    description: Optional bounded device-handoff family
+    required: false
+  device_request_id:
+    description: Optional bounded device-handoff request identity
+    required: false
+  private_dependency_path:
+    description: Internal registered-state path returned by checkout-private-dependency
+    required: false
+  private_dependency_verified:
+    description: Internal checkout verification flag
+    required: false
+  private_dependency_remotes_erased:
+    description: Internal remote-erasure flag
+    required: false
+  private_dependency_credentials_erased:
+    description: Internal credential-erasure flag
+    required: false
+
+outputs:
+  result:
+    value: ${{ steps.android.outputs.result }}
+  source_sha:
+    value: ${{ steps.android.outputs.source_sha }}
+  validation_profile:
+    value: ${{ steps.android.outputs.validation_profile }}
+  task_profile:
+    value: ${{ steps.android.outputs.task_profile }}
+  test_summary:
+    value: ${{ steps.android.outputs.test_summary }}
+  resolved_java_major:
+    value: ${{ steps.android.outputs.resolved_java_major }}
+  resolved_android_api:
+    value: ${{ steps.android.outputs.resolved_android_api }}
+  gradle_version:
+    value: ${{ steps.android.outputs.gradle_version }}
+  private_dependency_used:
+    value: ${{ steps.android.outputs.private_dependency_used }}
+  private_dependency_contract_id:
+    value: ${{ steps.android.outputs.private_dependency_contract_id }}
+  private_dependency_repository:
+    value: ${{ steps.android.outputs.private_dependency_repository }}
+  private_dependency_sha:
+    value: ${{ steps.android.outputs.private_dependency_sha }}
+  private_dependency_subdirectory:
+    value: ${{ steps.android.outputs.private_dependency_subdirectory }}
+  private_dependency_id:
+    value: ${{ steps.android.outputs.private_dependency_id }}
+  artifact_exception_used:
+    value: ${{ steps.android.outputs.artifact_exception_used }}
+  device_handoff_json:
+    value: ${{ steps.android.outputs.device_handoff_json }}
+  debug_output_verified:
+    value: ${{ steps.android.outputs.debug_output_verified }}
+  schema_verified:
+    value: ${{ steps.android.outputs.schema_verified }}
+  clean_tree:
+    value: ${{ steps.android.outputs.clean_tree }}
+  cleanup_result:
+    value: ${{ steps.android.outputs.cleanup_result }}
+  failure_code:
+    value: ${{ steps.android.outputs.failure_code }}
+  evidence_id:
+    value: ${{ steps.android.outputs.evidence_id }}
+  runner_profile:
+    value: ${{ steps.android.outputs.runner_profile }}
+  runs_on_json:
+    value: ${{ steps.android.outputs.runs_on_json }}
+  planner_runner_profile:
+    value: ${{ steps.android.outputs.planner_runner_profile }}
+  workspace_profile:
+    value: ${{ steps.android.outputs.workspace_profile }}
+  timeout_minutes:
+    value: ${{ steps.android.outputs.timeout_minutes }}
+  source_trust:
+    value: ${{ steps.android.outputs.source_trust }}
+
+runs:
+  using: composite
+  steps:
+    - id: android
+      name: Dispatch bounded Android validation
+      shell: bash
+      env:
+        PYTHONDONTWRITEBYTECODE: "1"
+        INPUT_ADMITTED_SHA: ${{ inputs.admitted_sha }}
+        INPUT_VALIDATION_PROFILE: ${{ inputs.validation_profile }}
+        INPUT_TASK_PROFILE: ${{ inputs.task_profile }}
+        INPUT_WORKING_DIRECTORY: ${{ inputs.working_directory }}
+        INPUT_GRADLE_WRAPPER_PATH: ${{ inputs.gradle_wrapper_path }}
+        INPUT_TARGETED_TEST_SELECTOR: ${{ inputs.targeted_test_selector }}
+        INPUT_CONSUMER_SCRIPT_PROFILE: ${{ inputs.consumer_script_profile }}
+        INPUT_PRIVATE_DEPENDENCY_CONTRACT_ID: ${{ inputs.private_dependency_contract_id }}
+        INPUT_PRIVATE_DEPENDENCY_SHA: ${{ inputs.private_dependency_sha }}
+        INPUT_ARTIFACT_EXCEPTION_ID: ${{ inputs.artifact_exception_id }}
+        INPUT_DEVICE_FAMILY: ${{ inputs.device_family }}
+        INPUT_DEVICE_REQUEST_ID: ${{ inputs.device_request_id }}
+        CIW_ANDROID_PRIVATE_DEPENDENCY_PATH: ${{ inputs.private_dependency_path }}
+        CIW_ANDROID_PRIVATE_DEPENDENCY_VERIFIED: ${{ inputs.private_dependency_verified }}
+        CIW_ANDROID_PRIVATE_DEPENDENCY_REMOTES_ERASED: ${{ inputs.private_dependency_remotes_erased }}
+        CIW_ANDROID_PRIVATE_DEPENDENCY_CREDENTIALS_ERASED: ${{ inputs.private_dependency_credentials_erased }}
+      run: |
+        set -Eeuo pipefail
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
+          android validate \
+          --phase "${{ inputs.phase }}" \
+          --source-root source
