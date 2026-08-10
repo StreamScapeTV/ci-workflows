@@ -1,22 +1,49 @@
 # AGENTS.md — StreamScapeTV/ci-workflows
 
-## Shared organization-policy entry point
+## Repository identity
 
-Before working in this repository, read `StreamScapeTV/organization-rules@main/AGENTS.md` after this file. It is the only shared organization-policy reference from this local entry point and owns routing to any additional central guidance. Do not add direct references here to organization-rules internal files, Agent State operating documents, Flux operating documents, or unrelated repositories for routine shared policy. Changes to shared organization policy belong in `StreamScapeTV/organization-rules` under a separate bounded change rather than being copied into this repository.
+- Repository: `StreamScapeTV/ci-workflows`
+- Agent State project key: `ci-workflows`
+- Protected integration branch: `main`
+- Shared organization-policy entry point: `StreamScapeTV/organization-rules@main/AGENTS.md`
 
-## Repository identity and integration
+The project key is exactly `ci-workflows`. Never replace it with a phase, wave, batch, issue, branch, pull request, task name, or display title.
 
-This private repository owns reusable GitHub Actions orchestration for supported StreamScapeTV repositories, including central source admission, runner resolution, validation, release, and Flux orchestration. Consumer repositories retain thin event callers, minimum permissions, bounded product configuration, and product-owned scripts, contracts, policy, credentials, and deployment data.
+## Required read order
+
+Before any work:
+
+1. read this file from the current protected `main` branch;
+2. read and follow `StreamScapeTV/organization-rules@main/AGENTS.md` and its routed files;
+3. read `RUNNERS.md` only when the bounded task requires CI capability selection;
+4. read only the repository architecture, contracts, source, tests, and issue material needed for the assigned slice.
+
+The organization entry point owns identity, Agent State transport, ownership/resources, branch/worktree behavior, review, merge, cleanup, environment, and generic security rules. Do not copy those rules into this repository or use a stale topic-branch copy as a substitute for current `organization-rules@main`.
+
+## Local Codex startup
+
+Local Codex workers use ordinary Git and a separate issue worktree.
+
+- Fetch and prune remote metadata before starting or resuming.
+- Verify current `origin/main`, the assigned remote branch/head, and the worktree head before editing.
+- Never switch or edit the shared `main` checkout.
+- Never use a blind `git pull`, rebase published history, force-push, destructive reset, broad clean, overwrite another worktree, or create a replacement branch when an existing issue branch is assigned.
+- A remote/Agent State SHA mismatch requires a fresh read and reconciliation before editing.
+
+Agent State coordination is independent of the Git worktree. This repository and its issue worktrees require no Supabase project directory, repository linkage, GitHub/Supabase integration, environment-variable setup, `supabase init`, or `supabase link`. Remote ChatGPT uses the official Supabase connector; local Codex uses the already provisioned local CLI direct-RPC path defined by current organization rules.
+
+## Repository authority and scope
+
+This private repository owns reusable GitHub Actions orchestration for supported StreamScapeTV repositories, including central source admission, semantic runner resolution, validation, publication mechanics, release support, and Flux orchestration. Consumer repositories retain thin event callers, minimum permissions, bounded product configuration, and product-owned scripts, contracts, policy, credentials, and deployment data.
 
 `main` is the integration branch and initial bootstrap consumer channel. This repository is released by an exact compatible Git tag; it does not require a GitHub Release object, attached archive, container image, or Helm chart for its own release.
 
-## Agent State authority boundary
+## Agent State boundary
 
-- Issue #32 is closed as superseded. Do not implement the reusable GitHub Actions lifecycle and ownership architecture formerly planned by #32.
-- `StreamScapeTV/agent-state-supabase` is the sole canonical Agent State schema, migration, RPC, deployment, test, fixture, and operator authority.
-- Ordinary Agent State operation follows the direct approved `agent_api.*` Supabase RPC contract routed by `StreamScapeTV/organization-rules@main`; it does not use a GitHub workflow, issue comment, lifecycle commit, runner, local client, or compatibility dispatcher.
-- Issue #32 remains superseded. The temporary manual compatibility transport completed by #37 was retired through #55 after canonical production proof, active-state reconciliation, and the separate organization-rules adoption.
-- Do not restore an Agent State workflow API, command workflow, runner profile, secret contract, Python transport, project mapping, or compatibility fixture in this repository. A new transport would require a separate owner-reviewed architecture change and must call the same canonical RPC authority without recreating decision logic.
+- Ordinary coordination calls only the already deployed approved `agent_api.current_*_v2` functions through the transport defined by `organization-rules@main`.
+- This repository contains no Agent State transport, Supabase project configuration, project mapping, credentials, decision logic, lifecycle workflow, issue-comment bridge, MCP/plugin setup, or local compatibility client.
+- Do not restore issue #32's superseded lifecycle/ownership workflow architecture or the retired compatibility transport.
+- Do not inspect or modify `StreamScapeTV/agent-state-supabase`, its hosted project, schema, migrations, RPC functions, grants, deployment, or credentials during `ci-workflows` work. Those changes are forbidden unless the owner separately and explicitly requests that project.
 - Never invent an Agent State receipt, ownership grant, schema state, deployment result, or fallback transport.
 
 ## Reusable workflow architecture
@@ -26,22 +53,21 @@ This private repository owns reusable GitHub Actions orchestration for supported
 - Consumers own event triggers, concurrency, environments, minimum caller permissions, and bounded product configuration. Reusable workflows must not silently add scheduled, branch, manual publication, or trusted-dispatch paths.
 - During bootstrap, consumers may call `@main`; tagged and full-SHA references remain supported. Privileged and production callers should migrate to immutable references after a stable tag when required by reviewed policy.
 - Keep workflow YAML as short, ordered orchestration. Put non-trivial algorithms in named, typed, tested functions under `src/ci_workflows/` and expose them through thin composite actions or CLI adapters.
-- Public inputs and outputs must match the checked-in contracts and generated reference documentation. Inputs must be bounded and may not accept arbitrary shell commands, callbacks, registry hosts, runner labels, container engines, cluster targets, namespaces, service accounts, secret names, or unrestricted matrices.
+- Public inputs and outputs must match checked-in contracts and generated reference documentation. Inputs must be bounded and may not accept arbitrary shell commands, callbacks, registry hosts, runner labels, container engines, cluster targets, namespaces, service accounts, secret names, or unrestricted matrices.
 - Public/internal workflow calls and composite-action calls must remain acyclic, accessible, shallow, and compatible with the supported consumer and product inventory.
 
 ## Authority boundaries
 
-- `StreamScapeTV/agent-state-supabase` owns the canonical Supabase schema, versioned migrations, reviewed RPC contracts, fixtures, tests, deployment configuration, and transactional Agent State decisions. This repository must not duplicate that authority or maintain a competing canonical migration history.
-- Flux remains the sole authority for desired state, target and product allowlists, SOPS data, Kubernetes credentials, reconciliation policy, canary selection, live health, and rollback acceptance. This repository owns only the reviewed orchestration around exact Flux-owned policy source.
+- Flux remains the sole authority for desired state, target and product allowlists, SOPS data, Kubernetes credentials, reconciliation policy, canary selection, live health, and rollback acceptance. This repository owns only reviewed orchestration around exact Flux-owned policy source.
 - Product repositories retain toolchain pins, product commands, schemas, assertions, test selection, signing, release inputs, and deployment-specific data.
+- Shared organization policy changes belong only in `StreamScapeTV/organization-rules`.
 
 ## Runner and central self-check boundary
 
 - Semantic runner intent remains authoritative. Ordinary Python, policy, source-admission, and GitOps validation use the `portable` capability; consumers do not select concrete runner labels or hosts.
-- Issue #94 restored the repository Central self-check to the reviewed semantic `portable` general Linux capacity after the current runner inventory proved ARC recovery.
-- The Central self-check rejects fork source and verifies an absolute pre-provisioned CPython 3.12 Linux runtime before checkout. It installs or elevates no host runtime, applies the repository’s digest-locked validation dependency bootstrap, and uses the verified absolute interpreter for every later Python command.
+- The Central self-check rejects fork source and verifies an absolute pre-provisioned CPython 3.12 Linux runtime before checkout. It installs or elevates no host runtime, applies the repository's digest-locked validation dependency bootstrap, and uses the verified absolute interpreter for every later Python command.
 - General Linux validation grants no signing, provisioning, simulator, physical-device, notarization, store, registry, Kubernetes, production, or Agent State credential or authority.
-- Do not restore the retired emergency macOS exception or copy it into another workflow. Apple-specific work continues to use the separately reviewed `apple` capacity.
+- Do not restore the retired emergency macOS exception or copy it into another workflow. Apple-specific work continues to use separately reviewed `apple` capacity.
 
 ## Security, artifacts, and cleanup
 
@@ -50,7 +76,7 @@ This private repository owns reusable GitHub Actions orchestration for supported
 - Privileged modes require exact admitted source, exact checkout assertions, detached credential-free state where applicable, and `persist-credentials: false`.
 - Central workflows select semantic runner profiles and internal implementations. Consumers do not select concrete runner labels, hosts, Docker versus Buildah, storage drivers, devices, clusters, namespaces, or service accounts.
 - Routine workflows retain zero GitHub Actions artifacts. Any exception must be named, bounded, justified, redacted, registered in contract, and tested.
-- Cleanup runs under `if: always()` and fails closed when credentials, authentication files, containers, images, charts, caches, generated output, device or simulator state, result bundles, or temporary workspace state remain.
+- Cleanup runs under `if: always()` and fails closed when credentials, authentication files, containers, images, charts, caches, generated output, device/simulator state, result bundles, or temporary workspace state remain.
 
 ## Publication and release safety
 
@@ -62,7 +88,7 @@ This private repository owns reusable GitHub Actions orchestration for supported
 
 ## Validation contract
 
-- The canonical central self-check validates the exact final pull-request head against the current base.
+- The canonical Central self-check validates the exact final pull-request head against the current base.
 - Workflow/action parsing, action and tool pins, permissions, trust classes, source admission, runner profiles, call graphs, readability, public API compatibility, documentation, inventory, fixtures, discovered tests, cleanup, and artifact policy must remain green.
 - A changed head invalidates older evidence. Queued, skipped, stale, cancelled, timed-out, missing, or partially successful checks are not passing evidence.
 - Before integration, inspect the complete current-base diff, public contracts, permissions, trust boundaries, artifacts, cleanup behavior, generated drift, and every review thread.
