@@ -1,16 +1,17 @@
 """Hermetic Apple toolchain, simulator, build, and cleanup execution."""
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
 import re
-import shutil
 import stat
 import subprocess
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Mapping, Protocol, Sequence
+from typing import Iterator, Mapping, Protocol, Sequence
 
 from .apple_contract import bounded_path, fail, regular_path, safe_relative
 from .apple_types import (
@@ -29,9 +30,26 @@ _UDID = re.compile(
     r"^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-"
     r"[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"
 )
+_HEX64 = re.compile(r"^[0-9a-f]{64}$")
 _SECRET = re.compile(
     r"(?i)(token|password|authorization|secret|keychain|provisioning)\s*[:=]\s*\S+"
 )
+_OWNERSHIP_DIRECTORY = ".ciw-apple-simulator-ownership-v1"
+_OWNERSHIP_LOCK = "registry.lock"
+_OWNERSHIP_REGISTRY = "registry.json"
+_OWNERSHIP_SCHEMA = 1
+_OWNERSHIP_MAX_ROWS = 8
+_OWNERSHIP_ROW_KEYS = {
+    "owner_key",
+    "status",
+    "device_name",
+    "udid",
+    "platform",
+    "runtime_identifier",
+    "runtime_version",
+    "device_type_identifier",
+    "device_family",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +107,27 @@ class SimulatorLease:
     created: bool
 
 
+@dataclass(slots=True)
+class SimulatorOwnership:
+    """One non-blocking runner-local lock and its validated registry rows."""
+
+    root: Path
+    lock_fd: int
+    rows: list[dict[str, str]]
+
+    def row(self, owner_key: str) -> dict[str, str] | None:
+        matches = [row for row in self.rows if row["owner_key"] == owner_key]
+        if len(matches) > 1:
+            fail("simulator_ambiguous")
+        return matches[0] if matches else None
+
+    def replace(self, owner_key: str, row: Mapping[str, str] | None) -> None:
+        self.rows = [item for item in self.rows if item["owner_key"] != owner_key]
+        if row is not None:
+            self.rows.append(dict(row))
+        _write_ownership_registry(self.root, self.rows)
+
+
 def sanitize(text: str, roots: Sequence[Path] = ()) -> str:
     sanitized = text
     for root in roots:
@@ -144,7 +183,10 @@ def _state_directory(state_root: Path) -> Path:
     if not state_root.is_absolute():
         fail("invalid_input")
     path = state_root / "apple-validation"
-    if path.is_symlink():
+    metadata = _lstat(path)
+    if metadata is not None and (
+        stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode)
+    ):
         fail("cleanup_failed")
     path.mkdir(parents=True, exist_ok=True)
     return path
@@ -171,7 +213,10 @@ def isolated_environment(
     )
     directories = {name: root / name for name in names}
     for path in directories.values():
-        if path.is_symlink():
+        metadata = _lstat(path)
+        if metadata is not None and (
+            stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode)
+        ):
             fail("cleanup_failed")
         path.mkdir(parents=True, exist_ok=True)
     blocked = {
@@ -345,176 +390,523 @@ def verify_toolchain(
     return xcode_version, xcode_build, swift_version, sdk_versions, runtime_payload
 
 
-def _simulator_registry(state_root: Path) -> Path:
-    return _state_directory(state_root) / "simulators.json"
-
-
-def _read_simulator_registry(state_root: Path) -> list[dict[str, str]]:
-    path = _simulator_registry(state_root)
-    if not path.exists():
-        return []
-    if path.is_symlink() or not path.is_file():
-        fail("cleanup_failed")
+def _lstat(path: Path) -> os.stat_result | None:
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+        return os.lstat(path)
+    except FileNotFoundError:
+        return None
+    except OSError as error:
         raise AppleValidationError("cleanup_failed") from error
-    if not isinstance(raw, list):
-        fail("cleanup_failed")
-    rows: list[dict[str, str]] = []
-    for row in raw:
-        if (
-            not isinstance(row, dict)
-            or set(row)
-            != {
-                "udid",
-                "platform",
-                "runtime_identifier",
-                "device_name",
-                "device_type_identifier",
-            }
-            or _UDID.fullmatch(str(row.get("udid", ""))) is None
-        ):
-            fail("cleanup_failed")
-        rows.append({key: str(value) for key, value in row.items()})
+
+
+def _verify_absolute_directory_no_follow(path: Path, code: str) -> Path:
+    absolute = Path(os.path.abspath(path))
+    if not absolute.is_absolute():
+        fail(code)
+    current = Path(absolute.anchor)
+    for part in absolute.parts[1:]:
+        current /= part
+        metadata = _lstat(current)
+        if metadata is None:
+            fail(code)
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+            fail(code)
+    return absolute
+
+
+def _ownership_root(
+    environment: Mapping[str, str],
+    state_root: Path | None = None,
+) -> Path:
+    raw = environment.get("RUNNER_WORKSPACE", "").strip()
+    if not raw:
+        if environment.get("GITHUB_ACTIONS") == "true" or environment.get("CI") == "true":
+            fail("simulator_ownership_invalid")
+        if state_root is None or not state_root.is_absolute():
+            fail("simulator_ownership_invalid")
+        raw = str(state_root.parent)
+    workspace = _verify_absolute_directory_no_follow(
+        Path(raw),
+        "simulator_ownership_invalid",
+    )
+    root = workspace / _OWNERSHIP_DIRECTORY
+    metadata = _lstat(root)
+    if metadata is None:
+        try:
+            os.mkdir(root, 0o700)
+        except OSError as error:
+            raise AppleValidationError("simulator_ownership_invalid") from error
+        metadata = _lstat(root)
+    if metadata is None or stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+        fail("simulator_ownership_invalid")
+    return root
+
+
+def _read_regular_no_follow(path: Path, code: str, maximum_bytes: int) -> bytes:
+    metadata = _lstat(path)
+    if metadata is None:
+        raise FileNotFoundError(path)
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+        fail(code)
+    if metadata.st_size > maximum_bytes:
+        fail(code)
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags)
+        with os.fdopen(fd, "rb", closefd=True) as handle:
+            return handle.read(maximum_bytes + 1)
+    except OSError as error:
+        raise AppleValidationError(code) from error
+
+
+def _validate_ownership_row(raw: object) -> dict[str, str]:
+    if not isinstance(raw, dict) or set(raw) != _OWNERSHIP_ROW_KEYS:
+        fail("simulator_ownership_corrupt")
+    row = {key: value for key, value in raw.items()}
+    if not all(isinstance(value, str) for value in row.values()):
+        fail("simulator_ownership_corrupt")
+    if _HEX64.fullmatch(row["owner_key"]) is None:
+        fail("simulator_ownership_corrupt")
+    if row["status"] not in {"pending-create", "owned"}:
+        fail("simulator_ownership_corrupt")
+    if row["status"] == "pending-create" and row["udid"]:
+        fail("simulator_ownership_corrupt")
+    if row["status"] == "owned" and _UDID.fullmatch(row["udid"]) is None:
+        fail("simulator_ownership_corrupt")
+    for key in (
+        "device_name",
+        "platform",
+        "runtime_identifier",
+        "runtime_version",
+        "device_type_identifier",
+        "device_family",
+    ):
+        if not row[key] or "\x00" in row[key] or "\n" in row[key] or "\r" in row[key]:
+            fail("simulator_ownership_corrupt")
+    return row
+
+
+def _read_ownership_registry(root: Path) -> list[dict[str, str]]:
+    path = root / _OWNERSHIP_REGISTRY
+    try:
+        raw = _read_regular_no_follow(path, "simulator_ownership_corrupt", 65536)
+    except FileNotFoundError:
+        return []
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise AppleValidationError("simulator_ownership_corrupt") from error
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != {"schema_version", "owners"}
+        or payload.get("schema_version") != _OWNERSHIP_SCHEMA
+        or not isinstance(payload.get("owners"), list)
+        or len(payload["owners"]) > _OWNERSHIP_MAX_ROWS
+    ):
+        fail("simulator_ownership_corrupt")
+    rows = [_validate_ownership_row(row) for row in payload["owners"]]
+    keys = [row["owner_key"] for row in rows]
+    if len(keys) != len(set(keys)):
+        fail("simulator_ownership_corrupt")
     return rows
 
 
-def _write_simulator_registry(
-    state_root: Path,
-    rows: Sequence[Mapping[str, str]],
-) -> None:
-    path = _simulator_registry(state_root)
-    if path.is_symlink():
-        fail("cleanup_failed")
-    path.write_text(
-        json.dumps(list(rows), sort_keys=True, separators=(",", ":")),
-        encoding="utf-8",
-    )
-
-
-def _simulator_device_name(plan: AppleValidationPlan, state_root: Path) -> str:
-    simulator = plan.simulator
-    if simulator is None:
-        fail("unsafe_destination")
-    state_identity = hashlib.sha256(
-        "\0".join(
-            (
-                plan.request.admitted_sha,
-                simulator.runtime_identifier,
-                simulator.device_type_identifier,
-                str(state_root.resolve()),
-            )
-        ).encode("utf-8")
-    ).hexdigest()[:12]
-    return f"{simulator.device_name_prefix} {state_identity}"
-
-
-def select_simulator(
-    plan: AppleValidationPlan,
-    source_root: Path,
-    state_root: Path,
-    runner: CommandRunner,
-    env: Mapping[str, str],
-) -> SimulatorLease:
-    simulator = plan.simulator
-    if simulator is None:
-        fail("unsafe_destination")
-    device_name = _simulator_device_name(plan, state_root)
-    outcome = _run(
-        runner,
-        ("xcrun", "simctl", "list", "devices", "available", "-j"),
-        cwd=source_root,
-        env=env,
-        timeout_seconds=30,
-        failure_code="simulator_unavailable",
-        state_root=state_root,
-        stage="simulator-devices",
+def _write_ownership_registry(root: Path, rows: Sequence[Mapping[str, str]]) -> None:
+    validated = [_validate_ownership_row(dict(row)) for row in rows]
+    keys = [row["owner_key"] for row in validated]
+    if len(keys) != len(set(keys)) or len(validated) > _OWNERSHIP_MAX_ROWS:
+        fail("simulator_ownership_corrupt")
+    path = root / _OWNERSHIP_REGISTRY
+    metadata = _lstat(path)
+    if metadata is not None and (
+        stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode)
+    ):
+        fail("simulator_ownership_corrupt")
+    payload = json.dumps(
+        {
+            "schema_version": _OWNERSHIP_SCHEMA,
+            "owners": sorted(validated, key=lambda row: row["owner_key"]),
+        },
+        sort_keys=True,
+        indent=2,
+    ).encode("utf-8") + b"\n"
+    temporary = root / f".{_OWNERSHIP_REGISTRY}.{os.getpid()}.tmp"
+    if _lstat(temporary) is not None:
+        fail("simulator_ownership_corrupt")
+    flags = (
+        os.O_WRONLY
+        | os.O_CREAT
+        | os.O_EXCL
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
     )
     try:
-        payload = json.loads(outcome.stdout)
-    except json.JSONDecodeError as error:
-        raise AppleValidationError("simulator_malformed") from error
+        fd = os.open(temporary, flags, 0o600)
+        with os.fdopen(fd, "wb", closefd=True) as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        directory_fd = os.open(
+            root,
+            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_CLOEXEC", 0),
+        )
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    except OSError as error:
+        try:
+            if _lstat(temporary) is not None:
+                os.unlink(temporary)
+        except OSError:
+            pass
+        raise AppleValidationError("simulator_ownership_corrupt") from error
+
+
+@contextmanager
+def _simulator_ownership(
+    environment: Mapping[str, str],
+    state_root: Path | None = None,
+) -> Iterator[SimulatorOwnership]:
+    root = _ownership_root(environment, state_root)
+    lock_path = root / _OWNERSHIP_LOCK
+    metadata = _lstat(lock_path)
+    if metadata is not None and (
+        stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode)
+    ):
+        fail("simulator_ownership_invalid")
+    flags = (
+        os.O_RDWR
+        | os.O_CREAT
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    try:
+        lock_fd = os.open(lock_path, flags, 0o600)
+    except OSError as error:
+        raise AppleValidationError("simulator_ownership_invalid") from error
+    try:
+        metadata = os.fstat(lock_fd)
+        if not stat.S_ISREG(metadata.st_mode):
+            fail("simulator_ownership_invalid")
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise AppleValidationError("simulator_ownership_locked") from error
+        ownership = SimulatorOwnership(
+            root=root,
+            lock_fd=lock_fd,
+            rows=_read_ownership_registry(root),
+        )
+        try:
+            yield ownership
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+    finally:
+        os.close(lock_fd)
+
+
+def _simulator_owner_key(plan: AppleValidationPlan) -> str:
+    simulator = plan.simulator
+    if simulator is None:
+        fail("unsafe_destination")
+    material = "\0".join(
+        (
+            simulator.device_name_prefix,
+            simulator.platform,
+            simulator.runtime_identifier,
+            simulator.runtime_version,
+            simulator.device_type_identifier,
+            simulator.device_family,
+        )
+    ).encode("utf-8")
+    return hashlib.sha256(material).hexdigest()
+
+
+def _simulator_device_name(
+    plan: AppleValidationPlan,
+    state_root: Path | None = None,
+) -> str:
+    """Return the contract-owned name; ``state_root`` is ignored for compatibility."""
+    simulator = plan.simulator
+    if simulator is None:
+        fail("unsafe_destination")
+    suffix = _simulator_owner_key(plan)[:16]
+    return f"{simulator.device_name_prefix} {suffix}"
+
+
+def _ownership_record(
+    plan: AppleValidationPlan,
+    *,
+    status: str,
+    udid: str = "",
+) -> dict[str, str]:
+    simulator = plan.simulator
+    if simulator is None:
+        fail("unsafe_destination")
+    return {
+        "owner_key": _simulator_owner_key(plan),
+        "status": status,
+        "device_name": _simulator_device_name(plan),
+        "udid": udid,
+        "platform": simulator.platform,
+        "runtime_identifier": simulator.runtime_identifier,
+        "runtime_version": simulator.runtime_version,
+        "device_type_identifier": simulator.device_type_identifier,
+        "device_family": simulator.device_family,
+    }
+
+
+def _require_record_identity(plan: AppleValidationPlan, row: Mapping[str, str]) -> None:
+    expected = _ownership_record(
+        plan,
+        status=row.get("status", ""),
+        udid=row.get("udid", ""),
+    )
+    for key in (
+        "owner_key",
+        "device_name",
+        "platform",
+        "runtime_identifier",
+        "runtime_version",
+        "device_type_identifier",
+        "device_family",
+    ):
+        if row.get(key) != expected[key]:
+            fail("simulator_ownership_identity_mismatch")
+
+
+def _exact_owned_candidates(
+    plan: AppleValidationPlan,
+    payload: object,
+) -> list[dict[str, str]]:
+    simulator = plan.simulator
+    if simulator is None:
+        fail("unsafe_destination")
     devices = payload.get("devices") if isinstance(payload, dict) else None
     if not isinstance(devices, dict):
         fail("simulator_malformed")
-    runtime_rows = devices.get(simulator.runtime_identifier, [])
-    if not isinstance(runtime_rows, list):
+    expected_name = _simulator_device_name(plan)
+    prefix = f"{simulator.device_name_prefix} "
+    candidates: list[dict[str, str]] = []
+    rows = devices.get(simulator.runtime_identifier, [])
+    if not isinstance(rows, list):
         fail("simulator_malformed")
-    matching: list[dict[str, object]] = []
-    for row in runtime_rows:
-        if not isinstance(row, dict):
-            fail("simulator_malformed")
-        if row.get("name") != device_name:
+    for raw in rows:
+        if not isinstance(raw, dict):
             continue
-        udid = row.get("udid")
-        state = row.get("state")
-        available = row.get("isAvailable", True)
-        device_type_identifier = row.get("deviceTypeIdentifier")
+        name = raw.get("name")
+        if not isinstance(name, str) or not name.startswith(prefix):
+            continue
+        if name != expected_name:
+            continue
+        udid = raw.get("udid")
+        state = raw.get("state")
+        available = raw.get("isAvailable", True)
+        device_type_identifier = raw.get("deviceTypeIdentifier")
+        if device_type_identifier != simulator.device_type_identifier:
+            fail("simulator_ownership_identity_mismatch")
         if (
             not isinstance(udid, str)
             or _UDID.fullmatch(udid) is None
             or state not in {"Shutdown", "Booted"}
             or available is not True
-            or device_type_identifier != simulator.device_type_identifier
         ):
             fail("simulator_malformed")
-        matching.append(row)
-    if len(matching) > 1:
-        fail("simulator_ambiguous")
-    owned = {row["udid"] for row in _read_simulator_registry(state_root)}
-    if matching:
-        candidate = matching[0]
-        udid = str(candidate["udid"])
-        if udid not in owned:
-            fail("simulator_unowned")
-        created = True
-    else:
-        if not simulator.allow_create:
-            fail("simulator_unavailable")
-        created_outcome = _run(
-            runner,
-            (
-                "xcrun",
-                "simctl",
-                "create",
-                device_name,
-                simulator.device_type_identifier,
-                simulator.runtime_identifier,
-            ),
-            cwd=source_root,
-            env=env,
-            timeout_seconds=60,
-            failure_code="simulator_create_failed",
-            state_root=state_root,
-            stage="simulator-create",
-        )
-        udid = created_outcome.stdout.strip()
-        if _UDID.fullmatch(udid) is None:
-            fail("simulator_malformed")
-        rows = _read_simulator_registry(state_root)
-        rows.append(
+        candidates.append(
             {
+                "name": name,
                 "udid": udid,
-                "platform": simulator.platform,
+                "state": str(state),
                 "runtime_identifier": simulator.runtime_identifier,
-                "device_name": device_name,
-                "device_type_identifier": simulator.device_type_identifier,
+                "device_type_identifier": str(device_type_identifier),
             }
         )
-        _write_simulator_registry(state_root, rows)
-        created = True
-    if not matching or matching[0].get("state") != "Booted":
-        _run(
-            runner,
-            ("xcrun", "simctl", "boot", udid),
-            cwd=source_root,
-            env=env,
-            timeout_seconds=60,
-            failure_code="simulator_boot_failed",
-            state_root=state_root,
-            stage="simulator-boot",
-        )
+    if len(candidates) > 1:
+        fail("simulator_ambiguous")
+    return candidates
+
+
+def _device_inventory(
+    runner: CommandRunner,
+    *,
+    source_root: Path,
+    state_root: Path,
+    env: Mapping[str, str],
+    available_only: bool,
+    failure_code: str,
+    record_log: bool = True,
+) -> object:
+    argv = (
+        ("xcrun", "simctl", "list", "devices", "available", "-j")
+        if available_only
+        else ("xcrun", "simctl", "list", "devices", "-j")
+    )
+    outcome = _run(
+        runner,
+        argv,
+        cwd=source_root,
+        env=env,
+        timeout_seconds=60,
+        failure_code=failure_code,
+        state_root=state_root if record_log else None,
+        stage="simulator-devices" if available_only else "simulator-cleanup-inventory",
+    )
+    try:
+        return json.loads(outcome.stdout)
+    except json.JSONDecodeError as error:
+        raise AppleValidationError(
+            "simulator_malformed" if available_only else "cleanup_failed"
+        ) from error
+
+
+def _delete_exact_owned_simulator(
+    runner: CommandRunner,
+    *,
+    source_root: Path,
+    state_root: Path,
+    env: Mapping[str, str],
+    udid: str,
+    plan: AppleValidationPlan,
+    failure_code: str,
+) -> None:
+    _run(
+        runner,
+        ("xcrun", "simctl", "shutdown", udid),
+        cwd=source_root,
+        env=env,
+        timeout_seconds=60,
+        failure_code=failure_code,
+        state_root=state_root,
+        stage="simulator-shutdown",
+        check=False,
+    )
+    _run(
+        runner,
+        ("xcrun", "simctl", "delete", udid),
+        cwd=source_root,
+        env=env,
+        timeout_seconds=60,
+        failure_code=failure_code,
+        state_root=state_root,
+        stage="simulator-delete",
+    )
+    payload = _device_inventory(
+        runner,
+        source_root=source_root,
+        state_root=state_root,
+        env=env,
+        available_only=False,
+        failure_code=failure_code,
+    )
+    remaining = _exact_owned_candidates(plan, payload)
+    if any(candidate["udid"] == udid for candidate in remaining):
+        fail(failure_code)
+
+
+def _recover_stale_owned_simulator(
+    plan: AppleValidationPlan,
+    source_root: Path,
+    state_root: Path,
+    runner: CommandRunner,
+    env: Mapping[str, str],
+    ownership: SimulatorOwnership,
+) -> None:
+    owner_key = _simulator_owner_key(plan)
+    row = ownership.row(owner_key)
+    payload = _device_inventory(
+        runner,
+        source_root=source_root,
+        state_root=state_root,
+        env=env,
+        available_only=True,
+        failure_code="simulator_unavailable",
+    )
+    candidates = _exact_owned_candidates(plan, payload)
+    if row is None:
+        if candidates:
+            fail("simulator_unowned")
+        return
+    _require_record_identity(plan, row)
+    if not candidates:
+        ownership.replace(owner_key, None)
+        return
+    candidate = candidates[0]
+    if row["status"] == "owned" and candidate["udid"] != row["udid"]:
+        fail("simulator_unowned")
+    _delete_exact_owned_simulator(
+        runner,
+        source_root=source_root,
+        state_root=state_root,
+        env=env,
+        udid=candidate["udid"],
+        plan=plan,
+        failure_code="cleanup_failed",
+    )
+    ownership.replace(owner_key, None)
+
+
+def _select_simulator_locked(
+    plan: AppleValidationPlan,
+    source_root: Path,
+    state_root: Path,
+    runner: CommandRunner,
+    env: Mapping[str, str],
+    ownership: SimulatorOwnership,
+) -> SimulatorLease:
+    simulator = plan.simulator
+    if simulator is None:
+        fail("unsafe_destination")
+    _recover_stale_owned_simulator(
+        plan,
+        source_root,
+        state_root,
+        runner,
+        env,
+        ownership,
+    )
+    owner_key = _simulator_owner_key(plan)
+    ownership.replace(
+        owner_key,
+        _ownership_record(plan, status="pending-create"),
+    )
+    if not simulator.allow_create:
+        fail("simulator_unavailable")
+    created_outcome = _run(
+        runner,
+        (
+            "xcrun",
+            "simctl",
+            "create",
+            _simulator_device_name(plan),
+            simulator.device_type_identifier,
+            simulator.runtime_identifier,
+        ),
+        cwd=source_root,
+        env=env,
+        timeout_seconds=60,
+        failure_code="simulator_create_failed",
+        state_root=state_root,
+        stage="simulator-create",
+    )
+    udid = created_outcome.stdout.strip()
+    if _UDID.fullmatch(udid) is None:
+        fail("simulator_malformed")
+    ownership.replace(
+        owner_key,
+        _ownership_record(plan, status="owned", udid=udid),
+    )
+    _run(
+        runner,
+        ("xcrun", "simctl", "boot", udid),
+        cwd=source_root,
+        env=env,
+        timeout_seconds=60,
+        failure_code="simulator_boot_failed",
+        state_root=state_root,
+        stage="simulator-boot",
+    )
     _run(
         runner,
         ("xcrun", "simctl", "bootstatus", udid, "-b"),
@@ -539,8 +931,37 @@ def select_simulator(
         udid=udid,
         destination=f"platform={simulator.platform},id={udid}",
         redacted_identity=f"sim-{identity}",
-        created=created,
+        created=True,
     )
+
+
+def select_simulator(
+    plan: AppleValidationPlan,
+    source_root: Path,
+    state_root: Path,
+    runner: CommandRunner,
+    env: Mapping[str, str],
+    *,
+    ownership: SimulatorOwnership | None = None,
+) -> SimulatorLease:
+    if ownership is not None:
+        return _select_simulator_locked(
+            plan,
+            source_root,
+            state_root,
+            runner,
+            env,
+            ownership,
+        )
+    with _simulator_ownership(env, state_root) as acquired:
+        return _select_simulator_locked(
+            plan,
+            source_root,
+            state_root,
+            runner,
+            env,
+            acquired,
+        )
 
 
 def _git_output(root: Path, arguments: Sequence[str], code: str) -> str:
@@ -805,144 +1226,6 @@ def _execute_command(
     return _verify_outputs(source_root, command)
 
 
-def execute_apple_plan(
-    *,
-    plan: AppleValidationPlan,
-    source_root: Path,
-    state_root: Path,
-    runner: CommandRunner | None = None,
-    environment: Mapping[str, str] | None = None,
-) -> AppleValidationResult:
-    command_runner = runner or SubprocessCommandRunner()
-    verify_exact_source(source_root, plan.request.admitted_sha)
-    _validate_container_files(source_root, plan)
-    before = protected_hashes(source_root, plan)
-    env, directories = isolated_environment(state_root, environment)
-    for key, directory_name in plan.environment_bindings:
-        env[key] = str(directories[directory_name])
-    completed: list[AppleStage] = []
-    lease: SimulatorLease | None = None
-    output_verified = False
-    cleanup_result = "not-run"
-    try:
-        (
-            xcode_version,
-            xcode_build,
-            swift_version,
-            sdk_versions,
-            _,
-        ) = verify_toolchain(
-            plan,
-            source_root,
-            state_root,
-            command_runner,
-            env,
-        )
-        completed.extend((AppleStage.TOOLCHAIN_VERIFY, AppleStage.SDK_VERIFY))
-        if plan.request.validation_profile is AppleProfile.SOURCE_AUDIT:
-            completed.append(AppleStage.SOURCE_AUDIT)
-        if plan.requires_simulator:
-            lease = select_simulator(
-                plan,
-                source_root,
-                state_root,
-                command_runner,
-                env,
-            )
-            completed.append(AppleStage.SIMULATOR_SELECT)
-        for command in plan.commands:
-            output_verified = (
-                _execute_command(
-                    plan,
-                    command,
-                    source_root,
-                    state_root,
-                    command_runner,
-                    env,
-                    directories,
-                    lease,
-                )
-                or output_verified
-            )
-            completed.append(command.stage)
-        after = protected_hashes(source_root, plan)
-        if before != after:
-            resolved = set(plan.container.resolved_files) if plan.container else set()
-            if any(before.get(path) != after.get(path) for path in resolved):
-                fail("package_resolution_mutation")
-            fail("source_mutation")
-        verify_exact_source(source_root, plan.request.admitted_sha)
-        cleanup_apple_state(
-            source_root,
-            state_root,
-            plan,
-            runner=command_runner,
-            environment=env,
-        )
-        cleanup_result = "success"
-        assert_zero_apple_residue(source_root, state_root, plan)
-        verify_exact_source(source_root, plan.request.admitted_sha)
-        completed.append(AppleStage.CLEANUP)
-        evidence_id = hashlib.sha256(
-            json.dumps(
-                {
-                    "repository": plan.request.repository,
-                    "consumer": plan.request.consumer_contract,
-                    "profile": plan.request.validation_profile.value,
-                    "task": plan.task_profile,
-                    "sha": plan.request.admitted_sha,
-                    "stages": [stage.value for stage in completed],
-                    "xcode": xcode_version,
-                    "xcode_build": xcode_build,
-                    "swift": swift_version,
-                    "sdks": sdk_versions,
-                    "simulator": lease.redacted_identity if lease else None,
-                },
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        ).hexdigest()
-        return AppleValidationResult(
-            plan=plan,
-            status="success",
-            completed_stages=tuple(completed),
-            xcode_version=xcode_version,
-            xcode_build=xcode_build,
-            swift_version=swift_version,
-            sdk_versions=sdk_versions,
-            simulator_identity=lease.redacted_identity if lease else None,
-            output_verified=output_verified,
-            clean_tree=True,
-            cleanup_result=cleanup_result,
-            artifact_exception_used=False,
-            evidence_id=evidence_id,
-        )
-    except AppleValidationError as primary_error:
-        try:
-            cleanup_apple_state(
-                source_root,
-                state_root,
-                plan,
-                runner=command_runner,
-                environment=env,
-            )
-        except AppleValidationError as cleanup_error:
-            raise AppleValidationError(
-                primary_error.code,
-                cleanup_failed=True,
-            ) from cleanup_error
-        raise
-
-
-def _lstat(path: Path) -> os.stat_result | None:
-    try:
-        return os.lstat(path)
-    except FileNotFoundError:
-        return None
-    except OSError as error:
-        raise AppleValidationError("cleanup_failed") from error
-
-
 def _lexical_target(root: Path, relative: str) -> Path:
     root = Path(os.path.abspath(root))
     metadata = _lstat(root)
@@ -1001,6 +1284,73 @@ def _cleanup_targets(
     return tuple(targets)
 
 
+def _cleanup_simulator_locked(
+    source_root: Path,
+    state_root: Path,
+    plan: AppleValidationPlan,
+    *,
+    runner: CommandRunner,
+    environment: Mapping[str, str],
+    ownership: SimulatorOwnership,
+) -> None:
+    owner_key = _simulator_owner_key(plan)
+    row = ownership.row(owner_key)
+    payload = _device_inventory(
+        runner,
+        source_root=source_root,
+        state_root=state_root,
+        env=environment,
+        available_only=False,
+        failure_code="cleanup_failed",
+    )
+    candidates = _exact_owned_candidates(plan, payload)
+    if row is None:
+        if candidates:
+            fail("cleanup_failed")
+        return
+    _require_record_identity(plan, row)
+    if not candidates:
+        ownership.replace(owner_key, None)
+        return
+    candidate = candidates[0]
+    if row["status"] == "owned" and candidate["udid"] != row["udid"]:
+        fail("cleanup_failed")
+    _delete_exact_owned_simulator(
+        runner,
+        source_root=source_root,
+        state_root=state_root,
+        env=environment,
+        udid=candidate["udid"],
+        plan=plan,
+        failure_code="cleanup_failed",
+    )
+    ownership.replace(owner_key, None)
+
+
+def _cleanup_apple_state_locked(
+    source_root: Path,
+    state_root: Path,
+    plan: AppleValidationPlan,
+    *,
+    runner: CommandRunner,
+    environment: Mapping[str, str],
+    ownership: SimulatorOwnership | None,
+) -> None:
+    if plan.requires_simulator:
+        if ownership is None:
+            fail("simulator_ownership_invalid")
+        _cleanup_simulator_locked(
+            source_root,
+            state_root,
+            plan,
+            runner=runner,
+            environment=environment,
+            ownership=ownership,
+        )
+    for path in _cleanup_targets(source_root, state_root, plan):
+        _remove_no_follow(path)
+
+
 def cleanup_apple_state(
     source_root: Path,
     state_root: Path,
@@ -1008,62 +1358,39 @@ def cleanup_apple_state(
     *,
     runner: CommandRunner | None = None,
     environment: Mapping[str, str] | None = None,
+    ownership: SimulatorOwnership | None = None,
 ) -> None:
     command_runner = runner or SubprocessCommandRunner()
-    registry_rows = _read_simulator_registry(state_root)
-    if registry_rows:
-        env = dict(environment or os.environ)
-        for row in registry_rows:
-            udid = row["udid"]
-            _run(
-                command_runner,
-                ("xcrun", "simctl", "shutdown", udid),
-                cwd=source_root,
-                env=env,
-                timeout_seconds=60,
-                failure_code="cleanup_failed",
-                check=False,
+    env = dict(environment or os.environ)
+    if plan.requires_simulator and ownership is None:
+        with _simulator_ownership(env, state_root) as acquired:
+            _cleanup_apple_state_locked(
+                source_root,
+                state_root,
+                plan,
+                runner=command_runner,
+                environment=env,
+                ownership=acquired,
             )
-            _run(
-                command_runner,
-                ("xcrun", "simctl", "delete", udid),
-                cwd=source_root,
-                env=env,
-                timeout_seconds=60,
-                failure_code="cleanup_failed",
-            )
-        inventory = _run(
-            command_runner,
-            ("xcrun", "simctl", "list", "devices", "-j"),
-            cwd=source_root,
-            env=env,
-            timeout_seconds=60,
-            failure_code="cleanup_failed",
-        )
-        try:
-            payload = json.loads(inventory.stdout)
-        except json.JSONDecodeError as error:
-            raise AppleValidationError("cleanup_failed") from error
-        devices = payload.get("devices") if isinstance(payload, dict) else None
-        if not isinstance(devices, dict):
-            fail("cleanup_failed")
-        remaining_udids = {
-            str(device.get("udid"))
-            for rows in devices.values()
-            if isinstance(rows, list)
-            for device in rows
-            if isinstance(device, dict)
-        }
-        if any(row["udid"] in remaining_udids for row in registry_rows):
-            fail("cleanup_failed")
-    for path in _cleanup_targets(source_root, state_root, plan):
-        _remove_no_follow(path)
+        return
+    _cleanup_apple_state_locked(
+        source_root,
+        state_root,
+        plan,
+        runner=command_runner,
+        environment=env,
+        ownership=ownership,
+    )
 
 
-def assert_zero_apple_residue(
+def _assert_zero_apple_residue_locked(
     source_root: Path,
     state_root: Path,
     plan: AppleValidationPlan,
+    *,
+    runner: CommandRunner,
+    environment: Mapping[str, str],
+    ownership: SimulatorOwnership | None,
 ) -> None:
     remaining = [
         str(path)
@@ -1072,3 +1399,218 @@ def assert_zero_apple_residue(
     ]
     if remaining:
         fail("cleanup_failed")
+    if plan.requires_simulator:
+        if ownership is None:
+            fail("simulator_ownership_invalid")
+        if ownership.row(_simulator_owner_key(plan)) is not None:
+            fail("cleanup_failed")
+        payload = _device_inventory(
+            runner,
+            source_root=source_root,
+            state_root=state_root,
+            env=environment,
+            available_only=False,
+            failure_code="cleanup_failed",
+            record_log=False,
+        )
+        if _exact_owned_candidates(plan, payload):
+            fail("cleanup_failed")
+
+
+def assert_zero_apple_residue(
+    source_root: Path,
+    state_root: Path,
+    plan: AppleValidationPlan,
+    *,
+    runner: CommandRunner | None = None,
+    environment: Mapping[str, str] | None = None,
+    ownership: SimulatorOwnership | None = None,
+) -> None:
+    command_runner = runner or SubprocessCommandRunner()
+    env = dict(environment or os.environ)
+    if plan.requires_simulator and ownership is None:
+        with _simulator_ownership(env, state_root) as acquired:
+            _assert_zero_apple_residue_locked(
+                source_root,
+                state_root,
+                plan,
+                runner=command_runner,
+                environment=env,
+                ownership=acquired,
+            )
+        return
+    _assert_zero_apple_residue_locked(
+        source_root,
+        state_root,
+        plan,
+        runner=command_runner,
+        environment=env,
+        ownership=ownership,
+    )
+
+
+def _execute_apple_plan_locked(
+    *,
+    plan: AppleValidationPlan,
+    source_root: Path,
+    state_root: Path,
+    runner: CommandRunner,
+    environment: Mapping[str, str],
+    ownership: SimulatorOwnership | None,
+) -> AppleValidationResult:
+    verify_exact_source(source_root, plan.request.admitted_sha)
+    _validate_container_files(source_root, plan)
+    before = protected_hashes(source_root, plan)
+    env, directories = isolated_environment(state_root, environment)
+    for key, directory_name in plan.environment_bindings:
+        env[key] = str(directories[directory_name])
+    completed: list[AppleStage] = []
+    lease: SimulatorLease | None = None
+    output_verified = False
+    cleanup_result = "not-run"
+    try:
+        (
+            xcode_version,
+            xcode_build,
+            swift_version,
+            sdk_versions,
+            _,
+        ) = verify_toolchain(
+            plan,
+            source_root,
+            state_root,
+            runner,
+            env,
+        )
+        completed.extend((AppleStage.TOOLCHAIN_VERIFY, AppleStage.SDK_VERIFY))
+        if plan.request.validation_profile is AppleProfile.SOURCE_AUDIT:
+            completed.append(AppleStage.SOURCE_AUDIT)
+        if plan.requires_simulator:
+            if ownership is None:
+                fail("simulator_ownership_invalid")
+            lease = select_simulator(
+                plan,
+                source_root,
+                state_root,
+                runner,
+                env,
+                ownership=ownership,
+            )
+            completed.append(AppleStage.SIMULATOR_SELECT)
+        for command in plan.commands:
+            output_verified = (
+                _execute_command(
+                    plan,
+                    command,
+                    source_root,
+                    state_root,
+                    runner,
+                    env,
+                    directories,
+                    lease,
+                )
+                or output_verified
+            )
+            completed.append(command.stage)
+        after = protected_hashes(source_root, plan)
+        if before != after:
+            resolved = set(plan.container.resolved_files) if plan.container else set()
+            if any(before.get(path) != after.get(path) for path in resolved):
+                fail("package_resolution_mutation")
+            fail("source_mutation")
+        verify_exact_source(source_root, plan.request.admitted_sha)
+        cleanup_apple_state(
+            source_root,
+            state_root,
+            plan,
+            runner=runner,
+            environment=env,
+            ownership=ownership,
+        )
+        cleanup_result = "success"
+        assert_zero_apple_residue(
+            source_root,
+            state_root,
+            plan,
+            runner=runner,
+            environment=env,
+            ownership=ownership,
+        )
+        verify_exact_source(source_root, plan.request.admitted_sha)
+        completed.append(AppleStage.CLEANUP)
+        evidence_id = hashlib.sha256(
+            json.dumps(
+                {
+                    "repository": plan.request.repository,
+                    "consumer": plan.request.consumer_contract,
+                    "profile": plan.request.validation_profile.value,
+                    "task": plan.task_profile,
+                    "sha": plan.request.admitted_sha,
+                    "stages": [stage.value for stage in completed],
+                    "xcode": xcode_version,
+                    "xcode_build": xcode_build,
+                    "swift": swift_version,
+                    "sdks": sdk_versions,
+                    "simulator": lease.redacted_identity if lease else None,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        return AppleValidationResult(
+            plan=plan,
+            status="success",
+            completed_stages=tuple(completed),
+            xcode_version=xcode_version,
+            xcode_build=xcode_build,
+            swift_version=swift_version,
+            sdk_versions=sdk_versions,
+            simulator_identity=lease.redacted_identity if lease else None,
+            output_verified=output_verified,
+            clean_tree=True,
+            cleanup_result=cleanup_result,
+            artifact_exception_used=False,
+            evidence_id=evidence_id,
+        )
+    except AppleValidationError as primary_error:
+        try:
+            cleanup_apple_state(
+                source_root,
+                state_root,
+                plan,
+                runner=runner,
+                environment=env,
+                ownership=ownership,
+            )
+        except AppleValidationError as cleanup_error:
+            raise AppleValidationError(
+                primary_error.code,
+                cleanup_failed=True,
+            ) from cleanup_error
+        raise
+
+
+def execute_apple_plan(
+    *,
+    plan: AppleValidationPlan,
+    source_root: Path,
+    state_root: Path,
+    runner: CommandRunner | None = None,
+    environment: Mapping[str, str] | None = None,
+) -> AppleValidationResult:
+    command_runner = runner or SubprocessCommandRunner()
+    env = dict(environment or os.environ)
+    ownership_context = (
+        _simulator_ownership(env, state_root)
+        if plan.requires_simulator
+        else nullcontext(None)
+    )
+    with ownership_context as ownership:
+        return _execute_apple_plan_locked(
+            plan=plan,
+            source_root=source_root,
+            state_root=state_root,
+            runner=command_runner,
+            environment=env,
+            ownership=ownership,
+        )
