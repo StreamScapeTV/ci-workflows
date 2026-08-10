@@ -1,0 +1,102 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import re
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class OciWorkflowContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.workflow = (ROOT / ".github/workflows/reusable-oci-build.yml").read_text()
+        cls.smoke = (ROOT / ".github/workflows/oci-build-smoke.yml").read_text()
+        cls.action = (ROOT / "actions/validate-oci/action.yml").read_text()
+        cls.contract = json.loads((ROOT / "contracts/oci-products.json").read_text())
+        cls.schema = json.loads((ROOT / "contracts/oci-build.schema.json").read_text())
+
+    def test_public_workflow_is_call_only_least_privilege_and_zero_artifact(self) -> None:
+        self.assertIn("workflow_call:", self.workflow)
+        for forbidden in (
+            "pull_request_target", "workflow_run:", "secrets: inherit",
+            "upload-artifact", "download-artifact", "packages: write",
+            "id-token: write", "latest", "kubectl", "flux reconcile",
+            "helm upgrade", "docker.sock", "runs-on: self-hosted",
+        ):
+            self.assertNotIn(forbidden, self.workflow)
+        self.assertIn("permissions:\n  contents: read", self.workflow)
+        self.assertNotRegex(self.workflow, r"(?m)^\s+secrets:\s*$")
+        self.assertIn("publication\":false", self.workflow)
+        self.assertIn("registry_credentials\":false", self.workflow)
+
+    def test_dynamic_build_job_consumes_exact_trusted_planner_output(self) -> None:
+        self.assertIn("runs-on: portable", self.workflow)
+        self.assertIn("runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}", self.workflow)
+        self.assertNotRegex(self.workflow, r"runs-on:\s*\[.*buildah")
+        self.assertNotIn("runs-on: buildah", self.workflow)
+        self.assertIn("Resolve contract-owned OCI product and runner", self.workflow)
+
+    def test_exact_source_cleanup_residue_and_terminal_projection_are_unconditional(self) -> None:
+        required = (
+            "Check out exact admitted caller source",
+            "persist-credentials: false",
+            "Build and inspect exact source without publication",
+            "continue-on-error: true",
+            "if: always()",
+            "Remove images, manifests, containers, layouts, caches, and temporary state",
+            "Verify zero OCI-specific residue",
+            "Remove and verify registered workspace state",
+            "Verify exact caller source remained clean",
+            "Project terminal OCI build status",
+        )
+        for value in required:
+            self.assertIn(value, self.workflow)
+        self.assertLess(self.workflow.index("Build and inspect exact source"), self.workflow.index("Remove images, manifests"))
+        self.assertLess(self.workflow.index("Remove images, manifests"), self.workflow.index("Verify zero OCI-specific residue"))
+
+    def test_public_inputs_do_not_expose_engine_runner_command_registry_or_secret(self) -> None:
+        on_block = self.workflow.split("outputs:", 1)[0]
+        for forbidden in (
+            "builder:", "engine:", "docker:", "buildah:", "buildkit:",
+            "podman:", "runner:", "runner_labels:", "runs_on:", "command:",
+            "arguments:", "callback:", "registry:", "secret_name:",
+        ):
+            self.assertNotIn(forbidden, on_block)
+        self.assertEqual(False, self.contract["publication"])
+        self.assertEqual(False, self.contract["registry_credentials"])
+        self.assertEqual("zero-default", self.contract["artifact_policy"])
+        self.assertFalse(self.schema["additionalProperties"])
+
+    def test_action_is_thin_and_uses_direct_issue_owned_cli_until_shared_registration(self) -> None:
+        self.assertIn("scripts/ci/oci.py", self.action)
+        self.assertIn("--phase", self.action)
+        self.assertNotIn("scripts/ci/ciw.py", self.action)
+        self.assertNotIn("shell callback", self.action.lower())
+        self.assertLess(len(self.action.splitlines()), 120)
+
+    def test_smoke_is_real_non_publishing_buildah_contract_caller(self) -> None:
+        self.assertIn("uses: ./.github/workflows/reusable-oci-build.yml", self.smoke)
+        self.assertIn("product_id: ciw-oci-smoke", self.smoke)
+        self.assertIn("platform_set: linux-amd64", self.smoke)
+        self.assertNotIn("secrets:", self.smoke)
+        self.assertNotIn("upload-artifact", self.smoke)
+
+    def test_product_contract_covers_backend_agent_state_flux_and_rejects_application_mobile(self) -> None:
+        products = self.contract["products"]
+        self.assertEqual(
+            {"iptv-backend-image", "agent-state-image", "flux-runner-images", "ciw-oci-smoke"},
+            set(products),
+        )
+        flux = products["flux-runner-images"]
+        self.assertTrue(flux["independent_bootstrap"])
+        self.assertTrue(flux["flux_asset"])
+        self.assertEqual("buildah-high", flux["runner_profile"])
+        self.assertNotIn("StreamScapeTV/StreamScapeWeb", json.dumps(products))
+        self.assertNotIn("StreamScapeTV/iptv-android", json.dumps(products))
+        self.assertNotIn("StreamScapeTV/iptv-apple", json.dumps(products))
+
+
+if __name__ == "__main__":
+    unittest.main()
