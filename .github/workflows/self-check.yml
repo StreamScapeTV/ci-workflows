@@ -18,7 +18,7 @@ concurrency:
 jobs:
   validate:
     name: Validate repository and reusable workflow contracts
-    runs-on: macOS
+    runs-on: portable
     timeout-minutes: 10
     env:
       SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -50,7 +50,7 @@ jobs:
               ;;
           esac
 
-      - name: Verify pre-provisioned CPython 3.12.13
+      - name: Verify pre-provisioned general-Linux CPython 3.12.13
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -71,8 +71,8 @@ jobs:
           IFS='|' read -r implementation version system machine <<< "${identity}"
           [[ "${implementation}" == "cpython" ]] || { echo "::error::Expected CPython, got ${implementation}." >&2; exit 1; }
           [[ "${version}" == "3.12.13" ]] || { echo "::error::Expected Python 3.12.13, got ${version}." >&2; exit 1; }
-          [[ "${system}" == "Darwin" ]] || { echo "::error::Expected Darwin, got ${system}." >&2; exit 1; }
-          case "${machine}" in arm64|x86_64) ;; *) echo "::error::Unsupported macOS architecture ${machine}." >&2; exit 1 ;; esac
+          [[ "${system}" == "Linux" ]] || { echo "::error::Expected Linux, got ${system}." >&2; exit 1; }
+          case "${machine}" in x86_64) ;; *) echo "::error::Unsupported general-Linux architecture ${machine}." >&2; exit 1 ;; esac
           {
             printf 'VERIFIED_PYTHON=%s\n' "${resolved}"
             printf 'PYTHON_EXECUTABLE=%s\n' "${resolved}"
