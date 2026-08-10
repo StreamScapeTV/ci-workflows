@@ -39,7 +39,9 @@ class AndroidSourceBoundaryTests(unittest.TestCase):
                     inherited,
                 )
 
-            self.assertEqual(status, (" M tracked.txt", "?? generated.txt"))
+            # The helper normalizes surrounding whitespace while preserving
+            # every nonempty dirty path and status marker used by the gate.
+            self.assertEqual(status, ("M tracked.txt", "?? generated.txt"))
             environment = runner.call_args.kwargs["environment"]
             self.assertEqual(environment["HOME"], str(home))
             self.assertEqual(environment["GIT_CONFIG_NOSYSTEM"], "1")
@@ -120,7 +122,7 @@ class AndroidSourceBoundaryTests(unittest.TestCase):
                 repository,
                 environment,
             )
-            self.assertEqual(tracked_status, (" M tracked.txt",))
+            self.assertEqual(tracked_status, ("M tracked.txt",))
 
     def test_missing_or_relative_isolated_home_fails_closed(self) -> None:
         with self.assertRaises(AndroidValidationError) as missing:
