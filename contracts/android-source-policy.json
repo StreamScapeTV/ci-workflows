@@ -35,6 +35,21 @@
   },
   "tracked_secret_exceptions": [
     {
+      "id": "ci_workflows_reviewed_token_rejection_fixture_v1",
+      "repository": "StreamScapeTV/ci-workflows",
+      "validation_profiles": [
+        "toolchain-smoke"
+      ],
+      "rule_id": "tracked_secret_detected",
+      "digest_algorithm": "git-blob-sha1",
+      "paths": [
+        {
+          "path": "tests/test_node_regression.py",
+          "git_blob_sha1": "e9c5b05b1a2288db5158dfca30a884312ca5c88e"
+        }
+      ]
+    },
+    {
       "id": "iptv_android_reviewed_synthetic_authorization_v1",
       "repository": "StreamScapeTV/iptv-android",
       "validation_profiles": [
