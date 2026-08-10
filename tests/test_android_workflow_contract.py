@@ -55,7 +55,14 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             "artifact_exception_id", "device_family", "device_request_id",
         })
         self.assertEqual(set(smoke["jobs"]), {"plan", "execute_android"})
-        self.assertEqual(smoke["jobs"]["plan"]["runs-on"], "portable")
+        self.assertEqual(
+            smoke["jobs"]["plan"]["runs-on"],
+            ["linux", "amd64", "general"],
+        )
+        self.assertEqual(
+            reusable["jobs"]["plan"]["runs-on"],
+            ["linux", "amd64", "general"],
+        )
         self.assertEqual(smoke["jobs"]["plan"]["timeout-minutes"], 10)
         self.assertEqual(smoke["jobs"]["execute_android"]["timeout-minutes"], 30)
         self.assertIn(
@@ -66,7 +73,10 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("workflow_dispatch", reusable[True])
 
     def test_semantic_runner_and_exact_source_primitives(self) -> None:
-        self.assertIn("runs-on: portable", self.reusable)
+        self.assertIn("runs-on: [linux, amd64, general]", self.reusable)
+        self.assertIn("runs-on: [linux, amd64, general]", self.smoke)
+        self.assertNotIn("runs-on: portable", self.reusable)
+        self.assertNotIn("runs-on: portable", self.smoke)
         self.assertIn("fromJSON(needs.plan.outputs.runs_on_json)", self.reusable)
         self.assertIn("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", self.reusable)
         self.assertIn("./.ciw/actions/exact-checkout", self.reusable)
