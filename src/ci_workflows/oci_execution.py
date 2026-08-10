@@ -176,7 +176,12 @@ def inspect_layout(layout: Path, target: OciTarget, labels: Mapping[str, str]) -
         raise OciBuildError("oci_layout_malformed")
     index_path = layout / "index.json"
     index = _read_json(index_path)
-    if not isinstance(index, dict) or index.get("schemaVersion") != 2 or not isinstance(index.get("manifests"), list):
+    if (
+        not isinstance(index, dict)
+        or index.get("schemaVersion") != 2
+        or index.get("mediaType") != "application/vnd.oci.image.index.v1+json"
+        or not isinstance(index.get("manifests"), list)
+    ):
         raise OciBuildError("oci_layout_malformed")
     results: dict[str, OciPlatformResult] = {}
     for descriptor in index["manifests"]:
@@ -187,14 +192,27 @@ def inspect_layout(layout: Path, target: OciTarget, labels: Mapping[str, str]) -
         if platform.get("variant"):
             name += f"/{platform['variant']}"
         manifest_digest = descriptor.get("digest")
-        if not isinstance(manifest_digest, str) or name in results:
+        if (
+            descriptor.get("mediaType") != "application/vnd.oci.image.manifest.v1+json"
+            or not isinstance(manifest_digest, str)
+            or name in results
+        ):
             raise OciBuildError("oci_layout_malformed")
         manifest = _read_json(_blob(layout, manifest_digest))
-        if not isinstance(manifest, dict) or manifest.get("schemaVersion") != 2:
+        if (
+            not isinstance(manifest, dict)
+            or manifest.get("schemaVersion") != 2
+            or manifest.get("mediaType") != "application/vnd.oci.image.manifest.v1+json"
+        ):
             raise OciBuildError("oci_layout_malformed")
         config = manifest.get("config")
         layers = manifest.get("layers")
-        if not isinstance(config, dict) or not isinstance(layers, list) or not isinstance(config.get("digest"), str):
+        if (
+            not isinstance(config, dict)
+            or config.get("mediaType") != "application/vnd.oci.image.config.v1+json"
+            or not isinstance(layers, list)
+            or not isinstance(config.get("digest"), str)
+        ):
             raise OciBuildError("oci_layout_malformed")
         config_digest = config["digest"]
         config_payload = _read_json(_blob(layout, config_digest))
@@ -214,7 +232,11 @@ def inspect_layout(layout: Path, target: OciTarget, labels: Mapping[str, str]) -
             raise OciBuildError("assertion_failed")
         layer_digests: list[str] = []
         for layer in layers:
-            if not isinstance(layer, dict) or not isinstance(layer.get("digest"), str):
+            if (
+                not isinstance(layer, dict)
+                or not str(layer.get("mediaType", "")).startswith("application/vnd.oci.image.layer.v1.tar")
+                or not isinstance(layer.get("digest"), str)
+            ):
                 raise OciBuildError("oci_layout_malformed")
             _blob(layout, layer["digest"])
             layer_digests.append(layer["digest"])
@@ -411,8 +433,10 @@ def cleanup(environment: Mapping[str, str], storage_driver: str = "vfs") -> None
             result = subprocess.run([*base, "manifest", "rm", manifest], text=True, capture_output=True)
             if result.returncode != 0 and "no such" not in result.stderr.lower():
                 failures = True
-        subprocess.run([*base, "rm", "--all"], text=True, capture_output=True)
-        subprocess.run([*base, "rmi", "--all", "--force"], text=True, capture_output=True)
+        for command in ([*base, "rm", "--all"], [*base, "rmi", "--all", "--force"]):
+            result = subprocess.run(command, text=True, capture_output=True)
+            if result.returncode != 0 and "no such" not in result.stderr.lower():
+                failures = True
     try:
         if root.is_symlink():
             root.unlink()
