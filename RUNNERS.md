@@ -191,13 +191,13 @@ No deprecated Linux ARC scheduling alias remains registered. Do not use:
 - `portable` as a `runs-on` label;
 - `buildah-tiny`, `buildah-small`, `buildah-medium`, or `buildah-high` as
   combined labels;
-- any `homelab-*-linux-x64` infrastructure identity as a label;
+- any internal ARC infrastructure identity as a label;
 - bare `buildah`;
 - bare `self-hosted`.
 
 Old workflow examples using those selectors are defects and must be migrated to
-the capability arrays in this guide. Internal ARC resource names may still
-contain `homelab-*`; resource identity is not scheduling policy.
+the capability arrays in this guide. Internal ARC resource names remain
+implementation details; resource identity is not scheduling policy.
 
 ## Organization-managed macOS capacity
 
@@ -269,7 +269,7 @@ change the runner after a job is scheduled.
 
 - Never use bare `self-hosted`.
 - Never use bare `buildah` as a complete direct selector.
-- Never use deprecated combined or `homelab-*` Linux ARC labels.
+- Never use deprecated combined or internal ARC infrastructure labels.
 - Never introduce Docker-capable or DinD selection for Linux ARC.
 - Never combine incompatible semantic profiles in one job.
 - Never accept runner labels from a workflow caller, issue, pull request,
