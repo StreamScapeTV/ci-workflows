@@ -10,14 +10,22 @@ from .flutter_contract import (
     build_plan,
     bounded_path,
     discover_flutter_pin,
+    generate_flutter_contract_files,
     load_flutter_contract,
+    parse_jdk_identity,
     safe_relative,
 )
 from .flutter_execution import (
     CommandRunner,
     assert_zero_flutter_residue,
+    bind_pub_cache,
     cleanup_flutter_state,
     execute_flutter_plan,
+    expected_pub_cache_path,
+    snapshot_persistent_pub_cache,
+    terminal_cleanup_flutter_state,
+    verify_persistent_pub_cache,
+    verify_toolchain_identity,
 )
 from .flutter_types import FlutterPlan, FlutterProfile, FlutterRequest, FlutterResult
 
@@ -28,14 +36,22 @@ __all__ = [
     "FlutterResult",
     "FlutterValidationError",
     "assert_zero_flutter_residue",
+    "bind_pub_cache",
     "bounded_path",
     "cleanup_flutter_state",
     "discover_flutter_pin",
+    "expected_pub_cache_path",
+    "generate_flutter_contract_files",
     "load_flutter_contract",
+    "parse_jdk_identity",
     "request_from_environment",
     "safe_relative",
+    "snapshot_persistent_pub_cache",
     "source_trust_from_environment",
+    "terminal_cleanup_flutter_state",
     "validate",
+    "verify_persistent_pub_cache",
+    "verify_toolchain_identity",
 ]
 
 
@@ -43,21 +59,13 @@ def source_trust_from_environment(environment: Mapping[str, str]) -> str:
     if environment.get("GITHUB_EVENT_NAME") != "pull_request":
         return "trusted-exact"
     try:
-        payload = json.loads(
-            Path(environment.get("GITHUB_EVENT_PATH", "")).read_text(
-                encoding="utf-8"
-            )
-        )
+        payload = json.loads(Path(environment.get("GITHUB_EVENT_PATH", "")).read_text(encoding="utf-8"))
         head_repository = payload["pull_request"]["head"]["repo"]["full_name"]
     except (OSError, json.JSONDecodeError, KeyError, TypeError) as error:
         raise FlutterValidationError("invalid_input") from error
     if not isinstance(head_repository, str) or not head_repository:
         raise FlutterValidationError("invalid_input")
-    return (
-        "trusted-pr"
-        if head_repository == environment.get("GITHUB_REPOSITORY")
-        else "untrusted-fork"
-    )
+    return "trusted-pr" if head_repository == environment.get("GITHUB_REPOSITORY") else "untrusted-fork"
 
 
 def _match_optional(environment: Mapping[str, str], key: str, expected: str) -> None:
@@ -81,24 +89,16 @@ def request_from_environment(
         if not repository:
             raise FlutterValidationError("invalid_input")
         profile = FlutterProfile(environment["INPUT_VALIDATION_PROFILE"])
-        consumer_id = environment.get("INPUT_COMMAND_PROFILE") or environment[
-            "INPUT_CONSUMER_CONTRACT"
-        ]
+        consumer_id = environment.get("INPUT_COMMAND_PROFILE") or environment["INPUT_CONSUMER_CONTRACT"]
         consumer = contract["consumer_contracts"][consumer_id]
         if consumer.get("repository") != repository:
             raise FlutterValidationError("consumer_contract_rejected")
         profile_contract = consumer["profiles"][profile.value]
-        pin_sources = [
-            value for value in consumer["pin_sources"] if value != "contract"
-        ]
+        pin_sources = [value for value in consumer["pin_sources"] if value != "contract"]
         expected_version_file = pin_sources[0] if len(pin_sources) == 1 else ""
         _match_optional(environment, "INPUT_VERSION_FILE", expected_version_file)
         _match_optional(environment, "INPUT_WORKING_DIRECTORY", ".")
-        _match_optional(
-            environment,
-            "INPUT_SCRIPT_PATH",
-            profile_contract.get("gate_path") or "",
-        )
+        _match_optional(environment, "INPUT_SCRIPT_PATH", profile_contract.get("gate_path") or "")
         expected_platform = {
             FlutterProfile.ANDROID_DEBUG: "android",
             FlutterProfile.IOS_SIMULATOR: "ios-simulator",

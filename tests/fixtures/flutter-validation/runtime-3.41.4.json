@@ -1,1 +1,13 @@
-{"frameworkVersion":"3.41.4","dartSdkVersion":"3.11.1","frameworkRevision":"ff37bef0123456789abcdef0123456789abcdef0","engineRevision":"e4b8dca3f1b4ede4c30371002441c88c12187ed6"}
+{
+  "dartSdkVersion": "3.11.1",
+  "engineRevision": "e4b8dca3f1b4ede4c30371002441c88c12187ed6",
+  "frameworkRevision": "ff37bef",
+  "frameworkVersion": "3.41.4",
+  "gradleVersion": "8.14",
+  "javaRuntimeVersion": "21.0.8+9-LTS",
+  "javaVendor": "Eclipse Adoptium",
+  "javaVersion": "21.0.8",
+  "javacVersion": "21.0.8",
+  "jdkDistribution": "temurin",
+  "jdkVersion": "21.0.8+9"
+}

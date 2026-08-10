@@ -66,6 +66,10 @@ jobs:
       timeout_minutes: ${{ steps.plan.outputs.timeout_minutes }}
       source_trust: ${{ steps.plan.outputs.source_trust }}
       flutter_version: ${{ steps.plan.outputs.flutter_version }}
+      dart_version: ${{ steps.plan.outputs.dart_version }}
+      gradle_version: ${{ steps.plan.outputs.gradle_version }}
+      jdk_distribution: ${{ steps.plan.outputs.jdk_distribution }}
+      jdk_version: ${{ steps.plan.outputs.jdk_version }}
     steps:
       - name: Check out exact central workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -77,20 +81,15 @@ jobs:
           clean: true
           persist-credentials: false
           set-safe-directory: false
-
       - name: Verify exact central workflow source
         shell: bash
         env:
           EXPECTED_SHA: ${{ github.workflow_sha }}
         run: |
           set -Eeuo pipefail
-          (
-            cd .ciw
-            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
-          )
-
+          (cd .ciw && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
       - id: plan
-        name: Resolve contract-owned Flutter plan
+        name: Resolve contract-owned Flutter Dart Gradle and JDK tuple
         uses: ./.ciw/actions/validate-flutter
         with:
           phase: plan
@@ -168,7 +167,7 @@ jobs:
           artifact_exception_id: ${{ inputs.artifact_exception_id }}
           source_trust: ${{ needs.plan.outputs.source_trust }}
       - id: flutter_cleanup
-        name: Remove Flutter-specific state
+        name: Remove Flutter-specific state and preserve primary failure
         if: always()
         uses: ./.ciw/actions/validate-flutter
         with:
@@ -177,6 +176,7 @@ jobs:
           validation_profile: ${{ inputs.validation_profile }}
           command_profile: ${{ inputs.command_profile }}
           source_trust: ${{ needs.plan.outputs.source_trust }}
+          primary_failure_code: ${{ steps.execute.outputs.primary_failure_code || steps.execute.outputs.failure_code }}
       - id: flutter_residue
         name: Verify zero Flutter-specific residue
         if: always()
@@ -242,13 +242,46 @@ jobs:
           cache_mode: disabled
           source_sha: ${{ inputs.admitted_sha }}
           trust_mode: ${{ needs.plan.outputs.source_trust }}
+      - id: persistent_cache_snapshot
+        name: Snapshot persistent host pub cache before Flutter setup
+        uses: ./.ciw/actions/validate-flutter
+        with:
+          phase: persistent-cache-snapshot
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          command_profile: ${{ inputs.command_profile }}
+          source_trust: ${{ needs.plan.outputs.source_trust }}
+      - name: Set up exact contract-owned compatible JDK
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        with:
+          distribution: ${{ needs.plan.outputs.jdk_distribution }}
+          java-version: ${{ needs.plan.outputs.jdk_version }}
       - name: Set up exact immutable Flutter runtime
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # reviewed 2026-03-25
         with:
           flutter-version: ${{ needs.plan.outputs.flutter_version }}
           cache: false
           cache-path: ${{ format('{0}/flutter-sdk-{1}', env.CI_TOOL_ROOT, needs.plan.outputs.flutter_version) }}
-          pub-cache-path: ${{ format('{0}/.pub-cache', env.HOME) }}
+          pub-cache-path: ${{ format('{0}/tmp/flutter-validation/pub-cache', env.CI_WORKFLOW_ROOT) }}
+      - id: pub_cache_bind
+        name: Force Flutter pub cache beneath registered workflow state
+        uses: ./.ciw/actions/validate-flutter
+        with:
+          phase: pub-cache-bind
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          command_profile: ${{ inputs.command_profile }}
+          source_trust: ${{ needs.plan.outputs.source_trust }}
+      - id: toolchain
+        name: Verify exact Java Javac Flutter and Dart identities
+        uses: ./.ciw/actions/validate-flutter
+        with:
+          phase: verify-toolchain
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          version_file: ${{ inputs.version_file }}
+          command_profile: ${{ inputs.command_profile }}
+          source_trust: ${{ needs.plan.outputs.source_trust }}
       - id: execute
         name: Execute bounded Flutter validation
         uses: ./.ciw/actions/validate-flutter
@@ -263,8 +296,18 @@ jobs:
           platform: ${{ inputs.platform }}
           artifact_exception_id: ${{ inputs.artifact_exception_id }}
           source_trust: ${{ needs.plan.outputs.source_trust }}
+      - id: persistent_cache_verify
+        name: Prove persistent host pub cache is unchanged
+        if: always()
+        uses: ./.ciw/actions/validate-flutter
+        with:
+          phase: persistent-cache-verify
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          command_profile: ${{ inputs.command_profile }}
+          source_trust: ${{ needs.plan.outputs.source_trust }}
       - id: flutter_cleanup
-        name: Remove Flutter-specific state
+        name: Remove registered Flutter and pub state and preserve primary failure
         if: always()
         uses: ./.ciw/actions/validate-flutter
         with:
@@ -273,8 +316,9 @@ jobs:
           validation_profile: ${{ inputs.validation_profile }}
           command_profile: ${{ inputs.command_profile }}
           source_trust: ${{ needs.plan.outputs.source_trust }}
+          primary_failure_code: ${{ steps.execute.outputs.primary_failure_code || steps.execute.outputs.failure_code }}
       - id: flutter_residue
-        name: Verify zero Flutter-specific residue
+        name: Verify zero Flutter-specific and pub-cache residue
         if: always()
         uses: ./.ciw/actions/validate-flutter
         with:
@@ -338,13 +382,41 @@ jobs:
           cache_mode: disabled
           source_sha: ${{ inputs.admitted_sha }}
           trust_mode: ${{ needs.plan.outputs.source_trust }}
+      - id: persistent_cache_snapshot
+        name: Snapshot persistent host pub cache before Flutter setup
+        uses: ./.ciw/actions/validate-flutter
+        with:
+          phase: persistent-cache-snapshot
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          command_profile: ${{ inputs.command_profile }}
+          source_trust: ${{ needs.plan.outputs.source_trust }}
       - name: Set up exact immutable Flutter runtime
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # reviewed 2026-03-25
         with:
           flutter-version: ${{ needs.plan.outputs.flutter_version }}
           cache: false
           cache-path: ${{ format('{0}/flutter-sdk-{1}', env.CI_TOOL_ROOT, needs.plan.outputs.flutter_version) }}
-          pub-cache-path: ${{ format('{0}/.pub-cache', env.HOME) }}
+          pub-cache-path: ${{ format('{0}/tmp/flutter-validation/pub-cache', env.CI_WORKFLOW_ROOT) }}
+      - id: pub_cache_bind
+        name: Force Flutter pub cache beneath registered workflow state
+        uses: ./.ciw/actions/validate-flutter
+        with:
+          phase: pub-cache-bind
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          command_profile: ${{ inputs.command_profile }}
+          source_trust: ${{ needs.plan.outputs.source_trust }}
+      - id: toolchain
+        name: Verify exact Flutter and Dart identities
+        uses: ./.ciw/actions/validate-flutter
+        with:
+          phase: verify-toolchain
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          version_file: ${{ inputs.version_file }}
+          command_profile: ${{ inputs.command_profile }}
+          source_trust: ${{ needs.plan.outputs.source_trust }}
       - id: execute
         name: Execute bounded Flutter validation
         uses: ./.ciw/actions/validate-flutter
@@ -359,8 +431,18 @@ jobs:
           platform: ${{ inputs.platform }}
           artifact_exception_id: ${{ inputs.artifact_exception_id }}
           source_trust: ${{ needs.plan.outputs.source_trust }}
+      - id: persistent_cache_verify
+        name: Prove persistent host pub cache is unchanged
+        if: always()
+        uses: ./.ciw/actions/validate-flutter
+        with:
+          phase: persistent-cache-verify
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          command_profile: ${{ inputs.command_profile }}
+          source_trust: ${{ needs.plan.outputs.source_trust }}
       - id: flutter_cleanup
-        name: Remove Flutter-specific state
+        name: Remove registered Flutter and pub state and preserve primary failure
         if: always()
         uses: ./.ciw/actions/validate-flutter
         with:
@@ -369,8 +451,9 @@ jobs:
           validation_profile: ${{ inputs.validation_profile }}
           command_profile: ${{ inputs.command_profile }}
           source_trust: ${{ needs.plan.outputs.source_trust }}
+          primary_failure_code: ${{ steps.execute.outputs.primary_failure_code || steps.execute.outputs.failure_code }}
       - id: flutter_residue
-        name: Verify zero Flutter-specific residue
+        name: Verify zero Flutter-specific and pub-cache residue
         if: always()
         uses: ./.ciw/actions/validate-flutter
         with:

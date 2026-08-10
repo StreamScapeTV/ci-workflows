@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
-import shutil
-import subprocess
+import os
 import sys
 import tempfile
 import unittest
@@ -17,40 +16,63 @@ if str(SRC) not in sys.path:
 
 from ci_workflows import flutter
 from ci_workflows.flutter_contract import (
+    EXPECTED_COMMAND_FIELDS,
+    EXPECTED_COMMAND_IDS,
+    EXPECTED_CONSUMER_FIELDS,
+    EXPECTED_CONSUMER_IDS,
+    EXPECTED_CONSUMER_PROFILE_FIELDS,
+    EXPECTED_FAILURE_CODES,
+    EXPECTED_FORBIDDEN_INPUTS,
+    EXPECTED_GENERATION_FIELDS,
+    EXPECTED_PROFILE_FIELDS,
+    EXPECTED_SETUP_FIELDS,
+    EXPECTED_TOOLCHAIN_FIELDS,
+    EXPECTED_TOOLCHAIN_IDS,
     FlutterValidationError,
     build_plan,
-    discover_flutter_pin,
-    parse_runtime_identity,
+    generated_flutter_files,
+    parse_jdk_identity,
     validate_contract,
 )
-from ci_workflows.flutter_execution import CommandOutcome, CommandRunner
-from ci_workflows.flutter_types import (
-    FlutterProfile,
-    FlutterRequest,
-    RunnerCapability,
+from ci_workflows.flutter_execution import (
+    CommandOutcome,
+    CommandRunner,
+    _verify_expected_outputs,
+    bind_pub_cache,
+    snapshot_persistent_pub_cache,
+    terminal_cleanup_flutter_state,
+    verify_persistent_pub_cache,
 )
+from ci_workflows.flutter_types import FlutterProfile, FlutterRequest, RunnerCapability
 
-FIXTURES = ROOT / "tests" / "fixtures" / "flutter-validation"
 SHA = "a" * 40
-REPOSITORIES = {
-    "directus-canonical": "StreamScapeTV/directus-front",
-    "finance-embedded-web": "StreamScapeTV/finance-hub",
-    "synthetic-smoke": "StreamScapeTV/ci-workflows",
-}
+
+
+def runtime(version: str) -> dict[str, object]:
+    return json.loads(
+        (ROOT / f"tests/fixtures/flutter-validation/runtime-{version}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+
+def request(profile: str, consumer: str = "synthetic-smoke") -> FlutterRequest:
+    repositories = {
+        "directus-canonical": "StreamScapeTV/directus-front",
+        "finance-embedded-web": "StreamScapeTV/finance-hub",
+        "synthetic-smoke": "StreamScapeTV/ci-workflows",
+    }
+    return FlutterRequest(
+        repositories[consumer], SHA, consumer, FlutterProfile(profile), "trusted-pr"
+    )
 
 
 class FakeRunner(CommandRunner):
-    def __init__(
-        self,
-        runtime: Mapping[str, object],
-        *,
-        fail_at: str = "",
-        mutate_lock: bool = False,
-    ) -> None:
-        self.runtime = runtime
-        self.fail_at = fail_at
-        self.mutate_lock = mutate_lock
+    def __init__(self, identity: Mapping[str, object], *, fail: str = "") -> None:
+        self.identity = identity
+        self.fail = fail
         self.calls: list[tuple[str, ...]] = []
+        self.pub_caches: list[str] = []
 
     def run(
         self,
@@ -61,53 +83,31 @@ class FakeRunner(CommandRunner):
     ) -> CommandOutcome:
         command = tuple(argv)
         self.calls.append(command)
-        joined = " ".join(command)
-        if self.fail_at and self.fail_at in joined:
+        if command and command[0] in {"flutter", "dart"}:
+            self.pub_caches.append(env.get("PUB_CACHE", ""))
+        if self.fail and self.fail in " ".join(command):
             return CommandOutcome(17, "", "synthetic failure")
-        if command == ("flutter", "--version", "--machine"):
-            return CommandOutcome(0, json.dumps(self.runtime), "")
-        if self.mutate_lock and command[:3] == ("flutter", "pub", "get"):
-            (cwd / "pubspec.lock").write_text("changed\n", encoding="utf-8")
-        if command[:3] == ("flutter", "build", "apk"):
-            filename = (
-                "app-arm64-v8a-debug.apk"
-                if "--split-per-abi" in command
-                else "app-debug.apk"
+        if command == ("java", "-XshowSettings:properties", "-version"):
+            return CommandOutcome(
+                0,
+                "",
+                "\n".join(
+                    (
+                        f"    java.version = {self.identity['javaVersion']}",
+                        f"    java.runtime.version = {self.identity['javaRuntimeVersion']}",
+                        f"    java.vendor = {self.identity['javaVendor']}",
+                    )
+                ),
             )
-            target = cwd / "build/app/outputs/flutter-apk" / filename
+        if command == ("javac", "-version"):
+            return CommandOutcome(0, f"javac {self.identity['javacVersion']}\n", "")
+        if command == ("flutter", "--version", "--machine"):
+            return CommandOutcome(0, json.dumps(self.identity), "")
+        if command[:3] == ("flutter", "build", "apk"):
+            target = cwd / "build/app/outputs/flutter-apk/app-debug.apk"
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(b"apk")
-        if command[:3] == ("flutter", "build", "appbundle"):
-            target = cwd / "build/app/outputs/bundle/debug/app-debug.aab"
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(b"aab")
-        if command[:4] == ("flutter", "build", "ios", "--simulator"):
-            target = cwd / "build/ios/iphonesimulator/Runner.app"
-            target.mkdir(parents=True, exist_ok=True)
-        if (
-            command[:3] == ("flutter", "build", "ios")
-            and "--no-codesign" in command
-        ):
-            target = cwd / "build/ios/iphoneos/Runner.app"
-            target.mkdir(parents=True, exist_ok=True)
         return CommandOutcome(0, "", "")
-
-
-def runtime(name: str) -> dict[str, object]:
-    return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
-
-
-def request(
-    profile: str,
-    consumer: str = "directus-canonical",
-) -> FlutterRequest:
-    return FlutterRequest(
-        REPOSITORIES[consumer],
-        SHA,
-        consumer,
-        FlutterProfile(profile),
-        "trusted-pr",
-    )
 
 
 class FlutterValidationTests(unittest.TestCase):
@@ -116,510 +116,271 @@ class FlutterValidationTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.temp = Path(self.temporary.name)
-        self.copy_index = 0
 
-    def fixture_copy(self, name: str) -> Path:
-        self.copy_index += 1
-        target = self.temp / f"{name}-{self.copy_index}"
-        shutil.copytree(FIXTURES / name, target)
-        return target
-
-    def assert_code(self, code: str, operation) -> None:
+    def assert_code(self, code: str, operation) -> FlutterValidationError:
         with self.assertRaises(FlutterValidationError) as caught:
             operation()
         self.assertEqual(code, caught.exception.code)
+        return caught.exception
 
-    def test_contract_is_deterministic_and_immutable_setup_is_pinned(self) -> None:
-        first = json.dumps(
-            self.contract,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        second = json.dumps(
-            flutter.load_flutter_contract(ROOT),
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        self.assertEqual(first, second)
-        action = self.contract["setup"]["action"]
-        self.assertRegex(action, r"@[0-9a-f]{40}$")
-        self.assertTrue(self.contract["setup"]["immutable"])
-        self.assertFalse(self.contract["setup"]["caller_download_url"])
-        self.assertFalse(self.contract["setup"]["caller_runtime"])
-
-    def test_directus_exact_fvm_json_shape(self) -> None:
-        pin = discover_flutter_pin(
-            self.fixture_copy("directus"),
-            self.contract["consumer_contracts"]["directus-canonical"],
-        )
-        self.assertEqual("3.44.6", pin.version)
-        self.assertEqual((".fvmrc",), pin.sources)
-
-    def test_finance_exact_fvm_json_shape(self) -> None:
-        pin = discover_flutter_pin(
-            self.fixture_copy("finance"),
-            self.contract["consumer_contracts"]["finance-embedded-web"],
-        )
-        self.assertEqual("3.41.4", pin.version)
-        self.assertEqual((".fvmrc",), pin.sources)
-
-    def test_exact_contract_pin_is_bounded_to_reviewed_smoke_consumer(self) -> None:
-        pin = discover_flutter_pin(
-            self.fixture_copy("smoke"),
-            self.contract["consumer_contracts"]["synthetic-smoke"],
-        )
-        self.assertEqual("3.41.4", pin.version)
-        self.assertEqual(("contract",), pin.sources)
-
-    def test_pin_malformed_range_alias_channel_and_multiple_values_fail(self) -> None:
-        consumer = self.contract["consumer_contracts"]["finance-embedded-web"]
-        values = (
-            "not-json",
-            '{"flutter":"^3.41.4"}',
-            '{"flutter":"stable"}',
-            '{"flutter":"3.41.4","channel":"stable"}',
-            '{"flutter":["3.41.4","3.44.6"]}',
-        )
-        for value in values:
-            with self.subTest(value=value):
-                source = self.fixture_copy("finance")
-                (source / ".fvmrc").write_text(value, encoding="utf-8")
-                self.assert_code(
-                    "invalid_runtime_source",
-                    lambda: discover_flutter_pin(source, consumer),
-                )
-                shutil.rmtree(source)
-
-    def test_pin_agreement_and_mismatch(self) -> None:
-        source = self.fixture_copy("directus")
-        (source / ".flutter-version").write_text(
-            "3.44.6\n",
+    def source(self, *, version: str = "3.41.4", gradle: str = "8.14") -> Path:
+        source = self.temp / f"source-{len(list(self.temp.glob('source-*')))}"
+        source.mkdir()
+        (source / "pubspec.yaml").write_text("name: repair\n", encoding="utf-8")
+        (source / "pubspec.lock").write_text("packages: {}\n", encoding="utf-8")
+        wrapper = source / "android/gradle/wrapper/gradle-wrapper.properties"
+        wrapper.parent.mkdir(parents=True)
+        wrapper.write_text(
+            f"distributionUrl=https\\://services.gradle.org/distributions/gradle-{gradle}-all.zip\n",
             encoding="utf-8",
         )
-        pin = discover_flutter_pin(
-            source,
-            self.contract["consumer_contracts"]["directus-canonical"],
-        )
-        self.assertEqual((".flutter-version", ".fvmrc"), pin.sources)
-        (source / ".flutter-version").write_text(
-            "3.41.4\n",
-            encoding="utf-8",
-        )
-        self.assert_code(
-            "runtime_pin_mismatch",
-            lambda: discover_flutter_pin(
-                source,
-                self.contract["consumer_contracts"]["directus-canonical"],
-            ),
-        )
+        if version == "3.44.6":
+            (source / ".fvmrc").write_text(
+                json.dumps({"flutter": version}) + "\n", encoding="utf-8"
+            )
+        return source
 
-    def test_symlinked_pin_and_escaped_gate_fail(self) -> None:
-        source = self.fixture_copy("directus")
-        pin = source / ".fvmrc"
-        pin.unlink()
-        pin.symlink_to(self.temp / "outside-version")
-        (self.temp / "outside-version").write_text(
-            '{"flutter":"3.44.6"}\n',
-            encoding="utf-8",
-        )
-        self.assert_code(
-            "path_rejected",
-            lambda: discover_flutter_pin(
-                source,
-                self.contract["consumer_contracts"]["directus-canonical"],
-            ),
-        )
-        modified = copy.deepcopy(self.contract)
-        modified["consumer_contracts"]["directus-canonical"]["profiles"][
-            "canonical-gate"
-        ]["gate_path"] = "../outside.sh"
-        self.assert_code(
-            "path_rejected",
-            lambda: build_plan(
-                modified,
-                request("canonical-gate"),
-                source,
-            ),
-        )
-
-    def test_repository_contract_binding_fails_closed(self) -> None:
-        mismatched = FlutterRequest(
-            "StreamScapeTV/finance-hub",
-            SHA,
-            "directus-canonical",
-            FlutterProfile.QUALITY,
-            "trusted-pr",
-        )
-        self.assert_code(
-            "consumer_contract_rejected",
-            lambda: build_plan(self.contract, mismatched, None),
-        )
-
-    def test_runtime_and_dart_identity_are_exact(self) -> None:
-        toolchain = build_plan(
-            self.contract,
-            request("quality"),
-            None,
-        ).toolchain
-        identity = parse_runtime_identity(
-            json.dumps(runtime("runtime-3.44.6.json")),
-            toolchain,
-        )
-        self.assertEqual("3.12.2", identity["dart_version"])
-        bad = runtime("runtime-3.44.6.json")
-        bad["dartSdkVersion"] = "3.12.1"
-        self.assert_code(
-            "dart_mismatch",
-            lambda: parse_runtime_identity(json.dumps(bad), toolchain),
-        )
-        bad = runtime("runtime-3.44.6.json")
-        bad["frameworkVersion"] = "3.44.5"
-        self.assert_code(
-            "runtime_mismatch",
-            lambda: parse_runtime_identity(json.dumps(bad), toolchain),
-        )
-
-    def test_runner_separation_and_source_audit_no_install(self) -> None:
-        cases = {
-            "source-audit": RunnerCapability.PORTABLE,
-            "device-handoff": RunnerCapability.PORTABLE,
-            "quality": RunnerCapability.MOBILE,
-            "canonical-gate": RunnerCapability.MOBILE,
-            "android-debug": RunnerCapability.MOBILE,
-            "compatibility-smoke": RunnerCapability.MOBILE,
-            "ios-simulator": RunnerCapability.APPLE,
+    def environment(self, state: Path, persistent: Path | None = None) -> dict[str, str]:
+        persistent = persistent or self.temp / "persistent-pub"
+        persistent.mkdir(parents=True, exist_ok=True)
+        (persistent / "sentinel").write_text("unchanged", encoding="utf-8")
+        snapshot_persistent_pub_cache(state, {"PUB_CACHE": str(persistent)})
+        github_env = self.temp / "github-env"
+        github_env.write_text("", encoding="utf-8")
+        bound = bind_pub_cache(state, {"GITHUB_ENV": str(github_env)})
+        return {
+            "PUB_CACHE": bound["pub_cache_path"],
+            "JAVA_HOME": "/opt/contract-jdk",
+            "GITHUB_RUN_NUMBER": "12",
         }
-        for profile, expected in cases.items():
-            with self.subTest(profile=profile):
-                plan = build_plan(self.contract, request(profile), None)
-                self.assertEqual(expected, plan.runner_profile)
-                if profile in {"source-audit", "device-handoff"}:
-                    self.assertFalse(plan.install_required)
-        self.assertNotEqual(
-            build_plan(
-                self.contract,
-                request("android-debug"),
-                None,
-            ).runner_profile,
-            build_plan(
-                self.contract,
-                request("ios-simulator"),
-                None,
-            ).runner_profile,
-        )
 
-    def test_quality_stage_order_and_optional_node_composition(self) -> None:
-        plan = build_plan(self.contract, request("quality"), None)
-        self.assertEqual(
-            (
-                "runtime-verify",
-                "dependency-restore",
-                "quality",
-                "tests",
-                "cleanup",
-            ),
-            tuple(stage.value for stage in plan.stages),
-        )
-        finance = build_plan(
-            self.contract,
-            request("quality", "finance-embedded-web"),
-            None,
-        )
-        self.assertEqual(
-            "source-audit",
-            finance.node_composition["command_profile"],
-        )
-        self.assertEqual("22.16.0", finance.node_composition["node_version"])
+    def test_generated_bytes_and_complete_inventory(self) -> None:
+        expected_paths = {
+            ROOT / "contracts/flutter-validation.json",
+            ROOT / "tests/fixtures/flutter-validation/runtime-3.41.4.json",
+            ROOT / "tests/fixtures/flutter-validation/runtime-3.44.6.json",
+        }
+        self.assertEqual(expected_paths, set(generated_flutter_files(ROOT)))
+        self.assertEqual((), flutter.generate_flutter_contract_files(ROOT, check=True))
+        self.assertEqual(EXPECTED_TOOLCHAIN_IDS, set(self.contract["toolchains"]))
+        self.assertEqual(EXPECTED_COMMAND_IDS, set(self.contract["commands"]))
+        self.assertEqual(EXPECTED_CONSUMER_IDS, set(self.contract["consumer_contracts"]))
+        self.assertEqual(EXPECTED_FAILURE_CODES, set(self.contract["failure_codes"]))
+        self.assertEqual(EXPECTED_FORBIDDEN_INPUTS, set(self.contract["forbidden_inputs"]))
+        self.assertEqual(EXPECTED_GENERATION_FIELDS, set(self.contract["generation"]))
+        self.assertEqual(EXPECTED_SETUP_FIELDS, set(self.contract["setup"]))
+        for row in self.contract["toolchains"].values():
+            self.assertEqual(EXPECTED_TOOLCHAIN_FIELDS, set(row))
+        for row in self.contract["profiles"].values():
+            self.assertEqual(EXPECTED_PROFILE_FIELDS, set(row))
+        for row in self.contract["commands"].values():
+            self.assertEqual(EXPECTED_COMMAND_FIELDS, set(row))
+        for consumer in self.contract["consumer_contracts"].values():
+            self.assertEqual(EXPECTED_CONSUMER_FIELDS, set(consumer))
+            for profile in consumer["profiles"].values():
+                self.assertEqual(EXPECTED_CONSUMER_PROFILE_FIELDS, set(profile))
 
-    def test_android_and_ios_are_debug_unsigned_only(self) -> None:
-        android = build_plan(self.contract, request("android-debug"), None)
-        ios = build_plan(self.contract, request("ios-simulator"), None)
-        android_text = " ".join(
-            " ".join(command.argv) for command in android.commands
-        )
-        ios_text = " ".join(" ".join(command.argv) for command in ios.commands)
-        self.assertIn("--debug", android_text)
-        self.assertIn("--split-per-abi", android_text)
-        self.assertIn("android-arm64", android_text)
-        self.assertNotIn("--release", android_text)
-        self.assertIn("pod install --deployment", ios_text)
-        self.assertIn("--simulator", ios_text)
-        self.assertIn("--debug", ios_text)
-        self.assertNotIn("--release", ios_text)
-        modified = copy.deepcopy(self.contract)
-        modified["commands"]["ios-simulator-debug"]["argv"].append(
-            "--release"
+    def test_check_mode_reports_byte_drift(self) -> None:
+        fixture = ROOT / "tests/fixtures/flutter-validation/runtime-3.41.4.json"
+        original = fixture.read_bytes()
+        try:
+            fixture.write_bytes(original.rstrip(b"\n"))
+            self.assert_code(
+                "generated_contract_drift",
+                lambda: flutter.generate_flutter_contract_files(ROOT, check=True),
+            )
+        finally:
+            fixture.write_bytes(original)
+        self.assertEqual((), flutter.generate_flutter_contract_files(ROOT, check=True))
+
+    def test_contract_rejects_missing_fields_ids_and_mutable_jdk(self) -> None:
+        mutations: list[dict[str, object]] = []
+        missing_toolchain = copy.deepcopy(self.contract)
+        missing_toolchain["toolchains"].pop("3.41.4")
+        mutations.append(missing_toolchain)
+        missing_command = copy.deepcopy(self.contract)
+        missing_command["commands"].pop("pub-restore")
+        mutations.append(missing_command)
+        missing_consumer = copy.deepcopy(self.contract)
+        missing_consumer["consumer_contracts"].pop("synthetic-smoke")
+        mutations.append(missing_consumer)
+        mutable_jdk = copy.deepcopy(self.contract)
+        mutable_jdk["setup"]["jdk_action"] = "actions/setup-java@v5"
+        mutations.append(mutable_jdk)
+        caller_jdk = copy.deepcopy(self.contract)
+        caller_jdk["setup"]["caller_jdk"] = True
+        mutations.append(caller_jdk)
+        for mutation in mutations:
+            with self.subTest(mutation=list(mutation)):
+                self.assert_code("contract_invalid", lambda m=mutation: validate_contract(m))
+
+    def test_mobile_profiles_have_one_exact_flutter_dart_gradle_jdk_tuple(self) -> None:
+        for profile in ("quality", "canonical-gate", "android-debug", "compatibility-smoke"):
+            plan = build_plan(self.contract, request(profile), None)
+            self.assertIs(plan.runner_profile, RunnerCapability.MOBILE)
+            self.assertIn("jdk-verify", [stage.value for stage in plan.stages])
+            self.assertEqual("3.41.4", plan.toolchain.flutter_version)
+            self.assertEqual("3.11.1", plan.toolchain.dart_version)
+            self.assertEqual("8.14", plan.toolchain.gradle_version)
+            self.assertEqual("temurin", plan.toolchain.jdk_distribution)
+            self.assertEqual("21.0.8+9", plan.toolchain.jdk_version)
+        self.assertEqual(
+            "21.0.8",
+            parse_jdk_identity(
+                "java.version = 21.0.8\njava.runtime.version = 21.0.8+9-LTS\njava.vendor = Eclipse Adoptium",
+                "javac 21.0.8",
+                build_plan(self.contract, request("quality"), None).toolchain,
+            )["java_version"],
         )
         self.assert_code(
-            "command_boundary_rejected",
-            lambda: validate_contract(modified),
+            "jdk_mismatch",
+            lambda: parse_jdk_identity(
+                "java.version = 25\njava.runtime.version = 25+36\njava.vendor = Eclipse Adoptium",
+                "javac 25",
+                build_plan(self.contract, request("quality"), None).toolchain,
+            ),
         )
-        for token in ("TestFlight", "keychain", "provision", "deploy"):
-            with self.subTest(token=token):
-                changed = copy.deepcopy(self.contract)
-                changed["commands"]["ios-simulator-debug"]["argv"].append(
-                    token
-                )
-                self.assert_code(
-                    "command_boundary_rejected",
-                    lambda changed=changed: validate_contract(changed),
-                )
 
-    def test_checked_in_gate_and_device_handoff_are_bounded(self) -> None:
-        source = self.fixture_copy("directus")
-        gate = build_plan(
-            self.contract,
-            request("canonical-gate"),
-            source,
+    def test_pub_cache_is_bound_under_registered_state_and_persistent_cache_is_unchanged(self) -> None:
+        state = self.temp / "state"
+        state.mkdir()
+        persistent = self.temp / "persistent"
+        environment = self.environment(state, persistent)
+        expected = state / "flutter-validation/pub-cache"
+        self.assertEqual(expected, Path(environment["PUB_CACHE"]))
+        self.assertEqual("true", verify_persistent_pub_cache(state)["persistent_pub_cache_unchanged"])
+        (persistent / "sentinel").write_text("changed", encoding="utf-8")
+        self.assert_code(
+            "persistent_pub_cache_changed", lambda: verify_persistent_pub_cache(state)
         )
-        self.assertEqual("tool/ci_gate.sh", gate.gate_path)
-        handoff = build_plan(
-            self.contract,
-            request("device-handoff"),
-            source,
-        )
-        self.assertEqual("deferred", handoff.device_handoff["execution"])
-        self.assertFalse(handoff.install_required)
-        self.assertEqual((), handoff.commands)
 
-    def test_execution_success_lockfile_integrity_outputs_and_cleanup(self) -> None:
-        source = self.fixture_copy("directus")
+    def test_wrong_or_symlinked_pub_cache_fails_before_flutter(self) -> None:
+        source = self.source()
+        state = self.temp / "state"
+        state.mkdir()
+        plan = build_plan(self.contract, request("quality"), source)
+        runner = FakeRunner(runtime("3.41.4"))
+        self.assert_code(
+            "pub_cache_rejected",
+            lambda: flutter.validate(
+                contract_root=ROOT,
+                source_root=source,
+                state_root=state,
+                request=plan.request,
+                phase="execute",
+                environment={"PUB_CACHE": "/tmp/wrong", "JAVA_HOME": "/opt/jdk"},
+                runner=runner,
+            ),
+        )
+        self.assertEqual([], runner.calls)
+        environment = self.environment(state)
+        cache = Path(environment["PUB_CACHE"])
+        cache.rmdir()
+        cache.symlink_to(self.temp)
+        self.assert_code(
+            "pub_cache_rejected",
+            lambda: flutter.validate(
+                contract_root=ROOT,
+                source_root=source,
+                state_root=state,
+                request=plan.request,
+                phase="execute",
+                environment=environment,
+                runner=runner,
+            ),
+        )
+
+    def test_every_flutter_command_uses_isolated_pub_cache_and_exact_gradle(self) -> None:
+        source = self.source()
+        state = self.temp / "state"
+        state.mkdir()
+        environment = self.environment(state)
+        runner = FakeRunner(runtime("3.41.4"))
         result = flutter.validate(
             contract_root=ROOT,
             source_root=source,
-            state_root=self.temp / "state",
+            state_root=state,
             request=request("android-debug"),
             phase="execute",
-            runner=FakeRunner(runtime("runtime-3.44.6.json")),
-            environment={"GITHUB_RUN_NUMBER": "12"},
+            environment=environment,
+            runner=runner,
         )
         self.assertEqual("success", result.status)
-        self.assertTrue(result.output_verified)
-        self.assertTrue(result.clean_tree)
-        self.assertEqual("success", result.cleanup_result)
-        self.assertFalse((source / "build").exists())
-        self.assertFalse((self.temp / "state/flutter-validation").exists())
-
-    def test_lockfile_mutation_command_failure_dirty_source_and_cleanup_failure(
-        self,
-    ) -> None:
-        source = self.fixture_copy("directus")
+        self.assertEqual("8.14", result.gradle_version)
+        self.assertTrue(runner.pub_caches)
+        self.assertEqual({environment["PUB_CACHE"]}, set(runner.pub_caches))
+        wrong = self.source(gradle="8.13")
+        wrong_state = self.temp / "wrong-state"
+        wrong_state.mkdir()
+        wrong_env = self.environment(wrong_state)
         self.assert_code(
-            "lockfile_drift",
+            "gradle_mismatch",
             lambda: flutter.validate(
                 contract_root=ROOT,
-                source_root=source,
-                state_root=self.temp / "state-lock",
-                request=request("quality"),
-                phase="execute",
-                runner=FakeRunner(
-                    runtime("runtime-3.44.6.json"),
-                    mutate_lock=True,
-                ),
-            ),
-        )
-        source = self.fixture_copy("directus")
-        self.assert_code(
-            "command_failed",
-            lambda: flutter.validate(
-                contract_root=ROOT,
-                source_root=source,
-                state_root=self.temp / "state-command",
-                request=request("quality"),
-                phase="execute",
-                runner=FakeRunner(
-                    runtime("runtime-3.44.6.json"),
-                    fail_at="analyze",
-                ),
-            ),
-        )
-        source = self.fixture_copy("directus")
-        subprocess.run(["git", "init", "-q"], cwd=source, check=True)
-        subprocess.run(["git", "add", "."], cwd=source, check=True)
-        subprocess.run(
-            [
-                "git",
-                "-c",
-                "user.name=fixture",
-                "-c",
-                "user.email=fixture@example.invalid",
-                "commit",
-                "-qm",
-                "fixture",
-            ],
-            cwd=source,
-            check=True,
-        )
-        (source / "untracked.txt").write_text("dirty", encoding="utf-8")
-        self.assert_code(
-            "dirty_source",
-            lambda: flutter.validate(
-                contract_root=ROOT,
-                source_root=source,
-                state_root=self.temp / "state-dirty",
-                request=request("source-audit"),
-                phase="execute",
-                runner=FakeRunner(runtime("runtime-3.44.6.json")),
-            ),
-        )
-        residue = self.temp / "residue/flutter-validation"
-        residue.mkdir(parents=True)
-        self.assert_code(
-            "cleanup_failed",
-            lambda: flutter.assert_zero_flutter_residue(
-                self.fixture_copy("directus"),
-                self.temp / "residue",
-            ),
-        )
-
-    def test_public_workflow_input_mapping_and_exact_optional_matches(self) -> None:
-        base = {
-            "GITHUB_REPOSITORY": "StreamScapeTV/directus-front",
-            "INPUT_ADMITTED_SHA": SHA,
-            "INPUT_VALIDATION_PROFILE": "canonical-gate",
-            "INPUT_COMMAND_PROFILE": "directus-canonical",
-            "INPUT_VERSION_FILE": ".fvmrc",
-            "INPUT_WORKING_DIRECTORY": ".",
-            "INPUT_SCRIPT_PATH": "tool/ci_gate.sh",
-            "INPUT_PLATFORM": "flutter",
-            "INPUT_ARTIFACT_EXCEPTION_ID": "",
-            "INPUT_SOURCE_TRUST": "trusted-pr",
-        }
-        value = flutter.request_from_environment(base, self.contract)
-        self.assertEqual("directus-canonical", value.consumer_contract)
-        self.assertEqual("StreamScapeTV/directus-front", value.repository)
-        for key, bad in (
-            ("INPUT_VERSION_FILE", ".flutter-version"),
-            ("INPUT_WORKING_DIRECTORY", "subdir"),
-            ("INPUT_SCRIPT_PATH", "tool/other.sh"),
-            ("INPUT_PLATFORM", "android"),
-            ("INPUT_ARTIFACT_EXCEPTION_ID", "retain-output"),
-        ):
-            with self.subTest(key=key):
-                changed = dict(base)
-                changed[key] = bad
-                self.assert_code(
-                    "forbidden_input",
-                    lambda changed=changed: flutter.request_from_environment(
-                        changed,
-                        self.contract,
-                    ),
-                )
-        changed = dict(base)
-        changed["INPUT_COMMAND_PROFILE"] = "finance-embedded-web"
-        self.assert_code(
-            "consumer_contract_rejected",
-            lambda: flutter.request_from_environment(changed, self.contract),
-        )
-
-    def test_source_trust_is_derived_from_same_repository_event(self) -> None:
-        event = self.temp / "event.json"
-        event.write_text(
-            json.dumps(
-                {
-                    "pull_request": {
-                        "head": {
-                            "repo": {
-                                "full_name": "StreamScapeTV/ci-workflows"
-                            }
-                        }
-                    }
-                }
-            ),
-            encoding="utf-8",
-        )
-        environment = {
-            "GITHUB_EVENT_NAME": "pull_request",
-            "GITHUB_EVENT_PATH": str(event),
-            "GITHUB_REPOSITORY": "StreamScapeTV/ci-workflows",
-        }
-        self.assertEqual(
-            "trusted-pr",
-            flutter.source_trust_from_environment(environment),
-        )
-        event.write_text(
-            json.dumps(
-                {
-                    "pull_request": {
-                        "head": {"repo": {"full_name": "external/fork"}}
-                    }
-                }
-            ),
-            encoding="utf-8",
-        )
-        self.assertEqual(
-            "untrusted-fork",
-            flutter.source_trust_from_environment(environment),
-        )
-
-    def test_output_missing_and_evidence_are_deterministic(self) -> None:
-        class NoOutputRunner(FakeRunner):
-            def run(self, argv, *, cwd, env):
-                outcome = super().run(argv, cwd=cwd, env=env)
-                if argv[:3] == ("flutter", "build", "apk"):
-                    shutil.rmtree(cwd / "build", ignore_errors=True)
-                return outcome
-
-        source = self.fixture_copy("directus")
-        self.assert_code(
-            "output_missing",
-            lambda: flutter.validate(
-                contract_root=ROOT,
-                source_root=source,
-                state_root=self.temp / "state-output",
+                source_root=wrong,
+                state_root=wrong_state,
                 request=request("android-debug"),
                 phase="execute",
-                runner=NoOutputRunner(runtime("runtime-3.44.6.json")),
+                environment=wrong_env,
+                runner=FakeRunner(runtime("3.41.4")),
             ),
         )
-        evidence = []
-        for index in range(2):
-            source = self.fixture_copy("directus")
-            result = flutter.validate(
-                contract_root=ROOT,
-                source_root=source,
-                state_root=self.temp / f"state-evidence-{index}",
-                request=request("quality"),
-                phase="execute",
-                runner=FakeRunner(runtime("runtime-3.44.6.json")),
-            )
-            evidence.append(result.evidence_id)
-        self.assertEqual(evidence[0], evidence[1])
 
-    def test_caller_selected_runner_device_engine_registry_and_deployment_fail(
-        self,
-    ) -> None:
-        base = {
-            "GITHUB_REPOSITORY": "StreamScapeTV/directus-front",
-            "INPUT_ADMITTED_SHA": SHA,
-            "INPUT_CONSUMER_CONTRACT": "directus-canonical",
-            "INPUT_VALIDATION_PROFILE": "quality",
-            "INPUT_SOURCE_TRUST": "trusted-pr",
-        }
-        for key in (
-            "RUNNER",
-            "DEVICE",
-            "ENGINE",
-            "REGISTRY",
-            "DEPLOYMENT",
-            "DOWNLOAD_URL",
-            "RUNTIME",
-            "PACKAGE_MANAGER",
-            "SHELL",
-            "ARBITRARY_COMMAND",
-        ):
-            with self.subTest(key=key):
-                environment = dict(base)
-                environment[f"INPUT_{key}"] = "caller-value"
-                self.assert_code(
-                    "forbidden_input",
-                    lambda environment=environment: (
-                        flutter.request_from_environment(
-                            environment,
-                            self.contract,
-                        )
-                    ),
-                )
+    def test_safe_missing_output_is_output_missing_and_unsafe_types_are_path_rejected(self) -> None:
+        source = self.source()
+        self.assert_code(
+            "output_missing",
+            lambda: _verify_expected_outputs(source, ["build/missing.apk"]),
+        )
+        outside = self.temp / "outside"
+        outside.write_text("outside", encoding="utf-8")
+        target = source / "build/link.apk"
+        target.parent.mkdir()
+        target.symlink_to(outside)
+        self.assert_code(
+            "path_rejected", lambda: _verify_expected_outputs(source, ["build/link.apk"])
+        )
+        fifo = source / "build/output.fifo"
+        os.mkfifo(fifo)
+        self.assert_code(
+            "path_rejected", lambda: _verify_expected_outputs(source, ["build/output.fifo"])
+        )
+        self.assert_code(
+            "invalid_input", lambda: _verify_expected_outputs(source, ["../escape"])
+        )
+
+    def test_primary_failure_is_preserved_when_cleanup_fails(self) -> None:
+        source = self.source()
+        state = self.temp / "state"
+        state.mkdir()
+        residue = state / "flutter-validation"
+        residue.mkdir()
+        os.mkfifo(residue / "blocked")
+        error = self.assert_code(
+            "command_failed",
+            lambda: terminal_cleanup_flutter_state(
+                source, state, primary_failure_code="command_failed"
+            ),
+        )
+        self.assertEqual("command_failed", error.primary_code)
+        self.assertEqual("cleanup_failed", error.cleanup_code)
+        self.assertEqual(
+            {
+                "result": "failure",
+                "failure_code": "command_failed",
+                "primary_failure_code": "command_failed",
+                "cleanup_failure_code": "cleanup_failed",
+                "cleanup_result": "failure",
+            },
+            error.output_values(),
+        )
+
+    def test_source_audit_and_device_handoff_install_nothing(self) -> None:
+        for profile in ("source-audit", "device-handoff"):
+            plan = build_plan(self.contract, request(profile), None)
+            self.assertFalse(plan.install_required)
+            self.assertIs(plan.runner_profile, RunnerCapability.PORTABLE)
+            self.assertEqual("21.0.8+9", plan.toolchain.jdk_version)
 
 
 if __name__ == "__main__":

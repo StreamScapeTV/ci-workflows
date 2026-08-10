@@ -18,21 +18,26 @@ except ImportError:  # pragma: no cover - standalone fixture use
     CIWContext = object  # type: ignore[assignment,misc]
     CIWResult = object  # type: ignore[assignment,misc]
 
+PHASES = (
+    "plan",
+    "persistent-cache-snapshot",
+    "pub-cache-bind",
+    "verify-toolchain",
+    "execute",
+    "persistent-cache-verify",
+    "cleanup",
+    "residue",
+)
+
 
 def configure_flutter_validate(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--phase",
-        choices=("plan", "execute", "cleanup", "residue"),
-        default="execute",
-    )
+    parser.add_argument("--phase", choices=PHASES, default="execute")
     parser.add_argument("--source-root", default="source")
 
 
 def _resolved_state_root(root: Path, environment: Mapping[str, str]) -> Path:
     runner_temp = Path(environment.get("RUNNER_TEMP", root / ".validation-state"))
-    declared = environment.get(
-        "CI_WORKFLOW_ROOT", str(runner_temp / "ciw-flutter")
-    )
+    declared = environment.get("CI_WORKFLOW_ROOT", str(runner_temp / "ciw-flutter"))
     state_id = environment.get("CI_WORKFLOW_STATE_ID", "flutter-validation")
     try:
         resolver = resolve_state_root  # type: ignore[name-defined]
@@ -55,12 +60,11 @@ def _resolved_state_root(root: Path, environment: Mapping[str, str]) -> Path:
 
 def _standalone_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--root", type=Path, required=True)
-    parser.add_argument(
-        "command", choices=("plan", "execute", "cleanup", "residue")
-    )
+    parser.add_argument("--root", type=Path, default=Path.cwd())
+    parser.add_argument("command", choices=(*PHASES, "generate"))
     parser.add_argument("--source-root", default="source")
     parser.add_argument("--output")
+    parser.add_argument("--check", action="store_true")
     return parser
 
 
@@ -68,6 +72,8 @@ def _write_outputs(values: Mapping[str, str], target: str | None) -> None:
     if target:
         with Path(target).open("a", encoding="utf-8") as handle:
             for key, value in sorted(values.items()):
+                if "\n" in key or "\n" in value:
+                    raise flutter_validation.FlutterValidationError("invalid_input")
                 handle.write(f"{key}={value}\n")
     print(json.dumps(dict(values), sort_keys=True, separators=(",", ":")))
 
@@ -84,111 +90,161 @@ def _planning_outputs(
             source_trust=request.source_trust,
             requested_profile=plan.runner_profile.value,
         )
+    except NameError:
+        outputs = plan.planning_outputs()
+        outputs["runs_on_json"] = json.dumps([plan.runner_profile.value])
+        return outputs
     except runners.RunnerContractError as error:
-        raise flutter_validation.FlutterValidationError(
-            "platform_runner_mismatch"
-        ) from error
+        raise flutter_validation.FlutterValidationError("platform_runner_mismatch") from error
     outputs = plan.planning_outputs()
     outputs["runs_on_json"] = resolved.as_dict()["runs_on_json"]
     return outputs
 
 
+def _source_path(root: Path, source_root: str, environment: Mapping[str, str]) -> Path:
+    workspace = Path(environment.get("GITHUB_WORKSPACE", root)).resolve()
+    return flutter_validation.bounded_path(
+        workspace,
+        flutter_validation.safe_relative(source_root),
+    )
+
+
+def _request_plan(
+    root: Path,
+    source: Path,
+    environment: Mapping[str, str],
+    *,
+    source_required: bool,
+) -> tuple[flutter_validation.FlutterRequest, flutter_validation.FlutterPlan]:
+    contract = flutter_validation.load_flutter_contract(root)
+    request = flutter_validation.request_from_environment(environment, contract)
+    plan = flutter_validation.validate(
+        contract_root=root,
+        source_root=source if source_required or source.exists() else None,
+        state_root=None,
+        request=request,
+        phase="plan",
+        environment=environment,
+    )
+    assert isinstance(plan, flutter_validation.FlutterPlan)
+    return request, plan
+
+
+def _phase_outputs(
+    *,
+    root: Path,
+    command: str,
+    source: Path,
+    state: Path | None,
+    environment: Mapping[str, str],
+    check: bool,
+) -> dict[str, str]:
+    if command == "generate":
+        changed = flutter_validation.generate_flutter_contract_files(root, check=check)
+        return {
+            "result": "success",
+            "generated_file_count": str(3),
+            "generated_changed_json": json.dumps(list(changed), separators=(",", ":")),
+            "failure_code": "",
+            "primary_failure_code": "",
+            "cleanup_failure_code": "",
+        }
+    if command == "plan":
+        request, plan = _request_plan(root, source, environment, source_required=False)
+        return _planning_outputs(root, plan, request)
+    assert state is not None
+    if command == "persistent-cache-snapshot":
+        return flutter_validation.snapshot_persistent_pub_cache(state, environment)
+    if command == "pub-cache-bind":
+        return flutter_validation.bind_pub_cache(state, environment)
+    if command == "persistent-cache-verify":
+        return flutter_validation.verify_persistent_pub_cache(state)
+    if command == "cleanup":
+        return flutter_validation.terminal_cleanup_flutter_state(
+            source,
+            state,
+            primary_failure_code=environment.get("INPUT_PRIMARY_FAILURE_CODE", ""),
+        )
+    if command == "residue":
+        flutter_validation.assert_zero_flutter_residue(source, state)
+        return {
+            "result": "success",
+            "cleanup_result": "success",
+            "failure_code": "",
+            "primary_failure_code": "",
+            "cleanup_failure_code": "",
+        }
+    request, plan = _request_plan(
+        root,
+        source,
+        environment,
+        source_required=command == "execute",
+    )
+    if command == "verify-toolchain":
+        identity = flutter_validation.verify_toolchain_identity(
+            plan=plan,
+            source_root=source if source.exists() else root,
+            state_root=state,
+            environment=environment,
+        )
+        return {
+            "result": "success",
+            **identity,
+            "gradle_version": plan.toolchain.gradle_version,
+            "pub_cache_path": str(flutter_validation.expected_pub_cache_path(state)),
+            "failure_code": "",
+            "primary_failure_code": "",
+            "cleanup_failure_code": "",
+        }
+    result = flutter_validation.validate(
+        contract_root=root,
+        source_root=source,
+        state_root=state,
+        request=request,
+        phase="execute",
+        environment=environment,
+    )
+    assert isinstance(result, flutter_validation.FlutterResult)
+    return result.output_values()
+
+
 def standalone_main(argv: Sequence[str] | None = None) -> int:
     args = _standalone_parser().parse_args(argv)
     root = args.root.resolve()
-    workspace = Path(os.environ.get("GITHUB_WORKSPACE", root)).resolve()
-    source = flutter_validation.bounded_path(
-        workspace, flutter_validation.safe_relative(args.source_root)
-    )
-    state = None if args.command == "plan" else _resolved_state_root(root, os.environ)
+    source = _source_path(root, args.source_root, os.environ)
+    state = None if args.command in {"plan", "generate"} else _resolved_state_root(root, os.environ)
+    target = args.output or os.environ.get("GITHUB_OUTPUT")
     try:
-        contract = flutter_validation.load_flutter_contract(root)
-        if args.command == "cleanup":
-            assert state is not None
-            flutter_validation.cleanup_flutter_state(source, state)
-            values = {"cleanup_result": "success", "failure_code": ""}
-        elif args.command == "residue":
-            assert state is not None
-            flutter_validation.assert_zero_flutter_residue(source, state)
-            values = {"cleanup_result": "success", "failure_code": ""}
-        else:
-            request = flutter_validation.request_from_environment(
-                os.environ, contract
-            )
-            result = flutter_validation.validate(
-                contract_root=root,
-                source_root=None if args.command == "plan" else source,
-                state_root=state,
-                request=request,
-                phase=args.command,
-                environment=os.environ,
-            )
-            values = (
-                _planning_outputs(root, result, request)
-                if isinstance(result, flutter_validation.FlutterPlan)
-                else result.output_values()
-            )
-        _write_outputs(values, args.output or os.environ.get("GITHUB_OUTPUT"))
+        values = _phase_outputs(
+            root=root,
+            command=args.command,
+            source=source,
+            state=state,
+            environment=os.environ,
+            check=args.check,
+        )
+        _write_outputs(values, target)
         return 0
     except flutter_validation.FlutterValidationError as error:
-        _write_outputs(
-            {"result": "failure", "failure_code": error.code},
-            args.output or os.environ.get("GITHUB_OUTPUT"),
-        )
+        _write_outputs(error.output_values(), target)
         return 1
 
 
 def execute_flutter_validate(
-    args: argparse.Namespace, context: "CIWContext"
+    args: argparse.Namespace,
+    context: "CIWContext",
 ) -> "CIWResult":
-    contract = flutter_validation.load_flutter_contract(context.root)
-    request = flutter_validation.request_from_environment(
-        context.environment, contract
-    )
-    state = (
-        None
-        if args.phase == "plan"
-        else _resolved_state_root(context.root, context.environment)
-    )
-    workspace = Path(
-        context.environment.get("GITHUB_WORKSPACE", ".")
-    ).resolve()
-    source = flutter_validation.bounded_path(
-        workspace, flutter_validation.safe_relative(args.source_root)
-    )
-    if args.phase == "cleanup":
-        assert state is not None
-        flutter_validation.cleanup_flutter_state(source, state)
-        return CIWResult(
-            "flutter",
-            "validate",
-            outputs={"cleanup_result": "success", "failure_code": ""},
-        )
-    if args.phase == "residue":
-        assert state is not None
-        flutter_validation.assert_zero_flutter_residue(source, state)
-        return CIWResult(
-            "flutter",
-            "validate",
-            outputs={"cleanup_result": "success", "failure_code": ""},
-        )
-    result = flutter_validation.validate(
-        contract_root=context.root,
-        source_root=None if args.phase == "plan" else source,
-        state_root=state,
-        request=request,
-        phase=args.phase,
+    state = None if args.phase == "plan" else _resolved_state_root(context.root, context.environment)
+    source = _source_path(context.root, args.source_root, context.environment)
+    values = _phase_outputs(
+        root=context.root,
+        command=args.phase,
+        source=source,
+        state=state,
         environment=context.environment,
+        check=False,
     )
-    if isinstance(result, flutter_validation.FlutterPlan):
-        return CIWResult(
-            "flutter",
-            "validate",
-            outputs=_planning_outputs(context.root, result, request),
-        )
-    return CIWResult(
-        "flutter", "validate", outputs=result.output_values()
-    )
+    return CIWResult("flutter", "validate", outputs=values)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

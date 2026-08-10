@@ -24,7 +24,9 @@ class RunnerCapability(str, Enum):
 
 class FlutterStage(str, Enum):
     SOURCE_AUDIT = "source-audit"
+    JDK_VERIFY = "jdk-verify"
     RUNTIME_VERIFY = "runtime-verify"
+    GRADLE_VERIFY = "gradle-verify"
     DEPENDENCY_RESTORE = "dependency-restore"
     NODE_COMPOSITION = "node-composition"
     QUALITY = "quality"
@@ -44,6 +46,14 @@ class FlutterToolchain:
     framework_revision: str
     engine_revision: str
     setup_action: str
+    gradle_version: str = ""
+    jdk_distribution: str = ""
+    jdk_version: str = ""
+    java_version: str = ""
+    java_runtime_version: str = ""
+    java_vendor: str = ""
+    javac_version: str = ""
+    jdk_setup_action: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,10 +107,20 @@ class FlutterPlan:
             "source_trust": self.request.source_trust,
             "flutter_version": self.toolchain.flutter_version,
             "dart_version": self.toolchain.dart_version,
+            "gradle_version": self.toolchain.gradle_version,
+            "jdk_distribution": self.toolchain.jdk_distribution,
+            "jdk_version": self.toolchain.jdk_version,
+            "java_version": self.toolchain.java_version,
+            "java_runtime_version": self.toolchain.java_runtime_version,
+            "java_vendor": self.toolchain.java_vendor,
+            "javac_version": self.toolchain.javac_version,
+            "jdk_setup_action": self.toolchain.jdk_setup_action,
             "install_required": str(self.install_required).lower(),
             "stage_order_json": _compact_json([stage.value for stage in self.stages]),
             "node_composition": str(self.node_composition is not None).lower(),
             "failure_code": "",
+            "primary_failure_code": "",
+            "cleanup_failure_code": "",
         }
 
 
@@ -119,6 +139,13 @@ class FlutterResult:
     output_verified: bool
     evidence_id: str
     device_handoff: Mapping[str, str] | None = None
+    gradle_version: str = ""
+    java_version: str = ""
+    java_runtime_version: str = ""
+    java_vendor: str = ""
+    javac_version: str = ""
+    pub_cache_path: str = ""
+    persistent_pub_cache_unchanged: bool = False
 
     def output_values(self) -> dict[str, str]:
         return {
@@ -134,6 +161,13 @@ class FlutterResult:
             "dart_version": self.dart_version,
             "framework_revision": self.framework_revision,
             "engine_revision": self.engine_revision,
+            "gradle_version": self.gradle_version,
+            "jdk_distribution": self.plan.toolchain.jdk_distribution,
+            "jdk_version": self.plan.toolchain.jdk_version,
+            "java_version": self.java_version,
+            "java_runtime_version": self.java_runtime_version,
+            "java_vendor": self.java_vendor,
+            "javac_version": self.javac_version,
             "lockfile_sha256": self.lockfile_sha256,
             "stage_summary_json": _compact_json(
                 [stage.value for stage in self.completed_stages]
@@ -144,7 +178,13 @@ class FlutterResult:
             "artifact_exception_used": "false",
             "device_handoff_json": _compact_json(self.device_handoff or {}),
             "evidence_id": self.evidence_id,
+            "pub_cache_path": self.pub_cache_path,
+            "persistent_pub_cache_unchanged": str(
+                self.persistent_pub_cache_unchanged
+            ).lower(),
             "failure_code": "",
+            "primary_failure_code": "",
+            "cleanup_failure_code": "",
         }
 
 

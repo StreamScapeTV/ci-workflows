@@ -1,9 +1,9 @@
 name: Validate exact Flutter source
-description: Plan, execute, clean, or inspect one checked-in Flutter validation profile
+description: Plan, isolate, verify, execute, clean, or inspect one checked-in Flutter validation profile
 
 inputs:
   phase:
-    description: "Bounded internal phase: plan, execute, cleanup, or residue"
+    description: "Bounded internal phase: plan, persistent-cache-snapshot, pub-cache-bind, verify-toolchain, execute, persistent-cache-verify, cleanup, or residue"
     required: false
     default: execute
   admitted_sha:
@@ -39,6 +39,10 @@ inputs:
     description: Internal exact admitted source trust class
     required: false
     default: ""
+  primary_failure_code:
+    description: Internal primary execution failure preserved across always-run cleanup
+    required: false
+    default: ""
 
 outputs:
   result:
@@ -67,6 +71,22 @@ outputs:
     value: ${{ steps.flutter.outputs.framework_revision }}
   engine_revision:
     value: ${{ steps.flutter.outputs.engine_revision }}
+  gradle_version:
+    value: ${{ steps.flutter.outputs.gradle_version }}
+  jdk_distribution:
+    value: ${{ steps.flutter.outputs.jdk_distribution }}
+  jdk_version:
+    value: ${{ steps.flutter.outputs.jdk_version }}
+  java_version:
+    value: ${{ steps.flutter.outputs.java_version }}
+  java_runtime_version:
+    value: ${{ steps.flutter.outputs.java_runtime_version }}
+  java_vendor:
+    value: ${{ steps.flutter.outputs.java_vendor }}
+  javac_version:
+    value: ${{ steps.flutter.outputs.javac_version }}
+  jdk_setup_action:
+    value: ${{ steps.flutter.outputs.jdk_setup_action }}
   lockfile_sha256:
     value: ${{ steps.flutter.outputs.lockfile_sha256 }}
   stage_summary_json:
@@ -89,8 +109,18 @@ outputs:
     value: ${{ steps.flutter.outputs.install_required }}
   node_composition:
     value: ${{ steps.flutter.outputs.node_composition }}
+  pub_cache_path:
+    value: ${{ steps.flutter.outputs.pub_cache_path }}
+  persistent_pub_cache_path:
+    value: ${{ steps.flutter.outputs.persistent_pub_cache_path }}
+  persistent_pub_cache_unchanged:
+    value: ${{ steps.flutter.outputs.persistent_pub_cache_unchanged }}
   failure_code:
     value: ${{ steps.flutter.outputs.failure_code }}
+  primary_failure_code:
+    value: ${{ steps.flutter.outputs.primary_failure_code }}
+  cleanup_failure_code:
+    value: ${{ steps.flutter.outputs.cleanup_failure_code }}
 
 runs:
   using: composite
@@ -109,6 +139,7 @@ runs:
         INPUT_PLATFORM: ${{ inputs.platform }}
         INPUT_ARTIFACT_EXCEPTION_ID: ${{ inputs.artifact_exception_id }}
         INPUT_SOURCE_TRUST: ${{ inputs.source_trust }}
+        INPUT_PRIMARY_FAILURE_CODE: ${{ inputs.primary_failure_code }}
       run: |
         set -Eeuo pipefail
         python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/flutter.py" \

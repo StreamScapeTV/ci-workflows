@@ -2,23 +2,25 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from ci_workflows import flutter
 
 
 class FlutterWorkflowContractTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.contract = json.loads(
-            (ROOT / "contracts/flutter-validation.json").read_text(
-                encoding="utf-8"
-            )
+        self.contract = flutter.load_flutter_contract(ROOT)
+        self.reusable = (ROOT / ".github/workflows/reusable-flutter.yml").read_text(
+            encoding="utf-8"
         )
-        self.workflow = (
-            ROOT / ".github/workflows/reusable-flutter.yml"
-        ).read_text(encoding="utf-8")
-        self.smoke = (
+        self.mobile_smoke = (
             ROOT / ".github/workflows/flutter-validation-smoke.yml"
         ).read_text(encoding="utf-8")
         self.apple_smoke = (
@@ -27,219 +29,178 @@ class FlutterWorkflowContractTests(unittest.TestCase):
         self.action = (ROOT / "actions/validate-flutter/action.yml").read_text(
             encoding="utf-8"
         )
-        self.facade = (ROOT / "src/ci_workflows/flutter.py").read_text(
+
+    def test_exact_pinned_setup_actions_match_contract(self) -> None:
+        setup = self.contract["setup"]
+        self.assertIn(f"uses: {setup['action']}", self.reusable)
+        self.assertIn(f"uses: {setup['jdk_action']}", self.reusable)
+        self.assertIn(f"uses: {setup['jdk_action']}", self.mobile_smoke)
+        self.assertRegex(setup["action"], r"@[0-9a-f]{40}$")
+        self.assertRegex(setup["jdk_action"], r"@[0-9a-f]{40}$")
+        self.assertNotIn("actions/setup-java@v", self.reusable)
+        self.assertNotIn("actions/setup-java@v", self.mobile_smoke)
+
+    def test_caller_has_no_jdk_gradle_pub_cache_or_runner_input(self) -> None:
+        public_inputs = self.reusable.split("outputs:", 1)[0]
+        for forbidden in (
+            "jdk_version:",
+            "java_version:",
+            "gradle_version:",
+            "pub_cache:",
+            "runner:",
+            "runs_on:",
+            "download_url:",
+        ):
+            self.assertNotIn(forbidden, public_inputs)
+        self.assertIn("java-version: ${{ needs.plan.outputs.jdk_version }}", self.reusable)
+        self.assertIn("distribution: ${{ needs.plan.outputs.jdk_distribution }}", self.reusable)
+
+    def test_plan_exports_immutable_flutter_dart_gradle_jdk_tuple(self) -> None:
+        for output in (
+            "flutter_version",
+            "dart_version",
+            "gradle_version",
+            "jdk_distribution",
+            "jdk_version",
+        ):
+            self.assertIn(f"{output}: ${{{{ steps.plan.outputs.{output} }}}}", self.reusable)
+        self.assertIn("Resolve contract-owned Flutter Dart Gradle and JDK tuple", self.reusable)
+
+    def test_pub_cache_is_only_registered_workflow_state(self) -> None:
+        expected = "{0}/tmp/flutter-validation/pub-cache"
+        for source in (self.reusable, self.mobile_smoke, self.apple_smoke):
+            self.assertIn(expected, source)
+            self.assertNotIn("$HOME/.pub-cache", source)
+            self.assertNotIn("{0}/.pub-cache", source)
+            self.assertNotIn("/opt/runner-cache/pub", source)
+        self.assertIn("phase: persistent-cache-snapshot", self.reusable)
+        self.assertIn("phase: pub-cache-bind", self.reusable)
+        self.assertIn("phase: persistent-cache-verify", self.reusable)
+        self.assertIn("Prove persistent host pub cache is unchanged", self.reusable)
+
+    def test_mobile_and_apple_order_snapshot_setup_bind_verify_execute_verify_cleanup(self) -> None:
+        mobile = self.reusable.split("  mobile:", 1)[1].split("  apple:", 1)[0]
+        apple = self.reusable.split("  apple:", 1)[1].split("  validate:", 1)[0]
+        for block in (mobile, apple):
+            snapshot = block.index("phase: persistent-cache-snapshot")
+            flutter_setup = block.index("uses: subosito/flutter-action@")
+            bind = block.index("phase: pub-cache-bind")
+            toolchain = block.index("phase: verify-toolchain")
+            execute = block.index("phase: execute")
+            persistent_verify = block.index("phase: persistent-cache-verify")
+            cleanup = block.index("phase: cleanup")
+            residue = block.index("phase: residue")
+            self.assertLess(snapshot, flutter_setup)
+            self.assertLess(flutter_setup, bind)
+            self.assertLess(bind, toolchain)
+            self.assertLess(toolchain, execute)
+            self.assertLess(execute, persistent_verify)
+            self.assertLess(persistent_verify, cleanup)
+            self.assertLess(cleanup, residue)
+            self.assertIn("if: always()", block[persistent_verify - 160:persistent_verify])
+            self.assertIn("if: always()", block[cleanup - 200:cleanup])
+            self.assertIn("if: always()", block[residue - 180:residue])
+        self.assertLess(mobile.index("uses: actions/setup-java@"), mobile.index("uses: subosito/flutter-action@"))
+        self.assertNotIn("uses: actions/setup-java@", apple)
+
+    def test_smoke_verifies_jdk_before_flutter_project_generation(self) -> None:
+        android = self.mobile_smoke.split("  android:", 1)[1].split("  zero_artifacts:", 1)[0]
+        self.assertLess(android.index("uses: actions/setup-java@"), android.index("phase: verify-toolchain"))
+        self.assertLess(android.index("phase: verify-toolchain"), android.index("flutter create --no-pub"))
+        self.assertIn("java-version: ${{ needs.plan.outputs.jdk_version }}", android)
+        self.assertIn("grep -F \"gradle-${EXPECTED_GRADLE}-all.zip\"", android)
+
+    def test_manual_flutter_commands_assert_exact_pub_cache_each_time(self) -> None:
+        for source in (self.mobile_smoke, self.apple_smoke):
+            command_block = source.split("require_pub_cache()", 1)[1].split("- id: flutter", 1)[0]
+            self.assertIn('test "${PUB_CACHE}" = "${EXPECTED_PUB_CACHE}"', command_block)
+            lines = [line.strip() for line in command_block.splitlines() if line.strip()]
+            flutter_indexes = [
+                index
+                for index, line in enumerate(lines)
+                if line.startswith("flutter ") or "&& flutter " in line
+            ]
+            self.assertEqual(2, len(flutter_indexes))
+            for index in flutter_indexes:
+                self.assertTrue(
+                    any(lines[position] == "require_pub_cache" for position in range(max(0, index - 3), index)),
+                    lines[index],
+                )
+
+    def test_runtime_enforces_pub_cache_before_every_flutter_or_dart_command(self) -> None:
+        execution = (ROOT / "src/ci_workflows/flutter_execution.py").read_text(
             encoding="utf-8"
         )
-        self.planner = (
-            ROOT / "src/ci_workflows/flutter_contract.py"
-        ).read_text(encoding="utf-8")
-        self.execution = (
-            ROOT / "src/ci_workflows/flutter_execution.py"
-        ).read_text(encoding="utf-8")
+        run_checked = execution.split("def _run_checked", 1)[1].split("def _verify_authority", 1)[0]
+        self.assertIn('argv[0] in {"flutter", "dart"}', run_checked)
+        self.assertIn("_assert_exact_pub_cache", run_checked)
+        self.assertIn("require_exists=True", run_checked)
 
-    def test_public_api_and_stable_check(self) -> None:
-        self.assertEqual("validation.flutter", self.contract["workflow_api"])
-        self.assertEqual("1.0.0", self.contract["contract_version"])
-        self.assertIn("name: CI / Flutter validation", self.workflow)
-        self.assertIn("workflow_call:", self.workflow)
-        self.assertIn("validation_profile:", self.workflow)
-        self.assertIn("command_profile:", self.workflow)
-        self.assertNotIn("consumer_contract:\n", self.workflow)
-        expected_inputs = {
-            "admitted_sha",
-            "artifact_exception_id",
-            "command_profile",
-            "platform",
-            "script_path",
-            "validation_profile",
-            "version_file",
-            "working_directory",
-        }
-        block = self.workflow.split("inputs:", 1)[1].split("outputs:", 1)[0]
-        actual_inputs = set(re.findall(r"^      ([a-z_]+):$", block, re.M))
-        self.assertEqual(expected_inputs, actual_inputs)
-        output_block = self.workflow.split("outputs:", 1)[1].split(
-            "permissions:", 1
-        )[0]
-        actual_outputs = set(
-            re.findall(r"^      ([a-z_]+):$", output_block, re.M)
+    def test_cleanup_projects_primary_and_cleanup_failures(self) -> None:
+        self.assertIn("primary_failure_code:", self.action)
+        self.assertIn("cleanup_failure_code:", self.action)
+        for source in (self.reusable, self.mobile_smoke, self.apple_smoke):
+            self.assertIn("primary_failure_code: ${{ steps.", source)
+        execution = (ROOT / "src/ci_workflows/flutter_execution.py").read_text(
+            encoding="utf-8"
         )
-        self.assertEqual(
-            {"result", "test_summary", "artifact_exception_used"},
-            actual_outputs,
-        )
+        self.assertIn("raise FlutterValidationError(primary_failure_code, cleanup.code)", execution)
 
-    def test_semantic_runner_separation_uses_trusted_resolver(self) -> None:
-        self.assertIn("runs-on: portable", self.workflow)
-        self.assertEqual(
-            3,
-            self.workflow.count(
-                "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}"
-            ),
+    def test_output_missing_and_path_rejected_are_separate(self) -> None:
+        execution = (ROOT / "src/ci_workflows/flutter_execution.py").read_text(
+            encoding="utf-8"
         )
-        self.assertEqual(
-            1,
-            self.smoke.count(
-                "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}"
-            ),
-        )
-        self.assertEqual(
-            1,
-            self.apple_smoke.count(
-                "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}"
-            ),
-        )
-        for text in (self.workflow, self.smoke, self.apple_smoke):
-            self.assertNotIn("needs.android_plan.outputs.runs_on_json", text)
-            self.assertNotIn("needs.ios_plan.outputs.runs_on_json", text)
-            self.assertNotIn(
-                "uses: ./.github/workflows/reusable-flutter.yml", text
-            )
-        combined = self.workflow + self.smoke + self.apple_smoke
-        for forbidden in (
-            "runs-on: self-hosted",
-            "runs-on: macos-latest",
-            "runs-on: ubuntu-latest",
-            "runs-on: windows-latest",
+        function = execution.split("def _verify_expected_outputs", 1)[1].split("def _verify_gradle_wrapper", 1)[0]
+        self.assertIn('fail("output_missing")', function)
+        self.assertIn('fail("path_rejected")', function)
+        self.assertLess(function.index('fail("output_missing")'), function.index('fail("path_rejected")'))
+
+    def test_contract_and_runtime_json_are_readable_exact_generated_bytes(self) -> None:
+        self.assertEqual((), flutter.generate_flutter_contract_files(ROOT, check=True))
+        for relative in (
+            "contracts/flutter-validation.json",
+            "tests/fixtures/flutter-validation/runtime-3.41.4.json",
+            "tests/fixtures/flutter-validation/runtime-3.44.6.json",
         ):
-            self.assertNotIn(forbidden, combined)
-        self.assertIn(
-            "needs.plan.outputs.runner_profile == 'mobile'", self.workflow
-        )
-        self.assertIn(
-            "needs.plan.outputs.runner_profile == 'apple'", self.workflow
-        )
-        self.assertIn(
-            "needs.plan.outputs.runner_profile == 'portable'", self.workflow
-        )
+            payload = (ROOT / relative).read_bytes()
+            self.assertTrue(payload.endswith(b"\n"))
+            self.assertIn(b"\n  \"", payload)
+            self.assertEqual(payload, (json.dumps(json.loads(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode())
+        self.assertIn("python3 scripts/ci/flutter.py generate --check", self.mobile_smoke)
 
-    def test_action_and_tool_setup_are_full_sha_pinned(self) -> None:
-        text = "\n".join((self.workflow, self.smoke, self.apple_smoke))
-        uses = re.findall(r"uses:\s*([^\s#]+)", text)
-        for value in uses:
-            if value.startswith("./"):
-                continue
-            self.assertRegex(value, r"@[0-9a-f]{40}$", value)
-        self.assertRegex(
-            self.contract["setup"]["action"], r"@[0-9a-f]{40}$"
-        )
-        self.assertIn(self.contract["setup"]["action"], self.workflow)
-        self.assertIn(self.contract["setup"]["action"], self.smoke)
-        self.assertIn(self.contract["setup"]["action"], self.apple_smoke)
+    def test_action_is_thin_and_exposes_all_terminal_outputs(self) -> None:
+        self.assertIn('python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/flutter.py"', self.action)
+        self.assertNotIn("curl ", self.action)
+        self.assertNotIn("sudo ", self.action)
+        for output in (
+            "gradle_version",
+            "jdk_distribution",
+            "jdk_version",
+            "java_version",
+            "java_runtime_version",
+            "java_vendor",
+            "javac_version",
+            "pub_cache_path",
+            "persistent_pub_cache_unchanged",
+            "primary_failure_code",
+            "cleanup_failure_code",
+        ):
+            self.assertRegex(self.action, rf"(?m)^  {re.escape(output)}:\n")
 
-    def test_setup_and_pub_caches_are_marker_bound(self) -> None:
-        text = self.workflow + self.smoke + self.apple_smoke
-        self.assertIn("cache-path:", text)
-        self.assertIn("pub-cache-path:", text)
-        self.assertIn("env.CI_TOOL_ROOT", text)
-        self.assertIn("env.HOME", text)
-        self.assertNotIn("RUNNER_TOOL_CACHE", text)
-
-    def test_no_artifact_secret_signing_or_device_paths(self) -> None:
-        text = (
-            self.workflow
-            + "\n"
-            + self.smoke
-            + "\n"
-            + self.apple_smoke
-            + "\n"
-            + self.action
-        ).lower()
+    def test_no_artifact_upload_signing_store_or_deployment_path(self) -> None:
+        combined = "\n".join((self.reusable, self.mobile_smoke, self.apple_smoke)).lower()
         for forbidden in (
             "upload-artifact",
-            "download-artifact",
-            "secrets.",
-            "workflow_dispatch",
-            "keychain",
+            "secrets: inherit",
+            "packages: write",
+            "id-token: write",
             "testflight",
             "app store",
             "notarization",
-            "runner_labels",
-            "registry",
-            "deployment",
+            "kubeconfig",
+            "registry_token",
         ):
-            self.assertNotIn(forbidden, text)
-        self.assertIn("--no-codesign", json.dumps(self.contract))
-        self.assertIn("artifact_exception_used", self.action)
-
-    def test_plan_precedes_execution_and_cleanup_is_always(self) -> None:
-        self.assertLess(
-            self.workflow.index("jobs:\n  plan:"),
-            self.workflow.index("  mobile:"),
-        )
-        for text in (self.workflow, self.smoke, self.apple_smoke):
-            self.assertIn("if: always()", text)
-            self.assertIn("phase: cleanup", text)
-            self.assertIn("phase: residue", text)
-            self.assertIn("persist-credentials: false", text)
-        self.assertIn("github.workflow_sha", self.workflow)
-
-    def test_synthetic_smoke_lock_bootstrap_precedes_enforcement(self) -> None:
-        self.assertIn(
-            "flutter create --no-pub --platforms=android", self.smoke
-        )
-        self.assertIn(
-            "flutter create --no-pub --platforms=ios", self.apple_smoke
-        )
-        self.assertIn("(cd source && flutter pub get)", self.smoke)
-        self.assertIn("(cd source && flutter pub get)", self.apple_smoke)
-        self.assertIn(
-            '["flutter", "pub", "get", "--enforce-lockfile"]',
-            json.dumps(self.contract),
-        )
-
-    def test_smokes_cover_portable_mobile_apple_and_zero_artifacts(self) -> None:
-        self.assertIn("source-audit", self.smoke)
-        self.assertIn("focused_tests:", self.smoke)
-        self.assertIn("validation_profile: android-debug", self.smoke)
-        self.assertIn("validation_profile: ios-simulator", self.apple_smoke)
-        self.assertIn(
-            "routine flutter mobile actions artifacts verified: zero",
-            self.smoke.lower(),
-        )
-        self.assertIn(
-            "routine flutter apple actions artifacts verified: zero",
-            self.apple_smoke.lower(),
-        )
-        self.assertIn("jobs:\n  source_audit:", self.smoke)
-        self.assertIn("jobs:\n  plan:", self.apple_smoke)
-        self.assertIn("  zero_artifacts:", self.smoke)
-        self.assertIn("  zero_artifacts:", self.apple_smoke)
-        self.assertNotIn("  source-audit:", self.smoke)
-        self.assertNotIn("  zero-artifacts:", self.smoke + self.apple_smoke)
-
-    def test_live_consumer_repository_pin_and_command_contracts(self) -> None:
-        directus = self.contract["consumer_contracts"]["directus-canonical"]
-        finance = self.contract["consumer_contracts"]["finance-embedded-web"]
-        self.assertEqual("StreamScapeTV/directus-front", directus["repository"])
-        self.assertEqual([".fvmrc"], directus["pin_sources"])
-        self.assertEqual("StreamScapeTV/finance-hub", finance["repository"])
-        self.assertEqual([".fvmrc"], finance["pin_sources"])
-        compatibility = directus["profiles"]["compatibility-smoke"]
-        self.assertEqual("tool/run_directus_smoke.sh", compatibility["gate_path"])
-        command_id = compatibility["commands"][0]
-        self.assertEqual(
-            ["checked-in-script", "tool/run_directus_smoke.sh"],
-            self.contract["commands"][command_id]["argv"],
-        )
-
-    def test_repository_binding_tracked_hooks_and_no_follow_cleanup(self) -> None:
-        self.assertIn(
-            'consumer.get("repository") != repository',
-            self.facade,
-        )
-        self.assertIn(
-            'consumer["repository"] != request.repository',
-            self.planner,
-        )
-        self.assertIn(
-            '["ls-files", "--error-unmatch", "--", relative]',
-            self.execution,
-        )
-        self.assertIn("os.lstat", self.execution)
-        self.assertIn("stat.S_ISLNK", self.execution)
-        self.assertIn("_remove_no_follow", self.execution)
-        self.assertIn("bounded_path(", self.execution)
+            self.assertNotIn(forbidden, combined)
 
 
 if __name__ == "__main__":

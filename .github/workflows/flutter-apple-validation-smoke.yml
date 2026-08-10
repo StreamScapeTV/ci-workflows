@@ -29,11 +29,12 @@ permissions:
 
 jobs:
   plan:
-    name: Resolve Flutter Apple smoke selector
+    name: Resolve Flutter Apple smoke selector and runtime tuple
     runs-on: portable
     timeout-minutes: 10
     outputs:
       runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
+      flutter_version: ${{ steps.plan.outputs.flutter_version }}
     steps:
       - name: Check out exact pull request source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -52,7 +53,7 @@ jobs:
           set -Eeuo pipefail
           (cd .ciw && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
       - id: plan
-        name: Resolve contract-owned Apple selector
+        name: Resolve contract-owned Apple selector and immutable tuple
         uses: ./.ciw/actions/validate-flutter
         with:
           phase: plan
@@ -92,18 +93,54 @@ jobs:
           cache_mode: disabled
           source_sha: ${{ github.event.pull_request.head.sha }}
           trust_mode: trusted-pr
+      - id: persistent_cache_snapshot
+        name: Snapshot persistent host pub cache before Flutter setup
+        uses: ./.ciw/actions/validate-flutter
+        with:
+          phase: persistent-cache-snapshot
+          admitted_sha: ${{ github.event.pull_request.head.sha }}
+          validation_profile: ios-simulator
+          command_profile: synthetic-smoke
+          source_trust: trusted-pr
       - name: Set up exact immutable Flutter runtime
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # reviewed 2026-03-25
         with:
-          flutter-version: "3.41.4"
+          flutter-version: ${{ needs.plan.outputs.flutter_version }}
           cache: false
-          cache-path: ${{ format('{0}/flutter-sdk-3.41.4', env.CI_TOOL_ROOT) }}
-          pub-cache-path: ${{ format('{0}/.pub-cache', env.HOME) }}
-      - name: Create contract-owned iOS smoke source
+          cache-path: ${{ format('{0}/flutter-sdk-{1}', env.CI_TOOL_ROOT, needs.plan.outputs.flutter_version) }}
+          pub-cache-path: ${{ format('{0}/tmp/flutter-validation/pub-cache', env.CI_WORKFLOW_ROOT) }}
+      - id: pub_cache_bind
+        name: Force Flutter pub cache beneath registered state
+        uses: ./.ciw/actions/validate-flutter
+        with:
+          phase: pub-cache-bind
+          admitted_sha: ${{ github.event.pull_request.head.sha }}
+          validation_profile: ios-simulator
+          command_profile: synthetic-smoke
+          source_trust: trusted-pr
+      - id: toolchain
+        name: Verify exact Flutter and Dart before project generation
+        uses: ./.ciw/actions/validate-flutter
+        with:
+          phase: verify-toolchain
+          admitted_sha: ${{ github.event.pull_request.head.sha }}
+          validation_profile: ios-simulator
+          command_profile: synthetic-smoke
+          source_trust: trusted-pr
+      - name: Create contract-owned iOS smoke source with isolated pub state
         shell: bash
+        env:
+          EXPECTED_PUB_CACHE: ${{ format('{0}/tmp/flutter-validation/pub-cache', env.CI_WORKFLOW_ROOT) }}
         run: |
           set -Eeuo pipefail
+          require_pub_cache() {
+            test "${PUB_CACHE}" = "${EXPECTED_PUB_CACHE}"
+            test -d "${PUB_CACHE}"
+            test ! -L "${PUB_CACHE}"
+          }
+          require_pub_cache
           flutter create --no-pub --platforms=ios --project-name ciw_flutter_smoke source
+          require_pub_cache
           (cd source && flutter pub get)
           test -f source/pubspec.lock
       - id: flutter
@@ -116,8 +153,18 @@ jobs:
           command_profile: synthetic-smoke
           platform: ios-simulator
           source_trust: trusted-pr
+      - id: persistent_cache_verify
+        name: Prove persistent host pub cache is unchanged
+        if: always()
+        uses: ./.ciw/actions/validate-flutter
+        with:
+          phase: persistent-cache-verify
+          admitted_sha: ${{ github.event.pull_request.head.sha }}
+          validation_profile: ios-simulator
+          command_profile: synthetic-smoke
+          source_trust: trusted-pr
       - id: flutter_cleanup
-        name: Remove Flutter-specific iOS state
+        name: Remove registered Flutter and pub state and preserve primary failure
         if: always()
         uses: ./.ciw/actions/validate-flutter
         with:
@@ -126,8 +173,9 @@ jobs:
           validation_profile: ios-simulator
           command_profile: synthetic-smoke
           source_trust: trusted-pr
+          primary_failure_code: ${{ steps.flutter.outputs.primary_failure_code || steps.flutter.outputs.failure_code }}
       - id: flutter_residue
-        name: Verify zero Flutter-specific iOS residue
+        name: Verify zero Flutter-specific and pub-cache residue
         if: always()
         uses: ./.ciw/actions/validate-flutter
         with:
