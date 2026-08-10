@@ -39,7 +39,7 @@ This private repository owns reusable GitHub Actions orchestration for supported
 
 - Semantic runner intent remains authoritative. Ordinary Python, policy, source-admission, and GitOps validation use the `portable` capability; consumers do not select concrete runner labels or hosts.
 - Issue #94 restored the repository Central self-check to the reviewed semantic `portable` general Linux capacity after the current runner inventory proved ARC recovery.
-- The Central self-check rejects fork source and verifies an exact pre-provisioned CPython 3.12.13 Linux runtime before checkout. It installs or elevates no host runtime and uses the verified absolute interpreter for every later Python command.
+- The Central self-check rejects fork source and verifies an absolute pre-provisioned CPython 3.12 Linux runtime before checkout. It installs or elevates no host runtime, applies the repository’s digest-locked validation dependency bootstrap, and uses the verified absolute interpreter for every later Python command.
 - General Linux validation grants no signing, provisioning, simulator, physical-device, notarization, store, registry, Kubernetes, production, or Agent State credential or authority.
 - Do not restore the retired emergency macOS exception or copy it into another workflow. Apple-specific work continues to use the separately reviewed `apple` capacity.
 
