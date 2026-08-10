@@ -1,0 +1,238 @@
+name: Reusable GitOps source validation
+
+on:
+  workflow_call:
+    inputs:
+      admitted_sha:
+        description: Exact lowercase source SHA admitted by source.resolve
+        required: true
+        type: string
+      validation_profile:
+        description: source-audit, yaml, helm-render, kustomize-render, changed-tree, or full
+        required: true
+        type: string
+      consumer_contract:
+        description: Checked-in reviewed GitOps consumer contract
+        required: true
+        type: string
+      change_base_sha:
+        description: Exact base SHA required only by changed-tree
+        required: false
+        default: ""
+        type: string
+      policy_script_profile:
+        description: Optional exact contract-owned checked-in policy profile
+        required: false
+        default: ""
+        type: string
+      artifact_exception_id:
+        description: Reserved zero-artifact field; non-empty values are rejected
+        required: false
+        default: ""
+        type: string
+    outputs:
+      result:
+        description: Success only after bounded validation and terminal cleanup
+        value: ${{ jobs.validate.outputs.result }}
+      test_summary:
+        description: Bounded deterministic source validation summary
+        value: ${{ jobs.validate.outputs.test_summary }}
+      render_digest:
+        description: SHA-256 over normalized rendered objects
+        value: ${{ jobs.validate.outputs.render_digest }}
+      cleanup_result:
+        description: Terminal cleanup result
+        value: ${{ jobs.validate.outputs.cleanup_result }}
+      evidence_id:
+        description: Deterministic redacted evidence identifier
+        value: ${{ jobs.validate.outputs.evidence_id }}
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  plan:
+    name: Resolve bounded GitOps validation plan
+    runs-on: portable
+    timeout-minutes: 10
+    outputs:
+      runner_profile: ${{ steps.plan.outputs.runner_profile }}
+      runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
+      workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
+      timeout_minutes: ${{ steps.plan.outputs.timeout_minutes }}
+      source_trust: ${{ steps.plan.outputs.source_trust }}
+    steps:
+      - name: Check out exact central workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact central workflow source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
+          )
+
+      - id: plan
+        name: Resolve contract-owned GitOps plan
+        uses: ./.ciw/actions/validate-gitops
+        with:
+          phase: plan
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          consumer_contract: ${{ inputs.consumer_contract }}
+          change_base_sha: ${{ inputs.change_base_sha }}
+          policy_script_profile: ${{ inputs.policy_script_profile }}
+          artifact_exception_id: ${{ inputs.artifact_exception_id }}
+
+  validate:
+    name: CI / GitOps validation
+    needs: plan
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
+    timeout-minutes: 120
+    outputs:
+      result: ${{ steps.execute.outcome == 'success' && steps.gitops_cleanup.outcome == 'success' && steps.workspace_cleanup.outcome == 'success' && 'success' || 'failure' }}
+      test_summary: ${{ steps.execute.outputs.test_summary }}
+      render_digest: ${{ steps.execute.outputs.render_digest }}
+      cleanup_result: ${{ steps.workspace_cleanup.outcome == 'success' && 'success' || 'failure' }}
+      evidence_id: ${{ steps.execute.outputs.evidence_id }}
+    steps:
+      - name: Check out exact central workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact central workflow source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
+          )
+
+      - name: Check out exact admitted caller source
+        uses: ./.ciw/actions/exact-checkout
+        with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          admitted_sha: ${{ inputs.admitted_sha }}
+          path: source
+          fetch_depth: "0"
+
+      - id: workspace
+        name: Prepare isolated marker-bound GitOps state
+        uses: ./.ciw/actions/prepare-workspace
+        with:
+          profile: ${{ needs.plan.outputs.workspace_profile }}
+          cache_mode: disabled
+          source_sha: ${{ inputs.admitted_sha }}
+          trust_mode: ${{ needs.plan.outputs.source_trust }}
+
+      - id: execute
+        name: Execute pinned source-only GitOps validation
+        uses: ./.ciw/actions/validate-gitops
+        with:
+          phase: execute
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          consumer_contract: ${{ inputs.consumer_contract }}
+          change_base_sha: ${{ inputs.change_base_sha }}
+          policy_script_profile: ${{ inputs.policy_script_profile }}
+          artifact_exception_id: ${{ inputs.artifact_exception_id }}
+
+      - name: Render deterministic redacted GitOps evidence
+        if: always()
+        uses: ./.ciw/actions/render-evidence
+        with:
+          source_sha: ${{ inputs.admitted_sha }}
+          workflow_release: validation-gitops-1.0.0
+          runner_profile: portable
+          toolchain_json: ${{ steps.execute.outputs.tool_versions_json || '{}' }}
+          command_profile: ${{ inputs.validation_profile }}
+          result: ${{ steps.execute.outcome == 'success' && 'success' || 'failure' }}
+          cleanup_state: not-run
+          cleanup_removed_paths: "0"
+
+      - id: gitops_cleanup
+        name: Remove exact GitOps downloads, tools, caches, logs, and results
+        if: always()
+        uses: ./.ciw/actions/validate-gitops
+        with:
+          phase: cleanup
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          consumer_contract: ${{ inputs.consumer_contract }}
+          change_base_sha: ${{ inputs.change_base_sha }}
+          policy_script_profile: ${{ inputs.policy_script_profile }}
+          artifact_exception_id: ${{ inputs.artifact_exception_id }}
+
+      - name: Verify zero GitOps issue-owned residue
+        if: always()
+        uses: ./.ciw/actions/validate-gitops
+        with:
+          phase: residue
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          consumer_contract: ${{ inputs.consumer_contract }}
+          change_base_sha: ${{ inputs.change_base_sha }}
+          policy_script_profile: ${{ inputs.policy_script_profile }}
+          artifact_exception_id: ${{ inputs.artifact_exception_id }}
+
+      - id: workspace_cleanup
+        name: Remove and verify all registered workspace state
+        if: always()
+        uses: ./.ciw/actions/cleanup-workspace
+
+      - name: Verify exact source remained clean after cleanup
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          (
+            cd source
+            test "$(git rev-parse HEAD)" = "${{ inputs.admitted_sha }}"
+            test -z "$(git status --porcelain --untracked-files=all)"
+          )
+
+      - name: Confirm zero Actions artifacts
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          request = urllib.request.Request(
+              f"{os.environ['GITHUB_API_URL']}/repos/{os.environ['GITHUB_REPOSITORY']}"
+              f"/actions/runs/{os.environ['GITHUB_RUN_ID']}/artifacts?per_page=100",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              payload = json.load(response)
+          if int(payload.get("total_count", 0)) != 0 or payload.get("artifacts") != []:
+              raise SystemExit("GitOps validation retained an Actions artifact")
+          PY
