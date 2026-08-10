@@ -18,7 +18,7 @@ concurrency:
 jobs:
   validate:
     name: Validate repository and reusable workflow contracts
-    runs-on: portable
+    runs-on: [linux, amd64, general]
     timeout-minutes: 10
     env:
       SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}

@@ -29,10 +29,7 @@ class BootstrapContractTests(unittest.TestCase):
         )
         release = policy["release_reference_policy"]
         self.assertEqual(release["bootstrap_channel"], "main")
-        self.assertIn(
-            "git-tag",
-            release["supported_immutable_references"],
-        )
+        self.assertIn("git-tag", release["supported_immutable_references"])
         self.assertFalse(release["github_release_required"])
         self.assertFalse(release["attached_artifacts_required"])
 
@@ -56,22 +53,36 @@ class BootstrapContractTests(unittest.TestCase):
             "-s tests -p 'test_*.py' -v",
             source,
         )
-        self.assertNotIn(
-            "python3 -m unittest discover",
-            source,
-        )
+        self.assertNotIn("python3 -m unittest discover", source)
         self.assertNotIn("actions/setup-python@", source)
 
-    def test_self_check_uses_general_linux_portable_contract(self) -> None:
+    def test_self_check_uses_final_general_linux_capability_contract(self) -> None:
         source = (ROOT / ".github/workflows/self-check.yml").read_text()
         harness = json.loads(
             (ROOT / "contracts/validation-harness.json").read_text()
         )
-        self.assertEqual(source.count("runs-on: portable"), 1)
-        self.assertNotIn("runs-on: macOS", source)
+        runner_contract = json.loads(
+            (ROOT / "contracts/runner-profiles.json").read_text()
+        )
+        portable = next(
+            profile
+            for profile in runner_contract["profiles"]
+            if profile["id"] == "portable"
+        )
         self.assertEqual(
-            harness["allowed_runner_profiles"],
-            ["portable"],
+            source.count("runs-on: [linux, amd64, general]"),
+            1,
+        )
+        self.assertNotIn("runs-on: portable", source)
+        self.assertNotIn("runs-on: macOS", source)
+        self.assertEqual(harness["allowed_runner_profiles"], ["portable"])
+        self.assertEqual(
+            portable["default_internal_selector"],
+            ["linux", "amd64", "general"],
+        )
+        self.assertEqual(
+            portable["internal_selectors"],
+            [["linux", "amd64", "general"]],
         )
         exception = [
             item

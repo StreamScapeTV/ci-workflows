@@ -10,6 +10,30 @@
       "expected_error": "bare-self-hosted"
     },
     {
+      "id": "retired-portable-selector",
+      "mode": "selector",
+      "labels": [
+        "portable"
+      ],
+      "expected_error": "retired-selector"
+    },
+    {
+      "id": "retired-combined-buildah-selector",
+      "mode": "selector",
+      "labels": [
+        "buildah-tiny"
+      ],
+      "expected_error": "retired-selector"
+    },
+    {
+      "id": "ambiguous-bare-buildah-selector",
+      "mode": "selector",
+      "labels": [
+        "buildah"
+      ],
+      "expected_error": "ambiguous-buildah"
+    },
+    {
       "id": "docker-retired",
       "mode": "selector",
       "labels": [
@@ -38,18 +62,17 @@
       "mode": "selector",
       "labels": [
         "mobile",
-        "buildah-small"
+        "buildah"
       ],
       "expected_error": "contradictory-labels"
     },
     {
-      "id": "unsupported-same-profile-combination",
+      "id": "retired-infrastructure-selector",
       "mode": "selector",
       "labels": [
-        "portable",
         "homelab-portable-linux-x64"
       ],
-      "expected_error": "unsupported-selector-combination"
+      "expected_error": "retired-selector"
     },
     {
       "id": "unsupported-self-hosted-combination",
