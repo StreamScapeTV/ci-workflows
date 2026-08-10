@@ -8,7 +8,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
 from . import policy as foundation_policy
-from .android_execution import isolated_git_environment, pre_execution_status
+from .android_execution import isolated_git_environment
 from .android_types import AndroidValidationRequest
 from .foundation_types import (
     FoundationError,
@@ -21,6 +21,27 @@ SOURCE_POLICY_PATH = "contracts/android-source-policy.json"
 _GIT_BLOB_SHA1 = re.compile(r"^[0-9a-f]{40}$")
 _SAFE_RULE = re.compile(r"^[a-z][a-z0-9_]{2,95}$")
 _SHA256_SUBJECT = re.compile(r"^sha256:[0-9a-f]{64}$")
+_ANDROID_PROFILES = {
+    "toolchain-smoke",
+    "compile",
+    "unit-targeted",
+    "unit-full",
+    "performance",
+    "lint",
+    "assemble-debug",
+    "room-schema",
+    "consumer-script",
+    "device-handoff",
+}
+_REQUIRED_FAILURE_PROJECTION = {
+    "repository_tree_dirty": "dirty_tree",
+    "tracked_secret_detected": "tracked_secret_detected",
+    "forbidden_tracked_file": "forbidden_tracked_file",
+    "tracked_symlink_escape": "symlink_path_escape",
+    "generated_output_dirty": "generated_output_drift",
+    "undeclared_artifact": "artifact_policy_failed",
+    "unused_artifact_exception": "artifact_policy_failed",
+}
 
 
 class AndroidPolicyFinding(FoundationError):
@@ -65,6 +86,12 @@ def load_android_source_policy(root: Path) -> Mapping[str, Any]:
         raise FoundationError("android_source_policy_invalid")
     if diagnostic.get("absolute_path_forbidden") is not True:
         raise FoundationError("android_source_policy_invalid")
+    if diagnostic.get("allowed_subjects") != [
+        "repository-relative-path",
+        "contract-relative-path",
+        "sha256-digest",
+    ]:
+        raise FoundationError("android_source_policy_invalid")
 
     projection = contract.get("failure_projection")
     if not isinstance(projection, dict):
@@ -74,7 +101,6 @@ def load_android_source_policy(root: Path) -> Mapping[str, Any]:
     fallback = projection.get("fallback")
     if (
         not isinstance(exact, dict)
-        or not exact
         or not all(
             isinstance(key, str)
             and _SAFE_RULE.fullmatch(key) is not None
@@ -82,15 +108,24 @@ def load_android_source_policy(root: Path) -> Mapping[str, Any]:
             and _SAFE_RULE.fullmatch(value) is not None
             for key, value in exact.items()
         )
+        or not all(
+            exact.get(key) == value
+            for key, value in _REQUIRED_FAILURE_PROJECTION.items()
+        )
         or not isinstance(prefixes, list)
         or not all(
             isinstance(item, dict)
             and isinstance(item.get("prefix"), str)
+            and item.get("prefix")
             and _SAFE_RULE.fullmatch(item.get("code", "")) is not None
             for item in prefixes
         )
-        or not isinstance(fallback, str)
-        or _SAFE_RULE.fullmatch(fallback) is None
+        or not any(
+            item.get("prefix") == "artifact_"
+            and item.get("code") == "artifact_policy_failed"
+            for item in prefixes
+        )
+        or fallback != "policy_contract_failed"
     ):
         raise FoundationError("android_source_policy_invalid")
 
@@ -114,6 +149,7 @@ def load_android_source_policy(root: Path) -> Mapping[str, Any]:
             or identity in identities
             or repository_name(repository, "android_source_policy_invalid")
             != repository
+            or not set(profiles) <= _ANDROID_PROFILES
             or entry.get("rule_id") != "tracked_secret_detected"
             or entry.get("digest_algorithm") != "git-blob-sha1"
         ):
@@ -165,6 +201,13 @@ def _git_blob_sha1(raw: bytes) -> str:
     ).hexdigest()
 
 
+def _git_environment(environment: Mapping[str, str]) -> dict[str, str]:
+    try:
+        return isolated_git_environment(environment)
+    except Exception as error:
+        raise FoundationError("repository_status_unavailable") from error
+
+
 def _generated_output_check(
     root: Path,
     *,
@@ -176,13 +219,14 @@ def _generated_output_check(
         isinstance(value, str) for value in outputs
     ):
         raise FoundationError("repository_policy_invalid")
+    git_environment = _git_environment(environment)
     for raw in outputs:
         relative = safe_relative_path(raw, "repository_policy_invalid")
         try:
             completed = subprocess.run(
                 ["git", "diff", "--quiet", "--", relative],
                 cwd=root,
-                env=isolated_git_environment(environment),
+                env=git_environment,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 check=False,
@@ -196,12 +240,39 @@ def _generated_output_check(
             raise FoundationError("generated_output_check_failed")
 
 
+def _repository_status(
+    root: Path,
+    *,
+    environment: Mapping[str, str],
+) -> tuple[str, ...]:
+    try:
+        completed = subprocess.run(
+            ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+            cwd=root,
+            env=_git_environment(environment),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise FoundationError("repository_status_unavailable") from error
+    if completed.returncode != 0:
+        raise FoundationError("repository_status_unavailable")
+    return tuple(
+        line
+        for line in (completed.stdout or "").splitlines()
+        if line
+    )
+
+
 def _clean_tree_check(
     root: Path,
     *,
     environment: Mapping[str, str],
 ) -> None:
-    status = pre_execution_status(root, environment)
+    status = _repository_status(root, environment=environment)
     if not status:
         return
     digest = hashlib.sha256(
