@@ -5,15 +5,17 @@
 The Android gate follows the repository's named-function architecture:
 
 1. `contracts/android-validation.json` is the reviewed behavior and compatibility authority.
-2. `src/ci_workflows/android_types.py` defines immutable requests, plans, commands, wrappers, results, and stable errors.
-3. `src/ci_workflows/android_contract.py` validates the complete contract, derives source trust, parses bounded inputs, and resolves one deterministic plan.
-4. `src/ci_workflows/android_execution.py` owns direct process execution, exact toolchain and wrapper verification, source copying, mutation checks, output checks, redaction, and no-follow cleanup.
-5. `src/ci_workflows/android.py` applies repository policy before and after one plan.
-6. `src/ci_workflows/ciw_android.py` adapts the named `ciw android validate` command to plan, execute, cleanup, and residue phases.
-7. `actions/validate-android/action.yml` is a thin composite adapter.
-8. `.github/workflows/reusable-android.yml` owns protected planning, semantic mobile scheduling, exact source/dependency primitives, evidence, and unconditional cleanup.
+2. `contracts/android-source-policy.json` is the narrow Android projection for stable policy failure mapping and exact synthetic-marker exceptions.
+3. `src/ci_workflows/android_types.py` defines immutable requests, plans, commands, wrappers, results, stable errors, and bounded policy diagnostics.
+4. `src/ci_workflows/android_contract.py` validates the complete validation contract, derives source trust, parses bounded inputs, and resolves one deterministic plan.
+5. `src/ci_workflows/android_policy.py` preserves shared repository policy while applying only exact repository/profile/path/rule/blob exceptions and safe failure subjects.
+6. `src/ci_workflows/android_execution.py` owns direct process execution, exact toolchain and wrapper verification, source copying, mutation checks, output checks, redaction, and no-follow cleanup.
+7. `src/ci_workflows/android.py` applies the projected repository policy before and after one plan and maps policy findings to stable Android codes.
+8. `src/ci_workflows/ciw_android.py` adapts the named `ciw android validate` command to plan, execute, cleanup, and residue phases.
+9. `actions/validate-android/action.yml` is a thin composite adapter.
+10. `.github/workflows/reusable-android.yml` owns protected planning, semantic mobile scheduling, exact source/dependency primitives, evidence, and unconditional cleanup.
 
-Workflow YAML does not implement Gradle task selection, repository compatibility, authentication, cleanup traversal, test-filter parsing, or product policy. Those decisions remain in typed code and checked-in contract data.
+Workflow YAML does not implement Gradle task selection, repository compatibility, authentication, cleanup traversal, test-filter parsing, source-policy exception selection, or product policy. Those decisions remain in typed code and checked-in contract data.
 
 ## Trust and runner resolution
 
@@ -49,6 +51,14 @@ The Android layer never performs Git authentication or checkout. The reusable wo
 
 The dependency directory is deleted by the terminal registered-workspace cleanup after Android-specific residue checks. A traversal path, symlink, wrong SHA, missing Gradle path, retained remote, retained credential configuration, fork source, or unapproved dependency identifier fails closed.
 
+## Repository source policy
+
+The shared repository scanner remains authoritative. The Android projection does not remove a token rule, suppress an entire directory, or allow an extension class. It selects an exception only when the current repository and validation profile match a checked-in entry and the exact relative path has the exact reviewed Git blob digest. Any mutation to the marker, surrounding fixture, or file identity restores the normal fail-closed secret finding.
+
+The projected verifier classifies generated-output drift before the general worktree digest so that generated drift remains distinct while the subsequent clean-tree check remains mandatory. Tracked and untracked mutation is represented by a SHA-256 digest of the normalized porcelain rows rather than by raw file names or scan output. Forbidden files, tracked secret-shaped content, and symlink escapes use only normalized repository-relative subjects.
+
+The public facade maps only stable shared rule IDs. Unknown or malformed source-policy state becomes `policy_contract_failed`; artifact rules remain `artifact_policy_failed`; actual worktree mutation alone becomes `dirty_tree`. CIW failure summaries and stderr contain no file content, token text, absolute path, credential-bearing URL, or unbounded scanner transcript.
+
 ## Mutation and output controls
 
 Protected files and directories are hashed before and after execution. Room schema directories receive deterministic tree hashes. Git status after execution may contain only paths under the checked-in generated cleanup names; all other tracked or untracked mutation fails.
@@ -65,4 +75,4 @@ The reusable workflow invokes Android cleanup, residue verification, and foundat
 
 ## Deterministic evidence
 
-Planning output is canonical JSON plus fixed scalar identities. Execution evidence is derived from the exact source SHA, task profile, and stage count and includes no credentials, host paths, device serials, private URLs, SQL, signing material, or arbitrary command text. Logs are bounded to a terminal tail and redact token/password/authorization/secret/keystore values and credential-bearing URLs.
+Planning output is canonical JSON plus fixed scalar identities. Execution evidence is derived from the exact source SHA, task profile, and stage count and includes no credentials, host paths, device serials, private URLs, SQL, signing material, or arbitrary command text. Logs are bounded to a terminal tail and redact token/password/authorization/secret/keystore values and credential-bearing URLs. Policy failure evidence is limited further to one stable rule plus a normalized relative path or digest.
