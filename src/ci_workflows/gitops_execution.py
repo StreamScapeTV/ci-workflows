@@ -6,13 +6,9 @@ from pathlib import Path
 from typing import Any
 
 from .gitops_render import (
-    _canonical_documents,
     _helm_target,
     _kustomize_target,
-    _object_identity,
     _policy,
-    _selected_targets,
-    _source_snapshot,
     _yaml_target,
 )
 from .gitops_runtime import (
@@ -23,6 +19,12 @@ from .gitops_runtime import (
     cleanup_gitops_state,
     initialize_gitops_state,
     prepare_gitops_tools,
+)
+from .gitops_source import (
+    _canonical_documents,
+    _object_identity,
+    _selected_targets,
+    _source_snapshot,
 )
 from .gitops_types import (
     GitOpsPlan,
@@ -48,7 +50,11 @@ def _execute(
     rendered_objects = 0
     for target in targets:
         if target.kind is GitOpsTargetKind.YAML:
-            documents, count = _yaml_target(target, source_root, tools.yaml)
+            documents, count = _yaml_target(
+                target,
+                source_root,
+                tools.yaml,
+            )
         elif target.kind is GitOpsTargetKind.HELM:
             documents, count = _helm_target(
                 target,
@@ -98,7 +104,10 @@ def _execute(
         plan=plan,
         rendered_objects=rendered_objects,
         validated_files=validated_files,
-        selected_targets=tuple(target.target_id for target in targets),
+        selected_targets=tuple(
+            target.target_id
+            for target in targets
+        ),
         render_digest=render_digest,
         policy_result=policy_result,
         clean_tree=True,
@@ -128,8 +137,16 @@ def execute_gitops_plan(
         try:
             cleanup_gitops_state(state_root)
         except BaseException as cleanup:
-            primary_code = getattr(primary, "code", type(primary).__name__)
-            cleanup_code = getattr(cleanup, "code", type(cleanup).__name__)
+            primary_code = getattr(
+                primary,
+                "code",
+                type(primary).__name__,
+            )
+            cleanup_code = getattr(
+                cleanup,
+                "code",
+                type(cleanup).__name__,
+            )
             raise GitOpsValidationError(
                 "primary_and_cleanup_failed",
                 f"primary={primary_code};cleanup={cleanup_code}",
