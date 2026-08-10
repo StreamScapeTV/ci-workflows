@@ -144,6 +144,24 @@ jobs:
           source_sha: ${{ github.event.pull_request.head.sha }}
           trust_mode: ${{ needs.plan.outputs.source_trust }}
 
+      - name: Record bounded mobile toolchain identity
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          java_major="$(java -version 2>&1 | sed -n 's/.*version "\([0-9][0-9]*\).*/\1/p' | head -1)"
+          javac_major="$(javac -version 2>&1 | sed -n 's/^javac \([0-9][0-9]*\).*/\1/p' | head -1)"
+          sdkmanager_version="$(sdkmanager --version | tr -d '\r\n')"
+          cmdline_revision="$(awk -F= '$1 == "Pkg.Revision" {gsub(/[[:space:]]/, "", $2); print $2}' "${ANDROID_SDK_ROOT}/cmdline-tools/latest/source.properties")"
+          build_tools_revision="$(awk -F= '$1 == "Pkg.Revision" {gsub(/[[:space:]]/, "", $2); print $2}' "${ANDROID_SDK_ROOT}/build-tools/37.0.0/source.properties")"
+          [[ "${java_major}" =~ ^[0-9]+$ ]]
+          [[ "${javac_major}" =~ ^[0-9]+$ ]]
+          [[ "${sdkmanager_version}" =~ ^[0-9]+([.][0-9]+)*$ ]]
+          [[ "${cmdline_revision}" =~ ^[0-9]+([.][0-9]+)*$ ]]
+          [[ "${build_tools_revision}" =~ ^[0-9]+([.][0-9]+)*$ ]]
+          printf 'mobile-toolchain java=%s javac=%s cmdline=%s cmdline-source=%s build-tools=%s\n' \
+            "${java_major}" "${javac_major}" "${sdkmanager_version}" \
+            "${cmdline_revision}" "${build_tools_revision}"
+
       - id: android
         name: Execute bounded Android toolchain fixture validation
         continue-on-error: true
