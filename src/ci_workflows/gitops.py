@@ -1,4 +1,4 @@
-"""Public facade for the bounded GitOps validation implementation."""
+"""Public facade for bounded source-only GitOps validation."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -13,6 +13,7 @@ from .gitops_contract import (
     source_trust_from_environment,
 )
 from .gitops_execution import (
+    GitOpsTools,
     assert_zero_gitops_residue,
     cleanup_gitops_state,
     execute_gitops_plan,
@@ -33,6 +34,7 @@ def validate(
     request: GitOpsRequest,
     phase: str,
     environment: Mapping[str, str],
+    tools: GitOpsTools | None = None,
 ) -> GitOpsPlan | GitOpsResult | None:
     """Plan, execute, clean, or inspect one checked-in validation request."""
 
@@ -51,13 +53,14 @@ def validate(
     if phase != "execute" or source_root is None:
         raise GitOpsValidationError("invalid_input")
     plan = build_plan(contract, request, source_root)
-    return execute_gitops_plan(plan, source_root, state_root)
+    return execute_gitops_plan(plan, source_root, state_root, tools=tools)
 
 
 __all__ = [
     "GitOpsPlan",
     "GitOpsRequest",
     "GitOpsResult",
+    "GitOpsTools",
     "GitOpsValidationError",
     "assert_zero_gitops_residue",
     "bounded_path",
