@@ -240,7 +240,7 @@ class AppleWorkflowContractTests(unittest.TestCase):
             ROOT / "tests/fixtures/apple-validation/smoke-project/Sources/SmokeApp.swift"
         ).read_text(encoding="utf-8")
         self.assertIn("SUPPORTED_PLATFORMS", project)
-        self.assertIn("iphoneos iphonesimulator appletvos appletsimulator macosx", project)
+        self.assertIn("iphoneos iphonesimulator appletvos appletvsimulator macosx", project)
         self.assertIn("CODE_SIGNING_ALLOWED = NO", project)
         self.assertIn("CODE_SIGNING_REQUIRED = NO", project)
         self.assertNotIn("tv.streamscape", project)
