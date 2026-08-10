@@ -39,6 +39,14 @@ The central synthetic fixture is the only wrapper mode that installs its own Gra
 
 Execution uses isolated `HOME`, `TMPDIR`, `GRADLE_USER_HOME`, Android user state, logs, caches, and temporary dependency state beneath the marker-bound workflow workspace. The same isolated paths apply to Java, Javac, SDK-manager, wrapper, and task execution; inherited host home or temporary paths are not used. Strict `C.UTF-8` locale and UTC are applied. Protected Gradle configuration, lock, version-catalog, wrapper, schema, and consumer-script paths are hashed before execution and reverified after it. Tracked mutation and unexpected untracked source fail closed.
 
+## Repository source-policy projection
+
+The shared repository policy remains the default authority for tracked-file, token-shaped content, generated-output, clean-tree, path, and artifact checks. Android adds only the reviewed projection in `contracts/android-source-policy.json`; it does not disable or weaken the shared scanner.
+
+A synthetic protocol or redaction marker is accepted only when all reviewed fields match: exact repository, exact Android validation profile, exact repository-relative path, exact rule, and exact Git blob digest. There is no extension-wide or directory-wide exception. A content change, path move, profile mismatch, repository mismatch, or real credential-shaped replacement fails closed.
+
+Policy failures are classified before entering the public facade. `dirty_tree` is reserved for a real tracked or untracked worktree mutation. Separate codes cover tracked secret-shaped content, forbidden tracked files, symlink or path escape, generated-output drift, artifact policy, and policy-contract failure. Diagnostics contain only a stable rule ID plus one normalized repository-relative path, contract-relative path, or SHA-256 status digest. File content, credential text, absolute host paths, and broad scan output are never projected.
+
 ## Outputs and artifacts
 
 The reusable workflow emits bounded outputs for result, exact source SHA, selected profiles, test summary, resolved Java/API/Gradle identities, private-dependency use, unsigned-debug and schema verification, device-handoff JSON, clean-tree state, cleanup result, and deterministic evidence identity.
@@ -49,7 +57,7 @@ Routine runs retain zero GitHub Actions artifacts. A diagnostic artifact can be 
 
 Android-specific cleanup and marker-bound workspace cleanup run under `if: always()`. Android cleanup removes copied source, build output, Gradle/Android state, logs, SDK probes, and synthetic Gradle download/install state; the registered workspace cleanup separately removes the exact private dependency checkout, Git state, and credentials. Neither cleanup accepts a deletion path or follows symlinks, and any process, output, cache, or path residue fails closed without hiding the original validation failure. A final terminal step fails the workflow unless execution, Android cleanup, residue verification, and workspace cleanup all succeed.
 
-Failures are projected through stable contract codes such as `toolchain_mismatch`, `sdk_package_missing`, `wrapper_distribution_drift`, `test_filter_rejected`, `private_dependency_rejected`, `compile_failed`, `tests_failed`, `lint_failed`, `schema_drift`, `dirty_tree`, `artifact_policy_failed`, and `cleanup_failed`. Stored diagnostic output is bounded and redacts credentials and credential-bearing URLs.
+Failures are projected through stable contract codes such as `toolchain_mismatch`, `sdk_package_missing`, `wrapper_distribution_drift`, `test_filter_rejected`, `private_dependency_rejected`, `compile_failed`, `tests_failed`, `lint_failed`, `schema_drift`, `dirty_tree`, `tracked_secret_detected`, `forbidden_tracked_file`, `symlink_path_escape`, `generated_output_drift`, `artifact_policy_failed`, `policy_contract_failed`, and `cleanup_failed`. Stored diagnostic output is bounded and redacts credentials and credential-bearing URLs.
 
 ## Repository-owned smoke
 
