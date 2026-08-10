@@ -120,6 +120,38 @@ jobs:
       test_summary: ${{ steps.execute.outputs.test_summary }}
       artifact_exception_used: ${{ steps.execute.outputs.artifact_exception_used }}
     steps:
+      - name: Clear fixed central workflow checkout root
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import os
+          import stat
+          from pathlib import Path
+
+          def remove_no_follow(path: Path) -> None:
+              try:
+                  metadata = os.lstat(path)
+              except FileNotFoundError:
+                  return
+              if stat.S_ISLNK(metadata.st_mode) or stat.S_ISREG(metadata.st_mode):
+                  os.unlink(path)
+              elif stat.S_ISDIR(metadata.st_mode):
+                  with os.scandir(path) as entries:
+                      children = [path / entry.name for entry in entries]
+                  for child in children:
+                      remove_no_follow(child)
+                  os.rmdir(path)
+              else:
+                  raise SystemExit("unsupported fixed checkout entry")
+
+          remove_no_follow(Path(".ciw"))
+          if os.path.lexists(".ciw"):
+              raise SystemExit("fixed central checkout root remains")
+          PY
+          test ! -e .ciw
+          test ! -L .ciw
+
       - name: Check out exact central workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -178,6 +210,7 @@ jobs:
 
       - id: execute
         name: Execute bounded Apple validation
+        continue-on-error: true
         uses: ./.ciw/actions/validate-apple
         with:
           phase: execute
@@ -193,8 +226,10 @@ jobs:
           artifact_exception_id: ${{ inputs.artifact_exception_id }}
           source_trust: ${{ needs.plan.outputs.source_trust }}
 
-      - name: Remove Apple-specific state
+      - id: apple_cleanup
+        name: Remove Apple-specific state
         if: always()
+        continue-on-error: true
         uses: ./.ciw/actions/validate-apple
         with:
           phase: cleanup
@@ -210,8 +245,10 @@ jobs:
           artifact_exception_id: ${{ inputs.artifact_exception_id }}
           source_trust: ${{ needs.plan.outputs.source_trust }}
 
-      - name: Verify zero Apple-specific residue
+      - id: apple_residue
+        name: Verify zero Apple-specific residue
         if: always()
+        continue-on-error: true
         uses: ./.ciw/actions/validate-apple
         with:
           phase: residue
@@ -227,8 +264,10 @@ jobs:
           artifact_exception_id: ${{ inputs.artifact_exception_id }}
           source_trust: ${{ needs.plan.outputs.source_trust }}
 
-      - name: Remove exact admitted source checkout
+      - id: source_cleanup
+        name: Remove exact admitted source checkout
         if: always()
+        continue-on-error: true
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -236,6 +275,79 @@ jobs:
           test ! -e source
           test ! -L source
 
-      - name: Remove and verify all registered workflow state
+      - id: workspace_cleanup
+        name: Remove and verify all registered workflow state
         if: always()
+        continue-on-error: true
         uses: ./.ciw/actions/cleanup-workspace
+
+      - id: ciw_cleanup
+        name: Remove exact central workflow checkout without following links
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import os
+          import stat
+          from pathlib import Path
+
+          def remove_no_follow(path: Path) -> None:
+              try:
+                  metadata = os.lstat(path)
+              except FileNotFoundError:
+                  return
+              if stat.S_ISLNK(metadata.st_mode) or stat.S_ISREG(metadata.st_mode):
+                  os.unlink(path)
+              elif stat.S_ISDIR(metadata.st_mode):
+                  with os.scandir(path) as entries:
+                      children = [path / entry.name for entry in entries]
+                  for child in children:
+                      remove_no_follow(child)
+                  os.rmdir(path)
+              else:
+                  raise SystemExit("unsupported fixed checkout entry")
+
+          remove_no_follow(Path(".ciw"))
+          if os.path.lexists(".ciw"):
+              raise SystemExit("fixed central checkout root remains")
+          PY
+          test ! -e .ciw
+          test ! -L .ciw
+
+      - name: Project primary and combined terminal Apple failures
+        if: always()
+        shell: bash
+        env:
+          EXECUTE_OUTCOME: ${{ steps.execute.outcome }}
+          APPLE_CLEANUP_OUTCOME: ${{ steps.apple_cleanup.outcome }}
+          APPLE_RESIDUE_OUTCOME: ${{ steps.apple_residue.outcome }}
+          SOURCE_CLEANUP_OUTCOME: ${{ steps.source_cleanup.outcome }}
+          WORKSPACE_CLEANUP_OUTCOME: ${{ steps.workspace_cleanup.outcome }}
+          CIW_CLEANUP_OUTCOME: ${{ steps.ciw_cleanup.outcome }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+
+          primary = os.environ["EXECUTE_OUTCOME"]
+          cleanup = {
+              "apple": os.environ["APPLE_CLEANUP_OUTCOME"],
+              "apple_residue": os.environ["APPLE_RESIDUE_OUTCOME"],
+              "source": os.environ["SOURCE_CLEANUP_OUTCOME"],
+              "workspace": os.environ["WORKSPACE_CLEANUP_OUTCOME"],
+              "central_checkout": os.environ["CIW_CLEANUP_OUTCOME"],
+          }
+          failed_cleanup = sorted(
+              name for name, outcome in cleanup.items() if outcome != "success"
+          )
+          projection = {
+              "primary": None if primary == "success" else primary,
+              "cleanup_failures": failed_cleanup,
+          }
+          print(json.dumps(projection, sort_keys=True, separators=(",", ":")))
+          if primary != "success" or failed_cleanup:
+              raise SystemExit(1)
+          PY
