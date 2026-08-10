@@ -4,19 +4,63 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 from typing import Mapping
 
 _SAFE_CODE = re.compile(r"^[a-z][a-z0-9_]{2,95}$")
+_SHA256_SUBJECT = re.compile(r"^sha256:[0-9a-f]{64}$")
+
+
+def _safe_subject(value: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError("android diagnostic subject must be text")
+    if _SHA256_SUBJECT.fullmatch(value) is not None:
+        return value
+    if (
+        len(value) > 255
+        or "\\" in value
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+    ):
+        raise ValueError("android diagnostic subject must be bounded")
+    path = PurePosixPath(value)
+    if (
+        not value
+        or path.is_absolute()
+        or ".." in path.parts
+        or any(part in {"", "."} for part in path.parts)
+    ):
+        raise ValueError("android diagnostic subject must be repository-relative")
+    return path.as_posix()
 
 
 class AndroidValidationError(RuntimeError):
-    """Fail-closed Android validation error carrying one stable code."""
+    """Fail-closed Android validation error carrying bounded safe diagnostics."""
 
-    def __init__(self, code: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        *,
+        rule_id: str | None = None,
+        subject: str | None = None,
+    ) -> None:
         if _SAFE_CODE.fullmatch(code) is None:
             raise ValueError("android validation error code must be safe")
+        if (rule_id is None) != (subject is None):
+            raise ValueError("android policy diagnostics require rule and subject")
+        if rule_id is not None and _SAFE_CODE.fullmatch(rule_id) is None:
+            raise ValueError("android policy rule must be safe")
         self.code = code
+        self.rule_id = rule_id
+        self.subject = _safe_subject(subject) if subject is not None else None
         super().__init__(code)
+
+    def diagnostic_values(self) -> dict[str, str]:
+        if self.rule_id is None or self.subject is None:
+            return {}
+        return {
+            "policy_rule": self.rule_id,
+            "policy_subject": self.subject,
+        }
 
 
 @dataclass(frozen=True)
