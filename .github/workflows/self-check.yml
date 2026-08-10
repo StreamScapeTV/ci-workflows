@@ -50,7 +50,7 @@ jobs:
               ;;
           esac
 
-      - name: Verify pre-provisioned general-Linux CPython 3.12.13
+      - name: Verify pre-provisioned general-Linux CPython 3.12
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -67,16 +67,16 @@ jobs:
             echo '::error::Resolved Python path is not an absolute executable.' >&2
             exit 1
           fi
-          identity="$("${resolved}" -c 'import platform,sys; m=platform.machine().lower(); m={"amd64":"x86_64","x64":"x86_64","aarch64":"arm64"}.get(m,m); print(f"{sys.implementation.name}|{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}|{platform.system()}|{m}")')"
-          IFS='|' read -r implementation version system machine <<< "${identity}"
-          [[ "${implementation}" == "cpython" ]] || { echo "::error::Expected CPython, got ${implementation}." >&2; exit 1; }
-          [[ "${version}" == "3.12.13" ]] || { echo "::error::Expected Python 3.12.13, got ${version}." >&2; exit 1; }
-          [[ "${system}" == "Linux" ]] || { echo "::error::Expected Linux, got ${system}." >&2; exit 1; }
-          case "${machine}" in x86_64) ;; *) echo "::error::Unsupported general-Linux architecture ${machine}." >&2; exit 1 ;; esac
           {
             printf 'VERIFIED_PYTHON=%s\n' "${resolved}"
             printf 'PYTHON_EXECUTABLE=%s\n' "${resolved}"
           } >> "${GITHUB_ENV}"
+          identity="$("${resolved}" -c 'import platform,sys; m=platform.machine().lower(); m={"amd64":"x86_64","x64":"x86_64","aarch64":"arm64"}.get(m,m); print(f"{sys.implementation.name}|{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}|{platform.system()}|{m}")')"
+          IFS='|' read -r implementation version system machine <<< "${identity}"
+          [[ "${implementation}" == "cpython" ]] || { echo "::error::Expected CPython, got ${implementation}." >&2; exit 1; }
+          [[ "${version}" == 3.12.* ]] || { echo "::error::Expected Python 3.12.x, got ${version}." >&2; exit 1; }
+          [[ "${system}" == "Linux" ]] || { echo "::error::Expected Linux, got ${system}." >&2; exit 1; }
+          case "${machine}" in x86_64) ;; *) echo "::error::Unsupported general-Linux architecture ${machine}." >&2; exit 1 ;; esac
 
       - name: Check out exact source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
