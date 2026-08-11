@@ -122,6 +122,24 @@ class AppleWorkflowContractTests(unittest.TestCase):
         self.assertIn("timeout-minutes: 120", self.smoke)
         self.assertNotIn("workflow_dispatch:", self.smoke)
 
+    def test_smoke_runs_when_apple_public_registration_changes(self) -> None:
+        for path in (
+            "contracts/bootstrap-public-workflows.json",
+            "contracts/ciw-commands.json",
+            "contracts/public-workflows.json",
+            "contracts/public-workflows/validation.json",
+            "docs/reference/ciw.md",
+            "docs/workflows/public-api-reference.md",
+            "src/ci_workflows/ciw.py",
+            "tests/test_apple_ciw_dispatch.py",
+            "tests/test_bootstrap.py",
+            "tests/test_ciw_cli.py",
+            "tests/test_ciw_contracts.py",
+            "tests/test_public_api_contract.py",
+        ):
+            with self.subTest(path=path):
+                self.assertIn(f"      - {path}", self.smoke)
+
     def test_external_actions_are_full_sha_pinned(self) -> None:
         text = "\n".join((self.workflow, self.smoke))
         for value in re.findall(r"uses:\s*([^\s#]+)", text):

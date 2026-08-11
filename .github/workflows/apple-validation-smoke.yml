@@ -13,13 +13,25 @@ on:
       - src/ci_workflows/apple_contract.py
       - src/ci_workflows/apple_execution.py
       - src/ci_workflows/apple_types.py
+      - src/ci_workflows/ciw.py
       - src/ci_workflows/ciw_apple.py
       - contracts/apple-validation.json
+      - contracts/bootstrap-public-workflows.json
+      - contracts/ciw-commands.json
+      - contracts/public-workflows.json
+      - contracts/public-workflows/validation.json
+      - docs/reference/ciw.md
+      - docs/workflows/public-api-reference.md
       - tests/fixtures/apple-validation/**
+      - tests/test_apple_ciw_dispatch.py
       - tests/test_apple_simulator_ownership.py
       - tests/test_apple_terminal_cleanup.py
       - tests/test_apple_validation.py
       - tests/test_apple_workflow_contract.py
+      - tests/test_bootstrap.py
+      - tests/test_ciw_cli.py
+      - tests/test_ciw_contracts.py
+      - tests/test_public_api_contract.py
 
 permissions:
   actions: read

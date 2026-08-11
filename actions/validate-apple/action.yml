@@ -118,6 +118,7 @@ runs:
         INPUT_SOURCE_TRUST: ${{ inputs.source_trust }}
       run: |
         set -Eeuo pipefail
-        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/apple.py" \
-          "${{ inputs.phase }}" \
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
+          apple validate \
+          --phase "${{ inputs.phase }}" \
           --source-root source
