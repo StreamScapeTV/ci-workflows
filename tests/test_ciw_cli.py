@@ -150,6 +150,43 @@ class CIWCLITests(unittest.TestCase):
             )
             self.assertNotIn("callback", output.read_text(encoding="utf-8"))
 
+    def test_flutter_plan_dispatch_resolves_contract_owned_apple_runner(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "output"
+            environment = {
+                "GITHUB_OUTPUT": str(output),
+                "GITHUB_REPOSITORY": "StreamScapeTV/ci-workflows",
+                "GITHUB_EVENT_NAME": "push",
+                "INPUT_ADMITTED_SHA": "d" * 40,
+                "INPUT_VALIDATION_PROFILE": "ios-simulator",
+                "INPUT_COMMAND_PROFILE": "synthetic-smoke",
+                "INPUT_PLATFORM": "ios-simulator",
+                "INPUT_SOURCE_TRUST": "trusted-pr",
+            }
+            errors = io.StringIO()
+            code = ciw.main(
+                [
+                    "--root",
+                    str(ROOT),
+                    "flutter",
+                    "validate",
+                    "--phase",
+                    "plan",
+                ],
+                environment=environment,
+                stdout=io.StringIO(),
+                stderr=errors,
+            )
+            self.assertEqual(0, code, errors.getvalue())
+            values = dict(
+                line.split("=", 1)
+                for line in output.read_text(encoding="utf-8").splitlines()
+            )
+            self.assertEqual(values["result"], "planned")
+            self.assertEqual(values["runner_profile"], "apple")
+            self.assertEqual(values["runs_on_json"], '["macOS","ARM64"]')
+            self.assertNotIn("callback", output.read_text(encoding="utf-8"))
+
     def test_node_plan_dispatch_resolves_exact_runtime_and_portable_runner(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "output"

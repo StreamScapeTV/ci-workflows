@@ -57,7 +57,7 @@ permissions:
 jobs:
   plan:
     name: Resolve bounded Flutter validation plan
-    runs-on: portable
+    runs-on: [linux, amd64, general]
     timeout-minutes: 10
     outputs:
       runner_profile: ${{ steps.plan.outputs.runner_profile }}
@@ -471,7 +471,7 @@ jobs:
     name: CI / Flutter validation
     needs: [plan, portable, mobile, apple]
     if: always()
-    runs-on: portable
+    runs-on: [linux, amd64, general]
     timeout-minutes: 10
     outputs:
       result: ${{ steps.result.outputs.result }}

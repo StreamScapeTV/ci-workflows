@@ -75,9 +75,19 @@ class FlutterWorkflowContractTests(unittest.TestCase):
             self.assertIsNotNone(match, job)
             return match.group(0)
 
-        for source in (self.mobile_smoke, self.apple_smoke):
+        for source in (self.reusable, self.mobile_smoke, self.apple_smoke):
             self.assertNotIn("runs-on: portable", source)
 
+        for job in ("plan", "validate"):
+            self.assertIn(
+                "runs-on: [linux, amd64, general]",
+                job_block(self.reusable, job),
+            )
+        for job in ("portable", "mobile", "apple"):
+            self.assertIn(
+                "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
+                job_block(self.reusable, job),
+            )
         for job in ("source_audit", "focused_tests", "plan", "zero_artifacts"):
             self.assertIn(
                 "runs-on: [linux, amd64, general]",
