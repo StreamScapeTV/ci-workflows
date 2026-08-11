@@ -6,6 +6,7 @@ import json
 import os
 import stat
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Mapping, Protocol, Sequence
@@ -28,6 +29,10 @@ from .flutter_types import (
     FlutterStage,
     RunnerCapability,
 )
+
+
+GRADLE_DAEMON_CLEANUP_GRACE_SECONDS = 120
+GRADLE_DAEMON_CLEANUP_POLL_SECONDS = 0.25
 
 
 @dataclass(frozen=True, slots=True)
@@ -714,8 +719,43 @@ def _cleanup_targets(source_root: Path, state_root: Path) -> tuple[Path, ...]:
     )
 
 
+def _gradle_daemon_is_active(state: Path) -> bool:
+    try:
+        completed = subprocess.run(
+            ["ps", "-axo", "command="],
+            cwd=state.parent,
+            env={"PATH": os.environ.get("PATH", "")},
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        fail("cleanup_failed")
+    if completed.returncode:
+        fail("cleanup_failed")
+    gradle_home = state / "gradle-home"
+    return any(
+        "GradleDaemon" in row and str(gradle_home) in row
+        for row in completed.stdout.splitlines()
+    )
+
+
+def _wait_for_gradle_daemon_exit(state: Path) -> None:
+    deadline = time.monotonic() + GRADLE_DAEMON_CLEANUP_GRACE_SECONDS
+    while _gradle_daemon_is_active(state):
+        if time.monotonic() >= deadline:
+            fail("cleanup_failed")
+        time.sleep(GRADLE_DAEMON_CLEANUP_POLL_SECONDS)
+
+
 def cleanup_flutter_state(source_root: Path, state_root: Path) -> None:
-    for path in _cleanup_targets(source_root, state_root):
+    targets = _cleanup_targets(source_root, state_root)
+    state = targets[0]
+    if _lstat(state) is not None:
+        _wait_for_gradle_daemon_exit(state)
+    for path in targets:
         _remove_no_follow(path)
 
 
