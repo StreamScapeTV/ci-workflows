@@ -24,9 +24,20 @@ from .oci_types import (
 
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _FROM = re.compile(r"^\s*FROM(?:\s+--platform=[^\s]+)?\s+([^\s]+)(?:\s+AS\s+[^\s]+)?\s*$", re.I)
+_PLATFORM = re.compile(r"^linux/(?:amd64|arm64/v8)$")
+_INDEX_MEDIA_TYPE = "application/vnd.oci.image.index.v1+json"
+_MANIFEST_MEDIA_TYPE = "application/vnd.oci.image.manifest.v1+json"
+_CONFIG_MEDIA_TYPE = "application/vnd.oci.image.config.v1+json"
+_LAYER_MEDIA_TYPES = frozenset(
+    {
+        "application/vnd.oci.image.layer.v1.tar",
+        "application/vnd.oci.image.layer.v1.tar+gzip",
+        "application/vnd.oci.image.layer.v1.tar+zstd",
+    }
+)
 
 
-def run(
+def execute_command(
     argv: Sequence[str],
     *,
     cwd: Path | None = None,
@@ -60,14 +71,14 @@ def state_root(environment: Mapping[str, str]) -> Path:
 
 
 def exact_git_head(source_root: Path) -> str:
-    result = run(["git", "rev-parse", "HEAD"], cwd=source_root, capture=True)
+    result = execute_command(["git", "rev-parse", "HEAD"], cwd=source_root, capture=True)
     return result.stdout.strip()
 
 
 def assert_clean_source(source_root: Path, admitted_sha: str) -> None:
     if exact_git_head(source_root) != admitted_sha:
         raise OciBuildError("source_mismatch")
-    status = run(
+    status = execute_command(
         ["git", "status", "--porcelain", "--untracked-files=all"],
         cwd=source_root,
         capture=True,
@@ -77,7 +88,7 @@ def assert_clean_source(source_root: Path, admitted_sha: str) -> None:
 
 
 def source_date_epoch(source_root: Path) -> int:
-    value = run(["git", "show", "-s", "--format=%ct", "HEAD"], cwd=source_root, capture=True).stdout.strip()
+    value = execute_command(["git", "show", "-s", "--format=%ct", "HEAD"], cwd=source_root, capture=True).stdout.strip()
     if not value.isdigit() or int(value) <= 0:
         raise OciBuildError("source_mismatch")
     return int(value)
@@ -116,14 +127,14 @@ def _tracked_files(source_root: Path, context_path: str) -> tuple[Path, ...]:
     args = ["git", "ls-files", "-z"]
     if context_path != ".":
         args.extend(["--", context_path])
-    payload = run(args, cwd=source_root, capture=True).stdout
+    payload = execute_command(args, cwd=source_root, capture=True).stdout
     files = tuple(Path(item) for item in payload.split("\0") if item)
     if not files:
         raise OciBuildError("dirty_context")
     status_args = ["git", "status", "--porcelain", "--untracked-files=all"]
     if context_path != ".":
         status_args.extend(["--", context_path])
-    if run(status_args, cwd=source_root, capture=True).stdout.strip():
+    if execute_command(status_args, cwd=source_root, capture=True).stdout.strip():
         raise OciBuildError("dirty_context")
     return files
 
@@ -155,6 +166,8 @@ def stage_context(source_root: Path, target: OciTarget, destination: Path) -> Pa
 
 def _read_json(path: Path) -> object:
     try:
+        if not path.is_file() or path.is_symlink():
+            raise OciBuildError("oci_layout_malformed")
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise OciBuildError("oci_layout_malformed") from error
@@ -163,10 +176,68 @@ def _read_json(path: Path) -> object:
 def _blob(layout: Path, digest: str) -> Path:
     if _DIGEST.fullmatch(digest) is None:
         raise OciBuildError("oci_layout_malformed")
-    path = layout / "blobs" / "sha256" / digest.removeprefix("sha256:")
-    if not path.is_file() or path.is_symlink() or sha256_file(path) != digest:
+    blob_root = layout / "blobs"
+    algorithm_root = blob_root / "sha256"
+    if (
+        not blob_root.is_dir()
+        or blob_root.is_symlink()
+        or not algorithm_root.is_dir()
+        or algorithm_root.is_symlink()
+    ):
+        raise OciBuildError("oci_layout_malformed")
+    path = algorithm_root / digest.removeprefix("sha256:")
+    try:
+        valid = path.is_file() and not path.is_symlink() and sha256_file(path) == digest
+    except OSError as error:
+        raise OciBuildError("oci_digest_mismatch") from error
+    if not valid:
         raise OciBuildError("oci_digest_mismatch")
     return path
+
+
+def _descriptor_blob(
+    layout: Path,
+    descriptor: object,
+    media_types: frozenset[str],
+) -> tuple[Path, str]:
+    if not isinstance(descriptor, Mapping):
+        raise OciBuildError("oci_layout_malformed")
+    media_type = descriptor.get("mediaType")
+    digest = descriptor.get("digest")
+    size = descriptor.get("size")
+    if (
+        media_type not in media_types
+        or not isinstance(digest, str)
+        or type(size) is not int
+        or size < 0
+    ):
+        raise OciBuildError("oci_layout_malformed")
+    blob = _blob(layout, digest)
+    try:
+        matches_size = blob.stat().st_size == size
+    except OSError as error:
+        raise OciBuildError("oci_digest_mismatch") from error
+    if not matches_size:
+        raise OciBuildError("oci_layout_malformed")
+    return blob, digest
+
+
+def _platform_name(platform: object) -> tuple[str, str, str, str | None]:
+    if not isinstance(platform, Mapping):
+        raise OciBuildError("oci_layout_malformed")
+    os_name = platform.get("os")
+    architecture = platform.get("architecture")
+    variant = platform.get("variant")
+    if (
+        not isinstance(os_name, str)
+        or not isinstance(architecture, str)
+        or variant is not None and not isinstance(variant, str)
+    ):
+        raise OciBuildError("oci_layout_malformed")
+    name = f"{os_name}/{architecture}" + (f"/{variant}" if variant else "")
+    if _PLATFORM.fullmatch(name) is None:
+        raise OciBuildError("oci_layout_malformed")
+    return name, os_name, architecture, variant
 
 
 def inspect_layout(layout: Path, target: OciTarget, labels: Mapping[str, str]) -> OciTargetResult:
@@ -179,48 +250,49 @@ def inspect_layout(layout: Path, target: OciTarget, labels: Mapping[str, str]) -
     if (
         not isinstance(index, dict)
         or index.get("schemaVersion") != 2
-        or index.get("mediaType") != "application/vnd.oci.image.index.v1+json"
+        or index.get("mediaType") not in {None, _INDEX_MEDIA_TYPE}
         or not isinstance(index.get("manifests"), list)
     ):
         raise OciBuildError("oci_layout_malformed")
     results: dict[str, OciPlatformResult] = {}
     for descriptor in index["manifests"]:
-        if not isinstance(descriptor, dict) or not isinstance(descriptor.get("platform"), dict):
+        if not isinstance(descriptor, Mapping):
             raise OciBuildError("oci_layout_malformed")
-        platform = descriptor["platform"]
-        name = f"{platform.get('os')}/{platform.get('architecture')}"
-        if platform.get("variant"):
-            name += f"/{platform['variant']}"
-        manifest_digest = descriptor.get("digest")
-        if (
-            descriptor.get("mediaType") != "application/vnd.oci.image.manifest.v1+json"
-            or not isinstance(manifest_digest, str)
-            or name in results
-        ):
+        name, os_name, architecture, variant = _platform_name(descriptor.get("platform"))
+        if name in results:
             raise OciBuildError("oci_layout_malformed")
-        manifest = _read_json(_blob(layout, manifest_digest))
+        manifest_blob, manifest_digest = _descriptor_blob(
+            layout, descriptor, frozenset({_MANIFEST_MEDIA_TYPE})
+        )
+        manifest = _read_json(manifest_blob)
         if (
             not isinstance(manifest, dict)
             or manifest.get("schemaVersion") != 2
-            or manifest.get("mediaType") != "application/vnd.oci.image.manifest.v1+json"
+            or manifest.get("mediaType") not in {None, _MANIFEST_MEDIA_TYPE}
         ):
             raise OciBuildError("oci_layout_malformed")
         config = manifest.get("config")
         layers = manifest.get("layers")
         if (
-            not isinstance(config, dict)
-            or config.get("mediaType") != "application/vnd.oci.image.config.v1+json"
+            not isinstance(config, Mapping)
             or not isinstance(layers, list)
-            or not isinstance(config.get("digest"), str)
         ):
             raise OciBuildError("oci_layout_malformed")
-        config_digest = config["digest"]
-        config_payload = _read_json(_blob(layout, config_digest))
-        if not isinstance(config_payload, dict) or not isinstance(config_payload.get("config"), dict):
+        config_blob, config_digest = _descriptor_blob(
+            layout, config, frozenset({_CONFIG_MEDIA_TYPE})
+        )
+        config_payload = _read_json(config_blob)
+        if (
+            not isinstance(config_payload, dict)
+            or not isinstance(config_payload.get("config"), dict)
+            or config_payload.get("os") != os_name
+            or config_payload.get("architecture") != architecture
+            or config_payload.get("variant") != variant
+        ):
             raise OciBuildError("oci_layout_malformed")
         runtime = config_payload["config"]
         actual_labels = runtime.get("Labels") or {}
-        if not isinstance(actual_labels, dict) or any(actual_labels.get(key) != value for key, value in labels.items()):
+        if not isinstance(actual_labels, dict) or actual_labels != dict(labels):
             raise OciBuildError("metadata_mismatch")
         if target.required_user is not None and runtime.get("User", "") != target.required_user:
             raise OciBuildError("assertion_failed")
@@ -232,14 +304,8 @@ def inspect_layout(layout: Path, target: OciTarget, labels: Mapping[str, str]) -
             raise OciBuildError("assertion_failed")
         layer_digests: list[str] = []
         for layer in layers:
-            if (
-                not isinstance(layer, dict)
-                or not str(layer.get("mediaType", "")).startswith("application/vnd.oci.image.layer.v1.tar")
-                or not isinstance(layer.get("digest"), str)
-            ):
-                raise OciBuildError("oci_layout_malformed")
-            _blob(layout, layer["digest"])
-            layer_digests.append(layer["digest"])
+            _, layer_digest = _descriptor_blob(layout, layer, _LAYER_MEDIA_TYPES)
+            layer_digests.append(layer_digest)
         results[name] = OciPlatformResult(name, manifest_digest, config_digest, tuple(layer_digests))
     if tuple(sorted(results)) != tuple(sorted(target.platforms)):
         raise OciBuildError("platform_mismatch")
@@ -287,7 +353,7 @@ def verify_builder_runtime() -> None:
         if socket.exists():
             raise OciBuildError("forbidden_socket_present")
     for tool in ("buildah", "skopeo", "podman"):
-        run([tool, "--version"], capture=True)
+        execute_command([tool, "--version"], capture=True)
 
 
 def build_target(
@@ -302,7 +368,7 @@ def build_target(
     base = _buildah_base(root, plan.storage_driver)
     token = hashlib.sha256(f"{plan.admitted_sha}:{target.target_id}".encode()).hexdigest()[:16]
     manifest = f"ciw-{target.target_id}-{token}"
-    run([*base, "manifest", "create", manifest])
+    execute_command([*base, "manifest", "create", manifest])
     state_file = root / "manifests.json"
     state_file.parent.mkdir(parents=True, exist_ok=True)
     current = [] if not state_file.exists() else json.loads(state_file.read_text())
@@ -328,10 +394,10 @@ def build_target(
                 raise OciBuildError("secret_mount_missing")
             argv.extend(["--secret", f"id={secret_id},src={path}"])
         argv.append(str(context))
-        run(argv, cwd=staged_root)
+        execute_command(argv, cwd=staged_root)
     layout = root / "layouts" / target.target_id
     layout.parent.mkdir(parents=True, exist_ok=True)
-    run([*base, "manifest", "push", "--all", manifest, f"oci:{layout}:validation"])
+    execute_command([*base, "manifest", "push", "--all", manifest, f"oci:{layout}:validation"])
     result = inspect_layout(layout, target, labels)
     verify_no_secret_leakage(layout, secret_files)
     smoke = "skipped"
@@ -348,7 +414,7 @@ def build_target(
             "OCI_FORBIDDEN_TOOLS_JSON": json.dumps(list(target.forbidden_tools), separators=(",", ":")),
         }
         try:
-            run(["/bin/bash", str(script)], cwd=staged_root, capture=True, env=env)
+            execute_command(["/bin/bash", str(script)], cwd=staged_root, capture=True, env=env)
         except (OSError, subprocess.CalledProcessError) as error:
             raise OciBuildError("smoke_failed") from error
         smoke = "passed"

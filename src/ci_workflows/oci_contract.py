@@ -75,8 +75,10 @@ def safe_relative(value: Any, *, allow_dot: bool = False) -> str:
 
 
 def bounded_path(root: Path, relative: str, *, allow_root: bool = False) -> Path:
-    root = root.resolve()
+    # Reject a caller-controlled checkout alias before resolving it.  Resolving
+    # first would erase the fact that the root itself was a symlink.
     require(root.is_dir() and not root.is_symlink(), "invalid_path")
+    root = root.resolve()
     if relative == ".":
         require(allow_root, "invalid_path")
         return root

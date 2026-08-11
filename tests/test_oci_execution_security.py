@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from ci_workflows import oci_execution_safe as safe  # noqa: E402
 from ci_workflows.oci_types import (  # noqa: E402
+    OciBuildError,
     OciBuildPlan,
     OciBuildResult,
     OciTarget,
@@ -73,7 +74,7 @@ class OciExecutionSecurityTests(unittest.TestCase):
             return subprocess.CompletedProcess(argv, 0, "", "")
 
         with tempfile.TemporaryDirectory() as temp, mock.patch.object(
-            safe.base, "run", side_effect=fake_run
+            safe.base, "execute_command", side_effect=fake_run
         ), mock.patch.object(
             safe.subprocess,
             "run",
@@ -88,6 +89,16 @@ class OciExecutionSecurityTests(unittest.TestCase):
         self.assertIn("--security-opt no-new-privileges", joined)
         self.assertIn("copy", joined)
         self.assertNotIn(f"/bin/bash {script}", joined)
+
+    def test_isolated_smoke_rejects_a_symlinked_script(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            script = root / "verify.sh"
+            script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            alias = root / "verify-link.sh"
+            alias.symlink_to(script)
+            with self.assertRaisesRegex(OciBuildError, "invalid_path"):
+                safe._run_isolated_smoke(root, plan(), target(), alias)
 
     def test_execute_masks_consumer_script_before_base_builder(self) -> None:
         captured: list[OciBuildPlan] = []
@@ -108,7 +119,9 @@ class OciExecutionSecurityTests(unittest.TestCase):
 
         def fake_execute(repository_root, source_root, received, environment, secret_files):
             captured.append(received)
-            safe.base.state_root(environment).mkdir(parents=True)
+            staged = safe.base.state_root(environment) / "staged" / "fixture" / "ci"
+            staged.mkdir(parents=True)
+            (staged / "verify.sh").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
             return base_result
 
         with tempfile.TemporaryDirectory() as temp, mock.patch.object(
@@ -126,6 +139,11 @@ class OciExecutionSecurityTests(unittest.TestCase):
             )
         self.assertIsNone(captured[0].targets[0].smoke_script)
         isolated.assert_called_once()
+        self.assertEqual(
+            safe.base.state_root({"RUNNER_TEMP": temp, "GITHUB_RUN_ID": "1", "GITHUB_RUN_ATTEMPT": "1"})
+            / "staged" / "fixture" / "ci" / "verify.sh",
+            isolated.call_args.args[3],
+        )
         self.assertEqual("isolated-script-passed", result.targets[0].smoke_result)
 
     def test_trusted_pr_defers_consumer_script_but_keeps_central_inspection(self) -> None:
@@ -174,6 +192,11 @@ class OciExecutionSecurityTests(unittest.TestCase):
         self.assertIn('"all",', source)
         self.assertIn('"no-new-privileges",', source)
         self.assertIn("smoke_script=None", source)
+
+    def test_cli_dispatches_through_the_safe_execution_adapter(self) -> None:
+        source = (ROOT / "src/ci_workflows/ciw_oci.py").read_text()
+        self.assertIn("from .oci_execution_safe import cleanup, execute_plan, residue", source)
+        self.assertNotIn("from .oci_execution import cleanup, execute_plan, residue", source)
 
 
 if __name__ == "__main__":

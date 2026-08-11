@@ -262,6 +262,10 @@ class OciBuildTests(unittest.TestCase):
             )
             staged = stage_context(root, target, Path(temp) / "stage")
             self.assertEqual("payload\n", (staged / "payload").read_text())
+            alias = Path(temp) / "source-alias"
+            alias.symlink_to(root, target_is_directory=True)
+            with self.assertRaisesRegex(OciBuildError, "invalid_path"):
+                stage_context(alias, target, Path(temp) / "stage-alias")
             (root / "untracked").write_text("dirty", encoding="utf-8")
             with self.assertRaisesRegex(OciBuildError, "dirty_context"):
                 stage_context(root, target, Path(temp) / "stage2")

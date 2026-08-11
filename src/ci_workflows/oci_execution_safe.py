@@ -27,6 +27,10 @@ def _layer_paths(layout: Path, layer_digests: Sequence[str]) -> set[str]:
                 pure = PurePosixPath(member.name)
                 if pure.is_absolute() or ".." in pure.parts:
                     raise OciBuildError("oci_layout_malformed")
+                if member.issym() or member.islnk():
+                    link = PurePosixPath(member.linkname)
+                    if link.is_absolute() or ".." in link.parts:
+                        raise OciBuildError("oci_layout_malformed")
                 name = pure.as_posix().lstrip("./")
                 if not name:
                     continue
@@ -49,8 +53,10 @@ def _layer_paths(layout: Path, layer_digests: Sequence[str]) -> set[str]:
 
 def _manifest_layer_sets(layout: Path) -> tuple[tuple[str, ...], ...]:
     try:
-        index = json.loads((layout / "index.json").read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+        index = base._read_json(layout / "index.json")
+    except OciBuildError:
+        raise
+    except OSError as error:
         raise OciBuildError("oci_layout_malformed") from error
     if not isinstance(index, dict) or not isinstance(index.get("manifests"), list):
         raise OciBuildError("oci_layout_malformed")
@@ -94,16 +100,18 @@ def _run_isolated_smoke(
     target: OciTarget,
     script: Path,
 ) -> str:
+    if not script.is_file() or script.is_symlink():
+        raise OciBuildError("invalid_path")
     token = hashlib.sha256(f"{plan.admitted_sha}:{target.target_id}".encode()).hexdigest()[:16]
     manifest = f"ciw-{target.target_id}-{token}"
     container = f"{manifest}-smoke"
     command = base._buildah_base(root, plan.storage_driver)
     created = False
     try:
-        base.run([*command, "from", "--name", container, "--platform", "linux/amd64", manifest])
+        base.execute_command([*command, "from", "--name", container, "--platform", "linux/amd64", manifest])
         created = True
-        base.run([*command, "copy", container, str(script), "/tmp/ciw-smoke.sh"])
-        base.run(
+        base.execute_command([*command, "copy", container, str(script), "/tmp/ciw-smoke.sh"])
+        base.execute_command(
             [
                 *command,
                 "run",
@@ -192,11 +200,12 @@ def execute_plan(
         _assert_target_filesystem(layout, target)
         smoke = "inspection-passed"
         if target.smoke_script and plan.source_trust == "trusted-exact":
+            script = root / "staged" / target.target_id / target.smoke_script
             smoke = _run_isolated_smoke(
                 root,
                 plan,
                 target,
-                source_root / target.smoke_script,
+                script,
             )
         elif target.smoke_script:
             smoke = "inspection-passed-script-deferred"

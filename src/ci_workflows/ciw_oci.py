@@ -15,7 +15,7 @@ from .oci_contract import (
     resolve_plan,
     validate_generated_mapping,
 )
-from .oci_execution import cleanup, execute_plan, residue
+from .oci_execution_safe import cleanup, execute_plan, residue
 from .oci_types import OciBuildError
 
 ROOT = Path(__file__).resolve().parents[2]
