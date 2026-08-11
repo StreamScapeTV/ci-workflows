@@ -39,7 +39,7 @@ def make_layout(root: Path, labels: dict[str, str]) -> Path:
                 "Entrypoint": ["/hello"],
                 "Labels": labels,
             },
-            "rootfs": {"type": "layers", "diff_ids": []},
+            "rootfs": {"type": "layers", "diff_ids": ["sha256:" + "0" * 64]},
             "history": [],
         },
         sort_keys=True,
@@ -110,6 +110,33 @@ def read_manifest(layout: Path) -> dict[str, object]:
     return json.loads((layout / "blobs" / "sha256" / digest).read_text(encoding="utf-8"))
 
 
+def wrap_in_buildah_oci_envelope(layout: Path) -> None:
+    """Model Buildah 1.33's named OCI transport entry-point index."""
+
+    inner = json.loads((layout / "index.json").read_text(encoding="utf-8"))
+    inner["mediaType"] = "application/vnd.oci.image.index.v1+json"
+    payload = json.dumps(inner, sort_keys=True, separators=(",", ":")).encode()
+    digest, size = write_blob(layout, payload)
+    (layout / "index.json").write_text(
+        json.dumps(
+            {
+                "schemaVersion": 2,
+                "manifests": [
+                    {
+                        "mediaType": "application/vnd.oci.image.index.v1+json",
+                        "digest": digest,
+                        "size": size,
+                        "annotations": {"org.opencontainers.image.ref.name": "validation"},
+                    }
+                ],
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
+        encoding="utf-8",
+    )
+
+
 class OciMediaTypeTests(unittest.TestCase):
     def setUp(self) -> None:
         self.labels = {
@@ -145,6 +172,13 @@ class OciMediaTypeTests(unittest.TestCase):
             result = inspect_layout(make_layout(Path(temp), self.labels), self.target, self.labels)
         self.assertEqual("linux/amd64", result.platform_results[0].platform)
 
+    def test_buildah_named_oci_layout_envelope_is_verified_without_platform_loss(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            layout = make_layout(Path(temp), self.labels)
+            wrap_in_buildah_oci_envelope(layout)
+            result = inspect_layout(layout, self.target, self.labels)
+        self.assertEqual("linux/amd64", result.platform_results[0].platform)
+
     def test_non_oci_top_level_media_type_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             layout = make_layout(Path(temp), self.labels)
@@ -167,6 +201,20 @@ class OciMediaTypeTests(unittest.TestCase):
             layout = make_layout(root / "layer", self.labels)
             manifest = read_manifest(layout)
             manifest["layers"][0]["mediaType"] = "application/vnd.oci.image.layer.v1.tar+attacker"
+            replace_manifest(layout, manifest)
+            with self.assertRaisesRegex(OciBuildError, "oci_layout_malformed"):
+                inspect_layout(layout, self.target, self.labels)
+
+            layout = make_layout(root / "rootfs", self.labels)
+            manifest = read_manifest(layout)
+            config_digest = manifest["config"]["digest"].removeprefix("sha256:")
+            config_path = layout / "blobs" / "sha256" / config_digest
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            config["rootfs"]["diff_ids"] = []
+            config_bytes = json.dumps(config, sort_keys=True, separators=(",", ":")).encode()
+            digest, size = write_blob(layout, config_bytes)
+            manifest["config"]["digest"] = digest
+            manifest["config"]["size"] = size
             replace_manifest(layout, manifest)
             with self.assertRaisesRegex(OciBuildError, "oci_layout_malformed"):
                 inspect_layout(layout, self.target, self.labels)

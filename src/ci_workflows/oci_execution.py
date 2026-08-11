@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
 import stat
@@ -239,6 +240,51 @@ def _platform_name(platform: object) -> tuple[str, str, str, str | None]:
     return name, os_name, architecture, variant
 
 
+def _index_manifests(value: object) -> list[object]:
+    if (
+        not isinstance(value, dict)
+        or value.get("schemaVersion") != 2
+        or value.get("mediaType") not in {None, _INDEX_MEDIA_TYPE}
+        or not isinstance(value.get("manifests"), list)
+    ):
+        raise OciBuildError("oci_layout_malformed")
+    return value["manifests"]
+
+
+def _image_manifest_descriptors(
+    layout: Path,
+    index: object,
+    *,
+    nested: bool = False,
+) -> tuple[Mapping[str, object], ...]:
+    """Return the platform manifests from an OCI layout's bounded index graph.
+
+    OCI directory transports are allowed to put a named image-index descriptor
+    in the layout's root ``index.json``.  Buildah 1.33 uses that representation
+    for a pushed manifest list, while small synthetic layouts often place the
+    platform manifests directly in the root index.  Support both forms, but do
+    not recursively walk arbitrary producer-controlled index graphs.
+    """
+
+    manifests: list[Mapping[str, object]] = []
+    for descriptor in _index_manifests(index):
+        if not isinstance(descriptor, Mapping):
+            raise OciBuildError("oci_layout_malformed")
+        media_type = descriptor.get("mediaType")
+        if media_type == _MANIFEST_MEDIA_TYPE:
+            manifests.append(descriptor)
+            continue
+        if media_type != _INDEX_MEDIA_TYPE or nested:
+            raise OciBuildError("oci_layout_malformed")
+        nested_blob, _ = _descriptor_blob(
+            layout, descriptor, frozenset({_INDEX_MEDIA_TYPE})
+        )
+        manifests.extend(
+            _image_manifest_descriptors(layout, _read_json(nested_blob), nested=True)
+        )
+    return tuple(manifests)
+
+
 def inspect_layout(layout: Path, target: OciTarget, labels: Mapping[str, str]) -> OciTargetResult:
     if not layout.is_dir() or layout.is_symlink():
         raise OciBuildError("oci_layout_malformed")
@@ -246,20 +292,14 @@ def inspect_layout(layout: Path, target: OciTarget, labels: Mapping[str, str]) -
         raise OciBuildError("oci_layout_malformed")
     index_path = layout / "index.json"
     index = _read_json(index_path)
-    if (
-        not isinstance(index, dict)
-        or index.get("schemaVersion") != 2
-        or index.get("mediaType") not in {None, _INDEX_MEDIA_TYPE}
-        or not isinstance(index.get("manifests"), list)
-    ):
-        raise OciBuildError("oci_layout_malformed")
     results: dict[str, OciPlatformResult] = {}
-    for descriptor in index["manifests"]:
-        if not isinstance(descriptor, Mapping):
-            raise OciBuildError("oci_layout_malformed")
-        name, os_name, architecture, variant = _platform_name(descriptor.get("platform"))
-        if name in results:
-            raise OciBuildError("oci_layout_malformed")
+    for descriptor in _image_manifest_descriptors(layout, index):
+        declared_platform = descriptor.get("platform")
+        declared = (
+            None
+            if declared_platform is None
+            else _platform_name(declared_platform)
+        )
         manifest_blob, manifest_digest = _descriptor_blob(
             layout, descriptor, frozenset({_MANIFEST_MEDIA_TYPE})
         )
@@ -284,10 +324,19 @@ def inspect_layout(layout: Path, target: OciTarget, labels: Mapping[str, str]) -
         if (
             not isinstance(config_payload, dict)
             or not isinstance(config_payload.get("config"), dict)
-            or config_payload.get("os") != os_name
-            or config_payload.get("architecture") != architecture
-            or config_payload.get("variant") != variant
         ):
+            raise OciBuildError("oci_layout_malformed")
+        config_platform = _platform_name(
+            {
+                "os": config_payload.get("os"),
+                "architecture": config_payload.get("architecture"),
+                "variant": config_payload.get("variant"),
+            }
+        )
+        if declared is not None and declared != config_platform:
+            raise OciBuildError("oci_layout_malformed")
+        name = config_platform[0]
+        if name in results:
             raise OciBuildError("oci_layout_malformed")
         runtime = config_payload["config"]
         actual_labels = runtime.get("Labels") or {}
@@ -301,6 +350,18 @@ def inspect_layout(layout: Path, target: OciTarget, labels: Mapping[str, str]) -
             raise OciBuildError("assertion_failed")
         if target.required_ports and tuple(sorted((runtime.get("ExposedPorts") or {}).keys())) != tuple(sorted(target.required_ports)):
             raise OciBuildError("assertion_failed")
+        rootfs = config_payload.get("rootfs")
+        if (
+            not isinstance(rootfs, dict)
+            or rootfs.get("type") != "layers"
+            or not isinstance(rootfs.get("diff_ids"), list)
+            or len(rootfs["diff_ids"]) != len(layers)
+            or any(
+                not isinstance(diff_id, str) or _DIGEST.fullmatch(diff_id) is None
+                for diff_id in rootfs["diff_ids"]
+            )
+        ):
+            raise OciBuildError("oci_layout_malformed")
         layer_digests: list[str] = []
         for layer in layers:
             _, layer_digest = _descriptor_blob(layout, layer, _LAYER_MEDIA_TYPES)
@@ -341,7 +402,7 @@ def _buildah_base(root: Path, driver: str) -> list[str]:
     ]
 
 
-def _credential_free_authfile(root: Path) -> Path:
+def _credential_free_authfile(root: Path, *, replace_existing: bool = False) -> Path:
     path = root / "auth.json"
     try:
         path.lstat()
@@ -350,13 +411,29 @@ def _credential_free_authfile(root: Path) -> Path:
     except OSError as error:
         raise OciBuildError("cleanup_failed") from error
     else:
-        raise OciBuildError("residue_detected")
+        if not replace_existing:
+            raise OciBuildError("residue_detected")
+        try:
+            path.unlink()
+        except OSError as error:
+            raise OciBuildError("cleanup_failed") from error
     try:
         path.write_text('{"auths":{}}\n', encoding="utf-8")
         path.chmod(0o600)
     except OSError as error:
         raise OciBuildError("cleanup_failed") from error
     return path
+
+
+def credential_free_environment(
+    authfile: Path,
+    environment: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Pin every Buildah operation to the per-run empty auth file."""
+
+    result = dict(os.environ if environment is None else environment)
+    result["REGISTRY_AUTH_FILE"] = str(authfile)
+    return result
 
 
 def verify_builder_runtime() -> None:
@@ -382,11 +459,12 @@ def build_target(
     epoch: int,
     secret_files: Mapping[str, Path],
     authfile: Path,
+    builder_environment: Mapping[str, str],
 ) -> tuple[OciTargetResult, str]:
     base = _buildah_base(root, plan.storage_driver)
     token = hashlib.sha256(f"{plan.admitted_sha}:{target.target_id}".encode()).hexdigest()[:16]
     manifest = f"ciw-{target.target_id}-{token}"
-    execute_command([*base, "manifest", "create", manifest])
+    execute_command([*base, "manifest", "create", manifest], env=builder_environment)
     state_file = root / "manifests.json"
     state_file.parent.mkdir(parents=True, exist_ok=True)
     current = [] if not state_file.exists() else json.loads(state_file.read_text())
@@ -398,6 +476,7 @@ def build_target(
         argv = [
             *base,
             "bud",
+            "--authfile", str(authfile),
             "--pull=never",
             "--network",
             "none",
@@ -418,7 +497,7 @@ def build_target(
                 raise OciBuildError("secret_mount_missing")
             argv.extend(["--secret", f"id={secret_id},src={path}"])
         argv.append(str(context))
-        execute_command(argv, cwd=staged_root)
+        execute_command(argv, cwd=staged_root, env=builder_environment)
     layout = root / "layouts" / target.target_id
     layout.parent.mkdir(parents=True, exist_ok=True)
     execute_command(
@@ -431,7 +510,8 @@ def build_target(
             "--all",
             manifest,
             f"oci:{layout}:validation",
-        ]
+        ],
+        env=builder_environment,
     )
     result = inspect_layout(layout, target, labels)
     verify_no_secret_leakage(layout, secret_files)
@@ -457,6 +537,7 @@ def execute_plan(
         raise OciBuildError("residue_detected")
     root.mkdir(parents=True, mode=0o700)
     authfile = _credential_free_authfile(root)
+    builder_environment = credential_free_environment(authfile, environment)
     contract = load_contract(repository_root)
     epoch = source_date_epoch(source_root)
     secrets = dict(secret_files or {})
@@ -473,6 +554,7 @@ def execute_plan(
             epoch,
             secrets,
             authfile,
+            builder_environment,
         )
         results.append(result)
     assert_clean_source(source_root, plan.admitted_sha)
@@ -533,6 +615,12 @@ def cleanup(environment: Mapping[str, str], storage_driver: str = "vfs") -> None
         raise OciBuildError("cleanup_failed")
 
     failures = False
+    try:
+        cleanup_authfile = _credential_free_authfile(root, replace_existing=True)
+        cleanup_environment = credential_free_environment(cleanup_authfile)
+    except OciBuildError:
+        cleanup_environment = None
+        failures = True
     state_file = root / "manifests.json"
     manifests: list[str] = []
     try:
@@ -555,13 +643,23 @@ def cleanup(environment: Mapping[str, str], storage_driver: str = "vfs") -> None
             except (OSError, json.JSONDecodeError):
                 failures = True
     base = _buildah_base(root, storage_driver)
-    if shutil.which("buildah"):
+    if shutil.which("buildah") and cleanup_environment is not None:
         for manifest in reversed(manifests):
-            result = subprocess.run([*base, "manifest", "rm", manifest], text=True, capture_output=True)
+            result = subprocess.run(
+                [*base, "manifest", "rm", manifest],
+                text=True,
+                capture_output=True,
+                env=cleanup_environment,
+            )
             if result.returncode != 0 and "no such" not in result.stderr.lower():
                 failures = True
         for command in ([*base, "rm", "--all"], [*base, "rmi", "--all", "--force"]):
-            result = subprocess.run(command, text=True, capture_output=True)
+            result = subprocess.run(
+                command,
+                text=True,
+                capture_output=True,
+                env=cleanup_environment,
+            )
             if result.returncode != 0 and "no such" not in result.stderr.lower():
                 failures = True
     try:

@@ -106,11 +106,18 @@ def _run_isolated_smoke(
     manifest = f"ciw-{target.target_id}-{token}"
     container = f"{manifest}-smoke"
     command = base._buildah_base(root, plan.storage_driver)
+    builder_environment = base.credential_free_environment(root / "auth.json")
     created = False
     try:
-        base.execute_command([*command, "from", "--name", container, "--platform", "linux/amd64", manifest])
+        base.execute_command(
+            [*command, "from", "--name", container, "--platform", "linux/amd64", manifest],
+            env=builder_environment,
+        )
         created = True
-        base.execute_command([*command, "copy", container, str(script), "/tmp/ciw-smoke.sh"])
+        base.execute_command(
+            [*command, "copy", container, str(script), "/tmp/ciw-smoke.sh"],
+            env=builder_environment,
+        )
         base.execute_command(
             [
                 *command,
@@ -131,6 +138,7 @@ def _run_isolated_smoke(
                 "/tmp/ciw-smoke.sh",
             ],
             capture=True,
+            env=builder_environment,
         )
     except (OSError, subprocess.CalledProcessError) as error:
         raise OciBuildError("smoke_failed") from error
@@ -140,6 +148,7 @@ def _run_isolated_smoke(
                 [*command, "rm", "--force", container],
                 text=True,
                 capture_output=True,
+                env=builder_environment,
             )
             if removed.returncode != 0 and "no such" not in removed.stderr.lower():
                 raise OciBuildError("cleanup_failed")

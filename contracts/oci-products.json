@@ -202,7 +202,7 @@
           "dockerfile_path": "tests/fixtures/oci-build/smoke/Containerfile",
           "target_stage": null,
           "platform_set": "linux-amd64",
-          "smoke_script": "tests/fixtures/oci-build/smoke/verify.sh",
+          "smoke_script": null,
           "assertions": {
             "user": "65532:65532",
             "entrypoint": [

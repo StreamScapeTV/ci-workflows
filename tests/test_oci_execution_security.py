@@ -69,10 +69,10 @@ def plan(source_trust: str = "trusted-exact") -> OciBuildPlan:
 
 class OciExecutionSecurityTests(unittest.TestCase):
     def test_build_engine_disables_network_during_context_execution(self) -> None:
-        commands: list[list[str]] = []
+        commands: list[tuple[list[str], dict[str, object]]] = []
 
         def fake_run(argv, **kwargs):
-            commands.append(list(argv))
+            commands.append((list(argv), kwargs))
             return subprocess.CompletedProcess(argv, 0, "", "")
 
         expected = OciTargetResult(
@@ -105,15 +105,22 @@ class OciExecutionSecurityTests(unittest.TestCase):
                     1,
                     {},
                     authfile,
+                    execution.credential_free_environment(authfile),
                 )
-            build = next(command for command in commands if "bud" in command)
+            build = next(command for command, _ in commands if "bud" in command)
             self.assertIn("--network", build)
             self.assertEqual("none", build[build.index("--network") + 1])
-            push = next(command for command in commands if "push" in command)
+            self.assertEqual(str(authfile), build[build.index("--authfile") + 1])
+            push = next(command for command, _ in commands if "push" in command)
             self.assertEqual(str(authfile), push[push.index("--authfile") + 1])
             self.assertEqual('{"auths":{}}\n', authfile.read_text(encoding="utf-8"))
             self.assertEqual(0o600, authfile.stat().st_mode & 0o777)
             self.assertFalse(default_authfile.exists())
+            for command, kwargs in commands:
+                with self.subTest(command=command):
+                    environment = kwargs.get("env")
+                    self.assertIsInstance(environment, dict)
+                    self.assertEqual(str(authfile), environment["REGISTRY_AUTH_FILE"])
 
     def test_cleanup_unlinks_state_root_symlink_without_dereferencing(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -152,6 +159,37 @@ class OciExecutionSecurityTests(unittest.TestCase):
             builder.assert_called_once_with("buildah")
             self.assertFalse(root.exists())
             self.assertEqual('["outside"]\n', target.read_text(encoding="utf-8"))
+
+    def test_cleanup_never_uses_ambient_registry_authfile(self) -> None:
+        calls: list[dict[str, object]] = []
+
+        def fake_run(argv, **kwargs):
+            calls.append(kwargs)
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        with tempfile.TemporaryDirectory() as temp:
+            environment = {
+                "RUNNER_TEMP": temp,
+                "GITHUB_RUN_ID": "6",
+                "GITHUB_RUN_ATTEMPT": "1",
+            }
+            root = execution.state_root(environment)
+            root.mkdir()
+            ambient = Path(temp) / "ambient-auth.json"
+            ambient.write_text('{"auths":{"registry.invalid":{"auth":"secret"}}}\n', encoding="utf-8")
+            with mock.patch.dict(os.environ, {"REGISTRY_AUTH_FILE": str(ambient)}), mock.patch.object(
+                execution.shutil, "which", return_value="buildah"
+            ), mock.patch.object(execution.subprocess, "run", side_effect=fake_run):
+                execution.cleanup(environment)
+            self.assertFalse(root.exists())
+            self.assertTrue(calls)
+            for kwargs in calls:
+                cleanup_environment = kwargs.get("env")
+                self.assertIsInstance(cleanup_environment, dict)
+                self.assertEqual(
+                    str(root / "auth.json"),
+                    cleanup_environment["REGISTRY_AUTH_FILE"],
+                )
 
     def test_isolated_smoke_uses_networkless_capability_dropped_container(self) -> None:
         commands: list[list[str]] = []

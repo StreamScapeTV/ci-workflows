@@ -59,7 +59,7 @@ def synthetic_layout(root: Path, *, platform: str = "linux/amd64", labels=None, 
             "Labels": labels or {},
             "Env": [secret] if secret else [],
         },
-        "rootfs": {"type": "layers", "diff_ids": []},
+        "rootfs": {"type": "layers", "diff_ids": [digest(b"layer-content")]},
         "history": [],
     }
     config_bytes = json.dumps(config_payload, sort_keys=True, separators=(",", ":")).encode()
@@ -236,6 +236,18 @@ class OciBuildTests(unittest.TestCase):
         plan = resolve_plan(ROOT, request)
         labels = metadata_labels(self.contract, plan, plan.targets[0], 1)
         self.assertEqual("1970-01-01T00:00:01Z", labels["org.opencontainers.image.created"])
+
+    def test_scratch_smoke_uses_central_layout_assertions_not_a_host_script(self) -> None:
+        request = request_from_mapping(
+            {"repository": "StreamScapeTV/ci-workflows", "admitted_sha": SHA, "product_id": "ciw-oci-smoke"},
+            {"GITHUB_EVENT_NAME": "push"},
+        )
+        target = resolve_plan(ROOT, request).targets[0]
+        self.assertIsNone(target.smoke_script)
+        self.assertNotIn(
+            "dev.streamscape.fixture",
+            (ROOT / "tests/fixtures/oci-build/smoke/Containerfile").read_text(encoding="utf-8"),
+        )
 
     def test_base_identity_requires_scratch_or_exact_digest(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

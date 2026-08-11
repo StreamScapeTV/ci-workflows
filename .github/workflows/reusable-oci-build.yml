@@ -151,7 +151,7 @@ jobs:
           workflow_release: oci-build-1.0.0
           runner_profile: ${{ needs.plan.outputs.runner_profile }}
           toolchain_json: >-
-            {"builder":"buildah","publication":false,"registry_credentials":false}
+            {"buildah":"1.33.7","publication":"false","registry_credentials":"false"}
           command_profile: ${{ inputs.product_id }}
           result: ${{ steps.execute.outcome == 'success' && 'success' || 'failure' }}
           cleanup_state: not-run

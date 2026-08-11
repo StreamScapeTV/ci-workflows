@@ -13,10 +13,8 @@ on:
       - "src/ci_workflows/oci_*.py"
       - "tests/fixtures/oci-build/**"
       - "tests/test_oci_*.py"
-  workflow_dispatch:
-
 concurrency:
-  group: oci-build-smoke-${{ github.event.pull_request.number || github.ref }}
+  group: oci-build-smoke-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions:
@@ -40,7 +38,9 @@ jobs:
     runs-on: [linux, amd64, general]
     timeout-minutes: 10
     steps:
-      - name: Require OCI smoke success and zero Actions artifacts
+      - id: audit
+        name: Require OCI smoke success and zero Actions artifacts
+        continue-on-error: true
         env:
           SMOKE_RESULT: ${{ needs.smoke.result }}
           GITHUB_TOKEN: ${{ github.token }}
@@ -48,17 +48,27 @@ jobs:
         run: |
           set -Eeuo pipefail
           test "${SMOKE_RESULT}" = success
-          python3 - <<'PY'
+          token_scope="$(mktemp -d "${RUNNER_TEMP}/ciw-oci-token.XXXXXX")"
+          chmod 700 "${token_scope}"
+          printf 'token_scope=%s\n' "${token_scope}" >> "${GITHUB_OUTPUT}"
+          umask 077
+          token_file="${token_scope}/github-token"
+          printf '%s' "${GITHUB_TOKEN}" > "${token_file}"
+          unset GITHUB_TOKEN
+          OCI_TOKEN_FILE="${token_file}" python3 - <<'PY'
           import json
           import os
           import urllib.request
+          from pathlib import Path
+
+          token = Path(os.environ["OCI_TOKEN_FILE"]).read_text(encoding="utf-8")
 
           request = urllib.request.Request(
               f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
               f"{os.environ['GITHUB_RUN_ID']}/artifacts?per_page=100",
               headers={
                   "Accept": "application/vnd.github+json",
-                  "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+                  "Authorization": f"Bearer {token}",
                   "X-GitHub-Api-Version": "2022-11-28",
               },
           )
@@ -68,3 +78,55 @@ jobs:
               raise SystemExit("OCI smoke retained Actions artifacts")
           print("Routine OCI smoke Actions artifacts verified: zero.")
           PY
+
+      - id: token_scope_cleanup
+        name: Remove bounded zero-artifact audit token scope
+        if: always()
+        env:
+          TOKEN_SCOPE: ${{ steps.audit.outputs.token_scope }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "${TOKEN_SCOPE}"
+          case "${TOKEN_SCOPE}" in
+            "${RUNNER_TEMP}"/ciw-oci-token.*) ;;
+            *) exit 1 ;;
+          esac
+          if test -L "${TOKEN_SCOPE}"; then
+            rm -- "${TOKEN_SCOPE}"
+            exit 1
+          fi
+          test -d "${TOKEN_SCOPE}"
+          token_file="${TOKEN_SCOPE}/github-token"
+          if test -L "${token_file}"; then
+            rm -- "${token_file}"
+            rmdir -- "${TOKEN_SCOPE}"
+            exit 1
+          fi
+          rm -f -- "${token_file}"
+          rmdir -- "${TOKEN_SCOPE}"
+
+      - id: token_scope_residue
+        name: Verify zero-artifact audit token scope residue is absent
+        if: always()
+        env:
+          TOKEN_SCOPE: ${{ steps.audit.outputs.token_scope }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "${TOKEN_SCOPE}"
+          test ! -e "${TOKEN_SCOPE}"
+          test ! -L "${TOKEN_SCOPE}"
+
+      - name: Project OCI smoke artifact audit status
+        if: ${{ always() && !cancelled() }}
+        env:
+          AUDIT_OUTCOME: ${{ steps.audit.outcome }}
+          TOKEN_SCOPE_CLEANUP_OUTCOME: ${{ steps.token_scope_cleanup.outcome }}
+          TOKEN_SCOPE_RESIDUE_OUTCOME: ${{ steps.token_scope_residue.outcome }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "${AUDIT_OUTCOME}" = success
+          test "${TOKEN_SCOPE_CLEANUP_OUTCOME}" = success
+          test "${TOKEN_SCOPE_RESIDUE_OUTCOME}" = success

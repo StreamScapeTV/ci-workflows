@@ -28,8 +28,9 @@ class OciWorkflowContractTests(unittest.TestCase):
             self.assertNotIn(forbidden, self.workflow)
         self.assertIn("permissions:\n  contents: read", self.workflow)
         self.assertNotRegex(self.workflow, r"(?m)^\s+secrets:\s*$")
-        self.assertIn("publication\":false", self.workflow)
-        self.assertIn("registry_credentials\":false", self.workflow)
+        self.assertIn("publication\":\"false\"", self.workflow)
+        self.assertIn("registry_credentials\":\"false\"", self.workflow)
+        self.assertIn("buildah\":\"1.33.7\"", self.workflow)
 
     def test_dynamic_build_job_consumes_exact_trusted_planner_output(self) -> None:
         self.assertIn("runs-on: [linux, amd64, general]", self.workflow)
@@ -121,7 +122,7 @@ class OciWorkflowContractTests(unittest.TestCase):
         self.assertIn("platform_set: linux-amd64", self.smoke)
         self.assertIn(
             "concurrency:\n"
-            "  group: oci-build-smoke-${{ github.event.pull_request.number || github.ref }}\n"
+            "  group: oci-build-smoke-${{ github.event.pull_request.number }}\n"
             "  cancel-in-progress: true",
             self.smoke,
         )
@@ -131,8 +132,16 @@ class OciWorkflowContractTests(unittest.TestCase):
         self.assertIn("timeout-minutes: 10", self.smoke)
         self.assertIn("/actions/runs/", self.smoke)
         self.assertIn("/artifacts?per_page=100", self.smoke)
+        self.assertNotIn("workflow_dispatch:", self.smoke)
         self.assertNotIn("secrets:", self.smoke)
         self.assertNotIn("upload-artifact", self.smoke)
+        for cleanup in (
+            "Remove bounded zero-artifact audit token scope",
+            "Verify zero-artifact audit token scope residue is absent",
+        ):
+            self.assertIn(f"name: {cleanup}\n        if: always()", self.smoke)
+        self.assertIn("unset GITHUB_TOKEN", self.smoke)
+        self.assertIn("Project OCI smoke artifact audit status", self.smoke)
 
     def test_product_contract_covers_backend_agent_state_flux_and_rejects_application_mobile(self) -> None:
         products = self.contract["products"]
@@ -144,6 +153,8 @@ class OciWorkflowContractTests(unittest.TestCase):
         self.assertTrue(flux["independent_bootstrap"])
         self.assertTrue(flux["flux_asset"])
         self.assertEqual("buildah-high", flux["runner_profile"])
+        smoke = products["ciw-oci-smoke"]["targets"][0]
+        self.assertIsNone(smoke["smoke_script"])
         self.assertNotIn("StreamScapeTV/StreamScapeWeb", json.dumps(products))
         self.assertNotIn("StreamScapeTV/iptv-android", json.dumps(products))
         self.assertNotIn("StreamScapeTV/iptv-apple", json.dumps(products))

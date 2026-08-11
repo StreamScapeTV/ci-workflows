@@ -2,4 +2,3 @@ FROM scratch
 COPY hello /hello
 USER 65532:65532
 ENTRYPOINT ["/hello"]
-LABEL dev.streamscape.fixture="oci-build-smoke"
