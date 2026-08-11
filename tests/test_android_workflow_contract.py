@@ -86,6 +86,17 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         for forbidden in ("macos-latest", "ubuntu-latest", "buildah", "apple-", "docker"):
             self.assertNotIn(forbidden, self.reusable.casefold())
 
+    def test_central_source_uses_called_workflow_identity(self) -> None:
+        self.assertEqual(
+            self.reusable.count("repository: ${{ job.workflow_repository }}"),
+            2,
+        )
+        self.assertEqual(self.reusable.count("ref: ${{ job.workflow_sha }}"), 2)
+        self.assertEqual(self.reusable.count("EXPECTED_REPOSITORY: ${{ job.workflow_repository }}"), 2)
+        self.assertEqual(self.reusable.count("EXPECTED_SHA: ${{ job.workflow_sha }}"), 2)
+        self.assertNotIn("github.workflow_sha", self.reusable)
+        self.assertNotIn("GITHUB_WORKFLOW_SHA", self.reusable)
+
     def test_smoke_is_direct_mobile_plan_execute_not_nested_reuse(self) -> None:
         self.assertNotIn("./.github/workflows/reusable-android.yml", self.smoke)
         self.assertGreaterEqual(self.smoke.count("uses: ./.ciw/actions/validate-android"), 4)
@@ -229,6 +240,42 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         redacted = android_execution.sanitize("token=abc https://user:pass@example.invalid/x /tmp/path")
         self.assertNotIn("abc", redacted); self.assertNotIn("user:pass", redacted)
         self.assertIn("<redacted>", redacted)
+
+    def test_cleanup_waits_boundedly_for_a_single_use_gradle_daemon(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "state"; state.mkdir()
+            (state / "android-validation").mkdir()
+            active = f"GradleDaemon --gradle-user-home {state / 'android-validation'}"
+            with mock.patch.object(
+                android_execution,
+                "run_command",
+                side_effect=(
+                    subprocess.CompletedProcess([], 0, active, ""),
+                    subprocess.CompletedProcess([], 0, "", ""),
+                ),
+            ) as command, mock.patch.object(android_execution.time, "sleep") as sleep:
+                android_execution.cleanup_android_state(state, self.contract)
+            self.assertEqual(command.call_count, 2)
+            sleep.assert_called_once_with(
+                android_execution.GRADLE_DAEMON_CLEANUP_POLL_SECONDS
+            )
+            self.assertFalse((state / "android-validation").exists())
+
+    def test_cleanup_rejects_a_daemon_after_the_bounded_grace_period(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "state"; state.mkdir()
+            active = f"GradleDaemon --gradle-user-home {state / 'android-validation'}"
+            with mock.patch.object(
+                android_execution,
+                "run_command",
+                return_value=subprocess.CompletedProcess([], 0, active, ""),
+            ), mock.patch.object(
+                android_execution.time,
+                "monotonic",
+                side_effect=(0.0, android_execution.GRADLE_DAEMON_CLEANUP_GRACE_SECONDS),
+            ), self.assertRaises(AndroidValidationError) as failure:
+                android_execution.cleanup_android_state(state, self.contract)
+            self.assertEqual(failure.exception.code, "cleanup_failed")
 
     def test_room_schema_profiles_failure_projection_and_device_handoff(self) -> None:
         app = self.contract["consumers"]["StreamScapeTV/iptv-android"]["tasks"]

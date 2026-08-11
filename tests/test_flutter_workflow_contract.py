@@ -55,6 +55,17 @@ class FlutterWorkflowContractTests(unittest.TestCase):
         self.assertIn("java-version: ${{ needs.plan.outputs.jdk_version }}", self.reusable)
         self.assertIn("distribution: ${{ needs.plan.outputs.jdk_distribution }}", self.reusable)
 
+    def test_central_source_uses_called_workflow_identity(self) -> None:
+        self.assertEqual(
+            self.reusable.count("repository: ${{ job.workflow_repository }}"),
+            4,
+        )
+        self.assertEqual(self.reusable.count("ref: ${{ job.workflow_sha }}"), 4)
+        self.assertEqual(self.reusable.count("EXPECTED_REPOSITORY: ${{ job.workflow_repository }}"), 4)
+        self.assertEqual(self.reusable.count("EXPECTED_SHA: ${{ job.workflow_sha }}"), 4)
+        self.assertNotIn("github.workflow_sha", self.reusable)
+        self.assertNotIn("GITHUB_WORKFLOW_SHA", self.reusable)
+
     def test_plan_exports_immutable_flutter_dart_gradle_jdk_tuple(self) -> None:
         for output in (
             "flutter_version",
