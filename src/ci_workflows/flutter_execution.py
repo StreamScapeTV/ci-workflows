@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import signal
 import stat
 import subprocess
 import time
@@ -31,7 +32,7 @@ from .flutter_types import (
 )
 
 
-GRADLE_DAEMON_CLEANUP_GRACE_SECONDS = 120
+GRADLE_DAEMON_CLEANUP_GRACE_SECONDS = 30
 GRADLE_DAEMON_CLEANUP_POLL_SECONDS = 0.25
 
 
@@ -719,10 +720,10 @@ def _cleanup_targets(source_root: Path, state_root: Path) -> tuple[Path, ...]:
     )
 
 
-def _gradle_daemon_is_active(state: Path) -> bool:
+def _state_gradle_daemon_pids(state: Path) -> tuple[int, ...]:
     try:
         completed = subprocess.run(
-            ["ps", "-axo", "command="],
+            ["ps", "-axo", "pid=,command="],
             cwd=state.parent,
             env={"PATH": os.environ.get("PATH", "")},
             text=True,
@@ -736,15 +737,38 @@ def _gradle_daemon_is_active(state: Path) -> bool:
     if completed.returncode:
         fail("cleanup_failed")
     gradle_home = state / "gradle-home"
-    return any(
-        "GradleDaemon" in row and str(gradle_home) in row
-        for row in completed.stdout.splitlines()
-    )
+    pids: set[int] = set()
+    for row in completed.stdout.splitlines():
+        fields = row.strip().split(maxsplit=1)
+        if (
+            len(fields) != 2
+            or "GradleDaemon" not in fields[1]
+            or str(gradle_home) not in fields[1]
+        ):
+            continue
+        try:
+            pid = int(fields[0])
+        except ValueError:
+            fail("cleanup_failed")
+        if pid <= 1:
+            fail("cleanup_failed")
+        pids.add(pid)
+    return tuple(sorted(pids))
 
 
-def _wait_for_gradle_daemon_exit(state: Path) -> None:
+def _stop_state_gradle_daemons(state: Path) -> None:
+    pids = _state_gradle_daemon_pids(state)
+    if not pids:
+        return
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            continue
+        except OSError:
+            fail("cleanup_failed")
     deadline = time.monotonic() + GRADLE_DAEMON_CLEANUP_GRACE_SECONDS
-    while _gradle_daemon_is_active(state):
+    while _state_gradle_daemon_pids(state):
         if time.monotonic() >= deadline:
             fail("cleanup_failed")
         time.sleep(GRADLE_DAEMON_CLEANUP_POLL_SECONDS)
@@ -754,7 +778,7 @@ def cleanup_flutter_state(source_root: Path, state_root: Path) -> None:
     targets = _cleanup_targets(source_root, state_root)
     state = targets[0]
     if _lstat(state) is not None:
-        _wait_for_gradle_daemon_exit(state)
+        _stop_state_gradle_daemons(state)
     for path in targets:
         _remove_no_follow(path)
 
