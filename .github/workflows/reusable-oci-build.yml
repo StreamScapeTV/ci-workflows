@@ -36,18 +36,6 @@ on:
       artifact_exception_used:
         description: Always false for oci.build 1.0.0
         value: ${{ jobs.build.outputs.artifact_exception_used }}
-      evidence_id:
-        description: Deterministic bounded non-publishing evidence identity
-        value: ${{ jobs.build.outputs.evidence_id }}
-      canary_id:
-        description: Contract-owned canary identity for Flux products only
-        value: ${{ jobs.build.outputs.canary_id }}
-      previous_known_good:
-        description: Flux-owned previous-known-good policy reference when applicable
-        value: ${{ jobs.build.outputs.previous_known_good }}
-      rollback_id:
-        description: Contract-owned rollback identity for Flux products only
-        value: ${{ jobs.build.outputs.rollback_id }}
 
 permissions:
   contents: read
@@ -105,10 +93,6 @@ jobs:
       manifest_digests_json: ${{ steps.execute.outputs.manifest_digests_json }}
       platform_results_json: ${{ steps.execute.outputs.platform_results_json }}
       artifact_exception_used: ${{ steps.execute.outputs.artifact_exception_used }}
-      evidence_id: ${{ steps.execute.outputs.evidence_id }}
-      canary_id: ${{ steps.execute.outputs.canary_id }}
-      previous_known_good: ${{ steps.execute.outputs.previous_known_good }}
-      rollback_id: ${{ steps.execute.outputs.rollback_id }}
     steps:
       - name: Check out exact central workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

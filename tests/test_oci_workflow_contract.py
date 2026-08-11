@@ -69,6 +69,20 @@ class OciWorkflowContractTests(unittest.TestCase):
         self.assertEqual("zero-default", self.contract["artifact_policy"])
         self.assertFalse(self.schema["additionalProperties"])
 
+    def test_public_outputs_are_limited_to_the_checked_in_non_publishing_contract(self) -> None:
+        public_block = self.workflow.split("permissions:", 1)[0].split("outputs:", 1)[1]
+        self.assertEqual(
+            {
+                "result",
+                "image_digest",
+                "platform_digests_json",
+                "artifact_exception_used",
+            },
+            set(re.findall(r"(?m)^      ([a-z_]+):$", public_block)),
+        )
+        for forbidden in ("evidence_id", "canary_id", "previous_known_good", "rollback_id"):
+            self.assertNotIn(forbidden, public_block)
+
     def test_action_is_thin_and_uses_direct_issue_owned_cli_until_shared_registration(self) -> None:
         self.assertIn("scripts/ci/oci.py", self.action)
         self.assertIn("--phase", self.action)
