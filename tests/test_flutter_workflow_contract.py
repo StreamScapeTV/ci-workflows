@@ -104,6 +104,20 @@ class FlutterWorkflowContractTests(unittest.TestCase):
                 job_block(source, job),
             )
 
+    def test_smoke_zero_artifact_checks_do_not_survive_workflow_cancellation(self) -> None:
+        def job_block(source: str) -> str:
+            match = re.search(
+                r"(?ms)^  zero_artifacts:\n(.*?)(?=^  [a-z_]+:\n|\Z)",
+                source,
+            )
+            self.assertIsNotNone(match)
+            return match.group(0)
+
+        for source in (self.mobile_smoke, self.apple_smoke):
+            block = job_block(source)
+            self.assertIn("if: ${{ always() && !cancelled() }}", block)
+            self.assertNotIn("if: always()", block)
+
     def test_pub_cache_is_only_registered_workflow_state(self) -> None:
         expected = "{0}/tmp/flutter-validation/pub-cache"
         for source in (self.reusable, self.mobile_smoke, self.apple_smoke):

@@ -320,7 +320,7 @@ jobs:
   zero_artifacts:
     name: Verify mobile routine artifacts remain zero
     needs: [source_audit, focused_tests, plan, android]
-    if: always()
+    if: ${{ always() && !cancelled() }}
     runs-on: [linux, amd64, general]
     timeout-minutes: 10
     steps:

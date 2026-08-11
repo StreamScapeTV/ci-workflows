@@ -198,7 +198,7 @@ jobs:
   zero_artifacts:
     name: Verify Apple routine artifacts remain zero
     needs: [plan, ios]
-    if: always()
+    if: ${{ always() && !cancelled() }}
     runs-on: [linux, amd64, general]
     timeout-minutes: 10
     steps:
