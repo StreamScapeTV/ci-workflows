@@ -9,7 +9,7 @@
       "agent_state_mapping_status": "established",
       "technologies": ["github-actions", "python"],
       "products": ["shared-workflows"],
-      "runner_capabilities": ["portable", "agent-state-control", "oci-publication", "gitops-authorized"],
+      "runner_capabilities": ["portable", "oci-publication", "gitops-authorized"],
       "required_checks": [],
       "required_checks_status": "not-confirmed",
       "migration_status": "inventory-in-progress"
@@ -105,7 +105,7 @@
       "agent_state_mapping_status": "established",
       "technologies": ["python", "postgresql", "node", "compose", "helm", "oci"],
       "products": ["agent-state-image", "agent-state-chart", "github-release"],
-      "runner_capabilities": ["portable", "postgresql", "daemonless-oci", "agent-state-control"],
+      "runner_capabilities": ["portable", "postgresql", "daemonless-oci"],
       "required_checks": [],
       "required_checks_status": "not-confirmed",
       "migration_status": "planned"
@@ -117,7 +117,7 @@
       "agent_state_mapping_status": "established",
       "technologies": ["flux", "kustomize", "helm", "sops", "oci"],
       "products": ["gitops-desired-state", "runner-images", "runner-chart-assets"],
-      "runner_capabilities": ["portable", "daemonless-oci", "gitops-authorized", "agent-state-control"],
+      "runner_capabilities": ["portable", "daemonless-oci", "gitops-authorized"],
       "required_checks": [],
       "required_checks_status": "not-confirmed",
       "migration_status": "planned"

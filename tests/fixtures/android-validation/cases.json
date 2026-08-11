@@ -1,0 +1,125 @@
+{
+  "positive": [
+    {
+      "name": "central-toolchain-smoke",
+      "environment": {
+        "GITHUB_REPOSITORY": "StreamScapeTV/ci-workflows",
+        "GITHUB_EVENT_NAME": "push",
+        "INPUT_ADMITTED_SHA": "1111111111111111111111111111111111111111",
+        "INPUT_VALIDATION_PROFILE": "toolchain-smoke",
+        "INPUT_TASK_PROFILE": "central-toolchain-smoke",
+        "INPUT_WORKING_DIRECTORY": "tests/fixtures/android-validation/smoke-project",
+        "INPUT_GRADLE_WRAPPER_PATH": "gradlew"
+      },
+      "expected_runner": "mobile"
+    },
+    {
+      "name": "android-targeted-with-exact-media",
+      "environment": {
+        "GITHUB_REPOSITORY": "StreamScapeTV/iptv-android",
+        "GITHUB_EVENT_NAME": "push",
+        "INPUT_ADMITTED_SHA": "2222222222222222222222222222222222222222",
+        "INPUT_VALIDATION_PROFILE": "unit-targeted",
+        "INPUT_TASK_PROFILE": "app-unit-targeted",
+        "INPUT_WORKING_DIRECTORY": ".",
+        "INPUT_GRADLE_WRAPPER_PATH": "gradlew",
+        "INPUT_TARGETED_TEST_SELECTOR": "com.streamscapetv.app.ExampleTest.testExactCase",
+        "INPUT_PRIVATE_DEPENDENCY_CONTRACT_ID": "streamscape-media-android-v1",
+        "INPUT_PRIVATE_DEPENDENCY_SHA": "85b3c7ed9711fa6ac53059e5d3e474d791c45d26"
+      },
+      "expected_runner": "mobile"
+    },
+    {
+      "name": "media-consumer-script",
+      "environment": {
+        "GITHUB_REPOSITORY": "StreamScapeTV/streamscape-media",
+        "GITHUB_EVENT_NAME": "push",
+        "INPUT_ADMITTED_SHA": "3333333333333333333333333333333333333333",
+        "INPUT_VALIDATION_PROFILE": "consumer-script",
+        "INPUT_TASK_PROFILE": "media-android-build-script",
+        "INPUT_CONSUMER_SCRIPT_PROFILE": "media-android-build-script",
+        "INPUT_WORKING_DIRECTORY": ".",
+        "INPUT_GRADLE_WRAPPER_PATH": "android/gradlew"
+      },
+      "expected_runner": "mobile"
+    },
+    {
+      "name": "device-handoff-only",
+      "environment": {
+        "GITHUB_REPOSITORY": "StreamScapeTV/streamscape-media",
+        "GITHUB_EVENT_NAME": "push",
+        "INPUT_ADMITTED_SHA": "4444444444444444444444444444444444444444",
+        "INPUT_VALIDATION_PROFILE": "device-handoff",
+        "INPUT_TASK_PROFILE": "media-device-handoff",
+        "INPUT_WORKING_DIRECTORY": ".",
+        "INPUT_GRADLE_WRAPPER_PATH": "android/gradlew",
+        "INPUT_DEVICE_FAMILY": "android-tv",
+        "INPUT_DEVICE_REQUEST_ID": "media3-certification"
+      },
+      "expected_runner": "mobile"
+    }
+  ],
+  "negative": [
+    {
+      "name": "arbitrary-task-rejected",
+      "code": "invalid_input",
+      "environment": {
+        "GITHUB_REPOSITORY": "StreamScapeTV/ci-workflows",
+        "GITHUB_EVENT_NAME": "push",
+        "INPUT_ADMITTED_SHA": "1111111111111111111111111111111111111111",
+        "INPUT_VALIDATION_PROFILE": "toolchain-smoke",
+        "INPUT_TASK_PROFILE": "central-toolchain-smoke",
+        "INPUT_WORKING_DIRECTORY": "tests/fixtures/android-validation/smoke-project",
+        "INPUT_GRADLE_WRAPPER_PATH": "gradlew",
+        "INPUT_ARBITRARY_TASK": ":app:publish"
+      }
+    },
+    {
+      "name": "malicious-filter-rejected",
+      "code": "test_filter_rejected",
+      "environment": {
+        "GITHUB_REPOSITORY": "StreamScapeTV/iptv-android",
+        "GITHUB_EVENT_NAME": "push",
+        "INPUT_ADMITTED_SHA": "2222222222222222222222222222222222222222",
+        "INPUT_VALIDATION_PROFILE": "unit-targeted",
+        "INPUT_TASK_PROFILE": "app-unit-targeted",
+        "INPUT_WORKING_DIRECTORY": ".",
+        "INPUT_GRADLE_WRAPPER_PATH": "gradlew",
+        "INPUT_TARGETED_TEST_SELECTOR": "com.ExampleTest;touch /tmp/pwned",
+        "INPUT_PRIVATE_DEPENDENCY_CONTRACT_ID": "streamscape-media-android-v1",
+        "INPUT_PRIVATE_DEPENDENCY_SHA": "85b3c7ed9711fa6ac53059e5d3e474d791c45d26"
+      }
+    },
+    {
+      "name": "wrong-private-sha-rejected",
+      "code": "private_dependency_rejected",
+      "environment": {
+        "GITHUB_REPOSITORY": "StreamScapeTV/iptv-android",
+        "GITHUB_EVENT_NAME": "push",
+        "INPUT_ADMITTED_SHA": "2222222222222222222222222222222222222222",
+        "INPUT_VALIDATION_PROFILE": "compile",
+        "INPUT_TASK_PROFILE": "app-compile",
+        "INPUT_WORKING_DIRECTORY": ".",
+        "INPUT_GRADLE_WRAPPER_PATH": "gradlew",
+        "INPUT_PRIVATE_DEPENDENCY_CONTRACT_ID": "streamscape-media-android-v1",
+        "INPUT_PRIVATE_DEPENDENCY_SHA": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "name": "device-selector-rejected",
+      "code": "invalid_input",
+      "environment": {
+        "GITHUB_REPOSITORY": "StreamScapeTV/streamscape-media",
+        "GITHUB_EVENT_NAME": "push",
+        "INPUT_ADMITTED_SHA": "4444444444444444444444444444444444444444",
+        "INPUT_VALIDATION_PROFILE": "device-handoff",
+        "INPUT_TASK_PROFILE": "media-device-handoff",
+        "INPUT_WORKING_DIRECTORY": ".",
+        "INPUT_GRADLE_WRAPPER_PATH": "android/gradlew",
+        "INPUT_DEVICE_FAMILY": "android-tv",
+        "INPUT_DEVICE_REQUEST_ID": "media3-certification",
+        "INPUT_DEVICE_SELECTOR": "serial-123"
+      }
+    }
+  ]
+}

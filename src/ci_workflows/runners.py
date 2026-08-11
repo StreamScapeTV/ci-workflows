@@ -15,8 +15,37 @@ MAPPINGS_PATH = Path("generated/runner-mappings.json")
 COMPATIBILITY_DOC_PATH = Path("docs/inventory/runner-compatibility.md")
 PROFILE_IDS = {
     "portable", "mobile", "buildah-tiny", "buildah-small", "buildah-medium",
-    "buildah-high", "apple", "physical-device", "agent-state-control", "flux-control",
+    "buildah-high", "apple", "physical-device", "flux-control",
 }
+FINAL_LINUX_ARC_SELECTORS = {
+    "portable": (("linux", "amd64", "general"),),
+    "mobile": (
+        ("linux", "amd64", "mobile"),
+        ("linux", "amd64", "android"),
+        ("linux", "amd64", "flutter"),
+        ("linux", "amd64", "jdk-25"),
+        ("linux", "amd64", "node-24"),
+        ("linux", "amd64", "nodejs"),
+    ),
+    "buildah-tiny": (("linux", "amd64", "buildah", "tiny"),),
+    "buildah-small": (("linux", "amd64", "buildah", "small"),),
+    "buildah-medium": (("linux", "amd64", "buildah", "medium"),),
+    "buildah-high": (("linux", "amd64", "buildah", "high"),),
+    "flux-control": (("linux", "amd64", "flux-control"),),
+}
+APPLE_CAPABILITY_SELECTORS = (("macOS", "ARM64"),)
+RETIRED_LINUX_SELECTOR_TOKENS = {
+    "portable",
+    "buildah-tiny",
+    "buildah-small",
+    "buildah-medium",
+    "buildah-high",
+}
+INTERNAL_ARC_NAME = re.compile(
+    r"(?:^|[-_])arc(?:[-_]|$)|(?:^|[-_])actions[-_]runner[-_]controller"
+    r"(?:[-_]|$)|(?:^|[-_])gha[-_]runner[-_]scale[-_]set(?:[-_]|$)",
+    re.IGNORECASE,
+)
 PROFILE_FIELDS = {
     "id", "public_name", "kind", "public_labels", "internal_selectors",
     "default_internal_selector", "os", "architecture", "lifecycle", "capacity_owner",
@@ -120,7 +149,7 @@ def approved_selector_index(contract: Mapping[str, Any]) -> dict[tuple[str, ...]
 
 def validate_runner_contract(contract: Mapping[str, Any]) -> None:
     require(contract.get("schema_version") == 1, "invalid-contract", "schema_version")
-    require(contract.get("contract_version") == "1.0.0", "invalid-contract", "contract_version")
+    require(contract.get("contract_version") == "2.1.0", "invalid-contract", "contract_version")
     require(contract.get("organization") == "StreamScapeTV", "invalid-contract", "organization")
     mechanism = contract.get("scheduling_mechanism")
     require(isinstance(mechanism, dict), "invalid-contract", "scheduling_mechanism")
@@ -152,6 +181,34 @@ def validate_runner_contract(contract: Mapping[str, Any]) -> None:
         raw_selectors = profile["internal_selectors"]
         require(isinstance(raw_selectors, list), "invalid-profile", f"{profile_id}: selectors")
         approved = [selector(item) for item in raw_selectors]
+        if profile_id in FINAL_LINUX_ARC_SELECTORS:
+            expected_selectors = FINAL_LINUX_ARC_SELECTORS[profile_id]
+            require(
+                tuple(approved) == expected_selectors,
+                "invalid-profile",
+                f"{profile_id}: final Linux ARC selectors",
+            )
+            flattened = {
+                label
+                for approved_selector in approved
+                for label in approved_selector
+            }
+            require(
+                not (flattened & RETIRED_LINUX_SELECTOR_TOKENS),
+                "retired-selector",
+                profile_id,
+            )
+            require(
+                not any(label.startswith("homelab-") for label in flattened),
+                "retired-selector",
+                profile_id,
+            )
+        if profile_id == "apple":
+            require(
+                tuple(approved) == APPLE_CAPABILITY_SELECTORS,
+                "invalid-profile",
+                "apple: current macOS ARM64 capability selector",
+            )
         if profile["kind"] == "runner":
             require(bool(approved), "invalid-profile", f"{profile_id}: no selector")
             require(selector(profile["default_internal_selector"]) in approved,
@@ -300,8 +357,27 @@ def validate_direct_selector(contract: Mapping[str, Any], labels: Sequence[str] 
             "invalid-selector", "labels")
     require(len(selected) == len(set(selected)), "invalid-selector", "duplicates")
     lowered = {item.lower() for item in selected}
-    if selected == ("self-hosted",):
-        raise RunnerContractError("bare-self-hosted", "bare self-hosted is forbidden")
+    if "self-hosted" in lowered:
+        if len(selected) == 1:
+            raise RunnerContractError("bare-self-hosted", "bare self-hosted is forbidden")
+        raise RunnerContractError(
+            "unsupported-self-hosted-combination",
+            ", ".join(selected),
+        )
+    if selected == ("buildah",):
+        raise RunnerContractError(
+            "ambiguous-buildah",
+            "bare buildah must include exactly one size",
+        )
+    retired = sorted(
+        item
+        for item in selected
+        if item.lower() in RETIRED_LINUX_SELECTOR_TOKENS
+        or item.lower().startswith("homelab-")
+        or INTERNAL_ARC_NAME.search(item)
+    )
+    if retired:
+        raise RunnerContractError("retired-selector", ", ".join(retired))
     if any("docker" in item or "dind" in item for item in lowered):
         raise RunnerContractError("retired-docker", "Docker/DinD capacity is retired")
     approved = approved_selector_index(contract)
@@ -313,8 +389,6 @@ def validate_direct_selector(contract: Mapping[str, Any], labels: Sequence[str] 
             labels_to_profiles.setdefault(key[0], profile_id)
     unknown = [item for item in selected if item not in labels_to_profiles and item != "self-hosted"]
     require(not unknown, "unknown-selector", ", ".join(unknown))
-    if "self-hosted" in selected:
-        raise RunnerContractError("unsupported-self-hosted-combination", ", ".join(selected))
     mapped = {labels_to_profiles[item] for item in selected}
     require(len(mapped) <= 1, "contradictory-labels", ", ".join(sorted(mapped)))
     raise RunnerContractError("unsupported-selector-combination", ", ".join(selected))

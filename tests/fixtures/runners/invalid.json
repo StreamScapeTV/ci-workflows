@@ -4,44 +4,102 @@
     {
       "id": "bare-self-hosted",
       "mode": "selector",
-      "labels": ["self-hosted"],
+      "labels": [
+        "self-hosted"
+      ],
       "expected_error": "bare-self-hosted"
+    },
+    {
+      "id": "retired-portable-selector",
+      "mode": "selector",
+      "labels": [
+        "portable"
+      ],
+      "expected_error": "retired-selector"
+    },
+    {
+      "id": "retired-combined-buildah-selector",
+      "mode": "selector",
+      "labels": [
+        "buildah-tiny"
+      ],
+      "expected_error": "retired-selector"
+    },
+    {
+      "id": "ambiguous-bare-buildah-selector",
+      "mode": "selector",
+      "labels": [
+        "buildah"
+      ],
+      "expected_error": "ambiguous-buildah"
     },
     {
       "id": "docker-retired",
       "mode": "selector",
-      "labels": ["docker"],
+      "labels": [
+        "docker"
+      ],
       "expected_error": "retired-docker"
     },
     {
       "id": "dind-retired",
       "mode": "selector",
-      "labels": ["dind"],
+      "labels": [
+        "dind"
+      ],
       "expected_error": "retired-docker"
     },
     {
       "id": "unknown-label",
       "mode": "selector",
-      "labels": ["future-runner"],
+      "labels": [
+        "future-runner"
+      ],
       "expected_error": "unknown-selector"
     },
     {
       "id": "contradictory-labels",
       "mode": "selector",
-      "labels": ["mobile", "buildah-small"],
+      "labels": [
+        "mobile",
+        "buildah"
+      ],
       "expected_error": "contradictory-labels"
     },
     {
-      "id": "unsupported-same-profile-combination",
+      "id": "retired-infrastructure-selector",
       "mode": "selector",
-      "labels": ["portable", "homelab-portable-linux-x64"],
-      "expected_error": "unsupported-selector-combination"
+      "labels": [
+        "homelab-portable-linux-x64"
+      ],
+      "expected_error": "retired-selector"
     },
     {
       "id": "unsupported-self-hosted-combination",
       "mode": "selector",
-      "labels": ["self-hosted", "mobile"],
+      "labels": [
+        "self-hosted",
+        "mobile"
+      ],
       "expected_error": "unsupported-self-hosted-combination"
+    },
+    {
+      "id": "self-hosted-apple-capability-combination",
+      "mode": "selector",
+      "labels": [
+        "self-hosted",
+        "macOS",
+        "ARM64"
+      ],
+      "expected_error": "unsupported-self-hosted-combination"
+    },
+    {
+      "id": "internal-arc-runner-name",
+      "mode": "selector",
+      "labels": [
+        "arc-runner-set-7b8c"
+      ],
+      "expected_error": "retired-selector"
     },
     {
       "id": "caller-provided-runs-on",
@@ -49,7 +107,11 @@
       "workflow_api": "validation.python",
       "source_trust": "trusted-pr",
       "requested_profile": "portable",
-      "caller_inputs": {"runs_on": ["portable"]},
+      "caller_inputs": {
+        "runs_on": [
+          "portable"
+        ]
+      },
       "expected_error": "caller-supplied-selector",
       "profile_under_test": "portable"
     },
@@ -131,15 +193,6 @@
       "source_trust": "trusted-pr",
       "requested_profile": "large-linux",
       "expected_error": "unknown-profile"
-    },
-    {
-      "id": "agent-state-caller-source",
-      "mode": "resolve",
-      "workflow_api": "agent-state.lifecycle",
-      "source_trust": "trusted-exact",
-      "requested_profile": "agent-state-control",
-      "expected_error": "source-trust-not-allowed",
-      "profile_under_test": "agent-state-control"
     },
     {
       "id": "untrusted-buildah-tiny",

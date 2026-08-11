@@ -51,7 +51,7 @@ Organization-managed Apple/device capacity owns host and device registration. Ce
 
 ## Trust classes
 
-`portable` is the only profile that may execute untrusted fork source, and only when the workflow provides no protected credential. `mobile` and `apple` require trusted PR or exact source. Buildah profiles are privileged and require trusted exact source. Physical devices additionally require explicit authorization and an exclusive resource lock. Agent State and Flux control profiles execute no caller source.
+`portable` is the only profile that may execute untrusted fork source, and only when the workflow provides no protected credential. `mobile` and `apple` require trusted PR or exact source. Buildah profiles are privileged and require trusted exact source. Physical devices additionally require explicit authorization and an exclusive resource lock. The Flux control profile executes no caller source. Agent State requires no runner profile because it is not a GitHub Actions transport.
 
 Privilege is not inferred from tool availability. A profile's allowed workflow APIs and source-trust values are explicit allowlists. Secret policy remains in each public workflow permission/secret contract; selecting a runner never grants a credential.
 

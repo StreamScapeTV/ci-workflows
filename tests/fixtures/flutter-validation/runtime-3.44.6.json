@@ -1,0 +1,13 @@
+{
+  "dartSdkVersion": "3.12.2",
+  "engineRevision": "a38fc50eb74f82c8911f65cf7321ceb30923801b",
+  "frameworkRevision": "ee80f08bbf97172ec030b8751ceab557177a34a6",
+  "frameworkVersion": "3.44.6",
+  "gradleVersion": "9.1.0",
+  "javaRuntimeVersion": "21.0.8+9-LTS",
+  "javaVendor": "Eclipse Adoptium",
+  "javaVersion": "21.0.8",
+  "javacVersion": "21.0.8",
+  "jdkDistribution": "temurin",
+  "jdkVersion": "21.0.8+9.0.LTS"
+}
