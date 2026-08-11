@@ -32,8 +32,6 @@ class SourceConsumerFixtureTests(unittest.TestCase):
                 "media-develop-validation",
                 "web-pr-validation",
                 "web-push-validation",
-                "agent-state-lifecycle-metadata",
-                "agent-state-ownership-metadata",
                 "tag-image-chart-historical-release",
                 "flux-source-validation",
                 "flux-cluster-reconciliation",
@@ -50,8 +48,6 @@ class SourceConsumerFixtureTests(unittest.TestCase):
             for item in self.cases["consumer_patterns"]
         }
         for identifier in (
-            "agent-state-lifecycle-metadata",
-            "agent-state-ownership-metadata",
             "flux-cluster-reconciliation",
         ):
             with self.subTest(identifier=identifier):

@@ -4,12 +4,10 @@
   "max_matrix_jobs": 16,
   "max_timeout_minutes": 240,
   "allowed_runner_profiles": [
-    "portable",
-    "agent-state"
+    "portable"
   ],
   "required_fixture_callers": [
     "ordinary-validation.yml",
-    "agent-state-lifecycle.yml",
     "trusted-maintenance.yml",
     "tag-release.yml",
     "flux-source-validation.yml",
@@ -28,7 +26,6 @@
     "flux_reconciliation"
   ],
   "required_service_scenarios": {
-    "agent_state": ["positive", "retry", "replay", "conflict", "stale", "outage", "malicious_response"],
     "github": ["positive", "retry", "replay", "conflict", "stale", "outage", "malicious_response"],
     "registry": ["positive", "retry", "replay", "conflict", "stale", "outage", "malicious_response"],
     "helm": ["positive", "retry", "replay", "conflict", "stale", "outage", "malicious_response"],
@@ -47,14 +44,6 @@
         "caller-cancelling-concurrency",
         "stable-check-drift",
         "public-api-doc-drift"
-      ]
-    },
-    {
-      "path": ".github/workflows/self-check.yml",
-      "issue": 60,
-      "reason": "Owner-directed emergency macOS execution for the canonical self-check while portable ARC recovery remains open in Flux #268; remove in a later bounded change after portable service recovery.",
-      "rules": [
-        "unknown-runner-profile"
       ]
     }
   ]

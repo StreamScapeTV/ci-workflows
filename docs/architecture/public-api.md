@@ -18,7 +18,7 @@ Public workflow YAML stays readable. Non-trivial algorithms live in named, typed
 
 During the initial organization migration, protected `StreamScapeTV/ci-workflows@main` is the preferred channel for every public workflow family. A central correction therefore becomes available to migrated repositories without editing every caller. Full commit SHAs and immutable SemVer tags remain supported at all times and can be selected whenever a consumer needs a fixed or rollback reference.
 
-A moving workflow reference never weakens source admission. Product source, release tags, Agent State requests, pull-request heads, device commands, and Flux policy are still resolved and validated as exact inputs by the called workflow. Changes to the public API contract remain reviewable in this repository before they reach `main`.
+A moving workflow reference never weakens source admission. Product source, release tags, pull-request heads, device commands, and Flux policy are still resolved and validated as exact inputs by the called workflow. Changes to the public API contract remain reviewable in this repository before they reach `main`.
 
 ## Caller and called-workflow boundary
 
@@ -36,7 +36,7 @@ The called workflow owns:
 - semantic runner intent and internal implementation selection;
 - reusable tool setup, orchestration, evidence, cleanup, and redaction;
 - bounded OCI/Helm validation, publication, and independent read-back;
-- reusable Agent State, device, maintenance, and Flux transport around the owning system's authority.
+- reusable device, maintenance, and Flux transport around the owning system's authority.
 
 The called workflow cannot elevate the caller's `GITHUB_TOKEN`. Each API binds to one permission profile, treats unspecified permissions as `none`, accepts only declared named secrets, and forbids `secrets: inherit`.
 
@@ -50,11 +50,9 @@ Source resolution reads GitHub metadata and returns one admitted exact SHA. It d
 
 Validation may execute exact admitted caller source with read-only permissions. A private dependency token is optional only where the inventory approves it and is unavailable to untrusted forks. Validation publishes zero routine Actions artifacts.
 
-### Agent State transport
+### Agent State exclusion
 
-Agent State remains the sole authority for project identity, sessions, claims, collisions, lifecycle, retries, replay, receipts, takeover, and ownership. Central workflows validate trusted GitHub event context, submit bounded requests, and project sanitized results. They do not maintain a second policy table or execute product source with Agent State credentials.
-
-The manually dispatched `agent-state-command.yml` is a protected control workflow rather than a public `workflow_call` API. It follows the same authority, redaction, exact-source, and permission boundaries and is documented separately.
+Agent State operation is deliberately outside the public workflow registry. `StreamScapeTV/agent-state-supabase` owns project identity, work, claims, replay, receipts, reviews, orchestration, fencing, and readiness through approved direct `agent_api.*` RPCs. This repository exposes no Agent State workflow, runner, secret, or transport fallback.
 
 ### Physical-device validation
 
@@ -64,9 +62,13 @@ Device work is explicitly authorized, exact-source, single-resource, time-bounde
 
 Publication runs only for an exact admitted release tag and source SHA. Image and chart products are selected from the product contract; callers do not choose a registry host, container engine, storage driver, or registry command. Publication and deployment remain separate, and immutable products require independent remote read-back.
 
-The versioned bootstrap image/chart API supports two authority modes with one downstream publication contract. `tag-push` remains the default and derives the immutable version and source from a genuine stable-tag push. `existing-tag` requires the complete explicit `release_mode`, `release_version`, and `release_source_sha` tuple from a same-repository `workflow_dispatch` caller whose workflow is running from the current default branch under a write-authorized actor. Pull requests, forks, issue comments, branches, arbitrary refs, and partial or mixed tuples are rejected before source checkout.
+The versioned bootstrap image/chart API supports two ordinary authority modes with one downstream publication contract. `tag-push` remains the default and derives the immutable version and source from a genuine stable-tag push. `existing-tag` requires the complete explicit `release_mode`, `release_version`, and `release_source_sha` tuple from a same-repository `workflow_dispatch` caller whose workflow is running from the current default branch under a write-authorized actor. Pull requests, forks, issue comments, branches, arbitrary refs, and partial or mixed tuples are rejected before source checkout.
 
-Both modes resolve `refs/tags/<release_version>` through the caller repository's read-only GitHub API. Lightweight tags resolve directly to a commit; annotated tags are dereferenced through a bounded, cycle-checked chain that rejects unsupported object types and missing objects. The final commit must equal the exact lowercase source SHA, and the initially resolved tag object and commit are revalidated before checkout and immediately before registry authentication. The workflow then checks out only the detached exact commit and enters the same Buildah, OCI image, Helm chart, replay, read-back, output, cleanup, and zero-artifact stages for either mode.
+Both ordinary modes resolve `refs/tags/<release_version>` through the caller repository's read-only GitHub API. Lightweight tags resolve directly to a commit; annotated tags are dereferenced through a bounded, cycle-checked chain that rejects unsupported object types and missing objects. The final commit must equal the exact lowercase source SHA, and the initially resolved tag object and commit are revalidated before checkout and immediately before registry authentication. The workflow then checks out only the detached exact commit and enters the same Buildah, OCI image, Helm chart, replay, read-back, output, cleanup, and zero-artifact stages for either mode.
+
+The optional `image_recovery_authority` is a compatible but deliberately non-generic partial-publication recovery contract. Empty disables it. The only admitted non-empty value is the fixed issue-#92 Backend authority, with no extra or omitted fields: schema version, repository, release version and source, historical publisher run ID and attempt, historical caller and central revisions, remote index digest, and exactly two platform config digests. It is hard-coded by the trusted caller and is never exposed as `workflow_dispatch` input. Admission independently verifies the current default-branch caller plus the historical GitHub run identity, authority/checkout/input/runner/authentication/cleanup steps, skipped chart step, zero artifacts, central pin, image manifest write, original configs, and known subsequent failure.
+
+Recovery requires the image tag to exist. Authenticated remote reads must match the authority's raw index digest, exact `linux/amd64` and `linux/arm64/v8` descriptors, child config descriptors and raw bytes, and source/revision/version labels both before and after chart handling. Recovery executes no image build, manifest creation, copy, push, deletion, or retag. Chart tag listing distinguishes verified presence from verified absence and fails closed on malformed, authorization, or transient responses. Presence permits only pull and exact local-package verification; confirmed absence permits exactly one push followed by authenticated tag, pull, checksum, metadata, dependency, and OCI layer verification. Cleanup and zero-artifact enforcement remain mandatory.
 
 ### Flux-authorized reconciliation
 
