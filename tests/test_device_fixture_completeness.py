@@ -26,4 +26,3 @@ class FixtureCompletenessTests(unittest.TestCase):
             path = FIX / "scripts" / script
             self.assertTrue(path.is_file())
             self.assertIn(str(path.relative_to(ROOT)), json.dumps(load_device_contract(ROOT)))
-

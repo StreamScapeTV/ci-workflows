@@ -82,4 +82,3 @@ def validate_exact_checkout(source_root: Path, expected_sha: str) -> None:
     except (OSError, subprocess.CalledProcessError) as error:
         raise DeviceValidationError("source_mismatch") from error
     require(head == expected_sha and status == "", "source_mismatch")
-

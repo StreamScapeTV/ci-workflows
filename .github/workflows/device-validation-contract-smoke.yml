@@ -151,7 +151,7 @@ jobs:
   zero_artifacts:
     name: Verify device contract smoke artifacts remain zero
     needs: contract_smoke
-    if: always()
+    if: ${{ always() && !cancelled() }}
     runs-on: [linux, amd64, general]
     timeout-minutes: 10
     steps:

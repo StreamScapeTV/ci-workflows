@@ -116,6 +116,15 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("source_trust:", self.smoke)
         self.assertIn("Verify device contract smoke artifacts remain zero", self.smoke)
 
+    def test_smoke_finalizer_skips_cancelled_runs_but_cleanup_remains_unconditional(self) -> None:
+        cleanup = self.smoke.split(
+            "      - name: Remove exact synthetic and central source without following links\n", 1
+        )[1].split("  zero_artifacts:\n", 1)[0]
+        finalizer = self.smoke.split("  zero_artifacts:\n", 1)[1]
+        self.assertIn("if: always()", cleanup)
+        self.assertIn("if: ${{ always() && !cancelled() }}", finalizer)
+        self.assertNotIn("if: always()\n    runs-on", finalizer)
+
     def test_direct_synthetic_selectors_are_general_linux_not_semantic_profiles(self) -> None:
         selector = "runs-on: [linux, amd64, general]"
         selector_value = "[linux, amd64, general]"

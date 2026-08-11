@@ -65,4 +65,3 @@ def real_environment(
     if secret:
         environment["CIW_DEVICE_LIVE_BACKEND_PRESENT"] = "true"
     return environment
-

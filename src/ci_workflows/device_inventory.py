@@ -181,4 +181,3 @@ def select_device(plan: DevicePlan, records: Sequence[DeviceRecord]) -> Selected
         capabilities=selected.capabilities,
         _raw_identifier=selected.raw_identifier,
     )
-

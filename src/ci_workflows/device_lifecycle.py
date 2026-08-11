@@ -157,4 +157,3 @@ def execute_device_plan(
         cleanup=cleanup,
     )
     return DeviceResult(plan.request.request_id, evidence_id(packet), result, primary_failure, cleanup, False, selected.identity_hash, packet)
-

@@ -75,4 +75,3 @@ def parse_request_id(value: str) -> int:
     match = REQUEST_ID.fullmatch(value)
     require(match is not None, "request_identity_rejected")
     return int(match.group(1))
-

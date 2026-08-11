@@ -123,4 +123,3 @@ def request_from_environment(
         run_id=run_id,
         live_backend_secret_present=secret_present,
     )
-
