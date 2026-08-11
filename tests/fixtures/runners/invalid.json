@@ -84,6 +84,24 @@
       "expected_error": "unsupported-self-hosted-combination"
     },
     {
+      "id": "self-hosted-apple-capability-combination",
+      "mode": "selector",
+      "labels": [
+        "self-hosted",
+        "macOS",
+        "ARM64"
+      ],
+      "expected_error": "unsupported-self-hosted-combination"
+    },
+    {
+      "id": "internal-arc-runner-name",
+      "mode": "selector",
+      "labels": [
+        "arc-runner-set-7b8c"
+      ],
+      "expected_error": "retired-selector"
+    },
+    {
       "id": "caller-provided-runs-on",
       "mode": "resolve",
       "workflow_api": "validation.python",

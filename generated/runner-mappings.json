@@ -27,11 +27,8 @@
       ],
       "approved_selectors": [
         [
-          "macOS"
-        ],
-        [
-          "self-hosted",
-          "macOS"
+          "macOS",
+          "ARM64"
         ]
       ],
       "capacity_owner": "organization-manual",
@@ -54,8 +51,8 @@
         "macOS"
       ],
       "runs_on": [
-        "self-hosted",
-        "macOS"
+        "macOS",
+        "ARM64"
       ]
     },
     "buildah-high": {

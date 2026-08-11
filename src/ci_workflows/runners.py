@@ -33,6 +33,7 @@ FINAL_LINUX_ARC_SELECTORS = {
     "buildah-high": (("linux", "amd64", "buildah", "high"),),
     "flux-control": (("linux", "amd64", "flux-control"),),
 }
+APPLE_CAPABILITY_SELECTORS = (("macOS", "ARM64"),)
 RETIRED_LINUX_SELECTOR_TOKENS = {
     "portable",
     "buildah-tiny",
@@ -40,6 +41,11 @@ RETIRED_LINUX_SELECTOR_TOKENS = {
     "buildah-medium",
     "buildah-high",
 }
+INTERNAL_ARC_NAME = re.compile(
+    r"(?:^|[-_])arc(?:[-_]|$)|(?:^|[-_])actions[-_]runner[-_]controller"
+    r"(?:[-_]|$)|(?:^|[-_])gha[-_]runner[-_]scale[-_]set(?:[-_]|$)",
+    re.IGNORECASE,
+)
 PROFILE_FIELDS = {
     "id", "public_name", "kind", "public_labels", "internal_selectors",
     "default_internal_selector", "os", "architecture", "lifecycle", "capacity_owner",
@@ -197,6 +203,12 @@ def validate_runner_contract(contract: Mapping[str, Any]) -> None:
                 "retired-selector",
                 profile_id,
             )
+        if profile_id == "apple":
+            require(
+                tuple(approved) == APPLE_CAPABILITY_SELECTORS,
+                "invalid-profile",
+                "apple: current macOS ARM64 capability selector",
+            )
         if profile["kind"] == "runner":
             require(bool(approved), "invalid-profile", f"{profile_id}: no selector")
             require(selector(profile["default_internal_selector"]) in approved,
@@ -345,8 +357,13 @@ def validate_direct_selector(contract: Mapping[str, Any], labels: Sequence[str] 
             "invalid-selector", "labels")
     require(len(selected) == len(set(selected)), "invalid-selector", "duplicates")
     lowered = {item.lower() for item in selected}
-    if selected == ("self-hosted",):
-        raise RunnerContractError("bare-self-hosted", "bare self-hosted is forbidden")
+    if "self-hosted" in lowered:
+        if len(selected) == 1:
+            raise RunnerContractError("bare-self-hosted", "bare self-hosted is forbidden")
+        raise RunnerContractError(
+            "unsupported-self-hosted-combination",
+            ", ".join(selected),
+        )
     if selected == ("buildah",):
         raise RunnerContractError(
             "ambiguous-buildah",
@@ -355,8 +372,9 @@ def validate_direct_selector(contract: Mapping[str, Any], labels: Sequence[str] 
     retired = sorted(
         item
         for item in selected
-        if item in RETIRED_LINUX_SELECTOR_TOKENS
-        or re.fullmatch(r"homelab-[a-z0-9-]+-linux-x64", item)
+        if item.lower() in RETIRED_LINUX_SELECTOR_TOKENS
+        or item.lower().startswith("homelab-")
+        or INTERNAL_ARC_NAME.search(item)
     )
     if retired:
         raise RunnerContractError("retired-selector", ", ".join(retired))
@@ -371,8 +389,6 @@ def validate_direct_selector(contract: Mapping[str, Any], labels: Sequence[str] 
             labels_to_profiles.setdefault(key[0], profile_id)
     unknown = [item for item in selected if item not in labels_to_profiles and item != "self-hosted"]
     require(not unknown, "unknown-selector", ", ".join(unknown))
-    if "self-hosted" in selected:
-        raise RunnerContractError("unsupported-self-hosted-combination", ", ".join(selected))
     mapped = {labels_to_profiles[item] for item in selected}
     require(len(mapped) <= 1, "contradictory-labels", ", ".join(sorted(mapped)))
     raise RunnerContractError("unsupported-selector-combination", ", ".join(selected))
