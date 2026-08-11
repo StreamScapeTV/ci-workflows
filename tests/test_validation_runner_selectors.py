@@ -26,6 +26,14 @@ class ValidationRunnerSelectorTests(unittest.TestCase):
             ("linux", "amd64", "mobile"),
             config.allowed_runner_selectors,
         )
+        self.assertIn(
+            ("macOS", "ARM64"),
+            config.allowed_runner_selectors,
+        )
+        self.assertNotIn(
+            ("self-hosted", "macOS"),
+            config.allowed_runner_selectors,
+        )
         self.assertNotIn(("linux",), config.allowed_runner_selectors)
         self.assertNotIn(
             ("linux", "amd64"),
@@ -35,12 +43,17 @@ class ValidationRunnerSelectorTests(unittest.TestCase):
     def test_complete_capability_array_passes(self) -> None:
         config = load_harness_config(ROOT)
         findings: list[Finding] = []
-        _validate_runner(
+        for selector in (
             ["linux", "amd64", "general"],
-            ".github/workflows/example.yml",
-            config,
-            findings,
-        )
+            ["macOS", "ARM64"],
+        ):
+            with self.subTest(selector=selector):
+                _validate_runner(
+                    selector,
+                    ".github/workflows/example.yml",
+                    config,
+                    findings,
+                )
         self.assertEqual([], findings)
 
     def test_partial_and_mixed_capability_arrays_fail_closed(self) -> None:

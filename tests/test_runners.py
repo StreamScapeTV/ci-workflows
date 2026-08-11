@@ -165,6 +165,28 @@ class RunnerContractTests(unittest.TestCase):
                     any(label.startswith("homelab-") for label in flattened)
                 )
 
+    def test_apple_selector_matches_the_current_capability_contract(self) -> None:
+        profile = self.profiles["apple"]
+        self.assertEqual(
+            profile["internal_selectors"],
+            [list(selector) for selector in runners.APPLE_CAPABILITY_SELECTORS],
+        )
+        self.assertEqual(
+            profile["default_internal_selector"],
+            ["macOS", "ARM64"],
+        )
+        self.assertEqual(
+            runners.validate_direct_selector(self.contract, ["macOS", "ARM64"]),
+            "apple",
+        )
+        self.assertTrue(
+            all(
+                "self-hosted" not in label.lower()
+                for selector in profile["internal_selectors"]
+                for label in selector
+            )
+        )
+
     def test_buildah_tier_selection_uses_measured_headroom(self) -> None:
         mib = 1024**2
         gib = 1024**3
