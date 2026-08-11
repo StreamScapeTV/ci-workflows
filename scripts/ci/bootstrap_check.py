@@ -430,7 +430,7 @@ def validate_authority_docs() -> None:
         "Git tag",
         "zero",
         "src/ci_workflows",
-        "general Linux",
+        "General Linux",
         "portable",
         "CPython 3.12",
         "pre-provisioned",
