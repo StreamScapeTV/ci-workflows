@@ -399,6 +399,32 @@ class FlutterValidationTests(unittest.TestCase):
         )
         assert_zero_flutter_residue(source, state)
 
+    def test_cleanup_removes_nested_read_only_flutter_and_pub_state(self) -> None:
+        source = self.source()
+        state = self.temp / "state"
+        state.mkdir()
+        for root in (
+            source / "build" / "read-only" / "nested",
+            state / "flutter-validation" / "pub-cache" / "read-only" / "nested",
+        ):
+            root.mkdir(parents=True)
+            generated = root / "generated"
+            generated.write_text("generated\n", encoding="utf-8")
+            generated.chmod(0o400)
+            root.chmod(0o500)
+            root.parent.chmod(0o500)
+        self.assertEqual(
+            {
+                "result": "success",
+                "failure_code": "",
+                "primary_failure_code": "",
+                "cleanup_failure_code": "",
+                "cleanup_result": "success",
+            },
+            terminal_cleanup_flutter_state(source, state),
+        )
+        assert_zero_flutter_residue(source, state)
+
     def test_source_audit_and_device_handoff_install_nothing(self) -> None:
         for profile in ("source-audit", "device-handoff"):
             plan = build_plan(self.contract, request(profile), None)

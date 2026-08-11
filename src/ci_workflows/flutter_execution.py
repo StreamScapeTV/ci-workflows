@@ -674,6 +674,11 @@ def _remove_no_follow(path: Path) -> None:
         if stat.S_ISLNK(metadata.st_mode) or stat.S_ISREG(metadata.st_mode):
             os.unlink(path)
         elif stat.S_ISDIR(metadata.st_mode):
+            os.chmod(
+                path,
+                metadata.st_mode | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
+                follow_symlinks=False,
+            )
             with os.scandir(path) as entries:
                 children = [path / entry.name for entry in entries]
             for child in children:
