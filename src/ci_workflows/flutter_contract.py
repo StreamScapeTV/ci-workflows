@@ -28,7 +28,7 @@ SHORT_OR_FULL_SHA = re.compile(r"^[0-9a-f]{7,40}$")
 SAFE_ID = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 SOURCE_SHA = re.compile(r"^[0-9a-f]{40}$")
 REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
-JDK_VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+\+[0-9]+$")
+JDK_VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+\+[0-9]+(?:\.[0-9]+\.LTS)?$")
 GRADLE_VERSION = re.compile(r"^[0-9]+\.[0-9]+(?:\.[0-9]+)?$")
 FORBIDDEN_VERSION_TOKENS = (
     "stable", "beta", "dev", "master", "main", "^", "~", ">", "<", "*", "x", "X", " "
@@ -556,7 +556,7 @@ def validate_contract(raw: object) -> None:
             fail("contract_invalid")
         if row["jdk_distribution"] != setup["jdk_distribution"] or JDK_VERSION.fullmatch(str(row["jdk_version"])) is None:
             fail("contract_invalid")
-        if not isinstance(row["java_runtime_version"], str) or not row["java_runtime_version"].startswith(row["jdk_version"]):
+        if not isinstance(row["java_runtime_version"], str) or not row["java_runtime_version"].startswith(f"{row['java_version']}+"):
             fail("contract_invalid")
         if row["java_vendor"] != "Eclipse Adoptium":
             fail("contract_invalid")

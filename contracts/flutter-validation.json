@@ -705,7 +705,7 @@
       "java_version": "21.0.8",
       "javac_version": "21.0.8",
       "jdk_distribution": "temurin",
-      "jdk_version": "21.0.8+9"
+      "jdk_version": "21.0.8+9.0.LTS"
     },
     "3.44.6": {
       "dart_version": "3.12.2",
@@ -717,7 +717,7 @@
       "java_version": "21.0.8",
       "javac_version": "21.0.8",
       "jdk_distribution": "temurin",
-      "jdk_version": "21.0.8+9"
+      "jdk_version": "21.0.8+9.0.LTS"
     }
   },
   "workflow_api": "validation.flutter"

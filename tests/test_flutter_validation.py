@@ -38,6 +38,7 @@ from ci_workflows.flutter_execution import (
     CommandOutcome,
     CommandRunner,
     _verify_expected_outputs,
+    assert_zero_flutter_residue,
     bind_pub_cache,
     snapshot_persistent_pub_cache,
     terminal_cleanup_flutter_state,
@@ -207,6 +208,9 @@ class FlutterValidationTests(unittest.TestCase):
         mutable_jdk = copy.deepcopy(self.contract)
         mutable_jdk["setup"]["jdk_action"] = "actions/setup-java@v5"
         mutations.append(mutable_jdk)
+        mutable_jdk_selector = copy.deepcopy(self.contract)
+        mutable_jdk_selector["toolchains"]["3.41.4"]["jdk_version"] = "21"
+        mutations.append(mutable_jdk_selector)
         caller_jdk = copy.deepcopy(self.contract)
         caller_jdk["setup"]["caller_jdk"] = True
         mutations.append(caller_jdk)
@@ -223,7 +227,8 @@ class FlutterValidationTests(unittest.TestCase):
             self.assertEqual("3.11.1", plan.toolchain.dart_version)
             self.assertEqual("8.14", plan.toolchain.gradle_version)
             self.assertEqual("temurin", plan.toolchain.jdk_distribution)
-            self.assertEqual("21.0.8+9", plan.toolchain.jdk_version)
+            self.assertEqual("21.0.8+9.0.LTS", plan.toolchain.jdk_version)
+            self.assertEqual("21.0.8+9-LTS", plan.toolchain.java_runtime_version)
         self.assertEqual(
             "21.0.8",
             parse_jdk_identity(
@@ -375,12 +380,31 @@ class FlutterValidationTests(unittest.TestCase):
             error.output_values(),
         )
 
+    def test_early_setup_failure_cleanup_preserves_primary_without_generated_source(self) -> None:
+        source = self.temp / "source-not-created"
+        state = self.temp / "state"
+        state.mkdir()
+        (state / "flutter-validation").mkdir()
+        self.assertEqual(
+            {
+                "result": "failure",
+                "failure_code": "command_failed",
+                "primary_failure_code": "command_failed",
+                "cleanup_failure_code": "",
+                "cleanup_result": "success",
+            },
+            terminal_cleanup_flutter_state(
+                source, state, primary_failure_code="command_failed"
+            ),
+        )
+        assert_zero_flutter_residue(source, state)
+
     def test_source_audit_and_device_handoff_install_nothing(self) -> None:
         for profile in ("source-audit", "device-handoff"):
             plan = build_plan(self.contract, request(profile), None)
             self.assertFalse(plan.install_required)
             self.assertIs(plan.runner_profile, RunnerCapability.PORTABLE)
-            self.assertEqual("21.0.8+9", plan.toolchain.jdk_version)
+            self.assertEqual("21.0.8+9.0.LTS", plan.toolchain.jdk_version)
 
 
 if __name__ == "__main__":

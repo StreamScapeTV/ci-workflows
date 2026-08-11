@@ -9,5 +9,5 @@
   "javaVersion": "21.0.8",
   "javacVersion": "21.0.8",
   "jdkDistribution": "temurin",
-  "jdkVersion": "21.0.8+9"
+  "jdkVersion": "21.0.8+9.0.LTS"
 }

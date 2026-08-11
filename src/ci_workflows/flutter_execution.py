@@ -690,8 +690,13 @@ def _remove_no_follow(path: Path) -> None:
 
 
 def _cleanup_targets(source_root: Path, state_root: Path) -> tuple[Path, ...]:
-    return (
-        _lexical_target(state_root, "flutter-validation"),
+    state_targets = (_lexical_target(state_root, "flutter-validation"),)
+    source_metadata = _lstat(source_root)
+    if source_metadata is None:
+        return state_targets
+    if not stat.S_ISDIR(source_metadata.st_mode) or stat.S_ISLNK(source_metadata.st_mode):
+        fail("cleanup_failed")
+    return state_targets + (
         _lexical_target(source_root, "build"),
         _lexical_target(source_root, ".dart_tool"),
         _lexical_target(source_root, "coverage"),
@@ -734,4 +739,5 @@ def assert_zero_flutter_residue(source_root: Path, state_root: Path) -> None:
     remaining = [str(path) for path in _cleanup_targets(source_root, state_root) if _lstat(path) is not None]
     if remaining:
         fail("cleanup_failed")
-    _assert_clean_source(source_root)
+    if _lstat(source_root) is not None:
+        _assert_clean_source(source_root)
