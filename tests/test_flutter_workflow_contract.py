@@ -66,6 +66,34 @@ class FlutterWorkflowContractTests(unittest.TestCase):
             self.assertIn(f"{output}: ${{{{ steps.plan.outputs.{output} }}}}", self.reusable)
         self.assertIn("Resolve contract-owned Flutter Dart Gradle and JDK tuple", self.reusable)
 
+    def test_smoke_direct_runner_selectors_use_capabilities_not_semantic_profiles(self) -> None:
+        def job_block(source: str, job: str) -> str:
+            match = re.search(
+                rf"(?ms)^  {re.escape(job)}:\n(.*?)(?=^  [a-z_]+:\n|\Z)",
+                source,
+            )
+            self.assertIsNotNone(match, job)
+            return match.group(0)
+
+        for source in (self.mobile_smoke, self.apple_smoke):
+            self.assertNotIn("runs-on: portable", source)
+
+        for job in ("source_audit", "focused_tests", "plan", "zero_artifacts"):
+            self.assertIn(
+                "runs-on: [linux, amd64, general]",
+                job_block(self.mobile_smoke, job),
+            )
+        for job in ("plan", "zero_artifacts"):
+            self.assertIn(
+                "runs-on: [linux, amd64, general]",
+                job_block(self.apple_smoke, job),
+            )
+        for source, job in ((self.mobile_smoke, "android"), (self.apple_smoke, "ios")):
+            self.assertIn(
+                "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
+                job_block(source, job),
+            )
+
     def test_pub_cache_is_only_registered_workflow_state(self) -> None:
         expected = "{0}/tmp/flutter-validation/pub-cache"
         for source in (self.reusable, self.mobile_smoke, self.apple_smoke):
