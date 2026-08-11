@@ -122,6 +122,17 @@ class AppleWorkflowContractTests(unittest.TestCase):
         self.assertIn("timeout-minutes: 120", self.smoke)
         self.assertNotIn("workflow_dispatch:", self.smoke)
 
+    def test_smoke_cancellation_scope_is_stable_and_skips_artifact_check(self) -> None:
+        concurrency = self.smoke.split("concurrency:", 1)[1].split("jobs:", 1)[0]
+        self.assertIn(
+            "group: apple-validation-smoke-pr-${{ github.event.pull_request.number }}",
+            concurrency,
+        )
+        self.assertNotIn("github.event.pull_request.head.sha", concurrency)
+        self.assertIn("cancel-in-progress: true", concurrency)
+        zero_artifacts = self.smoke.split("  zero_artifacts:", 1)[1]
+        self.assertIn("if: ${{ always() && !cancelled() }}", zero_artifacts)
+
     def test_smoke_runs_when_apple_public_registration_changes(self) -> None:
         for path in (
             "contracts/bootstrap-public-workflows.json",

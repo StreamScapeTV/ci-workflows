@@ -38,7 +38,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: apple-validation-smoke-${{ github.event.pull_request.head.sha }}
+  group: apple-validation-smoke-pr-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
@@ -451,7 +451,7 @@ jobs:
   zero_artifacts:
     name: Verify Apple routine artifacts remain zero
     needs: [plan, ios, tvos, macos]
-    if: always()
+    if: ${{ always() && !cancelled() }}
     runs-on: [linux, amd64, general]
     timeout-minutes: 10
     steps:
