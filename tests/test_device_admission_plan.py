@@ -150,3 +150,13 @@ class AdmissionAndPlanTests(unittest.TestCase):
         with self.assertRaisesRegex(DeviceValidationError, "typed_plan_hash_mismatch"):
             validate_typed_plan(outputs["validated_plan"], "0" * 64, contract=self.contract, environment=environment)
 
+    def test_typed_plan_rebuilds_contract_owned_profile_fields(self) -> None:
+        environment = synthetic_environment()
+        plan = build_plan(self.contract, request_from_environment(environment, self.contract))
+        outputs = plan.planning_outputs(runs_on_json='["mobile"]')
+        tampered = json.loads(outputs["validated_plan"])
+        tampered["script_path"] = "build.sh"
+        raw = json.dumps(tampered, sort_keys=True, separators=(",", ":"))
+        digest = __import__("hashlib").sha256(raw.encode()).hexdigest()
+        with self.assertRaisesRegex(DeviceValidationError, "device_profile_rejected"):
+            validate_typed_plan(raw, digest, contract=self.contract, environment=environment)

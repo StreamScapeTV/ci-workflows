@@ -214,6 +214,16 @@ def load_evidence_contract(root: Path) -> Mapping[str, Any]:
     require(required == allowed, "evidence_policy_failed")
     require(set(contract.get("certification_scope_by_family", {})) == {item.value for item in DeviceFamily}, "evidence_policy_failed")
     strings(contract.get("required_limitations"), nonempty=True)
+    assertions = strings(
+        contract.get("allowed_assertions"),
+        nonempty=True,
+        code="evidence_policy_failed",
+    )
+    require(
+        assertions == sorted(assertions)
+        and len(assertions) <= int(contract["maximum_assertions"]),
+        "evidence_policy_failed",
+    )
     return contract
 
 def _command_profile(profile_id: str, raw: Mapping[str, Any]) -> DeviceCommandProfile:
@@ -250,4 +260,3 @@ def _profile(profile_id: str, raw: Mapping[str, Any], contract: Mapping[str, Any
         connection_states=tuple(raw["connection_states"]),
         health_states=tuple(raw["health_states"]),
     )
-

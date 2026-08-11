@@ -83,6 +83,14 @@ class DeviceWorkflowContractTests(unittest.TestCase):
 
     def test_real_physical_execution_is_fail_closed(self) -> None:
         self.assertIn("needs.plan.outputs.execution_authorized == 'true'", self.workflow)
+        self.assertIn("authorization_denied:", self.workflow)
+        self.assertIn(
+            "needs.plan.outputs.execution_authorized != 'true'",
+            self.workflow,
+        )
+        self.assertIn("Report stable physical authorization denial", self.workflow)
+        self.assertIn("physical_authorization_required", self.workflow)
+        self.assertIn("jobs.authorization_denied.outputs.result", self.workflow)
         self.assertEqual([], self.profile["owner_authorization"]["authorized_families"])
         self.assertEqual(
             "physical_authorization_required",

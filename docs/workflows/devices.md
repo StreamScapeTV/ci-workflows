@@ -4,7 +4,7 @@
 
 ## Current state
 
-No real physical-device execution is authorized. Planning and synthetic inventory smoke succeed; any real execution attempt fails closed as `physical_authorization_required`. Exact owner authorization for one family in the current chat is still required before a later reviewed implementation can enable mutation.
+No real physical-device execution is authorized. Planning and synthetic inventory smoke succeed; a reusable physical-device invocation emits `physical_authorization_required` and fails on portable capacity rather than silently skipping its device job. Exact owner authorization for one family in the current chat is still required before a later reviewed implementation can enable mutation.
 
 A runner label, attached device, secret, issue, branch, or profile name is not authorization. The in-memory adapter is test-only and is not a fencing token.
 

@@ -6,6 +6,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from ci_workflows.device_contract import build_plan, load_device_contract, load_evidence_contract, request_from_environment, validate_typed_plan
+from ci_workflows.device_evidence import validate_evidence_packet
 from ci_workflows.device_execution import *  # noqa: F401,F403
 from ci_workflows.device_types import DeviceFamily, DeviceRecord, DeviceValidationError
 from device_test_support import FIX, ROOT, SHA, real_environment, synthetic_environment
@@ -127,3 +128,23 @@ class InventoryAndEvidenceTests(unittest.TestCase):
         self.assertFalse(self.contract["lock_contract"]["cross_run_fencing_claimed"])
         self.assertEqual("none-in-source-package", self.contract["lock_contract"]["production_adapter"])
 
+    def test_evidence_rejects_unreviewed_assertions_that_could_leak_identifiers(self) -> None:
+        plan = self.plan()
+        records = parse_android_inventory((FIX / "android.txt").read_text())
+        result = execute_device_plan(
+            plan=plan,
+            records=records,
+            lock_adapter=InMemoryDeviceLockAdapter(),
+            runtime=SyntheticDeviceRuntime(),
+            evidence_contract=self.evidence,
+            now=iter((1000, 1001, 1002)).__next__,
+            synthetic_authorized=True,
+        )
+        packet = dict(result.evidence_packet)
+        packet["assertions"] = [records[0].raw_identifier]
+        with self.assertRaisesRegex(DeviceValidationError, "evidence_policy_failed"):
+            validate_evidence_packet(
+                packet,
+                self.evidence,
+                raw_identifier="different-opaque-identifier",
+            )

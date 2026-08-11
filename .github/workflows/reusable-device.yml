@@ -47,13 +47,13 @@ on:
     outputs:
       result:
         description: Success only after explicitly authorized physical execution and cleanup
-        value: ${{ jobs.device.outputs.result }}
+        value: ${{ jobs.device.outputs.result || jobs.authorization_denied.outputs.result }}
       device_evidence_id:
         description: Deterministic redacted evidence packet digest
-        value: ${{ jobs.device.outputs.device_evidence_id }}
+        value: ${{ jobs.device.outputs.device_evidence_id || jobs.authorization_denied.outputs.device_evidence_id }}
       artifact_exception_used:
         description: Whether one named bounded evidence exception was used
-        value: ${{ jobs.device.outputs.artifact_exception_used }}
+        value: ${{ jobs.device.outputs.artifact_exception_used || jobs.authorization_denied.outputs.artifact_exception_used }}
       request_id:
         description: Exact issue-scoped request identity
         value: ${{ jobs.plan.outputs.request_id }}
@@ -125,11 +125,36 @@ jobs:
           if [[ -L .ciw || -f .ciw ]]; then
             unlink .ciw
           elif [[ -d .ciw ]]; then
-            PYTHONDONTWRITEBYTECODE=1 \
-              python3 .ciw/scripts/ci/device.py cleanup-checkout --source-root .ciw
+            PYTHONDONTWRITEBYTECODE=1 python3 .ciw/scripts/ci/device.py cleanup-checkout --source-root .ciw
           fi
-          test ! -e .ciw
-          test ! -L .ciw
+          test ! -e .ciw && test ! -L .ciw
+
+  authorization_denied:
+    name: Fail closed when physical authorization is absent
+    needs: plan
+    if: ${{ needs.plan.outputs.execution_authorized != 'true' }}
+    runs-on: portable
+    timeout-minutes: 5
+    outputs:
+      result: ${{ steps.denied.outputs.result }}
+      device_evidence_id: ${{ steps.denied.outputs.device_evidence_id }}
+      artifact_exception_used: ${{ steps.denied.outputs.artifact_exception_used }}
+    steps:
+      - id: denied
+        name: Report stable physical authorization denial
+        shell: bash
+        env:
+          AUTHORIZATION_FAILURE: ${{ needs.plan.outputs.authorization_failure }}
+        run: |
+          set -Eeuo pipefail
+          test "${AUTHORIZATION_FAILURE}" = "physical_authorization_required"
+          {
+            echo "result=failure"
+            echo "device_evidence_id="
+            echo "artifact_exception_used=false"
+          } >> "${GITHUB_OUTPUT}"
+          echo "physical_authorization_required" >&2
+          exit 1
 
   device:
     name: Execute explicitly authorized physical-device validation
@@ -246,8 +271,6 @@ jobs:
           if [[ -L .ciw || -f .ciw ]]; then
             unlink .ciw
           elif [[ -d .ciw ]]; then
-            PYTHONDONTWRITEBYTECODE=1 \
-              python3 .ciw/scripts/ci/device.py cleanup-checkout --source-root .ciw
+            PYTHONDONTWRITEBYTECODE=1 python3 .ciw/scripts/ci/device.py cleanup-checkout --source-root .ciw
           fi
-          test ! -e .ciw
-          test ! -L .ciw
+          test ! -e .ciw && test ! -L .ciw

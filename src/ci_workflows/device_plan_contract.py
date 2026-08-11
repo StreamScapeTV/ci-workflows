@@ -7,9 +7,24 @@ import re
 from typing import Any, Mapping
 
 from .device_admission import source_trust_from_environment
-from .device_contract_common import require
+from .device_contract_common import (
+    CAPABILITY,
+    FULL_SHA,
+    REPOSITORY,
+    RUN_ID,
+    parse_request_id,
+    require,
+    safe_relative,
+)
 from .device_profile_contract import _profile
-from .device_types import DevicePlan, DeviceProfile, DeviceRequest, DeviceValidationError, canonical_json
+from .device_types import (
+    DeviceFamily,
+    DevicePlan,
+    DeviceProfile,
+    DeviceRequest,
+    DeviceValidationError,
+    canonical_json,
+)
 
 def build_plan(contract: Mapping[str, Any], request: DeviceRequest) -> DevicePlan:
     if request.source_trust == "trusted-pr":
@@ -125,10 +140,99 @@ def validate_typed_plan(
     require(packet["cancel_in_progress"] is False, "group_injection_rejected")
     require(packet["execution_authorized"] is False, "authorization_rejected")
     require(packet["authorization_failure"] == "physical_authorization_required", "authorization_rejected")
+    require(
+        all(
+            isinstance(packet[field], str)
+            for field in (
+                "repository",
+                "admitted_sha",
+                "event_name",
+                "run_id",
+                "request_id",
+                "device_family",
+                "device_capability",
+                "device_alias",
+                "device_profile",
+                "command_profile",
+                "script_path",
+                "evidence_exception_id",
+                "planner_runner_profile",
+                "execution_overlay_profile",
+                "base_runner_profile",
+                "runs_on_json",
+                "workspace_profile",
+                "serialization_backend",
+                "concurrency_group",
+            )
+        ),
+        "typed_plan_rejected",
+    )
+    require(
+        type(packet["issue_number"]) is int
+        and type(packet["max_duration_minutes"]) is int,
+        "typed_plan_rejected",
+    )
     expected_group = (
         f"device-validation-{packet['device_profile']}-"
         f"{packet['device_family']}-{packet['alias_class']}"
     )
     require(packet["concurrency_group"] == expected_group, "group_injection_rejected")
-    return packet
 
+    # A digest proves the planner output was not altered in transit. Rebuilding
+    # the packet from the contract also prevents a self-consistent replacement
+    # (new packet plus new digest) from changing profile, script, source, or
+    # authorization facts before an executor ever reaches a hardware boundary.
+    repository = str(packet["repository"])
+    admitted_sha = str(packet["admitted_sha"])
+    require(REPOSITORY.fullmatch(repository) is not None, "typed_plan_rejected")
+    require(FULL_SHA.fullmatch(admitted_sha) is not None, "typed_plan_rejected")
+    require(packet["event_name"] == environment.get("GITHUB_EVENT_NAME"), "typed_plan_rejected")
+    expected_run_id = (
+        f"{environment.get('GITHUB_RUN_ID', '').strip()}:"
+        f"{environment.get('GITHUB_RUN_ATTEMPT', '').strip()}"
+    )
+    require(packet["run_id"] == expected_run_id and RUN_ID.fullmatch(expected_run_id), "typed_plan_rejected")
+    issue_number = parse_request_id(str(packet["request_id"]))
+    require(packet["issue_number"] == issue_number, "typed_plan_rejected")
+    require(CAPABILITY.fullmatch(str(packet["device_capability"])) is not None, "typed_plan_rejected")
+    script_path = safe_relative(packet["script_path"], "typed_plan_rejected")
+    require(script_path == packet["script_path"], "typed_plan_rejected")
+    try:
+        family = DeviceFamily(str(packet["device_family"]))
+    except ValueError as error:
+        raise DeviceValidationError("typed_plan_rejected") from error
+    try:
+        runs_on = json.loads(str(packet["runs_on_json"]))
+    except json.JSONDecodeError as error:
+        raise DeviceValidationError("typed_plan_rejected") from error
+    require(
+        isinstance(runs_on, list)
+        and runs_on
+        and all(isinstance(label, str) and label for label in runs_on)
+        and canonical_json(runs_on) == packet["runs_on_json"],
+        "typed_plan_rejected",
+    )
+    rebuilt_request = DeviceRequest(
+        repository=repository,
+        admitted_sha=admitted_sha,
+        family=family,
+        capability=str(packet["device_capability"]),
+        device_alias=str(packet["device_alias"]),
+        command_profile=str(packet["command_profile"]),
+        script_path=script_path,
+        max_duration_minutes=int(packet["max_duration_minutes"]),
+        evidence_exception_id=str(packet["evidence_exception_id"]) or None,
+        request_id=str(packet["request_id"]),
+        issue_number=issue_number,
+        source_trust=derived,
+        event_name=str(packet["event_name"]),
+        run_id=str(packet["run_id"]),
+        live_backend_secret_present=(
+            environment.get("CIW_DEVICE_LIVE_BACKEND_PRESENT", "").strip() == "true"
+        ),
+    )
+    expected_packet = build_plan(contract, rebuilt_request).packet(
+        runs_on_json=str(packet["runs_on_json"])
+    )
+    require(packet == expected_packet, "typed_plan_rejected")
+    return packet

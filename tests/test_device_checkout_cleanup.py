@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from ci_workflows.ciw_device import _source_path
 from ci_workflows.device_execution import assert_zero_device_residue, cleanup_checkout_path, cleanup_device_state, validate_exact_checkout
 from ci_workflows.device_types import DeviceValidationError
 from device_test_support import SHA
@@ -68,3 +69,18 @@ class ExactCheckoutAndCleanupTests(unittest.TestCase):
             assert_zero_device_residue(state)
             self.assertEqual("keep", outside.read_text())
 
+    def test_execution_source_root_is_fixed_and_never_follows_a_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            source = workspace / "source"
+            source.mkdir()
+            environment = {"GITHUB_WORKSPACE": str(workspace)}
+            self.assertEqual(source.resolve(), _source_path(workspace, "source", environment))
+            with self.assertRaisesRegex(DeviceValidationError, "invalid_input"):
+                _source_path(workspace, ".ciw", environment)
+            source.rmdir()
+            outside = workspace / "outside"
+            outside.mkdir()
+            source.symlink_to(outside, target_is_directory=True)
+            with self.assertRaisesRegex(DeviceValidationError, "invalid_input"):
+                _source_path(workspace, "source", environment)

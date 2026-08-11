@@ -139,9 +139,18 @@ def validate_evidence_packet(
     for pattern in evidence_contract["forbidden_value_patterns"]:
         require(re.search(str(pattern), serialized) is None, "evidence_policy_failed")
     require(re.fullmatch(str(evidence_contract["identity_hash_regex"]), str(packet["device_identity_hash"])) is not None, "evidence_policy_failed")
-    require(isinstance(packet["assertions"], list) and len(packet["assertions"]) <= int(evidence_contract["maximum_assertions"]), "evidence_policy_failed")
+    assertions = packet["assertions"]
+    allowed_assertions = evidence_contract["allowed_assertions"]
+    require(
+        isinstance(assertions, list)
+        and all(isinstance(assertion, str) for assertion in assertions)
+        and assertions == sorted(set(assertions))
+        and len(assertions) <= int(evidence_contract["maximum_assertions"])
+        and isinstance(allowed_assertions, list)
+        and set(assertions) <= set(allowed_assertions),
+        "evidence_policy_failed",
+    )
     require(isinstance(packet["retained_evidence"], list) and len(packet["retained_evidence"]) <= int(evidence_contract["maximum_retained_files"]), "evidence_policy_failed")
 
 def evidence_id(packet: Mapping[str, object]) -> str:
     return hashlib.sha256(canonical_json(packet).encode()).hexdigest()
-

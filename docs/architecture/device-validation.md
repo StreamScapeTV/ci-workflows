@@ -4,7 +4,7 @@
 
 `ci-workflows` owns only the reusable admission, typed planning, bounded inventory parsing, deterministic selection, GitHub job serialization, redacted evidence, stage ordering, and cleanup contracts. Product repositories retain their checked-in device test scripts and assertions. Flux and product source are not modified by this issue.
 
-No real physical-device execution is authorized by this repair. The current plan always returns `execution_authorized=false` with stable failure `physical_authorization_required`. Runner labels, device presence, issue or branch text, and secret presence are never authorization.
+No real physical-device execution is authorized by this repair. The current plan always returns `execution_authorized=false` with stable failure `physical_authorization_required`; the reusable workflow turns that result into an explicit portable authorization-denied failure rather than silently skipping the device job. Runner labels, device presence, issue or branch text, and secret presence are never authorization.
 
 ## Current GitHub source admission
 
@@ -38,10 +38,10 @@ The three `ciw-synthetic-*` profiles permit successful source-only planning, inv
 
 The lifecycle records the first primary failure while independently recording restoration, cleanup, and release failures. Restoration is attempted before cleanup. Cleanup removes only run-owned state and uses `lstat`-based no-follow traversal.
 
-Both `source` and `.ciw` are removed under `if: always()`. The workflow proves both `! -e` and `! -L`, so a symlink is unlinked rather than followed and persistent-host checkout residue fails closed.
+Both `source` and `.ciw` are removed under `if: always()`. The executor accepts only the fixed non-symlink `source` checkout; the workflow proves both `! -e` and `! -L`, so a symlink is unlinked rather than followed and persistent-host checkout residue fails closed.
 
 ## Evidence
 
-Evidence is bounded, deterministic, and recursively allowlisted. It contains exact source, reviewed profile, hashed device identity, contract serialization facts, synthetic test-lock facts, assertions, restoration/cleanup state, and explicit limitations. It rejects raw identifiers, credentials, endpoints, environment dumps, unrestricted logs, screenshots, traces, or private media.
+Evidence is bounded, deterministic, and recursively allowlisted. It contains exact source, reviewed profile, hashed device identity, contract serialization facts, synthetic test-lock facts, contract-allowlisted assertions, restoration/cleanup state, and explicit limitations. It rejects raw identifiers, credentials, endpoints, environment dumps, unrestricted logs, screenshots, traces, or private media.
 
 Every packet states that it does not certify simulator or emulator behavior, authorize release/signing/store/deployment, or claim cross-run database fencing.

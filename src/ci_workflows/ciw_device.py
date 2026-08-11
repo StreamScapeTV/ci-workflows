@@ -104,11 +104,10 @@ def _bounded_relative_file(root: Path, value: str) -> Path:
 
 def _source_path(root: Path, relative: str, environment: Mapping[str, str]) -> Path:
     workspace = Path(environment.get("GITHUB_WORKSPACE", root)).resolve()
-    path = PurePosixPath(relative)
-    if not relative or path.is_absolute() or "\\" in relative or ".." in path.parts:
+    if relative != "source":
         raise device_validation.DeviceValidationError("invalid_input")
-    source = workspace.joinpath(*path.parts).resolve(strict=False)
-    if source != workspace and workspace not in source.parents:
+    source = workspace / "source"
+    if source.is_symlink():
         raise device_validation.DeviceValidationError("invalid_input")
     return source
 
