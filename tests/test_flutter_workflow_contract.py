@@ -112,8 +112,8 @@ class FlutterWorkflowContractTests(unittest.TestCase):
 
     def test_manual_flutter_commands_assert_exact_pub_cache_each_time(self) -> None:
         for source in (self.mobile_smoke, self.apple_smoke):
-            command_block = source.split("require_pub_cache()", 1)[1].split("- id: flutter", 1)[0]
-            self.assertIn('test "${PUB_CACHE}" = "${EXPECTED_PUB_CACHE}"', command_block)
+            command_block = source.split("Create contract-owned", 1)[1].split("- id: flutter", 1)[0]
+            self.assertNotIn("require_pub_cache", command_block)
             lines = [line.strip() for line in command_block.splitlines() if line.strip()]
             flutter_indexes = [
                 index
@@ -121,11 +121,13 @@ class FlutterWorkflowContractTests(unittest.TestCase):
                 if line.startswith("flutter ") or "&& flutter " in line
             ]
             self.assertEqual(2, len(flutter_indexes))
+            expected_guard = [
+                'test "${PUB_CACHE}" = "${EXPECTED_PUB_CACHE}"',
+                'test -d "${PUB_CACHE}"',
+                'test ! -L "${PUB_CACHE}"',
+            ]
             for index in flutter_indexes:
-                self.assertTrue(
-                    any(lines[position] == "require_pub_cache" for position in range(max(0, index - 3), index)),
-                    lines[index],
-                )
+                self.assertEqual(expected_guard, lines[index - 3:index], lines[index])
 
     def test_runtime_enforces_pub_cache_before_every_flutter_or_dart_command(self) -> None:
         execution = (ROOT / "src/ci_workflows/flutter_execution.py").read_text(

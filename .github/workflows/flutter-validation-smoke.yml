@@ -260,14 +260,13 @@ jobs:
           EXPECTED_GRADLE: ${{ needs.plan.outputs.gradle_version }}
         run: |
           set -Eeuo pipefail
-          require_pub_cache() {
-            test "${PUB_CACHE}" = "${EXPECTED_PUB_CACHE}"
-            test -d "${PUB_CACHE}"
-            test ! -L "${PUB_CACHE}"
-          }
-          require_pub_cache
+          test "${PUB_CACHE}" = "${EXPECTED_PUB_CACHE}"
+          test -d "${PUB_CACHE}"
+          test ! -L "${PUB_CACHE}"
           flutter create --no-pub --platforms=android --project-name ciw_flutter_smoke source
-          require_pub_cache
+          test "${PUB_CACHE}" = "${EXPECTED_PUB_CACHE}"
+          test -d "${PUB_CACHE}"
+          test ! -L "${PUB_CACHE}"
           (cd source && flutter pub get)
           test -f source/pubspec.lock
           grep -F "gradle-${EXPECTED_GRADLE}-all.zip" \
