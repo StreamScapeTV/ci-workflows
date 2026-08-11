@@ -20,7 +20,8 @@ class GitOpsWorkflowContractTests(unittest.TestCase):
         self.assertNotIn('upload-artifact', source)
         self.assertNotIn('runs-on: macOS', source)
         self.assertNotIn('self-hosted', source)
-        self.assertIn('runs-on: portable', source)
+        self.assertNotIn('runs-on: portable', source)
+        self.assertEqual(['linux', 'amd64', 'general'], workflow['jobs']['plan']['runs-on'])
         self.assertIn('fromJSON(needs.plan.outputs.runs_on_json)', source)
         self.assertIn('CI / GitOps validation', source)
         self.assertIn('if: always()', source)
@@ -39,6 +40,10 @@ class GitOpsWorkflowContractTests(unittest.TestCase):
         self.assertIn('Verify GitOps smoke retained zero artifacts', source)
         self.assertNotIn('upload-artifact', source)
         self.assertNotIn('macOS', source)
+        self.assertNotIn('runs-on: portable', source)
+        self.assertEqual(['linux', 'amd64', 'general'], workflow['jobs']['plan']['runs-on'])
+        self.assertEqual(['linux', 'amd64', 'general'], workflow['jobs']['artifacts']['runs-on'])
+        self.assertEqual('${{ fromJSON(needs.plan.outputs.runs_on_json) }}', workflow['jobs']['execute']['runs-on'])
         for job in workflow['jobs'].values():
             if 'uses' not in job:
                 self.assertGreater(job.get('timeout-minutes', 0), 0)
