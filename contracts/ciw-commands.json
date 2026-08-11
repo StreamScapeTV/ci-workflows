@@ -125,6 +125,17 @@
     },
     {
       "cleanup": "ciw workspace cleanup under if: always()",
+      "domain": "flutter",
+      "failure": "FlutterValidationError.code",
+      "handler": "ci_workflows.ciw.handle_flutter_validate",
+      "inputs": ["phase", "source_root", "admitted_sha", "validation_profile", "version_file", "working_directory", "command_profile", "script_path", "platform", "artifact_exception_id", "source_trust", "primary_failure_code", "GitHub event identity"],
+      "operation": "validate",
+      "outputs": ["result", "source_sha", "consumer_contract", "validation_profile", "runner_profile", "runs_on_json", "workspace_profile", "timeout_minutes", "source_trust", "flutter_version", "dart_version", "framework_revision", "engine_revision", "gradle_version", "jdk_distribution", "jdk_version", "java_version", "java_runtime_version", "java_vendor", "javac_version", "jdk_setup_action", "lockfile_sha256", "stage_summary_json", "test_summary", "clean_tree", "cleanup_result", "output_verified", "artifact_exception_used", "device_handoff_json", "evidence_id", "install_required", "node_composition", "pub_cache_path", "persistent_pub_cache_path", "persistent_pub_cache_unchanged", "failure_code", "primary_failure_code", "cleanup_failure_code"],
+      "side_effects": ["resolves one contract-owned Flutter plan", "executes only contract-selected Flutter, Dart, JDK, Gradle, and checked-in consumer gates", "binds the pub cache below registered workflow state and preserves the persistent host cache", "enforces source, platform, cleanup, and zero-artifact boundaries"],
+      "trust_class": "read-only-validation"
+    },
+    {
+      "cleanup": "ciw workspace cleanup under if: always()",
       "domain": "workspace",
       "failure": "FoundationError.instruction",
       "handler": "ci_workflows.ciw.handle_workspace_prepare",
@@ -245,7 +256,7 @@
   ],
   "entry_point": "scripts/ci/ciw.py",
   "forbidden_dispatch_inputs": ["arbitrary_command", "shell", "callback", "callback_url", "handler", "function_name", "module_name", "runner", "runs_on", "runner_labels", "container_engine", "secret_name", "deletion_path", "workspace_root"],
-  "future_namespaces": ["flutter", "apple", "gitops", "oci", "helm", "release", "device", "github"],
+  "future_namespaces": ["apple", "gitops", "oci", "helm", "release", "device", "github"],
   "program": "ciw",
   "schema_version": 1
 }

@@ -13,6 +13,7 @@ from typing import Any, Callable, Mapping, Sequence
 from . import runners
 from .ciw_android import configure_android_validate, execute_android_validate
 from .ciw_docs import load_command_contract
+from .ciw_flutter import configure_flutter_validate, execute_flutter_validate
 from .ciw_node import configure_node_validate, execute_node_validate
 from .ciw_python import configure_python_validate, execute_python_validate
 from .ciw_types import (
@@ -109,6 +110,10 @@ def _add_runner_tier(parser: argparse.ArgumentParser) -> None:
 
 def _add_android_validate(parser: argparse.ArgumentParser) -> None:
     configure_android_validate(parser)
+
+
+def _add_flutter_validate(parser: argparse.ArgumentParser) -> None:
+    configure_flutter_validate(parser)
 
 
 def _add_python_validate(parser: argparse.ArgumentParser) -> None:
@@ -420,6 +425,13 @@ def handle_android_validate(
     context: CIWContext,
 ) -> CIWResult:
     return execute_android_validate(args, context)
+
+
+def handle_flutter_validate(
+    args: argparse.Namespace,
+    context: CIWContext,
+) -> CIWResult:
+    return execute_flutter_validate(args, context)
 
 
 def handle_python_validate(
@@ -942,6 +954,12 @@ def command_specs() -> tuple[CommandSpec, ...]:
             "validate",
             handle_android_validate,
             _add_android_validate,
+        ),
+        CommandSpec(
+            "flutter",
+            "validate",
+            handle_flutter_validate,
+            _add_flutter_validate,
         ),
         CommandSpec(
             "python",
