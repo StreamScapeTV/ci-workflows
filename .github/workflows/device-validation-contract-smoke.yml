@@ -31,7 +31,7 @@ jobs:
   contract_smoke:
     name: Validate synthetic device contracts only
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: portable
+    runs-on: [linux, amd64, general]
     timeout-minutes: 30
     steps:
       - name: Check out exact pull request source
@@ -152,7 +152,7 @@ jobs:
     name: Verify device contract smoke artifacts remain zero
     needs: contract_smoke
     if: always()
-    runs-on: portable
+    runs-on: [linux, amd64, general]
     timeout-minutes: 10
     steps:
       - name: Require contract smoke success and zero Actions artifacts

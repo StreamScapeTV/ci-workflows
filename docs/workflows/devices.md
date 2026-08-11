@@ -4,7 +4,7 @@
 
 ## Current state
 
-No real physical-device execution is authorized. Planning and synthetic inventory smoke succeed; a reusable physical-device invocation emits `physical_authorization_required` and fails on portable capacity rather than silently skipping its device job. Exact owner authorization for one family in the current chat is still required before a later reviewed implementation can enable mutation.
+No real physical-device execution is authorized. Planning and synthetic inventory smoke succeed; a reusable physical-device invocation emits `physical_authorization_required` and fails on `[linux, amd64, general]` general Linux capacity rather than silently skipping its device job. Exact owner authorization for one family in the current chat is still required before a later reviewed implementation can enable mutation.
 
 A runner label, attached device, secret, issue, branch, or profile name is not authorization. The in-memory adapter is test-only and is not a fencing token.
 
@@ -51,7 +51,7 @@ The plan also emits a reviewed profile/family/alias-class concurrency group. The
 
 ## Synthetic contract smoke
 
-`.github/workflows/device-validation-contract-smoke.yml` runs on portable source-only capacity and covers Android, iOS, and tvOS synthetic profiles. It executes focused tests, deterministic parsers, selection, redaction, restoration-first cleanup, primary-plus-cleanup reporting, and zero-artifact verification. It does not touch hardware.
+`.github/workflows/device-validation-contract-smoke.yml` runs on `[linux, amd64, general]` source-only capacity and covers Android, iOS, and tvOS synthetic profiles. It executes focused tests, deterministic parsers, selection, redaction, restoration-first cleanup, primary-plus-cleanup reporting, and zero-artifact verification. It does not touch hardware.
 
 All synthetic fixtures are descriptive and indexed in `cases.json`. There are no `.checkpoint` or placeholder files.
 

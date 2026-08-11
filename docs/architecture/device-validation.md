@@ -4,7 +4,7 @@
 
 `ci-workflows` owns only the reusable admission, typed planning, bounded inventory parsing, deterministic selection, GitHub job serialization, redacted evidence, stage ordering, and cleanup contracts. Product repositories retain their checked-in device test scripts and assertions. Flux and product source are not modified by this issue.
 
-No real physical-device execution is authorized by this repair. The current plan always returns `execution_authorized=false` with stable failure `physical_authorization_required`; the reusable workflow turns that result into an explicit portable authorization-denied failure rather than silently skipping the device job. Runner labels, device presence, issue or branch text, and secret presence are never authorization.
+No real physical-device execution is authorized by this repair. The current plan always returns `execution_authorized=false` with stable failure `physical_authorization_required`; the reusable workflow turns that result into an explicit `[linux, amd64, general]` authorization-denied failure rather than silently skipping the device job. Runner labels, device presence, issue or branch text, and secret presence are never authorization.
 
 ## Current GitHub source admission
 

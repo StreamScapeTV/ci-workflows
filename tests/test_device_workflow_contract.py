@@ -108,13 +108,36 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         self.assertGreaterEqual(combined.count("test ! -L source"), 3)
 
     def test_smoke_is_source_only_and_synthetic(self) -> None:
-        self.assertIn("runs-on: portable", self.smoke)
+        self.assertEqual(2, self.smoke.count("runs-on: [linux, amd64, general]"))
         self.assertEqual(3, self.smoke.count("phase: synthetic"))
         self.assertNotIn("phase: execute", self.smoke)
         self.assertNotIn("live_test_credentials", self.smoke)
         self.assertNotIn("device_identifier:", self.smoke)
         self.assertNotIn("source_trust:", self.smoke)
         self.assertIn("Verify device contract smoke artifacts remain zero", self.smoke)
+
+    def test_direct_synthetic_selectors_are_general_linux_not_semantic_profiles(self) -> None:
+        selector = "runs-on: [linux, amd64, general]"
+        selector_value = "[linux, amd64, general]"
+        self.assertEqual(2, self.workflow.count(selector))
+        self.assertNotIn("runs-on: portable", self.workflow + self.smoke)
+        self.assertIn(
+            "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
+            self.workflow,
+        )
+        direct_selectors = re.findall(r"^    runs-on: (.+)$", self.workflow + "\n" + self.smoke, re.M)
+        self.assertEqual(4, direct_selectors.count(selector_value))
+        direct_selector_text = "\n".join(direct_selectors)
+        for forbidden in (
+            "physical-device",
+            "self-hosted",
+            "buildah",
+            "buildah-tiny",
+            "buildah-small",
+            "buildah-medium",
+            "buildah-high",
+        ):
+            self.assertNotIn(forbidden, direct_selector_text)
 
     def test_zero_publication_cluster_signing_and_artifact_authority(self) -> None:
         text = (self.workflow + self.smoke + self.action).casefold()
