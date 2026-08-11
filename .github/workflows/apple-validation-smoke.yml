@@ -7,7 +7,6 @@ on:
       - .github/workflows/reusable-apple.yml
       - .github/workflows/apple-validation-smoke.yml
       - actions/validate-apple/**
-      - actions/cleanup-apple-checkout/**
       - scripts/ci/apple.py
       - scripts/ci/apple_checkout_cleanup.py
       - src/ci_workflows/apple.py
@@ -133,9 +132,10 @@ jobs:
           set-safe-directory: false
 
       - name: Clear fixed admitted source checkout root
-        uses: ./.ciw/actions/cleanup-apple-checkout
-        with:
-          target: source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 .ciw/scripts/ci/apple_checkout_cleanup.py source
 
       - name: Check out exact admitted smoke source
         uses: ./.ciw/actions/exact-checkout
@@ -206,9 +206,10 @@ jobs:
 
       - name: Remove exact admitted iOS smoke source
         if: always()
-        uses: ./.ciw/actions/cleanup-apple-checkout
-        with:
-          target: source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 .ciw/scripts/ci/apple_checkout_cleanup.py source
 
       - name: Remove and verify registered iOS workflow state
         if: always()
@@ -216,9 +217,10 @@ jobs:
 
       - name: Remove exact iOS validation implementation checkout
         if: always()
-        uses: ./.ciw/actions/cleanup-apple-checkout
-        with:
-          target: central
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 .ciw/scripts/ci/apple_checkout_cleanup.py central
 
   tvos:
     name: Real tvOS simulator smoke
@@ -237,9 +239,10 @@ jobs:
           set-safe-directory: false
 
       - name: Clear fixed admitted source checkout root
-        uses: ./.ciw/actions/cleanup-apple-checkout
-        with:
-          target: source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 .ciw/scripts/ci/apple_checkout_cleanup.py source
 
       - name: Check out exact admitted smoke source
         uses: ./.ciw/actions/exact-checkout
@@ -310,9 +313,10 @@ jobs:
 
       - name: Remove exact admitted tvOS smoke source
         if: always()
-        uses: ./.ciw/actions/cleanup-apple-checkout
-        with:
-          target: source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 .ciw/scripts/ci/apple_checkout_cleanup.py source
 
       - name: Remove and verify registered tvOS workflow state
         if: always()
@@ -320,9 +324,10 @@ jobs:
 
       - name: Remove exact tvOS validation implementation checkout
         if: always()
-        uses: ./.ciw/actions/cleanup-apple-checkout
-        with:
-          target: central
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 .ciw/scripts/ci/apple_checkout_cleanup.py central
 
   macos:
     name: Real unsigned macOS smoke
@@ -341,9 +346,10 @@ jobs:
           set-safe-directory: false
 
       - name: Clear fixed admitted source checkout root
-        uses: ./.ciw/actions/cleanup-apple-checkout
-        with:
-          target: source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 .ciw/scripts/ci/apple_checkout_cleanup.py source
 
       - name: Check out exact admitted smoke source
         uses: ./.ciw/actions/exact-checkout
@@ -414,9 +420,10 @@ jobs:
 
       - name: Remove exact admitted macOS smoke source
         if: always()
-        uses: ./.ciw/actions/cleanup-apple-checkout
-        with:
-          target: source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 .ciw/scripts/ci/apple_checkout_cleanup.py source
 
       - name: Remove and verify registered macOS workflow state
         if: always()
@@ -424,9 +431,10 @@ jobs:
 
       - name: Remove exact macOS validation implementation checkout
         if: always()
-        uses: ./.ciw/actions/cleanup-apple-checkout
-        with:
-          target: central
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 .ciw/scripts/ci/apple_checkout_cleanup.py central
 
   zero_artifacts:
     name: Verify Apple routine artifacts remain zero

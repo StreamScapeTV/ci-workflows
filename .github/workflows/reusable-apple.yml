@@ -172,9 +172,10 @@ jobs:
           (cd .ciw && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
 
       - name: Clear fixed admitted source checkout root
-        uses: ./.ciw/actions/cleanup-apple-checkout
-        with:
-          target: source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 .ciw/scripts/ci/apple_checkout_cleanup.py source
 
       - name: Check out exact admitted caller source
         uses: ./.ciw/actions/exact-checkout
@@ -265,9 +266,10 @@ jobs:
         name: Remove exact admitted source checkout
         if: always()
         continue-on-error: true
-        uses: ./.ciw/actions/cleanup-apple-checkout
-        with:
-          target: source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 .ciw/scripts/ci/apple_checkout_cleanup.py source
 
       - id: workspace_cleanup
         name: Remove and verify all registered workflow state
@@ -279,9 +281,10 @@ jobs:
         name: Remove exact central workflow checkout without following links
         if: always()
         continue-on-error: true
-        uses: ./.ciw/actions/cleanup-apple-checkout
-        with:
-          target: central
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 .ciw/scripts/ci/apple_checkout_cleanup.py central
 
       - name: Project primary and combined terminal Apple failures
         if: always()

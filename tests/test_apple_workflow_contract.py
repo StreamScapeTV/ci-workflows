@@ -22,9 +22,6 @@ class AppleWorkflowContractTests(unittest.TestCase):
         self.action = (ROOT / "actions/validate-apple/action.yml").read_text(
             encoding="utf-8"
         )
-        self.checkout_cleanup_action = (
-            ROOT / "actions/cleanup-apple-checkout/action.yml"
-        ).read_text(encoding="utf-8")
         self.checkout_cleanup_adapter = (
             ROOT / "scripts/ci/apple_checkout_cleanup.py"
         ).read_text(encoding="utf-8")
@@ -149,12 +146,10 @@ class AppleWorkflowContractTests(unittest.TestCase):
     def test_checkout_cleanup_is_fixed_and_no_follow(self) -> None:
         workflows = self.workflow + self.smoke
         self.assertIn(
-            "uses: ./.ciw/actions/cleanup-apple-checkout",
+            "python3 .ciw/scripts/ci/apple_checkout_cleanup.py source",
             workflows,
         )
         self.assertNotIn("rm -rf -- source", workflows)
-        self.assertIn("TARGET: ${{ inputs.target }}", self.checkout_cleanup_action)
-        self.assertIn("central|source", self.checkout_cleanup_action)
         self.assertIn(
             '_TARGETS = {"central": ".ciw", "source": "source"}',
             self.checkout_cleanup_adapter,

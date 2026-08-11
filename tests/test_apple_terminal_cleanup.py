@@ -11,9 +11,6 @@ class AppleTerminalCleanupTests(unittest.TestCase):
         self.workflow = (
             ROOT / ".github/workflows/reusable-apple.yml"
         ).read_text(encoding="utf-8")
-        self.cleanup_action = (
-            ROOT / "actions/cleanup-apple-checkout/action.yml"
-        ).read_text(encoding="utf-8")
         self.cleanup_adapter = (
             ROOT / "scripts/ci/apple_checkout_cleanup.py"
         ).read_text(encoding="utf-8")
@@ -30,11 +27,10 @@ class AppleTerminalCleanupTests(unittest.TestCase):
         self.assertEqual(self.workflow.count("test ! -e .ciw"), 1)
         self.assertEqual(self.workflow.count("test ! -L .ciw"), 1)
         self.assertIn('os.path.lexists(".ciw")', self.workflow)
-        self.assertGreaterEqual(
-            self.workflow.count("uses: ./.ciw/actions/cleanup-apple-checkout"),
-            3,
+        self.assertIn(
+            "python3 .ciw/scripts/ci/apple_checkout_cleanup.py central",
+            self.workflow,
         )
-        self.assertIn("central|source", self.cleanup_action)
         self.assertIn("_remove_no_follow(path)", self.cleanup_adapter)
         self.assertIn("os.path.lexists(path)", self.cleanup_adapter)
 
