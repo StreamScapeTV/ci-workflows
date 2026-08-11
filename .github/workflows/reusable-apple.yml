@@ -172,12 +172,9 @@ jobs:
           (cd .ciw && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
 
       - name: Clear fixed admitted source checkout root
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          rm -rf -- source
-          test ! -e source
-          test ! -L source
+        uses: ./.ciw/actions/cleanup-apple-checkout
+        with:
+          target: source
 
       - name: Check out exact admitted caller source
         uses: ./.ciw/actions/exact-checkout
@@ -268,12 +265,9 @@ jobs:
         name: Remove exact admitted source checkout
         if: always()
         continue-on-error: true
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          rm -rf -- source
-          test ! -e source
-          test ! -L source
+        uses: ./.ciw/actions/cleanup-apple-checkout
+        with:
+          target: source
 
       - id: workspace_cleanup
         name: Remove and verify all registered workflow state
@@ -285,36 +279,9 @@ jobs:
         name: Remove exact central workflow checkout without following links
         if: always()
         continue-on-error: true
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          python3 - <<'PY'
-          import os
-          import stat
-          from pathlib import Path
-
-          def remove_no_follow(path: Path) -> None:
-              try:
-                  metadata = os.lstat(path)
-              except FileNotFoundError:
-                  return
-              if stat.S_ISLNK(metadata.st_mode) or stat.S_ISREG(metadata.st_mode):
-                  os.unlink(path)
-              elif stat.S_ISDIR(metadata.st_mode):
-                  with os.scandir(path) as entries:
-                      children = [path / entry.name for entry in entries]
-                  for child in children:
-                      remove_no_follow(child)
-                  os.rmdir(path)
-              else:
-                  raise SystemExit("unsupported fixed checkout entry")
-
-          remove_no_follow(Path(".ciw"))
-          if os.path.lexists(".ciw"):
-              raise SystemExit("fixed central checkout root remains")
-          PY
-          test ! -e .ciw
-          test ! -L .ciw
+        uses: ./.ciw/actions/cleanup-apple-checkout
+        with:
+          target: central
 
       - name: Project primary and combined terminal Apple failures
         if: always()

@@ -11,6 +11,12 @@ class AppleTerminalCleanupTests(unittest.TestCase):
         self.workflow = (
             ROOT / ".github/workflows/reusable-apple.yml"
         ).read_text(encoding="utf-8")
+        self.cleanup_action = (
+            ROOT / "actions/cleanup-apple-checkout/action.yml"
+        ).read_text(encoding="utf-8")
+        self.cleanup_adapter = (
+            ROOT / "scripts/ci/apple_checkout_cleanup.py"
+        ).read_text(encoding="utf-8")
 
     def test_fixed_central_checkout_is_removed_without_following_links(self) -> None:
         self.assertIn("Clear fixed central workflow checkout root", self.workflow)
@@ -18,15 +24,19 @@ class AppleTerminalCleanupTests(unittest.TestCase):
             "Remove exact central workflow checkout without following links",
             self.workflow,
         )
-        self.assertGreaterEqual(
-            self.workflow.count('remove_no_follow(Path(".ciw"))'),
-            2,
-        )
-        self.assertGreaterEqual(self.workflow.count("os.lstat(path)"), 2)
-        self.assertGreaterEqual(self.workflow.count("stat.S_ISLNK"), 2)
-        self.assertGreaterEqual(self.workflow.count("test ! -e .ciw"), 2)
-        self.assertGreaterEqual(self.workflow.count("test ! -L .ciw"), 2)
+        self.assertEqual(self.workflow.count('remove_no_follow(Path(".ciw"))'), 1)
+        self.assertEqual(self.workflow.count("os.lstat(path)"), 1)
+        self.assertEqual(self.workflow.count("stat.S_ISLNK"), 1)
+        self.assertEqual(self.workflow.count("test ! -e .ciw"), 1)
+        self.assertEqual(self.workflow.count("test ! -L .ciw"), 1)
         self.assertIn('os.path.lexists(".ciw")', self.workflow)
+        self.assertGreaterEqual(
+            self.workflow.count("uses: ./.ciw/actions/cleanup-apple-checkout"),
+            3,
+        )
+        self.assertIn("central|source", self.cleanup_action)
+        self.assertIn("_remove_no_follow(path)", self.cleanup_adapter)
+        self.assertIn("os.path.lexists(path)", self.cleanup_adapter)
 
     def test_terminal_projection_includes_primary_and_every_cleanup_surface(self) -> None:
         for identifier in (

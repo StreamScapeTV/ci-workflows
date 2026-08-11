@@ -22,6 +22,12 @@ class AppleWorkflowContractTests(unittest.TestCase):
         self.action = (ROOT / "actions/validate-apple/action.yml").read_text(
             encoding="utf-8"
         )
+        self.checkout_cleanup_action = (
+            ROOT / "actions/cleanup-apple-checkout/action.yml"
+        ).read_text(encoding="utf-8")
+        self.checkout_cleanup_adapter = (
+            ROOT / "scripts/ci/apple_checkout_cleanup.py"
+        ).read_text(encoding="utf-8")
         self.facade = (ROOT / "src/ci_workflows/apple.py").read_text(
             encoding="utf-8"
         )
@@ -139,6 +145,23 @@ class AppleWorkflowContractTests(unittest.TestCase):
         self.assertIn("test ! -e .ciw", self.workflow)
         self.assertIn("test ! -L .ciw", self.workflow)
         self.assertIn("CIW_CLEANUP_OUTCOME", self.workflow)
+
+    def test_checkout_cleanup_is_fixed_and_no_follow(self) -> None:
+        workflows = self.workflow + self.smoke
+        self.assertIn(
+            "uses: ./.ciw/actions/cleanup-apple-checkout",
+            workflows,
+        )
+        self.assertNotIn("rm -rf -- source", workflows)
+        self.assertIn("TARGET: ${{ inputs.target }}", self.checkout_cleanup_action)
+        self.assertIn("central|source", self.checkout_cleanup_action)
+        self.assertIn(
+            '_TARGETS = {"central": ".ciw", "source": "source"}',
+            self.checkout_cleanup_adapter,
+        )
+        self.assertIn("choices=sorted(_TARGETS)", self.checkout_cleanup_adapter)
+        self.assertIn("_remove_no_follow(path)", self.checkout_cleanup_adapter)
+        self.assertIn("os.path.lexists(path)", self.checkout_cleanup_adapter)
 
     def test_no_signing_physical_device_archive_store_or_deployment_path(self) -> None:
         workflow_text = (self.workflow + self.smoke + self.action).lower()

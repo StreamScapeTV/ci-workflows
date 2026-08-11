@@ -7,7 +7,9 @@ on:
       - .github/workflows/reusable-apple.yml
       - .github/workflows/apple-validation-smoke.yml
       - actions/validate-apple/**
+      - actions/cleanup-apple-checkout/**
       - scripts/ci/apple.py
+      - scripts/ci/apple_checkout_cleanup.py
       - src/ci_workflows/apple.py
       - src/ci_workflows/apple_contract.py
       - src/ci_workflows/apple_execution.py
@@ -106,48 +108,11 @@ jobs:
           set -Eeuo pipefail
           (
             cd .ciw
-            python3 - <<'PY_COMPILE'
-          from pathlib import Path
-
-          paths = (
-              "scripts/ci/apple.py",
-              "src/ci_workflows/apple.py",
-              "src/ci_workflows/apple_contract.py",
-              "src/ci_workflows/apple_execution.py",
-              "src/ci_workflows/apple_types.py",
-              "src/ci_workflows/ciw_apple.py",
-              "tests/test_apple_simulator_ownership.py",
-              "tests/test_apple_terminal_cleanup.py",
-              "tests/test_apple_validation.py",
-              "tests/test_apple_workflow_contract.py",
-          )
-          for value in paths:
-              path = Path(value)
-              compile(path.read_text(encoding="utf-8"), value, "exec")
-          print(f"compiled {len(paths)} Apple Python sources")
-          PY_COMPILE
             PYTHONPATH=src python3 -m unittest -v \
               tests.test_apple_validation \
               tests.test_apple_simulator_ownership \
               tests.test_apple_terminal_cleanup \
               tests.test_apple_workflow_contract
-            python3 - <<'PY_CONTRACTS'
-          import json
-          from pathlib import Path
-
-          import yaml
-
-          json.loads(Path("contracts/apple-validation.json").read_text(encoding="utf-8"))
-          for value in (
-              ".github/workflows/reusable-apple.yml",
-              ".github/workflows/apple-validation-smoke.yml",
-              "actions/validate-apple/action.yml",
-          ):
-              parsed = yaml.safe_load(Path(value).read_text(encoding="utf-8"))
-              if not isinstance(parsed, dict):
-                  raise SystemExit(f"invalid YAML document: {value}")
-          print("Apple JSON and YAML documents parsed")
-          PY_CONTRACTS
             test -z "$(git status --porcelain=v1 --untracked-files=all)"
           )
 
@@ -168,12 +133,9 @@ jobs:
           set-safe-directory: false
 
       - name: Clear fixed admitted source checkout root
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          rm -rf -- source
-          test ! -e source
-          test ! -L source
+        uses: ./.ciw/actions/cleanup-apple-checkout
+        with:
+          target: source
 
       - name: Check out exact admitted smoke source
         uses: ./.ciw/actions/exact-checkout
@@ -244,12 +206,9 @@ jobs:
 
       - name: Remove exact admitted iOS smoke source
         if: always()
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          rm -rf -- source
-          test ! -e source
-          test ! -L source
+        uses: ./.ciw/actions/cleanup-apple-checkout
+        with:
+          target: source
 
       - name: Remove and verify registered iOS workflow state
         if: always()
@@ -257,36 +216,9 @@ jobs:
 
       - name: Remove exact iOS validation implementation checkout
         if: always()
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          python3 - <<'PY_CIW_CLEANUP'
-          import os
-          import stat
-          from pathlib import Path
-
-          def remove_no_follow(path: Path) -> None:
-              try:
-                  metadata = os.lstat(path)
-              except FileNotFoundError:
-                  return
-              if stat.S_ISLNK(metadata.st_mode) or stat.S_ISREG(metadata.st_mode):
-                  os.unlink(path)
-              elif stat.S_ISDIR(metadata.st_mode):
-                  with os.scandir(path) as entries:
-                      children = [path / entry.name for entry in entries]
-                  for child in children:
-                      remove_no_follow(child)
-                  os.rmdir(path)
-              else:
-                  raise SystemExit("unsupported fixed checkout entry")
-
-          remove_no_follow(Path(".ciw"))
-          if os.path.lexists(".ciw"):
-              raise SystemExit("fixed validation checkout root remains")
-          PY_CIW_CLEANUP
-          test ! -e .ciw
-          test ! -L .ciw
+        uses: ./.ciw/actions/cleanup-apple-checkout
+        with:
+          target: central
 
   tvos:
     name: Real tvOS simulator smoke
@@ -305,12 +237,9 @@ jobs:
           set-safe-directory: false
 
       - name: Clear fixed admitted source checkout root
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          rm -rf -- source
-          test ! -e source
-          test ! -L source
+        uses: ./.ciw/actions/cleanup-apple-checkout
+        with:
+          target: source
 
       - name: Check out exact admitted smoke source
         uses: ./.ciw/actions/exact-checkout
@@ -381,12 +310,9 @@ jobs:
 
       - name: Remove exact admitted tvOS smoke source
         if: always()
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          rm -rf -- source
-          test ! -e source
-          test ! -L source
+        uses: ./.ciw/actions/cleanup-apple-checkout
+        with:
+          target: source
 
       - name: Remove and verify registered tvOS workflow state
         if: always()
@@ -394,36 +320,9 @@ jobs:
 
       - name: Remove exact tvOS validation implementation checkout
         if: always()
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          python3 - <<'PY_CIW_CLEANUP'
-          import os
-          import stat
-          from pathlib import Path
-
-          def remove_no_follow(path: Path) -> None:
-              try:
-                  metadata = os.lstat(path)
-              except FileNotFoundError:
-                  return
-              if stat.S_ISLNK(metadata.st_mode) or stat.S_ISREG(metadata.st_mode):
-                  os.unlink(path)
-              elif stat.S_ISDIR(metadata.st_mode):
-                  with os.scandir(path) as entries:
-                      children = [path / entry.name for entry in entries]
-                  for child in children:
-                      remove_no_follow(child)
-                  os.rmdir(path)
-              else:
-                  raise SystemExit("unsupported fixed checkout entry")
-
-          remove_no_follow(Path(".ciw"))
-          if os.path.lexists(".ciw"):
-              raise SystemExit("fixed validation checkout root remains")
-          PY_CIW_CLEANUP
-          test ! -e .ciw
-          test ! -L .ciw
+        uses: ./.ciw/actions/cleanup-apple-checkout
+        with:
+          target: central
 
   macos:
     name: Real unsigned macOS smoke
@@ -442,12 +341,9 @@ jobs:
           set-safe-directory: false
 
       - name: Clear fixed admitted source checkout root
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          rm -rf -- source
-          test ! -e source
-          test ! -L source
+        uses: ./.ciw/actions/cleanup-apple-checkout
+        with:
+          target: source
 
       - name: Check out exact admitted smoke source
         uses: ./.ciw/actions/exact-checkout
@@ -518,12 +414,9 @@ jobs:
 
       - name: Remove exact admitted macOS smoke source
         if: always()
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          rm -rf -- source
-          test ! -e source
-          test ! -L source
+        uses: ./.ciw/actions/cleanup-apple-checkout
+        with:
+          target: source
 
       - name: Remove and verify registered macOS workflow state
         if: always()
@@ -531,36 +424,9 @@ jobs:
 
       - name: Remove exact macOS validation implementation checkout
         if: always()
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          python3 - <<'PY_CIW_CLEANUP'
-          import os
-          import stat
-          from pathlib import Path
-
-          def remove_no_follow(path: Path) -> None:
-              try:
-                  metadata = os.lstat(path)
-              except FileNotFoundError:
-                  return
-              if stat.S_ISLNK(metadata.st_mode) or stat.S_ISREG(metadata.st_mode):
-                  os.unlink(path)
-              elif stat.S_ISDIR(metadata.st_mode):
-                  with os.scandir(path) as entries:
-                      children = [path / entry.name for entry in entries]
-                  for child in children:
-                      remove_no_follow(child)
-                  os.rmdir(path)
-              else:
-                  raise SystemExit("unsupported fixed checkout entry")
-
-          remove_no_follow(Path(".ciw"))
-          if os.path.lexists(".ciw"):
-              raise SystemExit("fixed validation checkout root remains")
-          PY_CIW_CLEANUP
-          test ! -e .ciw
-          test ! -L .ciw
+        uses: ./.ciw/actions/cleanup-apple-checkout
+        with:
+          target: central
 
   zero_artifacts:
     name: Verify Apple routine artifacts remain zero
