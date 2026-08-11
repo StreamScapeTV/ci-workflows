@@ -196,7 +196,7 @@ jobs:
 
   artifacts:
     name: Verify GitOps smoke retained zero artifacts
-    if: always()
+    if: ${{ always() && needs.plan.result != 'skipped' }}
     needs: [plan, execute]
     runs-on: [linux, amd64, general]
     timeout-minutes: 10

@@ -259,6 +259,30 @@ exit 2
         with self.assertRaisesRegex(GitOpsValidationError, 'tool_archive_rejected'):
             _safe_tar_member(archive, pin, output)
 
+    def test_tool_state_writes_reject_preexisting_symlinks(self) -> None:
+        pin = GitOpsToolPin(name='helm', version='3.18.6', url='https://get.helm.sh/helm-v3.18.6-linux-amd64.tar.gz', sha256='0' * 64, archive_member='linux-amd64/helm', max_bytes=1024, version_args=('version',), version_pattern='3.18.6', allowed_hosts=('get.helm.sh',))
+        outside = self.base / 'outside-sentinel'
+        outside.write_text('keep', encoding='utf-8')
+        archive = self.base / 'tool.tar.gz'
+        with tarfile.open(archive, 'w:gz') as handle:
+            data = b'binary'
+            member = tarfile.TarInfo('linux-amd64/helm')
+            member.size = len(data)
+            handle.addfile(member, io.BytesIO(data))
+
+        output = self.base / 'state' / 'bin' / 'helm'
+        output.parent.mkdir(parents=True)
+        output.symlink_to(outside)
+        with self.assertRaisesRegex(GitOpsValidationError, 'tool_archive_rejected'):
+            _safe_tar_member(archive, pin, output)
+
+        download = self.base / 'state' / 'archives' / 'helm.tar.gz'
+        download.parent.mkdir(parents=True)
+        download.symlink_to(outside)
+        with self.assertRaisesRegex(GitOpsValidationError, 'tool_download_failed'):
+            _download(pin, download)
+        self.assertEqual('keep', outside.read_text(encoding='utf-8'))
+
     def test_download_rejects_every_redirect_hop_outside_pinned_hosts(self) -> None:
         pin = GitOpsToolPin(name='helm', version='3.18.6', url='https://get.helm.sh/helm-v3.18.6-linux-amd64.tar.gz', sha256='0' * 64, archive_member='linux-amd64/helm', max_bytes=1024 * 1024, version_args=('version',), version_pattern='3.18.6', allowed_hosts=('get.helm.sh',))
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
+import os
 import re
 import stat
 import subprocess
@@ -108,6 +109,74 @@ def _run(
 
 def _state_marker(state_root: Path) -> Path:
     return state_root / _MARKER
+
+
+def _ensure_no_follow_directory(
+    path: Path,
+    *,
+    code: str,
+    detail: str,
+) -> None:
+    """Create a state directory only through verified directory ancestors."""
+
+    missing: list[Path] = []
+    current = path
+    while True:
+        try:
+            info = current.lstat()
+        except FileNotFoundError:
+            missing.append(current)
+            parent = current.parent
+            _require(parent != current, code, detail)
+            current = parent
+            continue
+        _require(
+            stat.S_ISDIR(info.st_mode) and not stat.S_ISLNK(info.st_mode),
+            code,
+            detail,
+        )
+        break
+    for directory in reversed(missing):
+        try:
+            directory.mkdir()
+        except FileExistsError:
+            pass
+        try:
+            info = directory.lstat()
+        except OSError as error:
+            raise GitOpsValidationError(code, detail) from error
+        _require(
+            stat.S_ISDIR(info.st_mode) and not stat.S_ISLNK(info.st_mode),
+            code,
+            detail,
+        )
+
+
+def _open_new_file_no_follow(
+    path: Path,
+    *,
+    code: str,
+    detail: str,
+):
+    """Open a new regular state file without following an existing link."""
+
+    _ensure_no_follow_directory(path.parent, code=code, detail=detail)
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        raise GitOpsValidationError(code, detail) from error
+    else:
+        _fail(code, detail)
+    no_follow = getattr(os, "O_NOFOLLOW", None)
+    _require(no_follow is not None, code, detail)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | no_follow
+    try:
+        descriptor = os.open(path, flags, 0o600)
+    except OSError as error:
+        raise GitOpsValidationError(code, detail) from error
+    return os.fdopen(descriptor, "wb")
 
 
 def initialize_gitops_state(state_root: Path) -> None:
@@ -222,7 +291,6 @@ def _download(pin: GitOpsToolPin, destination: Path) -> None:
                 redirect_url,
             )
 
-    destination.parent.mkdir(parents=True, exist_ok=True)
     validate_url(pin.url)
     request = urllib.request.Request(
         pin.url,
@@ -230,11 +298,15 @@ def _download(pin: GitOpsToolPin, destination: Path) -> None:
     )
     try:
         opener = urllib.request.build_opener(PinnedRedirectHandler())
-        with opener.open(request, timeout=60) as response:
-            validate_url(response.geturl())
-            digest = hashlib.sha256()
-            size = 0
-            with destination.open("wb") as output:
+        with _open_new_file_no_follow(
+            destination,
+            code="tool_download_failed",
+            detail=pin.name,
+        ) as output:
+            with opener.open(request, timeout=60) as response:
+                validate_url(response.geturl())
+                digest = hashlib.sha256()
+                size = 0
                 while True:
                     chunk = response.read(1024 * 1024)
                     if not chunk:
@@ -330,8 +402,12 @@ def _safe_tar_member(
             "tool_archive_rejected",
             pin.name,
         ) from error
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_bytes(data)
+    with _open_new_file_no_follow(
+        destination,
+        code="tool_archive_rejected",
+        detail=pin.name,
+    ) as output:
+        output.write(data)
     destination.chmod(0o755)
     return destination
 
@@ -341,6 +417,11 @@ def _safe_wheel(
     pin: GitOpsToolPin,
     destination: Path,
 ) -> None:
+    _ensure_no_follow_directory(
+        destination,
+        code="tool_archive_rejected",
+        detail=pin.name,
+    )
     try:
         with zipfile.ZipFile(archive) as handle:
             members = handle.infolist()
@@ -390,12 +471,23 @@ def _safe_wheel(
             )
             for member in members:
                 if member.is_dir():
+                    _ensure_no_follow_directory(
+                        destination.joinpath(
+                            *PurePosixPath(member.filename).parts
+                        ),
+                        code="tool_archive_rejected",
+                        detail=pin.name,
+                    )
                     continue
                 target = destination.joinpath(
                     *PurePosixPath(member.filename).parts
                 )
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(handle.read(member))
+                with _open_new_file_no_follow(
+                    target,
+                    code="tool_archive_rejected",
+                    detail=pin.name,
+                ) as output:
+                    output.write(handle.read(member))
     except (OSError, zipfile.BadZipFile) as error:
         raise GitOpsValidationError(
             "tool_archive_rejected",

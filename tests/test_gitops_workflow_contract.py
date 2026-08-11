@@ -44,6 +44,7 @@ class GitOpsWorkflowContractTests(unittest.TestCase):
         self.assertEqual(['linux', 'amd64', 'general'], workflow['jobs']['plan']['runs-on'])
         self.assertEqual(['linux', 'amd64', 'general'], workflow['jobs']['artifacts']['runs-on'])
         self.assertEqual('${{ fromJSON(needs.plan.outputs.runs_on_json) }}', workflow['jobs']['execute']['runs-on'])
+        self.assertEqual("${{ always() && needs.plan.result != 'skipped' }}", workflow['jobs']['artifacts']['if'])
         for job in workflow['jobs'].values():
             if 'uses' not in job:
                 self.assertGreater(job.get('timeout-minutes', 0), 0)
