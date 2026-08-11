@@ -484,9 +484,10 @@ class FlutterValidationTests(unittest.TestCase):
             flutter_execution.subprocess,
             "run",
             return_value=subprocess.CompletedProcess([], 0, active, ""),
-        ) as command:
+        ) as command, mock.patch.object(flutter_execution.os, "kill") as kill:
             terminal_cleanup_flutter_state(source, state)
         command.assert_called_once()
+        kill.assert_not_called()
         self.assertFalse(flutter_state.exists())
 
     def test_source_audit_and_device_handoff_install_nothing(self) -> None:
