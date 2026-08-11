@@ -32,10 +32,20 @@ class OciWorkflowContractTests(unittest.TestCase):
         self.assertIn("registry_credentials\":false", self.workflow)
 
     def test_dynamic_build_job_consumes_exact_trusted_planner_output(self) -> None:
-        self.assertIn("runs-on: portable", self.workflow)
+        self.assertIn("runs-on: [linux, amd64, general]", self.workflow)
         self.assertIn("runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}", self.workflow)
+        self.assertNotIn("runs-on: portable", self.workflow)
         self.assertNotRegex(self.workflow, r"runs-on:\s*\[.*buildah")
         self.assertNotIn("runs-on: buildah", self.workflow)
+        self.assertNotIn("runs-on: self-hosted", self.workflow)
+        for deprecated_label in (
+            "buildah-tiny",
+            "buildah-small",
+            "buildah-medium",
+            "buildah-high",
+            "arc-runner-set",
+        ):
+            self.assertNotIn(f"runs-on: {deprecated_label}", self.workflow)
         self.assertIn("Resolve contract-owned OCI product and runner", self.workflow)
 
     def test_exact_source_cleanup_residue_and_terminal_projection_are_unconditional(self) -> None:

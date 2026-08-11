@@ -43,7 +43,7 @@ permissions:
 jobs:
   plan:
     name: Resolve bounded OCI build plan
-    runs-on: portable
+    runs-on: [linux, amd64, general]
     timeout-minutes: 10
     outputs:
       runner_profile: ${{ steps.plan.outputs.runner_profile }}
