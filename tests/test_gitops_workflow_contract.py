@@ -44,10 +44,30 @@ class GitOpsWorkflowContractTests(unittest.TestCase):
         self.assertEqual(['linux', 'amd64', 'general'], workflow['jobs']['plan']['runs-on'])
         self.assertEqual(['linux', 'amd64', 'general'], workflow['jobs']['artifacts']['runs-on'])
         self.assertEqual('${{ fromJSON(needs.plan.outputs.runs_on_json) }}', workflow['jobs']['execute']['runs-on'])
-        self.assertEqual("${{ always() && needs.plan.result != 'skipped' }}", workflow['jobs']['artifacts']['if'])
+        self.assertEqual("${{ always() && !cancelled() && needs.plan.result != 'skipped' }}", workflow['jobs']['artifacts']['if'])
         for job in workflow['jobs'].values():
             if 'uses' not in job:
                 self.assertGreater(job.get('timeout-minutes', 0), 0)
+
+    def test_smoke_bootstraps_and_removes_locked_pyyaml_for_source_tests(self) -> None:
+        workflow = yaml.safe_load(
+            (ROOT / '.github/workflows/gitops-validation-smoke.yml').read_text()
+        )
+        steps = workflow['jobs']['plan']['steps']
+        by_name = {step['name']: step for step in steps if 'name' in step}
+        bootstrap = by_name['Bootstrap locked PyYAML for focused source tests']
+        focused_tests = by_name['Run focused source package tests']
+        cleanup = by_name['Remove locked PyYAML test state']
+        self.assertIn('scripts/ci/bootstrap_validation_runtime.py', bootstrap['run'])
+        self.assertIn('--lock contracts/action-tool-lock.json', bootstrap['run'])
+        self.assertIn('gitops-smoke-pyyaml-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}', bootstrap['run'])
+        self.assertIn('GITOPS_SMOKE_PYTHONPATH', bootstrap['run'])
+        self.assertIn("printf 'GITOPS_SMOKE_PYTHONPATH=%s\\n'", bootstrap['run'])
+        self.assertNotIn("printf 'GITOPS_SMOKE_PYTHONPATH=%s\\\\n'", bootstrap['run'])
+        self.assertIn('PYTHONPATH="${GITOPS_SMOKE_PYTHONPATH}:src"', focused_tests['run'])
+        self.assertEqual('always()', cleanup['if'])
+        self.assertIn('gitops-smoke-pyyaml-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}', cleanup['run'])
+        self.assertIn('test ! -e "${validation_root}"', cleanup['run'])
 
     def test_action_is_thin_and_rejects_authority_inputs(self) -> None:
         source = (ROOT / 'actions/validate-gitops/action.yml').read_text()

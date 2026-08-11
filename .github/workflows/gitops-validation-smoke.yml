@@ -75,14 +75,46 @@ jobs:
           consumer_contract: synthetic
           policy_script_profile: synthetic-policy
 
+      - name: Bootstrap locked PyYAML for focused source tests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "${GITHUB_RUN_ID}" =~ ^[0-9]+$ ]]
+          [[ "${GITHUB_RUN_ATTEMPT}" =~ ^[0-9]+$ ]]
+          test -n "${RUNNER_TEMP}"
+          validation_root="${RUNNER_TEMP}/gitops-smoke-pyyaml-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          test "$(dirname "${validation_root}")" = "${RUNNER_TEMP}"
+          rm -rf "${validation_root}"
+          mkdir -p "${validation_root}"
+          python3 scripts/ci/bootstrap_validation_runtime.py \
+            --lock contracts/action-tool-lock.json \
+            --target "${validation_root}/python"
+          test -f "${validation_root}/python/yaml/__init__.py"
+          printf 'GITOPS_SMOKE_PYTHONPATH=%s\n' "${validation_root}/python" >> "${GITHUB_ENV}"
+
       - name: Run focused source package tests
         shell: bash
         run: |
           set -Eeuo pipefail
-          PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 \
+          test -d "${GITOPS_SMOKE_PYTHONPATH}"
+          test ! -L "${GITOPS_SMOKE_PYTHONPATH}"
+          PYTHONPATH="${GITOPS_SMOKE_PYTHONPATH}:src" PYTHONDONTWRITEBYTECODE=1 \
             python3 -m unittest -v \
               tests.test_gitops_validation \
               tests.test_gitops_workflow_contract
+
+      - name: Remove locked PyYAML test state
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "${GITHUB_RUN_ID}" =~ ^[0-9]+$ ]]
+          [[ "${GITHUB_RUN_ATTEMPT}" =~ ^[0-9]+$ ]]
+          test -n "${RUNNER_TEMP}"
+          validation_root="${RUNNER_TEMP}/gitops-smoke-pyyaml-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          test "$(dirname "${validation_root}")" = "${RUNNER_TEMP}"
+          rm -rf "${validation_root}"
+          test ! -e "${validation_root}"
 
   execute:
     name: Execute pinned Helm and Kustomize synthetic smoke
@@ -196,7 +228,7 @@ jobs:
 
   artifacts:
     name: Verify GitOps smoke retained zero artifacts
-    if: ${{ always() && needs.plan.result != 'skipped' }}
+    if: ${{ always() && !cancelled() && needs.plan.result != 'skipped' }}
     needs: [plan, execute]
     runs-on: [linux, amd64, general]
     timeout-minutes: 10
