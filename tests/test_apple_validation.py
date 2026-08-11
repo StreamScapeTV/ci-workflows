@@ -204,7 +204,10 @@ class AppleValidationTests(unittest.TestCase):
 
     def make_repo(self) -> tuple[tempfile.TemporaryDirectory[str], Path, str]:
         temporary = tempfile.TemporaryDirectory()
-        root = Path(temporary.name)
+        # macOS commonly exposes temporary paths through /var, a system symlink.
+        # The ownership boundary intentionally rejects symlinked workspaces, so
+        # fixtures must use the physical path they create rather than that alias.
+        root = Path(temporary.name).resolve()
         shutil.copytree(ROOT / "contracts", root / "contracts")
         shutil.copytree(ROOT / "tests" / "fixtures", root / "tests" / "fixtures")
         (root / "AGENTS.md").write_text("fixture rules\n", encoding="utf-8")

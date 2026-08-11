@@ -72,7 +72,9 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
 
     def make_repo(self) -> tuple[tempfile.TemporaryDirectory[str], Path, str]:
         temporary = tempfile.TemporaryDirectory()
-        root = Path(temporary.name)
+        # See test_apple_validation: exercise the ownership checks with a real
+        # directory, not macOS's /var compatibility symlink.
+        root = Path(temporary.name).resolve()
         shutil.copytree(ROOT / "contracts", root / "contracts")
         shutil.copytree(ROOT / "tests" / "fixtures", root / "tests" / "fixtures")
         (root / "AGENTS.md").write_text("fixture rules\n", encoding="utf-8")
@@ -109,7 +111,7 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
     ) -> tuple[tempfile.TemporaryDirectory[str], dict[str, str], Path]:
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        workspace = Path(temporary.name) / "runner-workspace"
+        workspace = Path(temporary.name).resolve() / "runner-workspace"
         workspace.mkdir()
         return temporary, {"RUNNER_WORKSPACE": str(workspace)}, workspace
 
@@ -204,7 +206,7 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
         for target_kind in ("root", "registry", "lock"):
             with self.subTest(target_kind=target_kind):
                 with tempfile.TemporaryDirectory() as directory:
-                    base = Path(directory)
+                    base = Path(directory).resolve()
                     workspace = base / "runner-workspace"
                     workspace.mkdir()
                     environment = {"RUNNER_WORKSPACE": str(workspace)}
@@ -244,7 +246,7 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
 
     def test_runner_workspace_path_escape_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory)
+            base = Path(directory).resolve()
             outside = base / "outside"
             outside.mkdir()
             workspace = base / "runner-workspace"
