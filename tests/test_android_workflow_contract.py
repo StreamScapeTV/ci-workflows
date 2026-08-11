@@ -86,6 +86,17 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         for forbidden in ("macos-latest", "ubuntu-latest", "buildah", "apple-", "docker"):
             self.assertNotIn(forbidden, self.reusable.casefold())
 
+    def test_central_source_uses_called_workflow_identity(self) -> None:
+        self.assertEqual(
+            self.reusable.count("repository: ${{ job.workflow_repository }}"),
+            2,
+        )
+        self.assertEqual(self.reusable.count("ref: ${{ job.workflow_sha }}"), 2)
+        self.assertEqual(self.reusable.count("EXPECTED_REPOSITORY: ${{ job.workflow_repository }}"), 2)
+        self.assertEqual(self.reusable.count("EXPECTED_SHA: ${{ job.workflow_sha }}"), 2)
+        self.assertNotIn("github.workflow_sha", self.reusable)
+        self.assertNotIn("GITHUB_WORKFLOW_SHA", self.reusable)
+
     def test_smoke_is_direct_mobile_plan_execute_not_nested_reuse(self) -> None:
         self.assertNotIn("./.github/workflows/reusable-android.yml", self.smoke)
         self.assertGreaterEqual(self.smoke.count("uses: ./.ciw/actions/validate-android"), 4)
