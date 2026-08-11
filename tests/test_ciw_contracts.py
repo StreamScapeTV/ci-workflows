@@ -26,11 +26,13 @@ class CIWContractTests(unittest.TestCase):
             for item in contract["commands"]
         }
         self.assertEqual(expected, set(runtime_command_index()))
-        self.assertEqual(22, len(expected))
+        self.assertEqual(24, len(expected))
         self.assertIn("android validate", expected)
         self.assertIn("flutter validate", expected)
         self.assertIn("python validate", expected)
         self.assertIn("node validate", expected)
+        self.assertIn("helm validate", expected)
+        self.assertIn("helm publish", expected)
         self.assertEqual(len(command_specs()), len(expected))
         validate_runtime_contract(ROOT)
 
@@ -47,6 +49,7 @@ class CIWContractTests(unittest.TestCase):
                 "flutter",
                 "python",
                 "node",
+                "helm",
                 "workspace",
                 "tooling",
                 "dependencies",
@@ -76,11 +79,16 @@ class CIWContractTests(unittest.TestCase):
                 "scripts/ci/android.py",
                 "scripts/ci/python.py",
                 "scripts/ci/node.py",
+                "scripts/ci/helm.py",
             },
         )
         self.assertEqual(wrappers["scripts/ci/android.py"], {"android validate"})
         self.assertEqual(wrappers["scripts/ci/python.py"], {"python validate"})
         self.assertEqual(wrappers["scripts/ci/node.py"], {"node validate"})
+        self.assertEqual(
+            wrappers["scripts/ci/helm.py"],
+            {"helm validate", "helm publish"},
+        )
         for path in wrappers:
             self.assertTrue((ROOT / path).is_file())
 

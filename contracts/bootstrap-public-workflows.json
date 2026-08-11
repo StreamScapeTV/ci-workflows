@@ -14,6 +14,20 @@
       "required_follow_up": []
     },
     {
+      "path": ".github/workflows/reusable-helm-publish.yml",
+      "issue": 18,
+      "status": "implemented-public-workflow",
+      "required_follow_up": [
+        17
+      ]
+    },
+    {
+      "path": ".github/workflows/reusable-helm-validate.yml",
+      "issue": 18,
+      "status": "implemented-public-workflow",
+      "required_follow_up": []
+    },
+    {
       "path": ".github/workflows/reusable-node.yml",
       "issue": 10,
       "status": "implemented-public-workflow",
@@ -35,7 +49,12 @@
       "path": ".github/workflows/reusable-tag-image-chart.yml",
       "issue": 34,
       "status": "bootstrap-exception",
-      "required_follow_up": [3, 4, 5, 31]
+      "required_follow_up": [
+        3,
+        4,
+        5,
+        31
+      ]
     }
   ]
 }

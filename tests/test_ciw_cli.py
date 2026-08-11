@@ -382,7 +382,7 @@ class CIWCLITests(unittest.TestCase):
                 dispatch.call_args.args[0],
             )
 
-    def test_scripts_and_thirteen_actions_are_compatibility_delegates(self) -> None:
+    def test_scripts_and_fifteen_actions_are_compatibility_delegates(self) -> None:
         for script in (
             "scripts/ci/resolve_source.py",
             "scripts/ci/runner_contract.py",
@@ -391,6 +391,7 @@ class CIWCLITests(unittest.TestCase):
             "scripts/ci/python.py",
             "scripts/ci/node.py",
             "scripts/ci/android.py",
+            "scripts/ci/helm.py",
         ):
             source = (ROOT / script).read_text(encoding="utf-8")
             self.assertTrue(
@@ -400,7 +401,7 @@ class CIWCLITests(unittest.TestCase):
                 script,
             )
         actions = sorted((ROOT / "actions").glob("*/action.yml"))
-        self.assertEqual(13, len(actions))
+        self.assertEqual(15, len(actions))
         for action in actions:
             source = action.read_text(encoding="utf-8")
             self.assertIn("scripts/ci/ciw.py", source, action.as_posix())

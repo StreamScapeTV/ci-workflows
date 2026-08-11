@@ -1,0 +1,6 @@
+apiVersion: v2
+name: iptv-backend
+description: Synthetic backend chart used only for reusable workflow tests
+type: application
+version: 1.2.3
+appVersion: "1.2.3"

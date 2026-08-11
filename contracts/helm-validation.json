@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "runner_profile": "portable",
+  "workspace_profile": "minimal",
+  "artifact_policy": "zero-default",
+  "product_manifest_path": ".streamscape/helm-product.json",
+  "products": {
+    "agent-state-chart": {
+      "repository": "StreamScapeTV/agent-state",
+      "chart_name": "agent-state",
+      "registry_repository": "oci://git.faruqi.dev/mimranfaruqi/helm-charts"
+    },
+    "flux-runner-chart-assets": {
+      "repository": "StreamScapeTV/flux",
+      "chart_name": "flux-runner-assets",
+      "registry_repository": "oci://git.faruqi.dev/mimranfaruqi/helm-charts"
+    },
+    "iptv-backend-chart": {
+      "repository": "StreamScapeTV/iptv-backend",
+      "chart_name": "iptv-backend",
+      "registry_repository": "oci://git.faruqi.dev/mimranfaruqi/helm-charts"
+    }
+  }
+}

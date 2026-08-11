@@ -1,0 +1,176 @@
+name: Reusable Helm publication
+
+on:
+  workflow_call:
+    inputs:
+      admitted_sha:
+        description: Exact lowercase tagged source SHA
+        required: true
+        type: string
+      product_id:
+        description: Approved Helm product identity
+        required: true
+        type: string
+      release_version:
+        description: Exact immutable release version
+        required: true
+        type: string
+      values_profile:
+        description: Optional checked-in product values profile
+        required: false
+        type: string
+      policy_path:
+        description: Optional fixed product policy path
+        required: false
+        type: string
+    secrets:
+      registry_username:
+        description: Named private OCI registry username
+        required: true
+      registry_token:
+        description: Named private OCI registry token
+        required: true
+    outputs:
+      result:
+        description: Success only after exact OCI pull read-back and cleanup
+        value: ${{ jobs.publish.outputs.result }}
+      chart_digest:
+        description: SHA-256 of the normalized published chart package
+        value: ${{ jobs.publish.outputs.chart_digest }}
+      immutable_references_json:
+        description: Deterministic immutable chart reference and digest summary
+        value: ${{ jobs.publish.outputs.immutable_references_json }}
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Resolve bounded Helm publication plan
+    runs-on: [linux, amd64, general]
+    timeout-minutes: 10
+    outputs:
+      runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
+      workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
+      source_trust: ${{ steps.plan.outputs.source_trust }}
+    steps:
+      - name: Check out exact central workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+      - name: Verify exact central workflow source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          (cd .ciw && test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}")
+      - id: plan
+        name: Resolve fixed Helm publication contract
+        uses: ./.ciw/actions/publish-helm
+        with:
+          phase: plan
+          admitted_sha: ${{ inputs.admitted_sha }}
+          product_id: ${{ inputs.product_id }}
+          release_version: ${{ inputs.release_version }}
+          values_profile: ${{ inputs.values_profile }}
+          policy_path: ${{ inputs.policy_path }}
+
+  publish:
+    name: Release / Helm publication
+    needs: plan
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
+    timeout-minutes: 90
+    outputs:
+      result: ${{ steps.helm.outcome == 'success' && steps.helm_cleanup.outcome == 'success' && steps.residue.outcome == 'success' && steps.workspace_cleanup.outcome == 'success' && 'success' || 'failure' }}
+      chart_digest: ${{ steps.helm.outputs.chart_digest }}
+      immutable_references_json: ${{ steps.helm.outputs.immutable_references_json }}
+    steps:
+      - name: Check out exact central workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+      - name: Verify exact central workflow source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          (cd .ciw && test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}")
+      - name: Check out exact admitted caller source
+        uses: ./.ciw/actions/exact-checkout
+        with:
+          repository: ${{ github.repository }}
+          admitted_sha: ${{ inputs.admitted_sha }}
+          path: source
+          fetch_depth: "1"
+      - name: Prepare isolated Helm publication state
+        uses: ./.ciw/actions/prepare-workspace
+        with:
+          profile: ${{ needs.plan.outputs.workspace_profile }}
+          cache_mode: disabled
+          source_sha: ${{ inputs.admitted_sha }}
+          trust_mode: ${{ needs.plan.outputs.source_trust }}
+      - id: helm
+        name: Package, publish once, and verify OCI pull read-back
+        continue-on-error: true
+        uses: ./.ciw/actions/publish-helm
+        with:
+          phase: execute
+          admitted_sha: ${{ inputs.admitted_sha }}
+          product_id: ${{ inputs.product_id }}
+          release_version: ${{ inputs.release_version }}
+          values_profile: ${{ inputs.values_profile }}
+          policy_path: ${{ inputs.policy_path }}
+          registry_username: ${{ secrets.registry_username }}
+          registry_token: ${{ secrets.registry_token }}
+      - id: helm_cleanup
+        name: Remove Helm package, registry, and credential state
+        if: always()
+        uses: ./.ciw/actions/publish-helm
+        with:
+          phase: cleanup
+          admitted_sha: ${{ inputs.admitted_sha }}
+          product_id: ${{ inputs.product_id }}
+          release_version: ${{ inputs.release_version }}
+      - id: residue
+        name: Verify zero Helm publication residue
+        if: always()
+        uses: ./.ciw/actions/publish-helm
+        with:
+          phase: residue
+          admitted_sha: ${{ inputs.admitted_sha }}
+          product_id: ${{ inputs.product_id }}
+          release_version: ${{ inputs.release_version }}
+      - id: workspace_cleanup
+        name: Remove and verify all registered workspace state
+        if: always()
+        uses: ./.ciw/actions/cleanup-workspace
+      - name: Verify exact caller source remained clean
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          (cd source && test "$(git rev-parse HEAD)" = "${{ inputs.admitted_sha }}" && test -z "$(git status --porcelain --untracked-files=all)")
+      - name: Project terminal Helm publication status
+        if: always()
+        shell: bash
+        env:
+          HELM_OUTCOME: ${{ steps.helm.outcome }}
+          HELM_CLEANUP_OUTCOME: ${{ steps.helm_cleanup.outcome }}
+          RESIDUE_OUTCOME: ${{ steps.residue.outcome }}
+          WORKSPACE_CLEANUP_OUTCOME: ${{ steps.workspace_cleanup.outcome }}
+        run: |
+          set -Eeuo pipefail
+          test "${HELM_OUTCOME}" = success
+          test "${HELM_CLEANUP_OUTCOME}" = success
+          test "${RESIDUE_OUTCOME}" = success
+          test "${WORKSPACE_CLEANUP_OUTCOME}" = success
