@@ -75,10 +75,19 @@ class AppleWorkflowContractTests(unittest.TestCase):
         )
 
     def test_semantic_runner_selection_uses_protected_planner(self) -> None:
-        self.assertIn("runs-on: portable", self.workflow)
+        direct_general_selector = "runs-on: [linux, amd64, general]"
+        self.assertIn(direct_general_selector, self.workflow)
+        self.assertEqual(self.smoke.count(direct_general_selector), 2)
+        self.assertNotIn("runs-on: portable", self.workflow + self.smoke)
         self.assertEqual(
             1,
             self.workflow.count(
+                "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}"
+            ),
+        )
+        self.assertEqual(
+            3,
+            self.smoke.count(
                 "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}"
             ),
         )
