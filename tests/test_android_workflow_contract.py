@@ -241,6 +241,42 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("abc", redacted); self.assertNotIn("user:pass", redacted)
         self.assertIn("<redacted>", redacted)
 
+    def test_cleanup_waits_boundedly_for_a_single_use_gradle_daemon(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "state"; state.mkdir()
+            (state / "android-validation").mkdir()
+            active = f"GradleDaemon --gradle-user-home {state / 'android-validation'}"
+            with mock.patch.object(
+                android_execution,
+                "run_command",
+                side_effect=(
+                    subprocess.CompletedProcess([], 0, active, ""),
+                    subprocess.CompletedProcess([], 0, "", ""),
+                ),
+            ) as command, mock.patch.object(android_execution.time, "sleep") as sleep:
+                android_execution.cleanup_android_state(state, self.contract)
+            self.assertEqual(command.call_count, 2)
+            sleep.assert_called_once_with(
+                android_execution.GRADLE_DAEMON_CLEANUP_POLL_SECONDS
+            )
+            self.assertFalse((state / "android-validation").exists())
+
+    def test_cleanup_rejects_a_daemon_after_the_bounded_grace_period(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "state"; state.mkdir()
+            active = f"GradleDaemon --gradle-user-home {state / 'android-validation'}"
+            with mock.patch.object(
+                android_execution,
+                "run_command",
+                return_value=subprocess.CompletedProcess([], 0, active, ""),
+            ), mock.patch.object(
+                android_execution.time,
+                "monotonic",
+                side_effect=(0.0, android_execution.GRADLE_DAEMON_CLEANUP_GRACE_SECONDS),
+            ), self.assertRaises(AndroidValidationError) as failure:
+                android_execution.cleanup_android_state(state, self.contract)
+            self.assertEqual(failure.exception.code, "cleanup_failed")
+
     def test_room_schema_profiles_failure_projection_and_device_handoff(self) -> None:
         app = self.contract["consumers"]["StreamScapeTV/iptv-android"]["tasks"]
         self.assertEqual([row["stage"] for row in app["app-room-schema"]["commands"]], ["schema-generation", "schema-validation"])

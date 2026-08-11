@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -17,6 +18,8 @@ _MAJOR = re.compile(r'(?:openjdk version |java version |javac )?"?([0-9]+)')
 _GRADLE = re.compile(r'(?m)^Gradle\s+([0-9]+\.[0-9]+\.[0-9]+)\s*$')
 _SECRET = re.compile(r'(?i)(token|password|authorization|secret|keystore)\s*[:=]\s*\S+')
 SYNTHETIC_SMOKE_TASK = ":verifyToolchainSmoke"
+GRADLE_DAEMON_CLEANUP_GRACE_SECONDS = 30
+GRADLE_DAEMON_CLEANUP_POLL_SECONDS = 0.25
 
 
 def sanitize(text: str, roots: Sequence[Path] = ()) -> str:
@@ -635,8 +638,7 @@ def execute_android_plan(
     )
 
 
-def cleanup_android_state(state: Path, contract: Mapping[str, Any]) -> None:
-    require(state.is_absolute(), "cleanup_failed")
+def _gradle_daemon_is_active(state: Path) -> bool:
     processes = run_command(
         ["ps", "-axo", "command="],
         cwd=state.parent,
@@ -645,13 +647,23 @@ def cleanup_android_state(state: Path, contract: Mapping[str, Any]) -> None:
         failure_code="cleanup_failed",
         check=False,
     ).stdout
-    require(
-        not any(
-            "GradleDaemon" in row and str(state) in row
-            for row in processes.splitlines()
-        ),
-        "cleanup_failed",
+    return any(
+        "GradleDaemon" in row and str(state) in row
+        for row in processes.splitlines()
     )
+
+
+def _wait_for_gradle_daemon_exit(state: Path) -> None:
+    deadline = time.monotonic() + GRADLE_DAEMON_CLEANUP_GRACE_SECONDS
+    while _gradle_daemon_is_active(state):
+        if time.monotonic() >= deadline:
+            raise AndroidValidationError("cleanup_failed")
+        time.sleep(GRADLE_DAEMON_CLEANUP_POLL_SECONDS)
+
+
+def cleanup_android_state(state: Path, contract: Mapping[str, Any]) -> None:
+    require(state.is_absolute(), "cleanup_failed")
+    _wait_for_gradle_daemon_exit(state)
     for path in (state / "android-source", state / "android-validation"):
         remove_no_follow(path)
     require(
