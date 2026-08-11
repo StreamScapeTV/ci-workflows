@@ -39,6 +39,9 @@ def _yaml_target(
     source_root: Path,
     yaml: Any,
 ) -> tuple[list[Any], int]:
+    # Canonicalize once so macOS's /var -> /private/var alias cannot turn a
+    # previously bounded path into an apparent path-containment escape.
+    source_root = source_root.resolve()
     root = bounded_path(
         source_root,
         target.root,
@@ -157,16 +160,27 @@ def _helm_target(
             not target.vendored_dependencies,
             "helm_lock_invalid",
         )
+    _require(
+        all(isinstance(row, dict) for row in dependencies),
+        "helm_lock_invalid",
+    )
     declared = {
         (
             str(row.get("name")),
             str(row.get("version")),
-        )
+        ): str(row.get("repository", ""))
         for row in dependencies
-        if isinstance(row, dict)
     }
     _require(
         len(declared) == len(dependencies),
+        "helm_lock_invalid",
+    )
+    _require(
+        set(declared)
+        == {
+            (dependency.name, dependency.version)
+            for dependency in target.vendored_dependencies
+        },
         "helm_lock_invalid",
     )
     for row in dependencies:
@@ -195,6 +209,17 @@ def _helm_target(
             dependency.path,
             must_exist=True,
             kind="directory",
+        )
+        _require(
+            root == path or root in path.parents,
+            "helm_lock_invalid",
+            dependency.name,
+        )
+        _require(
+            declared[(dependency.name, dependency.version)]
+            == f"file://{path.relative_to(root).as_posix()}",
+            "helm_lock_invalid",
+            dependency.name,
         )
         _require(
             _tree_digest(path) == dependency.tree_sha256,

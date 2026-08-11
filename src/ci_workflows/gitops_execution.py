@@ -75,7 +75,7 @@ def _execute(
             if identity is not None:
                 previous = owners.get(identity)
                 _require(
-                    previous is None or previous == target.target_id,
+                    previous is None,
                     "duplicate_object_ownership",
                     identity.label,
                 )

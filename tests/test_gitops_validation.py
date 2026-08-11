@@ -13,6 +13,7 @@ from unittest import mock
 import yaml
 from ci_workflows.gitops_contract import build_plan, load_gitops_contract, request_from_environment, safe_relative
 from ci_workflows.gitops_execution import GitOpsTools, _safe_tar_member, assert_zero_gitops_residue, cleanup_gitops_state, execute_gitops_plan
+from ci_workflows.gitops_runtime import _download
 from ci_workflows.gitops_types import GitOpsProfile, GitOpsRequest, GitOpsToolPin, GitOpsValidationError
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / 'tests' / 'fixtures' / 'gitops-validation'
@@ -164,6 +165,23 @@ exit 2
         with self.assertRaisesRegex(GitOpsValidationError, 'render_drift'):
             self._execute(self._request(GitOpsProfile.HELM_RENDER), helm_name='wrong-render')
 
+    def test_helm_dependency_must_match_the_declared_vendored_path(self) -> None:
+        helm_root = self.source / 'tests/fixtures/gitops-validation/synthetic/helm'
+        chart_path = helm_root / 'Chart.yaml'
+        lock_path = helm_root / 'Chart.lock'
+        chart = yaml.safe_load(chart_path.read_text(encoding='utf-8'))
+        chart['dependencies'][0]['repository'] = 'file:///tmp'
+        chart_path.write_text(yaml.safe_dump(chart, sort_keys=False), encoding='utf-8')
+        lock = yaml.safe_load(lock_path.read_text(encoding='utf-8'))
+        lock['dependencies'][0]['repository'] = 'file:///tmp'
+        lock['digest'] = 'sha256:' + hashlib.sha256(
+            json.dumps(lock['dependencies'], sort_keys=True, separators=(',', ':')).encode('utf-8')
+        ).hexdigest()
+        lock_path.write_text(yaml.safe_dump(lock, sort_keys=False), encoding='utf-8')
+        self._commit('external-helm-dependency')
+        with self.assertRaisesRegex(GitOpsValidationError, 'helm_lock_invalid'):
+            self._execute(self._request(GitOpsProfile.HELM_RENDER))
+
     def test_kustomize_remote_and_render_drift_are_rejected(self) -> None:
         path = self.source / 'tests/fixtures/gitops-validation/synthetic/kustomize/kustomization.yaml'
         path.write_text(path.read_text() + '  - https://example.invalid/remote.yaml\n')
@@ -181,6 +199,16 @@ exit 2
         self._commit('duplicate-render-owner')
         with self.assertRaisesRegex(GitOpsValidationError, 'duplicate_object_ownership'):
             self._execute(helm_name='synthetic-yaml')
+
+    def test_duplicate_object_within_one_target_is_rejected(self) -> None:
+        yaml_root = self.source / 'tests/fixtures/gitops-validation/synthetic/yaml'
+        (yaml_root / 'duplicate-object.yaml').write_text(
+            (yaml_root / 'configmap.yaml').read_text(),
+            encoding='utf-8',
+        )
+        self._commit('duplicate-yaml-owner')
+        with self.assertRaisesRegex(GitOpsValidationError, 'duplicate_object_ownership'):
+            self._execute(self._request(GitOpsProfile.YAML))
 
     def test_changed_tree_selects_only_affected_target(self) -> None:
         base = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=self.source, text=True).strip()
@@ -230,5 +258,29 @@ exit 2
             handle.addfile(member, io.BytesIO(data))
         with self.assertRaisesRegex(GitOpsValidationError, 'tool_archive_rejected'):
             _safe_tar_member(archive, pin, output)
+
+    def test_download_rejects_every_redirect_hop_outside_pinned_hosts(self) -> None:
+        pin = GitOpsToolPin(name='helm', version='3.18.6', url='https://get.helm.sh/helm-v3.18.6-linux-amd64.tar.gz', sha256='0' * 64, archive_member='linux-amd64/helm', max_bytes=1024 * 1024, version_args=('version',), version_pattern='3.18.6', allowed_hosts=('get.helm.sh',))
+
+        class RedirectingOpener:
+            def __init__(self, handler):
+                self.handler = handler
+
+            def open(self, request, *, timeout):
+                return self.handler.redirect_request(
+                    request,
+                    None,
+                    302,
+                    'Found',
+                    {},
+                    'https://attacker.invalid/tool.tar.gz',
+                )
+
+        with mock.patch(
+            'ci_workflows.gitops_runtime.urllib.request.build_opener',
+            side_effect=lambda handler: RedirectingOpener(handler),
+        ):
+            with self.assertRaisesRegex(GitOpsValidationError, 'tool_download_failed'):
+                _download(pin, self.base / 'tool.tar.gz')
 if __name__ == '__main__':
     unittest.main()

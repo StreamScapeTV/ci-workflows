@@ -190,20 +190,48 @@ def assert_zero_gitops_residue(state_root: Path) -> None:
 
 
 def _download(pin: GitOpsToolPin, destination: Path) -> None:
+    def validate_url(url: str) -> None:
+        parsed = urlparse(url)
+        _require(
+            parsed.scheme == "https"
+            and parsed.hostname in pin.allowed_hosts
+            and parsed.username is None
+            and parsed.password is None
+            and parsed.port in {None, 443},
+            "tool_download_failed",
+            pin.name,
+        )
+
+    class PinnedRedirectHandler(urllib.request.HTTPRedirectHandler):
+        def redirect_request(  # type: ignore[override]
+            self,
+            request: urllib.request.Request,
+            file_pointer: object,
+            code: int,
+            message: str,
+            headers: object,
+            redirect_url: str,
+        ) -> urllib.request.Request | None:
+            validate_url(redirect_url)
+            return super().redirect_request(
+                request,
+                file_pointer,
+                code,
+                message,
+                headers,
+                redirect_url,
+            )
+
     destination.parent.mkdir(parents=True, exist_ok=True)
+    validate_url(pin.url)
     request = urllib.request.Request(
         pin.url,
         headers={"User-Agent": "StreamScapeTV-ci-workflows-gitops/1.0"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
-            final = urlparse(response.geturl())
-            _require(
-                final.scheme == "https"
-                and final.hostname in pin.allowed_hosts,
-                "tool_download_failed",
-                pin.name,
-            )
+        opener = urllib.request.build_opener(PinnedRedirectHandler())
+        with opener.open(request, timeout=60) as response:
+            validate_url(response.geturl())
             digest = hashlib.sha256()
             size = 0
             with destination.open("wb") as output:
