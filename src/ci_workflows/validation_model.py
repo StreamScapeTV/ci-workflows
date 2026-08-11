@@ -1,7 +1,7 @@
 """Canonical static validation harness for StreamScapeTV GitHub Actions.
 
 The harness deliberately separates semantic YAML parsing from the few source-shape
-checks that must retain comments or exact expressions.  It validates workflows,
+checks that must retain comments or exact expressions. It validates workflows,
 composite actions, public API compatibility, call graphs, trust boundaries, and
 repository fixture coverage without executing product or consumer source.
 """
@@ -24,7 +24,9 @@ except ImportError as error:  # pragma: no cover - exercised by the CI bootstrap
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _SEMVER_RE = re.compile(r"^v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$")
 _JOB_ID_RE = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
-_LOCAL_WORKFLOW_RE = re.compile(r"^\./\.github/workflows/(?:reusable|internal)-[^/]+\.ya?ml$")
+_LOCAL_WORKFLOW_RE = re.compile(
+    r"^\./\.github/workflows/(?:reusable|internal)-[^/]+\.ya?ml$"
+)
 _REMOTE_WORKFLOW_RE = re.compile(
     r"^(?P<owner>[A-Za-z0-9_.-]+)/(?P<repo>[A-Za-z0-9_.-]+)/"
     r"(?P<path>\.github/workflows/(?:reusable|internal)-[^@]+\.ya?ml)@(?P<ref>.+)$"
@@ -34,9 +36,12 @@ _ACTION_RE = re.compile(
     r"(?P<path>/[^@]+)?@(?P<ref>[^\s]+)$"
 )
 _USES_LINE_RE = re.compile(
-    r"^\s*(?:-\s*)?uses:\s*(?P<uses>[^\s#]+)(?:\s+#\s*(?P<comment>.+?))?\s*$"
+    r"^\s*(?:-\s*)?uses:\s*(?P<uses>[^\s#]+)"
+    r"(?:\s+#\s*(?P<comment>.+?))?\s*$"
 )
-_SECRET_EXPR_RE = re.compile(r"\$\{\{\s*secrets\.([A-Za-z0-9_]+)\s*\}\}")
+_SECRET_EXPR_RE = re.compile(
+    r"\$\{\{\s*secrets\.([A-Za-z0-9_]+)\s*\}\}"
+)
 _GITHUB_EXPR_RE = re.compile(r"\$\{\{.*?\}\}")
 _FORBIDDEN_INPUT_NAMES = {
     "runner",
@@ -55,10 +60,32 @@ _FORBIDDEN_INPUT_NAMES = {
     "shell",
     "callback_url",
 }
-_HIGH_RISK_EVENTS = {"pull_request_target", "issue_comment", "workflow_run"}
-_UNTRUSTED_EVENTS = {"pull_request", "pull_request_target", "issue_comment", "workflow_run"}
-_PUBLICATION_WORDS = ("buildah push", "skopeo copy", "helm push", "docker push", "oras push")
-_READBACK_WORDS = ("skopeo inspect", "helm pull", "helm show", "oras manifest fetch", "read-back", "read back")
+_HIGH_RISK_EVENTS = {
+    "pull_request_target",
+    "issue_comment",
+    "workflow_run",
+}
+_UNTRUSTED_EVENTS = {
+    "pull_request",
+    "pull_request_target",
+    "issue_comment",
+    "workflow_run",
+}
+_PUBLICATION_WORDS = (
+    "buildah push",
+    "skopeo copy",
+    "helm push",
+    "docker push",
+    "oras push",
+)
+_READBACK_WORDS = (
+    "skopeo inspect",
+    "helm pull",
+    "helm show",
+    "oras manifest fetch",
+    "read-back",
+    "read back",
+)
 _CREDENTIAL_WORDS = (
     "secrets.",
     "registry_token",
@@ -84,12 +111,13 @@ class ActionsLoader(yaml.SafeLoader):
     """YAML 1.2-ish loader that preserves GitHub's literal ``on`` key."""
 
 
-# PyYAML's default YAML 1.1 bool resolver turns on/off/yes/no into booleans.
-# Copy the resolver table before narrowing booleans to true/false only.
 ActionsLoader.yaml_implicit_resolvers = {
-    key: list(value) for key, value in yaml.SafeLoader.yaml_implicit_resolvers.items()
+    key: list(value)
+    for key, value in yaml.SafeLoader.yaml_implicit_resolvers.items()
 }
-for first_character, resolvers in list(ActionsLoader.yaml_implicit_resolvers.items()):
+for first_character, resolvers in list(
+    ActionsLoader.yaml_implicit_resolvers.items()
+):
     ActionsLoader.yaml_implicit_resolvers[first_character] = [
         (tag, regexp)
         for tag, regexp in resolvers
@@ -121,7 +149,9 @@ class HarnessFailure(RuntimeError):
 
     def __init__(self, findings: Sequence[Finding]):
         self.findings = tuple(sorted(findings))
-        super().__init__("\n".join(finding.render() for finding in self.findings))
+        super().__init__(
+            "\n".join(finding.render() for finding in self.findings)
+        )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -162,6 +192,7 @@ class HarnessConfig:
     required_event_fixtures: frozenset[str]
     required_service_scenarios: Mapping[str, frozenset[str]]
     exceptions: Mapping[str, frozenset[str]]
+    allowed_runner_selectors: frozenset[tuple[str, ...]] = frozenset()
 
     def excepts(self, relative_path: str, rule: str) -> bool:
         return rule in self.exceptions.get(relative_path, frozenset())
@@ -200,8 +231,11 @@ def _relative(root: Path, path: Path) -> str:
     return path.relative_to(root).as_posix()
 
 
-def load_actions_yaml(path: Path, root: Path | None = None) -> ParsedDocument:
-    """Parse a workflow/action deterministically while preserving the ``on`` key."""
+def load_actions_yaml(
+    path: Path,
+    root: Path | None = None,
+) -> ParsedDocument:
+    """Parse a workflow/action while preserving the literal ``on`` key."""
 
     raw = path.read_text(encoding="utf-8")
     try:
@@ -210,8 +244,15 @@ def load_actions_yaml(path: Path, root: Path | None = None) -> ParsedDocument:
         raise ValueError(f"invalid YAML in {path}: {error}") from error
     if not isinstance(data, Mapping):
         raise ValueError(f"top level of {path} must be a mapping")
-    relative_path = _relative(root, path) if root is not None else path.as_posix()
-    return ParsedDocument(path=path, relative_path=relative_path, raw=raw, data=data)
+    relative_path = (
+        _relative(root, path) if root is not None else path.as_posix()
+    )
+    return ParsedDocument(
+        path=path,
+        relative_path=relative_path,
+        raw=raw,
+        data=data,
+    )
 
 
 def discover_repository(root: Path) -> RepositoryInventory:
@@ -277,16 +318,57 @@ def _collect_runner_profiles_from_contracts(root: Path) -> set[str]:
     return profiles
 
 
+def _collect_runner_selectors_from_contracts(
+    root: Path,
+) -> set[tuple[str, ...]]:
+    selectors: set[tuple[str, ...]] = set()
+    path = root / "contracts/runner-profiles.json"
+    try:
+        payload = _read_json(path)
+    except ValueError:
+        return selectors
+    if not isinstance(payload, Mapping):
+        return selectors
+    profiles = payload.get("profiles")
+    if not isinstance(profiles, list):
+        return selectors
+    for profile in profiles:
+        if not isinstance(profile, Mapping):
+            continue
+        for raw in [
+            profile.get("default_internal_selector"),
+            *(
+                profile.get("internal_selectors")
+                if isinstance(profile.get("internal_selectors"), list)
+                else []
+            ),
+        ]:
+            if (
+                isinstance(raw, list)
+                and raw
+                and all(isinstance(value, str) and value for value in raw)
+            ):
+                selectors.add(tuple(raw))
+    return selectors
+
+
 def load_harness_config(root: Path) -> HarnessConfig:
     payload = _read_json(root / "contracts/validation-harness.json")
     exceptions: dict[str, frozenset[str]] = {}
     for entry in payload.get("exceptions", []):
-        exceptions[str(entry["path"])] = frozenset(str(rule) for rule in entry["rules"])
+        exceptions[str(entry["path"])] = frozenset(
+            str(rule) for rule in entry["rules"]
+        )
     service_scenarios = {
         str(service): frozenset(str(name) for name in names)
-        for service, names in payload.get("required_service_scenarios", {}).items()
+        for service, names in payload.get(
+            "required_service_scenarios",
+            {},
+        ).items()
     }
-    runners = set(str(value) for value in payload.get("allowed_runner_profiles", []))
+    runners = set(
+        str(value) for value in payload.get("allowed_runner_profiles", [])
+    )
     runners.update(_collect_runner_profiles_from_contracts(root))
     return HarnessConfig(
         max_inline_run_lines=int(payload["max_inline_run_lines"]),
@@ -297,6 +379,9 @@ def load_harness_config(root: Path) -> HarnessConfig:
         required_event_fixtures=frozenset(payload["required_event_fixtures"]),
         required_service_scenarios=service_scenarios,
         exceptions=exceptions,
+        allowed_runner_selectors=frozenset(
+            _collect_runner_selectors_from_contracts(root)
+        ),
     )
 
 
@@ -311,12 +396,18 @@ def load_action_lock(root: Path) -> ActionLock:
         for entry in payload.get("third_party_actions", [])
     }
     packages = {
-        str(entry["name"]): {key: str(value) for key, value in entry.items() if key != "name"}
+        str(entry["name"]): {
+            key: str(value)
+            for key, value in entry.items()
+            if key != "name"
+        }
         for entry in payload.get("python", {}).get("packages", [])
     }
     return ActionLock(
         actions=actions,
-        approved_internal_prefixes=tuple(payload.get("approved_internal_actions", [])),
+        approved_internal_prefixes=tuple(
+            payload.get("approved_internal_actions", [])
+        ),
         python_packages=packages,
     )
 
@@ -328,11 +419,16 @@ def load_public_contract(root: Path) -> PublicContract:
         fragment = _read_json(root / str(fragment_name))
         for record in fragment.get("workflows", []):
             records_by_file[str(record["file"])] = record
-    permissions_payload = _read_json(root / "contracts/permission-profiles.json")
+    permissions_payload = _read_json(
+        root / "contracts/permission-profiles.json"
+    )
     permission_profiles = {
-        str(profile["id"]): profile for profile in permissions_payload.get("profiles", [])
+        str(profile["id"]): profile
+        for profile in permissions_payload.get("profiles", [])
     }
-    types_payload = _read_json(root / "contracts/public-workflow-types.json")
+    types_payload = _read_json(
+        root / "contracts/public-workflow-types.json"
+    )
     defaults = types_payload.get("defaults", {})
     return PublicContract(
         registry=registry,
@@ -340,6 +436,10 @@ def load_public_contract(root: Path) -> PublicContract:
         permission_profiles=permission_profiles,
         max_depth=int(defaults.get("max_reusable_workflow_depth", 2)),
         forbidden_caller_fields=frozenset(
-            str(value) for value in defaults.get("forbidden_caller_fields", _FORBIDDEN_INPUT_NAMES)
+            str(value)
+            for value in defaults.get(
+                "forbidden_caller_fields",
+                _FORBIDDEN_INPUT_NAMES,
+            )
         ),
     )

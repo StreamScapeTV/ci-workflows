@@ -16,7 +16,9 @@ class PythonRunnerContractTests(unittest.TestCase):
         cls.profiles = runners.profile_index(cls.contract)
 
     def test_python_binding_uses_only_reviewed_semantic_profiles(self) -> None:
-        binding = runners.workflow_binding_index(self.contract)["validation.python"]
+        binding = runners.workflow_binding_index(self.contract)[
+            "validation.python"
+        ]
         self.assertEqual(binding["strategy"], "profile-contract")
         self.assertEqual(
             binding["profiles"],
@@ -33,22 +35,22 @@ class PythonRunnerContractTests(unittest.TestCase):
             (
                 "portable",
                 "untrusted-fork",
-                ["homelab-portable-linux-x64"],
+                ["linux", "amd64", "general"],
             ),
             (
                 "portable",
                 "trusted-pr",
-                ["homelab-portable-linux-x64"],
+                ["linux", "amd64", "general"],
             ),
             (
                 "buildah-medium",
                 "trusted-exact",
-                ["homelab-buildah-medium-linux-x64"],
+                ["linux", "amd64", "buildah", "medium"],
             ),
             (
                 "buildah-high",
                 "trusted-exact",
-                ["homelab-buildah-high-linux-x64"],
+                ["linux", "amd64", "buildah", "high"],
             ),
         )
         for profile, trust, expected in cases:
@@ -77,12 +79,18 @@ class PythonRunnerContractTests(unittest.TestCase):
 
     def test_generated_mapping_and_compatibility_report_are_current(self) -> None:
         mapping = json.loads(
-            (ROOT / "generated/runner-mappings.json").read_text(encoding="utf-8")
+            (ROOT / "generated/runner-mappings.json").read_text(
+                encoding="utf-8"
+            )
         )
         self.assertEqual(
             mapping["workflow_bindings"]["validation.python"],
             {
-                "profiles": ["portable", "buildah-medium", "buildah-high"],
+                "profiles": [
+                    "portable",
+                    "buildah-medium",
+                    "buildah-high",
+                ],
                 "strategy": "profile-contract",
             },
         )
