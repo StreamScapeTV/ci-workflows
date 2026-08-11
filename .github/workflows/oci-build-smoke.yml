@@ -15,6 +15,10 @@ on:
       - "tests/test_oci_*.py"
   workflow_dispatch:
 
+concurrency:
+  group: oci-build-smoke-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 

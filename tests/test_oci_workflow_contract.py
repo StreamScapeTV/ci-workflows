@@ -104,6 +104,12 @@ class OciWorkflowContractTests(unittest.TestCase):
         self.assertIn("uses: ./.github/workflows/reusable-oci-build.yml", self.smoke)
         self.assertIn("product_id: ciw-oci-smoke", self.smoke)
         self.assertIn("platform_set: linux-amd64", self.smoke)
+        self.assertIn(
+            "concurrency:\n"
+            "  group: oci-build-smoke-${{ github.event.pull_request.number || github.run_id }}\n"
+            "  cancel-in-progress: true",
+            self.smoke,
+        )
         self.assertNotIn("secrets:", self.smoke)
         self.assertNotIn("upload-artifact", self.smoke)
 

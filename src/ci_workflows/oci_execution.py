@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import shutil
 import stat
@@ -378,7 +377,13 @@ def build_target(
     dockerfile = staged_root / target.dockerfile_path
     for platform in target.platforms:
         argv = [
-            *base, "bud", "--pull=never", "--layers=false", "--no-cache",
+            *base,
+            "bud",
+            "--pull=never",
+            "--network",
+            "none",
+            "--layers=false",
+            "--no-cache",
             "--platform", platform, "--manifest", manifest,
             "--timestamp", str(epoch), "--file", str(dockerfile),
         ]
@@ -400,25 +405,10 @@ def build_target(
     execute_command([*base, "manifest", "push", "--all", manifest, f"oci:{layout}:validation"])
     result = inspect_layout(layout, target, labels)
     verify_no_secret_leakage(layout, secret_files)
-    smoke = "skipped"
-    if target.smoke_script:
-        script = staged_root / target.smoke_script
-        env = {
-            **os.environ,
-            "OCI_LAYOUT": str(layout),
-            "OCI_INDEX_DIGEST": result.index_digest,
-            "OCI_TARGET_ID": target.target_id,
-            "OCI_SOURCE_SHA": plan.admitted_sha,
-            "OCI_REQUIRED_FILES_JSON": json.dumps(list(target.required_files), separators=(",", ":")),
-            "OCI_REQUIRED_TOOLS_JSON": json.dumps(list(target.required_tools), separators=(",", ":")),
-            "OCI_FORBIDDEN_TOOLS_JSON": json.dumps(list(target.forbidden_tools), separators=(",", ":")),
-        }
-        try:
-            execute_command(["/bin/bash", str(script)], cwd=staged_root, capture=True, env=env)
-        except (OSError, subprocess.CalledProcessError) as error:
-            raise OciBuildError("smoke_failed") from error
-        smoke = "passed"
-    return replace(result, smoke_result=smoke), manifest
+    # Consumer smoke is performed only by oci_execution_safe in a networkless,
+    # capability-dropped container.  The base builder must never execute caller
+    # scripts on the privileged Buildah host.
+    return replace(result, smoke_result="skipped"), manifest
 
 
 def execute_plan(
@@ -479,20 +469,51 @@ def execute_plan(
 
 def cleanup(environment: Mapping[str, str], storage_driver: str = "vfs") -> None:
     root = state_root(environment)
-    if not root.exists() and not root.is_symlink():
+    try:
+        root_mode = root.lstat().st_mode
+    except FileNotFoundError:
         return
+    except OSError as error:
+        raise OciBuildError("cleanup_failed") from error
+
+    # A failed or cancelled build may leave an attacker-controlled alias at the
+    # deterministic state path.  Never inspect through that alias or hand it to
+    # Buildah; unlink the alias itself and leave its target untouched.
+    if stat.S_ISLNK(root_mode):
+        try:
+            root.unlink()
+        except OSError as error:
+            raise OciBuildError("cleanup_failed") from error
+        return
+    if not stat.S_ISDIR(root_mode):
+        try:
+            root.unlink()
+        except OSError as error:
+            raise OciBuildError("cleanup_failed") from error
+        raise OciBuildError("cleanup_failed")
+
     failures = False
     state_file = root / "manifests.json"
     manifests: list[str] = []
-    if state_file.exists():
-        try:
-            value = json.loads(state_file.read_text(encoding="utf-8"))
-            if isinstance(value, list) and all(isinstance(item, str) for item in value):
-                manifests = value
-            else:
-                failures = True
-        except (OSError, json.JSONDecodeError):
+    try:
+        state_mode = state_file.lstat().st_mode
+    except FileNotFoundError:
+        state_mode = None
+    except OSError:
+        state_mode = None
+        failures = True
+    if state_mode is not None:
+        if not stat.S_ISREG(state_mode):
             failures = True
+        else:
+            try:
+                value = json.loads(state_file.read_text(encoding="utf-8"))
+                if isinstance(value, list) and all(isinstance(item, str) for item in value):
+                    manifests = value
+                else:
+                    failures = True
+            except (OSError, json.JSONDecodeError):
+                failures = True
     base = _buildah_base(root, storage_driver)
     if shutil.which("buildah"):
         for manifest in reversed(manifests):

@@ -11,6 +11,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from ci_workflows import oci_execution as execution  # noqa: E402
 from ci_workflows import oci_execution_safe as safe  # noqa: E402
 from ci_workflows.oci_types import (  # noqa: E402
     OciBuildError,
@@ -66,6 +67,79 @@ def plan(source_trust: str = "trusted-exact") -> OciBuildPlan:
 
 
 class OciExecutionSecurityTests(unittest.TestCase):
+    def test_build_engine_disables_network_during_context_execution(self) -> None:
+        commands: list[list[str]] = []
+
+        def fake_run(argv, **kwargs):
+            commands.append(list(argv))
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        expected = OciTargetResult(
+            "fixture", "sha256:" + "b" * 64, (), {}, "not-run"
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            staged = root / "staged"
+            staged.mkdir()
+            (staged / "Containerfile").write_text(
+                "FROM scratch\n", encoding="utf-8"
+            )
+            with mock.patch.object(
+                execution, "execute_command", side_effect=fake_run
+            ), mock.patch.object(
+                execution, "inspect_layout", return_value=expected
+            ):
+                execution.build_target(
+                    plan(),
+                    target(smoke=None),
+                    staged,
+                    root / "state",
+                    {"example": "value"},
+                    1,
+                    {},
+                )
+        build = next(command for command in commands if "bud" in command)
+        self.assertIn("--network", build)
+        self.assertEqual("none", build[build.index("--network") + 1])
+
+    def test_cleanup_unlinks_state_root_symlink_without_dereferencing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            environment = {
+                "RUNNER_TEMP": temp,
+                "GITHUB_RUN_ID": "4",
+                "GITHUB_RUN_ATTEMPT": "1",
+            }
+            root = execution.state_root(environment)
+            target_root = Path(temp) / "outside"
+            target_root.mkdir()
+            sentinel = target_root / "manifests.json"
+            sentinel.write_text('["outside"]\n', encoding="utf-8")
+            root.symlink_to(target_root, target_is_directory=True)
+            with mock.patch.object(execution.shutil, "which") as builder:
+                execution.cleanup(environment)
+            builder.assert_not_called()
+            self.assertFalse(root.exists() or root.is_symlink())
+            self.assertEqual('["outside"]\n', sentinel.read_text(encoding="utf-8"))
+
+    def test_cleanup_rejects_manifest_state_symlink_without_dereferencing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            environment = {
+                "RUNNER_TEMP": temp,
+                "GITHUB_RUN_ID": "5",
+                "GITHUB_RUN_ATTEMPT": "1",
+            }
+            root = execution.state_root(environment)
+            root.mkdir()
+            target = Path(temp) / "outside-state.json"
+            target.write_text('["outside"]\n', encoding="utf-8")
+            (root / "manifests.json").symlink_to(target)
+            with mock.patch.object(execution.shutil, "which", return_value=None) as builder:
+                with self.assertRaisesRegex(OciBuildError, "cleanup_failed"):
+                    execution.cleanup(environment)
+            builder.assert_called_once_with("buildah")
+            self.assertFalse(root.exists())
+            self.assertEqual('["outside"]\n', target.read_text(encoding="utf-8"))
+
     def test_isolated_smoke_uses_networkless_capability_dropped_container(self) -> None:
         commands: list[list[str]] = []
 
@@ -183,15 +257,17 @@ class OciExecutionSecurityTests(unittest.TestCase):
         isolated.assert_not_called()
         self.assertEqual("inspection-passed-script-deferred", result.targets[0].smoke_result)
 
-    def test_security_adapter_contains_no_direct_host_script_execution(self) -> None:
-        source = (ROOT / "src/ci_workflows/oci_execution_safe.py").read_text()
-        self.assertNotIn('["/bin/bash", str(script)]', source)
-        self.assertIn('"--network",', source)
-        self.assertIn('"none",', source)
-        self.assertIn('"--cap-drop",', source)
-        self.assertIn('"all",', source)
-        self.assertIn('"no-new-privileges",', source)
-        self.assertIn("smoke_script=None", source)
+    def test_only_the_safe_adapter_can_execute_a_consumer_smoke_script(self) -> None:
+        safe_source = (ROOT / "src/ci_workflows/oci_execution_safe.py").read_text()
+        base_source = (ROOT / "src/ci_workflows/oci_execution.py").read_text()
+        self.assertNotIn('["/bin/bash", str(script)]', safe_source)
+        self.assertNotIn('["/bin/bash", str(script)]', base_source)
+        self.assertIn('"--network",', safe_source)
+        self.assertIn('"none",', safe_source)
+        self.assertIn('"--cap-drop",', safe_source)
+        self.assertIn('"all",', safe_source)
+        self.assertIn('"no-new-privileges",', safe_source)
+        self.assertIn("smoke_script=None", safe_source)
 
     def test_cli_dispatches_through_the_safe_execution_adapter(self) -> None:
         source = (ROOT / "src/ci_workflows/ciw_oci.py").read_text()

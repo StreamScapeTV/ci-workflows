@@ -120,6 +120,17 @@ class OciBuildTests(unittest.TestCase):
             actual["products"]["flux-runner-images"]["runs_on"],
         )
 
+    def test_contract_rejects_ambiguous_buildah_runner_selector(self) -> None:
+        payload = json.loads((ROOT / "contracts/oci-products.json").read_text())
+        payload["runner_profiles"]["buildah-tiny"]["labels"].append("attacker")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            contract_path = root / "contracts/oci-products.json"
+            contract_path.parent.mkdir()
+            contract_path.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaisesRegex(OciBuildError, "invalid_contract"):
+                load_contract(root)
+
     def test_request_is_product_only_and_rejects_engine_runner_registry_and_callback(self) -> None:
         base = {
             "repository": "StreamScapeTV/ci-workflows",

@@ -37,6 +37,12 @@ _REQUIRED_LABELS = {
     "org.opencontainers.image.title",
     "org.opencontainers.image.version",
 }
+_BUILD_RUNNER_SELECTORS = {
+    "buildah-tiny": ("linux", "amd64", "buildah", "tiny"),
+    "buildah-small": ("linux", "amd64", "buildah", "small"),
+    "buildah-medium": ("linux", "amd64", "buildah", "medium"),
+    "buildah-high": ("linux", "amd64", "buildah", "high"),
+}
 
 
 def require(condition: bool, code: str) -> None:
@@ -189,10 +195,29 @@ def load_contract(root: Path) -> Mapping[str, Any]:
         require(isinstance(repository, str) and _REPOSITORY.fullmatch(repository), "invalid_contract")
         require(product["builder_id"] == "buildah-v1", "invalid_contract")
         runner_profile = product["runner_profile"]
-        require(isinstance(runner_profile, str) and runner_profile in runners, "invalid_contract")
+        require(
+            isinstance(runner_profile, str)
+            and runner_profile in runners
+            and runner_profile in _BUILD_RUNNER_SELECTORS,
+            "invalid_contract",
+        )
         runner = mapping(runners[runner_profile])
         labels = strings(runner.get("labels"), nonempty=True)
-        require(labels[:3] == ("linux", "amd64", "buildah"), "invalid_contract")
+        require(labels == _BUILD_RUNNER_SELECTORS[runner_profile], "invalid_contract")
+        for key in ("memory_limit_bytes", "storage_limit_bytes"):
+            require(type(runner.get(key)) is int and runner[key] > 0, "invalid_contract")
+        workspace_profile = product["workspace_profile"]
+        timeout_minutes = product["timeout_minutes"]
+        require(
+            isinstance(workspace_profile, str)
+            and _PRODUCT.fullmatch(workspace_profile) is not None,
+            "invalid_contract",
+        )
+        require(
+            type(timeout_minutes) is int and 1 <= timeout_minutes <= 180,
+            "invalid_contract",
+        )
+        require(isinstance(product["adoption_ready"], bool), "invalid_contract")
         measurement = mapping(product["measurement"])
         require(set(measurement) == {"peak_memory_bytes", "peak_storage_bytes", "headroom_percent"}, "invalid_contract")
         for key in ("peak_memory_bytes", "peak_storage_bytes"):
