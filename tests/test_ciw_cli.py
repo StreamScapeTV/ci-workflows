@@ -22,7 +22,9 @@ class CIWCLITests(unittest.TestCase):
                 str(ROOT),
                 "runners",
                 "validate-selector",
-                "portable",
+                "linux",
+                "amd64",
+                "general",
             ],
             environment={},
             stdout=output,
@@ -103,7 +105,7 @@ class CIWCLITests(unittest.TestCase):
             self.assertEqual(values["runner_profile"], "portable")
             self.assertEqual(
                 values["runs_on_json"],
-                '["homelab-portable-linux-x64"]',
+                '["linux","amd64","general"]',
             )
             self.assertEqual(values["artifact_exception_used"], "false")
             self.assertNotIn("callback", output.read_text(encoding="utf-8"))
@@ -147,7 +149,7 @@ class CIWCLITests(unittest.TestCase):
             self.assertEqual(values["runner_profile"], "portable")
             self.assertEqual(
                 values["runs_on_json"],
-                '["homelab-portable-linux-x64"]',
+                '["linux","amd64","general"]',
             )
             self.assertEqual(values["artifact_exception_used"], "false")
             serialized = output.read_text(encoding="utf-8")
@@ -169,7 +171,11 @@ class CIWCLITests(unittest.TestCase):
                 "fetch_depth": "1",
                 "verified": "true",
             }
-            with mock.patch.object(ciw, "exact_checkout", return_value=expected) as checkout:
+            with mock.patch.object(
+                ciw,
+                "exact_checkout",
+                return_value=expected,
+            ) as checkout:
                 code = ciw.main(
                     [
                         "--root",
@@ -210,9 +216,21 @@ class CIWCLITests(unittest.TestCase):
                 "INPUT_RELEASE_SOURCE_SHA": "a" * 40,
             }
             with (
-                mock.patch.object(ciw, "event_from_environment", return_value=object()),
-                mock.patch.object(ciw, "_release_provider", return_value=object()),
-                mock.patch.object(ciw, "resolve_release_authority", return_value=authority),
+                mock.patch.object(
+                    ciw,
+                    "event_from_environment",
+                    return_value=object(),
+                ),
+                mock.patch.object(
+                    ciw,
+                    "_release_provider",
+                    return_value=object(),
+                ),
+                mock.patch.object(
+                    ciw,
+                    "resolve_release_authority",
+                    return_value=authority,
+                ),
             ):
                 code = ciw.main(
                     [
@@ -260,7 +278,11 @@ class CIWCLITests(unittest.TestCase):
             self.assertIn("exact-checkout", translated)
 
         with (
-            mock.patch.dict("os.environ", {"INPUT_OPERATION": "verify-set"}, clear=False),
+            mock.patch.dict(
+                "os.environ",
+                {"INPUT_OPERATION": "verify-set"},
+                clear=False,
+            ),
             mock.patch("ci_workflows.ciw.main", return_value=0) as dispatch,
         ):
             self.assertEqual(
@@ -283,7 +305,7 @@ class CIWCLITests(unittest.TestCase):
                 dispatch.call_args.args[0],
             )
 
-    def test_scripts_and_eleven_actions_are_compatibility_delegates(self) -> None:
+    def test_scripts_and_twelve_actions_are_compatibility_delegates(self) -> None:
         for script in (
             "scripts/ci/resolve_source.py",
             "scripts/ci/runner_contract.py",
@@ -291,14 +313,17 @@ class CIWCLITests(unittest.TestCase):
             "scripts/ci/release_tag_authority.py",
             "scripts/ci/python.py",
             "scripts/ci/node.py",
+            "scripts/ci/android.py",
         ):
             source = (ROOT / script).read_text(encoding="utf-8")
             self.assertTrue(
-                "ciw" in source or "ci_workflows.source" in source or "foundation_cli" in source,
+                "ciw" in source
+                or "ci_workflows.source" in source
+                or "foundation_cli" in source,
                 script,
             )
         actions = sorted((ROOT / "actions").glob("*/action.yml"))
-        self.assertEqual(11, len(actions))
+        self.assertEqual(12, len(actions))
         for action in actions:
             source = action.read_text(encoding="utf-8")
             self.assertIn("scripts/ci/ciw.py", source, action.as_posix())

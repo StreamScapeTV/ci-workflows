@@ -12,7 +12,7 @@
     "physical-device": "physical-device",
     "portable": "portable"
   },
-  "contract_version": "2.0.0",
+  "contract_version": "2.1.0",
   "generated_from": "contracts/runner-profiles.json",
   "profiles": {
     "apple": {
@@ -71,10 +71,10 @@
       ],
       "approved_selectors": [
         [
-          "buildah-high"
-        ],
-        [
-          "homelab-buildah-high-linux-x64"
+          "linux",
+          "amd64",
+          "buildah",
+          "high"
         ]
       ],
       "capacity_owner": "flux-arc",
@@ -98,7 +98,10 @@
         "buildah-high"
       ],
       "runs_on": [
-        "homelab-buildah-high-linux-x64"
+        "linux",
+        "amd64",
+        "buildah",
+        "high"
       ]
     },
     "buildah-medium": {
@@ -114,10 +117,10 @@
       ],
       "approved_selectors": [
         [
-          "buildah-medium"
-        ],
-        [
-          "homelab-buildah-medium-linux-x64"
+          "linux",
+          "amd64",
+          "buildah",
+          "medium"
         ]
       ],
       "capacity_owner": "flux-arc",
@@ -141,7 +144,10 @@
         "buildah-medium"
       ],
       "runs_on": [
-        "homelab-buildah-medium-linux-x64"
+        "linux",
+        "amd64",
+        "buildah",
+        "medium"
       ]
     },
     "buildah-small": {
@@ -156,13 +162,10 @@
       ],
       "approved_selectors": [
         [
-          "buildah"
-        ],
-        [
-          "buildah-small"
-        ],
-        [
-          "homelab-buildah-small-linux-x64"
+          "linux",
+          "amd64",
+          "buildah",
+          "small"
         ]
       ],
       "capacity_owner": "flux-arc",
@@ -187,7 +190,10 @@
         "buildah-small"
       ],
       "runs_on": [
-        "homelab-buildah-small-linux-x64"
+        "linux",
+        "amd64",
+        "buildah",
+        "small"
       ]
     },
     "buildah-tiny": {
@@ -202,10 +208,10 @@
       ],
       "approved_selectors": [
         [
-          "buildah-tiny"
-        ],
-        [
-          "homelab-buildah-tiny-linux-x64"
+          "linux",
+          "amd64",
+          "buildah",
+          "tiny"
         ]
       ],
       "capacity_owner": "flux-arc",
@@ -229,7 +235,10 @@
         "buildah-tiny"
       ],
       "runs_on": [
-        "homelab-buildah-tiny-linux-x64"
+        "linux",
+        "amd64",
+        "buildah",
+        "tiny"
       ]
     },
     "flux-control": {
@@ -242,7 +251,9 @@
       ],
       "approved_selectors": [
         [
-          "homelab-flux-control-plane-linux-x64"
+          "linux",
+          "amd64",
+          "flux-control"
         ]
       ],
       "capacity_owner": "flux-arc",
@@ -263,7 +274,9 @@
       },
       "public_labels": [],
       "runs_on": [
-        "homelab-flux-control-plane-linux-x64"
+        "linux",
+        "amd64",
+        "flux-control"
       ]
     },
     "mobile": {
@@ -278,10 +291,34 @@
       ],
       "approved_selectors": [
         [
+          "linux",
+          "amd64",
           "mobile"
         ],
         [
-          "homelab-mobile-linux-x64"
+          "linux",
+          "amd64",
+          "android"
+        ],
+        [
+          "linux",
+          "amd64",
+          "flutter"
+        ],
+        [
+          "linux",
+          "amd64",
+          "jdk-25"
+        ],
+        [
+          "linux",
+          "amd64",
+          "node-24"
+        ],
+        [
+          "linux",
+          "amd64",
+          "nodejs"
         ]
       ],
       "capacity_owner": "flux-arc",
@@ -303,7 +340,9 @@
         "mobile"
       ],
       "runs_on": [
-        "homelab-mobile-linux-x64"
+        "linux",
+        "amd64",
+        "mobile"
       ]
     },
     "physical-device": {
@@ -373,10 +412,9 @@
       ],
       "approved_selectors": [
         [
-          "portable"
-        ],
-        [
-          "homelab-portable-linux-x64"
+          "linux",
+          "amd64",
+          "general"
         ]
       ],
       "capacity_owner": "flux-arc",
@@ -398,7 +436,9 @@
         "portable"
       ],
       "runs_on": [
-        "homelab-portable-linux-x64"
+        "linux",
+        "amd64",
+        "general"
       ]
     }
   },
