@@ -171,7 +171,8 @@ class FlutterWorkflowContractTests(unittest.TestCase):
         self.assertIn("python3 scripts/ci/flutter.py generate --check", self.mobile_smoke)
 
     def test_action_is_thin_and_exposes_all_terminal_outputs(self) -> None:
-        self.assertIn('python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/flutter.py"', self.action)
+        self.assertIn('python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py"', self.action)
+        self.assertIn("flutter validate", self.action)
         self.assertNotIn("curl ", self.action)
         self.assertNotIn("sudo ", self.action)
         for output in (

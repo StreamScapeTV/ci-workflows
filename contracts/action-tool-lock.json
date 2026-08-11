@@ -16,6 +16,20 @@
       "source": "https://github.com/actions/setup-node"
     },
     {
+      "uses": "actions/setup-java",
+      "sha": "03ad4de0992f5dab5e18fcb136590ce7c4a0ac95",
+      "release": "v5.6.0",
+      "runtime": "node24",
+      "source": "https://github.com/actions/setup-java"
+    },
+    {
+      "uses": "subosito/flutter-action",
+      "sha": "1a449444c387b1966244ae4d4f8c696479add0b2",
+      "release": "reviewed 2026-03-25",
+      "runtime": "composite",
+      "source": "https://github.com/subosito/flutter-action"
+    },
+    {
       "uses": "StreamScapeTV/ci-workflows/actions/resolve-release-tag",
       "sha": "2b0443fdad002d47625386a959ebe68545cfe022",
       "release": "issue #59 immutable helper checkpoint",

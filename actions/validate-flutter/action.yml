@@ -142,6 +142,7 @@ runs:
         INPUT_PRIMARY_FAILURE_CODE: ${{ inputs.primary_failure_code }}
       run: |
         set -Eeuo pipefail
-        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/flutter.py" \
-          "${{ inputs.phase }}" \
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
+          flutter validate \
+          --phase "${{ inputs.phase }}" \
           --source-root source
