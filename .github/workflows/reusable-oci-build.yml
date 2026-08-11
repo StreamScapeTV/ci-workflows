@@ -144,7 +144,7 @@ jobs:
           artifact_exception_id: ${{ inputs.artifact_exception_id }}
 
       - name: Render deterministic redacted OCI evidence
-        if: always()
+        if: ${{ always() && !cancelled() }}
         uses: ./.ciw/actions/render-evidence
         with:
           source_sha: ${{ inputs.admitted_sha }}
@@ -185,7 +185,7 @@ jobs:
         uses: ./.ciw/actions/cleanup-workspace
 
       - name: Verify exact caller source remained clean
-        if: always()
+        if: ${{ always() && !cancelled() }}
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -196,7 +196,7 @@ jobs:
           )
 
       - name: Project terminal OCI build status
-        if: always()
+        if: ${{ always() && !cancelled() }}
         shell: bash
         env:
           EXECUTE_OUTCOME: ${{ steps.execute.outcome }}

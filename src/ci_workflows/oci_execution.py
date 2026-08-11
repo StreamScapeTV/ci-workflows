@@ -341,6 +341,24 @@ def _buildah_base(root: Path, driver: str) -> list[str]:
     ]
 
 
+def _credential_free_authfile(root: Path) -> Path:
+    path = root / "auth.json"
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        raise OciBuildError("cleanup_failed") from error
+    else:
+        raise OciBuildError("residue_detected")
+    try:
+        path.write_text('{"auths":{}}\n', encoding="utf-8")
+        path.chmod(0o600)
+    except OSError as error:
+        raise OciBuildError("cleanup_failed") from error
+    return path
+
+
 def verify_builder_runtime() -> None:
     for tool in ("buildah", "skopeo", "podman"):
         if shutil.which(tool) is None:
@@ -363,6 +381,7 @@ def build_target(
     labels: Mapping[str, str],
     epoch: int,
     secret_files: Mapping[str, Path],
+    authfile: Path,
 ) -> tuple[OciTargetResult, str]:
     base = _buildah_base(root, plan.storage_driver)
     token = hashlib.sha256(f"{plan.admitted_sha}:{target.target_id}".encode()).hexdigest()[:16]
@@ -402,7 +421,18 @@ def build_target(
         execute_command(argv, cwd=staged_root)
     layout = root / "layouts" / target.target_id
     layout.parent.mkdir(parents=True, exist_ok=True)
-    execute_command([*base, "manifest", "push", "--all", manifest, f"oci:{layout}:validation"])
+    execute_command(
+        [
+            *base,
+            "manifest",
+            "push",
+            "--authfile",
+            str(authfile),
+            "--all",
+            manifest,
+            f"oci:{layout}:validation",
+        ]
+    )
     result = inspect_layout(layout, target, labels)
     verify_no_secret_leakage(layout, secret_files)
     # Consumer smoke is performed only by oci_execution_safe in a networkless,
@@ -426,6 +456,7 @@ def execute_plan(
     if root.exists() or root.is_symlink():
         raise OciBuildError("residue_detected")
     root.mkdir(parents=True, mode=0o700)
+    authfile = _credential_free_authfile(root)
     contract = load_contract(repository_root)
     epoch = source_date_epoch(source_root)
     secrets = dict(secret_files or {})
@@ -433,7 +464,16 @@ def execute_plan(
     for target in plan.targets:
         staged = stage_context(source_root, target, root / "staged" / target.target_id)
         labels = metadata_labels(contract, plan, target, epoch)
-        result, _ = build_target(plan, target, staged, root, labels, epoch, secrets)
+        result, _ = build_target(
+            plan,
+            target,
+            staged,
+            root,
+            labels,
+            epoch,
+            secrets,
+            authfile,
+        )
         results.append(result)
     assert_clean_source(source_root, plan.admitted_sha)
     evidence_payload = {

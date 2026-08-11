@@ -65,6 +65,21 @@ class OciWorkflowContractTests(unittest.TestCase):
             self.assertIn(value, self.workflow)
         self.assertLess(self.workflow.index("Build and inspect exact source"), self.workflow.index("Remove images, manifests"))
         self.assertLess(self.workflow.index("Remove images, manifests"), self.workflow.index("Verify zero OCI-specific residue"))
+        for cleanup in (
+            "Remove images, manifests, containers, layouts, caches, and temporary state",
+            "Verify zero OCI-specific residue",
+            "Remove and verify registered workspace state",
+        ):
+            self.assertIn(f"name: {cleanup}\n        if: always()", self.workflow)
+        for terminal in (
+            "Render deterministic redacted OCI evidence",
+            "Verify exact caller source remained clean",
+            "Project terminal OCI build status",
+        ):
+            self.assertIn(
+                f"name: {terminal}\n        if: ${{{{ always() && !cancelled() }}}}",
+                self.workflow,
+            )
 
     def test_public_inputs_do_not_expose_engine_runner_command_registry_or_secret(self) -> None:
         on_block = self.workflow.split("outputs:", 1)[0]
@@ -106,10 +121,16 @@ class OciWorkflowContractTests(unittest.TestCase):
         self.assertIn("platform_set: linux-amd64", self.smoke)
         self.assertIn(
             "concurrency:\n"
-            "  group: oci-build-smoke-${{ github.event.pull_request.number || github.run_id }}\n"
+            "  group: oci-build-smoke-${{ github.event.pull_request.number || github.ref }}\n"
             "  cancel-in-progress: true",
             self.smoke,
         )
+        self.assertIn("permissions:\n  actions: read\n  contents: read", self.smoke)
+        self.assertIn("zero_artifacts:", self.smoke)
+        self.assertIn("if: ${{ always() && !cancelled() }}", self.smoke)
+        self.assertIn("timeout-minutes: 10", self.smoke)
+        self.assertIn("/actions/runs/", self.smoke)
+        self.assertIn("/artifacts?per_page=100", self.smoke)
         self.assertNotIn("secrets:", self.smoke)
         self.assertNotIn("upload-artifact", self.smoke)
 

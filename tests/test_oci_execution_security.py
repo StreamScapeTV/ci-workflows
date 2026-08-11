@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -80,11 +81,17 @@ class OciExecutionSecurityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             staged = root / "staged"
+            state = root / "state"
             staged.mkdir()
+            state.mkdir()
             (staged / "Containerfile").write_text(
                 "FROM scratch\n", encoding="utf-8"
             )
-            with mock.patch.object(
+            default_authfile = root / "missing-default-auth.json"
+            authfile = execution._credential_free_authfile(state)
+            with mock.patch.dict(
+                os.environ, {"REGISTRY_AUTH_FILE": str(default_authfile)}
+            ), mock.patch.object(
                 execution, "execute_command", side_effect=fake_run
             ), mock.patch.object(
                 execution, "inspect_layout", return_value=expected
@@ -93,14 +100,20 @@ class OciExecutionSecurityTests(unittest.TestCase):
                     plan(),
                     target(smoke=None),
                     staged,
-                    root / "state",
+                    state,
                     {"example": "value"},
                     1,
                     {},
+                    authfile,
                 )
-        build = next(command for command in commands if "bud" in command)
-        self.assertIn("--network", build)
-        self.assertEqual("none", build[build.index("--network") + 1])
+            build = next(command for command in commands if "bud" in command)
+            self.assertIn("--network", build)
+            self.assertEqual("none", build[build.index("--network") + 1])
+            push = next(command for command in commands if "push" in command)
+            self.assertEqual(str(authfile), push[push.index("--authfile") + 1])
+            self.assertEqual('{"auths":{}}\n', authfile.read_text(encoding="utf-8"))
+            self.assertEqual(0o600, authfile.stat().st_mode & 0o777)
+            self.assertFalse(default_authfile.exists())
 
     def test_cleanup_unlinks_state_root_symlink_without_dereferencing(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
