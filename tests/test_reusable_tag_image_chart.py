@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from io import BytesIO
 import json
 import os
 from pathlib import Path
@@ -8,7 +11,9 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import threading
 import unittest
+import zipfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,7 +21,28 @@ WORKFLOW = ROOT / ".github" / "workflows" / "reusable-tag-image-chart.yml"
 SELF_CHECK = ROOT / ".github" / "workflows" / "self-check.yml"
 README = ROOT / "README.md"
 ACTION_LOCK = ROOT / "contracts" / "action-tool-lock.json"
-HELPER_SHA = "bd03c2b312e820d2c91097ecde4c076286e1bb24"
+HELPER_SHA = "2b0443fdad002d47625386a959ebe68545cfe022"
+RECOVERY_AUTHORITY = {
+    "schema_version": 1,
+    "repository": "StreamScapeTV/iptv-backend",
+    "version": "1.0.4",
+    "source_sha": "06e141b4c4fb6cad701606845883996ffe12a7f8",
+    "publisher_run_id": 31312535710,
+    "publisher_run_attempt": 1,
+    "historical_caller_sha": "d99b0806cac8a05946cd9cbe665a8ddcfbc9b009",
+    "historical_central_sha": "0fbf7a7ec7fd39ddc1ed1d77587b678db0888b23",
+    "remote_image_digest": (
+        "sha256:d43be564166133f96f3961d0aaa09e8e43504b927b8b3cfa368859972d8f1b08"
+    ),
+    "platform_config_digests": {
+        "linux/amd64": (
+            "sha256:77eb445de1e20be886b90e2c3fbe1337aae7ce6198b04aeeb23163502905115f"
+        ),
+        "linux/arm64": (
+            "sha256:179303cb89f33e3d8876ac550263fe286024ab22447c6dbfa052561adce4beb7"
+        ),
+    },
+}
 
 
 class ReusableTagImageChartTests(unittest.TestCase):
@@ -25,6 +51,702 @@ class ReusableTagImageChartTests(unittest.TestCase):
         cls.text = WORKFLOW.read_text(encoding="utf-8")
         cls.self_check = SELF_CHECK.read_text(encoding="utf-8")
         cls.readme = README.read_text(encoding="utf-8")
+
+    def _run_image_scenario(
+        self,
+        scenario: str,
+    ) -> tuple[subprocess.CompletedProcess[str], list[list[str]], str, bytes, bytes]:
+        step_start = self.text.index("      - id: image\n")
+        run_marker = "        run: |\n"
+        script_start = self.text.index(run_marker, step_start)
+        step_end = self.text.index("\n      - id: chart\n", script_start)
+        script = textwrap.dedent(
+            self.text[script_start + len(run_marker):step_end]
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_bin = root / "bin"
+            state_root = root / "state"
+            fake_bin.mkdir()
+            state_root.mkdir()
+            calls_path = root / "skopeo-calls.jsonl"
+            output_path = root / "github-output"
+
+            for name, source in (
+                ("buildah", "#!/bin/sh\nexit 0\n"),
+                ("git", "#!/bin/sh\nprintf '1700000000\\n'\n"),
+                (
+                    "sha256sum",
+                    "#!/usr/bin/env python3\n"
+                    "import hashlib, pathlib, sys\n"
+                    "path = pathlib.Path(sys.argv[1])\n"
+                    "print(f'{hashlib.sha256(path.read_bytes()).hexdigest()}  {path}')\n",
+                ),
+            ):
+                executable = fake_bin / name
+                executable.write_text(source, encoding="utf-8")
+                executable.chmod(0o700)
+
+            fake_skopeo = fake_bin / "skopeo"
+            fake_skopeo.write_text(
+                textwrap.dedent(
+                    """\
+                    #!/usr/bin/env python3
+                    import json
+                    import os
+                    from pathlib import Path
+                    import sys
+
+                    args = sys.argv[1:]
+                    with Path(os.environ["SKOPEO_CALLS"]).open("a", encoding="utf-8") as stream:
+                        stream.write(json.dumps(args) + "\\n")
+                    scenario = os.environ["IMAGE_SCENARIO"]
+                    operation = args[0]
+                    target = args[-1]
+                    remote = target.startswith("docker://")
+
+                    if operation == "copy":
+                        raise SystemExit(0)
+                    if operation == "list-tags":
+                        if scenario == "list-tags-auth-failure":
+                            raise SystemExit(1)
+                        if scenario == "list-tags-transient-failure":
+                            raise SystemExit(2)
+                        if scenario == "list-tags-malformed":
+                            sys.stdout.write("{")
+                            raise SystemExit(0)
+                        tags = [] if scenario == "publish-match" else ["1.0.4"]
+                        sys.stdout.write(json.dumps({"Repository": target, "Tags": tags}))
+                        raise SystemExit(0)
+                    if operation != "inspect":
+                        raise SystemExit(2)
+
+                    if "--config" in args:
+                        architecture = args[args.index("--override-arch") + 1]
+                        config = {
+                            "architecture": architecture,
+                            "config": {
+                                "Entrypoint": ["/app/start"],
+                                "Labels": {
+                                    "org.opencontainers.image.revision": os.environ["SOURCE_SHA"],
+                                    "org.opencontainers.image.source": (
+                                        f"{os.environ['GITHUB_SERVER_URL']}/"
+                                        f"{os.environ['GITHUB_REPOSITORY']}"
+                                    ),
+                                    "org.opencontainers.image.version": os.environ["VERSION"],
+                                },
+                            },
+                            "history": [{"created_by": "bounded-build"}],
+                            "os": "linux",
+                            "rootfs": {
+                                "diff_ids": [f"sha256:{architecture}-rootfs"],
+                                "type": "layers",
+                            },
+                        }
+                        if remote and architecture == "arm64":
+                            if scenario == "replay-runtime-change":
+                                config["config"]["Entrypoint"] = ["/other/start"]
+                            elif scenario == "replay-rootfs-change":
+                                config["rootfs"]["diff_ids"] = ["sha256:changed-rootfs"]
+                        if remote and scenario == "replay-reserialized-config":
+                            sys.stdout.write(json.dumps(config, indent=2, sort_keys=False))
+                        else:
+                            sys.stdout.write(
+                                json.dumps(
+                                    config,
+                                    separators=(",", ":"),
+                                    sort_keys=True,
+                                )
+                            )
+                        raise SystemExit(0)
+
+                    manifests = [
+                        {
+                            "digest": "sha256:amd64-" + ("remote" if remote else "local"),
+                            "platform": {"architecture": "amd64", "os": "linux"},
+                        },
+                        {
+                            "digest": "sha256:arm64-" + ("remote" if remote else "local"),
+                            "platform": {
+                                "architecture": "arm64",
+                                "os": "linux",
+                                "variant": (
+                                    "v9"
+                                    if remote and scenario == "replay-platform-change"
+                                    else "v8"
+                                ),
+                            },
+                        },
+                    ]
+                    if remote and scenario == "replay-platform-set-change":
+                        manifests[1]["platform"] = {
+                            "architecture": "s390x",
+                            "os": "linux",
+                        }
+                    sys.stdout.write(
+                        json.dumps(
+                            {
+                                "manifests": manifests,
+                                "normalization": "remote" if remote else "local",
+                            },
+                            separators=(",", ":"),
+                            sort_keys=True,
+                        )
+                    )
+                    """
+                ),
+                encoding="utf-8",
+            )
+            fake_skopeo.chmod(0o700)
+
+            result = subprocess.run(
+                ["bash", "-c", script],
+                env={
+                    **os.environ,
+                    "BUILD_CONTEXT": ".",
+                    "CONTAINER_RUN_ROOT": str(root / "run"),
+                    "CONTAINER_STORAGE_ROOT": str(root / "storage"),
+                    "DOCKERFILE_PATH": "Dockerfile",
+                    "GITHUB_OUTPUT": str(output_path),
+                    "GITHUB_REPOSITORY": "StreamScapeTV/iptv-backend",
+                    "GITHUB_RUN_ATTEMPT": "1",
+                    "GITHUB_RUN_ID": "90",
+                    "GITHUB_SERVER_URL": "https://github.com",
+                    "IMAGE_REFERENCE": "registry.example/backend:1.0.4",
+                    "IMAGE_RECOVERY_ENABLED": "false",
+                    "IMAGE_SCENARIO": scenario,
+                    "OCI_LAYOUT": str(root / "oci"),
+                    "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                    "REGISTRY_AUTH_FILE": str(root / "auth.json"),
+                    "SKOPEO_CALLS": str(calls_path),
+                    "SOURCE_SHA": "a" * 40,
+                    "STATE_ROOT": str(state_root),
+                    "VERSION": "1.0.4",
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            calls = [
+                json.loads(line)
+                for line in calls_path.read_text(encoding="utf-8").splitlines()
+            ]
+            output = (
+                output_path.read_text(encoding="utf-8")
+                if output_path.exists()
+                else ""
+            )
+            local_path = state_root / "image-local-index.json"
+            remote_path = state_root / "image-remote-index.json"
+            local_index = local_path.read_bytes() if local_path.exists() else b""
+            remote_index = remote_path.read_bytes() if remote_path.exists() else b""
+            return result, calls, output, local_index, remote_index
+
+    def _run_recovery_admission(
+        self,
+        *,
+        authority_mutation: tuple[str, object] | None = None,
+        evidence_mutation: str | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        step = self.text.index("Admit fixed partial-publication recovery provenance")
+        marker = "          python3 - <<'PY'\n"
+        start = self.text.index(marker, step)
+        script = textwrap.dedent(
+            self.text[start + len(marker):].split("\n          PY", 1)[0]
+        )
+
+        authority = json.loads(json.dumps(RECOVERY_AUTHORITY))
+        if authority_mutation is not None:
+            field, value = authority_mutation
+            if value is None:
+                authority.pop(field)
+            else:
+                authority[field] = value
+
+        current_sha = "c" * 40
+        run = {
+            "id": 31312535710,
+            "run_attempt": 1,
+            "path": ".github/workflows/release.yml",
+            "event": "workflow_dispatch",
+            "display_title": (
+                "Publish existing Backend release 1.0.4 from "
+                "06e141b4c4fb6cad701606845883996ffe12a7f8"
+            ),
+            "head_sha": RECOVERY_AUTHORITY["historical_caller_sha"],
+            "head_branch": "main",
+            "status": "completed",
+            "conclusion": "failure",
+        }
+        success_steps = [
+            "Revalidate exact release tag before checkout",
+            "Check out exact validated caller source",
+            "Verify exact detached release source",
+            "Validate bounded product inputs",
+            "Verify daemonless publication runner and credentials",
+            "Stage pinned Helm from immutable OCI image",
+            "Prepare isolated publication and authentication state",
+            "Prepare locked Helm chart dependencies",
+            "Revalidate exact release tag immediately before publication",
+            "Authenticate to fixed private OCI registry",
+            "Clean publication credentials and state",
+        ]
+        publish_steps = [
+            {"name": name, "conclusion": "success"} for name in success_steps
+        ] + [
+            {
+                "name": "Build publish and verify exact-tag image",
+                "conclusion": "failure",
+            },
+            {
+                "name": "Package publish and verify exact-tag Helm chart",
+                "conclusion": "skipped",
+            },
+        ]
+        jobs = {
+            "total_count": 2,
+            "jobs": [
+                {
+                    "name": "release / Resolve exact release tag authority",
+                    "conclusion": "success",
+                    "steps": [
+                        {
+                            "name": "Admit exact trusted release mode and tag tuple",
+                            "conclusion": "success",
+                        }
+                    ],
+                },
+                {
+                    "name": "release / Publish exact tag image and chart",
+                    "conclusion": "failure",
+                    "steps": publish_steps,
+                },
+            ],
+        }
+        artifacts = {"total_count": 0, "artifacts": []}
+        logs = "\n".join(
+            (
+                "Uses: StreamScapeTV/ci-workflows/.github/workflows/"
+                "reusable-tag-image-chart.yml@"
+                + str(RECOVERY_AUTHORITY["historical_central_sha"]),
+                "release_mode: existing-tag",
+                "release_version: 1.0.4",
+                "release_source_sha: " + str(RECOVERY_AUTHORITY["source_sha"]),
+                "Copying config "
+                + RECOVERY_AUTHORITY["platform_config_digests"]["linux/amd64"],
+                "Copying config "
+                + RECOVERY_AUTHORITY["platform_config_digests"]["linux/arm64"],
+                "Writing manifest list to image destination",
+                "Process completed with exit code 1.",
+            )
+        )
+        if evidence_mutation == "run-head":
+            run["head_sha"] = "d" * 40
+        elif evidence_mutation == "auth-step":
+            publish_steps[9]["conclusion"] = "failure"
+        elif evidence_mutation == "artifact":
+            artifacts = {"total_count": 1, "artifacts": [{"name": "unexpected"}]}
+        elif evidence_mutation == "pin":
+            logs = logs.replace(
+                str(RECOVERY_AUTHORITY["historical_central_sha"]), "e" * 40
+            )
+        elif evidence_mutation == "config":
+            logs = logs.replace(
+                RECOVERY_AUTHORITY["platform_config_digests"]["linux/arm64"],
+                "sha256:" + "f" * 64,
+            )
+        elif evidence_mutation == "order":
+            logs = logs.replace(
+                "Writing manifest list to image destination\n"
+                "Process completed with exit code 1.",
+                "Process completed with exit code 1.\n"
+                "Writing manifest list to image destination",
+            )
+
+        archive_buffer = BytesIO()
+        with zipfile.ZipFile(archive_buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("release.txt", logs)
+        routes: dict[str, tuple[str, bytes]] = {
+            "/repos/StreamScapeTV/iptv-backend": (
+                "application/json",
+                json.dumps({"default_branch": "main"}).encode(),
+            ),
+            "/repos/StreamScapeTV/iptv-backend/branches/main": (
+                "application/json",
+                json.dumps({"commit": {"sha": current_sha}}).encode(),
+            ),
+            "/repos/StreamScapeTV/iptv-backend/actions/runs/31312535710/attempts/1": (
+                "application/json",
+                json.dumps(run).encode(),
+            ),
+            "/repos/StreamScapeTV/iptv-backend/actions/runs/31312535710/attempts/1/jobs?per_page=100": (
+                "application/json",
+                json.dumps(jobs).encode(),
+            ),
+            "/repos/StreamScapeTV/iptv-backend/actions/runs/31312535710/artifacts": (
+                "application/json",
+                json.dumps(artifacts).encode(),
+            ),
+            "/repos/StreamScapeTV/iptv-backend/actions/runs/31312535710/attempts/1/logs": (
+                "application/zip",
+                archive_buffer.getvalue(),
+            ),
+        }
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802
+                response = routes.get(self.path)
+                if response is None:
+                    self.send_error(404)
+                    return
+                content_type, body = response
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, format: str, *args: object) -> None:
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / "github-output"
+                return subprocess.run(
+                    [sys.executable, "-S", "-c", script],
+                    env={
+                        **os.environ,
+                        "GH_TOKEN": "test-token",
+                        "GITHUB_API_URL": f"http://127.0.0.1:{server.server_port}",
+                        "GITHUB_EVENT_NAME": "workflow_dispatch",
+                        "GITHUB_OUTPUT": str(output),
+                        "GITHUB_REF": "refs/heads/main",
+                        "GITHUB_REPOSITORY": "StreamScapeTV/iptv-backend",
+                        "GITHUB_SHA": current_sha,
+                        "GITHUB_WORKFLOW_REF": (
+                            "StreamScapeTV/iptv-backend/.github/workflows/"
+                            "release.yml@refs/heads/main"
+                        ),
+                        "IMAGE_RECOVERY_AUTHORITY": json.dumps(authority),
+                        "RELEASE_MODE": "existing-tag",
+                        "RELEASE_SOURCE_SHA": str(RECOVERY_AUTHORITY["source_sha"]),
+                        "RELEASE_VERSION": "1.0.4",
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+    def _run_recovery_image_scenario(
+        self, scenario: str
+    ) -> tuple[subprocess.CompletedProcess[str], list[list[str]]]:
+        marker = "            cat > \"${recovery_verifier}\" <<'RECOVERY'\n"
+        start = self.text.index(marker, self.text.index("      - id: image\n"))
+        script = textwrap.dedent(
+            self.text[start + len(marker):].split("\n          RECOVERY", 1)[0]
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state = root / "state"
+            fake_bin = root / "bin"
+            state.mkdir()
+            fake_bin.mkdir()
+            calls_file = root / "calls.jsonl"
+            source_sha = "a" * 40
+            configs: dict[str, bytes] = {}
+            config_digests: dict[str, str] = {}
+            manifest_digests: dict[str, str] = {}
+            for architecture in ("amd64", "arm64"):
+                config = {
+                    "architecture": architecture,
+                    "config": {
+                        "Labels": {
+                            "org.opencontainers.image.revision": source_sha,
+                            "org.opencontainers.image.source": (
+                                "https://github.com/StreamScapeTV/iptv-backend"
+                            ),
+                            "org.opencontainers.image.version": "1.0.4",
+                        }
+                    },
+                    "os": "linux",
+                }
+                configs[architecture] = json.dumps(
+                    config, separators=(",", ":"), sort_keys=True
+                ).encode()
+                config_digests[architecture] = (
+                    "sha256:" + hashlib.sha256(configs[architecture]).hexdigest()
+                )
+                manifest_digests[architecture] = (
+                    "sha256:"
+                    + hashlib.sha256(f"manifest-{architecture}".encode()).hexdigest()
+                )
+            index = {
+                "manifests": [
+                    {
+                        "digest": manifest_digests["amd64"],
+                        "platform": {"architecture": "amd64", "os": "linux"},
+                    },
+                    {
+                        "digest": manifest_digests["arm64"],
+                        "platform": {
+                            "architecture": "arm64",
+                            "os": "linux",
+                            "variant": "v8" if scenario != "platform" else "v9",
+                        },
+                    },
+                ]
+            }
+            index_bytes = json.dumps(index, separators=(",", ":"), sort_keys=True).encode()
+            expected_index_digest = "sha256:" + hashlib.sha256(index_bytes).hexdigest()
+            if scenario == "index-digest":
+                expected_index_digest = "sha256:" + "0" * 64
+
+            fake_skopeo = fake_bin / "skopeo"
+            fake_skopeo.write_text(
+                textwrap.dedent(
+                    """\
+                    #!/usr/bin/env python3
+                    import json, os, pathlib, sys
+                    args = sys.argv[1:]
+                    with pathlib.Path(os.environ["CALLS_FILE"]).open("a") as stream:
+                        stream.write(json.dumps(args) + "\\n")
+                    scenario = os.environ["SCENARIO"]
+                    if args[0] == "list-tags":
+                        if scenario == "listing-failure":
+                            raise SystemExit(2)
+                        if scenario == "listing-malformed":
+                            print("{")
+                        else:
+                            tags = [] if scenario == "tag-absent" else ["1.0.4"]
+                            print(json.dumps({"Tags": tags}))
+                        raise SystemExit(0)
+                    if args[0] != "inspect":
+                        raise SystemExit(3)
+                    target = args[-1]
+                    if "@" not in target:
+                        sys.stdout.buffer.write(bytes.fromhex(os.environ["INDEX_HEX"]))
+                        raise SystemExit(0)
+                    architecture = (
+                        "amd64" if os.environ["AMD64_MANIFEST"] in target else "arm64"
+                    )
+                    config_digest = os.environ[f"{architecture.upper()}_CONFIG"]
+                    if scenario == "descriptor" and architecture == "arm64":
+                        config_digest = "sha256:" + "f" * 64
+                    if "--config" in args:
+                        raw = bytes.fromhex(os.environ[f"{architecture.upper()}_CONFIG_HEX"])
+                        if scenario == "config-bytes" and architecture == "arm64":
+                            raw += b" "
+                        if scenario == "labels" and architecture == "arm64":
+                            value = json.loads(raw)
+                            value["config"]["Labels"]["org.opencontainers.image.version"] = "9.9.9"
+                            raw = json.dumps(value, separators=(",", ":"), sort_keys=True).encode()
+                        sys.stdout.buffer.write(raw)
+                    else:
+                        print(json.dumps({"config": {"digest": config_digest}}))
+                    """
+                ),
+                encoding="utf-8",
+            )
+            fake_skopeo.chmod(0o700)
+            result = subprocess.run(
+                ["bash", "-c", script],
+                env={
+                    **os.environ,
+                    "AMD64_CONFIG": config_digests["amd64"],
+                    "AMD64_CONFIG_HEX": configs["amd64"].hex(),
+                    "AMD64_MANIFEST": manifest_digests["amd64"],
+                    "ARM64_CONFIG": config_digests["arm64"],
+                    "ARM64_CONFIG_HEX": configs["arm64"].hex(),
+                    "ARM64_MANIFEST": manifest_digests["arm64"],
+                    "CALLS_FILE": str(calls_file),
+                    "GITHUB_REPOSITORY": "StreamScapeTV/iptv-backend",
+                    "GITHUB_SERVER_URL": "https://github.com",
+                    "IMAGE_REFERENCE": "registry.example/backend:1.0.4",
+                    "INDEX_HEX": index_bytes.hex(),
+                    "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                    "RECOVERY_AMD64_CONFIG_DIGEST": config_digests["amd64"],
+                    "RECOVERY_ARM64_CONFIG_DIGEST": config_digests["arm64"],
+                    "RECOVERY_IMAGE_DIGEST": expected_index_digest,
+                    "REGISTRY_AUTH_FILE": str(root / "auth.json"),
+                    "SCENARIO": scenario,
+                    "SOURCE_SHA": source_sha,
+                    "STATE_ROOT": str(state),
+                    "VERSION": "1.0.4",
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            calls = (
+                [json.loads(line) for line in calls_file.read_text().splitlines()]
+                if calls_file.exists()
+                else []
+            )
+            return result, calls
+
+    def _run_chart_scenario(
+        self, scenario: str
+    ) -> tuple[subprocess.CompletedProcess[str], list[dict[str, object]]]:
+        step_start = self.text.index("      - id: chart\n")
+        run_marker = "        run: |\n"
+        script_start = self.text.index(run_marker, step_start)
+        step_end = self.text.index(
+            "\n      - name: Revalidate recovery image after chart publication",
+            script_start,
+        )
+        script = textwrap.dedent(
+            self.text[script_start + len(run_marker):step_end]
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_bin = root / "bin"
+            state = root / "state"
+            chart_source = root / "chart-source"
+            chart_local = root / "chart-local"
+            chart_remote = root / "chart-remote"
+            for path in (fake_bin, state, chart_source, chart_local, chart_remote):
+                path.mkdir()
+            (chart_source / "Chart.yaml").write_text(
+                "apiVersion: v2\nname: iptv-backend\nversion: 1.0.4\n"
+                "appVersion: 1.0.4\n",
+                encoding="utf-8",
+            )
+            calls_file = root / "calls.jsonl"
+            pushed = root / "pushed"
+
+            fake_helm = fake_bin / "helm"
+            fake_helm.write_text(
+                textwrap.dedent(
+                    """\
+                    #!/usr/bin/env python3
+                    import json, os, pathlib, shutil, sys, tarfile, tempfile
+                    args = sys.argv[1:]
+                    with pathlib.Path(os.environ["CALLS_FILE"]).open("a") as stream:
+                        stream.write(json.dumps({"tool": "helm", "args": args}) + "\\n")
+                    command = args[0]
+                    if command == "lint":
+                        raise SystemExit(0)
+                    if command == "template":
+                        print("apiVersion: v1\\nkind: ConfigMap\\nmetadata:\\n  name: release")
+                        raise SystemExit(0)
+                    if command == "show" and args[1] == "chart":
+                        print("name: iptv-backend\\nversion: 1.0.4\\nappVersion: 1.0.4")
+                        raise SystemExit(0)
+                    if command == "package":
+                        destination = pathlib.Path(args[args.index("--destination") + 1])
+                        package = destination / "iptv-backend-1.0.4.tgz"
+                        with tempfile.TemporaryDirectory() as directory:
+                            source = pathlib.Path(directory) / "iptv-backend"
+                            source.mkdir()
+                            (source / "Chart.yaml").write_text(
+                                "apiVersion: v2\\nname: iptv-backend\\n"
+                                "version: 1.0.4\\nappVersion: 1.0.4\\n"
+                            )
+                            with tarfile.open(package, "w:gz") as archive:
+                                archive.add(source, arcname="iptv-backend")
+                        raise SystemExit(0)
+                    if command == "push":
+                        pathlib.Path(os.environ["PUSHED_FILE"]).write_text("pushed")
+                        raise SystemExit(0)
+                    if command == "pull":
+                        destination = pathlib.Path(args[args.index("--destination") + 1])
+                        source = pathlib.Path(os.environ["CHART_LOCAL"]) / "iptv-backend-1.0.4.tgz"
+                        target = destination / source.name
+                        shutil.copyfile(source, target)
+                        if os.environ["SCENARIO"] == "present-conflict":
+                            with target.open("ab") as stream:
+                                stream.write(b"conflict")
+                        raise SystemExit(0)
+                    raise SystemExit(3)
+                    """
+                ),
+                encoding="utf-8",
+            )
+            fake_helm.chmod(0o700)
+
+            fake_skopeo = fake_bin / "skopeo"
+            fake_skopeo.write_text(
+                textwrap.dedent(
+                    """\
+                    #!/usr/bin/env python3
+                    import hashlib, json, os, pathlib, sys
+                    args = sys.argv[1:]
+                    with pathlib.Path(os.environ["CALLS_FILE"]).open("a") as stream:
+                        stream.write(json.dumps({"tool": "skopeo", "args": args}) + "\\n")
+                    scenario = os.environ["SCENARIO"]
+                    if args[0] == "list-tags":
+                        if scenario == "listing-failure":
+                            raise SystemExit(2)
+                        if scenario == "listing-malformed":
+                            print("{")
+                            raise SystemExit(0)
+                        present = scenario.startswith("present") or pathlib.Path(
+                            os.environ["PUSHED_FILE"]
+                        ).exists()
+                        print(json.dumps({"Tags": ["1.0.4"] if present else []}))
+                        raise SystemExit(0)
+                    if args[0] == "inspect" and "--raw" in args:
+                        package = pathlib.Path(os.environ["CHART_LOCAL"]) / "iptv-backend-1.0.4.tgz"
+                        digest = hashlib.sha256(package.read_bytes()).hexdigest()
+                        if scenario.endswith("layer-mismatch"):
+                            digest = "0" * 64
+                        print(json.dumps({
+                            "config": {"mediaType": "application/vnd.cncf.helm.config.v1+json"},
+                            "layers": [{
+                                "digest": "sha256:" + digest,
+                                "mediaType": "application/vnd.cncf.helm.chart.content.v1.tar+gzip",
+                            }],
+                        }))
+                        raise SystemExit(0)
+                    raise SystemExit(3)
+                    """
+                ),
+                encoding="utf-8",
+            )
+            fake_skopeo.chmod(0o700)
+
+            output = root / "github-output"
+            result = subprocess.run(
+                ["bash", "-c", script],
+                env={
+                    **os.environ,
+                    "CALLS_FILE": str(calls_file),
+                    "CHART_DEPENDENCY_COUNT": "0",
+                    "CHART_LOCAL": str(chart_local),
+                    "CHART_NAME": "iptv-backend",
+                    "CHART_REFERENCE": "oci://registry.example/charts/iptv-backend",
+                    "CHART_REMOTE": str(chart_remote),
+                    "CHART_SOURCE": str(chart_source),
+                    "CHART_NAMESPACE": "charts",
+                    "GITHUB_OUTPUT": str(output),
+                    "HELM_BIN": str(fake_helm),
+                    "HELM_REGISTRY_CONFIG": str(root / "helm-auth.json"),
+                    "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                    "PUSHED_FILE": str(pushed),
+                    "REGISTRY": "registry.example",
+                    "REGISTRY_AUTH_FILE": str(root / "registry-auth.json"),
+                    "SCENARIO": scenario,
+                    "STATE_ROOT": str(state),
+                    "VERSION": "1.0.4",
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            calls = (
+                [json.loads(line) for line in calls_file.read_text().splitlines()]
+                if calls_file.exists()
+                else []
+            )
+            return result, calls
 
     def test_public_workflow_is_workflow_call_only(self) -> None:
         header = self.text.split("\npermissions:", 1)[0]
@@ -44,6 +766,7 @@ class ReusableTagImageChartTests(unittest.TestCase):
             "release_mode",
             "release_version",
             "release_source_sha",
+            "image_recovery_authority",
             "image_name",
             "chart_name",
             "chart_path",
@@ -58,6 +781,12 @@ class ReusableTagImageChartTests(unittest.TestCase):
             self.text,
             re.compile(
                 r"(?ms)^      release_mode:\n.*?^        default: tag-push$"
+            ),
+        )
+        self.assertRegex(
+            self.text,
+            re.compile(
+                r"(?ms)^      image_recovery_authority:\n.*?^        default: \"\"$"
             ),
         )
         for secret_name in ("registry_username", "registry_token"):
@@ -82,6 +811,79 @@ class ReusableTagImageChartTests(unittest.TestCase):
                 re.compile(rf"(?m)^      {forbidden_input}:\n"),
             )
         self.assertNotIn("secrets: inherit", self.text)
+
+    def test_recovery_authority_and_historical_provenance_are_fail_closed(self) -> None:
+        result = self._run_recovery_admission()
+        self.assertEqual(0, result.returncode, result.stderr)
+
+        for mutation in (
+            ("extra", "unexpected"),
+            ("source_sha", None),
+            ("publisher_run_id", "31312535710"),
+            ("remote_image_digest", "sha256:" + "0" * 64),
+        ):
+            with self.subTest(authority_mutation=mutation):
+                result = self._run_recovery_admission(authority_mutation=mutation)
+                self.assertNotEqual(0, result.returncode)
+
+        for mutation in (
+            "run-head",
+            "auth-step",
+            "artifact",
+            "pin",
+            "config",
+            "order",
+        ):
+            with self.subTest(evidence_mutation=mutation):
+                result = self._run_recovery_admission(evidence_mutation=mutation)
+                self.assertNotEqual(0, result.returncode)
+
+    def test_recovery_image_is_read_only_exact_and_checked_twice(self) -> None:
+        result, calls = self._run_recovery_image_scenario("match")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertTrue(result.stdout.startswith("sha256:"))
+        self.assertEqual(1, sum(call[0] == "list-tags" for call in calls))
+        self.assertTrue(all(call[0] in {"list-tags", "inspect"} for call in calls))
+        self.assertFalse(any(call[0] == "copy" for call in calls))
+
+        for scenario in (
+            "tag-absent",
+            "listing-failure",
+            "listing-malformed",
+            "index-digest",
+            "platform",
+            "descriptor",
+            "config-bytes",
+            "labels",
+        ):
+            with self.subTest(scenario=scenario):
+                result, calls = self._run_recovery_image_scenario(scenario)
+                self.assertNotEqual(0, result.returncode)
+                self.assertTrue(
+                    all(call[0] in {"list-tags", "inspect"} for call in calls)
+                )
+                self.assertFalse(any(call[0] == "copy" for call in calls))
+
+        image_start = self.text.index("      - id: image\n")
+        image_end = self.text.index("\n      - id: chart\n", image_start)
+        recovery_branch = self.text[
+            self.text.index(
+                'if [[ "${IMAGE_RECOVERY_ENABLED}" == "true" ]]', image_start
+            ):self.text.index("          else\n", image_start)
+        ]
+        for forbidden in (
+            "buildah bud",
+            "manifest create",
+            "manifest push",
+            "skopeo copy",
+            "buildah rmi",
+            "buildah rm",
+        ):
+            self.assertNotIn(forbidden, recovery_branch)
+        post_chart = self.text.index("Revalidate recovery image after chart publication")
+        artifacts = self.text.index("Confirm zero Actions artifacts", post_chart)
+        self.assertIn('post_chart_digest="$("${recovery_verifier}")"', self.text[post_chart:artifacts])
+        self.assertIn("if [[ \"${IMAGE_RECOVERY_ENABLED:-false}\" != \"true\" ]]", self.text)
 
     def test_exact_tag_authority_checkout_and_freshness_are_required(self) -> None:
         action_reference = (
@@ -249,9 +1051,83 @@ class ReusableTagImageChartTests(unittest.TestCase):
         self.assertIn('"oci:${OCI_LAYOUT}:${VERSION}"', self.text)
         self.assertIn('"docker://${IMAGE_REFERENCE}"', self.text)
         self.assertIn("skopeo copy --all", self.text)
-        self.assertIn("remote image platforms", self.text)
+        self.assertIn("image platforms", self.text)
         self.assertIn("--override-arch", self.text)
-        self.assertIn('test "${remote_digest}" = "${local_digest}"', self.text)
+        self.assertIn("--config", self.text)
+        self.assertIn("--raw", self.text)
+        self.assertIn('cmp -s "${local_config}" "${remote_config}"', self.text)
+        self.assertNotIn("local_digest=", self.text)
+        self.assertNotIn('test "${remote_digest}" = "${local_digest}"', self.text)
+
+    def test_normalized_indexes_accept_only_identical_raw_platform_configs(self) -> None:
+        result, calls, output, local_index, remote_index = self._run_image_scenario(
+            "replay-match"
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertNotEqual(local_index, remote_index)
+        self.assertEqual(0, sum(call[0] == "copy" for call in calls))
+        tag_lists = [call for call in calls if call[0] == "list-tags"]
+        self.assertEqual(1, len(tag_lists))
+        self.assertEqual(
+            "docker://registry.example/backend",
+            tag_lists[0][-1],
+        )
+        self.assertIn("replayed=true\n", output)
+        self.assertIn(
+            f"digest=sha256:{hashlib.sha256(remote_index).hexdigest()}\n",
+            output,
+        )
+
+        for scenario in (
+            "replay-runtime-change",
+            "replay-rootfs-change",
+            "replay-reserialized-config",
+        ):
+            with self.subTest(scenario=scenario):
+                result, calls, _, _, _ = self._run_image_scenario(scenario)
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("image config does not match", result.stderr)
+                self.assertEqual(0, sum(call[0] == "copy" for call in calls))
+
+        result, calls, _, _, _ = self._run_image_scenario(
+            "replay-platform-change"
+        )
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("platform metadata differs", result.stderr)
+        self.assertEqual(0, sum(call[0] == "copy" for call in calls))
+
+        result, calls, _, _, _ = self._run_image_scenario(
+            "replay-platform-set-change"
+        )
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("image platforms", result.stderr)
+        self.assertEqual(0, sum(call[0] == "copy" for call in calls))
+
+    def test_absent_remote_tag_is_copied_once_then_verified(self) -> None:
+        result, calls, output, local_index, remote_index = self._run_image_scenario(
+            "publish-match"
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertNotEqual(local_index, remote_index)
+        self.assertEqual(1, sum(call[0] == "copy" for call in calls))
+        self.assertEqual(1, sum(call[0] == "list-tags" for call in calls))
+        self.assertIn("replayed=false\n", output)
+
+    def test_tag_listing_failures_never_attempt_publication(self) -> None:
+        for scenario in (
+            "list-tags-auth-failure",
+            "list-tags-transient-failure",
+            "list-tags-malformed",
+        ):
+            with self.subTest(scenario=scenario):
+                result, calls, output, _, remote_index = self._run_image_scenario(
+                    scenario
+                )
+                self.assertNotEqual(0, result.returncode)
+                self.assertEqual(1, sum(call[0] == "list-tags" for call in calls))
+                self.assertEqual(0, sum(call[0] == "copy" for call in calls))
+                self.assertEqual("", output)
+                self.assertEqual(b"", remote_index)
 
     def test_chart_builds_locked_dependencies_before_lint_and_package(self) -> None:
         prepare = self.text.index("Prepare locked Helm chart dependencies")
@@ -399,9 +1275,69 @@ class ReusableTagImageChartTests(unittest.TestCase):
         self.assertIn('grep -Fqx "version: ${VERSION}"', self.text)
         self.assertIn("Rendered chart contains forbidden latest identity", self.text)
 
+    def test_chart_listing_present_absent_and_one_push_are_fail_closed(self) -> None:
+        result, calls = self._run_chart_scenario("present")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(
+            0,
+            sum(
+                call["tool"] == "helm" and call["args"][0] == "push"
+                for call in calls
+            ),
+        )
+        self.assertEqual(
+            1,
+            sum(
+                call["tool"] == "skopeo" and call["args"][0] == "list-tags"
+                for call in calls
+            ),
+        )
+
+        result, calls = self._run_chart_scenario("absent")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(
+            1,
+            sum(
+                call["tool"] == "helm" and call["args"][0] == "push"
+                for call in calls
+            ),
+        )
+        self.assertEqual(
+            2,
+            sum(
+                call["tool"] == "skopeo" and call["args"][0] == "list-tags"
+                for call in calls
+            ),
+        )
+
+        for scenario in (
+            "listing-failure",
+            "listing-malformed",
+            "present-conflict",
+            "present-layer-mismatch",
+        ):
+            with self.subTest(scenario=scenario):
+                result, calls = self._run_chart_scenario(scenario)
+                self.assertNotEqual(0, result.returncode)
+                self.assertEqual(
+                    0,
+                    sum(
+                        call["tool"] == "helm" and call["args"][0] == "push"
+                        for call in calls
+                    ),
+                )
+
     def test_replay_is_idempotent_and_conflicts_fail_closed(self) -> None:
-        self.assertIn("remote_exists=false", self.text)
-        self.assertIn('test "${remote_digest}" = "${local_digest}"', self.text)
+        image_start = self.text.index("      - id: image\n")
+        image_end = self.text.index("\n      - id: chart\n", image_start)
+        image = self.text[image_start:image_end]
+        self.assertIn("skopeo list-tags", image)
+        self.assertIn(
+            'print("true" if os.environ["VERSION"] in tags else "false")',
+            image,
+        )
+        self.assertNotIn("if skopeo inspect", image)
+        self.assertIn('if ! cmp -s "${local_config}" "${remote_config}"', image)
         self.assertIn('test "$(sha256sum "${remote_package}"', self.text)
         self.assertIn("replayed=%s", self.text)
 
@@ -441,6 +1377,99 @@ class ReusableTagImageChartTests(unittest.TestCase):
         self.assertIn("images -q", self.text)
         self.assertIn("registry logout", self.text)
         self.assertIn('"${STATE_ROOT:-${RUNNER_TEMP}/central-tag-release}"', self.text)
+
+    def test_state_prepares_valid_private_json_auth_files(self) -> None:
+        prepare_start = self.text.index(
+            "Prepare isolated publication and authentication state"
+        )
+        prepare_end = self.text.index(
+            "\n      - name: Prepare locked Helm chart dependencies",
+            prepare_start,
+        )
+        prepare = self.text[prepare_start:prepare_end]
+        self.assertIn('registry_auth="${state_root}/auth/containers.json"', prepare)
+        self.assertIn('helm_auth="${state_root}/auth/helm.json"', prepare)
+        self.assertEqual(
+            2,
+            prepare.count('"$(dirname "${registry_auth}")"'),
+        )
+        self.assertIn("chmod 0700", prepare)
+        self.assertIn("printf '{}\\n' > \"${registry_auth}\"", prepare)
+        self.assertIn("printf '{}\\n' > \"${helm_auth}\"", prepare)
+        self.assertIn('chmod 0600 "${registry_auth}" "${helm_auth}"', prepare)
+        self.assertNotIn(': > "${registry_auth}"', prepare)
+        self.assertNotIn(': > "${helm_auth}"', prepare)
+        self.assertNotIn('touch "${registry_auth}"', prepare)
+        self.assertNotIn('touch "${helm_auth}"', prepare)
+
+        script_marker = "        run: |\n"
+        script_start = self.text.index(script_marker, prepare_start)
+        script = textwrap.dedent(
+            self.text[script_start + len(script_marker):prepare_end]
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runner_temp = root / "runner"
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            fake_buildah = fake_bin / "buildah"
+            fake_buildah.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            fake_buildah.chmod(0o700)
+            fake_timeout = fake_bin / "timeout"
+            fake_timeout.write_text(
+                "#!/bin/sh\n"
+                "while [ \"$#\" -gt 0 ]; do\n"
+                "  case \"$1\" in\n"
+                "    --signal=*|--kill-after=*) shift ;;\n"
+                "    *s) shift; break ;;\n"
+                "    *) break ;;\n"
+                "  esac\n"
+                "done\n"
+                "exec \"$@\"\n",
+                encoding="utf-8",
+            )
+            fake_timeout.chmod(0o700)
+            github_env = root / "github-env"
+            result = subprocess.run(
+                ["bash", "-c", script],
+                env={
+                    **os.environ,
+                    "GITHUB_ENV": str(github_env),
+                    "GITHUB_RUN_ATTEMPT": "1",
+                    "GITHUB_RUN_ID": "83",
+                    "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                    "RUNNER_TEMP": str(runner_temp),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            auth_root = runner_temp / "central-tag-release" / "auth"
+            self.assertEqual(0o700, auth_root.stat().st_mode & 0o777)
+            for filename in ("containers.json", "helm.json"):
+                auth_file = auth_root / filename
+                with self.subTest(filename=filename):
+                    self.assertEqual({}, json.loads(auth_file.read_text()))
+                    self.assertEqual(0o600, auth_file.stat().st_mode & 0o777)
+
+        login_start = self.text.index("Authenticate to fixed private OCI registry")
+        login_end = self.text.index(
+            "Build publish and verify exact-tag image",
+            login_start,
+        )
+        login = self.text[login_start:login_end]
+        self.assertIn("umask 077", login)
+        buildah_login = login.index("buildah login")
+        registry_nonempty = login.index('test -s "${REGISTRY_AUTH_FILE}"')
+        registry_mode = login.index('chmod 0600 "${REGISTRY_AUTH_FILE}"')
+        helm_login = login.index('"${HELM_BIN}" registry login')
+        helm_nonempty = login.index('test -s "${HELM_REGISTRY_CONFIG}"')
+        helm_mode = login.index('chmod 0600 "${HELM_REGISTRY_CONFIG}"')
+        self.assertLess(buildah_login, registry_nonempty)
+        self.assertLess(registry_nonempty, registry_mode)
+        self.assertLess(helm_login, helm_nonempty)
+        self.assertLess(helm_nonempty, helm_mode)
 
     def test_self_check_and_documented_callers_are_thin(self) -> None:
         self.assertIn(

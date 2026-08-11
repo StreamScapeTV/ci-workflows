@@ -16,6 +16,11 @@ on:
         description: Exact lowercase tagged commit for existing-tag mode
         required: false
         type: string
+      image_recovery_authority:
+        description: Fixed provenance authority for one reviewed partial publication recovery
+        required: false
+        default: ""
+        type: string
       image_name:
         description: Image repository slug under git.faruqi.dev/mimranfaruqi
         required: true
@@ -87,14 +92,309 @@ jobs:
       source_sha: ${{ steps.authority.outputs.release_source_sha }}
       tag_object_sha: ${{ steps.authority.outputs.tag_object_sha }}
       tag_commit_sha: ${{ steps.authority.outputs.tag_commit_sha }}
+      image_recovery_enabled: ${{ steps.recovery.outputs.enabled }}
+      recovery_image_digest: ${{ steps.recovery.outputs.image_digest }}
+      recovery_amd64_config_digest: ${{ steps.recovery.outputs.amd64_config_digest }}
+      recovery_arm64_config_digest: ${{ steps.recovery.outputs.arm64_config_digest }}
     steps:
       - id: authority
         name: Admit exact trusted release mode and tag tuple
-        uses: StreamScapeTV/ci-workflows/actions/resolve-release-tag@bd03c2b312e820d2c91097ecde4c076286e1bb24 # issue #59 immutable helper checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/resolve-release-tag@2b0443fdad002d47625386a959ebe68545cfe022 # issue #59 immutable helper checkpoint
         with:
           release_mode: ${{ inputs.release_mode }}
           release_version: ${{ inputs.release_version }}
           release_source_sha: ${{ inputs.release_source_sha }}
+
+      - id: recovery
+        name: Admit fixed partial-publication recovery provenance
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE_RECOVERY_AUTHORITY: ${{ inputs.image_recovery_authority }}
+          RELEASE_MODE: ${{ steps.authority.outputs.release_mode }}
+          RELEASE_VERSION: ${{ steps.authority.outputs.release_version }}
+          RELEASE_SOURCE_SHA: ${{ steps.authority.outputs.release_source_sha }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          from io import BytesIO
+          import json
+          import os
+          import re
+          import urllib.request
+          import zipfile
+
+          raw_authority = os.environ["IMAGE_RECOVERY_AUTHORITY"]
+          if raw_authority == "":
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+                  output.write("enabled=false\n")
+              raise SystemExit(0)
+
+          try:
+              authority = json.loads(raw_authority)
+          except json.JSONDecodeError as exc:
+              raise SystemExit("image recovery authority is not valid JSON") from exc
+
+          expected_authority = {
+              "schema_version": 1,
+              "repository": "StreamScapeTV/iptv-backend",
+              "version": "1.0.4",
+              "source_sha": "06e141b4c4fb6cad701606845883996ffe12a7f8",
+              "publisher_run_id": 31312535710,
+              "publisher_run_attempt": 1,
+              "historical_caller_sha": (
+                  "d99b0806cac8a05946cd9cbe665a8ddcfbc9b009"
+              ),
+              "historical_central_sha": (
+                  "0fbf7a7ec7fd39ddc1ed1d77587b678db0888b23"
+              ),
+              "remote_image_digest": (
+                  "sha256:d43be564166133f96f3961d0aaa09e8e43504b927b8b3cfa368859972d8f1b08"
+              ),
+              "platform_config_digests": {
+                  "linux/amd64": (
+                      "sha256:77eb445de1e20be886b90e2c3fbe1337aae7ce6198b04aeeb23163502905115f"
+                  ),
+                  "linux/arm64": (
+                      "sha256:179303cb89f33e3d8876ac550263fe286024ab22447c6dbfa052561adce4beb7"
+                  ),
+              },
+          }
+          if authority != expected_authority:
+              raise SystemExit(
+                  "image recovery authority is not the reviewed fixed authority"
+              )
+          if type(authority) is not dict or set(authority) != set(expected_authority):
+              raise SystemExit("image recovery authority fields are invalid")
+          if type(authority["schema_version"]) is not int:
+              raise SystemExit("image recovery schema_version must be an integer")
+          if type(authority["publisher_run_id"]) is not int:
+              raise SystemExit("image recovery publisher_run_id must be an integer")
+          if type(authority["publisher_run_attempt"]) is not int:
+              raise SystemExit("image recovery publisher_run_attempt must be an integer")
+          configs = authority["platform_config_digests"]
+          if type(configs) is not dict or set(configs) != {
+              "linux/amd64",
+              "linux/arm64",
+          }:
+              raise SystemExit("image recovery requires exactly two platform configs")
+          digest_pattern = re.compile(r"sha256:[0-9a-f]{64}")
+          for digest in (authority["remote_image_digest"], *configs.values()):
+              if type(digest) is not str or digest_pattern.fullmatch(digest) is None:
+                  raise SystemExit("image recovery digest is malformed")
+
+          if os.environ["RELEASE_MODE"] != "existing-tag":
+              raise SystemExit("image recovery requires existing-tag mode")
+          if os.environ["GITHUB_REPOSITORY"] != authority["repository"]:
+              raise SystemExit("image recovery repository does not match")
+          if os.environ["RELEASE_VERSION"] != authority["version"]:
+              raise SystemExit("image recovery version does not match")
+          if os.environ["RELEASE_SOURCE_SHA"] != authority["source_sha"]:
+              raise SystemExit("image recovery source does not match")
+          if os.environ["GITHUB_EVENT_NAME"] != "workflow_dispatch":
+              raise SystemExit("image recovery requires workflow_dispatch")
+
+          api_root = os.environ["GITHUB_API_URL"].rstrip("/")
+          repository = authority["repository"]
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+
+          def api_bytes(path: str, *, maximum: int) -> bytes:
+              request = urllib.request.Request(f"{api_root}{path}", headers=headers)
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  data = response.read(maximum + 1)
+              if len(data) > maximum:
+                  raise SystemExit(f"GitHub evidence response is too large: {path}")
+              return data
+
+          def api_json(path: str) -> object:
+              try:
+                  return json.loads(api_bytes(path, maximum=2_000_000))
+              except json.JSONDecodeError as exc:
+                  raise SystemExit(f"GitHub evidence JSON is malformed: {path}") from exc
+
+          repository_data = api_json(f"/repos/{repository}")
+          if not isinstance(repository_data, dict):
+              raise SystemExit("repository evidence is malformed")
+          default_branch = repository_data.get("default_branch")
+          if default_branch != "main":
+              raise SystemExit("image recovery default branch is not main")
+          branch_data = api_json(f"/repos/{repository}/branches/{default_branch}")
+          if not isinstance(branch_data, dict):
+              raise SystemExit("default-branch evidence is malformed")
+          branch_commit = branch_data.get("commit")
+          if not isinstance(branch_commit, dict):
+              raise SystemExit("default-branch commit evidence is malformed")
+          if os.environ["GITHUB_REF"] != f"refs/heads/{default_branch}":
+              raise SystemExit("image recovery caller is not running from default branch")
+          if os.environ["GITHUB_SHA"] != branch_commit.get("sha"):
+              raise SystemExit("image recovery caller is not current default-branch head")
+          expected_workflow_ref = (
+              f"{repository}/.github/workflows/release.yml@refs/heads/{default_branch}"
+          )
+          if os.environ["GITHUB_WORKFLOW_REF"] != expected_workflow_ref:
+              raise SystemExit("image recovery caller workflow identity is invalid")
+
+          run_id = authority["publisher_run_id"]
+          attempt = authority["publisher_run_attempt"]
+          run = api_json(f"/repos/{repository}/actions/runs/{run_id}/attempts/{attempt}")
+          if not isinstance(run, dict):
+              raise SystemExit("historical publisher run evidence is malformed")
+          expected_run = {
+              "id": run_id,
+              "run_attempt": attempt,
+              "path": ".github/workflows/release.yml",
+              "event": "workflow_dispatch",
+              "display_title": (
+                  "Publish existing Backend release 1.0.4 from "
+                  "06e141b4c4fb6cad701606845883996ffe12a7f8"
+              ),
+              "head_sha": authority["historical_caller_sha"],
+              "head_branch": "main",
+              "status": "completed",
+              "conclusion": "failure",
+          }
+          for key, expected in expected_run.items():
+              if run.get(key) != expected:
+                  raise SystemExit(f"historical publisher run {key} is invalid")
+
+          jobs_payload = api_json(
+              f"/repos/{repository}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100"
+          )
+          if not isinstance(jobs_payload, dict) or jobs_payload.get("total_count") != 2:
+              raise SystemExit("historical publisher job count is invalid")
+          jobs = jobs_payload.get("jobs")
+          if not isinstance(jobs, list) or len(jobs) != 2:
+              raise SystemExit("historical publisher jobs are malformed")
+          jobs_by_name = {
+              job.get("name"): job for job in jobs if isinstance(job, dict)
+          }
+          authority_job = jobs_by_name.get(
+              "release / Resolve exact " + "release tag authority"
+          )
+          publish_job = jobs_by_name.get(
+              "release / Publish exact " + "tag image and chart"
+          )
+          if not isinstance(authority_job, dict) or authority_job.get("conclusion") != "success":
+              raise SystemExit("historical release authority job did not succeed")
+          if not isinstance(publish_job, dict) or publish_job.get("conclusion") != "failure":
+              raise SystemExit("historical publisher job did not fail at the known gate")
+
+          def step_results(job: dict[str, object]) -> dict[str, str]:
+              steps = job.get("steps")
+              if not isinstance(steps, list):
+                  raise SystemExit("historical publisher steps are malformed")
+              results: dict[str, str] = {}
+              for step in steps:
+                  if not isinstance(step, dict):
+                      raise SystemExit("historical publisher step is malformed")
+                  name = step.get("name")
+                  conclusion = step.get("conclusion")
+                  if not isinstance(name, str) or not isinstance(conclusion, str):
+                      raise SystemExit("historical publisher step result is malformed")
+                  if name in results:
+                      raise SystemExit("historical publisher has duplicate step names")
+                  results[name] = conclusion
+              return results
+
+          authority_steps = step_results(authority_job)
+          if authority_steps.get(
+              "Admit exact trusted release " + "mode and tag tuple"
+          ) != "success":
+              raise SystemExit("historical tag authority step did not succeed")
+          publish_steps = step_results(publish_job)
+          required_success = {
+              "Revalidate exact release " + "tag before checkout",
+              "Check out exact validated " + "caller source",
+              "Verify exact detached " + "release source",
+              "Validate bounded " + "product inputs",
+              "Verify daemonless publication " + "runner and credentials",
+              "Stage pinned Helm from " + "immutable OCI image",
+              "Prepare isolated publication " + "and authentication state",
+              "Prepare locked Helm chart " + "dependencies",
+              "Revalidate exact release tag " + "immediately before publication",
+              "Authenticate to fixed private " + "OCI registry",
+              "Clean publication " + "credentials and state",
+          }
+          for name in required_success:
+              if publish_steps.get(name) != "success":
+                  raise SystemExit(f"historical required step did not succeed: {name}")
+          if publish_steps.get(
+              "Build publish and verify " + "exact-tag image"
+          ) != "failure":
+              raise SystemExit("historical image step did not fail at the known gate")
+          if publish_steps.get(
+              "Package publish and verify " + "exact-tag Helm chart"
+          ) != "skipped":
+              raise SystemExit("historical chart step was not skipped")
+
+          artifacts = api_json(f"/repos/{repository}/actions/runs/{run_id}/artifacts")
+          if not isinstance(artifacts, dict) or artifacts.get("total_count") != 0:
+              raise SystemExit("historical publisher retained Actions artifacts")
+          if artifacts.get("artifacts") != []:
+              raise SystemExit("historical publisher artifact evidence is malformed")
+
+          log_archive = api_bytes(
+              f"/repos/{repository}/actions/runs/{run_id}/attempts/{attempt}/logs",
+              maximum=64_000_000,
+          )
+          try:
+              archive = zipfile.ZipFile(BytesIO(log_archive))
+          except zipfile.BadZipFile as exc:
+              raise SystemExit("historical publisher log archive is invalid") from exc
+          members = archive.infolist()
+          if not members or len(members) > 100:
+              raise SystemExit("historical publisher log member count is invalid")
+          total_uncompressed = 0
+          log_parts: list[str] = []
+          for member in members:
+              if member.is_dir() or member.filename.startswith(("/", "\\")):
+                  raise SystemExit("historical publisher log member path is invalid")
+              if ".." in member.filename.replace("\\", "/").split("/"):
+                  raise SystemExit("historical publisher log member escapes archive")
+              total_uncompressed += member.file_size
+              if total_uncompressed > 96_000_000:
+                  raise SystemExit("historical publisher logs are too large")
+              log_parts.append(archive.read(member).decode("utf-8", errors="replace"))
+          logs = "\n".join(log_parts)
+          central_pin = authority["historical_central_sha"]
+          required_log_markers = (
+              "Uses: StreamScapeTV/ci-workflows/.github/workflows/"
+              f"reusable-tag-image-chart.yml@{central_pin}",
+              "release_mode: existing-tag",
+              f"release_version: {authority['version']}",
+              f"release_source_sha: {authority['source_sha']}",
+              f"Copying config {configs['linux/amd64']}",
+              f"Copying config {configs['linux/arm64']}",
+              "Writing manifest list to image destination",
+              "Process completed with exit code 1.",
+          )
+          for marker in required_log_markers:
+              if marker not in logs:
+                  raise SystemExit(f"historical publisher log marker is missing: {marker}")
+          manifest_write = logs.rfind("Writing manifest list to image destination")
+          known_failure = logs.rfind("Process completed with exit code 1.")
+          if manifest_write < 0 or known_failure <= manifest_write:
+              raise SystemExit("historical manifest-write/failure order is invalid")
+          for digest in configs.values():
+              if logs.rfind(f"Copying config {digest}", 0, manifest_write) < 0:
+                  raise SystemExit("historical config was not written before manifest")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("enabled=true\n")
+              output.write(f"image_digest={authority['remote_image_digest']}\n")
+              output.write(
+                  f"amd64_config_digest={configs['linux/amd64']}\n"
+              )
+              output.write(
+                  f"arm64_config_digest={configs['linux/arm64']}\n"
+              )
+          PY
 
   publish:
     name: Publish exact tag image and chart
@@ -107,6 +407,10 @@ jobs:
     env:
       VERSION: ${{ needs.admit.outputs.version }}
       SOURCE_SHA: ${{ needs.admit.outputs.source_sha }}
+      IMAGE_RECOVERY_ENABLED: ${{ needs.admit.outputs.image_recovery_enabled }}
+      RECOVERY_IMAGE_DIGEST: ${{ needs.admit.outputs.recovery_image_digest }}
+      RECOVERY_AMD64_CONFIG_DIGEST: ${{ needs.admit.outputs.recovery_amd64_config_digest }}
+      RECOVERY_ARM64_CONFIG_DIGEST: ${{ needs.admit.outputs.recovery_arm64_config_digest }}
     outputs:
       version: ${{ steps.release.outputs.version }}
       source_sha: ${{ steps.release.outputs.source_sha }}
@@ -117,7 +421,7 @@ jobs:
 
     steps:
       - name: Revalidate exact release tag before checkout
-        uses: StreamScapeTV/ci-workflows/actions/resolve-release-tag@bd03c2b312e820d2c91097ecde4c076286e1bb24 # issue #59 immutable helper checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/resolve-release-tag@2b0443fdad002d47625386a959ebe68545cfe022 # issue #59 immutable helper checkpoint
         with:
           phase: revalidate
           release_mode: ${{ needs.admit.outputs.release_mode }}
@@ -357,8 +661,8 @@ jobs:
             "${chart_source}" \
             "${chart_local}" \
             "${chart_remote}"
-          : > "${registry_auth}"
-          : > "${helm_auth}"
+          printf '{}\n' > "${registry_auth}"
+          printf '{}\n' > "${helm_auth}"
           chmod 0600 "${registry_auth}" "${helm_auth}"
 
           {
@@ -524,7 +828,7 @@ jobs:
           PY
 
       - name: Revalidate exact release tag immediately before publication
-        uses: StreamScapeTV/ci-workflows/actions/resolve-release-tag@bd03c2b312e820d2c91097ecde4c076286e1bb24 # issue #59 immutable helper checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/resolve-release-tag@2b0443fdad002d47625386a959ebe68545cfe022 # issue #59 immutable helper checkpoint
         with:
           phase: revalidate
           release_mode: ${{ needs.admit.outputs.release_mode }}
@@ -567,16 +871,165 @@ jobs:
           BUILD_CONTEXT: ${{ inputs.build_context }}
         run: |
           set -Eeuo pipefail
-          buildah_cmd=(
-            buildah
-            --storage-driver vfs
-            --root "${CONTAINER_STORAGE_ROOT}"
-            --runroot "${CONTAINER_RUN_ROOT}"
+          if [[ "${IMAGE_RECOVERY_ENABLED}" == "true" ]]; then
+            recovery_verifier="${STATE_ROOT}/verify-recovery-image"
+            cat > "${recovery_verifier}" <<'RECOVERY'
+          #!/usr/bin/env bash
+          set -Eeuo pipefail
+
+          image_repository="${IMAGE_REFERENCE%:${VERSION}}"
+          test "${image_repository}:${VERSION}" = "${IMAGE_REFERENCE}"
+          remote_tags="${STATE_ROOT}/image-recovery-remote-tags.json"
+          skopeo list-tags \
+            --authfile "${REGISTRY_AUTH_FILE}" \
+            "docker://${image_repository}" > "${remote_tags}"
+          REMOTE_TAGS="${remote_tags}" python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(Path(os.environ["REMOTE_TAGS"]).read_text(encoding="utf-8"))
+          tags = payload.get("Tags") if isinstance(payload, dict) else None
+          if not isinstance(tags, list) or not all(isinstance(tag, str) for tag in tags):
+              raise SystemExit("registry image tag listing is invalid")
+          if tags.count(os.environ["VERSION"]) != 1:
+              raise SystemExit("recovery image tag is absent or duplicated")
+          PY
+
+          remote_raw="${STATE_ROOT}/image-recovery-remote-index.json"
+          skopeo inspect --raw \
+            --authfile "${REGISTRY_AUTH_FILE}" \
+            "docker://${IMAGE_REFERENCE}" > "${remote_raw}"
+          remote_digest="sha256:$(sha256sum "${remote_raw}" | awk '{print $1}')"
+          test "${remote_digest}" = "${RECOVERY_IMAGE_DIGEST}"
+
+          platform_manifests="${STATE_ROOT}/image-recovery-platform-manifests.txt"
+          REMOTE_RAW="${remote_raw}" \
+          PLATFORM_MANIFESTS="${platform_manifests}" \
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          from pathlib import Path
+          import re
+
+          manifest = json.loads(Path(os.environ["REMOTE_RAW"]).read_text(encoding="utf-8"))
+          items = manifest.get("manifests") if isinstance(manifest, dict) else None
+          if not isinstance(items, list):
+              raise SystemExit("recovery image index has no manifest list")
+          expected = {("linux", "amd64"), ("linux", "arm64")}
+          platforms: dict[tuple[object, object], tuple[dict[str, object], str]] = {}
+          digest_pattern = re.compile(r"sha256:[0-9a-f]{64}")
+          for item in items:
+              if not isinstance(item, dict):
+                  raise SystemExit("recovery image has an invalid descriptor")
+              platform = item.get("platform")
+              digest = item.get("digest")
+              if not isinstance(platform, dict):
+                  raise SystemExit("recovery image has invalid platform metadata")
+              identity = (platform.get("os"), platform.get("architecture"))
+              if identity in platforms:
+                  raise SystemExit(f"recovery image has duplicate platform {identity}")
+              if not isinstance(digest, str) or digest_pattern.fullmatch(digest) is None:
+                  raise SystemExit("recovery image manifest digest is invalid")
+              platforms[identity] = (platform, digest)
+          if set(platforms) != expected or len(platforms) != 2:
+              raise SystemExit(f"recovery image platforms {set(platforms)} do not equal {expected}")
+          if platforms[("linux", "arm64")][0].get("variant") != "v8":
+              raise SystemExit("recovery linux/arm64 image variant is not v8")
+          Path(os.environ["PLATFORM_MANIFESTS"]).write_text(
+              "".join(
+                  f"{architecture}={platforms[('linux', architecture)][1]}\n"
+                  for architecture in ("amd64", "arm64")
+              ),
+              encoding="utf-8",
           )
-          local_manifest="localhost/central-tag-release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}:manifest"
-          source_epoch="$(git show -s --format=%ct "${SOURCE_SHA}")"
-          "${buildah_cmd[@]}" manifest rm "${local_manifest}" >/dev/null 2>&1 || true
-          "${buildah_cmd[@]}" manifest create "${local_manifest}" >/dev/null
+          PY
+
+          for architecture in amd64 arm64; do
+            manifest_digest="$(
+              sed -n "s/^${architecture}=//p" "${platform_manifests}"
+            )"
+            [[ "${manifest_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+            child_manifest="${STATE_ROOT}/image-recovery-${architecture}-manifest.json"
+            skopeo inspect --raw \
+              --authfile "${REGISTRY_AUTH_FILE}" \
+              "docker://${image_repository}@${manifest_digest}" > "${child_manifest}"
+            if [[ "${architecture}" == "amd64" ]]; then
+              expected_config_digest="${RECOVERY_AMD64_CONFIG_DIGEST}"
+            else
+              test "${architecture}" = "arm64"
+              expected_config_digest="${RECOVERY_ARM64_CONFIG_DIGEST}"
+            fi
+            CHILD_MANIFEST="${child_manifest}" \
+            EXPECTED_CONFIG_DIGEST="${expected_config_digest}" \
+            python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          manifest = json.loads(
+              Path(os.environ["CHILD_MANIFEST"]).read_text(encoding="utf-8")
+          )
+          config = manifest.get("config") if isinstance(manifest, dict) else None
+          if not isinstance(config, dict):
+              raise SystemExit("recovery child manifest has no config descriptor")
+          if config.get("digest") != os.environ["EXPECTED_CONFIG_DIGEST"]:
+              raise SystemExit("recovery child config descriptor digest differs")
+          PY
+
+            remote_config="${STATE_ROOT}/image-recovery-${architecture}-config.json"
+            skopeo inspect \
+              --authfile "${REGISTRY_AUTH_FILE}" \
+              --config \
+              --raw \
+              "docker://${image_repository}@${manifest_digest}" > "${remote_config}"
+            actual_config_digest="sha256:$(sha256sum "${remote_config}" | awk '{print $1}')"
+            test "${actual_config_digest}" = "${expected_config_digest}"
+            REMOTE_CONFIG="${remote_config}" python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          config = json.loads(
+              Path(os.environ["REMOTE_CONFIG"]).read_text(encoding="utf-8")
+          )
+          labels = config.get("config", {}).get("Labels", {})
+          expected = {
+              "org.opencontainers.image.source": (
+                  f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}"
+              ),
+              "org.opencontainers.image.revision": os.environ["SOURCE_SHA"],
+              "org.opencontainers.image.version": os.environ["VERSION"],
+          }
+          if not isinstance(labels, dict) or any(
+              labels.get(key) != value for key, value in expected.items()
+          ):
+              raise SystemExit("recovery image labels do not match authority")
+          PY
+          done
+          printf '%s\n' "${remote_digest}"
+          RECOVERY
+            chmod 0700 "${recovery_verifier}"
+            remote_digest="$("${recovery_verifier}")"
+            {
+              printf 'reference=%s\n' "${IMAGE_REFERENCE}"
+              printf 'digest=%s\n' "${remote_digest}"
+              printf 'replayed=true\n'
+            } >> "${GITHUB_OUTPUT}"
+          else
+            test "${IMAGE_RECOVERY_ENABLED}" = "false"
+            buildah_cmd=(
+              buildah
+              --storage-driver vfs
+              --root "${CONTAINER_STORAGE_ROOT}"
+              --runroot "${CONTAINER_RUN_ROOT}"
+            )
+            local_manifest="localhost/central-tag-release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}:manifest"
+            source_epoch="$(git show -s --format=%ct "${SOURCE_SHA}")"
+            "${buildah_cmd[@]}" manifest rm "${local_manifest}" >/dev/null 2>&1 || true
+            "${buildah_cmd[@]}" manifest create "${local_manifest}" >/dev/null
 
           for architecture in amd64 arm64; do
             "${buildah_cmd[@]}" bud \
@@ -596,69 +1049,122 @@ jobs:
             "${local_manifest}" \
             "oci:${OCI_LAYOUT}:${VERSION}"
           local_raw="${STATE_ROOT}/image-local-index.json"
-          skopeo inspect --raw "oci:${OCI_LAYOUT}:${VERSION}" > "${local_raw}"
-          local_digest="sha256:$(sha256sum "${local_raw}" | awk '{print $1}')"
+          skopeo inspect --raw \
+            "oci:${OCI_LAYOUT}:${VERSION}" > "${local_raw}"
+
+          image_repository="${IMAGE_REFERENCE%:${VERSION}}"
+          test "${image_repository}:${VERSION}" = "${IMAGE_REFERENCE}"
+          remote_tags="${STATE_ROOT}/image-remote-tags.json"
+          skopeo list-tags \
+            --authfile "${REGISTRY_AUTH_FILE}" \
+            "docker://${image_repository}" > "${remote_tags}"
+          remote_exists="$(
+            REMOTE_TAGS="${remote_tags}" python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(
+              Path(os.environ["REMOTE_TAGS"]).read_text(encoding="utf-8")
+          )
+          tags = payload.get("Tags") if isinstance(payload, dict) else None
+          if not isinstance(tags, list) or not all(
+              isinstance(tag, str) for tag in tags
+          ):
+              raise SystemExit("registry tag listing is invalid")
+          print("true" if os.environ["VERSION"] in tags else "false")
+          PY
+          )"
 
           remote_raw="${STATE_ROOT}/image-remote-index.json"
-          remote_exists=false
-          if skopeo inspect \
-              --authfile "${REGISTRY_AUTH_FILE}" \
-              "docker://${IMAGE_REFERENCE}" >/dev/null 2>&1; then
-            remote_exists=true
-            skopeo inspect --raw \
-              --authfile "${REGISTRY_AUTH_FILE}" \
-              "docker://${IMAGE_REFERENCE}" > "${remote_raw}"
-            remote_digest="sha256:$(sha256sum "${remote_raw}" | awk '{print $1}')"
-            test "${remote_digest}" = "${local_digest}"
-          else
+          if [[ "${remote_exists}" == "false" ]]; then
             skopeo copy --all \
               --authfile "${REGISTRY_AUTH_FILE}" \
               "oci:${OCI_LAYOUT}:${VERSION}" \
               "docker://${IMAGE_REFERENCE}"
-            skopeo inspect --raw \
-              --authfile "${REGISTRY_AUTH_FILE}" \
-              "docker://${IMAGE_REFERENCE}" > "${remote_raw}"
-            remote_digest="sha256:$(sha256sum "${remote_raw}" | awk '{print $1}')"
-            test "${remote_digest}" = "${local_digest}"
+          else
+            test "${remote_exists}" = "true"
           fi
+          skopeo inspect --raw \
+            --authfile "${REGISTRY_AUTH_FILE}" \
+            "docker://${IMAGE_REFERENCE}" > "${remote_raw}"
+          remote_digest="sha256:$(sha256sum "${remote_raw}" | awk '{print $1}')"
 
-          REMOTE_RAW="${remote_raw}" python3 - <<'PY'
+          LOCAL_RAW="${local_raw}" REMOTE_RAW="${remote_raw}" python3 - <<'PY'
           from __future__ import annotations
 
           import json
           import os
           from pathlib import Path
 
-          manifest = json.loads(Path(os.environ["REMOTE_RAW"]).read_text(encoding="utf-8"))
-          platforms = {
-              (
-                  item.get("platform", {}).get("os"),
-                  item.get("platform", {}).get("architecture"),
-              )
-              for item in manifest.get("manifests", [])
-              if item.get("platform", {}).get("os") != "unknown"
-          }
           expected = {("linux", "amd64"), ("linux", "arm64")}
-          if platforms != expected:
-              raise SystemExit(
-                  f"remote image platforms {platforms} do not equal {expected}"
+          platform_indexes = {}
+
+          for source in ("LOCAL_RAW", "REMOTE_RAW"):
+              manifest = json.loads(
+                  Path(os.environ[source]).read_text(encoding="utf-8")
               )
+              items = manifest.get("manifests")
+              if not isinstance(items, list):
+                  raise SystemExit(f"{source.lower()} image index has no manifest list")
+              platforms = {}
+              for item in items:
+                  platform = item.get("platform") if isinstance(item, dict) else None
+                  if not isinstance(platform, dict):
+                      raise SystemExit(
+                          f"{source.lower()} image index has an invalid platform entry"
+                      )
+                  identity = (platform.get("os"), platform.get("architecture"))
+                  if identity in platforms:
+                      raise SystemExit(
+                          f"{source.lower()} image has duplicate platform {identity}"
+                      )
+                  platforms[identity] = platform
+              if len(platforms) != len(expected) or set(platforms) != expected:
+                  raise SystemExit(
+                      f"{source.lower()} image platforms {set(platforms)} "
+                      f"do not equal {expected}"
+                  )
+              platform_indexes[source] = platforms
+          if platform_indexes["LOCAL_RAW"] != platform_indexes["REMOTE_RAW"]:
+              raise SystemExit("remote image platform metadata differs from local")
+          if (
+              platform_indexes["REMOTE_RAW"][("linux", "arm64")].get("variant")
+              != "v8"
+          ):
+              raise SystemExit("remote linux/arm64 image variant is not v8")
           PY
 
           for architecture in amd64 arm64; do
-            config="$(
-              skopeo inspect \
+            local_config="${STATE_ROOT}/image-local-${architecture}-config.json"
+            remote_config="${STATE_ROOT}/image-remote-${architecture}-config.json"
+            skopeo inspect \
+              --override-os linux \
+              --override-arch "${architecture}" \
+              --config \
+              --raw \
+              "oci:${OCI_LAYOUT}:${VERSION}" > "${local_config}"
+            skopeo inspect \
                 --authfile "${REGISTRY_AUTH_FILE}" \
                 --override-os linux \
                 --override-arch "${architecture}" \
                 --config \
-                "docker://${IMAGE_REFERENCE}"
-            )"
-            CONFIG_JSON="${config}" python3 - <<'PY'
+                --raw \
+                "docker://${IMAGE_REFERENCE}" > "${remote_config}"
+            test -s "${local_config}"
+            test -s "${remote_config}"
+            if ! cmp -s "${local_config}" "${remote_config}"; then
+              echo "Remote ${architecture} image config does not match the local build." >&2
+              exit 1
+            fi
+            REMOTE_CONFIG="${remote_config}" python3 - <<'PY'
           import json
           import os
+          from pathlib import Path
 
-          config = json.loads(os.environ["CONFIG_JSON"])
+          config = json.loads(
+              Path(os.environ["REMOTE_CONFIG"]).read_text(encoding="utf-8")
+          )
           labels = config.get("config", {}).get("Labels", {})
           expected = {
               "org.opencontainers.image.source": (
@@ -677,11 +1183,12 @@ jobs:
           PY
           done
 
-          {
-            printf 'reference=%s\n' "${IMAGE_REFERENCE}"
-            printf 'digest=%s\n' "${remote_digest}"
-            printf 'replayed=%s\n' "${remote_exists}"
-          } >> "${GITHUB_OUTPUT}"
+            {
+              printf 'reference=%s\n' "${IMAGE_REFERENCE}"
+              printf 'digest=%s\n' "${remote_digest}"
+              printf 'replayed=%s\n' "${remote_exists}"
+            } >> "${GITHUB_OUTPUT}"
+          fi
 
       - id: chart
         name: Package publish and verify exact-tag Helm chart
@@ -723,25 +1230,95 @@ jobs:
           grep -Eq "^appVersion: ['\"]?${VERSION}['\"]?$" "${metadata}"
 
           remote_package="${CHART_REMOTE}/${CHART_NAME}-${VERSION}.tgz"
-          remote_exists=false
-          if "${HELM_BIN}" pull "${CHART_REFERENCE}" \
-              --version "${VERSION}" \
-              --destination "${CHART_REMOTE}" \
-              --registry-config "${HELM_REGISTRY_CONFIG}" >/dev/null 2>&1; then
-            remote_exists=true
-            test -s "${remote_package}"
-            test "$(sha256sum "${remote_package}" | awk '{print $1}')" = "${local_sha}"
-          else
+          chart_repository="${REGISTRY}/${CHART_NAMESPACE}/${CHART_NAME}"
+          chart_tags="${STATE_ROOT}/chart-remote-tags.json"
+          skopeo list-tags \
+            --authfile "${REGISTRY_AUTH_FILE}" \
+            "docker://${chart_repository}" > "${chart_tags}"
+          remote_exists="$(
+            REMOTE_TAGS="${chart_tags}" python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(
+              Path(os.environ["REMOTE_TAGS"]).read_text(encoding="utf-8")
+          )
+          tags = payload.get("Tags") if isinstance(payload, dict) else None
+          if not isinstance(tags, list) or not all(
+              isinstance(tag, str) for tag in tags
+          ):
+              raise SystemExit("registry chart tag listing is invalid")
+          if tags.count(os.environ["VERSION"]) > 1:
+              raise SystemExit("registry chart tag listing contains a duplicate")
+          print("true" if os.environ["VERSION"] in tags else "false")
+          PY
+          )"
+          if [[ "${remote_exists}" == "false" ]]; then
             "${HELM_BIN}" push "${package}" \
               "oci://${REGISTRY}/${CHART_NAMESPACE}" \
               --registry-config "${HELM_REGISTRY_CONFIG}"
-            "${HELM_BIN}" pull "${CHART_REFERENCE}" \
-              --version "${VERSION}" \
-              --destination "${CHART_REMOTE}" \
-              --registry-config "${HELM_REGISTRY_CONFIG}"
-            test -s "${remote_package}"
-            test "$(sha256sum "${remote_package}" | awk '{print $1}')" = "${local_sha}"
+            post_push_tags="${STATE_ROOT}/chart-post-push-tags.json"
+            skopeo list-tags \
+              --authfile "${REGISTRY_AUTH_FILE}" \
+              "docker://${chart_repository}" > "${post_push_tags}"
+            POST_PUSH_TAGS="${post_push_tags}" python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(
+              Path(os.environ["POST_PUSH_TAGS"]).read_text(encoding="utf-8")
+          )
+          tags = payload.get("Tags") if isinstance(payload, dict) else None
+          if not isinstance(tags, list) or not all(
+              isinstance(tag, str) for tag in tags
+          ):
+              raise SystemExit("post-push chart tag listing is invalid")
+          if tags.count(os.environ["VERSION"]) != 1:
+              raise SystemExit("published chart tag is absent or duplicated")
+          PY
+          else
+            test "${remote_exists}" = "true"
           fi
+
+          "${HELM_BIN}" pull "${CHART_REFERENCE}" \
+            --version "${VERSION}" \
+            --destination "${CHART_REMOTE}" \
+            --registry-config "${HELM_REGISTRY_CONFIG}"
+          test -s "${remote_package}"
+          test "$(sha256sum "${remote_package}" | awk '{print $1}')" = "${local_sha}"
+
+          chart_manifest="${STATE_ROOT}/chart-remote-manifest.json"
+          skopeo inspect --raw \
+            --authfile "${REGISTRY_AUTH_FILE}" \
+            "docker://${chart_repository}:${VERSION}" > "${chart_manifest}"
+          CHART_MANIFEST="${chart_manifest}" \
+          LOCAL_CHART_SHA="${local_sha}" \
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          manifest = json.loads(
+              Path(os.environ["CHART_MANIFEST"]).read_text(encoding="utf-8")
+          )
+          config = manifest.get("config") if isinstance(manifest, dict) else None
+          layers = manifest.get("layers") if isinstance(manifest, dict) else None
+          if not isinstance(config, dict) or config.get("mediaType") != (
+              "application/vnd.cncf.helm.config.v1+json"
+          ):
+              raise SystemExit("remote chart config descriptor is invalid")
+          if not isinstance(layers, list) or len(layers) != 1:
+              raise SystemExit("remote chart must have exactly one content layer")
+          layer = layers[0]
+          if not isinstance(layer, dict) or layer.get("mediaType") != (
+              "application/vnd.cncf.helm.chart.content.v1.tar+gzip"
+          ):
+              raise SystemExit("remote chart content layer type is invalid")
+          if layer.get("digest") != f"sha256:{os.environ['LOCAL_CHART_SHA']}":
+              raise SystemExit("remote chart content layer digest differs")
+          PY
 
           remote_dependency_entries="$(
             tar -tzf "${remote_package}" \
@@ -761,6 +1338,18 @@ jobs:
             printf 'package_sha256=%s\n' "${local_sha}"
             printf 'replayed=%s\n' "${remote_exists}"
           } >> "${GITHUB_OUTPUT}"
+
+      - name: Revalidate recovery image after chart publication
+        if: ${{ needs.admit.outputs.image_recovery_enabled == 'true' }}
+        shell: bash
+        env:
+          IMAGE_REFERENCE: ${{ steps.release.outputs.image_reference }}
+        run: |
+          set -Eeuo pipefail
+          recovery_verifier="${STATE_ROOT}/verify-recovery-image"
+          test -x "${recovery_verifier}"
+          post_chart_digest="$("${recovery_verifier}")"
+          test "${post_chart_digest}" = "${{ steps.image.outputs.digest }}"
 
       - name: Confirm zero Actions artifacts
         shell: bash
@@ -853,8 +1442,10 @@ jobs:
           )
 
           if command -v buildah >/dev/null 2>&1; then
-            "${buildah_cmd[@]}" rm --all >/dev/null 2>&1 || cleanup_failed=1
-            "${buildah_cmd[@]}" rmi --all --force >/dev/null 2>&1 || cleanup_failed=1
+            if [[ "${IMAGE_RECOVERY_ENABLED:-false}" != "true" ]]; then
+              "${buildah_cmd[@]}" rm --all >/dev/null 2>&1 || cleanup_failed=1
+              "${buildah_cmd[@]}" rmi --all --force >/dev/null 2>&1 || cleanup_failed=1
+            fi
             buildah logout --authfile "${registry_auth}" "${REGISTRY}" >/dev/null 2>&1 || true
             [[ -z "$("${buildah_cmd[@]}" containers -q 2>/dev/null)" ]] || cleanup_failed=1
             [[ -z "$("${buildah_cmd[@]}" images -q 2>/dev/null)" ]] || cleanup_failed=1

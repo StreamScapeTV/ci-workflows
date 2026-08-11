@@ -1,80 +1,289 @@
-# Runner capability contract
+# Runner capability and selection guide
 
-Use semantic capability or workflow intent. Do not discover hosts, copy concrete `runs-on` values, or inspect Flux desired state merely to choose capacity.
+This is the organization-wide, agent-facing reference for choosing CI capacity.
+`StreamScapeTV/organization-rules@main/AGENTS.md` and `RULES.md` route here
+whenever a task needs runner selection.
 
-`contracts/runner-profiles.json` is the implementation authority. This file is the agent-facing reference. `generated/runner-mappings.json` is the deterministic internal projection used by central workflows.
+Use **semantic workflow intent first**. Product and reusable-workflow callers do
+not supply arbitrary runner names, labels, hosts, container engines, clusters,
+namespaces, service accounts, or secret names. Central workflows validate the
+bounded intent and choose the implementation.
 
-## Capabilities
+`contracts/runner-profiles.json` is the semantic resolver authority, and
+`generated/runner-mappings.json` is its deterministic projection. The label
+inventory below documents the current organization capacity for maintainers of
+central or infrastructure-owned workflows.
 
-| Capability | Current direct tag during migration | Guaranteed toolchain and resources | Trust and lifecycle | Never use for |
+## Semantic profile IDs are not GitHub runner labels
+
+The resolver keeps stable semantic API names such as `portable`, `mobile`,
+`buildah-tiny`, and `buildah-small`. These values describe requested workflow
+intent. They are not copied into `runs-on` and do not need to exist as live
+GitHub runner labels.
+
+A runner row in GitHub contains different concepts:
+
+- **Runner name:** an ARC-generated operational identity or persistent-host
+  name. Its length and wording do not define scheduling policy.
+- **GitHub-managed system label:** for example `self-hosted`. It can appear on a
+  runner without being a safe or sufficient selector.
+- **Capability label:** one independent property such as `linux`, `amd64`,
+  `android`, `buildah`, or `tiny`.
+
+Every Linux ARC custom label is lowercase. GitHub requires one runner to contain
+**all** labels listed by a job. Platform labels alone, such as
+`[linux, amd64]`, are intentionally ambiguous because several classes share
+them.
+
+Never copy an internal ARC scale-set, pod, or runner name into workflow
+selection.
+
+## Current Linux ARC capacity
+
+All listed Linux classes are ephemeral, one-job ARC runners. Every class carries
+the platform labels:
+
+- `linux`
+- `x64`
+- `amd64`
+
+### Capability inventory
+
+| Purpose | Semantic profile API | Direct selector for central/infrastructure workflows | Main tools and resources | Trust boundary |
 |---|---|---|---|---|
-| `portable` | `portable` | Linux x64; Actions runner 2.336.0; 256 Mi / 1 Gi memory; 4 Gi local storage; 2 Gi disposable workspace | Tokenless, one job, ephemeral; untrusted fork source is allowed when the workflow itself exposes no secret | Containers, Apple SDKs, devices, Agent State mutation, Kubernetes credentials |
-| `mobile` | `mobile` | Linux x64; JDK/Javac 25; Flutter 3.44.8; Dart 3.12.2; Node 24.18.0; Android API/Build Tools 36 and 37; NDK 28.2.13676358; 2 / 4 Gi memory; 6 Gi workspace; 20 Gi scratch; managed 20 Gi dependency cache | Tokenless, one job, ephemeral workspace; trusted PR or exact source because the managed cache is shared | Treating the runner as an attached Android device, OCI publication, Apple work, untrusted forks |
-| `buildah-tiny` | `buildah-tiny` | Buildah 1.33.7, Skopeo 1.13.3, Podman 4.9.3; 512 Mi / 1 Gi; 6 Gi storage; cap 10 | Privileged daemonless OCI pod, tokenless, one exact trusted job | Docker/DinD, untrusted source, Kubernetes/Agent State credentials |
-| `buildah-small` | `buildah` or `buildah-small` | Same daemonless OCI tools; 512 Mi / 2 Gi; 16 Gi storage; cap 6 | Privileged daemonless OCI pod, tokenless, one exact trusted job | Selecting a larger tier without measurements; Docker/DinD |
-| `buildah-medium` | `buildah-medium` | Same daemonless OCI tools; 2 / 4 Gi; 32 Gi storage; cap 3 | Privileged daemonless OCI pod, tokenless, one exact trusted job | Ordinary small images or untrusted source |
-| `buildah-high` | `buildah-high` | Same daemonless OCI tools; 4 / 8 Gi; 44 Gi storage; cap 1 | Privileged daemonless OCI pod, tokenless, one exact trusted job | Defaulting every image build to the largest tier |
-| `apple` | `macOS` | Organization-managed macOS capacity; Xcode, Swift, SDKs, and simulator runtimes are verified at job start | Persistent/manual capacity; trusted PR or exact source; workflow must clean DerivedData, result bundles, simulators, temporary files, and credentials | Assuming signing identities, store credentials, or an attached physical device |
-| `physical-device` | No direct tag | Guarded overlay: Android uses `mobile`; iOS/tvOS uses `apple` only after authorization, exclusive resource locking, deterministic discovery, exact source, evidence, and cleanup | Trusted exact source; concurrency one per device; lock held only for device access | Treating `mobile` or `apple` selection as proof that a device is attached |
-| `agent-state-control` | No consumer-selectable tag | Central Agent State transport functions and protected central source only | Repository-scoped trusted control; never executes caller/product source | Product builds, issue/PR source, release, signing, deployment |
-| `flux-control` | No consumer-selectable tag | Flux-owned Kubernetes service account and protected Flux policy/tooling | Ephemeral, repository-scoped to Flux, no caller source | Product PR source, arbitrary clusters/namespaces/service accounts, general builds |
+| Ordinary source checks, policy, lint, Python/Node scripts, Helm, and GitOps validation | `portable` | `[linux, amd64, general]` | Actions runner 2.336.0; 256 Mi / 1 Gi memory; 4 Gi local storage; 2 Gi disposable workspace | Tokenless, one job, ephemeral; may run untrusted source only when the workflow exposes no secret or privileged authority |
+| Android, Gradle, Flutter-on-Linux, JDK 25, or Node 24 validation | `mobile` | `[linux, amd64, mobile]`; narrower installed-tool selectors are listed below | JDK/Javac 25; Flutter 3.44.8; Dart 3.12.2; Node 24.18.0; Android API/Build Tools 36 and 37; NDK 28.2.13676358; 2 / 4 Gi memory; 6 Gi workspace; 20 Gi scratch; managed 20 Gi dependency cache | Tokenless, one job; trusted PR or exact source because the managed cache is shared; does not prove a physical Android device is attached |
+| Very small daemonless OCI work | `buildah-tiny` | `[linux, amd64, buildah, tiny]` | Buildah 1.33.7, Skopeo 1.13.3, Podman 4.9.3; 512 Mi / 1 Gi memory; 6 Gi local storage; cap 10 | Privileged Buildah pod; trusted exact source only; no Docker daemon, DinD, Kubernetes token, or Agent State credential |
+| Small daemonless OCI work | `buildah-small` | `[linux, amd64, buildah, small]` | Same OCI tools; 512 Mi / 2 Gi memory; 16 Gi local storage; cap 6 | Same trusted exact-source boundary |
+| Medium daemonless OCI work | `buildah-medium` | `[linux, amd64, buildah, medium]` | Same OCI tools; 2 / 4 Gi memory; 32 Gi local storage; cap 3 | Same trusted exact-source boundary |
+| High-memory or high-storage daemonless OCI work | `buildah-high` | `[linux, amd64, buildah, high]` | Same OCI tools; 4 / 8 Gi memory; 44 Gi local storage; cap 1 | Same trusted exact-source boundary; use only with measured need |
+| Protected Flux and Kubernetes reconciliation | `flux-control` | `[linux, amd64, flux-control]` | Actions runner plus Flux/Kubernetes tooling and a restricted service account | Repository-scoped to Flux; protected source only; never product pull-request source or general builds |
 
-The direct tags above exist only for controlled migration of current workflows. New and migrated consumers call a central reusable workflow with bounded product or validation inputs. They do not pass runner labels, hosts, engines, storage drivers, clusters, namespaces, service accounts, or secret names.
+### General Linux
+
+The semantic profile remains `portable` for API compatibility. Its resolved
+GitHub selector is:
+
+```yaml
+runs-on: [linux, amd64, general]
+```
+
+Do not use `runs-on: portable`. `portable` is no longer a registered Linux ARC
+scheduling label.
+
+The repository Central self-check requests the semantic `portable` profile. It
+verifies its pre-provisioned Linux runtime before checkout and does not install,
+elevate, or persist a host runtime. The former emergency macOS exception is
+retired and must not be restored.
+
+### Android and mobile tools
+
+The mobile class advertises these independent lowercase capabilities:
+
+- `mobile`
+- `android`
+- `flutter`
+- `jdk-25`
+- `node-24`
+- `nodejs`
+- `linux`, `x64`, `amd64`
+
+The broad semantic profile resolves to:
+
+```yaml
+runs-on: [linux, amd64, mobile]
+```
+
+Infrastructure-owned jobs may select a narrower installed tool:
+
+```yaml
+runs-on: [linux, amd64, android]
+```
+
+```yaml
+runs-on: [linux, amd64, flutter]
+```
+
+```yaml
+runs-on: [linux, amd64, jdk-25]
+```
+
+```yaml
+runs-on: [linux, amd64, node-24]
+```
+
+These labels describe installed build tools. They do not prove that a phone,
+emulator, simulator, signing identity, provisioning profile, or store
+credential is present.
+
+### Buildah runtime and size
+
+`buildah` is the runtime property. Every Buildah class carries exactly one size
+property:
+
+- `tiny`
+- `small`
+- `medium`
+- `high`
+
+A direct selector must combine Linux, architecture, runtime, and exactly one
+size:
+
+```yaml
+runs-on: [linux, amd64, buildah, tiny]
+```
+
+```yaml
+runs-on: [linux, amd64, buildah, small]
+```
+
+```yaml
+runs-on: [linux, amd64, buildah, medium]
+```
+
+```yaml
+runs-on: [linux, amd64, buildah, high]
+```
+
+Do not use bare `buildah` in `runs-on`; it is shared by all four classes and is
+therefore ambiguous. The semantic resolver may accept the API alias `buildah`
+and map it to semantic profile `buildah-small`, but the emitted selector always
+contains `buildah` plus `small`.
+
+The strings `buildah-tiny`, `buildah-small`, `buildah-medium`, and
+`buildah-high` remain semantic profile IDs only. They are not live combined
+runner labels.
+
+Select the smallest tier whose memory and local-storage limits cover measured
+peaks plus reviewed headroom. Escalation evidence records:
+
+- peak memory bytes;
+- peak local-storage bytes;
+- exact source SHA;
+- workflow API;
+- product ID.
+
+Buildah is privileged and daemonless. Linux ARC does not provide Docker,
+Docker-in-Docker, or a Docker-socket capability.
+
+### Flux control
+
+The repository-scoped Flux class advertises:
+
+- `flux-control`
+- `flux`
+- `control-plane`
+- `linux`, `x64`, `amd64`
+
+Protected Flux-owned workflows use:
+
+```yaml
+runs-on: [linux, amd64, flux-control]
+```
+
+This class mounts restricted Kubernetes authority and cannot execute product
+pull-request source, arbitrary caller commands, or general build work.
+
+## Hard-cutover status
+
+No deprecated Linux ARC scheduling alias remains registered. Do not use:
+
+- `portable` as a `runs-on` label;
+- `buildah-tiny`, `buildah-small`, `buildah-medium`, or `buildah-high` as
+  combined labels;
+- any internal ARC infrastructure identity as a label;
+- bare `buildah`;
+- bare `self-hosted`.
+
+Old workflow examples using those selectors are defects and must be migrated to
+the capability arrays in this guide. Internal ARC resource names remain
+implementation details; resource identity is not scheduling policy.
+
+## Organization-managed macOS capacity
+
+Apple work uses the semantic profile `apple`. Persistent organization hosts
+advertise case-sensitive platform labels:
+
+- `macOS`
+- `ARM64`
+
+Some hosts additionally advertise host-managed capabilities such as `android`,
+`flutter`, `ios`, `python`, or `docker`. Those optional labels are not
+guaranteed on every Mac. A bounded Apple or cross-platform workflow must either
+use the central semantic contract or explicitly require every capability it
+needs and verify the runtime before checkout or execution.
+
+Examples for infrastructure-owned direct jobs:
+
+```yaml
+runs-on: [macOS, ARM64]
+```
+
+```yaml
+runs-on: [macOS, ARM64, ios]
+```
+
+Do not infer signing identities, provisioning profiles, store credentials,
+notarization credentials, simulators, or attached physical devices from a
+macOS label. Persistent hosts require deterministic cleanup of workspaces,
+DerivedData, result bundles, simulators, temporary files, and credentials.
+
+Linux ARC cannot provide macOS, Xcode, iOS, or tvOS capacity. A `docker` label
+on an organization-managed Mac does not create Docker or DinD capacity on the
+Linux ARC classes.
+
+## Guarded physical-device capacity
+
+`physical-device` is a guarded overlay rather than an ordinary selectable runner
+label. Android device work uses the mobile host class; iOS/tvOS device work uses
+Apple capacity. Before device access, the workflow must have:
+
+1. trusted authorization;
+2. an exclusive lock for the exact device;
+3. deterministic device-family and discovered-device identity;
+4. exact tested source SHA;
+5. bounded evidence identity;
+6. cleanup evidence and lock release in an `always()` path.
+
+Selecting `mobile`, `android`, `apple`, `macOS`, or `ios` never proves that a
+physical device is attached or authorized.
 
 ## Selection by intent
 
-| Intent | Semantic selection |
+| Intent | Semantic request |
 |---|---|
-| Policy, lint, source admission, ordinary Python/Node/GitOps/Helm validation | `portable` |
-| Android/Gradle or Flutter-on-Linux validation | `mobile` |
-| Apple compilation, Swift tests, macOS, iOS/tvOS simulator validation | `apple` |
-| OCI build or publication | Smallest measured `buildah-*` tier allowed by the central product contract |
-| Physical Android/iOS/tvOS validation | `physical-device` guarded overlay plus authorization and lock evidence |
-| Agent State lifecycle or ownership transport | `agent-state-control` |
-| Flux-authorized reconciliation | `flux-control` |
+| Policy, lint, source admission, ordinary Python/Node, Helm, or GitOps validation | `portable`, resolved to `[linux, amd64, general]` |
+| Android or Gradle validation | `mobile`, resolved to `[linux, amd64, mobile]` |
+| Flutter on Linux | `mobile` |
+| Flutter or native Apple validation on macOS | `apple` |
+| OCI build or publication | the smallest measured `buildah-*` semantic tier |
+| Physical Android/iOS/tvOS validation | `physical-device` guarded overlay with authorization and locking |
+| Flux reconciliation | `flux-control`, resolved to `[linux, amd64, flux-control]` |
 
-A reusable workflow with more than one possible profile uses a protected `portable` planning job. The planner validates semantic intent and emits a JSON selector from the checked-in mapping. A dependent job uses that output in `runs-on`. A composite action cannot change the runner after a job is scheduled.
-
-## Temporary central self-check exception
-
-Ordinary Python and policy validation remains assigned to `portable`. While the portable ARC incident tracked by Flux #268 is open, ci-workflows #60 authorizes only `.github/workflows/self-check.yml` to use the organization-managed `macOS` capability as an emergency exact-head merge gate. That workflow accepts only a same-repository pull request or exact trusted push/dispatch source, then verifies a pre-provisioned absolute executable as CPython 3.12.13 on Darwin arm64 or x86_64 before checkout. It never installs a runtime, invokes `sudo`, or elevates host privileges.
-
-The exception receives no Apple signing, provisioning, simulator, physical-device, notarization, or store credential or entitlement. It does not change the public runner profile contract or generated mappings and must be removed in a later bounded change after portable ARC recovery.
-
-## Buildah escalation
-
-Generic `buildah` maps only to `buildah-small`. Select the smallest tier whose memory and storage limits cover measured peaks plus reviewed headroom. Escalation evidence must record:
-
-- peak memory bytes and peak local-storage bytes;
-- exact source SHA;
-- workflow API and product ID.
-
-A larger tier without those measurements is contract drift. Buildah capacity is privileged and daemonless; Docker daemons and Docker-in-Docker are retired and are not aliases.
-
-## Physical-device contract
-
-A physical-device job must have all of the following before device access begins:
-
-1. trusted authorization receipt;
-2. exclusive resource-lock receipt for the exact device;
-3. requested device family and deterministic discovered device ID;
-4. exact tested source SHA;
-5. bounded execution and stable evidence ID;
-6. cleanup evidence and lock release in an `always()` path.
-
-The device lock covers only device access, not source checkout, dependency resolution, or unrelated compilation. This keeps scarce devices available while preserving exact single-owner access.
+A reusable workflow with more than one possible profile uses a protected
+planning job. The planner validates semantic intent and emits a JSON selector;
+a dependent job consumes that selector in `runs-on`. A composite action cannot
+change the runner after a job is scheduled.
 
 ## Mandatory rules
 
 - Never use bare `self-hosted`.
-- Never introduce Docker-capable or DinD runner selection.
-- Never combine semantic labels from different profiles.
-- Never accept a runner selector from a workflow caller, issue, PR, matrix, or arbitrary JSON input.
-- Untrusted source receives no registry-write, Agent State, signing, live-device, SOPS, Kubernetes, production-database, or deployment credential.
-- Flux owns concrete ARC runner infrastructure and Kubernetes authority. `ci-workflows` owns the semantic contract and resolver.
-- Stable outputs describe results, digests, receipts, evidence IDs, and cleanup; they do not expose host identity or private infrastructure details.
+- Never use bare `buildah` as a complete direct selector.
+- Never use deprecated combined or internal ARC infrastructure labels.
+- Never introduce Docker-capable or DinD selection for Linux ARC.
+- Never combine incompatible semantic profiles in one job.
+- Never accept runner labels from a workflow caller, issue, pull request,
+  arbitrary matrix, or untrusted JSON input.
+- Never treat a runner name as a scheduling contract.
+- Untrusted source receives no registry-write, Agent State, signing,
+  physical-device, SOPS, Kubernetes, production-database, or deployment
+  credential.
+- Flux owns concrete ARC infrastructure and Kubernetes authority.
+  `ci-workflows` owns semantic workflow selection and resolver policy.
+- Stable outputs describe results, digests, receipts, evidence IDs, and cleanup;
+  they do not expose host identity or private infrastructure details.
 
-Validate and regenerate with:
+Validate the semantic resolver and generated mapping with:
 
 ```text
 python3 scripts/ci/runner_contract.py validate

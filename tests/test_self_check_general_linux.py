@@ -19,6 +19,7 @@ assert SPEC and SPEC.loader
 BOOTSTRAP = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(BOOTSTRAP)
 ORIGINAL_READ_TEXT = BOOTSTRAP.read_text
+SELECTOR_LINE = "runs-on: [linux, amd64, general]"
 
 
 def workflow_source() -> str:
@@ -76,15 +77,21 @@ def validate_mutation(mutated: str) -> None:
         BOOTSTRAP.validate_self_check()
 
 
-class EmergencyMacOSSelfCheckTest(unittest.TestCase):
-    def test_same_repository_pr_admission_precedes_checkout(self) -> None:
+class GeneralLinuxSelfCheckTest(unittest.TestCase):
+    def test_same_repository_pr_admission_and_runtime_check_precede_checkout(
+        self,
+    ) -> None:
         source = workflow_source()
         self.assertLess(
             source.index("Admit trusted workflow source"),
-            source.index("Verify pre-provisioned CPython 3.12.13"),
+            source.index(
+                "Verify pre-provisioned general-Linux CPython 3.12"
+            ),
         )
         self.assertLess(
-            source.index("Verify pre-provisioned CPython 3.12.13"),
+            source.index(
+                "Verify pre-provisioned general-Linux CPython 3.12"
+            ),
             source.index("Check out exact source"),
         )
         self.assertEqual(0, run_admission("pull_request").returncode)
@@ -107,29 +114,56 @@ class EmergencyMacOSSelfCheckTest(unittest.TestCase):
                     run_admission(event, mismatch=True).returncode,
                 )
 
-    def test_selector_substitutions_are_rejected(self) -> None:
-        original = workflow_source()
-        substitutions = (
+    def test_central_uses_only_final_general_linux_selector(self) -> None:
+        source = workflow_source()
+        workflow = yaml.safe_load(source)
+        self.assertEqual(
+            workflow["jobs"]["validate"]["runs-on"],
+            ["linux", "amd64", "general"],
+        )
+        self.assertEqual(1, source.count(SELECTOR_LINE))
+        for forbidden in (
+            "runs-on: portable",
+            "runs-on: macOS",
+            "runs-on: apple",
             "macos-latest",
             "ubuntu-latest",
             "windows-latest",
             "self-hosted",
-            "[self-hosted, macOS]",
-            "${{ inputs.runner }}",
-            "portable",
-            "mobile",
-            "buildah",
-            "buildah-tiny",
-            "buildah-small",
-            "buildah-medium",
-            "buildah-high",
+            "runs-on: mobile",
+            "runs-on: buildah",
+            "runs-on: flux-control",
+            "ARM64",
+        ):
+            self.assertNotIn(forbidden, source)
+
+    def test_selector_substitutions_are_rejected(self) -> None:
+        original = workflow_source()
+        substitutions = (
+            "runs-on: portable",
+            "runs-on: [linux]",
+            "runs-on: [linux, amd64]",
+            "runs-on: [linux, amd64, general, mobile]",
+            "runs-on: [linux, amd64, portable]",
+            "runs-on: macOS",
+            "runs-on: apple",
+            "runs-on: macos-latest",
+            "runs-on: ubuntu-latest",
+            "runs-on: windows-latest",
+            "runs-on: self-hosted",
+            "runs-on: ${{ inputs.runner }}",
+            "runs-on: mobile",
+            "runs-on: buildah",
+            "runs-on: buildah-tiny",
+            "runs-on: buildah-small",
+            "runs-on: buildah-medium",
+            "runs-on: buildah-high",
+            "runs-on: flux-control",
         )
-        for selector in substitutions:
-            with self.subTest(selector=selector):
-                mutated = original.replace(
-                    "runs-on: macOS",
-                    f"runs-on: {selector}",
-                )
+        for replacement in substitutions:
+            with self.subTest(replacement=replacement):
+                mutated = original.replace(SELECTOR_LINE, replacement)
+                self.assertNotEqual(original, mutated)
                 with self.assertRaises(SystemExit):
                     validate_mutation(mutated)
 
@@ -137,8 +171,9 @@ class EmergencyMacOSSelfCheckTest(unittest.TestCase):
         original = workflow_source()
         forbidden = (
             "actions/setup-python@" + "a" * 40,
-            "sudo mkdir /Users/runner/hostedtoolcache",
-            "brew install python@3.12",
+            "sudo mkdir /opt/hostedtoolcache",
+            "apt-get install python3.12",
+            "dnf install python3.12",
             "python -m pip install PyYAML",
             "virtualenv .venv",
             "pyenv install 3.12.13",
@@ -151,21 +186,56 @@ class EmergencyMacOSSelfCheckTest(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     validate_mutation(original + f"\n# {command}\n")
 
-    def test_exact_host_identity_mutations_are_rejected(self) -> None:
+    def test_exact_linux_host_identity_mutations_are_rejected(self) -> None:
         original = workflow_source()
         mutations = (
-            ('"${version}" == "3.12.13"', '"${version}" == "3.12.12"'),
+            ('"${version}" == 3.12.*', '"${version}" == 3.11.*'),
             (
                 '"${implementation}" == "cpython"',
                 '"${implementation}" == "pypy"',
             ),
-            ('"${system}" == "Darwin"', '"${system}" == "Linux"'),
-            ("arm64|x86_64)", "arm64|ppc64)"),
+            ('"${system}" == "Linux"', '"${system}" == "Darwin"'),
+            ("x86_64)", "ppc64)"),
         )
         for old, new in mutations:
             with self.subTest(new=new):
+                mutated = original.replace(old, new)
+                self.assertNotEqual(original, mutated)
                 with self.assertRaises(SystemExit):
-                    validate_mutation(original.replace(old, new))
+                    validate_mutation(mutated)
+
+    def test_portable_runtime_uses_minor_contract_and_locked_dependencies(
+        self,
+    ) -> None:
+        source = workflow_source()
+        self.assertIn('[[ "${version}" == 3.12.* ]]', source)
+        self.assertNotIn('[[ "${version}" == "3.12.13" ]]', source)
+        self.assertIn(
+            '"${VERIFIED_PYTHON}" scripts/ci/bootstrap_validation_runtime.py',
+            source,
+        )
+        contract = json.loads(
+            (ROOT / "contracts/runner-profiles.json").read_text()
+        )
+        portable = next(
+            profile
+            for profile in contract["profiles"]
+            if profile["id"] == "portable"
+        )
+        self.assertEqual(
+            portable["default_internal_selector"],
+            ["linux", "amd64", "general"],
+        )
+
+    def test_absolute_interpreter_is_exported_before_identity_rejection(
+        self,
+    ) -> None:
+        source = workflow_source()
+        export = source.index("VERIFIED_PYTHON=%s")
+        identity = source.index('[[ "${implementation}" == "cpython" ]]')
+        checkout = source.index("Check out exact source")
+        self.assertLess(export, identity)
+        self.assertLess(identity, checkout)
 
     def test_relative_or_unverified_interpreter_is_rejected(self) -> None:
         original = workflow_source()
@@ -195,7 +265,9 @@ class EmergencyMacOSSelfCheckTest(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     validate_mutation(mutated)
 
-    def test_action_lock_records_preprovisioned_host_not_setup_action(self) -> None:
+    def test_action_lock_preserves_pinned_dependencies_without_setup_python(
+        self,
+    ) -> None:
         lock = json.loads(
             (ROOT / "contracts/action-tool-lock.json").read_text()
         )
@@ -204,18 +276,12 @@ class EmergencyMacOSSelfCheckTest(unittest.TestCase):
         }
         self.assertNotIn("actions/setup-python", action_names)
         self.assertNotIn("actions/setup-python@", workflow_source())
-        self.assertEqual(
-            {
-                "implementation": "cpython",
-                "version": "3.12.13",
-                "system": "Darwin",
-                "architectures": ["arm64", "x86_64"],
-                "provisioning": "preinstalled",
-                "runtime_installation": "forbidden",
-                "privilege_elevation": "forbidden",
-            },
-            lock["python"]["emergency_macos_host"],
-        )
+        self.assertEqual("3.12", lock["python"]["minimum"])
+        packages = {
+            entry["name"]: entry for entry in lock["python"]["packages"]
+        }
+        self.assertEqual("6.0.3", packages["PyYAML"]["version"])
+        self.assertEqual(64, len(packages["PyYAML"]["sha256"]))
 
     def test_verified_interpreter_is_used_for_every_later_python_command(
         self,
@@ -238,7 +304,7 @@ class EmergencyMacOSSelfCheckTest(unittest.TestCase):
             self.assertIn("${VERIFIED_PYTHON}", after_checkout)
             self.assertIn(command, after_checkout)
 
-    def test_exception_grants_no_sensitive_apple_capability(self) -> None:
+    def test_general_linux_gate_grants_no_sensitive_apple_capability(self) -> None:
         source = workflow_source().lower()
         for forbidden in (
             "secrets.",
@@ -248,7 +314,6 @@ class EmergencyMacOSSelfCheckTest(unittest.TestCase):
             "notary",
             "simctl",
             "xcodebuild",
-            "device",
             "kubeconfig",
             "registry_token",
             "agent_state",

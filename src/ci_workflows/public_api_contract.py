@@ -17,7 +17,6 @@ PROFILE = re.compile(r"^[a-z][a-z0-9:-]*$")
 PERMISSION_LEVELS = {"read", "write", "none"}
 STATUSES = {"planned", "implemented", "deprecated-bootstrap-exception"}
 PRIVILEGED_TRUST = {
-    "agent-state-transport",
     "physical-device-validation",
     "trusted-publication",
     "flux-authorized",
@@ -317,7 +316,7 @@ def permission_profiles(data: ContractData) -> dict[str, Mapping[str, Any]]:
         )
         nonempty(row.get("notes"), f"{identifier}.notes")
         profiles[identifier] = row
-    require(len(profiles) == 13, f"expected 13 permission profiles, found {len(profiles)}")
+    require(len(profiles) == 11, f"expected 11 permission profiles, found {len(profiles)}")
     return profiles
 
 
@@ -501,8 +500,8 @@ def validate_workflows(
         "not every trust class has a public API",
     )
     require(
-        len(by_api) == 22,
-        f"public API registry must contain 22 workflows, found {len(by_api)}",
+        len(by_api) == 20,
+        f"public API registry must contain 20 workflows, found {len(by_api)}",
     )
     for api, row in by_api.items():
         deprecation = row.get("deprecation")

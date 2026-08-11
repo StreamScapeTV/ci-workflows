@@ -72,7 +72,7 @@ Downloaded workflow artifacts remain untrusted data. This contract has no artifa
 
 ## Consumer patterns
 
-Backend and Android manual validation pass an optional exact SHA with `source_mode: manual`; mutable branch or ref input is rejected. Apple and media callers assert `develop` or their exact integration branch. Web PR and push callers use PR or branch admission without duplicating event parsing. Agent State coordination callers use trusted metadata mode and process only metadata while keeping PR source unexecuted. Tag-triggered image and chart publication consumes `tag_name` and `tag_commit_sha`, so a tag on a historical commit releases that exact historical source. Flux source validation may use ordinary exact admission, while cluster-authorized reconciliation remains a separate Flux-owned workflow using exact protected Flux policy source.
+Backend and Android manual validation pass an optional exact SHA with `source_mode: manual`; mutable branch or ref input is rejected. Apple and media callers assert `develop` or their exact integration branch. Web PR and push callers use PR or branch admission without duplicating event parsing. Agent State coordination is outside this workflow transport and uses approved direct Supabase RPCs. Tag-triggered image and chart publication consumes `tag_name` and `tag_commit_sha`, so a tag on a historical commit releases that exact historical source. Flux source validation may use ordinary exact admission, while cluster-authorized reconciliation remains a separate Flux-owned workflow using exact protected Flux policy source.
 
 Product commands, status/comment formats, registry publication, cluster selection, and deployment are deliberately outside this resolver.
 

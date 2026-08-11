@@ -26,9 +26,9 @@ jobs:
     runs-on: portable
     steps:
       - uses: actions/checkout@0123456789012345678901234567890123456789
-      - uses: StreamScapeTV/agent-state/.github/workflows/agent-state-lifecycle.yml@main
+      - uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-python.yml@main
         secrets:
-          token: ${{ secrets.AGENT_STATE_API_TOKEN }}
+          token: ${{ secrets.PRIVATE_DEPENDENCY_TOKEN }}
       - uses: actions/upload-artifact@1111111111111111111111111111111111111111
       - run: python3 -m pytest && helm template chart && buildah bud .
 """
@@ -39,11 +39,11 @@ jobs:
         self.assertEqual(record["triggers"], ["pull_request", "workflow_dispatch"])
         self.assertEqual(record["permissions"], ["contents:read", "issues:write"])
         self.assertEqual(record["runs_on"], ["portable"])
-        self.assertEqual(record["secrets"], ["AGENT_STATE_API_TOKEN"])
+        self.assertEqual(record["secrets"], ["PRIVATE_DEPENDENCY_TOKEN"])
         self.assertTrue(record["uploads_artifacts"])
         self.assertEqual(
             record["calls_reusable_workflows"],
-            ["StreamScapeTV/agent-state/.github/workflows/agent-state-lifecycle.yml@main"],
+            ["StreamScapeTV/ci-workflows/.github/workflows/reusable-python.yml@main"],
         )
         self.assertEqual(record["products"], ["helm", "oci", "python"])
         self.assertEqual(record["blob_sha"], "a" * 40)

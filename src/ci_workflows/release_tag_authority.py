@@ -390,11 +390,12 @@ class GitHubTagProvider:
     ) -> Mapping[str, Any]:
         repository = _repository(repository)
         owner, name = repository.split("/", 1)
-        url = (
+        repository_url = (
             f"{self._api_url}/repos/"
             f"{urllib.parse.quote(owner, safe='')}/"
-            f"{urllib.parse.quote(name, safe='')}/{path}"
+            f"{urllib.parse.quote(name, safe='')}"
         )
+        url = repository_url if not path else f"{repository_url}/{path}"
         request = urllib.request.Request(
             url,
             headers={

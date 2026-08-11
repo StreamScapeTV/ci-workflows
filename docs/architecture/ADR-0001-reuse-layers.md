@@ -21,7 +21,7 @@ Consumers keep event triggers, minimum permissions, concurrency/environments, bo
 
 ## Authority boundaries
 
-Central workflow implementation does not transfer domain authority. Agent State API still decides sessions and claims. Flux still owns desired state, allowlists, credentials, and live policy. Product repositories still own build commands and product assertions.
+Central workflow implementation does not transfer domain authority. `StreamScapeTV/agent-state-supabase` decides Agent State work and claims through direct approved RPCs. Flux still owns desired state, allowlists, credentials, and live policy. Product repositories still own build commands and product assertions.
 
 ## Consequences
 

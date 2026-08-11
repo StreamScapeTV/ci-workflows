@@ -22,10 +22,10 @@ class PublicApiContractTests(unittest.TestCase):
         cls.workflows = contract.validate_workflows(cls.data, cls.profiles)
 
     def test_registry_is_complete_and_deterministic(self) -> None:
-        self.assertEqual(len(self.data.workflows), 22)
-        self.assertEqual(len(self.profiles), 13)
-        self.assertEqual(len(self.data.types["trust_classes"]), 7)
-        self.assertEqual("1.1.0", self.data.index["contract_version"])
+        self.assertEqual(len(self.data.workflows), 20)
+        self.assertEqual(len(self.profiles), 11)
+        self.assertEqual(len(self.data.types["trust_classes"]), 6)
+        self.assertEqual("2.0.0", self.data.index["contract_version"])
         self.assertEqual(
             [row["api_name"] for row in self.data.workflows],
             sorted(row["api_name"] for row in self.data.workflows),
@@ -170,13 +170,15 @@ class PublicApiContractTests(unittest.TestCase):
 
     def test_existing_bootstrap_workflow_matches_its_versioned_api_record(self) -> None:
         row = self.workflows["release.tag-image-chart-bootstrap"]
-        self.assertEqual("1.1.0", row["api_version"])
+        self.assertEqual("1.2.0", row["api_version"])
         self.assertEqual(row["status"], "deprecated-bootstrap-exception")
         self.assertEqual(row["deprecation"]["replacement"], "release.orchestrate")
         input_map = {item["name"]: item for item in row["inputs"]}
         self.assertEqual("tag-push", input_map["release_mode"]["default"])
         self.assertFalse(input_map["release_version"]["required"])
         self.assertFalse(input_map["release_source_sha"]["required"])
+        self.assertFalse(input_map["image_recovery_authority"]["required"])
+        self.assertEqual("", input_map["image_recovery_authority"]["default"])
         self.assertIn("tag-push", row["permitted_events"])
         self.assertIn("workflow_dispatch-existing-tag", row["permitted_events"])
         self.assertIn(
@@ -204,17 +206,18 @@ class PublicApiContractTests(unittest.TestCase):
             schema["properties"]["shared_release"]["additionalProperties"]
         )
 
-    def test_generated_reference_is_exact_when_present(self) -> None:
+    def test_generated_reference_is_required_and_exact(self) -> None:
         rendered = contract.render(self.data)
         reference = ROOT / "docs/workflows/public-api-reference.md"
-        if reference.exists():
-            self.assertEqual(reference.read_text(encoding="utf-8"), rendered)
-        self.assertIn("22", str(len(self.data.workflows)))
+        self.assertTrue(reference.is_file())
+        self.assertEqual(reference.read_text(encoding="utf-8"), rendered)
+        self.assertIn("20", str(len(self.data.workflows)))
         self.assertIn("release.orchestrate", rendered)
         self.assertIn("flux.reconcile", rendered)
-        self.assertIn("agent-state.lifecycle", rendered)
+        self.assertNotIn("agent-state.lifecycle", rendered)
         self.assertIn("`release_mode` (default `tag-push`)", rendered)
         self.assertIn("`release_source_sha`", rendered)
+        self.assertIn("`image_recovery_authority` (default ``)", rendered)
         self.assertIn("`workflow_dispatch-existing-tag`", rendered)
 
     def test_breaking_changes_fail_without_a_complete_acknowledgement(self) -> None:
@@ -238,21 +241,32 @@ class PublicApiContractTests(unittest.TestCase):
             "breaking-acknowledged",
         )
 
-    def test_self_check_runs_validator_renderer_and_tests(self) -> None:
+    def test_self_check_validates_reference_without_mutating_it(self) -> None:
         source = (
             ROOT / ".github/workflows/self-check.yml"
         ).read_text(encoding="utf-8")
+        commands = {line.strip() for line in source.splitlines()}
         for required in (
             '"${VERIFIED_PYTHON}" scripts/ci/public_api_contract.py validate',
-            '"${VERIFIED_PYTHON}" scripts/ci/public_api_contract.py render',
+            '"${VERIFIED_PYTHON}" scripts/ci/public_api_contract.py render --check',
+            "cat docs/workflows/public-api-reference.md",
             '"${VERIFIED_PYTHON}" -m unittest discover -s tests -p \'test_*.py\' -v',
-            "rm -f docs/workflows/public-api-reference.md",
+            'test -z "$(git status --porcelain --untracked-files=all)"',
         ):
-            self.assertIn(required, source)
-        self.assertNotIn(
-            '"${VERIFIED_PYTHON}" -m unittest -v tests/test_public_api_contract.py',
-            source,
+            self.assertIn(required, commands)
+        self.assertEqual(
+            source.count("docs/workflows/public-api-reference.md"), 1
         )
+        self.assertNotIn(
+            '"${VERIFIED_PYTHON}" scripts/ci/public_api_contract.py render',
+            commands,
+        )
+        for forbidden in (
+            '"${VERIFIED_PYTHON}" -m unittest -v tests/test_public_api_contract.py',
+            "rm -f docs/workflows/public-api-reference.md",
+            "grep -v '^?? docs/workflows/public-api-reference.md$'",
+        ):
+            self.assertNotIn(forbidden, source)
 
     @staticmethod
     def _example_input(name: str) -> object:
@@ -277,6 +291,7 @@ class PublicApiContractTests(unittest.TestCase):
             "release_mode": "tag-push",
             "release_version": "1.2.3",
             "release_source_sha": "5" * 40,
+            "image_recovery_authority": "",
             "release_contract": "backend",
             "release_tag": "v1.2.3",
             "target_id": "backend-production",
