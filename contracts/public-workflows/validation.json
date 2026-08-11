@@ -114,7 +114,7 @@
       "file": ".github/workflows/reusable-flutter.yml",
       "api_name": "validation.flutter",
       "api_version": "1.0.0",
-      "status": "planned",
+      "status": "implemented",
       "trust_class": "read-only-validation",
       "permission_profile": "validation-read",
       "semantic_runner_profile": "contract:flutter",
