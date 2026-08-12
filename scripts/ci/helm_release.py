@@ -17,7 +17,7 @@ from ci_workflows.helm_contract import (
     require,
     resolve_validation_plan,
 )
-from ci_workflows.helm_execution import publish_and_read_back
+from ci_workflows.helm_registry import publish_and_read_back
 from ci_workflows.helm_release import (
     load_release_bindings,
     parse_oci_publication_evidence,
@@ -79,7 +79,7 @@ def _execute(
     environment: Mapping[str, str],
 ) -> dict[str, str]:
     load_helm_publication_contract(root)
-    request, release_mode, release_contract, references = _inputs(root, environment)
+    request, _, release_contract, references = _inputs(root, environment)
     require(request.source_trust == "trusted-exact", "source_trust_rejected")
 
     source_root = _source_root(root, environment, "source")
@@ -105,7 +105,6 @@ def _execute(
         plan,
         validation,
         environment,
-        allow_publish=release_mode == "tag-push",
     )
     chart_reference = (
         f"{plan.product.registry_repository}/{plan.product.chart_name}"

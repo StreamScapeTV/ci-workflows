@@ -81,10 +81,17 @@ If not, the central Buildah escalation policy selects the next sufficient tier.
 ## Publication and read-back
 
 Tag-push publication uses pull-compare-before-push, mandatory Helm pull
-read-back, and a second raw OCI manifest inspection with Skopeo. Public
-`chart_digest` is the SHA-256 of the exact remote Helm OCI manifest bytes.
-Package content remains a separate `chart_package_sha256`, also included in
-Helm's `immutable_references_json`. Tag-push replays and manual verify-only
+read-back, and a second raw OCI manifest inspection with Skopeo. A failed first
+pull is treated as proof of absence only when the registry returns the standard
+`MANIFEST_UNKNOWN` (including Helm's `manifest unknown` rendering) or
+`NAME_UNKNOWN` error code. Generic `404 Not Found`, authentication, proxy,
+network, or other lookup failures are `registry_lookup_failed` and never become
+a `helm push` attempt. A failed absence lookup must also leave the destination
+directory empty before publication is allowed.
+
+Public `chart_digest` is the SHA-256 of the exact remote Helm OCI manifest
+bytes. Package content remains a separate `chart_package_sha256`, also included
+in Helm's `immutable_references_json`. Tag-push replays and manual verify-only
 replays succeed only on exact package parity; conflicting immutable versions
 fail closed. Manual replay never creates a missing version.
 

@@ -5,7 +5,8 @@ from pathlib import Path
 from typing import Mapping
 
 from .helm_contract import HelmPlan, load_helm_contract, request_from_environment, resolve_validation_plan
-from .helm_execution import publish_and_read_back, validate_and_package
+from .helm_execution import validate_and_package
+from .helm_registry import publish_and_read_back
 from .helm_types import HelmPublicationResult, HelmValidationError, HelmValidationResult
 
 
@@ -40,7 +41,7 @@ def publish(
     validation: HelmValidationResult,
     environment: Mapping[str, str],
 ) -> HelmPublicationResult:
-    """Perform the idempotent push and mandatory OCI pull verification."""
+    """Publish on trusted tag authority or verify one existing immutable chart."""
 
     return publish_and_read_back(source_root, state_root, plan, validation, environment)
 
@@ -55,6 +56,7 @@ def read_back(
     """The publication primitive always includes read-back; no weaker path exists."""
 
     return publish(source_root, state_root, plan, validation, environment)
+
 
 __all__ = [
     "HelmPublicationResult",
