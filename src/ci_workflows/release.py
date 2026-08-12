@@ -75,16 +75,21 @@ def _plan(args: argparse.Namespace) -> int:
 
 
 def _bindings(args: argparse.Namespace) -> int:
-    digest_references, bundle = image_reference_bundle(
-        repositories_json=args.repositories_json,
-        manifest_digests_json=args.manifest_digests_json,
-        version_references_json=args.version_references_json,
-        source_references_json=args.source_references_json,
+    digests, digest_references, bundle, selection = image_reference_bundle(
+        image_digest_json=args.image_digest_json,
+        immutable_references_json=args.immutable_references_json,
+        expected_source_sha=args.expected_source_sha,
+        expected_release_version=args.expected_release_version,
     )
+    selection = selection or {}
     _emit(
         {
+            "image_digests_json": canonical_json(digests),
             "digest_references_json": canonical_json(digest_references),
             "image_references_json": bundle,
+            "canary_id": selection.get("canary_id", ""),
+            "previous_known_good": selection.get("previous_known_good", ""),
+            "rollback_id": selection.get("rollback_id", ""),
         }
     )
     return 0
@@ -92,12 +97,10 @@ def _bindings(args: argparse.Namespace) -> int:
 
 def _evidence(args: argparse.Namespace) -> int:
     image = image_publication_evidence(
+        result=args.image_result,
+        image_digest_json=args.image_digest_json,
         platform_digests_json=args.platform_digests_json,
-        evidence_id=args.evidence_id,
-        replayed=args.replayed,
-        canary_id=args.canary_id,
-        previous_known_good=args.previous_known_good,
-        rollback_id=args.rollback_id,
+        immutable_references_json=args.immutable_references_json,
     )
     chart = chart_publication_evidence(
         result=args.chart_result,
@@ -221,19 +224,17 @@ def build_parser() -> argparse.ArgumentParser:
     plan.set_defaults(handler=_plan)
 
     bindings = subparsers.add_parser("image-bindings")
-    bindings.add_argument("--repositories-json", required=True)
-    bindings.add_argument("--manifest-digests-json", required=True)
-    bindings.add_argument("--version-references-json", required=True)
-    bindings.add_argument("--source-references-json", required=True)
+    bindings.add_argument("--image-digest-json", required=True)
+    bindings.add_argument("--immutable-references-json", required=True)
+    bindings.add_argument("--expected-source-sha", required=True)
+    bindings.add_argument("--expected-release-version", required=True)
     bindings.set_defaults(handler=_bindings)
 
     evidence = subparsers.add_parser("evidence")
+    evidence.add_argument("--image-result", required=True)
+    evidence.add_argument("--image-digest-json", required=True)
     evidence.add_argument("--platform-digests-json", required=True)
-    evidence.add_argument("--evidence-id", required=True)
-    evidence.add_argument("--replayed", required=True)
-    evidence.add_argument("--canary-id", default="")
-    evidence.add_argument("--previous-known-good", default="")
-    evidence.add_argument("--rollback-id", default="")
+    evidence.add_argument("--immutable-references-json", required=True)
     evidence.add_argument("--chart-result", required=True)
     evidence.add_argument("--chart-references-json", required=True)
     evidence.set_defaults(handler=_evidence)
