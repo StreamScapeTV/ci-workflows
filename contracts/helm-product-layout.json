@@ -1,0 +1,26 @@
+{
+  "products": {
+    "agent-state-chart": {
+      "chart_root": "charts/agent-state",
+      "minimum_required_image_references": 1,
+      "values_profiles": {
+        "default": "values.yaml"
+      }
+    },
+    "flux-github-actions-runner-chart": {
+      "chart_root": "apps/github-actions-runner",
+      "minimum_required_image_references": 0,
+      "values_profiles": {
+        "default": "values.yaml"
+      }
+    },
+    "iptv-backend-chart": {
+      "chart_root": "charts/iptv-backend",
+      "minimum_required_image_references": 1,
+      "values_profiles": {
+        "default": "values.yaml"
+      }
+    }
+  },
+  "schema_version": 1
+}

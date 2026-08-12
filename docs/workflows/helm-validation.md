@@ -30,6 +30,20 @@ clean. The current Agent State chart still lacks an `image.digest` value path,
 so it intentionally fails closed until producer-side adoption adds immutable
 digest rendering; #18 never falls back to a mutable tag.
 
+## Central product layout
+
+The caller manifest cannot choose which tree represents a product.
+`contracts/helm-product-layout.json` fixes the exact `chart_root` and complete
+values-profile map for every admitted product. It also fixes the minimum number
+of immutable image-reference assertions required by the source-validation
+shape: backend and Agent State require at least one; the current Flux wrapper
+requires none because it does not render an application workload image.
+
+The production planner enforces that layout before low-level chart admission. A
+fork therefore cannot point `chart_root` at a synthetic same-named chart,
+replace `values.yaml` with a friendlier profile, add an unreviewed render
+profile, or erase all workload-image evidence from an application manifest.
+
 ## Central dependency policy
 
 A caller manifest may describe its locked dependency tuple, but it does not own

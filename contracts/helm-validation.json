@@ -7,6 +7,7 @@
   ],
   "package_canonicalization": "recursive-chart-and-packaged-subcharts",
   "policy_hook_contract": "contracts/helm-policy-hooks.json",
+  "product_layout_contract": "contracts/helm-product-layout.json",
   "product_manifest_path": ".streamscape/helm-product.json",
   "products": {
     "agent-state-chart": {
