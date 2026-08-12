@@ -54,6 +54,19 @@ class ReleaseEvidenceTest(unittest.TestCase):
         self.assertNotIn("password", rendered.casefold())
         self.assertNotIn("authorization", rendered.casefold())
 
+    def test_image_evidence_accepts_bounded_platform_variant(self) -> None:
+        platforms = json.loads(json.dumps(CASE["image"]["platform_digests"]))
+        target = next(iter(platforms))
+        evidence = platforms[target].pop(next(iter(platforms[target])))
+        platforms[target]["linux/arm64/v8"] = evidence
+        normalized = image_publication_evidence(
+            result="success",
+            image_digest_json=json.dumps(CASE["image"]["digests"]),
+            platform_digests_json=json.dumps(platforms),
+            immutable_references_json=json.dumps(immutable_image_output()),
+        )
+        self.assertIn("linux/arm64/v8", normalized["platform_digests"][target])
+
     def test_image_evidence_requires_same_target_set_for_platform_readback(self) -> None:
         platforms = json.loads(json.dumps(CASE["image"]["platform_digests"]))
         platforms["unexpected-target"] = platforms.pop(next(iter(platforms)))
