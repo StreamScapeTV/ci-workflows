@@ -50,6 +50,7 @@ jobs:
           PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 \
             python3 -m unittest -v \
               tests.test_oci_publication \
+              tests.test_oci_publication_contract_alignment \
               tests.test_oci_publication_workflow_contract
 
       - name: Verify smoke source remains clean and credential-free
