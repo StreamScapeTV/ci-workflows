@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata"],
+  "properties": {
+    "apiVersion": {"type": "string", "minLength": 1},
+    "kind": {"type": "string", "minLength": 1},
+    "metadata": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"},
+        "namespace": {"type": "string"}
+      }
+    }
+  }
+}

@@ -33,7 +33,8 @@ class SourceWorkflowContractTests(unittest.TestCase):
             self.workflow,
             r"uses: StreamScapeTV/ci-workflows/actions/resolve-source@[0-9a-f]{40}",
         )
-        self.assertIn("runs-on: portable", self.workflow)
+        self.assertIn("runs-on: [linux, amd64, general]", self.workflow)
+        self.assertNotIn("runs-on: portable", self.workflow)
         self.assertNotIn("run: |", self.workflow)
 
     def test_workflow_and_machine_contract_publish_the_same_typed_outputs(self) -> None:

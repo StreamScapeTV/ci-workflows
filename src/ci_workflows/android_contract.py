@@ -88,18 +88,40 @@ def merged_task(consumer: Mapping[str, Any], task: Mapping[str, Any]) -> dict[st
 
 
 def validate_wrapper(wrapper: Mapping[str, Any]) -> None:
+    required_keys = {
+        "mode",
+        "version",
+        "launcher_path",
+        "properties_path",
+        "jar_path",
+        "distribution_url",
+        "distribution_sha256",
+        "launcher_blob_sha1",
+        "properties_blob_sha1",
+        "jar_blob_sha1",
+    }
+    require(set(wrapper) == required_keys, "wrapper_invalid")
     require(wrapper.get("mode") in {"standard-wrapper", "checked-in-launcher", "synthetic-smoke"}, "wrapper_invalid")
     version = wrapper.get("version")
     require(isinstance(version, str) and VERSION.fullmatch(version) is not None, "wrapper_invalid")
+    safe_relative(wrapper.get("launcher_path"), "wrapper_invalid")
     safe_relative(wrapper.get("properties_path"), "wrapper_invalid")
+    jar_path = wrapper.get("jar_path")
+    require(jar_path is None or isinstance(jar_path, str), "wrapper_invalid")
+    if jar_path is not None:
+        safe_relative(jar_path, "wrapper_invalid")
     require(wrapper.get("distribution_url") == f"https://services.gradle.org/distributions/gradle-{version}-bin.zip", "wrapper_distribution_drift")
     digest = wrapper.get("distribution_sha256")
     require(digest is None or (isinstance(digest, str) and SHA256.fullmatch(digest) is not None), "wrapper_distribution_drift")
-    for key in ("tracked_blob_sha1", "properties_blob_sha1"):
+    for key in ("launcher_blob_sha1", "properties_blob_sha1", "jar_blob_sha1"):
         value = wrapper.get(key)
         require(value is None or (isinstance(value, str) and FULL_SHA.fullmatch(value) is not None), "wrapper_invalid")
+    require(wrapper["launcher_blob_sha1"] is not None and wrapper["properties_blob_sha1"] is not None, "wrapper_invalid")
+    require((jar_path is None) == (wrapper["jar_blob_sha1"] is None), "wrapper_invalid")
     if wrapper.get("mode") == "checked-in-launcher":
-        require(digest is not None and wrapper.get("tracked_blob_sha1") is not None, "wrapper_invalid")
+        require(digest is not None, "wrapper_invalid")
+    if wrapper.get("mode") == "standard-wrapper":
+        require(jar_path is not None, "wrapper_invalid")
 
 
 def validate_command(command: Mapping[str, Any], forbidden: Sequence[str]) -> None:
@@ -123,6 +145,11 @@ def validate_task(contract: Mapping[str, Any], repository: str, consumer: Mappin
     safe_relative(task.get("working_directory"), allow_dot=True)
     safe_relative(task.get("gradle_wrapper_path"), "wrapper_invalid")
     require(task.get("wrapper_id") in contract["wrappers"], "wrapper_invalid")
+    require(
+        task["gradle_wrapper_path"]
+        == contract["wrappers"][task["wrapper_id"]]["launcher_path"],
+        "wrapper_invalid",
+    )
     command_rows = task.get("commands")
     require(isinstance(command_rows, list), "task_profile_rejected")
     forbidden = strings(contract.get("forbidden_argument_fragments"), nonempty=True)
@@ -338,11 +365,14 @@ def resolve_validation_plan(contract: Mapping[str, Any], request: AndroidValidat
         wrapper=AndroidWrapperContract(
             wrapper["mode"],
             wrapper["version"],
+            wrapper["launcher_path"],
             wrapper["properties_path"],
+            wrapper["jar_path"],
             wrapper["distribution_url"],
             wrapper.get("distribution_sha256"),
-            wrapper.get("tracked_blob_sha1"),
-            wrapper.get("properties_blob_sha1"),
+            wrapper["launcher_blob_sha1"],
+            wrapper["properties_blob_sha1"],
+            wrapper["jar_blob_sha1"],
         ),
         commands=commands(task["commands"]),
         fixed_gradle_arguments=tuple(contract["fixed_gradle_arguments"]),

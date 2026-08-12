@@ -79,6 +79,7 @@ Where a consumer verifier is required, the exact tracked verifier runs with fixe
 
 - StreamScapeWeb retains browser-only static export, its checked-in Pages-output verifier, environment validation, and Cloudflare Pages Git deployment outside GitHub Actions.
 - Agent State frontend receives only a future consumer-owned locked Node adoption path; backend, PostgreSQL, lifecycle, release, Flux, Agent State decisions, and Supabase remain separate.
+- Agent State Dashboard uses the existing `frontend-contract-static` / `contract-test-build` boundary with exact `.nvmrc` Node 22.18.0, locked `npm ci`, direct `npm test`, the checked-in `npm run validate` script for test/typecheck/build, generic `out/` structural verification, and no browser-public environment values. NGINX, the local server process, Helm, image publication, runtime secrets, and deployment remain dashboard-owned and outside `validation.node`.
 - Finance keeps domain and audit semantics in `tool/ci_quality_gate.sh`; manual Cypress/live-server evidence remains Finance-owned.
 
 ## Mutation detection and cleanup

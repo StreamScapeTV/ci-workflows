@@ -96,7 +96,7 @@ permissions:
 jobs:
   admit:
     name: Shared / Source admission
-    runs-on: portable
+    runs-on: [linux, amd64, general]
     timeout-minutes: 10
     outputs:
       caller_repository: ${{ steps.resolve.outputs.caller_repository }}

@@ -21,17 +21,24 @@ class TagReleaseDependencyRegressionTests(unittest.TestCase):
 
     def test_release_uses_only_the_live_high_buildah_capability(self) -> None:
         selectors = re.findall(
-            r"^\s+runs-on:\s*([^\s#]+)\s*$",
+            r"^\s+runs-on:\s*(.+?)\s*$",
             self.text,
             re.MULTILINE,
         )
-        self.assertEqual(["buildah-high", "buildah-high"], selectors)
+        self.assertEqual(
+            [
+                "[linux, amd64, buildah, high]",
+                "[linux, amd64, buildah, high]",
+            ],
+            selectors,
+        )
         for forbidden in (
             "self-hosted",
             "portable",
             "mobile",
             "macOS",
             "ubuntu-latest",
+            "runs-on: buildah-high",
             "buildah-tiny",
             "buildah-small",
             "buildah-medium",

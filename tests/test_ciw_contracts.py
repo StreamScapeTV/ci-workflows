@@ -9,6 +9,7 @@ from ci_workflows.ciw import command_specs, runtime_command_index, validate_runt
 from ci_workflows.ciw_docs import load_command_contract, validate_command_contract
 from ci_workflows.ciw_types import CIWError, CIWResult, project_error, write_command_file
 from ci_workflows.foundation_types import FoundationError
+from ci_workflows.gitops_types import GitOpsValidationError
 from ci_workflows.node_types import NodeValidationError
 from ci_workflows.python_types import PythonValidationError
 from ci_workflows.release_tag_authority import ReleaseTagError
@@ -26,12 +27,13 @@ class CIWContractTests(unittest.TestCase):
             for item in contract["commands"]
         }
         self.assertEqual(expected, set(runtime_command_index()))
-        self.assertEqual(23, len(expected))
+        self.assertEqual(24, len(expected))
         self.assertIn("android validate", expected)
         self.assertIn("apple validate", expected)
         self.assertIn("flutter validate", expected)
         self.assertIn("python validate", expected)
         self.assertIn("node validate", expected)
+        self.assertIn("gitops validate", expected)
         self.assertEqual(len(command_specs()), len(expected))
         validate_runtime_contract(ROOT)
 
@@ -49,6 +51,7 @@ class CIWContractTests(unittest.TestCase):
                 "flutter",
                 "python",
                 "node",
+                "gitops",
                 "workspace",
                 "tooling",
                 "dependencies",
@@ -79,12 +82,14 @@ class CIWContractTests(unittest.TestCase):
                 "scripts/ci/apple.py",
                 "scripts/ci/python.py",
                 "scripts/ci/node.py",
+                "scripts/ci/gitops.py",
             },
         )
         self.assertEqual(wrappers["scripts/ci/android.py"], {"android validate"})
         self.assertEqual(wrappers["scripts/ci/apple.py"], {"apple validate"})
         self.assertEqual(wrappers["scripts/ci/python.py"], {"python validate"})
         self.assertEqual(wrappers["scripts/ci/node.py"], {"node validate"})
+        self.assertEqual(wrappers["scripts/ci/gitops.py"], {"gitops validate"})
         for path in wrappers:
             self.assertTrue((ROOT / path).is_file())
 
@@ -94,6 +99,7 @@ class CIWContractTests(unittest.TestCase):
             (RunnerContractError("invalid-selector", "private detail"), "runners", "invalid-selector"),
             (PythonValidationError("dependency_lock_drift"), "python", "dependency_lock_drift"),
             (NodeValidationError("lockfile_drift"), "node", "lockfile_drift"),
+            (GitOpsValidationError("tool_archive_rejected"), "gitops", "tool_archive_rejected"),
             (FoundationError("cleanup_residue_detected"), "workspace", "cleanup_residue_detected"),
             (ReleaseTagError("release_tag_moved"), "release-tag", "release_tag_moved"),
         )

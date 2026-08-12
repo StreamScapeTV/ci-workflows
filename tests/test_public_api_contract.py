@@ -23,7 +23,7 @@ class PublicApiContractTests(unittest.TestCase):
 
     def test_registry_is_complete_and_deterministic(self) -> None:
         self.assertEqual(len(self.data.workflows), 20)
-        self.assertEqual(len(self.profiles), 11)
+        self.assertEqual(len(self.profiles), 12)
         self.assertEqual(len(self.data.types["trust_classes"]), 6)
         self.assertEqual("2.0.0", self.data.index["contract_version"])
         self.assertEqual(
