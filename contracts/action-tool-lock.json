@@ -77,6 +77,20 @@
       "release": "issue #116 immutable private-action checkpoint",
       "runtime": "composite",
       "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/cleanup-workspace"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/validate-android",
+      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
+      "release": "issue #104 immutable private-action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/validate-android"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/checkout-private-dependency",
+      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
+      "release": "issue #104 immutable private-action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/checkout-private-dependency"
     }
   ],
   "approved_internal_actions": [
@@ -120,7 +134,7 @@
             "runtime": "cp312-manylinux-x86_64",
             "filename": "pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
             "url": "https://files.pythonhosted.org/packages/8b/9d/b3589d3877982d4f2329302ef98a8026e7f4443c765c46cfecc8858c6b4b/pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
-            "sha256": "ba1cc08a7ccde2d2ec775841541641e4548226580ab850948cbfda66a1befcdc"
+            "sha256": "ba1cc08a7cc7de2d2ec775841541641e4548226580ab850948cbfda66a1befcdc"
           }
         ]
       }
