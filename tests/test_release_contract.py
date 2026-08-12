@@ -50,13 +50,13 @@ class ReleaseContractTest(unittest.TestCase):
                     release_contract=release_contract,
                     repository=repository,
                     admitted_sha=SOURCE_SHA,
-                    release_tag="v1.2.3",
+                    release_tag="1.2.3",
                     release_version="1.2.3",
                     request_id="fixture-request-0003",
                 )
                 self.assertEqual(release_id, plan.release_id)
                 self.assertEqual(release_contract, request["release_contract"])
-                self.assertEqual("v1.2.3", request["release_tag"])
+                self.assertEqual("1.2.3", request["release_tag"])
                 self.assertEqual(SOURCE_SHA, request["admitted_sha"])
 
     def test_public_release_rejects_tag_version_or_target_mismatch(self) -> None:
@@ -66,7 +66,7 @@ class ReleaseContractTest(unittest.TestCase):
                 release_contract="backend",
                 repository="StreamScapeTV/iptv-backend",
                 admitted_sha=SOURCE_SHA,
-                release_tag="v1.2.4",
+                release_tag="1.2.4",
                 release_version="1.2.3",
                 request_id="fixture-request-0003",
             )
@@ -76,10 +76,22 @@ class ReleaseContractTest(unittest.TestCase):
                 release_contract="backend",
                 repository="StreamScapeTV/iptv-backend",
                 admitted_sha=SOURCE_SHA,
-                release_tag="v1.2.3",
+                release_tag="1.2.3",
                 release_version="1.2.3",
                 request_id="fixture-request-0003",
                 target_id="agent-state",
+            )
+
+    def test_public_release_rejects_v_prefixed_product_tag(self) -> None:
+        with self.assertRaisesRegex(ReleaseError, r"^release_tag_rejected$"):
+            resolve_public_release(
+                ROOT,
+                release_contract="backend",
+                repository="StreamScapeTV/iptv-backend",
+                admitted_sha=SOURCE_SHA,
+                release_tag="v1.2.3",
+                release_version="1.2.3",
+                request_id="fixture-request-0003",
             )
 
     def test_repository_cannot_be_redirected_by_caller(self) -> None:
