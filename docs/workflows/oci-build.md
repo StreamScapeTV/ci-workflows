@@ -14,12 +14,14 @@ or deployment behavior.
 
 ## Execution order
 
-1. A portable planning job loads `contracts/oci-products.json`, validates the
-   repository/product relationship, confirms the measured runner tier, and
-   emits the exact JSON runner selector from
-   `generated/oci-engine-mapping.json`.
+1. A general-Linux planning job checks out and verifies the exact called central
+   workflow source through `job.workflow_repository` and `job.workflow_sha`,
+   then loads `contracts/oci-products.json`, validates the repository/product
+   relationship, confirms the measured runner tier, and emits the exact JSON
+   runner selector from `generated/oci-engine-mapping.json`.
 2. The build job consumes that selector with `fromJSON`; it never reconstructs
-   or concatenates labels.
+   or concatenates labels. It independently checks out and verifies the same
+   exact called central workflow source before using local actions.
 3. Exact caller source is checked out detached without persistent credentials.
 4. Only tracked clean context files are copied into isolated state. Symlinks,
    untracked files, path escapes, and mutable `FROM` identities are rejected.
@@ -46,8 +48,11 @@ jobs:
       release_version: 1.2.3
 ```
 
-Agent State uses `agent-state-image`. Flux uses `flux-runner-images`; its product
-record requires an independent known-good builder tier and emits only bounded
+Agent State uses `agent-state-image`. Flux uses `flux-runner-images`; its current
+checked-in targets are exactly the Buildah and mobile runner image families at
+`images/github-actions-runner-buildah/Dockerfile` and
+`images/github-actions-runner-mobile/Dockerfile`. The Flux product record
+requires an independent high-capacity builder tier and emits only bounded
 canary, previous-known-good-policy, and rollback identifiers. Publication does
 not select a runner image in Flux and does not mutate a cluster.
 
