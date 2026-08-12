@@ -8,12 +8,15 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 from . import oci
+from .ciw_types import CIWContext, CIWResult, write_command_file
 from .oci_contract import (
     MAPPING_PATH,
+    bounded_path,
     load_contract,
     render_engine_mapping,
     request_from_mapping,
     resolve_plan,
+    safe_relative,
     validate_generated_mapping,
 )
 from .oci_execution_safe import cleanup, residue
@@ -43,6 +46,76 @@ def _write_outputs(values: Mapping[str, str], environment: Mapping[str, str]) ->
             if "\n" in value or "\r" in value:
                 raise OciBuildError("invalid_request")
             stream.write(f"{key}={value}\n")
+
+
+def configure_oci_validate(parser: argparse.ArgumentParser) -> None:
+    """Configure the bounded ``ciw oci validate`` command."""
+
+    parser.add_argument(
+        "--phase",
+        choices=("plan", "execute", "cleanup", "residue"),
+        default="execute",
+    )
+    parser.add_argument("--source-root", default="source")
+
+
+def _failure_outputs(context: CIWContext, error: OciBuildError) -> None:
+    target = context.environment.get("GITHUB_OUTPUT", "")
+    if not target:
+        return
+    write_command_file(
+        Path(target),
+        {
+            "result": "failure",
+            "failure_code": error.code,
+        },
+    )
+
+
+def execute_oci_validate(
+    args: argparse.Namespace,
+    context: CIWContext,
+) -> CIWResult:
+    """Plan, execute, clean, or inspect one OCI validation request."""
+
+    try:
+        request = request_from_mapping(_request(context.environment), context.environment)
+        plan = resolve_plan(context.root, request)
+        if args.phase == "plan":
+            validate_generated_mapping(context.root)
+            return CIWResult("oci", "validate", outputs=plan.planning_outputs())
+        if args.phase == "cleanup":
+            cleanup(context.environment, plan.storage_driver)
+            return CIWResult(
+                "oci",
+                "validate",
+                outputs={
+                    "result": "success",
+                    "cleanup_result": "success",
+                    "failure_code": "",
+                },
+            )
+        if args.phase == "residue":
+            residue(context.environment)
+            return CIWResult(
+                "oci",
+                "validate",
+                outputs={
+                    "result": "success",
+                    "cleanup_result": "success",
+                    "failure_code": "",
+                },
+            )
+        workspace = Path(context.environment.get("GITHUB_WORKSPACE", "."))
+        source_root = bounded_path(
+            workspace,
+            safe_relative(args.source_root),
+        )
+        result = oci.build(context.root, source_root, plan, context.environment)
+        return CIWResult("oci", "validate", outputs=result.output_values())
+    except OciBuildError as error:
+        _failure_outputs(context, error)
+        raise
 
 
 def _phase(phase: str, source_root: Path, environment: Mapping[str, str]) -> int:
