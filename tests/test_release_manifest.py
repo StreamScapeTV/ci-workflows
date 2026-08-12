@@ -180,7 +180,7 @@ class ReleaseManifestTest(unittest.TestCase):
         self.assertEqual("product", payload["shared_release"]["kind"])
         self.assertEqual("1.4.2", payload["shared_release"]["tag"])
         self.assertEqual("1" * 40, payload["shared_release"]["commit"])
-        self.assertEqual("v1.4.2", payload["product_release"]["release_tag"])
+        self.assertEqual("1.4.2", payload["product_release"]["release_tag"])
         self.assertEqual("1.4.2", payload["product_release"]["version"])
         self.assertEqual("2" * 40, payload["product_release"]["tag_object_sha"])
         self.assertEqual("1" * 40, payload["product_release"]["tag_commit_sha"])
