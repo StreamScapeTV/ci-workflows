@@ -13,6 +13,7 @@ on:
       - 'actions/maintenance-*/**'
       - 'actions/flux-reconcile/**'
       - 'contracts/organization-maintenance*.json'
+      - 'contracts/public-workflows/operations.json'
       - 'scripts/ci/maintenance.py'
       - 'scripts/ci/flux_reconcile.py'
       - 'src/ci_workflows/maintenance*.py'
@@ -69,6 +70,7 @@ jobs:
             "${VERIFIED_PYTHON}" -m unittest -v \
               tests.test_maintenance_contract \
               tests.test_maintenance_component_facade \
+              tests.test_maintenance_operations_fragment \
               tests.test_maintenance_runtime \
               tests.test_maintenance_security \
               tests.test_flux_component_facade \
