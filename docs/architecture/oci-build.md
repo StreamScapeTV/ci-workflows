@@ -55,12 +55,21 @@ normalization/read-back belong to issue #17.
 
 ## Reusable-workflow source identity
 
-Both reusable-workflow jobs check out the exact called central workflow source
-using `job.workflow_repository` and `job.workflow_sha`, then verify the detached
-checkout before invoking local central actions. Caller source remains separately
-bound to the admitted product SHA. This prevents a private consumer from
-substituting the central implementation through caller-oriented workflow
-context.
+The reusable planner and build job do not clone the private central repository
+with a caller-scoped token. They compose the reviewed `validate-oci` private
+action at immutable central revision
+`29cb88e406a0490834bd556bb825d0e227c862ac` and the immutable shared foundation
+actions for exact checkout, workspace state, evidence, and cleanup.
+
+Each private action archive resolves central scripts and typed Python libraries
+relative to `GITHUB_ACTION_PATH`, so no `.ciw` checkout, mutable central ref,
+caller credential, or generic secret is needed to reach the implementation.
+Those exact remote action identities must be represented in the action lock
+before the final candidate is merged. Caller source remains independently bound
+to the admitted product SHA, checked out detached, and reverified clean after
+terminal cleanup. Immutable central helper distribution therefore changes only
+how reviewed central code reaches a private caller; it does not weaken source,
+runner, build, or cleanup authority.
 
 ## Runner separation
 
