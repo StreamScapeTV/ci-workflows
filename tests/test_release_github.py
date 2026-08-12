@@ -66,6 +66,7 @@ class GitHubReleaseReplayTest(unittest.TestCase):
         self.assertEqual(self.exact["html_url"], url)
         self.assertEqual("existing-matched", state)
         self.assertIsNone(api.created_payload)
+        self.assertEqual("StreamScapeTV/iptv-backend", self.desired.repository)
 
     def test_existing_release_with_different_manifest_fails_closed(self) -> None:
         conflicting = dict(self.exact)
@@ -82,6 +83,7 @@ class GitHubReleaseReplayTest(unittest.TestCase):
         self.assertEqual(SOURCE_SHA, api.created_payload["target_commitish"])
         self.assertFalse(api.created_payload["generate_release_notes"])
         self.assertFalse(api.created_payload["draft"])
+        self.assertFalse(api.created_payload["prerelease"])
 
     def test_create_race_rechecks_and_accepts_only_exact_match(self) -> None:
         api = FakeReleaseAPI(
@@ -116,6 +118,14 @@ class GitHubReleaseReplayTest(unittest.TestCase):
         external["html_url"] = "https://example.com/release/1.4.2"
         with self.assertRaisesRegex(ReleaseError, r"^github_release_response_rejected$"):
             verify_existing_release(external, self.desired)
+
+    def test_verify_existing_rejects_other_streamscape_repository_url(self) -> None:
+        redirected = dict(self.exact)
+        redirected["html_url"] = (
+            "https://github.com/StreamScapeTV/agent-state/releases/tag/1.4.2"
+        )
+        with self.assertRaisesRegex(ReleaseError, r"^github_release_response_rejected$"):
+            verify_existing_release(redirected, self.desired)
 
 
 if __name__ == "__main__":
