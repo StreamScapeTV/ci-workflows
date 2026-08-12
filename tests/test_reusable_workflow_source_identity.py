@@ -10,11 +10,11 @@ from ci_workflows.validation_model import ActionsLoader
 
 ROOT = Path(__file__).resolve().parents[1]
 CHECKOUT_WORKFLOWS = {
-    ".github/workflows/reusable-android.yml": 2,
     ".github/workflows/reusable-flutter.yml": 4,
     ".github/workflows/reusable-python.yml": 2,
 }
 NODE_WORKFLOW = ".github/workflows/reusable-node.yml"
+ANDROID_WORKFLOW = ".github/workflows/reusable-android.yml"
 PRIVATE_HELPER_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 NODE_PRIVATE_HELPERS = {
     "StreamScapeTV/ci-workflows/actions/validate-node",
@@ -23,6 +23,18 @@ NODE_PRIVATE_HELPERS = {
     "StreamScapeTV/ci-workflows/actions/render-evidence",
     "StreamScapeTV/ci-workflows/actions/cleanup-workspace",
 }
+ANDROID_PRIVATE_HELPERS = {
+    "StreamScapeTV/ci-workflows/actions/validate-android",
+    "StreamScapeTV/ci-workflows/actions/exact-checkout",
+    "StreamScapeTV/ci-workflows/actions/prepare-workspace",
+    "StreamScapeTV/ci-workflows/actions/checkout-private-dependency",
+    "StreamScapeTV/ci-workflows/actions/render-evidence",
+    "StreamScapeTV/ci-workflows/actions/cleanup-workspace",
+}
+ANDROID_ISSUE_HELPERS = {
+    "StreamScapeTV/ci-workflows/actions/validate-android",
+    "StreamScapeTV/ci-workflows/actions/checkout-private-dependency",
+}
 
 
 class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
@@ -30,6 +42,16 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
     def load(relative: str) -> tuple[str, dict[str, object]]:
         source = (ROOT / relative).read_text(encoding="utf-8")
         return source, yaml.load(source, Loader=ActionsLoader)
+
+    @staticmethod
+    def locked_actions() -> dict[str, dict[str, str]]:
+        action_lock = json.loads(
+            (ROOT / "contracts/action-tool-lock.json").read_text(encoding="utf-8")
+        )
+        return {
+            item["uses"]: item
+            for item in action_lock["third_party_actions"]
+        }
 
     def test_checkout_based_reusable_workflows_pin_their_own_identity(self) -> None:
         for relative, expected_count in CHECKOUT_WORKFLOWS.items():
@@ -103,24 +125,59 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
         self.assertEqual(NODE_PRIVATE_HELPERS, set(remote_helpers))
         self.assertEqual({PRIVATE_HELPER_SHA}, set(remote_helpers.values()))
 
-        action_lock = json.loads(
-            (ROOT / "contracts/action-tool-lock.json").read_text(encoding="utf-8")
-        )
-        locked = {
-            item["uses"]: item
-            for item in action_lock["third_party_actions"]
-            if item["uses"] in NODE_PRIVATE_HELPERS
-        }
-        self.assertEqual(NODE_PRIVATE_HELPERS, set(locked))
-        for entry in locked.values():
+        locked = self.locked_actions()
+        self.assertTrue(NODE_PRIVATE_HELPERS.issubset(locked))
+        for helper in NODE_PRIVATE_HELPERS:
+            entry = locked[helper]
             self.assertEqual(PRIVATE_HELPER_SHA, entry["sha"])
             self.assertEqual("composite", entry["runtime"])
             self.assertEqual(
                 "issue #116 immutable private-action checkpoint", entry["release"]
             )
 
+    def test_android_uses_locked_private_action_identity_without_central_clone(self) -> None:
+        source, workflow = self.load(ANDROID_WORKFLOW)
+        steps = [
+            step
+            for job in workflow["jobs"].values()
+            for step in job.get("steps", [])
+        ]
+        self.assertFalse(
+            any(step.get("name") == "Check out exact central workflow source" for step in steps)
+        )
+        self.assertFalse(
+            any(step.get("name") == "Verify exact central workflow source" for step in steps)
+        )
+        self.assertNotIn("actions/checkout@", source)
+        self.assertNotIn("path: .ciw", source)
+        self.assertNotIn("./.ciw/actions/", source)
+        self.assertNotIn("secrets: inherit", source)
+
+        remote_helpers = {
+            str(step["uses"]).split("@", 1)[0]: str(step["uses"]).split("@", 1)[1]
+            for step in steps
+            if str(step.get("uses", "")).startswith(
+                "StreamScapeTV/ci-workflows/actions/"
+            )
+        }
+        self.assertEqual(ANDROID_PRIVATE_HELPERS, set(remote_helpers))
+        self.assertEqual({PRIVATE_HELPER_SHA}, set(remote_helpers.values()))
+
+        locked = self.locked_actions()
+        self.assertTrue(ANDROID_PRIVATE_HELPERS.issubset(locked))
+        for helper in ANDROID_PRIVATE_HELPERS:
+            entry = locked[helper]
+            self.assertEqual(PRIVATE_HELPER_SHA, entry["sha"])
+            self.assertEqual("composite", entry["runtime"])
+            expected_release = (
+                "issue #104 immutable private-action checkpoint"
+                if helper in ANDROID_ISSUE_HELPERS
+                else "issue #116 immutable private-action checkpoint"
+            )
+            self.assertEqual(expected_release, entry["release"])
+
     def test_private_android_consumer_cannot_control_central_source_or_credential_scope(self) -> None:
-        source, workflow = self.load(".github/workflows/reusable-android.yml")
+        source, workflow = self.load(ANDROID_WORKFLOW)
         public = json.loads(
             (ROOT / "contracts/public-workflows/validation.json").read_text(
                 encoding="utf-8"
@@ -140,6 +197,21 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
         self.assertNotIn("secrets: inherit", source)
         self.assertNotIn("workflow_ref", source)
         self.assertNotIn("github.workflow", source)
+        dependency = next(
+            step
+            for job in workflow["jobs"].values()
+            for step in job.get("steps", [])
+            if step.get("id") == "dependency"
+        )
+        self.assertEqual(
+            dependency["with"]["token"],
+            "${{ secrets.private_dependency_token }}",
+        )
+        for job in workflow["jobs"].values():
+            for step in job.get("steps", []):
+                if step is dependency:
+                    continue
+                self.assertNotIn("private_dependency_token", json.dumps(step))
 
 
 if __name__ == "__main__":

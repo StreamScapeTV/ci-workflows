@@ -77,6 +77,20 @@
       "release": "issue #116 immutable private-action checkpoint",
       "runtime": "composite",
       "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/cleanup-workspace"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/validate-android",
+      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
+      "release": "issue #104 immutable private-action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/validate-android"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/checkout-private-dependency",
+      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
+      "release": "issue #104 immutable private-action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/checkout-private-dependency"
     }
   ],
   "approved_internal_actions": [
