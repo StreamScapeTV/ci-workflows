@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from typing import Mapping, Sequence
 
+from . import oci
 from .oci_contract import (
     MAPPING_PATH,
     load_contract,
@@ -15,7 +16,7 @@ from .oci_contract import (
     resolve_plan,
     validate_generated_mapping,
 )
-from .oci_execution_safe import cleanup, execute_plan, residue
+from .oci_execution_safe import cleanup, residue
 from .oci_types import OciBuildError
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -52,7 +53,7 @@ def _phase(phase: str, source_root: Path, environment: Mapping[str, str]) -> int
         _write_outputs(plan.planning_outputs(), environment)
         return 0
     if phase == "execute":
-        result = execute_plan(ROOT, source_root, plan, environment)
+        result = oci.build(ROOT, source_root, plan, environment)
         _write_outputs(result.output_values(), environment)
         return 0
     if phase == "cleanup":
