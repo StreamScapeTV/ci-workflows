@@ -1,0 +1,43 @@
+{
+  "products": {
+    "agent-state-chart": {
+      "bindings": [
+        {
+          "digest_path": [
+            "image",
+            "digest"
+          ],
+          "repository": "git.faruqi.dev/mimranfaruqi/agent-state",
+          "repository_path": [
+            "image",
+            "repository"
+          ],
+          "values_path": "values.yaml"
+        }
+      ],
+      "product_id": "agent-state-chart"
+    },
+    "flux-github-actions-runner-chart": {
+      "bindings": [],
+      "product_id": "flux-github-actions-runner-chart"
+    },
+    "iptv-backend-chart": {
+      "bindings": [
+        {
+          "digest_path": [
+            "image",
+            "digest"
+          ],
+          "repository": "git.faruqi.dev/mimranfaruqi/iptv-backend",
+          "repository_path": [
+            "image",
+            "repository"
+          ],
+          "values_path": "values.yaml"
+        }
+      ],
+      "product_id": "iptv-backend-chart"
+    }
+  },
+  "schema_version": 1
+}

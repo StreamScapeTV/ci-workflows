@@ -13,4 +13,4 @@ spec:
     spec:
       containers:
         - name: backend
-          image: {{ .Values.image.reference | quote }}
+          image: "{{ .Values.image.repository }}@{{ required \"image.digest is required\" .Values.image.digest }}"

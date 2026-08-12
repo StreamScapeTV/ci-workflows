@@ -17,6 +17,6 @@
     }
   ],
   "required_image_references": [
-    "registry.example/iptv-backend@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    "git.faruqi.dev/mimranfaruqi/iptv-backend@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   ]
 }

@@ -5,9 +5,10 @@
   "properties": {
     "image": {
       "type": "object",
-      "required": ["reference"],
+      "required": ["repository", "digest"],
       "properties": {
-        "reference": {"type": "string"}
+        "repository": {"type": "string"},
+        "digest": {"type": "string"}
       }
     }
   }

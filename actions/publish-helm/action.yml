@@ -21,6 +21,9 @@ inputs:
   policy_path:
     description: Optional product-manifest policy file path
     required: false
+  required_image_references_json:
+    description: Deterministic JSON array of exact published image digest references; use [] when the product has no image binding
+    required: true
   source_trust:
     description: Explicit admitted source trust classification
     required: true
@@ -64,10 +67,18 @@ runs:
         INPUT_RELEASE_VERSION: ${{ inputs.release_version }}
         INPUT_VALUES_PROFILE: ${{ inputs.values_profile }}
         INPUT_POLICY_PATH: ${{ inputs.policy_path }}
+        INPUT_REQUIRED_IMAGE_REFERENCES_JSON: ${{ inputs.required_image_references_json }}
         INPUT_SOURCE_TRUST: ${{ inputs.source_trust }}
         INPUT_REGISTRY_USERNAME: ${{ inputs.registry_username }}
         INPUT_REGISTRY_TOKEN: ${{ inputs.registry_token }}
       run: |
         set -Eeuo pipefail
-        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
-          helm publish --phase "${{ inputs.phase }}" --source-root source
+        if [[ "${{ inputs.phase }}" == "plan" ]]; then
+          python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/helm_release.py" validate-input
+        fi
+        if [[ "${{ inputs.phase }}" == "execute" ]]; then
+          python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/helm_release.py" execute
+        else
+          python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
+            helm publish --phase "${{ inputs.phase }}" --source-root source
+        fi

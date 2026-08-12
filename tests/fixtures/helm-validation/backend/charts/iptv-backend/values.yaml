@@ -1,2 +1,3 @@
 image:
-  reference: registry.example/iptv-backend@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  repository: git.faruqi.dev/mimranfaruqi/iptv-backend
+  digest: ""

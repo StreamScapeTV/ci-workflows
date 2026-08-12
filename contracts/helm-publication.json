@@ -1,4 +1,5 @@
 {
+  "chart_digest": "remote-oci-manifest-sha256",
   "forbidden_capabilities": [
     "kubernetes",
     "sops-decryption",
@@ -13,7 +14,10 @@
   "read_back": "required-oci-pull-and-normalized-sha256",
   "registry_host": "git.faruqi.dev",
   "registry_namespace": "mimranfaruqi/helm-charts",
+  "release_binding_contract": "contracts/helm-release-bindings.json",
+  "required_image_references": "deterministic-json-array-exact-product-set",
   "schema_version": 1,
   "source_trust": "trusted-exact",
+  "tag_authority": "resolve-and-revalidate-before-write",
   "version_policy": "immutable-semver-no-latest"
 }

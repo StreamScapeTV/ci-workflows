@@ -23,6 +23,10 @@ on:
         description: Optional fixed product policy path
         required: false
         type: string
+      required_image_references_json:
+        description: Deterministic JSON array of exact published image digest references; use [] for a chart with no image binding
+        required: true
+        type: string
     secrets:
       registry_username:
         description: Named private OCI registry username
@@ -35,7 +39,7 @@ on:
         description: Success only after exact OCI pull read-back and cleanup
         value: ${{ jobs.publish.outputs.result }}
       chart_digest:
-        description: SHA-256 of the normalized published chart package
+        description: SHA-256 digest of the exact remote Helm OCI manifest after read-back
         value: ${{ jobs.publish.outputs.chart_digest }}
       immutable_references_json:
         description: Deterministic immutable chart reference and digest summary
@@ -53,6 +57,10 @@ jobs:
       runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
       workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
       source_trust: ${{ steps.plan.outputs.source_trust }}
+      release_version: ${{ steps.authority.outputs.release_version }}
+      release_source_sha: ${{ steps.authority.outputs.release_source_sha }}
+      tag_object_sha: ${{ steps.authority.outputs.tag_object_sha }}
+      tag_commit_sha: ${{ steps.authority.outputs.tag_commit_sha }}
     steps:
       - name: Check out exact central workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -69,6 +77,23 @@ jobs:
         run: |
           set -Eeuo pipefail
           (cd .ciw && test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}")
+      - id: authority
+        name: Resolve exact release tag authority
+        uses: ./.ciw/actions/resolve-release-tag
+        with:
+          phase: resolve
+          release_mode: tag-push
+      - name: Verify requested publication tuple matches exact tag authority
+        shell: bash
+        env:
+          REQUESTED_VERSION: ${{ inputs.release_version }}
+          REQUESTED_SOURCE_SHA: ${{ inputs.admitted_sha }}
+          RESOLVED_VERSION: ${{ steps.authority.outputs.release_version }}
+          RESOLVED_SOURCE_SHA: ${{ steps.authority.outputs.release_source_sha }}
+        run: |
+          set -Eeuo pipefail
+          test "${REQUESTED_VERSION}" = "${RESOLVED_VERSION}"
+          test "${REQUESTED_SOURCE_SHA}" = "${RESOLVED_SOURCE_SHA}"
       - id: plan
         name: Resolve fixed Helm publication contract
         uses: ./.ciw/actions/publish-helm
@@ -79,6 +104,7 @@ jobs:
           release_version: ${{ inputs.release_version }}
           values_profile: ${{ inputs.values_profile }}
           policy_path: ${{ inputs.policy_path }}
+          required_image_references_json: ${{ inputs.required_image_references_json }}
           source_trust: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && 'trusted-pr' || 'trusted-exact' }}
 
   publish:
@@ -120,6 +146,15 @@ jobs:
           cache_mode: disabled
           source_sha: ${{ inputs.admitted_sha }}
           trust_mode: ${{ needs.plan.outputs.source_trust }}
+      - name: Revalidate exact release tag immediately before registry write
+        uses: ./.ciw/actions/resolve-release-tag
+        with:
+          phase: revalidate
+          release_mode: tag-push
+          release_version: ${{ needs.plan.outputs.release_version }}
+          release_source_sha: ${{ needs.plan.outputs.release_source_sha }}
+          expected_tag_object_sha: ${{ needs.plan.outputs.tag_object_sha }}
+          expected_tag_commit_sha: ${{ needs.plan.outputs.tag_commit_sha }}
       - id: helm
         name: Package, publish once, and verify OCI pull read-back
         continue-on-error: true
@@ -131,6 +166,7 @@ jobs:
           release_version: ${{ inputs.release_version }}
           values_profile: ${{ inputs.values_profile }}
           policy_path: ${{ inputs.policy_path }}
+          required_image_references_json: ${{ inputs.required_image_references_json }}
           source_trust: ${{ needs.plan.outputs.source_trust }}
           registry_username: ${{ secrets.registry_username }}
           registry_token: ${{ secrets.registry_token }}
@@ -143,6 +179,7 @@ jobs:
           admitted_sha: ${{ inputs.admitted_sha }}
           product_id: ${{ inputs.product_id }}
           release_version: ${{ inputs.release_version }}
+          required_image_references_json: ${{ inputs.required_image_references_json }}
           source_trust: ${{ needs.plan.outputs.source_trust }}
       - id: residue
         name: Verify zero Helm publication residue
@@ -153,6 +190,7 @@ jobs:
           admitted_sha: ${{ inputs.admitted_sha }}
           product_id: ${{ inputs.product_id }}
           release_version: ${{ inputs.release_version }}
+          required_image_references_json: ${{ inputs.required_image_references_json }}
           source_trust: ${{ needs.plan.outputs.source_trust }}
       - id: workspace_cleanup
         name: Remove and verify all registered workspace state
