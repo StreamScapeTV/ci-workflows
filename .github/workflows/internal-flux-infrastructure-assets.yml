@@ -1,0 +1,159 @@
+name: Internal Flux infrastructure asset composition leaf
+
+on:
+  workflow_call:
+    inputs:
+      admitted_sha:
+        required: true
+        type: string
+      product_id:
+        required: true
+        type: string
+      release_version:
+        required: true
+        type: string
+      operation:
+        required: true
+        type: string
+      policy_path:
+        required: true
+        type: string
+      request_id:
+        required: true
+        type: string
+      source_event_name:
+        required: true
+        type: string
+      source_ref_type:
+        required: true
+        type: string
+      source_ref_name:
+        required: true
+        type: string
+      source_default_branch:
+        required: true
+        type: string
+      dependency_evidence_json:
+        required: true
+        type: string
+    outputs:
+      result:
+        value: ${{ jobs.compose.outputs.result }}
+      immutable_references_json:
+        value: ${{ jobs.compose.outputs.immutable_references_json }}
+      release_manifest_sha256:
+        value: ${{ jobs.compose.outputs.release_manifest_sha256 }}
+      request_id:
+        value: ${{ jobs.compose.outputs.request_id }}
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  compose:
+    name: Compose verified Flux infrastructure asset evidence
+    runs-on: [linux, amd64, general]
+    timeout-minutes: 30
+    outputs:
+      result: ${{ steps.compose.outputs.result }}
+      immutable_references_json: ${{ steps.compose.outputs.immutable_references_json }}
+      release_manifest_sha256: ${{ steps.compose.outputs.release_manifest_sha256 }}
+      request_id: ${{ steps.compose.outputs.request_id }}
+    steps:
+      - name: Check out exact internal workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact internal workflow source
+        shell: bash
+        env:
+          EXPECTED_REPOSITORY: ${{ job.workflow_repository }}
+          EXPECTED_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -Eeuo pipefail
+          test "${EXPECTED_REPOSITORY}" = "StreamScapeTV/ci-workflows"
+          cd .ciw
+          test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+
+      - name: Check out exact admitted Flux source
+        uses: ./.ciw/actions/exact-checkout
+        with:
+          repository: ${{ github.repository }}
+          admitted_sha: ${{ inputs.admitted_sha }}
+          path: source
+          fetch_depth: "0"
+
+      - id: compose
+        name: Validate source and compose bounded dependency evidence
+        uses: ./.ciw/actions/flux-assets
+        with:
+          phase: release
+          admitted_sha: ${{ inputs.admitted_sha }}
+          product_id: ${{ inputs.product_id }}
+          release_version: ${{ inputs.release_version }}
+          operation: ${{ inputs.operation }}
+          policy_path: ${{ inputs.policy_path }}
+          request_id: ${{ inputs.request_id }}
+          source_event_name: ${{ inputs.source_event_name }}
+          source_ref_type: ${{ inputs.source_ref_type }}
+          source_ref_name: ${{ inputs.source_ref_name }}
+          source_default_branch: ${{ inputs.source_default_branch }}
+          source_root: source
+          dependency_evidence_json: ${{ inputs.dependency_evidence_json }}
+
+      - name: Remove Flux asset transient state
+        if: always()
+        uses: ./.ciw/actions/flux-assets
+        with:
+          phase: cleanup
+
+      - name: Verify zero Flux asset residue
+        if: always()
+        uses: ./.ciw/actions/flux-assets
+        with:
+          phase: residue
+
+      - name: Verify exact admitted source remained clean
+        if: always()
+        shell: bash
+        env:
+          ADMITTED_SHA: ${{ inputs.admitted_sha }}
+        run: |
+          set -Eeuo pipefail
+          cd source
+          test "$(git rev-parse HEAD)" = "${ADMITTED_SHA}"
+          test -z "$(git status --porcelain --untracked-files=all)"
+
+      - name: Confirm zero Actions artifacts
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+          request = urllib.request.Request(
+              f"{os.environ['GITHUB_API_URL']}/repos/{os.environ['GITHUB_REPOSITORY']}"
+              f"/actions/runs/{os.environ['GITHUB_RUN_ID']}/artifacts?per_page=100",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              payload = json.load(response)
+          if int(payload.get("total_count", 0)) != 0 or payload.get("artifacts") != []:
+              raise SystemExit("Internal Flux asset workflow retained an artifact")
+          PY

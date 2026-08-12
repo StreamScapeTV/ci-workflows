@@ -65,8 +65,8 @@ jobs:
       - name: Check out exact central workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: StreamScapeTV/ci-workflows
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: .ciw
           fetch-depth: 1
           clean: true
@@ -76,11 +76,13 @@ jobs:
       - name: Verify exact central workflow source
         shell: bash
         env:
-          GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          EXPECTED_REPOSITORY: ${{ job.workflow_repository }}
+          EXPECTED_SHA: ${{ job.workflow_sha }}
         run: |
           set -Eeuo pipefail
+          test "${EXPECTED_REPOSITORY}" = "StreamScapeTV/ci-workflows"
           cd .ciw
-          test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
+          test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
 
       - id: plan
         name: Resolve inventory-owned asset and runner plan
@@ -93,8 +95,10 @@ jobs:
           operation: ${{ inputs.operation }}
           policy_path: ${{ inputs.policy_path }}
           request_id: ${{ inputs.request_id }}
+          source_event_name: ${{ github.event_name }}
           source_ref_type: ${{ github.ref_type }}
           source_ref_name: ${{ github.ref_name }}
+          source_default_branch: ${{ github.event.repository.default_branch }}
 
   release_assets:
     name: Release / Flux infrastructure assets
@@ -110,8 +114,8 @@ jobs:
       - name: Check out exact central workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: StreamScapeTV/ci-workflows
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: .ciw
           fetch-depth: 1
           clean: true
@@ -121,11 +125,13 @@ jobs:
       - name: Verify exact central workflow source
         shell: bash
         env:
-          GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          EXPECTED_REPOSITORY: ${{ job.workflow_repository }}
+          EXPECTED_SHA: ${{ job.workflow_sha }}
         run: |
           set -Eeuo pipefail
+          test "${EXPECTED_REPOSITORY}" = "StreamScapeTV/ci-workflows"
           cd .ciw
-          test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
+          test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
 
       - name: Check out exact admitted Flux source
         uses: ./.ciw/actions/exact-checkout
@@ -146,8 +152,10 @@ jobs:
           operation: ${{ inputs.operation }}
           policy_path: ${{ inputs.policy_path }}
           request_id: ${{ inputs.request_id }}
+          source_event_name: ${{ github.event_name }}
           source_ref_type: ${{ github.ref_type }}
           source_ref_name: ${{ github.ref_name }}
+          source_default_branch: ${{ github.event.repository.default_branch }}
           source_root: source
           dependency_evidence_json: "{}"
 
