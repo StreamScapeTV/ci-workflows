@@ -18,5 +18,6 @@
   ],
   "required_image_references": [
     "git.faruqi.dev/mimranfaruqi/iptv-backend@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-  ]
+  ],
+  "upstream_assets": []
 }

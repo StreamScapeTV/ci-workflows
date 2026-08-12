@@ -10,5 +10,29 @@
   "policy_path": null,
   "registry_repository": "oci://git.faruqi.dev/mimranfaruqi/helm-charts",
   "locked_dependencies": [],
-  "required_image_references": []
+  "required_image_references": [],
+  "upstream_assets": [
+    {
+      "name": "gha-runner-scale-set",
+      "upstream_repository": "https://github.com/example/actions-runner-controller",
+      "upstream_tag": "0.14.2",
+      "upstream_commit": "1111111111111111111111111111111111111111",
+      "upstream_chart_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "license": "Apache-2.0",
+      "mirror_repository": "oci://git.faruqi.dev/mimranfaruqi/actions-runner-controller-charts/gha-runner-scale-set",
+      "mirror_chart_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "patches": []
+    },
+    {
+      "name": "gha-runner-scale-set-controller",
+      "upstream_repository": "https://github.com/example/actions-runner-controller",
+      "upstream_tag": "0.14.2",
+      "upstream_commit": "1111111111111111111111111111111111111111",
+      "upstream_chart_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "license": "Apache-2.0",
+      "mirror_repository": "oci://git.faruqi.dev/mimranfaruqi/actions-runner-controller-charts/gha-runner-scale-set-controller",
+      "mirror_chart_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "patches": []
+    }
+  ]
 }

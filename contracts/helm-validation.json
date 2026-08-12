@@ -9,17 +9,29 @@
     "agent-state-chart": {
       "chart_name": "agent-state",
       "registry_repository": "oci://git.faruqi.dev/mimranfaruqi/helm-charts",
-      "repository": "StreamScapeTV/agent-state"
+      "repository": "StreamScapeTV/agent-state",
+      "upstream_assets": []
     },
     "flux-github-actions-runner-chart": {
       "chart_name": "github-actions-runner",
       "registry_repository": "oci://git.faruqi.dev/mimranfaruqi/helm-charts",
-      "repository": "StreamScapeTV/flux"
+      "repository": "StreamScapeTV/flux",
+      "upstream_assets": [
+        {
+          "mirror_repository": "oci://git.faruqi.dev/mimranfaruqi/actions-runner-controller-charts/gha-runner-scale-set",
+          "name": "gha-runner-scale-set"
+        },
+        {
+          "mirror_repository": "oci://git.faruqi.dev/mimranfaruqi/actions-runner-controller-charts/gha-runner-scale-set-controller",
+          "name": "gha-runner-scale-set-controller"
+        }
+      ]
     },
     "iptv-backend-chart": {
       "chart_name": "iptv-backend",
       "registry_repository": "oci://git.faruqi.dev/mimranfaruqi/helm-charts",
-      "repository": "StreamScapeTV/iptv-backend"
+      "repository": "StreamScapeTV/iptv-backend",
+      "upstream_assets": []
     }
   },
   "release_package_binding": "isolated-copy-version-app-version",

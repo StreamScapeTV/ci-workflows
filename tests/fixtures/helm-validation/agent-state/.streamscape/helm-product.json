@@ -12,5 +12,6 @@
   "locked_dependencies": [],
   "required_image_references": [
     "registry.example/agent-state@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-  ]
+  ],
+  "upstream_assets": []
 }

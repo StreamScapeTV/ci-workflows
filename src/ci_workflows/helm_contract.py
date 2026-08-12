@@ -23,6 +23,7 @@ NAME = re.compile(r"^[a-z][a-z0-9-]{1,63}$")
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 IMMUTABLE_IMAGE_REFERENCE = re.compile(r"^[a-z0-9._/-]+@sha256:[0-9a-f]{64}$")
 OCI_REPOSITORY = re.compile(r"^oci://[a-z0-9.-]+/[a-z0-9._/-]+$")
+SPDX_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.+-]{0,63}$")
 
 
 def require(condition: bool, code: str) -> None:
@@ -81,6 +82,31 @@ def _yaml(path: Path, code: str) -> Mapping[str, Any]:
     return value
 
 
+def _expected_upstream_assets(value: Any) -> tuple[tuple[str, str], ...]:
+    require(isinstance(value, list), "invalid_contract")
+    rows: list[tuple[str, str]] = []
+    for item in value:
+        require(
+            isinstance(item, Mapping)
+            and set(item) == {"name", "mirror_repository"},
+            "invalid_contract",
+        )
+        name = item.get("name")
+        mirror_repository = item.get("mirror_repository")
+        require(
+            isinstance(name, str) and NAME.fullmatch(name) is not None,
+            "invalid_contract",
+        )
+        require(
+            isinstance(mirror_repository, str)
+            and OCI_REPOSITORY.fullmatch(mirror_repository) is not None,
+            "invalid_contract",
+        )
+        rows.append((name, mirror_repository))
+    require(rows == sorted(set(rows)), "invalid_contract")
+    return tuple(rows)
+
+
 def load_helm_contract(root: Path) -> Mapping[str, Any]:
     payload = _json(root / CONTRACT_PATH, "invalid_contract")
     require(payload.get("schema_version") == 1, "invalid_contract")
@@ -108,6 +134,11 @@ def load_helm_contract(root: Path) -> Mapping[str, Any]:
     for product_id, value in products.items():
         require(isinstance(value, Mapping), "invalid_contract")
         require(
+            set(value)
+            == {"repository", "chart_name", "registry_repository", "upstream_assets"},
+            "invalid_contract",
+        )
+        require(
             value.get("repository")
             in {
                 "StreamScapeTV/iptv-backend",
@@ -127,6 +158,15 @@ def load_helm_contract(root: Path) -> Mapping[str, Any]:
             and OCI_REPOSITORY.fullmatch(repository) is not None,
             "invalid_contract",
         )
+        expected_upstreams = _expected_upstream_assets(value.get("upstream_assets"))
+        if product_id == "flux-github-actions-runner-chart":
+            require(
+                tuple(name for name, _ in expected_upstreams)
+                == ("gha-runner-scale-set", "gha-runner-scale-set-controller"),
+                "invalid_contract",
+            )
+        else:
+            require(not expected_upstreams, "invalid_contract")
         require(product_id in expected, "invalid_contract")
     return payload
 
@@ -246,6 +286,107 @@ def _locked_dependencies(value: Any) -> tuple[tuple[str, str, str], ...]:
     return tuple(rows)
 
 
+def _upstream_repository(value: Any) -> str:
+    require(isinstance(value, str), "upstream_provenance_invalid")
+    parsed = urlsplit(value)
+    require(
+        parsed.scheme == "https"
+        and parsed.hostname == "github.com"
+        and parsed.username is None
+        and parsed.password is None
+        and not parsed.query
+        and not parsed.fragment
+        and len(PurePosixPath(parsed.path).parts) == 3,
+        "upstream_provenance_invalid",
+    )
+    return value
+
+
+def _upstream_assets(
+    value: Any,
+    expected: Any,
+    source_root: Path,
+    chart_root: str,
+) -> None:
+    expected_rows = _expected_upstream_assets(expected)
+    require(isinstance(value, list), "upstream_provenance_invalid")
+    if not expected_rows:
+        require(value == [], "upstream_provenance_invalid")
+        return
+    require(value, "upstream_provenance_incomplete")
+    require(len(value) == len(expected_rows), "upstream_provenance_incomplete")
+
+    rows: list[tuple[str, str]] = []
+    tags: set[str] = set()
+    for item in value:
+        require(
+            isinstance(item, Mapping)
+            and set(item)
+            == {
+                "name",
+                "upstream_repository",
+                "upstream_tag",
+                "upstream_commit",
+                "upstream_chart_digest",
+                "license",
+                "mirror_repository",
+                "mirror_chart_digest",
+                "patches",
+            },
+            "upstream_provenance_invalid",
+        )
+        name = item.get("name")
+        mirror_repository = item.get("mirror_repository")
+        require(
+            isinstance(name, str) and NAME.fullmatch(name) is not None,
+            "upstream_provenance_invalid",
+        )
+        require(
+            isinstance(mirror_repository, str)
+            and OCI_REPOSITORY.fullmatch(mirror_repository) is not None,
+            "upstream_provenance_invalid",
+        )
+        rows.append((name, mirror_repository))
+        _upstream_repository(item.get("upstream_repository"))
+        upstream_tag = item.get("upstream_tag")
+        require(
+            isinstance(upstream_tag, str) and SEMVER.fullmatch(upstream_tag) is not None,
+            "upstream_provenance_invalid",
+        )
+        tags.add(upstream_tag)
+        require(
+            isinstance(item.get("upstream_commit"), str)
+            and FULL_SHA.fullmatch(item["upstream_commit"]) is not None,
+            "upstream_provenance_invalid",
+        )
+        upstream_digest = item.get("upstream_chart_digest")
+        mirror_digest = item.get("mirror_chart_digest")
+        require(
+            isinstance(upstream_digest, str)
+            and DIGEST.fullmatch(upstream_digest) is not None
+            and isinstance(mirror_digest, str)
+            and DIGEST.fullmatch(mirror_digest) is not None,
+            "upstream_provenance_invalid",
+        )
+        require(upstream_digest == mirror_digest, "upstream_provenance_mismatch")
+        license_id = item.get("license")
+        require(
+            isinstance(license_id, str) and SPDX_ID.fullmatch(license_id) is not None,
+            "upstream_provenance_invalid",
+        )
+        require(item.get("patches") == [], "upstream_patches_unsupported")
+
+    require(tuple(rows) == expected_rows, "upstream_provenance_mismatch")
+    require(len(tags) == 1, "upstream_provenance_mismatch")
+    chart_file = bounded_path(
+        source_root,
+        f"{chart_root}/Chart.yaml",
+        "upstream_provenance_invalid",
+    )
+    metadata = _yaml(chart_file, "upstream_provenance_invalid")
+    require(metadata.get("appVersion") in tags, "upstream_provenance_mismatch")
+
+
 def load_product_manifest(
     source_root: Path,
     contract: Mapping[str, Any],
@@ -276,6 +417,7 @@ def load_product_manifest(
         "registry_repository",
         "locked_dependencies",
         "required_image_references",
+        "upstream_assets",
     }
     require(
         set(data) == required and data.get("schema_version") == 1,
@@ -310,6 +452,12 @@ def load_product_manifest(
         "invalid_product_manifest",
     )
     require(images == sorted(set(images)), "invalid_product_manifest")
+    _upstream_assets(
+        data.get("upstream_assets"),
+        template.get("upstream_assets"),
+        source_root,
+        chart_root,
+    )
     return HelmProduct(
         product_id=request.product_id,
         repository=request.repository,
