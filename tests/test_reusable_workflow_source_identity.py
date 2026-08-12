@@ -9,32 +9,68 @@ import yaml
 from ci_workflows.validation_model import ActionsLoader
 
 ROOT = Path(__file__).resolve().parents[1]
-CHECKOUT_WORKFLOWS = {
-    ".github/workflows/reusable-flutter.yml": 4,
-    ".github/workflows/reusable-python.yml": 2,
+FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
+APPLE_SHA = "3175577052ac22b838789709f7082dfee372cfa7"
+OCI_SHA = "29cb88e406a0490834bd556bb825d0e227c862ac"
+GITOPS_SHA = "8445e63dd9fa9468b60b6d0c61e543da9681b47b"
+
+FOUNDATION = "issue #116 immutable private-action checkpoint"
+ISSUE_104 = "issue #104 immutable private-action checkpoint"
+ISSUE_125 = "issue #125 immutable private-action checkpoint"
+
+PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
+    ".github/workflows/reusable-node.yml": {
+        "StreamScapeTV/ci-workflows/actions/validate-node": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/render-evidence": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
+    },
+    ".github/workflows/reusable-android.yml": {
+        "StreamScapeTV/ci-workflows/actions/validate-android": (FOUNDATION_SHA, ISSUE_104),
+        "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/checkout-private-dependency": (FOUNDATION_SHA, ISSUE_104),
+        "StreamScapeTV/ci-workflows/actions/render-evidence": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
+    },
+    ".github/workflows/reusable-python.yml": {
+        "StreamScapeTV/ci-workflows/actions/validate-python": (FOUNDATION_SHA, ISSUE_125),
+        "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/verify-toolchain": (FOUNDATION_SHA, ISSUE_125),
+        "StreamScapeTV/ci-workflows/actions/render-evidence": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
+    },
+    ".github/workflows/reusable-flutter.yml": {
+        "StreamScapeTV/ci-workflows/actions/validate-flutter": (FOUNDATION_SHA, ISSUE_125),
+        "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
+    },
+    ".github/workflows/reusable-apple.yml": {
+        "StreamScapeTV/ci-workflows/actions/validate-apple": (APPLE_SHA, ISSUE_125),
+        "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
+    },
+    ".github/workflows/reusable-oci-build.yml": {
+        "StreamScapeTV/ci-workflows/actions/validate-oci": (OCI_SHA, ISSUE_125),
+        "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/render-evidence": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
+    },
+    ".github/workflows/reusable-gitops-validation.yml": {
+        "StreamScapeTV/ci-workflows/actions/validate-gitops": (GITOPS_SHA, ISSUE_125),
+        "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/render-evidence": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
+    },
 }
-NODE_WORKFLOW = ".github/workflows/reusable-node.yml"
+
 ANDROID_WORKFLOW = ".github/workflows/reusable-android.yml"
-PRIVATE_HELPER_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-NODE_PRIVATE_HELPERS = {
-    "StreamScapeTV/ci-workflows/actions/validate-node",
-    "StreamScapeTV/ci-workflows/actions/exact-checkout",
-    "StreamScapeTV/ci-workflows/actions/prepare-workspace",
-    "StreamScapeTV/ci-workflows/actions/render-evidence",
-    "StreamScapeTV/ci-workflows/actions/cleanup-workspace",
-}
-ANDROID_PRIVATE_HELPERS = {
-    "StreamScapeTV/ci-workflows/actions/validate-android",
-    "StreamScapeTV/ci-workflows/actions/exact-checkout",
-    "StreamScapeTV/ci-workflows/actions/prepare-workspace",
-    "StreamScapeTV/ci-workflows/actions/checkout-private-dependency",
-    "StreamScapeTV/ci-workflows/actions/render-evidence",
-    "StreamScapeTV/ci-workflows/actions/cleanup-workspace",
-}
-ANDROID_ISSUE_HELPERS = {
-    "StreamScapeTV/ci-workflows/actions/validate-android",
-    "StreamScapeTV/ci-workflows/actions/checkout-private-dependency",
-}
 
 
 class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
@@ -53,128 +89,35 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
             for item in action_lock["third_party_actions"]
         }
 
-    def test_checkout_based_reusable_workflows_pin_their_own_identity(self) -> None:
-        for relative, expected_count in CHECKOUT_WORKFLOWS.items():
+    def test_private_reusable_validators_use_only_locked_immutable_central_actions(self) -> None:
+        locked = self.locked_actions()
+        for relative, expected in PRIVATE_WORKFLOWS.items():
             with self.subTest(workflow=relative):
                 source, workflow = self.load(relative)
-                checkout_steps = [
-                    step
+                self.assertNotIn("actions/checkout@", source)
+                self.assertNotIn("repository: ${{ job.workflow_repository }}", source)
+                self.assertNotIn("repository: StreamScapeTV/ci-workflows", source)
+                self.assertNotIn("ref: ${{ job.workflow_sha }}", source)
+                self.assertNotIn("ref: ${{ github.workflow_sha }}", source)
+                self.assertNotIn("path: .ciw", source)
+                self.assertNotIn("./.ciw/actions/", source)
+                self.assertNotIn("secrets: inherit", source)
+
+                remote_helpers = {
+                    str(step["uses"]).split("@", 1)[0]: str(step["uses"]).split("@", 1)[1]
                     for job in workflow["jobs"].values()
                     for step in job.get("steps", [])
-                    if step.get("name") == "Check out exact central workflow source"
-                ]
-                verification_steps = [
-                    step
-                    for job in workflow["jobs"].values()
-                    for step in job.get("steps", [])
-                    if step.get("name") == "Verify exact central workflow source"
-                ]
-                self.assertEqual(len(checkout_steps), expected_count)
-                self.assertEqual(len(verification_steps), expected_count)
-                for checkout in checkout_steps:
-                    self.assertEqual(
-                        checkout["with"]["repository"],
-                        "${{ job.workflow_repository }}",
+                    if str(step.get("uses", "")).startswith(
+                        "StreamScapeTV/ci-workflows/actions/"
                     )
-                    self.assertEqual(
-                        checkout["with"]["ref"],
-                        "${{ job.workflow_sha }}",
-                    )
-                    self.assertEqual(checkout["with"]["persist-credentials"], False)
-                    self.assertNotIn("token", checkout["with"])
-                for verification in verification_steps:
-                    self.assertEqual(
-                        verification["env"]["EXPECTED_REPOSITORY"],
-                        "${{ job.workflow_repository }}",
-                    )
-                    self.assertEqual(
-                        verification["env"]["EXPECTED_SHA"],
-                        "${{ job.workflow_sha }}",
-                    )
-                    self.assertIn("StreamScapeTV/ci-workflows", verification["run"])
-                    self.assertIn("git rev-parse HEAD", verification["run"])
-                self.assertNotIn("github.workflow_sha", source)
-                self.assertNotIn("GITHUB_WORKFLOW_SHA", source)
-
-    def test_node_uses_locked_private_action_identity_without_central_clone(self) -> None:
-        source, workflow = self.load(NODE_WORKFLOW)
-        steps = [
-            step
-            for job in workflow["jobs"].values()
-            for step in job.get("steps", [])
-        ]
-        self.assertFalse(
-            any(step.get("name") == "Check out exact central workflow source" for step in steps)
-        )
-        self.assertFalse(
-            any(step.get("name") == "Verify exact central workflow source" for step in steps)
-        )
-        self.assertNotIn("actions/checkout@", source)
-        self.assertNotIn("path: .ciw", source)
-        self.assertNotIn("./.ciw/actions/", source)
-        self.assertNotIn("secrets: inherit", source)
-        self.assertNotIn("private_dependency_token", source)
-
-        remote_helpers = {
-            str(step["uses"]).split("@", 1)[0]: str(step["uses"]).split("@", 1)[1]
-            for step in steps
-            if str(step.get("uses", "")).startswith(
-                "StreamScapeTV/ci-workflows/actions/"
-            )
-        }
-        self.assertEqual(NODE_PRIVATE_HELPERS, set(remote_helpers))
-        self.assertEqual({PRIVATE_HELPER_SHA}, set(remote_helpers.values()))
-
-        locked = self.locked_actions()
-        self.assertTrue(NODE_PRIVATE_HELPERS.issubset(locked))
-        for helper in NODE_PRIVATE_HELPERS:
-            entry = locked[helper]
-            self.assertEqual(PRIVATE_HELPER_SHA, entry["sha"])
-            self.assertEqual("composite", entry["runtime"])
-            self.assertEqual(
-                "issue #116 immutable private-action checkpoint", entry["release"]
-            )
-
-    def test_android_uses_locked_private_action_identity_without_central_clone(self) -> None:
-        source, workflow = self.load(ANDROID_WORKFLOW)
-        steps = [
-            step
-            for job in workflow["jobs"].values()
-            for step in job.get("steps", [])
-        ]
-        self.assertFalse(
-            any(step.get("name") == "Check out exact central workflow source" for step in steps)
-        )
-        self.assertFalse(
-            any(step.get("name") == "Verify exact central workflow source" for step in steps)
-        )
-        self.assertNotIn("actions/checkout@", source)
-        self.assertNotIn("path: .ciw", source)
-        self.assertNotIn("./.ciw/actions/", source)
-        self.assertNotIn("secrets: inherit", source)
-
-        remote_helpers = {
-            str(step["uses"]).split("@", 1)[0]: str(step["uses"]).split("@", 1)[1]
-            for step in steps
-            if str(step.get("uses", "")).startswith(
-                "StreamScapeTV/ci-workflows/actions/"
-            )
-        }
-        self.assertEqual(ANDROID_PRIVATE_HELPERS, set(remote_helpers))
-        self.assertEqual({PRIVATE_HELPER_SHA}, set(remote_helpers.values()))
-
-        locked = self.locked_actions()
-        self.assertTrue(ANDROID_PRIVATE_HELPERS.issubset(locked))
-        for helper in ANDROID_PRIVATE_HELPERS:
-            entry = locked[helper]
-            self.assertEqual(PRIVATE_HELPER_SHA, entry["sha"])
-            self.assertEqual("composite", entry["runtime"])
-            expected_release = (
-                "issue #104 immutable private-action checkpoint"
-                if helper in ANDROID_ISSUE_HELPERS
-                else "issue #116 immutable private-action checkpoint"
-            )
-            self.assertEqual(expected_release, entry["release"])
+                }
+                self.assertEqual(set(expected), set(remote_helpers))
+                for helper, (sha, release) in expected.items():
+                    self.assertEqual(sha, remote_helpers[helper])
+                    self.assertIn(helper, locked)
+                    self.assertEqual(sha, locked[helper]["sha"])
+                    self.assertEqual("composite", locked[helper]["runtime"])
+                    self.assertEqual(release, locked[helper]["release"])
 
     def test_private_android_consumer_cannot_control_central_source_or_credential_scope(self) -> None:
         source, workflow = self.load(ANDROID_WORKFLOW)

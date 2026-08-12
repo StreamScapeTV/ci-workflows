@@ -352,6 +352,28 @@ jobs:
         )
         self.assertIn("missing-service-scenario", self.rules())
 
+    def test_private_reusable_validators_use_immutable_actions_without_central_clone(self) -> None:
+        workflows = (
+            ".github/workflows/reusable-node.yml",
+            ".github/workflows/reusable-android.yml",
+            ".github/workflows/reusable-python.yml",
+            ".github/workflows/reusable-flutter.yml",
+            ".github/workflows/reusable-apple.yml",
+            ".github/workflows/reusable-oci-build.yml",
+        )
+        for relative in workflows:
+            with self.subTest(workflow=relative):
+                source = (ROOT / relative).read_text(encoding="utf-8")
+                self.assertNotIn("repository: ${{ job.workflow_repository }}", source)
+                self.assertNotIn("ref: ${{ job.workflow_sha }}", source)
+                self.assertNotIn("path: .ciw", source)
+                self.assertNotIn("./.ciw/actions/", source)
+                self.assertNotIn("secrets: inherit", source)
+                self.assertRegex(
+                    source,
+                    r"uses:\s*StreamScapeTV/ci-workflows/actions/[A-Za-z0-9._-]+@[0-9a-f]{40}",
+                )
+
     def test_tool_lock_drift_is_rejected(self) -> None:
         (self.root / "requirements/validation.lock").write_text("PyYAML>=6\n")
         payload = json.loads(

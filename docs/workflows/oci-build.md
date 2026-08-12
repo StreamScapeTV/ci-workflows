@@ -12,16 +12,32 @@ Buildah, BuildKit, Podman, a socket, storage driver, registry command,
 concrete runner label, command, arguments, callback, secret name, publication,
 or deployment behavior.
 
+## Immutable private helper reuse
+
+Private same-organization consumers do not clone `StreamScapeTV/ci-workflows`
+with their caller-scoped token. The planner and build job invoke the reviewed
+`validate-oci` composite action through immutable central revision
+`29cb88e406a0490834bd556bb825d0e227c862ac`; exact caller checkout, workspace
+preparation, deterministic evidence, and terminal workspace cleanup reuse the
+reviewed immutable foundation helpers.
+
+The private action archives resolve their central scripts and Python modules
+through `GITHUB_ACTION_PATH`. The reusable workflow therefore has no `.ciw`
+central checkout, central PAT input, `secrets: inherit`, mutable helper ref, or
+caller-selected helper version. Exact caller source remains separately admitted,
+checked out detached, and reverified clean after cleanup. Buildah tiering,
+trusted-source requirements, publication denial, cleanup/residue checks, and the
+zero-artifact contract are unchanged by this helper-distribution mechanism.
+
 ## Execution order
 
-1. A general-Linux planning job checks out and verifies the exact called central
-   workflow source through `job.workflow_repository` and `job.workflow_sha`,
-   then loads `contracts/oci-products.json`, validates the repository/product
+1. A general-Linux planning job invokes the immutable private `validate-oci`
+   action, loads `contracts/oci-products.json`, validates the repository/product
    relationship, confirms the measured runner tier, and emits the exact JSON
    runner selector from `generated/oci-engine-mapping.json`.
 2. The build job consumes that selector with `fromJSON`; it never reconstructs
-   or concatenates labels. It independently checks out and verifies the same
-   exact called central workflow source before using local actions.
+   or concatenates labels. It composes the same immutable central helper set
+   directly instead of cloning the private central repository.
 3. Exact caller source is checked out detached without persistent credentials.
 4. Only tracked clean context files are copied into isolated state. Symlinks,
    untracked files, path escapes, and mutable `FROM` identities are rejected.

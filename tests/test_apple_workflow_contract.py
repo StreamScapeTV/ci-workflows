@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
+APPLE_HELPER_SHA = "3175577052ac22b838789709f7082dfee372cfa7"
 
 
 class AppleWorkflowContractTests(unittest.TestCase):
@@ -169,34 +171,58 @@ class AppleWorkflowContractTests(unittest.TestCase):
         self.assertIn("total_count", self.smoke)
         self.assertEqual(self.contract["artifact_policy"], "zero-default")
 
-    def test_exact_source_and_terminal_cleanup_are_mandatory(self) -> None:
+    def test_private_helper_identity_and_terminal_cleanup_are_mandatory(self) -> None:
         self.assertNotIn("github.workflow_sha", self.workflow)
-        self.assertEqual(
-            self.workflow.count("repository: ${{ job.workflow_repository }}"),
-            2,
+        self.assertNotIn("actions/checkout@", self.workflow)
+        self.assertNotIn("repository: ${{ job.workflow_repository }}", self.workflow)
+        self.assertNotIn("ref: ${{ job.workflow_sha }}", self.workflow)
+        self.assertNotIn("path: .ciw", self.workflow)
+        self.assertNotIn("./.ciw/actions/", self.workflow)
+        self.assertNotIn(
+            "python3 .ciw/scripts/ci/apple_checkout_cleanup.py",
+            self.workflow,
         )
-        self.assertEqual(self.workflow.count("ref: ${{ job.workflow_sha }}"), 2)
         self.assertEqual(
-            self.workflow.count("EXPECTED_SHA: ${{ job.workflow_sha }}"),
-            2,
+            4,
+            self.workflow.count(
+                f"uses: StreamScapeTV/ci-workflows/actions/validate-apple@{APPLE_HELPER_SHA}"
+            ),
         )
-        self.assertGreaterEqual(self.workflow.count("persist-credentials: false"), 2)
-        self.assertIn("test \"$(git rev-parse HEAD)\" = \"${EXPECTED_SHA}\"", self.workflow)
+        self.assertIn(
+            f"uses: StreamScapeTV/ci-workflows/actions/exact-checkout@{FOUNDATION_SHA}",
+            self.workflow,
+        )
+        self.assertIn(
+            f"uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@{FOUNDATION_SHA}",
+            self.workflow,
+        )
+        self.assertIn(
+            f"uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@{FOUNDATION_SHA}",
+            self.workflow,
+        )
         self.assertIn("phase: cleanup", self.workflow)
         self.assertIn("phase: residue", self.workflow)
         self.assertGreaterEqual(self.workflow.count("if: always()"), 3)
-        self.assertIn("cleanup-workspace", self.workflow)
         self.assertIn("test ! -e .ciw", self.workflow)
         self.assertIn("test ! -L .ciw", self.workflow)
         self.assertIn("CIW_CLEANUP_OUTCOME", self.workflow)
+        self.assertIn("admitted_sha: ${{ inputs.admitted_sha }}", self.workflow)
+        self.assertIn('test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"', self.workflow)
 
     def test_checkout_cleanup_is_fixed_and_no_follow(self) -> None:
         workflows = self.workflow + self.smoke
+        self.assertNotIn(
+            "python3 .ciw/scripts/ci/apple_checkout_cleanup.py",
+            self.workflow,
+        )
         self.assertIn(
             "python3 .ciw/scripts/ci/apple_checkout_cleanup.py source",
-            workflows,
+            self.smoke,
         )
         self.assertNotIn("rm -rf -- source", workflows)
+        self.assertGreaterEqual(self.workflow.count("os.lstat"), 3)
+        self.assertGreaterEqual(self.workflow.count("stat.S_ISLNK"), 3)
+        self.assertGreaterEqual(self.workflow.count("os.path.lexists"), 3)
         self.assertIn(
             '_TARGETS = {"central": ".ciw", "source": "source"}',
             self.checkout_cleanup_adapter,

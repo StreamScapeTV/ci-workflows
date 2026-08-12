@@ -91,6 +91,48 @@
       "release": "issue #104 immutable private-action checkpoint",
       "runtime": "composite",
       "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/checkout-private-dependency"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/validate-python",
+      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
+      "release": "issue #125 immutable private-action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/validate-python"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/verify-toolchain",
+      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
+      "release": "issue #125 immutable private-action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/verify-toolchain"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/validate-flutter",
+      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
+      "release": "issue #125 immutable private-action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/validate-flutter"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/validate-apple",
+      "sha": "3175577052ac22b838789709f7082dfee372cfa7",
+      "release": "issue #125 immutable private-action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/3175577052ac22b838789709f7082dfee372cfa7/actions/validate-apple"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/validate-oci",
+      "sha": "29cb88e406a0490834bd556bb825d0e227c862ac",
+      "release": "issue #125 immutable private-action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/29cb88e406a0490834bd556bb825d0e227c862ac/actions/validate-oci"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/validate-gitops",
+      "sha": "8445e63dd9fa9468b60b6d0c61e543da9681b47b",
+      "release": "issue #125 immutable private-action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/8445e63dd9fa9468b60b6d0c61e543da9681b47b/actions/validate-gitops"
     }
   ],
   "approved_internal_actions": [
