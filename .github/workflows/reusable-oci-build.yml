@@ -52,33 +52,9 @@ jobs:
       timeout_minutes: ${{ steps.plan.outputs.timeout_minutes }}
       source_trust: ${{ steps.plan.outputs.source_trust }}
     steps:
-      - name: Check out exact central workflow source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          path: .ciw
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
-
-      - name: Verify exact central workflow source
-        shell: bash
-        env:
-          EXPECTED_REPOSITORY: ${{ job.workflow_repository }}
-          EXPECTED_SHA: ${{ job.workflow_sha }}
-        run: |
-          set -Eeuo pipefail
-          (
-            cd .ciw
-            test "${EXPECTED_REPOSITORY}" = "StreamScapeTV/ci-workflows"
-            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
-          )
-
       - id: plan
         name: Resolve contract-owned OCI product and runner
-        uses: ./.ciw/actions/validate-oci
+        uses: StreamScapeTV/ci-workflows/actions/validate-oci@29cb88e406a0490834bd556bb825d0e227c862ac # issue #125 immutable private-action checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -98,32 +74,8 @@ jobs:
       platform_results_json: ${{ steps.execute.outputs.platform_results_json }}
       artifact_exception_used: ${{ steps.execute.outputs.artifact_exception_used }}
     steps:
-      - name: Check out exact central workflow source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          path: .ciw
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
-
-      - name: Verify exact central workflow source
-        shell: bash
-        env:
-          EXPECTED_REPOSITORY: ${{ job.workflow_repository }}
-          EXPECTED_SHA: ${{ job.workflow_sha }}
-        run: |
-          set -Eeuo pipefail
-          (
-            cd .ciw
-            test "${EXPECTED_REPOSITORY}" = "StreamScapeTV/ci-workflows"
-            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
-          )
-
       - name: Check out exact admitted caller source
-        uses: ./.ciw/actions/exact-checkout
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -132,7 +84,7 @@ jobs:
 
       - id: workspace
         name: Prepare isolated marker-bound OCI build state
-        uses: ./.ciw/actions/prepare-workspace
+        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           profile: ${{ needs.plan.outputs.workspace_profile }}
           cache_mode: disabled
@@ -142,7 +94,7 @@ jobs:
       - id: execute
         name: Build and inspect exact source without publication
         continue-on-error: true
-        uses: ./.ciw/actions/validate-oci
+        uses: StreamScapeTV/ci-workflows/actions/validate-oci@29cb88e406a0490834bd556bb825d0e227c862ac # issue #125 immutable private-action checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -153,7 +105,7 @@ jobs:
 
       - name: Render deterministic redacted OCI evidence
         if: ${{ always() && !cancelled() }}
-        uses: ./.ciw/actions/render-evidence
+        uses: StreamScapeTV/ci-workflows/actions/render-evidence@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           source_sha: ${{ inputs.admitted_sha }}
           workflow_release: oci-build-1.0.0
@@ -168,7 +120,7 @@ jobs:
       - id: oci_cleanup
         name: Remove images, manifests, containers, layouts, caches, and temporary state
         if: always()
-        uses: ./.ciw/actions/validate-oci
+        uses: StreamScapeTV/ci-workflows/actions/validate-oci@29cb88e406a0490834bd556bb825d0e227c862ac # issue #125 immutable private-action checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -179,7 +131,7 @@ jobs:
       - id: residue
         name: Verify zero OCI-specific residue
         if: always()
-        uses: ./.ciw/actions/validate-oci
+        uses: StreamScapeTV/ci-workflows/actions/validate-oci@29cb88e406a0490834bd556bb825d0e227c862ac # issue #125 immutable private-action checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -190,7 +142,7 @@ jobs:
       - id: workspace_cleanup
         name: Remove and verify registered workspace state
         if: always()
-        uses: ./.ciw/actions/cleanup-workspace
+        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
 
       - name: Verify exact caller source remained clean
         if: ${{ always() && !cancelled() }}
