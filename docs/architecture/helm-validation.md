@@ -18,20 +18,43 @@ The Helm contract covers:
   `charts/agent-state`; release metadata is bound on an isolated copy because
   checked-in development metadata may remain `0.0.0`.
 - `flux-github-actions-runner-chart` in `StreamScapeTV/flux`, chart
-  `apps/github-actions-runner`. It is currently a wrapper chart with no
-  application-image binding.
+  `apps/github-actions-runner`. It is a wrapper chart with no application-image
+  binding and references two mirrored Actions Runner Controller charts through
+  Flux-owned `OCIRepository` objects.
 
-Flux also mirrors upstream ARC charts. Complete upstream commit, original chart
-digest, license, and reviewed-patch provenance remain Flux-owned adoption
-requirements; #18 never invents missing provenance.
+## Flux upstream and mirror provenance
+
+The Flux wrapper is not treated as provenance-free merely because its
+`Chart.yaml` has no Helm dependencies. `contracts/helm-validation.json` fixes
+the two expected ARC asset names and their checked-in private mirror
+repositories:
+
+- `gha-runner-scale-set`;
+- `gha-runner-scale-set-controller`.
+
+For each asset, `.streamscape/helm-product.json` must record an exact upstream
+GitHub repository, stable SemVer tag, full upstream commit SHA, upstream chart
+SHA-256 digest, SPDX-style license identity, exact private mirror repository,
+mirror chart SHA-256 digest, and reviewed patch list. The current central
+contract admits only unpatched mirrors, so `patches` must be empty and upstream
+and mirror chart digests must match. Both asset tags must agree and must equal
+the wrapper chart `appVersion`.
+
+Missing, malformed, reordered, extra, mutable, or mismatched provenance fails
+before Helm execution. The Helm test fixture uses deliberately synthetic source
+identities and repeated hashes only to exercise the contract; those values are
+not real ARC evidence. Live Flux currently records the private mirror
+repositories and tag `0.14.2` but not the complete commit/digest/license tuple.
+Producer adoption is tracked in `StreamScapeTV/flux#306`; #18 never invents
+those missing facts.
 
 ## Source admission and deterministic packaging
 
 Each source supplies `.streamscape/helm-product.json`; central Helm contracts
-bind the repository, chart root/name, values profiles, locked dependencies, and
-approved OCI chart destination. Chart paths and dependencies are validated
-without following symlinks or accepting credential-bearing/mutable repository
-locations.
+bind the repository, chart root/name, values profiles, locked dependencies,
+upstream provenance requirements, and approved OCI chart destination. Chart
+paths and dependencies are validated without following symlinks or accepting
+credential-bearing or mutable repository locations.
 
 All operations that can write run against isolated temporary chart state.
 `helm dependency build`, `helm lint --strict`, deterministic rendering, and
@@ -82,6 +105,25 @@ The Agent State producer currently has no `image.digest` scalar in its chart,
 so release binding intentionally fails closed until the producer adopts digest
 rendering. Mutable-tag fallback is forbidden.
 
+## Runner and trust boundary
+
+`helm.validate` remains on semantic profile `portable`, resolved internally to
+the general Linux ARC capability. `helm.publish` requires Skopeo for an
+independent raw-manifest read-back and therefore cannot run on `portable`.
+
+Publication is mapped to the smallest Skopeo-capable candidate profile,
+`buildah-tiny`, through the central semantic runner resolver. Callers never see
+or select concrete ARC labels. The candidate is trusted-exact only and carries
+no Kubernetes or Agent State authority.
+
+The selection is not final merely because the semantic mapping resolves.
+`contracts/helm-publication.json` requires real `peak_memory_bytes` and
+`peak_local_storage_bytes` evidence for the exact source/workflow/product plus
+reviewed headroom before the issue reaches final-candidate readiness. If the
+measured envelope does not fit `buildah-tiny`, the central Buildah escalation
+policy selects the next sufficient tier rather than silently overcommitting the
+runner.
+
 ## Exact tag authority at the registry write boundary
 
 `reusable-helm-publish.yml` reuses `actions/resolve-release-tag`. Its plan job
@@ -117,21 +159,21 @@ This family never installs a chart, mutates Kubernetes, reconciles Flux, or
 decrypts SOPS data. Helm/package/auth/cache/read-back state is removed on all
 terminal paths and residue verification fails closed.
 
-## Shared integration handoff
+## Shared registration and final integration
 
-This Helm-exclusive slice deliberately does not modify serialized shared
-public-API, CIW/bootstrap, generated-reference, or runner-profile files. The
-shared integration owner must:
+The final integrated head must keep all shared projections synchronized with
+the implementation:
 
-1. register optional `image_digest` and `immutable_references_json` inputs on
-   `helm.publish`, preserving their direct #17 pass-through meaning;
-2. replace the old Flux chart placeholder with
-   `flux-github-actions-runner-chart`;
-3. select the smallest measured Buildah semantic tier that supplies Skopeo for
-   Helm publication, without exposing concrete runner selection to callers;
-4. regenerate/validate the shared public reference surfaces on the final
-   integrated head.
+1. public `helm.publish` registration exposes optional `image_digest` and
+   `immutable_references_json` with direct #17 pass-through semantics;
+2. supported chart products use `flux-github-actions-runner-chart`, not the
+   stale `flux-runner-chart-assets` placeholder;
+3. CIW/public/generated references match the reusable workflows and actions;
+4. runner contract, deterministic runner mapping, and compatibility report
+   agree that validation is portable and publication uses the measured
+   Skopeo-capable tier;
+5. the repository-wide generated/public API/canonical validation gates are
+   green on the unchanged final candidate.
 
-Until that serialized work lands, the branch's Helm workflow test recognizes
-only this precise expected registration delta; the repository-wide public API
-validator remains the integration gate.
+Shared files are integrated serially under Agent State resource ownership; a
+textual branch diff is not permission to overwrite another active shared lane.

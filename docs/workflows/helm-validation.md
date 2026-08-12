@@ -30,11 +30,46 @@ clean. The current Agent State chart still lacks an `image.digest` value path,
 so it intentionally fails closed until producer-side adoption adds immutable
 digest rendering; #18 never falls back to a mutable tag.
 
+## Flux wrapper provenance
+
+The Flux wrapper has no application-image binding, but it references two
+mirrored ARC charts. The product manifest therefore carries a separate
+`upstream_assets` provenance list for `gha-runner-scale-set` and
+`gha-runner-scale-set-controller`.
+
+Each row must contain the exact upstream GitHub repository, stable tag, full
+upstream commit SHA, upstream chart digest, SPDX-style license, exact approved
+private mirror repository, mirror chart digest, and reviewed patch list. The
+current contract admits only unpatched mirrors: patch lists must be empty,
+upstream and mirror digests must match, and both tags must equal the wrapper
+`Chart.yaml` `appVersion`.
+
+The checked-in test fixture uses deliberately synthetic upstream hashes and
+source identity. Live Flux has not yet recorded the full immutable tuple; that
+producer adoption is tracked by `StreamScapeTV/flux#306`. Missing provenance is
+a hard validation failure, not a reason to infer facts from the mutable tag.
+
+## Publication trust and runner selection
+
 The publish workflow resolves the exact tag object and tag commit in its plan
 job and requires the resolved release source/version to match the request. It
 revalidates the same tag object and commit immediately before registry
 credentials are passed to the publication action. A moved tag therefore fails
 before registry write.
+
+Validation remains on semantic `portable`. Publication needs Skopeo for the
+independent registry manifest proof, so the central runner resolver maps
+`helm.publish` to trusted-exact `buildah-tiny` as the smallest Skopeo-capable
+measurement candidate. Callers cannot select that profile or its concrete ARC
+labels.
+
+The candidate tier is not final evidence by itself. Before #18 becomes a final
+candidate, exact-head publication evidence must record real peak memory and
+local-storage bytes for the workflow/product/source and prove they fit the
+selected tier with the reviewed headroom in `contracts/helm-publication.json`.
+If not, the central Buildah escalation policy selects the next sufficient tier.
+
+## Publication and read-back
 
 Publication uses pull-compare-before-push, mandatory Helm pull read-back, and a
 second raw OCI manifest inspection with Skopeo. Public `chart_digest` is the
@@ -48,10 +83,13 @@ They retain zero routine Actions artifacts. Helm publication rejects Kubernetes
 authority and never installs/upgrades charts, reconciles Flux, or decrypts SOPS
 values.
 
-Shared public registration, generated references, CIW/bootstrap registration,
-and runner policy remain a serialized integration lane. That owner must
-register optional `image_digest` and `immutable_references_json` inputs for
-`helm.publish`, replace the stale Flux chart product placeholder with
-`flux-github-actions-runner-chart`, and move publication to the smallest
-measured Skopeo-capable Buildah semantic tier. This Helm-exclusive branch does
-not edit those shared files.
+## Final shared registration
+
+The final integrated head must register optional `image_digest` and
+`immutable_references_json` inputs for `helm.publish`, replace the stale Flux
+chart product placeholder with `flux-github-actions-runner-chart`, keep CIW and
+generated public references synchronized, and keep the runner contract,
+generated mapping, and compatibility report aligned with the measured
+Skopeo-capable publication tier. These shared surfaces are serialized by Agent
+State ownership and must not be overwritten merely because the issue branch
+contains older historical edits.
