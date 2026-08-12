@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Helm release-only adapter for exact image binding and remote OCI digest proof."""
+"""Helm release-only adapter for exact OCI evidence binding and remote digest proof."""
 from __future__ import annotations
 
 import json
@@ -20,7 +20,7 @@ from ci_workflows.helm_contract import (
 from ci_workflows.helm_execution import publish_and_read_back
 from ci_workflows.helm_release import (
     load_release_bindings,
-    parse_required_image_references,
+    parse_oci_publication_evidence,
     remote_chart_manifest_digest,
     validate_and_package_release,
 )
@@ -36,11 +36,15 @@ def _inputs(
     environment: Mapping[str, str],
 ):
     request = request_from_environment(environment)
+    require(request.release_version is not None, "release_version_mismatch")
     release_contract = load_release_bindings(root)
-    references = parse_required_image_references(
-        environment.get("INPUT_REQUIRED_IMAGE_REFERENCES_JSON", ""),
+    references = parse_oci_publication_evidence(
+        environment.get("INPUT_IMAGE_DIGEST", ""),
+        environment.get("INPUT_IMMUTABLE_REFERENCES_JSON", ""),
         request.product_id,
         release_contract,
+        request.admitted_sha,
+        request.release_version,
     )
     return request, release_contract, references
 
@@ -49,11 +53,13 @@ def _validate_input(
     root: Path,
     environment: Mapping[str, str],
 ) -> dict[str, str]:
-    request, _, references = _inputs(root, environment)
+    request, release_contract, references = _inputs(root, environment)
+    product = release_contract["products"][request.product_id]
     return {
         "result": "validated",
         "product_id": request.product_id,
-        "required_image_references_json": json.dumps(
+        "oci_product_id": product["oci_product_id"] or "",
+        "image_references_json": json.dumps(
             list(references),
             separators=(",", ":"),
         ),
@@ -67,7 +73,6 @@ def _execute(
     load_helm_publication_contract(root)
     request, release_contract, references = _inputs(root, environment)
     require(request.source_trust == "trusted-exact", "source_trust_rejected")
-    require(request.release_version is not None, "release_version_mismatch")
 
     source_root = _source_root(root, environment, "source")
     state_root = _state_root(root, environment)

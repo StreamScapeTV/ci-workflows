@@ -11,11 +11,19 @@
     "registry_username",
     "registry_token"
   ],
+  "oci_publication_evidence": {
+    "api": "oci.publish",
+    "binding": "exact-source-version-target-repository-digest-parity",
+    "inputs": [
+      "image_digest",
+      "immutable_references_json"
+    ],
+    "no_image_binding": "both-inputs-omitted"
+  },
   "read_back": "required-oci-pull-and-normalized-sha256",
   "registry_host": "git.faruqi.dev",
   "registry_namespace": "mimranfaruqi/helm-charts",
   "release_binding_contract": "contracts/helm-release-bindings.json",
-  "required_image_references": "deterministic-json-array-exact-product-set",
   "schema_version": 1,
   "source_trust": "trusted-exact",
   "tag_authority": "resolve-and-revalidate-before-write",

@@ -23,9 +23,13 @@ on:
         description: Optional fixed product policy path
         required: false
         type: string
-      required_image_references_json:
-        description: Deterministic JSON array of exact published image digest references; use [] for a chart with no image binding
-        required: true
+      image_digest:
+        description: Exact image_digest output from reusable-oci-publish; required only for a chart with an image binding
+        required: false
+        type: string
+      immutable_references_json:
+        description: Exact immutable_references_json output from reusable-oci-publish; required only for a chart with an image binding
+        required: false
         type: string
     secrets:
       registry_username:
@@ -95,7 +99,7 @@ jobs:
           test "${REQUESTED_VERSION}" = "${RESOLVED_VERSION}"
           test "${REQUESTED_SOURCE_SHA}" = "${RESOLVED_SOURCE_SHA}"
       - id: plan
-        name: Resolve fixed Helm publication contract
+        name: Resolve fixed Helm publication contract and OCI evidence binding
         uses: ./.ciw/actions/publish-helm
         with:
           phase: plan
@@ -104,7 +108,8 @@ jobs:
           release_version: ${{ inputs.release_version }}
           values_profile: ${{ inputs.values_profile }}
           policy_path: ${{ inputs.policy_path }}
-          required_image_references_json: ${{ inputs.required_image_references_json }}
+          image_digest: ${{ inputs.image_digest }}
+          immutable_references_json: ${{ inputs.immutable_references_json }}
           source_trust: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && 'trusted-pr' || 'trusted-exact' }}
 
   publish:
@@ -156,7 +161,7 @@ jobs:
           expected_tag_object_sha: ${{ needs.plan.outputs.tag_object_sha }}
           expected_tag_commit_sha: ${{ needs.plan.outputs.tag_commit_sha }}
       - id: helm
-        name: Package, publish once, and verify OCI pull read-back
+        name: Bind OCI evidence, package, publish once, and verify OCI pull read-back
         continue-on-error: true
         uses: ./.ciw/actions/publish-helm
         with:
@@ -166,7 +171,8 @@ jobs:
           release_version: ${{ inputs.release_version }}
           values_profile: ${{ inputs.values_profile }}
           policy_path: ${{ inputs.policy_path }}
-          required_image_references_json: ${{ inputs.required_image_references_json }}
+          image_digest: ${{ inputs.image_digest }}
+          immutable_references_json: ${{ inputs.immutable_references_json }}
           source_trust: ${{ needs.plan.outputs.source_trust }}
           registry_username: ${{ secrets.registry_username }}
           registry_token: ${{ secrets.registry_token }}
@@ -179,7 +185,6 @@ jobs:
           admitted_sha: ${{ inputs.admitted_sha }}
           product_id: ${{ inputs.product_id }}
           release_version: ${{ inputs.release_version }}
-          required_image_references_json: ${{ inputs.required_image_references_json }}
           source_trust: ${{ needs.plan.outputs.source_trust }}
       - id: residue
         name: Verify zero Helm publication residue
@@ -190,7 +195,6 @@ jobs:
           admitted_sha: ${{ inputs.admitted_sha }}
           product_id: ${{ inputs.product_id }}
           release_version: ${{ inputs.release_version }}
-          required_image_references_json: ${{ inputs.required_image_references_json }}
           source_trust: ${{ needs.plan.outputs.source_trust }}
       - id: workspace_cleanup
         name: Remove and verify all registered workspace state

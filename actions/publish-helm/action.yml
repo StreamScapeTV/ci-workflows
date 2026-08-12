@@ -21,9 +21,12 @@ inputs:
   policy_path:
     description: Optional product-manifest policy file path
     required: false
-  required_image_references_json:
-    description: Deterministic JSON array of exact published image digest references; use [] when the product has no image binding
-    required: true
+  image_digest:
+    description: Exact image_digest output from reusable-oci-publish; required only when the chart binds a published image
+    required: false
+  immutable_references_json:
+    description: Exact immutable_references_json output from reusable-oci-publish; required only when the chart binds a published image
+    required: false
   source_trust:
     description: Explicit admitted source trust classification
     required: true
@@ -67,18 +70,28 @@ runs:
         INPUT_RELEASE_VERSION: ${{ inputs.release_version }}
         INPUT_VALUES_PROFILE: ${{ inputs.values_profile }}
         INPUT_POLICY_PATH: ${{ inputs.policy_path }}
-        INPUT_REQUIRED_IMAGE_REFERENCES_JSON: ${{ inputs.required_image_references_json }}
+        INPUT_IMAGE_DIGEST: ${{ inputs.image_digest }}
+        INPUT_IMMUTABLE_REFERENCES_JSON: ${{ inputs.immutable_references_json }}
         INPUT_SOURCE_TRUST: ${{ inputs.source_trust }}
         INPUT_REGISTRY_USERNAME: ${{ inputs.registry_username }}
         INPUT_REGISTRY_TOKEN: ${{ inputs.registry_token }}
       run: |
         set -Eeuo pipefail
-        if [[ "${{ inputs.phase }}" == "plan" ]]; then
-          python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/helm_release.py" validate-input
-        fi
-        if [[ "${{ inputs.phase }}" == "execute" ]]; then
-          python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/helm_release.py" execute
-        else
-          python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
-            helm publish --phase "${{ inputs.phase }}" --source-root source
-        fi
+        case "${{ inputs.phase }}" in
+          plan)
+            python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/helm_release.py" validate-input
+            python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
+              helm publish --phase plan --source-root source
+            ;;
+          execute)
+            python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/helm_release.py" execute
+            ;;
+          cleanup|residue)
+            python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
+              helm publish --phase "${{ inputs.phase }}" --source-root source
+            ;;
+          *)
+            echo "unsupported Helm publication phase" >&2
+            exit 2
+            ;;
+        esac

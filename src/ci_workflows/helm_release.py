@@ -3,14 +3,15 @@ from __future__ import annotations
 
 import hashlib
 import json
-import shutil
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import yaml
 
 from .helm_contract import (
+    DIGEST,
     IMMUTABLE_IMAGE_REFERENCE,
+    NAME,
     bounded_path,
     require,
     validate_chart_layout,
@@ -36,6 +37,17 @@ def _mapping(value: Any, code: str) -> Mapping[str, Any]:
     return value
 
 
+def _repository(value: Any, code: str) -> str:
+    require(
+        isinstance(value, str)
+        and "/" in value
+        and "@" not in value
+        and ":" not in value.rsplit("/", 1)[-1],
+        code,
+    )
+    return value
+
+
 def load_release_bindings(root: Path) -> Mapping[str, Any]:
     try:
         payload = json.loads(
@@ -44,7 +56,7 @@ def load_release_bindings(root: Path) -> Mapping[str, Any]:
     except (OSError, json.JSONDecodeError) as error:
         raise HelmValidationError("invalid_release_binding_contract") from error
     require(isinstance(payload, Mapping), "invalid_release_binding_contract")
-    require(payload.get("schema_version") == 1, "invalid_release_binding_contract")
+    require(payload.get("schema_version") == 2, "invalid_release_binding_contract")
     products = payload.get("products")
     require(
         isinstance(products, Mapping)
@@ -58,26 +70,58 @@ def load_release_bindings(root: Path) -> Mapping[str, Any]:
     )
     for product_id, product in products.items():
         product = _mapping(product, "invalid_release_binding_contract")
+        require(
+            set(product) == {"product_id", "oci_product_id", "bindings"},
+            "invalid_release_binding_contract",
+        )
         require(product.get("product_id") == product_id, "invalid_release_binding_contract")
         bindings = product.get("bindings")
         require(isinstance(bindings, list), "invalid_release_binding_contract")
+        oci_product_id = product.get("oci_product_id")
+        if bindings:
+            require(
+                isinstance(oci_product_id, str)
+                and NAME.fullmatch(oci_product_id) is not None,
+                "invalid_release_binding_contract",
+            )
+        else:
+            require(oci_product_id is None, "invalid_release_binding_contract")
+
+        targets: list[str] = []
         repositories: list[str] = []
         for binding in bindings:
             binding = _mapping(binding, "invalid_release_binding_contract")
             require(
                 set(binding)
-                == {"repository", "values_path", "repository_path", "digest_path"},
+                == {
+                    "source_repository",
+                    "published_repository",
+                    "oci_target_id",
+                    "values_path",
+                    "repository_path",
+                    "digest_path",
+                },
                 "invalid_release_binding_contract",
             )
-            repository = binding.get("repository")
+            target_id = binding.get("oci_target_id")
             require(
-                isinstance(repository, str)
-                and "/" in repository
-                and "@" not in repository
-                and ":" not in repository.rsplit("/", 1)[-1],
+                isinstance(target_id, str) and NAME.fullmatch(target_id) is not None,
                 "invalid_release_binding_contract",
             )
-            repositories.append(repository)
+            targets.append(target_id)
+            _repository(
+                binding.get("source_repository"),
+                "invalid_release_binding_contract",
+            )
+            published_repository = _repository(
+                binding.get("published_repository"),
+                "invalid_release_binding_contract",
+            )
+            require(
+                published_repository.startswith("ghcr.io/streamscapetv/"),
+                "invalid_release_binding_contract",
+            )
+            repositories.append(published_repository)
             safe = binding.get("values_path")
             require(isinstance(safe, str), "invalid_release_binding_contract")
             bounded = Path(safe)
@@ -102,43 +146,102 @@ def load_release_bindings(root: Path) -> Mapping[str, Any]:
                     "invalid_release_binding_contract",
                 )
         require(
-            repositories == sorted(set(repositories)),
+            targets == sorted(set(targets))
+            and repositories == sorted(set(repositories)),
             "invalid_release_binding_contract",
         )
     return payload
 
 
-def parse_required_image_references(
-    raw: str,
+def parse_oci_publication_evidence(
+    image_digest_raw: str,
+    immutable_references_raw: str,
     product_id: str,
     contract: Mapping[str, Any],
+    admitted_sha: str,
+    release_version: str,
 ) -> tuple[str, ...]:
-    require(bool(raw.strip()), "required_image_references_required")
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError as error:
-        raise HelmValidationError("required_image_references_invalid") from error
-    require(
-        isinstance(payload, list)
-        and all(
-            isinstance(item, str)
-            and IMMUTABLE_IMAGE_REFERENCE.fullmatch(item) is not None
-            for item in payload
-        ),
-        "required_image_references_invalid",
-    )
-    require(
-        payload == sorted(set(payload)),
-        "required_image_references_invalid",
-    )
     products = _mapping(contract.get("products"), "invalid_release_binding_contract")
     product = _mapping(products.get(product_id), "unsupported_product")
     bindings = product.get("bindings")
     require(isinstance(bindings, list), "invalid_release_binding_contract")
-    expected = tuple(binding["repository"] for binding in bindings)
-    actual = tuple(reference.rsplit("@", 1)[0] for reference in payload)
-    require(actual == expected, "required_image_references_mismatch")
-    return tuple(payload)
+
+    if not bindings:
+        require(
+            not image_digest_raw.strip() and not immutable_references_raw.strip(),
+            "unexpected_oci_publication_evidence",
+        )
+        return ()
+
+    require(
+        bool(image_digest_raw.strip()) and bool(immutable_references_raw.strip()),
+        "oci_publication_evidence_required",
+    )
+    try:
+        digest_payload = json.loads(image_digest_raw)
+        immutable_payload = json.loads(immutable_references_raw)
+    except json.JSONDecodeError as error:
+        raise HelmValidationError("oci_publication_evidence_invalid") from error
+
+    digests = _mapping(digest_payload, "oci_publication_evidence_invalid")
+    immutable = _mapping(immutable_payload, "oci_publication_evidence_invalid")
+    require(
+        set(immutable) == {"release", "targets"},
+        "oci_publication_evidence_invalid",
+    )
+    release = _mapping(immutable.get("release"), "oci_publication_evidence_invalid")
+    targets = _mapping(immutable.get("targets"), "oci_publication_evidence_invalid")
+    require(
+        set(release) == {"source_sha", "version"}
+        and release.get("source_sha") == admitted_sha
+        and release.get("version") == release_version,
+        "oci_publication_evidence_mismatch",
+    )
+
+    expected_targets = tuple(binding["oci_target_id"] for binding in bindings)
+    require(
+        set(digests) == set(expected_targets)
+        and set(targets) == set(expected_targets),
+        "oci_publication_evidence_mismatch",
+    )
+
+    references: list[str] = []
+    for binding in bindings:
+        target_id = binding["oci_target_id"]
+        digest = digests.get(target_id)
+        require(
+            isinstance(digest, str) and DIGEST.fullmatch(digest) is not None,
+            "oci_publication_evidence_invalid",
+        )
+        target = _mapping(
+            targets.get(target_id),
+            "oci_publication_evidence_invalid",
+        )
+        require(
+            set(target)
+            == {"repository", "version", "source_sha", "manifest_digest"},
+            "oci_publication_evidence_invalid",
+        )
+        repository = binding["published_repository"]
+        require(
+            target.get("repository") == repository
+            and target.get("version") == f"{repository}:{release_version}"
+            and target.get("source_sha") == f"{repository}:sha-{admitted_sha}"
+            and target.get("manifest_digest") == digest,
+            "oci_publication_evidence_mismatch",
+        )
+        reference = f"{repository}@{digest}"
+        require(
+            IMMUTABLE_IMAGE_REFERENCE.fullmatch(reference) is not None,
+            "oci_publication_evidence_invalid",
+        )
+        references.append(reference)
+
+    require(
+        references == sorted(set(references)),
+        "oci_publication_evidence_mismatch",
+    )
+    return tuple(references)
 
 
 def _yaml_scalar_node(text: str, key_path: Sequence[str]):
@@ -172,9 +275,10 @@ def apply_release_image_bindings(
         for reference in references
     }
     for binding in bindings:
-        repository = binding["repository"]
-        reference = reference_map.get(repository)
-        require(reference is not None, "required_image_references_mismatch")
+        published_repository = binding["published_repository"]
+        source_repository = binding["source_repository"]
+        reference = reference_map.get(published_repository)
+        require(reference is not None, "oci_publication_evidence_mismatch")
         digest = reference.rsplit("@", 1)[1]
         values_file = bounded_path(
             chart_root,
@@ -190,20 +294,33 @@ def apply_release_image_bindings(
         except OSError as error:
             raise HelmValidationError("image_binding_invalid") from error
         repository_node = _yaml_scalar_node(text, binding["repository_path"])
+        digest_node = _yaml_scalar_node(text, binding["digest_path"])
         require(
-            repository_node.value == repository,
+            repository_node.value == source_repository,
             "image_binding_repository_mismatch",
         )
-        digest_node = _yaml_scalar_node(text, binding["digest_path"])
         require(
             digest_node.value in {"", digest},
             "image_binding_conflict",
         )
-        text = (
-            text[: digest_node.start_mark.index]
-            + json.dumps(digest)
-            + text[digest_node.end_mark.index :]
+        replacements = (
+            (
+                repository_node.start_mark.index,
+                repository_node.end_mark.index,
+                json.dumps(published_repository),
+            ),
+            (
+                digest_node.start_mark.index,
+                digest_node.end_mark.index,
+                json.dumps(digest),
+            ),
         )
+        for start, end, replacement in sorted(
+            replacements,
+            key=lambda item: item[0],
+            reverse=True,
+        ):
+            text = text[:start] + replacement + text[end:]
         try:
             values_file.write_text(text, encoding="utf-8")
             parsed = yaml.safe_load(text)
@@ -342,7 +459,10 @@ def remote_chart_manifest_digest(
         timeout=120,
         code="remote_manifest_read_back_failed",
     ).stdout
-    require(0 < len(manifest.encode("utf-8")) <= 2_000_000, "remote_manifest_read_back_failed")
+    require(
+        0 < len(manifest.encode("utf-8")) <= 2_000_000,
+        "remote_manifest_read_back_failed",
+    )
     try:
         payload = json.loads(manifest)
     except json.JSONDecodeError as error:
