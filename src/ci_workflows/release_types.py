@@ -51,6 +51,7 @@ class PublicationIdentity:
     product_id: str
     kind: str
     digest: str
+    digests: dict[str, str]
     immutable_references: tuple[str, ...]
     evidence: dict[str, Any]
 
@@ -59,6 +60,7 @@ class PublicationIdentity:
             "product_id": self.product_id,
             "kind": self.kind,
             "digest": self.digest,
+            "digests": self.digests,
             "immutable_references": list(self.immutable_references),
             "evidence": self.evidence,
         }
@@ -68,5 +70,6 @@ class PublicationIdentity:
             "product_id": self.product_id,
             "kind": self.kind,
             "digest": self.digest,
+            "digests": self.digests,
             "immutable_references": list(self.immutable_references),
         }
