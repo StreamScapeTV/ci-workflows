@@ -129,7 +129,7 @@ def _execute(
             "chart_digest": chart_digest,
             "immutable_references_json": immutable_references_json,
             "failure_code": "",
-            "runner_profile": "portable",
+            "runner_profile": "buildah-tiny",
             "workspace_profile": "minimal",
             "timeout_minutes": "90",
             "source_trust": request.source_trust,

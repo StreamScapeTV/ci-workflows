@@ -24,6 +24,19 @@
   "registry_host": "git.faruqi.dev",
   "registry_namespace": "mimranfaruqi/helm-charts",
   "release_binding_contract": "contracts/helm-release-bindings.json",
+  "runner_measurement": {
+    "candidate_profile": "buildah-tiny",
+    "headroom_percent": 25,
+    "required_evidence": [
+      "peak_memory_bytes",
+      "peak_local_storage_bytes",
+      "source_sha",
+      "workflow_api",
+      "product_id"
+    ],
+    "status": "required-before-final-candidate"
+  },
+  "runner_profile": "buildah-tiny",
   "schema_version": 1,
   "source_trust": "trusted-exact",
   "tag_authority": "resolve-and-revalidate-before-write",

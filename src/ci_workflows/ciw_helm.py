@@ -60,6 +60,10 @@ def _require_operation_trust(request: HelmRequest, operation: str) -> None:
         require(request.source_trust == "trusted-exact", "source_trust_rejected")
 
 
+def _runner_profile(operation: str) -> str:
+    return "buildah-tiny" if operation == "publish" else "portable"
+
+
 def _failure_outputs(
     environment: Mapping[str, str],
     code: str,
@@ -76,7 +80,7 @@ def _failure_outputs(
         "chart_package_sha256": "",
         "published": "false",
         "failure_code": code,
-        "runner_profile": "portable",
+        "runner_profile": _runner_profile(operation),
         "runs_on_json": "",
         "workspace_profile": "minimal",
         "timeout_minutes": "90" if operation == "publish" else "60",
@@ -102,11 +106,12 @@ def _plan(
         "repository_rejected",
     )
     api = "helm.publish" if operation == "publish" else "helm.validate"
+    runner_profile = _runner_profile(operation)
     resolved = runners.resolve_runner_profile(
         runners.load_runner_contract(root),
         workflow_api=api,
         source_trust=request.source_trust,
-        requested_profile="portable",
+        requested_profile=runner_profile,
     )
     return {
         "result": "planned",
@@ -116,7 +121,7 @@ def _plan(
         "chart_package_sha256": "",
         "published": "false",
         "failure_code": "",
-        "runner_profile": "portable",
+        "runner_profile": resolved.profile,
         "runs_on_json": resolved.as_dict()["runs_on_json"],
         "workspace_profile": "minimal",
         "timeout_minutes": "90" if operation == "publish" else "60",
@@ -188,7 +193,7 @@ def execute(
         {
             "artifact_exception_used": "false",
             "failure_code": "",
-            "runner_profile": "portable",
+            "runner_profile": "buildah-tiny",
             "workspace_profile": "minimal",
             "timeout_minutes": "90",
             "source_trust": request.source_trust,
