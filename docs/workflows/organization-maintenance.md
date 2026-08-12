@@ -1,83 +1,56 @@
 # Organization maintenance and Flux reconciliation
 
-Issue #20 centralizes the domain-neutral GitHub maintenance operations that were previously duplicated or hosted in product repositories. The public reusable workflows are deliberately trigger-free: schedules, pull-request-close events, protected environments, and repository-specific cadence remain thin-caller responsibilities.
+Issue #20 centralizes domain-neutral GitHub maintenance and trusted Flux reconciliation orchestration. Public reusable workflows expose only `workflow_call`; schedules, close events, environments, and repository-specific cadence remain in thin trusted callers.
 
-## Public maintenance APIs
+## Public APIs
 
-The checked-in public contract remains authoritative. This implementation supplies the existing planned files without adding caller-selected repositories, runner labels, shell commands, callbacks, credentials, or product configuration.
-
-| API | Public workflow | Default | Authority |
+| API | Workflow | Default | Bounded authority |
 |---|---|---|---|
-| `maintenance.artifacts` | `.github/workflows/reusable-artifact-cleanup.yml` | dry-run | delete only expired, non-retained Actions artifacts after exact-state revalidation |
-| `maintenance.branches` | `.github/workflows/reusable-branch-hygiene.yml` | dry-run | delete only the exact unchanged unprotected head of one same-repository merged PR |
-| `maintenance.conformance` | `.github/workflows/reusable-conformance.yml` | dry-run | compare live workflow trees with the checked-in inventory and create/update one reviewable report issue |
-| `maintenance.runner-retry` | `.github/workflows/reusable-runner-infrastructure-retry.yml` | dry-run | rerun failed jobs once only when exact-head evidence proves self-hosted runner infrastructure loss |
-| `flux.reconcile` | `.github/workflows/reusable-flux-reconcile.yml` | dry-run | resolve a structured plan from exact Flux-owned policy and optionally execute it on `flux-control` capacity |
+| `maintenance.artifacts` | `reusable-artifact-cleanup.yml` | dry-run | remove only expired, non-retained artifacts after artifact **and workflow-run** expected-state revalidation |
+| `maintenance.branches` | `reusable-branch-hygiene.yml` | dry-run | remove only an unchanged, unprotected same-repository head proven merged to its checked-in integration branch |
+| `maintenance.conformance` | `reusable-conformance.yml` | dry-run | compare live workflow trees with inventory and maintain one deterministic reviewable report issue |
+| `maintenance.runner-retry` | `reusable-runner-infrastructure-retry.yml` | dry-run | rerun attempt-1 failed jobs only for proven self-hosted runner-infrastructure loss |
+| `flux.reconcile` | `reusable-flux-reconcile.yml` | dry-run | resolve a typed plan from exact Flux-owned policy and optionally apply it on `flux-control` capacity |
 
-Maintenance jobs run on `[linux, amd64, general]`. The Flux wrapper runs only on `[linux, amd64, flux-control]`. These are central/infrastructure selectors; callers never provide runner labels.
+Maintenance runs on `[linux, amd64, general]`; Flux reconciliation runs on `[linux, amd64, flux-control]`. Callers never choose runner labels, repositories, shell commands, callbacks, cluster targets, or secret names.
 
-## Thin-caller cadence
+## GitHub transport and replay safety
 
-Reusable workflows expose only `workflow_call`. Existing schedules and event triggers migrate into thin callers rather than into the shared implementation:
+The maintenance client accepts HTTPS only, bounds retries/pages/log bytes, honors bounded `Retry-After`, and rejects absolute pagination links outside the configured GitHub API origin. GitHub log-download redirects may cross origin only for GET/HEAD over HTTPS; `Authorization` is stripped before the redirected request so the maintenance credential is never forwarded to signed-object hosts.
 
-- organization artifact cleanup may retain the reviewed `17,47 * * * *` cadence;
-- branch hygiene is most useful after a pull request closes, passing the exact merged head SHA and optional PR number;
-- conformance may run on a reviewed maintenance schedule and on demand;
-- runner-infrastructure retry may be invoked after a failed run is identified or by a thin bounded observer;
-- Flux continues to own protected dispatch/environment authorization before calling `flux.reconcile`.
+Mutations re-read state at the mutation boundary rather than relying on a replay database:
 
-A caller must pass a bounded `request_id`. No replay ledger is created. Idempotency comes from re-reading GitHub immediately before mutation: missing artifacts/branches converge to no-op, changed state fails closed, and runner retries require `run_attempt == 1` plus a still-current target SHA.
+- artifact cleanup re-fetches the artifact and its associated workflow-run snapshot immediately before delete; a rerun/status/source change rejects deletion;
+- branch hygiene re-fetches the merged PR and branch tip immediately before ref delete;
+- conformance creates one deterministic issue and exact replay becomes a no-op when its body is already current;
+- runner retry revalidates run snapshot plus exact PR head ref/repository/base or protected integration-branch SHA before the one rerun request.
+
+Dry-run is the default. Missing already-deleted resources converge to no-op; changed state fails closed.
 
 ## Artifact retention
 
-Routine artifacts remain zero by default. `maintenance.artifacts` reads `contracts/artifact-exceptions.json`; an artifact covered by a still-active named exception is preserved for that exception's bounded retention period. Active workflow-run artifacts are also preserved. Deletion candidates are capped and individually re-fetched immediately before deletion.
+`maintenance.artifacts` reads `contracts/artifact-exceptions.json`. A still-valid named exception is preserved for its bounded retention period. Artifacts from non-completed runs are preserved. Candidates are capped and an old listing alone is never sufficient deletion authority.
 
-The operation does not infer evidence policy from artifact names outside the central exception contract, and it never deletes an artifact merely because a listing is old.
+## Branch hygiene
 
-## Exact merged-branch hygiene
+The caller supplies a checked-in `project_id`, exact expected head SHA, and optional PR number—not a branch name. Central derives the `issue/` branch from an exact same-repository merged PR. Closed-but-unmerged, protected, integration, changed, ambiguous, or foreign-repository branches are preserved. No retired Agent State cancellation-receipt path exists.
 
-The branch name is never a public input. `project_id` resolves to one checked-in repository/integration-branch tuple, and the workflow derives the issue branch from an exact same-repository merged pull request. Before deletion it verifies:
+## Conformance and retry
 
-- the PR is closed and merged to the expected integration branch;
-- the PR head repository is the same repository;
-- the head name starts with `issue/`;
-- the branch is not protected or the integration branch;
-- the current branch tip equals `expected_head_sha`;
-- the PR and branch snapshots are unchanged at the mutation boundary.
+Conformance uses `contracts/workflow-inventory.json` and reports missing/new/retired workflows, retired Agent State transport, and mutable/immutable shared-workflow references. Update mode creates or updates a reviewable issue in `ci-workflows`; it does not rewrite consumers.
 
-There is no Agent State cancellation-receipt compatibility path. Closed-but-unmerged branches are preserved.
+Runner retry requires a non-retired allowlisted workflow, supported event/trust, completed attempt 1, same-repository current source, bounded failed-job count/logs, self-hosted evidence, no failed user step, an allowlisted infrastructure-loss signature, and no deterministic product/test/compiler/lint/dependency/timeout/manual-cancel signature.
 
-## Conformance reporting
+## Flux boundary
 
-Conformance uses `contracts/workflow-inventory.json` as the classification source. It detects missing inventory workflows, newly added live workflows, workflows still classified `retire`, legacy Agent State transport that remains present, and mutable/immutable references to central reusable workflows.
+`flux.reconcile` checks out exact `StreamScapeTV/flux@admitted_sha`. `contracts/organization-maintenance.json` fixes the Flux-owned policy, allowlist and executor paths plus the `central-flux-policy-v1` interface. Central stores no target catalog, namespaces, workloads, desired state, credentials, or health policy.
 
-Dry-run returns findings only. Update mode creates or replaces one deterministic report issue in `StreamScapeTV/ci-workflows`; it does not directly rewrite consumer repositories. A separate owner may turn a finding into a reviewable migration PR.
+The policy receives only `target_id`, `product_id`, and `operation` and must emit the bounded typed plan. Plan files are regular non-symlink files with a size limit; extra command fields and unsupported resource kinds fail closed. Exact source cleanliness and policy/allowlist/executor hashes are revalidated before live apply.
 
-## Runner-infrastructure retry
+Workflow state must be a real private directory, never a symlink. Kubeconfig and SOPS age-key files are created exclusively with no-follow semantics and mode `0600`, supplied only through `KUBECONFIG` / `SOPS_AGE_KEY_FILE`, and verified removed in terminal cleanup. Live mutation remains prohibited until the Flux-owned adapter/caller authorization is separately reviewed.
 
-The retry API is intentionally narrower than a generic rerun command. Eligibility requires all of the following:
+## Validation
 
-- a workflow path classified in the checked-in inventory and not marked `retire`;
-- an allowed read-only workflow trust class and supported event;
-- completed attempt 1 with conclusion `failure` or `cancelled`;
-- exact still-current same-repository PR or integration-branch source;
-- at most 20 failed jobs;
-- every failed job is self-hosted, has no failed user step, and has an allowlisted infrastructure-loss signature;
-- no deterministic product/test/compiler/lint/dependency/timeout/manual-cancellation signature;
-- the workflow run and current target are unchanged immediately before rerun.
+`maintenance-contract-smoke.yml` is pull-request-only, unprivileged, exact-head, and receives no maintenance/cluster secrets. It runs maintenance/Flux contract, runtime, workflow, and security suites, removes Python state, verifies the source tree remains clean, and confirms zero Actions artifacts.
 
-Only GitHub's `rerun-failed-jobs` operation is used, once. Product failures are never converted into retries.
-
-## Flux reconciliation
-
-`flux.reconcile` checks out exact `StreamScapeTV/flux` source at `admitted_sha` and accepts only the contract-matched `policy_path` and `allowlist_path`. Central code contains no namespaces, release names, workloads, clusters, or target catalog.
-
-The Flux-owned policy adapter contract is `central-flux-policy-v1`. Central supplies a JSON request containing only `target_id`, `product_id`, and `operation`. The adapter returns a bounded structured resource plan; command strings and extra fields are rejected. Central hashes the policy, allowlist, and executor, verifies the Flux Git tree stayed clean, and revalidates all hashes immediately before any live apply.
-
-The current Flux rollout validator predates this adapter interface. Consumer adoption therefore requires a Flux-owned change that teaches the reviewed policy path the `central-flux-policy-v1` request/plan interface while preserving Flux as the sole target/allowlist authority. Issue #20 does not rewrite Flux policy data or claim live reconciliation evidence before that adoption is reviewed.
-
-Live mode requires both named Flux credentials and pre-provisioned `flux`/`kubectl` tools. Credentials are written only to workflow-scoped state for the apply call and removed in the terminal path. The exact Flux-owned executor performs the actual reconcile/wait operations.
-
-## Evidence and cleanup
-
-`.github/workflows/maintenance-contract-smoke.yml` is an unprivileged pull-request-only focused check. It runs the maintenance/Flux unit suites against the exact PR head, verifies a clean source tree, and confirms the run retained zero Actions artifacts. It does not receive maintenance or Flux credentials and cannot perform organization or cluster mutations.
+Before final merge, shared public/component/CIW/runner registrations must agree with these workflows and the full canonical repository suite must pass on the unchanged final candidate.

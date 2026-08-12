@@ -5,12 +5,16 @@
     "exact-merged-issue-branch",
     "inventory-conformance-dry-run",
     "proven-runner-infrastructure-failure",
-    "structured-flux-policy-plan"
+    "structured-flux-policy-plan",
+    "same-origin-pagination",
+    "cross-origin-log-redirect-without-authorization"
   ],
   "negative": [
     "retained-artifact-exception",
     "active-run-artifact",
     "changed-artifact-before-delete",
+    "changed-artifact-run-before-delete",
+    "cross-origin-pagination",
     "unmerged-branch",
     "protected-branch",
     "changed-branch-before-delete",
@@ -18,6 +22,8 @@
     "stale-run-head",
     "flux-policy-path-mismatch",
     "flux-source-mutation",
-    "flux-command-field-in-plan"
+    "flux-command-field-in-plan",
+    "flux-state-symlink",
+    "flux-credential-symlink"
   ]
 }

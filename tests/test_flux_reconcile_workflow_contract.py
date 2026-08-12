@@ -19,9 +19,6 @@ class FluxReconcileWorkflowContractTests(unittest.TestCase):
         cls.record = next(row for row in operations["workflows"] if row["api_name"] == "flux.reconcile")
         permissions = json.loads((ROOT / "contracts/permission-profiles.json").read_text(encoding="utf-8"))
         cls.permission = next(row for row in permissions["profiles"] if row["id"] == cls.record["permission_profile"])
-        cls.maintenance_contract_text = (
-            ROOT / "contracts/organization-maintenance.json"
-        ).read_text(encoding="utf-8")
         cls.path = ROOT / cls.record["file"]
         cls.text = cls.path.read_text(encoding="utf-8")
         cls.workflow = yaml.load(cls.text, Loader=ActionsLoader)
@@ -51,15 +48,24 @@ class FluxReconcileWorkflowContractTests(unittest.TestCase):
 
     def test_flux_target_data_and_credentials_remain_outside_central_source(self) -> None:
         action = (ROOT / "actions/flux-reconcile/action.yml").read_text(encoding="utf-8")
-        source = (ROOT / "src/ci_workflows/flux_reconcile.py").read_text(encoding="utf-8")
-        combined = (self.text + action + source).casefold()
+        plan_source = (ROOT / "src/ci_workflows/flux_reconcile_plan.py").read_text(encoding="utf-8")
+        apply_source = (ROOT / "src/ci_workflows/flux_reconcile_apply.py").read_text(encoding="utf-8")
+        contract = (ROOT / "contracts/organization-maintenance.json").read_text(encoding="utf-8")
+        combined = (self.text + action + plan_source + apply_source).casefold()
         for domain_value in ("agent-state-api", "iptv-backend-worker", "directus-web", "tailscale", "longhorn"):
             self.assertNotIn(domain_value, combined)
         self.assertNotIn("flux_kubeconfig_b64", combined)
-        self.assertIn("central-flux-policy-v1", self.maintenance_contract_text)
-        self.assertIn('policy["policy_interface"]', source)
-        self.assertIn("--central-request", source)
-        self.assertNotIn("shell=true", source.replace(" ", "").casefold())
+        self.assertIn("central-flux-policy-v1", contract)
+        self.assertIn('policy["policy_interface"]', plan_source)
+        self.assertIn("--central-request", plan_source)
+        self.assertNotIn("shell=true", combined.replace(" ", ""))
+
+    def test_flux_cli_cleanup_is_no_follow_and_fail_closed(self) -> None:
+        cli = (ROOT / "scripts/ci/flux_reconcile.py").read_text(encoding="utf-8")
+        self.assertIn("lstat()", cli)
+        self.assertIn("_remove_state", cli)
+        self.assertIn("flux_state_cleanup_failed", cli)
+        self.assertNotIn("ignore_errors=True", cli)
 
 
 if __name__ == "__main__":
