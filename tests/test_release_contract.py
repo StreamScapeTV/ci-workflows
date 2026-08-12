@@ -9,7 +9,10 @@ from ci_workflows.release_contract import (
     load_release_plans,
     resolve_public_release,
     resolve_release_plan,
+    validate_admitted_sha,
+    validate_release_tag,
     validate_release_version,
+    validate_request_id,
 )
 from ci_workflows.release_types import ReleaseError
 
@@ -59,6 +62,18 @@ class ReleaseContractTest(unittest.TestCase):
                 self.assertEqual("1.2.3", request["release_tag"])
                 self.assertEqual(SOURCE_SHA, request["admitted_sha"])
 
+    def test_public_release_rejects_internal_release_id_as_contract(self) -> None:
+        with self.assertRaisesRegex(ReleaseError, r"^release_contract_rejected$"):
+            resolve_public_release(
+                ROOT,
+                release_contract="iptv-backend",
+                repository="StreamScapeTV/iptv-backend",
+                admitted_sha=SOURCE_SHA,
+                release_tag="1.2.3",
+                release_version="1.2.3",
+                request_id="fixture-request-0003",
+            )
+
     def test_public_release_rejects_tag_version_or_target_mismatch(self) -> None:
         with self.assertRaisesRegex(ReleaseError, r"^release_tag_mismatch$"):
             resolve_public_release(
@@ -92,6 +107,40 @@ class ReleaseContractTest(unittest.TestCase):
                 release_tag="v1.2.3",
                 release_version="1.2.3",
                 request_id="fixture-request-0003",
+            )
+
+    def test_public_validators_reject_non_text_values_with_stable_codes(self) -> None:
+        cases = (
+            (validate_release_version, (None,), "release_version_rejected"),
+            (validate_release_tag, (None, "1.2.3"), "release_tag_rejected"),
+            (validate_request_id, (None,), "request_id_rejected"),
+            (validate_admitted_sha, (None,), "release_sha_rejected"),
+        )
+        for function, arguments, code in cases:
+            with self.subTest(code=code):
+                with self.assertRaisesRegex(ReleaseError, rf"^{code}$"):
+                    function(*arguments)
+
+        with self.assertRaisesRegex(ReleaseError, r"^release_contract_rejected$"):
+            resolve_public_release(
+                ROOT,
+                release_contract=None,
+                repository="StreamScapeTV/iptv-backend",
+                admitted_sha=SOURCE_SHA,
+                release_tag="1.2.3",
+                release_version="1.2.3",
+                request_id="fixture-request-0003",
+            )
+        with self.assertRaisesRegex(ReleaseError, r"^target_id_rejected$"):
+            resolve_public_release(
+                ROOT,
+                release_contract="backend",
+                repository="StreamScapeTV/iptv-backend",
+                admitted_sha=SOURCE_SHA,
+                release_tag="1.2.3",
+                release_version="1.2.3",
+                request_id="fixture-request-0003",
+                target_id=None,
             )
 
     def test_repository_cannot_be_redirected_by_caller(self) -> None:
