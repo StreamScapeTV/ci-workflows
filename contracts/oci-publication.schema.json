@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://streamscape.tv/contracts/oci-publication.schema.json",
+  "title": "StreamScapeTV trusted OCI publication request and result",
+  "type": "object",
+  "oneOf": [
+    {"$ref": "#/$defs/request"},
+    {"$ref": "#/$defs/result"}
+  ],
+  "$defs": {
+    "sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "stableSemver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "productId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "reference": {
+      "type": "string",
+      "pattern": "^ghcr\\.io/streamscapetv/[a-z0-9._/-]+:(?:[0-9]+\\.[0-9]+\\.[0-9]+|sha-[0-9a-f]{40})$"
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["admitted_sha", "release_authority_sha", "product_id", "release_version"],
+      "properties": {
+        "admitted_sha": {"$ref": "#/$defs/sha"},
+        "release_authority_sha": {"$ref": "#/$defs/sha"},
+        "product_id": {"$ref": "#/$defs/productId"},
+        "release_version": {"$ref": "#/$defs/stableSemver"}
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_sha",
+        "product_id",
+        "release_version",
+        "repositories",
+        "version_references",
+        "source_references",
+        "manifest_digests",
+        "platform_digests",
+        "replayed",
+        "evidence_id"
+      ],
+      "properties": {
+        "source_sha": {"$ref": "#/$defs/sha"},
+        "product_id": {"$ref": "#/$defs/productId"},
+        "release_version": {"$ref": "#/$defs/stableSemver"},
+        "repositories": {
+          "type": "object",
+          "additionalProperties": {"type": "string", "pattern": "^ghcr\\.io/streamscapetv/[a-z0-9._/-]+$"}
+        },
+        "version_references": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/reference"}
+        },
+        "source_references": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/reference"}
+        },
+        "manifest_digests": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/digest"}
+        },
+        "platform_digests": {"type": "object"},
+        "replayed": {"type": "boolean"},
+        "evidence_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "canary_id": {"type": ["string", "null"]},
+        "previous_known_good": {"type": ["string", "null"]},
+        "rollback_id": {"type": ["string", "null"]}
+      }
+    }
+  }
+}
