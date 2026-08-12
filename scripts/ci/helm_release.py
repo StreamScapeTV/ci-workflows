@@ -31,12 +31,19 @@ def _root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def _release_mode(environment: Mapping[str, str]) -> str:
+    mode = environment.get("INPUT_RELEASE_MODE", "").strip()
+    require(mode in {"tag-push", "existing-tag"}, "release_mode_invalid")
+    return mode
+
+
 def _inputs(
     root: Path,
     environment: Mapping[str, str],
 ):
     request = request_from_environment(environment)
     require(request.release_version is not None, "release_version_mismatch")
+    release_mode = _release_mode(environment)
     release_contract = load_release_bindings(root)
     references = parse_oci_publication_evidence(
         environment.get("INPUT_IMAGE_DIGEST", ""),
@@ -46,18 +53,19 @@ def _inputs(
         request.admitted_sha,
         request.release_version,
     )
-    return request, release_contract, references
+    return request, release_mode, release_contract, references
 
 
 def _validate_input(
     root: Path,
     environment: Mapping[str, str],
 ) -> dict[str, str]:
-    request, release_contract, references = _inputs(root, environment)
+    request, release_mode, release_contract, references = _inputs(root, environment)
     product = release_contract["products"][request.product_id]
     return {
         "result": "validated",
         "product_id": request.product_id,
+        "release_mode": release_mode,
         "oci_product_id": product["oci_product_id"] or "",
         "image_references_json": json.dumps(
             list(references),
@@ -71,7 +79,7 @@ def _execute(
     environment: Mapping[str, str],
 ) -> dict[str, str]:
     load_helm_publication_contract(root)
-    request, release_contract, references = _inputs(root, environment)
+    request, release_mode, release_contract, references = _inputs(root, environment)
     require(request.source_trust == "trusted-exact", "source_trust_rejected")
 
     source_root = _source_root(root, environment, "source")
@@ -97,6 +105,7 @@ def _execute(
         plan,
         validation,
         environment,
+        allow_publish=release_mode == "tag-push",
     )
     chart_reference = (
         f"{plan.product.registry_repository}/{plan.product.chart_name}"

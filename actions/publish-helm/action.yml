@@ -1,5 +1,5 @@
 name: Publish bounded Helm chart
-description: Publish a product-contract Helm chart once and prove an OCI pull read-back
+description: Publish a product-contract Helm chart once or verify an existing immutable version and prove an OCI pull read-back
 
 inputs:
   phase:
@@ -14,6 +14,9 @@ inputs:
     required: true
   release_version:
     description: Exact immutable release version
+    required: true
+  release_mode:
+    description: Exact internal release authority mode: tag-push or existing-tag
     required: true
   values_profile:
     description: Optional product-manifest values profile
@@ -68,6 +71,7 @@ runs:
         INPUT_ADMITTED_SHA: ${{ inputs.admitted_sha }}
         INPUT_PRODUCT_ID: ${{ inputs.product_id }}
         INPUT_RELEASE_VERSION: ${{ inputs.release_version }}
+        INPUT_RELEASE_MODE: ${{ inputs.release_mode }}
         INPUT_VALUES_PROFILE: ${{ inputs.values_profile }}
         INPUT_POLICY_PATH: ${{ inputs.policy_path }}
         INPUT_IMAGE_DIGEST: ${{ inputs.image_digest }}

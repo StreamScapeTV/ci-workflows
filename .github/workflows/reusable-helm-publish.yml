@@ -61,6 +61,7 @@ jobs:
       runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
       workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
       source_trust: ${{ steps.plan.outputs.source_trust }}
+      release_mode: ${{ steps.authority.outputs.release_mode }}
       release_version: ${{ steps.authority.outputs.release_version }}
       release_source_sha: ${{ steps.authority.outputs.release_source_sha }}
       tag_object_sha: ${{ steps.authority.outputs.tag_object_sha }}
@@ -90,7 +91,9 @@ jobs:
         uses: ./.ciw/actions/resolve-release-tag
         with:
           phase: resolve
-          release_mode: tag-push
+          release_mode: ${{ github.event_name == 'workflow_dispatch' && 'existing-tag' || 'tag-push' }}
+          release_version: ${{ github.event_name == 'workflow_dispatch' && inputs.release_version || '' }}
+          release_source_sha: ${{ github.event_name == 'workflow_dispatch' && inputs.admitted_sha || '' }}
       - name: Verify requested publication tuple matches exact tag authority
         shell: bash
         env:
@@ -110,11 +113,12 @@ jobs:
           admitted_sha: ${{ inputs.admitted_sha }}
           product_id: ${{ inputs.product_id }}
           release_version: ${{ inputs.release_version }}
+          release_mode: ${{ steps.authority.outputs.release_mode }}
           values_profile: ${{ inputs.values_profile }}
           policy_path: ${{ inputs.policy_path }}
           image_digest: ${{ inputs.image_digest }}
           immutable_references_json: ${{ inputs.immutable_references_json }}
-          source_trust: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && 'trusted-pr' || 'trusted-exact' }}
+          source_trust: trusted-exact
 
   publish:
     name: Release / Helm publication
@@ -170,13 +174,13 @@ jobs:
         uses: ./.ciw/actions/resolve-release-tag
         with:
           phase: revalidate
-          release_mode: tag-push
+          release_mode: ${{ needs.plan.outputs.release_mode }}
           release_version: ${{ needs.plan.outputs.release_version }}
           release_source_sha: ${{ needs.plan.outputs.release_source_sha }}
           expected_tag_object_sha: ${{ needs.plan.outputs.tag_object_sha }}
           expected_tag_commit_sha: ${{ needs.plan.outputs.tag_commit_sha }}
       - id: helm
-        name: Bind OCI evidence, package, publish once, and verify OCI pull read-back
+        name: Bind OCI evidence, package, publish or verify, and prove OCI pull read-back
         continue-on-error: true
         uses: ./.ciw/actions/publish-helm
         with:
@@ -184,6 +188,7 @@ jobs:
           admitted_sha: ${{ inputs.admitted_sha }}
           product_id: ${{ inputs.product_id }}
           release_version: ${{ inputs.release_version }}
+          release_mode: ${{ needs.plan.outputs.release_mode }}
           values_profile: ${{ inputs.values_profile }}
           policy_path: ${{ inputs.policy_path }}
           image_digest: ${{ inputs.image_digest }}
@@ -218,6 +223,7 @@ jobs:
           admitted_sha: ${{ inputs.admitted_sha }}
           product_id: ${{ inputs.product_id }}
           release_version: ${{ inputs.release_version }}
+          release_mode: ${{ needs.plan.outputs.release_mode }}
           source_trust: ${{ needs.plan.outputs.source_trust }}
       - id: residue
         name: Verify zero Helm publication residue
@@ -228,6 +234,7 @@ jobs:
           admitted_sha: ${{ inputs.admitted_sha }}
           product_id: ${{ inputs.product_id }}
           release_version: ${{ inputs.release_version }}
+          release_mode: ${{ needs.plan.outputs.release_mode }}
           source_trust: ${{ needs.plan.outputs.source_trust }}
       - id: workspace_cleanup
         name: Remove and verify all registered workspace state

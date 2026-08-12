@@ -51,11 +51,20 @@ a hard validation failure, not a reason to infer facts from the mutable tag.
 
 ## Publication trust and runner selection
 
-The publish workflow resolves the exact tag object and tag commit in its plan
-job and requires the resolved release source/version to match the request. It
-revalidates the same tag object and commit immediately before registry
-credentials are passed to the publication action. A moved tag therefore fails
-before registry write.
+For an actual tag-push release, the publish workflow resolves exact `tag-push`
+authority and may write only the missing immutable chart version. For a trusted
+same-repository default-branch `workflow_dispatch`, it instead resolves
+`existing-tag` authority from the explicit source/version tuple. That manual
+path is verification-only: it can authenticate and read back an existing
+immutable chart, but a confirmed missing version fails with
+`remote_version_missing` and can never become a `helm push`.
+
+Both modes bind the requested source/version to the resolved tag object and tag
+commit, then revalidate that same object/commit immediately before registry
+access. A moved tag therefore fails before either publication or replay
+verification reaches the registry action. The resolved release mode is passed
+internally through the composite action and is not a caller-selectable public
+input.
 
 Validation remains on semantic `portable`. Publication needs Skopeo for the
 independent registry manifest proof, so the central runner resolver maps
@@ -71,12 +80,13 @@ If not, the central Buildah escalation policy selects the next sufficient tier.
 
 ## Publication and read-back
 
-Publication uses pull-compare-before-push, mandatory Helm pull read-back, and a
-second raw OCI manifest inspection with Skopeo. Public `chart_digest` is the
-SHA-256 of the exact remote Helm OCI manifest bytes. Package content remains a
-separate `chart_package_sha256`, also included in Helm's
-`immutable_references_json`. Replays succeed only on exact package parity and
-conflicting immutable versions fail closed.
+Tag-push publication uses pull-compare-before-push, mandatory Helm pull
+read-back, and a second raw OCI manifest inspection with Skopeo. Public
+`chart_digest` is the SHA-256 of the exact remote Helm OCI manifest bytes.
+Package content remains a separate `chart_package_sha256`, also included in
+Helm's `immutable_references_json`. Tag-push replays and manual verify-only
+replays succeed only on exact package parity; conflicting immutable versions
+fail closed. Manual replay never creates a missing version.
 
 Both Helm workflows use isolated temporary state and unconditional cleanup.
 They retain zero routine Actions artifacts. Helm publication rejects Kubernetes

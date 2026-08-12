@@ -450,14 +450,17 @@ def publish_and_read_back(
     plan: HelmPlan,
     validation: HelmValidationResult,
     inherited: Mapping[str, str],
+    *,
+    allow_publish: bool = True,
 ) -> HelmPublicationResult:
-    """Push once or prove byte-identical prior publication, then pull it back."""
+    """Push once when authorized or prove byte-identical prior publication."""
 
     require(
         plan.release_version is not None
         and SEMVER.fullmatch(plan.release_version) is not None,
         "release_version_mismatch",
     )
+    require(isinstance(allow_publish, bool), "invalid_input")
     _verify_no_kubernetes_authority(inherited)
     username = inherited.get("INPUT_REGISTRY_USERNAME", "")
     token = inherited.get("INPUT_REGISTRY_TOKEN", "")
@@ -514,6 +517,7 @@ def publish_and_read_back(
             or "not exist" in lookup,
             "registry_lookup_failed",
         )
+        require(allow_publish, "remote_version_missing")
     remote_archive = (
         remote_root / f"{plan.product.chart_name}-{plan.release_version}.tgz"
     )
