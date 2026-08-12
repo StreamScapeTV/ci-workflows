@@ -11,7 +11,7 @@ from typing import Sequence
 from .release_contract import resolve_release_plan
 from .release_github import GitHubReleaseAPI, desired_release, ensure_github_release
 from .release_handoff import flux_handoff_json
-from .release_manifest import publication_identity, publication_progress, release_manifest_json
+from .release_manifest import canonical_json, publication_identity, publication_progress, release_manifest_json
 from .release_types import ReleaseError
 
 
@@ -57,12 +57,35 @@ def _plan(args: argparse.Namespace) -> int:
     plan = resolve_release_plan(root, args.release_id, args.repository)
     _emit(
         {
-            "plan_json": json.dumps(plan.as_dict(), sort_keys=True, separators=(",", ":")),
+            "plan_json": canonical_json(plan.as_dict()),
             "image_product_id": plan.image_product_id,
             "chart_product_id": plan.chart_product_id,
             "chart_requires_image_identity": "true" if plan.chart_requires_image_identity else "false",
             "handoff_kind": plan.handoff_kind,
             "handoff_target_repository": plan.handoff_target_repository,
+        }
+    )
+    return 0
+
+
+def _verify(args: argparse.Namespace) -> int:
+    root = _root(args.root)
+    plan = resolve_release_plan(root, args.release_id, args.repository)
+    image = _identity("image", args)
+    chart = _identity("chart", args)
+    if image.product_id != plan.image_product_id or image.kind != "oci-image":
+        raise ReleaseError("image_identity_mismatch")
+    if chart.product_id != plan.chart_product_id or chart.kind != "helm-chart":
+        raise ReleaseError("chart_identity_mismatch")
+    _emit(
+        {
+            "image_digest": image.digest,
+            "image_digests_json": canonical_json(image.digests),
+            "image_references_json": canonical_json(list(image.immutable_references)),
+            "chart_digest": chart.digest,
+            "chart_digests_json": canonical_json(chart.digests),
+            "chart_references_json": canonical_json(list(chart.immutable_references)),
+            "result": "success",
         }
     )
     return 0
@@ -147,6 +170,13 @@ def build_parser() -> argparse.ArgumentParser:
     plan.add_argument("--release-id", required=True)
     plan.add_argument("--repository", required=True)
     plan.set_defaults(handler=_plan)
+
+    verify = subparsers.add_parser("verify-publications")
+    verify.add_argument("--release-id", required=True)
+    verify.add_argument("--repository", required=True)
+    _add_identity(verify, "image")
+    _add_identity(verify, "chart")
+    verify.set_defaults(handler=_verify)
 
     manifest = subparsers.add_parser("manifest")
     manifest.add_argument("--release-id", required=True)
