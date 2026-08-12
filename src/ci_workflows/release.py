@@ -18,7 +18,7 @@ from .release_evidence import (
     image_publication_evidence,
 )
 from .release_github import GitHubReleaseAPI, desired_release, ensure_github_release
-from .release_handoff import flux_handoff_json
+from .release_handoff import flux_handoff_json, validate_flux_handoff_payload
 from .release_manifest import (
     canonical_json,
     publication_identity,
@@ -359,13 +359,7 @@ def _dispatch_handoff(args: argparse.Namespace) -> int:
         sha256_text(canonical) == args.flux_handoff_sha256,
         "handoff_digest_mismatch",
     )
-    require(
-        payload.get("target_repository") == FLUX_REPOSITORY
-        and payload.get("requested_action") == "review-selection"
-        and payload.get("mutation_authorized") is False
-        and payload.get("secrets_included") is False,
-        "handoff_contract_rejected",
-    )
+    payload = validate_flux_handoff_payload(payload)
     token = os.environ.get("FLUX_HANDOFF_TOKEN", "")
     require(bool(token), "flux_handoff_token_missing")
     body = canonical_json(
