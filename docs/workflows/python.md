@@ -44,12 +44,18 @@ No command output, database URL, generated credential, host path, image pull det
 
 `podman-postgres` requires `trusted-exact` source and resolves centrally to `buildah-medium`. It adds one exact digest-pinned PostgreSQL 16.11 service, generated per-run credentials, one isolated network, one isolated data volume, bounded readiness, and no remote database fallback. Current Backend and Agent State PostgreSQL validation shapes are represented by checked-in command fixtures.
 
+## Immutable private helper reuse
+
+Private consumers do not clone `StreamScapeTV/ci-workflows` with the caller-scoped token. The planner and executor invoke reviewed central composite actions directly through immutable full-SHA references. `validate-python` and `verify-toolchain` use the reviewed issue #125 checkpoint, while exact checkout, workspace preparation, evidence rendering, and cleanup reuse the immutable foundation checkpoint established by #116.
+
+The action archives resolve central scripts and libraries through `GITHUB_ACTION_PATH`. No `.ciw` checkout, central PAT, caller secret, `secrets: inherit`, mutable helper ref, or caller-selected central version is exposed. Exact caller source remains separate: it is admitted by `source.resolve`, checked out through the immutable exact-checkout action, and verified clean after terminal cleanup.
+
 ## Execution sequence
 
-1. A portable planning job checks out the exact central workflow SHA and invokes `ciw python validate --phase plan`.
+1. A portable planning job invokes the immutable private `validate-python` action directly; it does not clone the central repository.
 2. The planner validates caller identity, source trust, profile, command profile, and contract-owned runner intent.
 3. The dependent validation job is scheduled from the exact JSON selector emitted by the planner.
-4. The job checks out the exact central workflow source and exact admitted caller source without persisted credentials.
+4. The job checks out only the exact admitted caller source, then composes immutable private central helper actions by full SHA.
 5. Shared workspace and toolchain actions create marker-bound state, disable caching, and verify the semantic runtime.
 6. `ciw python validate --phase execute` verifies exact source, version and dependency locks, repository policy, and then executes the reviewed plan in copied host state or Podman VFS state.
 7. Deterministic redacted evidence is written beneath registered state.
