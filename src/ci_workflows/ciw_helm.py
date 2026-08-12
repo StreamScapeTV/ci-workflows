@@ -10,6 +10,7 @@ from typing import Mapping, Sequence
 
 from . import runners
 from .ciw_types import CIWContext, CIWResult, write_command_file
+from .helm_archive import finalize_validation_archive
 from .helm_contract import (
     bounded_path,
     load_helm_contract,
@@ -156,9 +157,6 @@ def execute(
             "failure_code": "",
         }
     if operation == "publish":
-        # Publication execute must traverse the release-only adapter so exact
-        # tag authority, direct OCI publication evidence, and read-only replay
-        # mode cannot be bypassed through the generic CIW command surface.
         require(False, "release_adapter_required")
 
     contract = load_helm_contract(root)
@@ -171,6 +169,10 @@ def execute(
         plan,
         request.admitted_sha,
         environment,
+    )
+    validation = finalize_validation_archive(
+        validation,
+        plan.product.chart_name,
     )
     values = validation.output_values()
     values.update(

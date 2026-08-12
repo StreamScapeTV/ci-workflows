@@ -5,6 +5,7 @@
     "https",
     "oci"
   ],
+  "package_canonicalization": "recursive-chart-and-packaged-subcharts",
   "product_manifest_path": ".streamscape/helm-product.json",
   "products": {
     "agent-state-chart": {

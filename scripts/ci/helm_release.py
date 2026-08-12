@@ -10,6 +10,7 @@ from typing import Mapping, Sequence
 
 from ci_workflows.ciw_helm import _failure_outputs, _source_root, _state_root
 from ci_workflows.ciw_types import write_command_file
+from ci_workflows.helm_archive import finalize_validation_archive
 from ci_workflows.helm_contract import (
     load_helm_contract,
     load_helm_publication_contract,
@@ -99,6 +100,10 @@ def _execute(
         references,
         product_release_contract,
         environment,
+    )
+    validation = finalize_validation_archive(
+        validation,
+        plan.product.chart_name,
     )
     publication = publish_and_read_back(
         source_root,

@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Mapping
 
+from .helm_archive import finalize_validation_archive
 from .helm_contract import HelmPlan, load_helm_contract, request_from_environment
 from .helm_dependency_policy import resolve_validation_plan
 from .helm_execution import validate_and_package
@@ -20,7 +21,14 @@ def validate(
 ) -> HelmValidationResult:
     """Validate one resolved product chart and emit its deterministic digest."""
 
-    return validate_and_package(source_root, state_root, plan, admitted_sha, environment)
+    preliminary = validate_and_package(
+        source_root,
+        state_root,
+        plan,
+        admitted_sha,
+        environment,
+    )
+    return finalize_validation_archive(preliminary, plan.product.chart_name)
 
 
 def package(
