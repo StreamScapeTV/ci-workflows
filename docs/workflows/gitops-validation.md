@@ -24,6 +24,24 @@ policy identifier, and the reserved empty artifact-exception field. Roots,
 values, schemas, tasks, scripts, tool identities, and assertions are checked-in
 contract data.
 
+## Immutable private helper reuse
+
+Private same-organization consumers do not clone `StreamScapeTV/ci-workflows`
+with their caller-scoped token. The reusable planner and execution job invoke
+`validate-gitops` through immutable central revision
+`8445e63dd9fa9468b60b6d0c61e543da9681b47b`; exact checkout, workspace
+preparation, evidence rendering, and cleanup reuse the immutable foundation
+actions established by #116.
+
+The private action archives resolve their central scripts and Python modules
+relative to `GITHUB_ACTION_PATH`, so there is no `.ciw` checkout, central PAT,
+`secrets: inherit`, mutable helper ref, or caller-selected central version.
+Caller source remains independently admitted and is checked out with the exact
+checkout primitive. GitOps uses the contract maximum `fetch_depth: 1000`, which
+preserves bounded changed-tree history while complying with the source-admission
+contract's allowed 1–1000 range. The previous value `0` was outside that
+foundation contract and is not retained.
+
 ## Exact tools
 
 The initial Linux contract installs and verifies:
