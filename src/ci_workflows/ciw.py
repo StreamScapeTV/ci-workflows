@@ -12,10 +12,12 @@ from typing import Any, Callable, Mapping, Sequence
 
 from . import runners
 from .ciw_android import configure_android_validate, execute_android_validate
+from .ciw_apple import configure_apple_validate, execute_apple_validate
 from .ciw_docs import load_command_contract
 from .ciw_flutter import configure_flutter_validate, execute_flutter_validate
 from .ciw_gitops import configure_gitops_validate, execute_gitops_validate
 from .ciw_node import configure_node_validate, execute_node_validate
+from .ciw_oci import configure_oci_validate, execute_oci_validate
 from .ciw_python import configure_python_validate, execute_python_validate
 from .ciw_types import (
     CIWContext,
@@ -113,6 +115,10 @@ def _add_android_validate(parser: argparse.ArgumentParser) -> None:
     configure_android_validate(parser)
 
 
+def _add_apple_validate(parser: argparse.ArgumentParser) -> None:
+    configure_apple_validate(parser)
+
+
 def _add_flutter_validate(parser: argparse.ArgumentParser) -> None:
     configure_flutter_validate(parser)
 
@@ -127,6 +133,10 @@ def _add_node_validate(parser: argparse.ArgumentParser) -> None:
 
 def _add_gitops_validate(parser: argparse.ArgumentParser) -> None:
     configure_gitops_validate(parser)
+
+
+def _add_oci_validate(parser: argparse.ArgumentParser) -> None:
+    configure_oci_validate(parser)
 
 
 def _add_workspace_prepare(parser: argparse.ArgumentParser) -> None:
@@ -432,6 +442,13 @@ def handle_android_validate(
     return execute_android_validate(args, context)
 
 
+def handle_apple_validate(
+    args: argparse.Namespace,
+    context: CIWContext,
+) -> CIWResult:
+    return execute_apple_validate(args, context)
+
+
 def handle_flutter_validate(
     args: argparse.Namespace,
     context: CIWContext,
@@ -458,6 +475,13 @@ def handle_gitops_validate(
     context: CIWContext,
 ) -> CIWResult:
     return execute_gitops_validate(args, context)
+
+
+def handle_oci_validate(
+    args: argparse.Namespace,
+    context: CIWContext,
+) -> CIWResult:
+    return execute_oci_validate(args, context)
 
 
 def _foundation_environment(
@@ -968,6 +992,12 @@ def command_specs() -> tuple[CommandSpec, ...]:
             _add_android_validate,
         ),
         CommandSpec(
+            "apple",
+            "validate",
+            handle_apple_validate,
+            _add_apple_validate,
+        ),
+        CommandSpec(
             "flutter",
             "validate",
             handle_flutter_validate,
@@ -990,6 +1020,12 @@ def command_specs() -> tuple[CommandSpec, ...]:
             "validate",
             handle_gitops_validate,
             _add_gitops_validate,
+        ),
+        CommandSpec(
+            "oci",
+            "validate",
+            handle_oci_validate,
+            _add_oci_validate,
         ),
         CommandSpec(
             "workspace",

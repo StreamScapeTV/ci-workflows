@@ -42,6 +42,41 @@
       "release": "issue #7 immutable helper checkpoint",
       "runtime": "composite",
       "source": "https://github.com/StreamScapeTV/ci-workflows/tree/90706a72aa68c81b7840c139965ae528d8ed6b25/actions/resolve-source"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/validate-node",
+      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
+      "release": "issue #116 immutable private-action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/validate-node"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/exact-checkout",
+      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
+      "release": "issue #116 immutable private-action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/exact-checkout"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/prepare-workspace",
+      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
+      "release": "issue #116 immutable private-action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/prepare-workspace"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/render-evidence",
+      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
+      "release": "issue #116 immutable private-action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/render-evidence"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/cleanup-workspace",
+      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
+      "release": "issue #116 immutable private-action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/cleanup-workspace"
     }
   ],
   "approved_internal_actions": [
