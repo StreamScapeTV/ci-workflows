@@ -38,11 +38,32 @@ def _profiles(value: Any, code: str) -> dict[str, str]:
     return profiles
 
 
-def _product(value: Any) -> tuple[str, dict[str, str], int]:
+def _repositories(value: Any) -> tuple[str, ...]:
+    require(isinstance(value, list), "invalid_product_layout")
+    repositories: list[str] = []
+    for repository in value:
+        require(
+            isinstance(repository, str)
+            and "/" in repository
+            and "@" not in repository
+            and ":" not in repository.rsplit("/", 1)[-1],
+            "invalid_product_layout",
+        )
+        repositories.append(repository)
+    require(repositories == sorted(set(repositories)), "invalid_product_layout")
+    return tuple(repositories)
+
+
+def _product(value: Any) -> tuple[str, dict[str, str], int, tuple[str, ...]]:
     require(
         isinstance(value, Mapping)
         and set(value)
-        == {"chart_root", "values_profiles", "minimum_required_image_references"},
+        == {
+            "chart_root",
+            "values_profiles",
+            "minimum_required_image_references",
+            "required_image_repositories",
+        },
         "invalid_product_layout",
     )
     chart_root = safe_relative(value.get("chart_root"), "invalid_product_layout")
@@ -52,7 +73,9 @@ def _product(value: Any) -> tuple[str, dict[str, str], int]:
         isinstance(minimum, int) and not isinstance(minimum, bool) and 0 <= minimum <= 16,
         "invalid_product_layout",
     )
-    return chart_root, profiles, minimum
+    repositories = _repositories(value.get("required_image_repositories"))
+    require(minimum <= len(repositories), "invalid_product_layout")
+    return chart_root, profiles, minimum, repositories
 
 
 def load_product_layout(root: Path = CENTRAL_ROOT) -> Mapping[str, Any]:
@@ -84,7 +107,9 @@ def enforce_product_layout(
     products = policy.get("products")
     require(isinstance(products, Mapping), "invalid_product_layout")
     require(product_id in products, "unsupported_product")
-    expected_root, expected_profiles, minimum_images = _product(products[product_id])
+    expected_root, expected_profiles, minimum_images, expected_repositories = _product(
+        products[product_id]
+    )
 
     manifest_path = bounded_path(
         source_root,
@@ -120,10 +145,12 @@ def enforce_product_layout(
         and images == sorted(set(images)),
         "product_layout_invalid",
     )
+    repositories = tuple(item.rsplit("@", 1)[0] for item in images)
     require(
         actual_root == expected_root
         and actual_profiles == expected_profiles
-        and len(images) >= minimum_images,
+        and len(images) >= minimum_images
+        and repositories == expected_repositories,
         "product_layout_mismatch",
     )
 
