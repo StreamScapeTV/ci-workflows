@@ -1,5 +1,5 @@
 name: Validate OCI build
-description: Plan, execute, clean, or verify one checked-in non-publishing OCI product
+description: Plan, execute, clean, or verify one checked-in non-publishing OCI product through ciw
 
 inputs:
   phase:
@@ -77,6 +77,7 @@ runs:
         INPUT_ARTIFACT_EXCEPTION_ID: ${{ inputs.artifact_exception_id }}
       run: |
         set -Eeuo pipefail
-        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/oci.py" validate \
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
+          oci validate \
           --phase "${{ inputs.phase }}" \
           --source-root source
