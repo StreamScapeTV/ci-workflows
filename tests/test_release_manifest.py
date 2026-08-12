@@ -114,6 +114,46 @@ class PublicationIdentityTest(unittest.TestCase):
                 ),
             )
 
+    def test_chart_identity_binds_explicit_digest_to_remote_read_back(self) -> None:
+        chart = FIXTURES["iptv-backend"]["chart"]
+        identity = publication_identity(
+            product_id=chart["product_id"],
+            kind="helm-chart",
+            digest=chart["digest"],
+            immutable_references_json=canonical_json(chart["immutable_references"]),
+            evidence_json=canonical_json(
+                {"read_back": chart["immutable_references"], "result": "success"}
+            ),
+        )
+        self.assertEqual(chart["digest"], identity.digest)
+
+    def test_chart_identity_rejects_remote_digest_mismatch(self) -> None:
+        chart = dict(FIXTURES["iptv-backend"]["chart"])
+        references = dict(chart["immutable_references"])
+        references["chart_digest"] = "sha256:" + "d" * 64
+        with self.assertRaisesRegex(ReleaseError, r"^publication_digest_mismatch$"):
+            publication_identity(
+                product_id=chart["product_id"],
+                kind="helm-chart",
+                digest=chart["digest"],
+                immutable_references_json=canonical_json(references),
+            )
+
+    def test_chart_identity_rejects_mismatched_read_back_evidence(self) -> None:
+        chart = FIXTURES["iptv-backend"]["chart"]
+        read_back = dict(chart["immutable_references"])
+        read_back["package_sha256"] = "e" * 64
+        with self.assertRaisesRegex(ReleaseError, r"^publication_evidence_mismatch$"):
+            publication_identity(
+                product_id=chart["product_id"],
+                kind="helm-chart",
+                digest=chart["digest"],
+                immutable_references_json=canonical_json(chart["immutable_references"]),
+                evidence_json=canonical_json(
+                    {"read_back": read_back, "result": "success"}
+                ),
+            )
+
 
 class ReleaseManifestTest(unittest.TestCase):
     def _render(self, release_id: str) -> tuple[str, str]:
