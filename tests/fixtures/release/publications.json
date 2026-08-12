@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "cases": {
+    "iptv-backend": {
+      "repository": "StreamScapeTV/iptv-backend",
+      "release_version": "1.4.2",
+      "source_sha": "1111111111111111111111111111111111111111",
+      "tag_object_sha": "2222222222222222222222222222222222222222",
+      "workflow_sha": "3333333333333333333333333333333333333333",
+      "source_timestamp": "2026-08-12T10:15:30+00:00",
+      "image": {
+        "product_id": "iptv-backend-image",
+        "digests": {
+          "server": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "version_references": {
+          "server": "ghcr.io/streamscapetv/iptv-backend:1.4.2"
+        },
+        "source_references": {
+          "server": "ghcr.io/streamscapetv/iptv-backend:sha-1111111111111111111111111111111111111111"
+        },
+        "platform_digests": {
+          "server": {
+            "linux/amd64": {
+              "manifest_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          }
+        },
+        "evidence_id": "oci-proof-backend-1"
+      },
+      "chart": {
+        "product_id": "iptv-backend-chart",
+        "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "immutable_references": {
+          "chart": "oci://git.faruqi.dev/mimranfaruqi/helm-charts/iptv-backend:1.4.2",
+          "chart_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "package_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      }
+    },
+    "flux-runner-assets": {
+      "repository": "StreamScapeTV/flux",
+      "release_version": "2.0.0",
+      "source_sha": "4444444444444444444444444444444444444444",
+      "tag_object_sha": "5555555555555555555555555555555555555555",
+      "workflow_sha": "6666666666666666666666666666666666666666",
+      "source_timestamp": "2026-08-12T10:20:30+00:00",
+      "image": {
+        "product_id": "flux-runner-images",
+        "digests": {
+          "linux-builder": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "linux-general": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        },
+        "version_references": {
+          "linux-builder": "ghcr.io/streamscapetv/flux-linux-builder:2.0.0",
+          "linux-general": "ghcr.io/streamscapetv/flux-linux-general:2.0.0"
+        },
+        "source_references": {
+          "linux-builder": "ghcr.io/streamscapetv/flux-linux-builder:sha-4444444444444444444444444444444444444444",
+          "linux-general": "ghcr.io/streamscapetv/flux-linux-general:sha-4444444444444444444444444444444444444444"
+        },
+        "platform_digests": {
+          "linux-builder": {
+            "linux/amd64": {
+              "manifest_digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+            }
+          },
+          "linux-general": {
+            "linux/amd64": {
+              "manifest_digest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+            }
+          }
+        },
+        "evidence_id": "oci-proof-flux-1"
+      },
+      "chart": {
+        "product_id": "flux-runner-chart-assets",
+        "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "immutable_references": {
+          "chart": "oci://git.faruqi.dev/mimranfaruqi/helm-charts/flux-runner-assets:2.0.0",
+          "chart_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "package_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        }
+      }
+    }
+  }
+}
