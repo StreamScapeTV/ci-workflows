@@ -67,10 +67,12 @@ class PythonWorkflowContractTests(unittest.TestCase):
         )
         self.assertEqual(self.public_record["stable_check_name"], "CI / Python validation")
 
-    def test_workflow_uses_a_portable_planner_and_exact_planner_runner_output(self) -> None:
+    def test_workflow_uses_general_linux_planner_and_exact_planner_runner_output(self) -> None:
         jobs = self.workflow["jobs"]
         self.assertEqual(set(jobs), {"plan", "validate"})
-        self.assertEqual(jobs["plan"]["runs-on"], "portable")
+        self.assertEqual(
+            jobs["plan"]["runs-on"], ["linux", "amd64", "general"]
+        )
         self.assertEqual(
             jobs["validate"]["runs-on"],
             "${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
@@ -78,6 +80,7 @@ class PythonWorkflowContractTests(unittest.TestCase):
         self.assertEqual(jobs["validate"]["timeout-minutes"], 120)
         self.assertEqual(jobs["validate"]["name"], "CI / Python validation")
         self.assertNotIn("self-hosted", self.workflow_text)
+        self.assertNotIn("runs-on: portable", self.workflow_text)
         self.assertNotIn("docker-capable", self.workflow_text)
 
     def test_exact_central_and_caller_source_are_verified(self) -> None:

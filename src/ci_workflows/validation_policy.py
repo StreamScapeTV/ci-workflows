@@ -69,7 +69,7 @@ def _validate_runner(
     config: HarnessConfig,
     findings: list[Finding],
 ) -> None:
-    """Accept semantic IDs or one exact contract-owned capability array."""
+    """Accept an exact capability array or the trusted planner output only."""
 
     if isinstance(runner, list):
         labels = tuple(str(value) for value in runner)
@@ -78,6 +78,16 @@ def _validate_runner(
             and "self-hosted" not in labels
         ):
             return
+    if isinstance(runner, str) and runner in config.allowed_runner_profiles:
+        _finding(
+            findings,
+            config,
+            "semantic-runner-direct",
+            relative_path,
+            "runs-on must use a contract-owned capability array or trusted "
+            f"planner output, not semantic runner profile {runner!r}",
+        )
+        return
     _validate_semantic_runner(runner, relative_path, config, findings)
 
 
