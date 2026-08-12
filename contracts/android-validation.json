@@ -307,29 +307,38 @@
     "central-smoke-gradle-9.6.1": {
       "mode": "synthetic-smoke",
       "version": "9.6.1",
+      "launcher_path": "gradlew",
       "properties_path": "gradle/wrapper/gradle-wrapper.properties",
+      "jar_path": null,
       "distribution_url": "https://services.gradle.org/distributions/gradle-9.6.1-bin.zip",
       "distribution_sha256": "9c0f7faeeb306cb14e4279a3e084ca6b596894089a0638e68a07c945a32c9e14",
-      "tracked_blob_sha1": null,
-      "properties_blob_sha1": null
+      "launcher_blob_sha1": "adba14b7da9a8e37febea3921b748faf37ab6f11",
+      "properties_blob_sha1": "da32a7e2ea3edde7cc2bfb520dc260db68c0eb66",
+      "jar_blob_sha1": null
     },
     "iptv-gradle-9.5.0": {
       "mode": "standard-wrapper",
       "version": "9.5.0",
+      "launcher_path": "gradlew",
       "properties_path": "gradle/wrapper/gradle-wrapper.properties",
+      "jar_path": "gradle/wrapper/gradle-wrapper.jar",
       "distribution_url": "https://services.gradle.org/distributions/gradle-9.5.0-bin.zip",
       "distribution_sha256": null,
-      "tracked_blob_sha1": "d997cfc60f4cff0e7451d19d49a82fa986695d07",
-      "properties_blob_sha1": "1a704683a00238cd4d05f55dd79bdc7614d90f4c"
+      "launcher_blob_sha1": "739907dfd15937f032b5a46390e9d63709e87f7a",
+      "properties_blob_sha1": "1a704683a00238cd4d05f55dd79bdc7614d90f4c",
+      "jar_blob_sha1": "d997cfc60f4cff0e7451d19d49a82fa986695d07"
     },
     "media-gradle-9.6.1": {
       "mode": "checked-in-launcher",
       "version": "9.6.1",
+      "launcher_path": "android/gradlew",
       "properties_path": "android/gradle/wrapper/gradle-wrapper.properties",
+      "jar_path": null,
       "distribution_url": "https://services.gradle.org/distributions/gradle-9.6.1-bin.zip",
       "distribution_sha256": "9c0f7faeeb306cb14e4279a3e084ca6b596894089a0638e68a07c945a32c9e14",
-      "tracked_blob_sha1": "4ede28f399514aae191c87886645ee5d46fcc77b",
-      "properties_blob_sha1": "da32a7e2ea3edde7cc2bfb520dc260db68c0eb66"
+      "launcher_blob_sha1": "4ede28f399514aae191c87886645ee5d46fcc77b",
+      "properties_blob_sha1": "da32a7e2ea3edde7cc2bfb520dc260db68c0eb66",
+      "jar_blob_sha1": null
     }
   },
   "consumers": {

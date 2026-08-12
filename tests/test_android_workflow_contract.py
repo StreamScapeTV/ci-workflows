@@ -6,6 +6,7 @@ import os
 import subprocess
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
@@ -185,6 +186,78 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             finally:
                 properties.write_text(original, encoding="utf-8")
 
+    def test_wrapper_component_identities_are_verified_independently(self) -> None:
+        plan = self.plan(1)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            working = root / "source"
+            properties = working / "gradle/wrapper/gradle-wrapper.properties"
+            launcher = working / "gradlew"
+            jar = working / "gradle/wrapper/gradle-wrapper.jar"
+            properties.parent.mkdir(parents=True)
+            launcher.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            launcher.chmod(0o700)
+            properties.write_text(
+                "distributionUrl=https\\://services.gradle.org/distributions/gradle-9.5.0-bin.zip\n",
+                encoding="utf-8",
+            )
+            jar.write_bytes(b"reviewed-wrapper-jar")
+            wrapper = replace(
+                plan.wrapper,
+                launcher_path="gradlew",
+                properties_path="gradle/wrapper/gradle-wrapper.properties",
+                jar_path="gradle/wrapper/gradle-wrapper.jar",
+                launcher_blob_sha1=android_contract.git_blob_sha1(launcher),
+                properties_blob_sha1=android_contract.git_blob_sha1(properties),
+                jar_blob_sha1=android_contract.git_blob_sha1(jar),
+            )
+            plan = replace(plan, working_directory="source", wrapper=wrapper)
+
+            def runner(argv, **_kwargs):
+                return subprocess.CompletedProcess(argv, 0, "Gradle 9.5.0\n", "")
+
+            with mock.patch.object(android_execution, "run_command", side_effect=runner):
+                self.assertEqual(
+                    android_execution.verify_wrapper(
+                        root, root / "state", plan, {"PATH": os.environ.get("PATH", "")}
+                    ),
+                    "9.5.0",
+                )
+
+            for path, replacement in (
+                (launcher, "#!/bin/sh\necho changed\n"),
+                (properties, properties.read_text(encoding="utf-8") + "networkTimeout=1\n"),
+            ):
+                original = path.read_text(encoding="utf-8")
+                try:
+                    path.write_text(replacement, encoding="utf-8")
+                    with self.subTest(path=path.name), self.assertRaises(
+                        AndroidValidationError
+                    ) as failure:
+                        android_execution.verify_wrapper(
+                            root,
+                            root / "state",
+                            plan,
+                            {"PATH": os.environ.get("PATH", "")},
+                        )
+                    self.assertEqual(failure.exception.code, "wrapper_invalid")
+                finally:
+                    path.write_text(original, encoding="utf-8")
+
+            original_jar = jar.read_bytes()
+            try:
+                jar.write_bytes(b"changed-wrapper-jar")
+                with self.assertRaises(AndroidValidationError) as failure:
+                    android_execution.verify_wrapper(
+                        root,
+                        root / "state",
+                        plan,
+                        {"PATH": os.environ.get("PATH", "")},
+                    )
+                self.assertEqual(failure.exception.code, "wrapper_invalid")
+            finally:
+                jar.write_bytes(original_jar)
+
     def test_test_selector_and_gradle_injection_rejection(self) -> None:
         valid = dict(self.cases["positive"][1]["environment"])
         plan = android_contract.resolve_validation_plan(
@@ -286,7 +359,14 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         handoff = self.plan(3)
         self.assertTrue(handoff.is_device_handoff); self.assertEqual(handoff.commands, ())
         self.assertEqual(handoff.output_mode, "handoff-only")
-        self.assertNotIn("adb", json.dumps(self.contract, sort_keys=True).casefold())
+        command_arguments = "\0".join(
+            argument
+            for consumer in self.contract["consumers"].values()
+            for task in consumer["tasks"].values()
+            for command in task["commands"]
+            for argument in command["argv"]
+        )
+        self.assertNotIn("adb", command_arguments.casefold())
 
     def test_docs_record_profiles_noncertification_and_deterministic_outputs(self) -> None:
         for profile in self.contract["profiles"]:
