@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import patch
 
+from ci_workflows.ciw_device import _runs_on_json
 from ci_workflows.device_contract import build_plan, load_device_contract, load_evidence_contract, request_from_environment, validate_typed_plan
 from ci_workflows.device_execution import *  # noqa: F401,F403
 from ci_workflows.device_types import DeviceFamily, DeviceRecord, DeviceValidationError
@@ -99,6 +102,21 @@ class AdmissionAndPlanTests(unittest.TestCase):
         self.assertFalse(packet["cancel_in_progress"])
         self.assertEqual("false", outputs["cancel_in_progress"])
         self.assertFalse(self.contract["serialization_contract"]["caller_override"])
+
+    def test_synthetic_runner_selection_uses_approved_concrete_selectors(self) -> None:
+        expected = {
+            "android": ["linux", "amd64", "mobile"],
+            "ios": ["macOS", "ARM64"],
+            "tvos": ["macOS", "ARM64"],
+        }
+        with patch.dict(os.environ, {"CIW_DEVICE_FOCUSED_TEST": "false"}):
+            for family, selector in expected.items():
+                with self.subTest(family=family):
+                    plan = build_plan(
+                        self.contract,
+                        request_from_environment(synthetic_environment(family), self.contract),
+                    )
+                    self.assertEqual(selector, json.loads(_runs_on_json(ROOT, plan)))
 
     def test_real_profile_and_secret_never_authorize_execution(self) -> None:
         environment = real_environment(
