@@ -16,18 +16,21 @@ class AppleTerminalCleanupTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
     def test_fixed_central_checkout_is_removed_without_following_links(self) -> None:
-        self.assertIn("Clear fixed central workflow checkout root", self.workflow)
         self.assertIn(
-            "Remove exact central workflow checkout without following links",
+            "Clear stale fixed central checkout root without following links",
             self.workflow,
         )
-        self.assertEqual(self.workflow.count('remove_no_follow(Path(".ciw"))'), 1)
-        self.assertEqual(self.workflow.count("os.lstat(path)"), 1)
-        self.assertEqual(self.workflow.count("stat.S_ISLNK"), 1)
-        self.assertEqual(self.workflow.count("test ! -e .ciw"), 1)
-        self.assertEqual(self.workflow.count("test ! -L .ciw"), 1)
-        self.assertIn('os.path.lexists(".ciw")', self.workflow)
         self.assertIn(
+            "Remove stale fixed central checkout root without following links",
+            self.workflow,
+        )
+        self.assertEqual(self.workflow.count('remove_no_follow(Path(".ciw"))'), 2)
+        self.assertEqual(self.workflow.count("os.lstat(path)"), 4)
+        self.assertEqual(self.workflow.count("stat.S_ISLNK"), 4)
+        self.assertEqual(self.workflow.count("test ! -e .ciw"), 2)
+        self.assertEqual(self.workflow.count("test ! -L .ciw"), 2)
+        self.assertEqual(self.workflow.count('os.path.lexists(".ciw")'), 2)
+        self.assertNotIn(
             "python3 .ciw/scripts/ci/apple_checkout_cleanup.py central",
             self.workflow,
         )
