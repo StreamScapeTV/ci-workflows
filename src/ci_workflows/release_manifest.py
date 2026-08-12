@@ -15,6 +15,12 @@ from .release_types import PublicationIdentity, ReleaseError, ReleasePlan
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 DIGEST = re.compile(r"^(?:sha256:)?[0-9a-f]{64}$")
 LATEST_REFERENCE = re.compile(r"(?i)(?:^|[:/])latest(?:@|$)")
+SENSITIVE_KEY = re.compile(r"(?i)(?:^|[_-])(authorization|credential|password|secret|token)(?:$|[_-])")
+SENSITIVE_VALUE = re.compile(
+    r"(?i)(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{30,}|"
+    r"-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----|authorization\s*[:=]|"
+    r"password\s*[:=]|secret\s*[:=]|token\s*[:=])"
+)
 MAX_REFERENCE_LENGTH = 512
 MAX_EVIDENCE_BYTES = 64 * 1024
 
@@ -103,24 +109,51 @@ def _digest_map(digest: str, digests_json: str) -> tuple[str, dict[str, str]]:
     return primary, {"primary": primary}
 
 
+def _reference_key(key: str | None) -> bool:
+    return bool(
+        key is None
+        or key in {"chart", "image", "reference", "immutable_reference"}
+        or (isinstance(key, str) and "reference" in key)
+    )
+
+
 def _reference_values(value: Any, *, key: str | None = None) -> list[str]:
     references: list[str] = []
     if isinstance(value, str):
         candidate = value.strip()
-        if key is None or key in {"chart", "image", "reference", "immutable_reference"} or "reference" in key:
-            if candidate:
-                references.append(candidate)
+        if _reference_key(key) and candidate:
+            references.append(candidate)
         return references
     if isinstance(value, list):
         for item in value:
             references.extend(_reference_values(item, key=key))
         return references
     if isinstance(value, Mapping):
+        parent_is_reference = key is not None and _reference_key(key)
         for child_key, child in value.items():
             if isinstance(child_key, str):
-                references.extend(_reference_values(child, key=child_key))
+                references.extend(
+                    _reference_values(child, key=key if parent_is_reference else child_key)
+                )
         return references
     return references
+
+
+def _evidence_is_safe(value: Any, *, key: str | None = None) -> bool:
+    if key is not None and SENSITIVE_KEY.search(key):
+        return False
+    if isinstance(value, str):
+        return len(value) <= 4096 and SENSITIVE_VALUE.search(value) is None
+    if isinstance(value, Mapping):
+        return len(value) <= 64 and all(
+            isinstance(child_key, str)
+            and len(child_key) <= 128
+            and _evidence_is_safe(child, key=child_key)
+            for child_key, child in value.items()
+        )
+    if isinstance(value, list):
+        return len(value) <= 64 and all(_evidence_is_safe(item, key=key) for item in value)
+    return value is None or isinstance(value, (bool, int, float))
 
 
 def publication_identity(
@@ -139,7 +172,12 @@ def publication_identity(
     except json.JSONDecodeError as error:
         raise ReleaseError("publication_evidence_rejected") from error
     require(isinstance(evidence, Mapping), "publication_evidence_rejected")
-    require(len(evidence) <= 64 and len(canonical_json(evidence).encode("utf-8")) <= MAX_EVIDENCE_BYTES, "publication_evidence_rejected")
+    require(
+        len(evidence) <= 64
+        and len(canonical_json(evidence).encode("utf-8")) <= MAX_EVIDENCE_BYTES
+        and _evidence_is_safe(evidence),
+        "publication_evidence_rejected",
+    )
     references = sorted(set(_reference_values(reference_payload)))
     require(bool(references) and len(references) <= 16, "publication_reference_rejected")
     require(
