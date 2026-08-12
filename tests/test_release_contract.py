@@ -141,6 +141,45 @@ class ReleaseContractTest(unittest.TestCase):
             with self.assertRaisesRegex(ReleaseError, r"^release_contract_invalid$"):
                 load_release_plans(root)
 
+    def test_contract_allows_checked_in_no_image_binding_chart(self) -> None:
+        releases = json.loads((ROOT / "contracts/releases.json").read_text(encoding="utf-8"))
+        products = json.loads((ROOT / "contracts/products.json").read_text(encoding="utf-8"))
+        for release in releases["releases"]:
+            if release["release_id"] == "flux-runner-assets":
+                release["chart_requires_image_identity"] = False
+                break
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            contracts = root / "contracts"
+            contracts.mkdir()
+            (contracts / "releases.json").write_text(
+                json.dumps(releases), encoding="utf-8"
+            )
+            (contracts / "products.json").write_text(
+                json.dumps(products), encoding="utf-8"
+            )
+            plans = load_release_plans(root)
+        self.assertFalse(plans["flux-runner-assets"].chart_requires_image_identity)
+        self.assertTrue(plans["agent-state"].chart_requires_image_identity)
+        self.assertTrue(plans["iptv-backend"].chart_requires_image_identity)
+
+    def test_contract_rejects_non_boolean_image_binding_policy(self) -> None:
+        releases = json.loads((ROOT / "contracts/releases.json").read_text(encoding="utf-8"))
+        products = json.loads((ROOT / "contracts/products.json").read_text(encoding="utf-8"))
+        releases["releases"][1]["chart_requires_image_identity"] = "false"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            contracts = root / "contracts"
+            contracts.mkdir()
+            (contracts / "releases.json").write_text(
+                json.dumps(releases), encoding="utf-8"
+            )
+            (contracts / "products.json").write_text(
+                json.dumps(products), encoding="utf-8"
+            )
+            with self.assertRaisesRegex(ReleaseError, r"^release_contract_invalid$"):
+                load_release_plans(root)
+
 
 if __name__ == "__main__":
     unittest.main()
