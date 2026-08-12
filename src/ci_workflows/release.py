@@ -348,6 +348,7 @@ def _handoff(args: argparse.Namespace) -> int:
 
 
 def _dispatch_handoff(args: argparse.Namespace) -> int:
+    root = _root(args.root)
     request_id = validate_request_id(args.request_id)
     try:
         payload = json.loads(args.flux_handoff_json)
@@ -360,6 +361,20 @@ def _dispatch_handoff(args: argparse.Namespace) -> int:
         "handoff_digest_mismatch",
     )
     payload = validate_flux_handoff_payload(payload)
+    plan = resolve_release_plan(
+        root,
+        str(payload["release_id"]),
+        str(payload["producer_repository"]),
+    )
+    product_ids = {
+        str(product["kind"]): str(product["product_id"])
+        for product in payload["products"]
+    }
+    require(
+        product_ids.get("oci-image") == plan.image_product_id
+        and product_ids.get("helm-chart") == plan.chart_product_id,
+        "handoff_product_mismatch",
+    )
     token = os.environ.get("FLUX_HANDOFF_TOKEN", "")
     require(bool(token), "flux_handoff_token_missing")
     body = canonical_json(
