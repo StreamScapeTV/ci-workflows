@@ -180,7 +180,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. D
 - Maximum reusable-workflow depth: `1`
 - Inputs: `release_mode` (default `tag-push`), `release_version`, `release_source_sha`, `image_recovery_authority` (default ``), `image_name` (required), `chart_name` (required), `chart_path` (required), `dockerfile_path` (default `Dockerfile`), `build_context` (default `.`)
 - Secrets: `registry_username`, `registry_token`
-- Outputs: `version`, `source_sha`, `image_reference`, `image_digest`, `chart_reference`, `chart_package_sha256`
+- Outputs: `version`, `source_sha`, `image_reference`, `image_digest`, `chart_reference`, `chart_digest`, `chart_package_sha256`
 - Repository-owned hooks: none
 - Implementation components: `ci_workflows.release_tag_authority.resolve_release_authority`, `ci_workflows.release_tag_authority.revalidate_release_authority`, `actions/resolve-release-tag`, `bootstrap-monolithic-workflow`
 - Deprecation replacement: `release.orchestrate`
