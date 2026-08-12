@@ -28,8 +28,9 @@ class CIWContractTests(unittest.TestCase):
             for item in contract["commands"]
         }
         self.assertEqual(expected, set(runtime_command_index()))
-        self.assertEqual(24, len(expected))
+        self.assertEqual(25, len(expected))
         self.assertIn("android validate", expected)
+        self.assertIn("apple validate", expected)
         self.assertIn("flutter validate", expected)
         self.assertIn("python validate", expected)
         self.assertIn("node validate", expected)
@@ -48,6 +49,7 @@ class CIWContractTests(unittest.TestCase):
                 "source",
                 "runners",
                 "android",
+                "apple",
                 "flutter",
                 "python",
                 "node",
@@ -80,6 +82,7 @@ class CIWContractTests(unittest.TestCase):
                 "scripts/ci/foundation.py",
                 "scripts/ci/release_tag_authority.py",
                 "scripts/ci/android.py",
+                "scripts/ci/apple.py",
                 "scripts/ci/python.py",
                 "scripts/ci/node.py",
                 "scripts/ci/gitops.py",
@@ -87,6 +90,7 @@ class CIWContractTests(unittest.TestCase):
             },
         )
         self.assertEqual(wrappers["scripts/ci/android.py"], {"android validate"})
+        self.assertEqual(wrappers["scripts/ci/apple.py"], {"apple validate"})
         self.assertEqual(wrappers["scripts/ci/python.py"], {"python validate"})
         self.assertEqual(wrappers["scripts/ci/node.py"], {"node validate"})
         self.assertEqual(wrappers["scripts/ci/gitops.py"], {"gitops validate"})
