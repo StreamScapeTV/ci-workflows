@@ -120,14 +120,14 @@ contract-selected execution job. Both check out the central implementation by
 called-workflow identity and the admitted Flux source by exact SHA. The thin
 composite action invokes only the Python adapter.
 
-The registered `.github/workflows/internal-flux-infrastructure-assets.yml` leaf
-is a separate composition-only component on `[linux, amd64, general]`. It does
-not accept runner labels, does not call another reusable workflow, and owns no
-registry or cluster credential. It is staged for final dependency composition
-but is not yet called by the public workflow because GitHub's reusable-call job
-syntax excludes `timeout-minutes` while the current repository harness requires
-a timeout on every job. Final shared integration must reconcile that rule rather
-than committing GitHub-invalid YAML.
+The registered `.github/workflows/internal-flux-assets.yml` leaf is a separate
+composition-only component on `[linux, amd64, general]`. It does not accept
+runner labels, does not call another reusable workflow, and owns no registry or
+cluster credential. It is staged for final dependency composition but is not yet
+called by the public workflow because GitHub's reusable-call job syntax excludes
+`timeout-minutes` while the current repository harness requires a timeout on
+every job. Final shared integration must reconcile that rule rather than
+committing GitHub-invalid YAML.
 
 Transient state is issue-owned beneath `RUNNER_TEMP`; cleanup unlinks a symlink
 root rather than following it and residue verification fails if any state

@@ -279,7 +279,7 @@ class WorkflowRecoveryTests(unittest.TestCase):
 
     def test_internal_leaf_exists_without_nested_reusable_workflow_calls(self) -> None:
         source = (
-            ROOT / ".github/workflows/internal-flux-infrastructure-assets.yml"
+            ROOT / ".github/workflows/internal-flux-assets.yml"
         ).read_text(encoding="utf-8")
         self.assertIn("workflow_call:", source)
         self.assertIn("runs-on: [linux, amd64, general]", source)

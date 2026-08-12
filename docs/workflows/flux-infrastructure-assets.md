@@ -128,12 +128,12 @@ it after review.
 
 ## Internal composition leaf
 
-`.github/workflows/internal-flux-infrastructure-assets.yml` is the bounded
-composition leaf named by the public contract. It accepts only exact product and
-identity data plus dependency evidence; it cannot call another reusable
-workflow and runs on ordinary `[linux, amd64, general]` capacity because it
-performs only source/evidence validation and composition. OCI/Helm publishers
-retain their own contract-selected Buildah runners.
+`.github/workflows/internal-flux-assets.yml` is the bounded composition leaf
+named by the public contract. It accepts only exact product and identity data
+plus dependency evidence; it cannot call another reusable workflow and runs on
+ordinary `[linux, amd64, general]` capacity because it performs only
+source/evidence validation and composition. OCI/Helm publishers retain their
+own contract-selected Buildah runners.
 
 The public workflow does not call this leaf yet. GitHub permits only a restricted
 set of keywords on a job that calls a reusable workflow, while the current

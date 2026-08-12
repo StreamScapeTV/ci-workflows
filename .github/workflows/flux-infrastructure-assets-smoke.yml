@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/reusable-flux-infrastructure-assets.yml
-      - .github/workflows/internal-flux-infrastructure-assets.yml
+      - .github/workflows/internal-flux-assets.yml
       - .github/workflows/flux-infrastructure-assets-smoke.yml
       - actions/flux-assets/**
       - contracts/flux-infrastructure-products*.json
