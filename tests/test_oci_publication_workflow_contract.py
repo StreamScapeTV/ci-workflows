@@ -21,6 +21,8 @@ class OciPublicationWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("registry_repository:", text)
         self.assertIn("registry_username:", text)
         self.assertIn("registry_token:", text)
+        self.assertIn("platform_set:", text)
+        self.assertIn("name: Release / OCI publication", text)
         for stage in (
             "Resolve contract-owned product, destination, and runner",
             "Rebuild and inspect exact source through OCI build contract",
@@ -56,8 +58,16 @@ class OciPublicationWorkflowContractTests(unittest.TestCase):
         self.assertFalse(request["additionalProperties"])
         self.assertEqual(
             set(request["properties"]),
-            {"admitted_sha", "release_authority_sha", "product_id", "release_version"},
+            {"admitted_sha", "product_id", "release_version", "platform_set"},
         )
+
+    def test_public_workflow_exposes_exact_registered_outputs(self) -> None:
+        text = (ROOT / ".github/workflows/reusable-oci-publish.yml").read_text(encoding="utf-8")
+        call_section = text.split("permissions:", 1)[0]
+        for name in ("result", "image_digest", "platform_digests_json", "immutable_references_json"):
+            self.assertIn(f"      {name}:\n", call_section)
+        for old in ("repositories_json", "version_references_json", "source_references_json", "replayed", "evidence_id", "canary_id", "rollback_id"):
+            self.assertNotIn(f"      {old}:\n", call_section)
 
 
 if __name__ == "__main__":
