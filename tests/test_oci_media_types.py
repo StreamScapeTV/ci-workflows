@@ -12,6 +12,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from ci_workflows import oci_execution_safe as safe  # noqa: E402
 from ci_workflows.oci_execution import inspect_layout  # noqa: E402
 from ci_workflows.oci_types import OciBuildError, OciTarget  # noqa: E402
 
@@ -178,6 +179,17 @@ class OciMediaTypeTests(unittest.TestCase):
             wrap_in_buildah_oci_envelope(layout)
             result = inspect_layout(layout, self.target, self.labels)
         self.assertEqual("linux/amd64", result.platform_results[0].platform)
+
+    def test_buildah_named_oci_layout_envelope_is_visible_to_safe_filesystem_assertions(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            layout = make_layout(Path(temp), self.labels)
+            direct = safe._manifest_layer_sets(layout)
+            wrap_in_buildah_oci_envelope(layout)
+            nested = safe._manifest_layer_sets(layout)
+            self.assertEqual(direct, nested)
+            self.assertEqual(1, len(nested))
+            self.assertEqual(1, len(nested[0]))
+            safe._assert_target_filesystem(layout, self.target)
 
     def test_non_oci_top_level_media_type_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
