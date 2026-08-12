@@ -75,7 +75,7 @@ def _inspect_remote_digest(reference: str, authfile: Path) -> str | None:
     if result.returncode == 0:
         _require(bool(result.stdout), "registry_inspection_failed")
         return "sha256:" + hashlib.sha256(result.stdout).hexdigest()
-    stderr = result.stderr.casefold()
+    stderr = result.stderr.lower()
     if any(marker in stderr for marker in _ABSENCE_MARKERS):
         return None
     raise OciPublishError("registry_inspection_failed")
