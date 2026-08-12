@@ -374,7 +374,7 @@ def _safe_tar_member(
                 )
                 total += max(member.size, 0)
                 _require(
-                    total <= pin.max_bytes * 2,
+                    total <= pin.max_unpacked_bytes,
                     "tool_archive_rejected",
                     pin.name,
                 )
@@ -391,9 +391,9 @@ def _safe_tar_member(
                 "tool_archive_rejected",
                 pin.name,
             )
-            data = stream.read(pin.max_bytes + 1)
+            data = stream.read(pin.max_unpacked_bytes + 1)
             _require(
-                len(data) <= pin.max_bytes,
+                len(data) <= pin.max_unpacked_bytes,
                 "tool_archive_rejected",
                 pin.name,
             )
@@ -460,7 +460,7 @@ def _safe_wheel(
                 )
                 total += member.file_size
                 _require(
-                    total <= pin.max_bytes * 2,
+                    total <= pin.max_unpacked_bytes,
                     "tool_archive_rejected",
                     pin.name,
                 )

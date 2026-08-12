@@ -56,18 +56,37 @@ _EXPECTED_TOOLS = {
         "url": "https://get.helm.sh/helm-v3.18.6-linux-amd64.tar.gz",
         "sha256": "3f43c0aa57243852dd542493a0f54f1396c0bc8ec7296bbb2c01e802010819ce",
         "archive_member": "linux-amd64/helm",
+        "max_bytes": 30_000_000,
+        "max_unpacked_bytes": 61_000_000,
+        "version_args": ["version", "--short"],
+        "version_pattern": r"v3\.18\.6(?:\+g[0-9a-f]+)?",
+        "allowed_hosts": ["get.helm.sh"],
     },
     "kustomize": {
         "version": "5.8.1",
         "url": "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/v5.8.1/kustomize_v5.8.1_linux_amd64.tar.gz",
         "sha256": "029a7f0f4e1932c52a0476cf02a0fd855c0bb85694b82c338fc648dcb53a819d",
         "archive_member": "kustomize",
+        "max_bytes": 20_000_000,
+        "max_unpacked_bytes": 13_000_000,
+        "version_args": ["version"],
+        "version_pattern": r"v?5\.8\.1",
+        "allowed_hosts": [
+            "github.com",
+            "release-assets.githubusercontent.com",
+            "objects.githubusercontent.com",
+        ],
     },
     "pyyaml": {
         "version": "6.0.3",
         "url": "https://files.pythonhosted.org/packages/8b/9d/b3589d3877982d4f2329302ef98a8026e7f4443c765c46cfecc8858c6b4b/pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
         "sha256": "ba1cc08a7ccde2d2ec775841541641e4548226580ab850948cbfda66a1befcdc",
         "archive_member": "yaml/__init__.py",
+        "max_bytes": 3_000_000,
+        "max_unpacked_bytes": 3_000_000,
+        "version_args": ["--version"],
+        "version_pattern": r"6\.0\.3",
+        "allowed_hosts": ["files.pythonhosted.org"],
     },
 }
 
@@ -188,13 +207,24 @@ def _tool(name: str, raw: object) -> GitOpsToolPin:
             "sha256",
             "archive_member",
             "max_bytes",
+            "max_unpacked_bytes",
             "version_args",
             "version_pattern",
             "allowed_hosts",
         },
     )
     expected = _EXPECTED_TOOLS[name]
-    for field in ("version", "url", "sha256", "archive_member"):
+    for field in (
+        "version",
+        "url",
+        "sha256",
+        "archive_member",
+        "max_bytes",
+        "max_unpacked_bytes",
+        "version_args",
+        "version_pattern",
+        "allowed_hosts",
+    ):
         require(row[field] == expected[field], "tool_identity_drift", f"{name}:{field}")
     require(_EXACT_VERSION.fullmatch(str(row["version"])) is not None, "contract_invalid")
     require(_SHA256.fullmatch(str(row["sha256"])) is not None, "contract_invalid")
@@ -204,6 +234,11 @@ def _tool(name: str, raw: object) -> GitOpsToolPin:
     require(parsed.hostname in allowed_hosts, "contract_invalid")
     require(
         isinstance(row["max_bytes"], int) and 1_000_000 <= row["max_bytes"] <= 100_000_000,
+        "contract_invalid",
+    )
+    require(
+        isinstance(row["max_unpacked_bytes"], int)
+        and 1_000_000 <= row["max_unpacked_bytes"] <= 100_000_000,
         "contract_invalid",
     )
     args = _strings(row["version_args"], empty=False)
@@ -223,6 +258,7 @@ def _tool(name: str, raw: object) -> GitOpsToolPin:
         sha256=str(row["sha256"]),
         archive_member=safe_relative(str(row["archive_member"]), allow_dot=False),
         max_bytes=int(row["max_bytes"]),
+        max_unpacked_bytes=int(row["max_unpacked_bytes"]),
         version_args=args,
         version_pattern=str(row["version_pattern"]),
         allowed_hosts=allowed_hosts,

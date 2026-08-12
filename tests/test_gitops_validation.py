@@ -90,6 +90,9 @@ exit 2
         self.assertEqual('3.18.6', payload['tools']['helm']['version'])
         self.assertEqual('5.8.1', payload['tools']['kustomize']['version'])
         self.assertEqual(64, len(payload['tools']['helm']['sha256']))
+        self.assertEqual(61_000_000, payload['tools']['helm']['max_unpacked_bytes'])
+        self.assertEqual(13_000_000, payload['tools']['kustomize']['max_unpacked_bytes'])
+        self.assertEqual(3_000_000, payload['tools']['pyyaml']['max_unpacked_bytes'])
         self.assertTrue(all(payload['cleanup'].values()))
 
     def test_request_rejects_caller_selected_authority_and_fork_privilege(self) -> None:
@@ -241,7 +244,7 @@ exit 2
                 execute_gitops_plan(plan, self.source, self.state, tools=self._fake_tools())
 
     def test_safe_archive_rejects_traversal_and_accepts_exact_member(self) -> None:
-        pin = GitOpsToolPin(name='helm', version='3.18.6', url='https://get.helm.sh/helm-v3.18.6-linux-amd64.tar.gz', sha256='0' * 64, archive_member='linux-amd64/helm', max_bytes=1024, version_args=('version',), version_pattern='3.18.6', allowed_hosts=('get.helm.sh',))
+        pin = GitOpsToolPin(name='helm', version='3.18.6', url='https://get.helm.sh/helm-v3.18.6-linux-amd64.tar.gz', sha256='0' * 64, archive_member='linux-amd64/helm', max_bytes=1024, max_unpacked_bytes=1024, version_args=('version',), version_pattern='3.18.6', allowed_hosts=('get.helm.sh',))
         archive = self.base / 'tool.tar.gz'
         with tarfile.open(archive, 'w:gz') as handle:
             data = b'binary'
@@ -259,8 +262,19 @@ exit 2
         with self.assertRaisesRegex(GitOpsValidationError, 'tool_archive_rejected'):
             _safe_tar_member(archive, pin, output)
 
+    def test_safe_archive_rejects_expansion_above_pinned_unpacked_limit(self) -> None:
+        pin = GitOpsToolPin(name='helm', version='3.18.6', url='https://get.helm.sh/helm-v3.18.6-linux-amd64.tar.gz', sha256='0' * 64, archive_member='linux-amd64/helm', max_bytes=1024, max_unpacked_bytes=8, version_args=('version',), version_pattern='3.18.6', allowed_hosts=('get.helm.sh',))
+        archive = self.base / 'expanded-tool.tar.gz'
+        with tarfile.open(archive, 'w:gz') as handle:
+            data = b'012345678'
+            member = tarfile.TarInfo('linux-amd64/helm')
+            member.size = len(data)
+            handle.addfile(member, io.BytesIO(data))
+        with self.assertRaisesRegex(GitOpsValidationError, 'tool_archive_rejected'):
+            _safe_tar_member(archive, pin, self.base / 'expanded-helm')
+
     def test_tool_state_writes_reject_preexisting_symlinks(self) -> None:
-        pin = GitOpsToolPin(name='helm', version='3.18.6', url='https://get.helm.sh/helm-v3.18.6-linux-amd64.tar.gz', sha256='0' * 64, archive_member='linux-amd64/helm', max_bytes=1024, version_args=('version',), version_pattern='3.18.6', allowed_hosts=('get.helm.sh',))
+        pin = GitOpsToolPin(name='helm', version='3.18.6', url='https://get.helm.sh/helm-v3.18.6-linux-amd64.tar.gz', sha256='0' * 64, archive_member='linux-amd64/helm', max_bytes=1024, max_unpacked_bytes=1024, version_args=('version',), version_pattern='3.18.6', allowed_hosts=('get.helm.sh',))
         outside = self.base / 'outside-sentinel'
         outside.write_text('keep', encoding='utf-8')
         archive = self.base / 'tool.tar.gz'
@@ -284,7 +298,7 @@ exit 2
         self.assertEqual('keep', outside.read_text(encoding='utf-8'))
 
     def test_download_rejects_every_redirect_hop_outside_pinned_hosts(self) -> None:
-        pin = GitOpsToolPin(name='helm', version='3.18.6', url='https://get.helm.sh/helm-v3.18.6-linux-amd64.tar.gz', sha256='0' * 64, archive_member='linux-amd64/helm', max_bytes=1024 * 1024, version_args=('version',), version_pattern='3.18.6', allowed_hosts=('get.helm.sh',))
+        pin = GitOpsToolPin(name='helm', version='3.18.6', url='https://get.helm.sh/helm-v3.18.6-linux-amd64.tar.gz', sha256='0' * 64, archive_member='linux-amd64/helm', max_bytes=1024 * 1024, max_unpacked_bytes=1024 * 1024, version_args=('version',), version_pattern='3.18.6', allowed_hosts=('get.helm.sh',))
 
         class RedirectingOpener:
             def __init__(self, handler):

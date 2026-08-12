@@ -110,6 +110,42 @@ class CIWCLITests(unittest.TestCase):
             self.assertEqual(values["artifact_exception_used"], "false")
             self.assertNotIn("callback", output.read_text(encoding="utf-8"))
 
+    def test_gitops_plan_dispatch_resolves_contract_owned_runner(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "output"
+            environment = {
+                "GITHUB_OUTPUT": str(output),
+                "GITHUB_REPOSITORY": "StreamScapeTV/ci-workflows",
+                "GITHUB_EVENT_NAME": "push",
+                "INPUT_ADMITTED_SHA": "e" * 40,
+                "INPUT_VALIDATION_PROFILE": "full",
+                "INPUT_CONSUMER_CONTRACT": "synthetic",
+                "INPUT_POLICY_SCRIPT_PROFILE": "synthetic-policy",
+            }
+            errors = io.StringIO()
+            code = ciw.main(
+                [
+                    "--root",
+                    str(ROOT),
+                    "gitops",
+                    "validate",
+                    "--phase",
+                    "plan",
+                ],
+                environment=environment,
+                stdout=io.StringIO(),
+                stderr=errors,
+            )
+            self.assertEqual(0, code, errors.getvalue())
+            values = dict(
+                line.split("=", 1)
+                for line in output.read_text(encoding="utf-8").splitlines()
+            )
+            self.assertEqual(values["result"], "planned")
+            self.assertEqual(values["runner_profile"], "portable")
+            self.assertEqual(values["runs_on_json"], '["linux","amd64","general"]')
+            self.assertNotIn("callback", output.read_text(encoding="utf-8"))
+
     def test_flutter_plan_dispatch_resolves_contract_owned_mobile_runner(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "output"
@@ -382,7 +418,7 @@ class CIWCLITests(unittest.TestCase):
                 dispatch.call_args.args[0],
             )
 
-    def test_scripts_and_thirteen_actions_are_compatibility_delegates(self) -> None:
+    def test_scripts_and_fourteen_actions_are_compatibility_delegates(self) -> None:
         for script in (
             "scripts/ci/resolve_source.py",
             "scripts/ci/runner_contract.py",
@@ -391,6 +427,7 @@ class CIWCLITests(unittest.TestCase):
             "scripts/ci/python.py",
             "scripts/ci/node.py",
             "scripts/ci/android.py",
+            "scripts/ci/gitops.py",
         ):
             source = (ROOT / script).read_text(encoding="utf-8")
             self.assertTrue(
@@ -400,7 +437,7 @@ class CIWCLITests(unittest.TestCase):
                 script,
             )
         actions = sorted((ROOT / "actions").glob("*/action.yml"))
-        self.assertEqual(13, len(actions))
+        self.assertEqual(14, len(actions))
         for action in actions:
             source = action.read_text(encoding="utf-8")
             self.assertIn("scripts/ci/ciw.py", source, action.as_posix())

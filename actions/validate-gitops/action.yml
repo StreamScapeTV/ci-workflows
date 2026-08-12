@@ -90,6 +90,7 @@ runs:
         INPUT_ARTIFACT_EXCEPTION_ID: ${{ inputs.artifact_exception_id }}
       run: |
         set -Eeuo pipefail
-        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/gitops.py" \
-          "${{ inputs.phase }}" \
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
+          gitops validate \
+          --phase "${{ inputs.phase }}" \
           --source-root source

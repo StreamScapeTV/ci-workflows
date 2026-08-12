@@ -44,6 +44,7 @@ class GitOpsToolPin:
     sha256: str
     archive_member: str
     max_bytes: int
+    max_unpacked_bytes: int
     version_args: tuple[str, ...]
     version_pattern: str
     allowed_hosts: tuple[str, ...]

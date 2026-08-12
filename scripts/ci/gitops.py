@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compatibility adapter for bounded GitOps validation."""
+"""Compatibility adapter for the bounded GitOps validation command."""
 from __future__ import annotations
 
 import sys
@@ -10,8 +10,10 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from ci_workflows.ciw_gitops import main  # noqa: E402
+from ci_workflows.ciw import main  # noqa: E402
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(["--root", str(ROOT), *sys.argv[1:]]))
+    raise SystemExit(
+        main(["--root", str(ROOT), "gitops", "validate", *sys.argv[1:]])
+    )
