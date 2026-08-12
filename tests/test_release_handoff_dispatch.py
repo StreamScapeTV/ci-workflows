@@ -29,6 +29,8 @@ class FakeResponse:
 
 class ReleaseHandoffDispatchTest(unittest.TestCase):
     def payload(self) -> dict[str, object]:
+        image_digest = "sha256:" + "c" * 64
+        chart_digest = "sha256:" + "d" * 64
         return {
             "schema_version": 1,
             "kind": "flux-selection-request",
@@ -41,7 +43,27 @@ class ReleaseHandoffDispatchTest(unittest.TestCase):
             "github_release_url": (
                 "https://github.com/StreamScapeTV/iptv-backend/releases/tag/v1.2.3"
             ),
-            "products": [],
+            "products": [
+                {
+                    "product_id": "iptv-backend-image",
+                    "kind": "oci-image",
+                    "digest": image_digest,
+                    "digests": {"server": image_digest},
+                    "immutable_references": [
+                        f"ghcr.io/streamscapetv/iptv-backend@{image_digest}"
+                    ],
+                },
+                {
+                    "product_id": "iptv-backend-chart",
+                    "kind": "helm-chart",
+                    "digest": chart_digest,
+                    "digests": {"primary": chart_digest},
+                    "immutable_references": [
+                        "oci://git.faruqi.dev/mimranfaruqi/helm-charts/"
+                        "iptv-backend:1.2.3"
+                    ],
+                },
+            ],
             "requested_action": "review-selection",
             "mutation_authorized": False,
             "secrets_included": False,
@@ -134,6 +156,60 @@ class ReleaseHandoffDispatchTest(unittest.TestCase):
         environment.pop("FLUX_HANDOFF_TOKEN", None)
         with (
             patch.dict(os.environ, environment, clear=True),
+            patch("urllib.request.urlopen") as urlopen,
+        ):
+            result = main(
+                [
+                    "--root",
+                    str(ROOT),
+                    "dispatch-handoff",
+                    "--request-id",
+                    "fixture-request-0003",
+                    "--flux-handoff-json",
+                    handoff,
+                    "--flux-handoff-sha256",
+                    digest,
+                ]
+            )
+        self.assertEqual(2, result)
+        urlopen.assert_not_called()
+
+    def test_digest_valid_extra_secret_field_is_rejected_before_network(self) -> None:
+        payload = self.payload()
+        payload["registry_token"] = "secret=must-not-cross-boundary"
+        handoff = canonical_json(payload)
+        digest = sha256_text(handoff)
+        with (
+            patch.dict(os.environ, {"FLUX_HANDOFF_TOKEN": "secret"}, clear=False),
+            patch("urllib.request.urlopen") as urlopen,
+        ):
+            result = main(
+                [
+                    "--root",
+                    str(ROOT),
+                    "dispatch-handoff",
+                    "--request-id",
+                    "fixture-request-0003",
+                    "--flux-handoff-json",
+                    handoff,
+                    "--flux-handoff-sha256",
+                    digest,
+                ]
+            )
+        self.assertEqual(2, result)
+        urlopen.assert_not_called()
+
+    def test_non_flux_release_cannot_smuggle_selection(self) -> None:
+        payload = self.payload()
+        payload["selection"] = {
+            "canary_id": "unexpected",
+            "previous_known_good": "unexpected",
+            "rollback_id": "unexpected",
+        }
+        handoff = canonical_json(payload)
+        digest = sha256_text(handoff)
+        with (
+            patch.dict(os.environ, {"FLUX_HANDOFF_TOKEN": "secret"}, clear=False),
             patch("urllib.request.urlopen") as urlopen,
         ):
             result = main(
