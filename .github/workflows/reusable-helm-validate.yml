@@ -81,7 +81,7 @@ jobs:
           values_profile: ${{ inputs.values_profile }}
           policy_path: ${{ inputs.policy_path }}
           artifact_exception_id: ${{ inputs.artifact_exception_id }}
-          source_trust: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'untrusted-fork' || github.event_name == 'pull_request' && 'trusted-pr' || 'trusted-exact' }}
+          source_trust: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && github.event.pull_request.head.repo.full_name != github.repository && 'untrusted-fork' || (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && 'trusted-pr' || 'trusted-exact' }}
 
   validate:
     name: CI / Helm validation
@@ -115,7 +115,7 @@ jobs:
       - name: Check out exact admitted caller source
         uses: ./.ciw/actions/exact-checkout
         with:
-          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          repository: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && github.event.pull_request.head.repo.full_name || github.repository }}
           admitted_sha: ${{ inputs.admitted_sha }}
           path: source
           fetch_depth: "1"
