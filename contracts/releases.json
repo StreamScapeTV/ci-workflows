@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "release_api": "release.orchestrate",
+  "release_api_version": "1.0.0",
+  "tag_policy": {
+    "default_mode": "tag-push",
+    "trusted_replay_mode": "existing-tag",
+    "version_pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+    "latest_forbidden": true,
+    "exact_source_required": true
+  },
+  "publication_policy": {
+    "remote_read_back_required": true,
+    "matching_replay": "idempotent",
+    "conflicting_replay": "fail-closed",
+    "partial_publication": "verify-and-resume",
+    "routine_actions_artifacts": "forbidden",
+    "deployment_separate": true
+  },
+  "releases": [
+    {
+      "release_id": "agent-state",
+      "repository": "StreamScapeTV/agent-state",
+      "image_product_id": "agent-state-image",
+      "chart_product_id": "agent-state-chart",
+      "chart_requires_image_identity": true,
+      "github_release": true,
+      "handoff": {
+        "kind": "flux-selection-request",
+        "target_repository": "StreamScapeTV/flux",
+        "requested_action": "review-selection",
+        "mutation_authorized": false
+      }
+    },
+    {
+      "release_id": "flux-runner-assets",
+      "repository": "StreamScapeTV/flux",
+      "image_product_id": "flux-runner-images",
+      "chart_product_id": "flux-runner-chart-assets",
+      "chart_requires_image_identity": true,
+      "github_release": true,
+      "handoff": {
+        "kind": "flux-selection-request",
+        "target_repository": "StreamScapeTV/flux",
+        "requested_action": "review-selection",
+        "mutation_authorized": false
+      }
+    },
+    {
+      "release_id": "iptv-backend",
+      "repository": "StreamScapeTV/iptv-backend",
+      "image_product_id": "iptv-backend-image",
+      "chart_product_id": "iptv-backend-chart",
+      "chart_requires_image_identity": true,
+      "github_release": true,
+      "handoff": {
+        "kind": "flux-selection-request",
+        "target_repository": "StreamScapeTV/flux",
+        "requested_action": "review-selection",
+        "mutation_authorized": false
+      }
+    }
+  ]
+}
