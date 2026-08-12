@@ -995,7 +995,13 @@ class ReusableTagImageChartTests(unittest.TestCase):
         self.assertIn("REGISTRY: git.faruqi.dev", self.text)
         self.assertIn("REGISTRY_NAMESPACE: mimranfaruqi", self.text)
         self.assertIn("CHART_NAMESPACE: mimranfaruqi/helm-charts", self.text)
-        self.assertEqual(2, self.text.count("    runs-on: buildah-high"))
+        self.assertEqual(
+            2,
+            self.text.count(
+                "    runs-on: [linux, amd64, buildah, high]"
+            ),
+        )
+        self.assertNotIn("runs-on: buildah-high", self.text)
         self.assertNotIn("self-hosted", self.text)
         for marker in (
             "! command -v docker",

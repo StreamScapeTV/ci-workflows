@@ -101,7 +101,7 @@ class ValidationHarnessTest(unittest.TestCase):
         path = self.root / ".github/workflows/reusable-sample.yml"
         text = path.read_text()
         text = text.replace(
-            "runs-on: portable",
+            "runs-on: [linux, amd64, general]",
             "runs-on: [self-hosted, consumer-label]",
         )
         text = text.replace("    timeout-minutes: 20\n", "")
