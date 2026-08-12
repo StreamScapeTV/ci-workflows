@@ -16,8 +16,10 @@ on:
       - 'scripts/ci/maintenance.py'
       - 'scripts/ci/flux_reconcile.py'
       - 'src/ci_workflows/maintenance*.py'
+      - 'src/ci_workflows/flux.py'
       - 'src/ci_workflows/flux_reconcile*.py'
       - 'tests/test_maintenance_*.py'
+      - 'tests/test_flux_component_facade.py'
       - 'tests/test_flux_reconcile_*.py'
       - 'tests/fixtures/organization-maintenance/**'
 permissions:
@@ -68,6 +70,7 @@ jobs:
               tests.test_maintenance_contract \
               tests.test_maintenance_runtime \
               tests.test_maintenance_security \
+              tests.test_flux_component_facade \
               tests.test_flux_reconcile_contract \
               tests.test_flux_reconcile_security \
               tests.test_maintenance_workflow_contract \
