@@ -71,6 +71,7 @@ jobs:
           PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 \
             python3 -m unittest -v \
               tests.test_flux_assets \
+              tests.test_flux_assets_dependency_alignment \
               tests.test_flux_assets_guards \
               tests.test_flux_assets_workflow_contract
 
@@ -83,6 +84,7 @@ jobs:
             src/ci_workflows/flux_assets.py \
             src/ci_workflows/flux_assets_guards.py \
             tests/test_flux_assets.py \
+            tests/test_flux_assets_dependency_alignment.py \
             tests/test_flux_assets_guards.py \
             tests/test_flux_assets_workflow_contract.py
 

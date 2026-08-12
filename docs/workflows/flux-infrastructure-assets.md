@@ -74,15 +74,19 @@ required OCI labels.
 ## Chart asset safety
 
 The two ARC chart inputs must retain the reviewed upstream repository, exact
-version, an immutable content digest, MIT license attribution, and evidence that
-no unreviewed template mutation occurred. Chart validation/publication is
-performed through the shared Helm dependency APIs and never installs a chart or
-contacts Kubernetes.
+version, an immutable content digest, Apache-2.0 license attribution, and
+evidence that no unreviewed template mutation occurred. #33 composes the
+canonical Helm dependency product `flux-github-actions-runner-chart` for both
+`helm.validate` and `helm.publish`; its own public product ID remains
+`flux-runner-chart-assets`. Chart validation/publication is performed through
+the shared Helm dependency APIs and never installs a chart or contacts
+Kubernetes.
 
 The Helm publication adapter preserves the exact immutable chart reference,
 remote `chart_digest`, and normalized package SHA-256 returned by #18. The chart
 reference must be an immutable OCI version matching the requested release; a
-mismatched digest/version or `latest` fails closed.
+mismatched digest/version or `latest` fails closed. Real upstream/mirror content
+digests remain Flux-owned evidence and are never invented by this repository.
 
 ## Immutable identity, replay, and read-back
 

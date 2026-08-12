@@ -27,7 +27,7 @@
       ]
     },
     "helm.validate": {
-      "product_id": "flux-runner-chart-assets",
+      "product_id": "flux-github-actions-runner-chart",
       "required_outputs": [
         "result",
         "chart_digest",
@@ -35,7 +35,7 @@
       ]
     },
     "helm.publish": {
-      "product_id": "flux-runner-chart-assets",
+      "product_id": "flux-github-actions-runner-chart",
       "required_outputs": [
         "result",
         "chart_digest",
@@ -182,7 +182,7 @@
           "id": "gha-runner-scale-set-controller",
           "upstream_repository": "oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller",
           "version": "0.14.2",
-          "license": "MIT",
+          "license": "Apache-2.0",
           "digest_required": true,
           "flux_source_file": "clusters/devops/flux-system-common/helm-repository/gha-runner-scale-set-controller.oci.yaml"
         },
@@ -190,7 +190,7 @@
           "id": "gha-runner-scale-set",
           "upstream_repository": "oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set",
           "version": "0.14.2",
-          "license": "MIT",
+          "license": "Apache-2.0",
           "digest_required": true,
           "flux_source_file": "clusters/devops/flux-system-common/helm-repository/gha-runner-scale-set.oci.yaml"
         }
