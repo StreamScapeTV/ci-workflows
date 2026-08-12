@@ -18,6 +18,9 @@ inputs:
   release_version:
     description: Exact stable SemVer release version without a v prefix
     required: true
+  platform_set:
+    description: Optional exact checked-in platform set confirmation; never an arbitrary matrix
+    required: false
   registry_username:
     description: Named registry credential username; used only by authenticate
     required: false
@@ -52,6 +55,10 @@ outputs:
     value: ${{ steps.publish.outputs.source_references_json }}
   manifest_digests_json:
     value: ${{ steps.publish.outputs.manifest_digests_json }}
+  image_digest:
+    value: ${{ steps.publish.outputs.image_digest }}
+  immutable_references_json:
+    value: ${{ steps.publish.outputs.immutable_references_json }}
   platform_digests_json:
     value: ${{ steps.publish.outputs.platform_digests_json }}
   replayed:
@@ -81,6 +88,7 @@ runs:
         INPUT_RELEASE_AUTHORITY_SHA: ${{ inputs.release_authority_sha }}
         INPUT_PRODUCT_ID: ${{ inputs.product_id }}
         INPUT_RELEASE_VERSION: ${{ inputs.release_version }}
+        INPUT_PLATFORM_SET: ${{ inputs.platform_set }}
         INPUT_REGISTRY_USERNAME: ${{ inputs.registry_username }}
         INPUT_REGISTRY_TOKEN: ${{ inputs.registry_token }}
       run: |
