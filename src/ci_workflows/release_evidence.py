@@ -2,13 +2,11 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import Any, Mapping
 
 from .release_types import ReleaseError
 
 
-SAFE_ID = re.compile(r"^[A-Za-z0-9._:@/+\-]{0,256}$")
 MAX_JSON_BYTES = 64 * 1024
 
 
@@ -27,36 +25,23 @@ def _mapping(value: str, code: str) -> Mapping[str, Any]:
     return parsed
 
 
-def _safe_id(value: str, code: str, *, required: bool = False) -> str:
-    candidate = value.strip()
-    require((not required or bool(candidate)) and SAFE_ID.fullmatch(candidate) is not None, code)
-    return candidate
-
-
 def image_publication_evidence(
     *,
+    result: str,
+    image_digest_json: str,
     platform_digests_json: str,
-    evidence_id: str,
-    replayed: str,
-    canary_id: str = "",
-    previous_known_good: str = "",
-    rollback_id: str = "",
+    immutable_references_json: str,
 ) -> dict[str, Any]:
+    require(result == "success", "image_evidence_rejected")
+    digests = _mapping(image_digest_json, "image_evidence_rejected")
     platforms = _mapping(platform_digests_json, "image_evidence_rejected")
-    evidence = _safe_id(evidence_id, "image_evidence_rejected", required=True)
-    require(replayed in {"true", "false"}, "image_evidence_rejected")
-    selection = {
-        "canary_id": _safe_id(canary_id, "image_evidence_rejected"),
-        "previous_known_good": _safe_id(previous_known_good, "image_evidence_rejected"),
-        "rollback_id": _safe_id(rollback_id, "image_evidence_rejected"),
-    }
-    populated = [bool(value) for value in selection.values()]
-    require(all(populated) or not any(populated), "image_evidence_rejected")
+    immutable = _mapping(immutable_references_json, "image_evidence_rejected")
+    require(bool(digests) and bool(platforms) and bool(immutable), "image_evidence_rejected")
     return {
-        "evidence_id": evidence,
+        "image_digest": digests,
+        "immutable_references": immutable,
         "platform_digests": platforms,
-        "replayed": replayed == "true",
-        "flux_selection": selection if all(populated) else None,
+        "result": "success",
     }
 
 
