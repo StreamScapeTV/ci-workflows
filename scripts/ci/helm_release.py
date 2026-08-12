@@ -18,11 +18,11 @@ from ci_workflows.helm_contract import (
     require,
 )
 from ci_workflows.helm_dependency_policy import resolve_validation_plan
+from ci_workflows.helm_manifest import remote_chart_manifest_digest
 from ci_workflows.helm_registry import publish_and_read_back
 from ci_workflows.helm_release import (
     load_release_bindings,
     parse_oci_publication_evidence,
-    remote_chart_manifest_digest,
     validate_and_package_release,
 )
 from ci_workflows.helm_types import HelmValidationError
