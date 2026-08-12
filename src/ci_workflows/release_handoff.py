@@ -16,7 +16,8 @@ IDENTIFIER = re.compile(r"^[a-z][a-z0-9-]{1,63}$")
 REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 SAFE_SELECTION_ID = re.compile(r"^[A-Za-z0-9._:@/+\-]{0,256}$")
 GITHUB_RELEASE = re.compile(
-    r"^https://github\.com/StreamScapeTV/[A-Za-z0-9_.-]+/releases/tag/[0-9A-Za-z.-]+$"
+    r"^https://github\.com/StreamScapeTV/[A-Za-z0-9_.-]+/releases/tag/"
+    r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$"
 )
 FORBIDDEN_TEXT = re.compile(
     r"(?i)(authorization\s*[:=]|password\s*[:=]|secret\s*[:=]|token\s*[:=]|"
@@ -184,7 +185,7 @@ def validate_flux_handoff_payload(value: Any) -> dict[str, Any]:
     )
     github_release_url = value.get("github_release_url")
     expected_release_url = (
-        f"https://github.com/{producer_repository}/releases/tag/v{version}"
+        f"https://github.com/{producer_repository}/releases/tag/{version}"
     )
     require(
         isinstance(github_release_url, str)
