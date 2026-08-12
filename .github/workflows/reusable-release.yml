@@ -71,6 +71,7 @@ jobs:
       request_id: ${{ steps.release.outputs.request_id }}
       image_product_id: ${{ steps.release.outputs.image_product_id }}
       chart_product_id: ${{ steps.release.outputs.chart_product_id }}
+      chart_requires_image_identity: ${{ steps.release.outputs.chart_requires_image_identity }}
       tag_object_sha: ${{ steps.authority.outputs.tag_object_sha }}
       tag_commit_sha: ${{ steps.authority.outputs.tag_commit_sha }}
       image_workspace_profile: ${{ steps.image_plan.outputs.workspace_profile }}
@@ -483,8 +484,8 @@ jobs:
           INPUT_PRODUCT_ID: ${{ needs.plan.outputs.chart_product_id }}
           INPUT_RELEASE_VERSION: ${{ needs.plan.outputs.release_version }}
           INPUT_SOURCE_TRUST: trusted-exact
-          INPUT_IMAGE_DIGEST: ${{ needs.publish_images.outputs.image_digest }}
-          INPUT_IMMUTABLE_REFERENCES_JSON: ${{ needs.publish_images.outputs.immutable_references_json }}
+          INPUT_IMAGE_DIGEST: ${{ needs.plan.outputs.chart_requires_image_identity == 'true' && needs.publish_images.outputs.image_digest || '' }}
+          INPUT_IMMUTABLE_REFERENCES_JSON: ${{ needs.plan.outputs.chart_requires_image_identity == 'true' && needs.publish_images.outputs.immutable_references_json || '' }}
           INPUT_REGISTRY_USERNAME: ${{ secrets.registry_username }}
           INPUT_REGISTRY_TOKEN: ${{ secrets.registry_token }}
         run: |
