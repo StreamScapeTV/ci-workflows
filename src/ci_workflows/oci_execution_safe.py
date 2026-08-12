@@ -52,30 +52,35 @@ def _layer_paths(layout: Path, layer_digests: Sequence[str]) -> set[str]:
 
 
 def _manifest_layer_sets(layout: Path) -> tuple[tuple[str, ...], ...]:
+    """Return verified layer sets from direct or Buildah-named OCI indexes."""
+
     try:
         index = base._read_json(layout / "index.json")
+        descriptors = base._image_manifest_descriptors(layout, index)
     except OciBuildError:
         raise
     except OSError as error:
         raise OciBuildError("oci_layout_malformed") from error
-    if not isinstance(index, dict) or not isinstance(index.get("manifests"), list):
-        raise OciBuildError("oci_layout_malformed")
+
     sets: list[tuple[str, ...]] = []
-    for descriptor in index["manifests"]:
-        if not isinstance(descriptor, dict) or not isinstance(descriptor.get("digest"), str):
-            raise OciBuildError("oci_layout_malformed")
-        try:
-            manifest = json.loads(base._blob(layout, descriptor["digest"]).read_text(encoding="utf-8"))
-        except json.JSONDecodeError as error:
-            raise OciBuildError("oci_layout_malformed") from error
-        layers = manifest.get("layers") if isinstance(manifest, dict) else None
-        if not isinstance(layers, list):
+    for descriptor in descriptors:
+        manifest_blob, _ = base._descriptor_blob(
+            layout,
+            descriptor,
+            frozenset({base._MANIFEST_MEDIA_TYPE}),
+        )
+        manifest = base._read_json(manifest_blob)
+        if (
+            not isinstance(manifest, dict)
+            or manifest.get("schemaVersion") != 2
+            or manifest.get("mediaType") not in {None, base._MANIFEST_MEDIA_TYPE}
+            or not isinstance(manifest.get("layers"), list)
+        ):
             raise OciBuildError("oci_layout_malformed")
         digests: list[str] = []
-        for layer in layers:
-            if not isinstance(layer, dict) or not isinstance(layer.get("digest"), str):
-                raise OciBuildError("oci_layout_malformed")
-            digests.append(layer["digest"])
+        for layer in manifest["layers"]:
+            _, digest = base._descriptor_blob(layout, layer, base._LAYER_MEDIA_TYPES)
+            digests.append(digest)
         sets.append(tuple(digests))
     return tuple(sets)
 
