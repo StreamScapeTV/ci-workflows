@@ -140,6 +140,7 @@ class OciWorkflowContractTests(unittest.TestCase):
             "Verify zero-artifact audit token scope residue is absent",
         ):
             self.assertIn(f"name: {cleanup}\n        if: always()", self.smoke)
+        self.assertEqual(2, self.smoke.count('if test -z "${TOKEN_SCOPE}"; then'))
         self.assertIn("unset GITHUB_TOKEN", self.smoke)
         self.assertIn("Project OCI smoke artifact audit status", self.smoke)
 
