@@ -11,6 +11,7 @@ from ci_workflows.ciw_types import CIWError, CIWResult, project_error, write_com
 from ci_workflows.foundation_types import FoundationError
 from ci_workflows.gitops_types import GitOpsValidationError
 from ci_workflows.node_types import NodeValidationError
+from ci_workflows.oci_types import OciBuildError
 from ci_workflows.python_types import PythonValidationError
 from ci_workflows.release_tag_authority import ReleaseTagError
 from ci_workflows.runners import RunnerContractError
@@ -29,11 +30,11 @@ class CIWContractTests(unittest.TestCase):
         self.assertEqual(expected, set(runtime_command_index()))
         self.assertEqual(24, len(expected))
         self.assertIn("android validate", expected)
-        self.assertIn("apple validate", expected)
         self.assertIn("flutter validate", expected)
         self.assertIn("python validate", expected)
         self.assertIn("node validate", expected)
         self.assertIn("gitops validate", expected)
+        self.assertIn("oci validate", expected)
         self.assertEqual(len(command_specs()), len(expected))
         validate_runtime_contract(ROOT)
 
@@ -47,11 +48,11 @@ class CIWContractTests(unittest.TestCase):
                 "source",
                 "runners",
                 "android",
-                "apple",
                 "flutter",
                 "python",
                 "node",
                 "gitops",
+                "oci",
                 "workspace",
                 "tooling",
                 "dependencies",
@@ -79,17 +80,17 @@ class CIWContractTests(unittest.TestCase):
                 "scripts/ci/foundation.py",
                 "scripts/ci/release_tag_authority.py",
                 "scripts/ci/android.py",
-                "scripts/ci/apple.py",
                 "scripts/ci/python.py",
                 "scripts/ci/node.py",
                 "scripts/ci/gitops.py",
+                "scripts/ci/oci.py",
             },
         )
         self.assertEqual(wrappers["scripts/ci/android.py"], {"android validate"})
-        self.assertEqual(wrappers["scripts/ci/apple.py"], {"apple validate"})
         self.assertEqual(wrappers["scripts/ci/python.py"], {"python validate"})
         self.assertEqual(wrappers["scripts/ci/node.py"], {"node validate"})
         self.assertEqual(wrappers["scripts/ci/gitops.py"], {"gitops validate"})
+        self.assertEqual(wrappers["scripts/ci/oci.py"], {"oci validate"})
         for path in wrappers:
             self.assertTrue((ROOT / path).is_file())
 
@@ -100,6 +101,7 @@ class CIWContractTests(unittest.TestCase):
             (PythonValidationError("dependency_lock_drift"), "python", "dependency_lock_drift"),
             (NodeValidationError("lockfile_drift"), "node", "lockfile_drift"),
             (GitOpsValidationError("tool_archive_rejected"), "gitops", "tool_archive_rejected"),
+            (OciBuildError("oci_layout_malformed"), "oci", "oci_layout_malformed"),
             (FoundationError("cleanup_residue_detected"), "workspace", "cleanup_residue_detected"),
             (ReleaseTagError("release_tag_moved"), "release-tag", "release_tag_moved"),
         )

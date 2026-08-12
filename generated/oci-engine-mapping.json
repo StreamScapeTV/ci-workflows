@@ -1,0 +1,92 @@
+{
+  "contract_version": "1.0.0",
+  "mapping_sha256": "45906aa8b4b3402b5324df5f673aa1eb0b05a487e829744f50ddaa270ad5bd58",
+  "products": {
+    "agent-state-image": {
+      "builder_id": "buildah-v1",
+      "runner_profile": "buildah-small",
+      "runs_on": [
+        "linux",
+        "amd64",
+        "buildah",
+        "small"
+      ],
+      "storage_driver": "vfs",
+      "targets": [
+        {
+          "platforms": [
+            "linux/amd64",
+            "linux/arm64/v8"
+          ],
+          "target_id": "agent-state-api"
+        }
+      ]
+    },
+    "ciw-oci-smoke": {
+      "builder_id": "buildah-v1",
+      "runner_profile": "buildah-tiny",
+      "runs_on": [
+        "linux",
+        "amd64",
+        "buildah",
+        "tiny"
+      ],
+      "storage_driver": "vfs",
+      "targets": [
+        {
+          "platforms": [
+            "linux/amd64"
+          ],
+          "target_id": "contract-smoke"
+        }
+      ]
+    },
+    "flux-runner-images": {
+      "builder_id": "buildah-v1",
+      "runner_profile": "buildah-high",
+      "runs_on": [
+        "linux",
+        "amd64",
+        "buildah",
+        "high"
+      ],
+      "storage_driver": "vfs",
+      "targets": [
+        {
+          "platforms": [
+            "linux/amd64"
+          ],
+          "target_id": "runner-buildah"
+        },
+        {
+          "platforms": [
+            "linux/amd64"
+          ],
+          "target_id": "runner-mobile"
+        }
+      ]
+    },
+    "iptv-backend-image": {
+      "builder_id": "buildah-v1",
+      "runner_profile": "buildah-medium",
+      "runs_on": [
+        "linux",
+        "amd64",
+        "buildah",
+        "medium"
+      ],
+      "storage_driver": "vfs",
+      "targets": [
+        {
+          "platforms": [
+            "linux/amd64",
+            "linux/arm64/v8"
+          ],
+          "target_id": "iptv-backend"
+        }
+      ]
+    }
+  },
+  "schema_version": 1,
+  "workflow_api": "oci.build"
+}

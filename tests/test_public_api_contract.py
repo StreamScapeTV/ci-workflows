@@ -33,7 +33,6 @@ class PublicApiContractTests(unittest.TestCase):
         self.assertEqual(
             self.data.index["workflow_count"], len(self.data.workflows)
         )
-        self.assertEqual("implemented", self.workflows["validation.apple"]["status"])
 
     def test_every_trust_mode_has_valid_and_invalid_caller_evidence(self) -> None:
         fixtures = json.loads(
