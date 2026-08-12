@@ -12,11 +12,11 @@ on:
         required: true
         type: string
       release_tag:
-        description: Exact immutable v-prefixed release tag
+        description: Exact canonical stable SemVer product tag
         required: true
         type: string
       release_version:
-        description: Exact stable SemVer release version without v prefix
+        description: Exact stable SemVer release version
         required: true
         type: string
       request_id:
@@ -72,6 +72,7 @@ jobs:
       image_product_id: ${{ steps.release.outputs.image_product_id }}
       chart_product_id: ${{ steps.release.outputs.chart_product_id }}
       chart_requires_image_identity: ${{ steps.release.outputs.chart_requires_image_identity }}
+      release_mode: ${{ steps.authority.outputs.release_mode }}
       tag_object_sha: ${{ steps.authority.outputs.tag_object_sha }}
       tag_commit_sha: ${{ steps.authority.outputs.tag_commit_sha }}
       image_workspace_profile: ${{ steps.image_plan.outputs.workspace_profile }}
@@ -117,13 +118,56 @@ jobs:
             --request-id "${{ inputs.request_id }}" \
             --target-id "${{ inputs.target_id }}"
 
-      - id: authority
-        name: Resolve exact existing tag authority
+      - id: authority_tag
+        name: Resolve exact tag-push authority
+        if: ${{ github.ref_type == 'tag' }}
+        uses: ./.ciw/actions/resolve-release-tag
+        with:
+          release_mode: tag-push
+
+      - id: authority_replay
+        name: Resolve exact trusted existing-tag authority
+        if: ${{ github.ref_type != 'tag' }}
         uses: ./.ciw/actions/resolve-release-tag
         with:
           release_mode: existing-tag
           release_version: ${{ steps.release.outputs.release_version }}
           release_source_sha: ${{ steps.release.outputs.admitted_sha }}
+
+      - id: authority
+        name: Bind resolved tag authority to the public request
+        shell: bash
+        env:
+          TAG_MODE: ${{ steps.authority_tag.outputs.release_mode }}
+          TAG_VERSION: ${{ steps.authority_tag.outputs.release_version }}
+          TAG_SOURCE_SHA: ${{ steps.authority_tag.outputs.release_source_sha }}
+          TAG_OBJECT_SHA: ${{ steps.authority_tag.outputs.tag_object_sha }}
+          TAG_COMMIT_SHA: ${{ steps.authority_tag.outputs.tag_commit_sha }}
+          REPLAY_MODE: ${{ steps.authority_replay.outputs.release_mode }}
+          REPLAY_VERSION: ${{ steps.authority_replay.outputs.release_version }}
+          REPLAY_SOURCE_SHA: ${{ steps.authority_replay.outputs.release_source_sha }}
+          REPLAY_OBJECT_SHA: ${{ steps.authority_replay.outputs.tag_object_sha }}
+          REPLAY_COMMIT_SHA: ${{ steps.authority_replay.outputs.tag_commit_sha }}
+          REQUESTED_TAG: ${{ steps.release.outputs.release_tag }}
+          REQUESTED_VERSION: ${{ steps.release.outputs.release_version }}
+          REQUESTED_SHA: ${{ steps.release.outputs.admitted_sha }}
+        run: |
+          set -Eeuo pipefail
+          mode="${TAG_MODE:-${REPLAY_MODE}}"
+          version="${TAG_VERSION:-${REPLAY_VERSION}}"
+          source_sha="${TAG_SOURCE_SHA:-${REPLAY_SOURCE_SHA}}"
+          object_sha="${TAG_OBJECT_SHA:-${REPLAY_OBJECT_SHA}}"
+          commit_sha="${TAG_COMMIT_SHA:-${REPLAY_COMMIT_SHA}}"
+          test -n "${mode}"
+          test "${REQUESTED_TAG}" = "${version}"
+          test "${REQUESTED_VERSION}" = "${version}"
+          test "${REQUESTED_SHA}" = "${source_sha}"
+          test "${REQUESTED_SHA}" = "${commit_sha}"
+          printf 'release_mode=%s\n' "${mode}" >> "${GITHUB_OUTPUT}"
+          printf 'release_version=%s\n' "${version}" >> "${GITHUB_OUTPUT}"
+          printf 'release_source_sha=%s\n' "${source_sha}" >> "${GITHUB_OUTPUT}"
+          printf 'tag_object_sha=%s\n' "${object_sha}" >> "${GITHUB_OUTPUT}"
+          printf 'tag_commit_sha=%s\n' "${commit_sha}" >> "${GITHUB_OUTPUT}"
 
       - id: image_plan
         name: Resolve OCI product, destination, and runner
@@ -176,7 +220,7 @@ jobs:
         uses: ./.ciw/actions/resolve-release-tag
         with:
           phase: revalidate
-          release_mode: existing-tag
+          release_mode: ${{ needs.plan.outputs.release_mode }}
           release_version: ${{ needs.plan.outputs.release_version }}
           release_source_sha: ${{ needs.plan.outputs.admitted_sha }}
           expected_tag_object_sha: ${{ needs.plan.outputs.tag_object_sha }}
@@ -253,7 +297,7 @@ jobs:
         uses: ./.ciw/actions/resolve-release-tag
         with:
           phase: revalidate
-          release_mode: existing-tag
+          release_mode: ${{ needs.plan.outputs.release_mode }}
           release_version: ${{ needs.plan.outputs.release_version }}
           release_source_sha: ${{ needs.plan.outputs.admitted_sha }}
           expected_tag_object_sha: ${{ needs.plan.outputs.tag_object_sha }}
@@ -469,7 +513,7 @@ jobs:
         uses: ./.ciw/actions/resolve-release-tag
         with:
           phase: revalidate
-          release_mode: existing-tag
+          release_mode: ${{ needs.plan.outputs.release_mode }}
           release_version: ${{ needs.plan.outputs.release_version }}
           release_source_sha: ${{ needs.plan.outputs.admitted_sha }}
           expected_tag_object_sha: ${{ needs.plan.outputs.tag_object_sha }}
@@ -642,7 +686,7 @@ jobs:
         uses: ./.ciw/actions/resolve-release-tag
         with:
           phase: revalidate
-          release_mode: existing-tag
+          release_mode: ${{ needs.plan.outputs.release_mode }}
           release_version: ${{ needs.plan.outputs.release_version }}
           release_source_sha: ${{ needs.plan.outputs.admitted_sha }}
           expected_tag_object_sha: ${{ needs.plan.outputs.tag_object_sha }}
