@@ -6,7 +6,7 @@
 
 No real physical-device execution is authorized by the checked-in source package. A real request remains `execution_authorized=false` with stable failure `physical_authorization_required`; the reusable workflow turns that result into an explicit general-Linux authorization-denied failure rather than silently skipping the device job. Runner labels, device presence, issue or branch text, opaque aliases, and secret presence are never authorization.
 
-## Current GitHub and reusable-workflow source admission
+## Current GitHub source admission and reusable-workflow identity
 
 There is no caller-supplied `source_trust` field. The action derives caller trust from fixed GitHub metadata: repository, event, exact lowercase admitted SHA, event SHA, head repository, and fork state. Synthetic pull-request smoke is limited to a same-repository `ci-workflows` head. Trusted reusable or dispatch planning requires same-repository, non-fork, exact-SHA metadata.
 
