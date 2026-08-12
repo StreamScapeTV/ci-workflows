@@ -36,10 +36,21 @@
       "uniqueItems": true,
       "items": {"$ref": "#/$defs/productIdentity"}
     },
+    "selection": {"$ref": "#/$defs/fluxSelection"},
     "requested_action": {"const": "review-selection"},
     "mutation_authorized": {"const": false},
     "secrets_included": {"const": false}
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"release_id": {"const": "flux-runner-assets"}},
+        "required": ["release_id"]
+      },
+      "then": {"required": ["selection"]},
+      "else": {"not": {"required": ["selection"]}}
+    }
+  ],
   "$defs": {
     "productIdentity": {
       "type": "object",
@@ -68,6 +79,16 @@
             "pattern": "^\\S+$"
           }
         }
+      }
+    },
+    "fluxSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["canary_id", "previous_known_good", "rollback_id"],
+      "properties": {
+        "canary_id": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9._:@/+\\-]+$"},
+        "previous_known_good": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9._:@/+\\-]+$"},
+        "rollback_id": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9._:@/+\\-]+$"}
       }
     }
   }
