@@ -38,6 +38,9 @@ class DesiredGitHubRelease:
     prerelease: bool
 
     def create_payload(self) -> dict[str, Any]:
+        # target_commitish is a fail-safe only for GitHub's tag-creation path.
+        # Product release authority is the separately resolved and revalidated Git
+        # tag; GitHub documents target_commitish as unused when that tag exists.
         return {
             "tag_name": self.tag_name,
             "target_commitish": self.target_commitish,
@@ -107,11 +110,10 @@ def desired_release(
 def verify_existing_release(
     existing: Mapping[str, Any], desired: DesiredGitHubRelease
 ) -> str:
+    # Source identity is intentionally not inferred from target_commitish. GitHub
+    # defines that field as unused when tag_name already exists; the exact source
+    # is instead enforced by the release tag authority before this boundary.
     require(existing.get("tag_name") == desired.tag_name, "github_release_conflict")
-    require(
-        existing.get("target_commitish") == desired.target_commitish,
-        "github_release_conflict",
-    )
     require(existing.get("name") == desired.name, "github_release_conflict")
     require(existing.get("body") == desired.body, "github_release_conflict")
     require(existing.get("draft") is desired.draft, "github_release_conflict")
