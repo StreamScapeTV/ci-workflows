@@ -15,7 +15,6 @@ def load_workflow():
     payload = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise AssertionError("workflow root must be a mapping")
-    # PyYAML 1.1 may decode the GitHub Actions `on` key as boolean True.
     if "on" not in payload and True in payload:
         payload["on"] = payload[True]
     return payload
@@ -27,137 +26,166 @@ class ReleaseWorkflowContractTest(unittest.TestCase):
         self.jobs = self.workflow["jobs"]
         self.text = WORKFLOW_PATH.read_text(encoding="utf-8")
 
-    def test_workflow_call_is_generic_and_has_only_explicit_named_secrets(self) -> None:
+    def test_workflow_call_matches_registered_public_contract(self) -> None:
         call = self.workflow["on"]["workflow_call"]
         self.assertEqual(
             {
-                "release_id",
-                "release_mode",
+                "admitted_sha",
+                "release_contract",
+                "release_tag",
                 "release_version",
-                "release_source_sha",
+                "request_id",
+                "target_id",
             },
             set(call["inputs"]),
         )
         self.assertEqual(
-            {"registry_username", "registry_token", "github_release_token"},
+            {"registry_username", "registry_token", "flux_handoff_token"},
             set(call["secrets"]),
         )
+        self.assertEqual(
+            {
+                "result",
+                "immutable_references_json",
+                "release_manifest_sha256",
+                "handoff_state",
+                "request_id",
+            },
+            set(call["outputs"]),
+        )
+        self.assertEqual(
+            {"actions": "read", "contents": "write"},
+            self.workflow["permissions"],
+        )
+        self.assertNotIn("concurrency", self.workflow)
         self.assertNotIn("secrets: inherit", self.text)
-        self.assertEqual({"contents": "read"}, self.workflow["permissions"])
 
-    def test_publication_jobs_consume_only_local_registered_dependency_workflows(self) -> None:
-        image = self.jobs["publish-images"]
-        chart = self.jobs["publish-charts-or-assets"]
+    def test_public_graph_is_bounded_and_has_stable_terminal_check(self) -> None:
+        self.assertLessEqual(len(self.jobs), 7)
+        self.assertEqual(6, len(self.jobs))
         self.assertEqual(
-            "./.github/workflows/reusable-oci-publish.yml",
-            image["uses"],
+            "Release / Verified products",
+            self.jobs["request_handoff_and_finalize"]["name"],
         )
-        self.assertEqual(
-            "./.github/workflows/reusable-helm-publish.yml",
-            chart["uses"],
-        )
-        self.assertEqual(
-            {"registry_username", "registry_token"},
-            set(image["secrets"]),
-        )
-        self.assertEqual(
-            {"registry_username", "registry_token"},
-            set(chart["secrets"]),
-        )
-        self.assertIn(
-            "bind-published-images.outputs.required_image_references_json",
-            str(chart["with"]["required_image_references_json"]),
-        )
-        self.assertNotIn("github_release_token", json.dumps(image))
-        self.assertNotIn("github_release_token", json.dumps(chart))
-
-    def test_image_binding_is_read_only_and_uses_registered_oci_outputs(self) -> None:
-        bind = self.jobs["bind-published-images"]
-        rendered = json.dumps(bind, sort_keys=True)
-        self.assertIn("publish-images.outputs.image_digest", rendered)
-        self.assertIn("publish-images.outputs.immutable_references_json", rendered)
-        self.assertIn("required_image_references_json", bind["outputs"])
-        self.assertNotIn("secrets.", rendered)
-        self.assertEqual(["linux", "amd64", "general"], bind["runs-on"])
-
-    def test_github_release_token_is_isolated_to_release_metadata_job(self) -> None:
-        metadata = self.jobs["create-or-verify-github-release"]
-        self.assertEqual({"contents": "write"}, metadata["permissions"])
-        rendered = json.dumps(metadata, sort_keys=True)
-        self.assertIn("secrets.github_release_token", rendered)
-        self.assertNotIn("secrets.registry_username", rendered)
-        self.assertNotIn("secrets.registry_token", rendered)
-
         for job_name, job in self.jobs.items():
-            if job_name == "create-or-verify-github-release":
-                continue
-            self.assertNotIn(
-                "secrets.github_release_token",
-                json.dumps(job, sort_keys=True),
-                msg=job_name,
+            self.assertRegex(job_name, r"^[a-z][a-z0-9_]{1,63}$")
+            self.assertGreater(int(job.get("timeout-minutes", 0)), 0, msg=job_name)
+            self.assertNotIn("uses", job, msg=f"nested reusable workflow: {job_name}")
+
+    def test_dependency_composition_uses_reviewed_actions_and_scripts_directly(self) -> None:
+        image = json.dumps(self.jobs["publish_images"], sort_keys=True)
+        chart = json.dumps(self.jobs["publish_charts_or_assets"], sort_keys=True)
+        self.assertIn("./.ciw/actions/publish-oci", image)
+        self.assertIn("./.ciw/actions/validate-oci", image)
+        self.assertIn("helm_release.py execute", chart)
+        self.assertIn("ci_workflows.ciw_helm", chart)
+        self.assertNotIn("reusable-oci-publish.yml", self.text)
+        self.assertNotIn("reusable-helm-publish.yml", self.text)
+
+    def test_publication_jobs_use_only_trusted_planner_runner_output(self) -> None:
+        expected = "${{ fromJSON(needs.plan.outputs.runs_on_json) }}"
+        self.assertEqual(expected, self.jobs["publish_images"]["runs-on"])
+        self.assertEqual(expected, self.jobs["publish_charts_or_assets"]["runs-on"])
+        for job_name in (
+            "plan",
+            "run_release_gates",
+            "verify_and_record",
+            "request_handoff_and_finalize",
+        ):
+            self.assertEqual(
+                ["linux", "amd64", "general"],
+                self.jobs[job_name]["runs-on"],
             )
 
-    def test_handoff_is_review_only_and_has_no_flux_or_cluster_credentials(self) -> None:
-        handoff = json.dumps(self.jobs["request-reviewed-handoff"], sort_keys=True)
-        self.assertNotIn("secrets.", handoff)
-        self.assertNotIn("kubeconfig", handoff.casefold())
-        self.assertNotIn("kubectl", handoff.casefold())
-        self.assertNotIn("flux reconcile", handoff.casefold())
-        self.assertNotIn("sops", handoff.casefold())
-        self.assertNotIn("dispatch", handoff.casefold())
+    def test_registry_and_flux_secrets_are_isolated(self) -> None:
+        image = json.dumps(self.jobs["publish_images"], sort_keys=True)
+        chart = json.dumps(self.jobs["publish_charts_or_assets"], sort_keys=True)
+        verify = json.dumps(self.jobs["verify_and_record"], sort_keys=True)
+        final = json.dumps(self.jobs["request_handoff_and_finalize"], sort_keys=True)
 
-    def test_workflow_never_uploads_routine_actions_artifacts_or_uses_latest(self) -> None:
+        self.assertIn("secrets.registry_username", image)
+        self.assertIn("secrets.registry_token", image)
+        self.assertIn("secrets.registry_username", chart)
+        self.assertIn("secrets.registry_token", chart)
+        self.assertNotIn("flux_handoff_token", image)
+        self.assertNotIn("flux_handoff_token", chart)
+        self.assertNotIn("registry_username", verify)
+        self.assertNotIn("registry_token", verify)
+        self.assertIn("github.token", verify)
+        self.assertIn("secrets.flux_handoff_token", final)
+        self.assertNotIn("secrets.registry_username", final)
+        self.assertNotIn("secrets.registry_token", final)
+
+    def test_publication_cleanup_and_residue_checks_are_unconditional(self) -> None:
+        for job_name, step_ids in {
+            "publish_images": {
+                "publication_cleanup",
+                "publication_residue",
+                "build_cleanup",
+                "build_residue",
+                "workspace_cleanup",
+            },
+            "publish_charts_or_assets": {
+                "helm_cleanup",
+                "helm_residue",
+                "workspace_cleanup",
+            },
+        }.items():
+            steps = {
+                step.get("id"): step
+                for step in self.jobs[job_name]["steps"]
+                if step.get("id")
+            }
+            for step_id in step_ids:
+                self.assertIn(step_id, steps)
+                self.assertEqual("always()", str(steps[step_id]["if"]))
+
+    def test_tag_authority_is_revalidated_at_every_privileged_boundary(self) -> None:
+        for job_name in (
+            "run_release_gates",
+            "publish_images",
+            "publish_charts_or_assets",
+            "verify_and_record",
+        ):
+            rendered = json.dumps(self.jobs[job_name], sort_keys=True)
+            self.assertIn("resolve-release-tag", rendered, msg=job_name)
+            self.assertIn("revalidate", rendered, msg=job_name)
+            self.assertIn("tag_object_sha", rendered, msg=job_name)
+            self.assertIn("tag_commit_sha", rendered, msg=job_name)
+
+    def test_handoff_is_review_only_and_never_contains_cluster_authority(self) -> None:
+        rendered = json.dumps(
+            self.jobs["request_handoff_and_finalize"], sort_keys=True
+        ).casefold()
+        self.assertIn("dispatch-handoff", rendered)
+        self.assertIn("flux_handoff_token", rendered)
+        self.assertNotIn("kubeconfig", rendered)
+        self.assertNotIn("kubectl", rendered)
+        self.assertNotIn("flux reconcile", rendered)
+        self.assertNotIn("sops", rendered)
+
+    def test_workflow_never_uses_routine_actions_artifacts_or_latest(self) -> None:
         lowered = self.text.casefold()
         self.assertNotIn("actions/upload-artifact", lowered)
         self.assertNotIn("actions/download-artifact", lowered)
         self.assertNotIn(":latest", lowered)
         self.assertNotIn("secrets: inherit", lowered)
 
-    def test_tag_authority_is_revalidated_before_release_metadata_write(self) -> None:
-        gates = json.dumps(self.jobs["run-release-gates"], sort_keys=True)
-        metadata = json.dumps(
-            self.jobs["create-or-verify-github-release"], sort_keys=True
-        )
-        self.assertIn("resolve-release-tag", gates)
-        self.assertIn("phase", gates)
-        self.assertIn("revalidate", gates)
-        self.assertIn("resolve-release-tag", metadata)
-        self.assertIn("revalidate", metadata)
-
-    def test_all_control_plane_jobs_use_semantic_general_runner(self) -> None:
-        reusable_call_jobs = {"publish-images", "publish-charts-or-assets"}
-        for job_name, job in self.jobs.items():
-            if job_name in reusable_call_jobs:
-                continue
-            self.assertEqual(
-                ["linux", "amd64", "general"],
-                job.get("runs-on"),
-                msg=job_name,
-            )
-            self.assertGreater(int(job.get("timeout-minutes", 0)), 0, msg=job_name)
-
     def test_terminal_finalizer_runs_on_every_path_and_fails_closed(self) -> None:
-        final = self.jobs["cleanup-and-finalize"]
+        final = self.jobs["request_handoff_and_finalize"]
         self.assertIn("always()", str(final["if"]))
         self.assertEqual(
             {
-                "resolve-tag-source",
-                "validate-release-contract",
-                "run-release-gates",
-                "publish-images",
-                "bind-published-images",
-                "publish-charts-or-assets",
-                "verify-read-back",
-                "create-release-manifest",
-                "create-or-verify-github-release",
-                "request-reviewed-handoff",
+                "plan",
+                "publish_images",
+                "publish_charts_or_assets",
+                "verify_and_record",
             },
             set(final["needs"]),
         )
         rendered = json.dumps(final, sort_keys=True)
-        self.assertIn("publication_progress", rendered)
         self.assertIn("result=failure", rendered)
-        self.assertIn("exit 1", rendered)
+        self.assertIn('test "${result}" = success', rendered)
 
     def test_workflow_has_no_product_name_branching(self) -> None:
         forbidden = ("agent-state", "iptv-backend", "flux-runner-assets")
