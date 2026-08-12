@@ -5,32 +5,11 @@
 - Repository: `StreamScapeTV/ci-workflows`
 - Agent State project key: `ci-workflows`
 - Protected integration branch: `main`
-- Shared organization-policy entry point: `StreamScapeTV/organization-rules@main/AGENTS.md`
+- Sole shared organization-policy entry point: `StreamScapeTV/organization-rules@main/AGENTS.md`
 
 The project key is exactly `ci-workflows`. Never replace it with a phase, wave, batch, issue, branch, pull request, task name, or display title.
 
-## Required read order
-
-Before any work:
-
-1. read this file from the current protected `main` branch;
-2. read and follow `StreamScapeTV/organization-rules@main/AGENTS.md` and its routed files;
-3. read `RUNNERS.md` only when the bounded task requires CI capability selection;
-4. read only the repository architecture, contracts, source, tests, and issue material needed for the assigned slice.
-
-The organization entry point owns identity, Agent State transport, ownership/resources, branch/worktree behavior, review, merge, cleanup, environment, and generic security rules. Do not copy those rules into this repository or use a stale topic-branch copy as a substitute for current `organization-rules@main`.
-
-## Local Codex startup
-
-Local Codex workers use ordinary Git and a separate issue worktree.
-
-- Fetch and prune remote metadata before starting or resuming.
-- Verify current `origin/main`, the assigned remote branch/head, and the worktree head before editing.
-- Never switch or edit the shared `main` checkout.
-- Never use a blind `git pull`, rebase published history, force-push, destructive reset, broad clean, overwrite another worktree, or create a replacement branch when an existing issue branch is assigned.
-- A remote/Agent State SHA mismatch requires a fresh read and reconciliation before editing.
-
-Agent State coordination is independent of the Git worktree. This repository and its issue worktrees require no Supabase project directory, repository linkage, GitHub/Supabase integration, environment-variable setup, `supabase init`, or `supabase link`. Remote ChatGPT uses the official Supabase connector; local Codex uses the already provisioned local CLI direct-RPC path defined by current organization rules.
+Before any work, read this file and then the current shared organization entry point. Read local `RUNNERS.md` when the bounded task requires CI capability selection, followed only by the repository architecture, contracts, source, tests, and issue material needed for the assigned slice. This file defines only central-CI product authority and stricter workflow requirements; the shared entry point owns the generic collaboration and development lifecycle.
 
 ## Repository authority and scope
 
@@ -40,10 +19,9 @@ This private repository owns reusable GitHub Actions orchestration for supported
 
 ## Agent State boundary
 
-- Ordinary coordination calls only the already deployed approved `agent_api.current_*_v2` functions through the transport defined by `organization-rules@main`.
-- This repository contains no Agent State transport, Supabase project configuration, project mapping, credentials, decision logic, lifecycle workflow, issue-comment bridge, MCP/plugin setup, or local compatibility client.
-- Do not restore issue #32's superseded lifecycle/ownership workflow architecture or the retired compatibility transport.
-- Do not inspect or modify `StreamScapeTV/agent-state-supabase`, its hosted project, schema, migrations, RPC functions, grants, deployment, or credentials during `ci-workflows` work. Those changes are forbidden unless the owner separately and explicitly requests that project.
+- This repository contains no Agent State transport, Supabase project configuration, project mapping, credentials, decision logic, lifecycle workflow, issue-comment bridge, MCP or plugin setup, or local compatibility client.
+- Do not restore issue #32's superseded lifecycle or ownership workflow architecture or the retired compatibility transport.
+- Do not inspect or modify `StreamScapeTV/agent-state-supabase`, its hosted project, schema, migrations, RPC functions, grants, deployment, or credentials during `ci-workflows` work. Those changes require a separate explicit assignment in that project.
 - Never invent an Agent State receipt, ownership grant, schema state, deployment result, or fallback transport.
 
 ## Reusable workflow architecture
@@ -54,7 +32,7 @@ This private repository owns reusable GitHub Actions orchestration for supported
 - During bootstrap, consumers may call `@main`; tagged and full-SHA references remain supported. Privileged and production callers should migrate to immutable references after a stable tag when required by reviewed policy.
 - Keep workflow YAML as short, ordered orchestration. Put non-trivial algorithms in named, typed, tested functions under `src/ci_workflows/` and expose them through thin composite actions or CLI adapters.
 - Public inputs and outputs must match checked-in contracts and generated reference documentation. Inputs must be bounded and may not accept arbitrary shell commands, callbacks, registry hosts, runner labels, container engines, cluster targets, namespaces, service accounts, secret names, or unrestricted matrices.
-- Public/internal workflow calls and composite-action calls must remain acyclic, accessible, shallow, and compatible with the supported consumer and product inventory.
+- Public and internal workflow calls and composite-action calls must remain acyclic, accessible, shallow, and compatible with the supported consumer and product inventory.
 
 ## Authority boundaries
 
@@ -76,7 +54,7 @@ This private repository owns reusable GitHub Actions orchestration for supported
 - Privileged modes require exact admitted source, exact checkout assertions, detached credential-free state where applicable, and `persist-credentials: false`.
 - Central workflows select semantic runner profiles and internal implementations. Consumers do not select concrete runner labels, hosts, Docker versus Buildah, storage drivers, devices, clusters, namespaces, or service accounts.
 - Routine workflows retain zero GitHub Actions artifacts. Any exception must be named, bounded, justified, redacted, registered in contract, and tested.
-- Cleanup runs under `if: always()` and fails closed when credentials, authentication files, containers, images, charts, caches, generated output, device/simulator state, result bundles, or temporary workspace state remain.
+- Cleanup runs under `if: always()` and fails closed when credentials, authentication files, containers, images, charts, caches, generated output, device or simulator state, result bundles, or temporary workspace state remain.
 
 ## Publication and release safety
 
@@ -86,10 +64,7 @@ This private repository owns reusable GitHub Actions orchestration for supported
 - Publication and deployment remain separate. Product release workflows do not receive Kubernetes or SOPS credentials and do not mutate clusters.
 - Published images and charts require independent remote read-back. Replays are idempotent, and conflicting immutable content fails closed.
 
-## Validation contract
+## Product validation contract
 
-- The canonical Central self-check validates the exact final pull-request head against the current base.
-- Workflow/action parsing, action and tool pins, permissions, trust classes, source admission, runner profiles, call graphs, readability, public API compatibility, documentation, inventory, fixtures, discovered tests, cleanup, and artifact policy must remain green.
-- A changed head invalidates older evidence. Queued, skipped, stale, cancelled, timed-out, missing, or partially successful checks are not passing evidence.
-- Before integration, inspect the complete current-base diff, public contracts, permissions, trust boundaries, artifacts, cleanup behavior, generated drift, and every review thread.
-- Merge only the unchanged validated head with expected-head protection, then verify `main`, record exact evidence, and remove the merged issue branch.
+- The canonical Central self-check validates the completed final pull-request candidate against its current base.
+- Workflow and action parsing, action and tool pins, permissions, trust classes, source admission, runner profiles, call graphs, readability, public API compatibility, documentation, inventory, fixtures, discovered tests, cleanup, and artifact policy must remain green.
