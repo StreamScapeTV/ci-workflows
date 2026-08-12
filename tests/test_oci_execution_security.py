@@ -322,9 +322,11 @@ class OciExecutionSecurityTests(unittest.TestCase):
         self.assertIn('"no-new-privileges",', safe_source)
         self.assertIn("smoke_script=None", safe_source)
 
-    def test_cli_dispatches_through_the_safe_execution_adapter(self) -> None:
+    def test_cli_dispatches_through_the_public_oci_facade(self) -> None:
         source = (ROOT / "src/ci_workflows/ciw_oci.py").read_text()
-        self.assertIn("from .oci_execution_safe import cleanup, execute_plan, residue", source)
+        self.assertIn("from . import oci", source)
+        self.assertIn("from .oci_execution_safe import cleanup, residue", source)
+        self.assertIn("result = oci.build", source)
         self.assertNotIn("from .oci_execution import cleanup, execute_plan, residue", source)
 
 
