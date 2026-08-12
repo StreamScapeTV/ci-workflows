@@ -92,9 +92,11 @@ def image_reference_bundle(
         source_reference = row["source_sha"]
         manifest_digest = row["manifest_digest"]
         require(
-            isinstance(repository, str)
-            and REPOSITORY.fullmatch(repository) is not None
-            and isinstance(digest, str)
+            isinstance(repository, str) and REPOSITORY.fullmatch(repository) is not None,
+            "image_reference_map_rejected",
+        )
+        require(
+            isinstance(digest, str)
             and DIGEST.fullmatch(digest) is not None
             and manifest_digest == digest,
             "image_digest_map_rejected",
