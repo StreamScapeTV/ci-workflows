@@ -190,6 +190,20 @@ def publication_identity(
         "publication_reference_rejected",
     )
     primary, digests = _digest_map(digest, digests_json)
+    if kind == "helm-chart":
+        require(isinstance(reference_payload, Mapping), "publication_reference_rejected")
+        chart_digest = reference_payload.get("chart_digest")
+        require(isinstance(chart_digest, str), "publication_digest_rejected")
+        require(
+            normalize_digest(chart_digest) == primary,
+            "publication_digest_mismatch",
+        )
+        read_back = evidence.get("read_back")
+        if read_back is not None:
+            require(
+                read_back == reference_payload,
+                "publication_evidence_mismatch",
+            )
     return PublicationIdentity(
         product_id=product_id,
         kind=kind,
