@@ -154,6 +154,40 @@ jobs:
           release_version: 0.0.0-smoke
           platform_set: linux-amd64
 
+      - name: Diagnose malformed OCI layout structure
+        if: ${{ steps.execute.outcome == 'failure' }}
+        continue-on-error: true
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONPATH: .ciw/src
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os
+          from ci_workflows.oci_execution import state_root
+          root = state_root(os.environ)
+          layouts = sorted((root / "layouts").iterdir())
+          if len(layouts) != 1:
+              raise SystemExit(f"expected one OCI layout, found {len(layouts)}")
+          layout = layouts[0]
+          def blob(descriptor):
+              digest = descriptor["digest"].removeprefix("sha256:")
+              return json.loads((layout / "blobs" / "sha256" / digest).read_text())
+          index = json.loads((layout / "index.json").read_text())
+          rows = []
+          for outer in index.get("manifests", []):
+              outer_payload = blob(outer)
+              children = outer_payload.get("manifests", []) if isinstance(outer_payload, dict) and "manifests" in outer_payload else [outer]
+              for child in children:
+                  manifest = blob(child)
+                  config_desc = manifest.get("config", {}) if isinstance(manifest, dict) else {}
+                  config = blob(config_desc) if isinstance(config_desc, dict) and "digest" in config_desc else {}
+                  rootfs = config.get("rootfs", {}) if isinstance(config, dict) else {}
+                  rows.append({"outer_media_type": outer.get("mediaType"), "child_media_type": child.get("mediaType"), "platform": child.get("platform"), "manifest_media_type": manifest.get("mediaType") if isinstance(manifest, dict) else None, "config_media_type": config_desc.get("mediaType") if isinstance(config_desc, dict) else None, "layer_media_types": [layer.get("mediaType") for layer in manifest.get("layers", [])] if isinstance(manifest, dict) else [], "os": config.get("os") if isinstance(config, dict) else None, "architecture": config.get("architecture") if isinstance(config, dict) else None, "variant": config.get("variant") if isinstance(config, dict) else None, "rootfs_type": rootfs.get("type") if isinstance(rootfs, dict) else None, "diff_id_count": len(rootfs.get("diff_ids", [])) if isinstance(rootfs, dict) and isinstance(rootfs.get("diff_ids", []), list) else None, "layer_count": len(manifest.get("layers", [])) if isinstance(manifest, dict) and isinstance(manifest.get("layers", []), list) else None, "config_keys": sorted(config.keys()) if isinstance(config, dict) else []})
+          print(json.dumps({"root_media_type": index.get("mediaType"), "rows": rows}, sort_keys=True))
+          PY
+
       - name: Render deterministic redacted OCI smoke evidence
         if: ${{ always() && !cancelled() }}
         uses: ./.ciw/actions/render-evidence
