@@ -57,7 +57,7 @@ class ReleaseHandoffTest(unittest.TestCase):
             source_sha="1" * 40,
             release_manifest_sha256="a" * 64,
             github_release_url=(
-                "https://github.com/StreamScapeTV/iptv-backend/releases/tag/1.4.2"
+                "https://github.com/StreamScapeTV/iptv-backend/releases/tag/v1.4.2"
             ),
             image=self.image,
             chart=self.chart,
@@ -84,7 +84,7 @@ class ReleaseHandoffTest(unittest.TestCase):
             source_sha="1" * 40,
             release_manifest_sha256="a" * 64,
             github_release_url=(
-                "https://github.com/StreamScapeTV/iptv-backend/releases/tag/1.4.2"
+                "https://github.com/StreamScapeTV/iptv-backend/releases/tag/v1.4.2"
             ),
             image=self.image,
             chart=self.chart,
@@ -95,7 +95,7 @@ class ReleaseHandoffTest(unittest.TestCase):
             source_sha="1" * 40,
             release_manifest_sha256="a" * 64,
             github_release_url=(
-                "https://github.com/StreamScapeTV/iptv-backend/releases/tag/1.4.2"
+                "https://github.com/StreamScapeTV/iptv-backend/releases/tag/v1.4.2"
             ),
             image=self.image,
             chart=self.chart,
@@ -114,7 +114,7 @@ class ReleaseHandoffTest(unittest.TestCase):
             "source_sha": case["source_sha"],
             "release_manifest_sha256": "b" * 64,
             "github_release_url": (
-                "https://github.com/StreamScapeTV/flux/releases/tag/2.0.0"
+                "https://github.com/StreamScapeTV/flux/releases/tag/v2.0.0"
             ),
             "image": image,
             "chart": chart,
@@ -144,7 +144,7 @@ class ReleaseHandoffTest(unittest.TestCase):
                 source_sha="1" * 40,
                 release_manifest_sha256="a" * 64,
                 github_release_url=(
-                    "https://github.com/StreamScapeTV/iptv-backend/releases/tag/1.4.2"
+                    "https://github.com/StreamScapeTV/iptv-backend/releases/tag/v1.4.2"
                 ),
                 image=self.image,
                 chart=self.chart,
