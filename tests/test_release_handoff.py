@@ -5,7 +5,11 @@ from pathlib import Path
 import unittest
 
 from ci_workflows.release_contract import resolve_release_plan
-from ci_workflows.release_handoff import build_flux_handoff, flux_handoff_json
+from ci_workflows.release_handoff import (
+    build_flux_handoff,
+    flux_handoff_json,
+    validate_flux_handoff_payload,
+)
 from ci_workflows.release_manifest import canonical_json, publication_identity
 from ci_workflows.release_types import ReleaseError
 
@@ -103,6 +107,19 @@ class ReleaseHandoffTest(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(first_sha, second_sha)
         self.assertEqual(self._payload(), json.loads(first))
+
+    def test_handoff_rejects_primary_digest_unrelated_to_target_digests(self) -> None:
+        payload = self._payload()
+        image = next(product for product in payload["products"] if product["kind"] == "oci-image")
+        image["digest"] = "sha256:" + "9" * 64
+        with self.assertRaisesRegex(ReleaseError, r"^handoff_product_rejected$"):
+            validate_flux_handoff_payload(payload)
+
+        payload = self._payload()
+        chart = next(product for product in payload["products"] if product["kind"] == "helm-chart")
+        chart["digest"] = "sha256:" + "8" * 64
+        with self.assertRaisesRegex(ReleaseError, r"^handoff_product_rejected$"):
+            validate_flux_handoff_payload(payload)
 
     def test_flux_runner_handoff_requires_exact_canary_and_rollback_selection(self) -> None:
         case = FIXTURES["flux-runner-assets"]
