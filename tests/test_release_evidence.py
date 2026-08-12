@@ -54,6 +54,30 @@ class ReleaseEvidenceTest(unittest.TestCase):
         self.assertNotIn("password", rendered.casefold())
         self.assertNotIn("authorization", rendered.casefold())
 
+    def test_image_evidence_requires_same_target_set_for_platform_readback(self) -> None:
+        platforms = json.loads(json.dumps(CASE["image"]["platform_digests"]))
+        platforms["unexpected-target"] = platforms.pop(next(iter(platforms)))
+        with self.assertRaisesRegex(ReleaseError, r"^image_evidence_rejected$"):
+            image_publication_evidence(
+                result="success",
+                image_digest_json=json.dumps(CASE["image"]["digests"]),
+                platform_digests_json=json.dumps(platforms),
+                immutable_references_json=json.dumps(immutable_image_output()),
+            )
+
+    def test_image_evidence_rejects_malformed_platform_manifest_digest(self) -> None:
+        platforms = json.loads(json.dumps(CASE["image"]["platform_digests"]))
+        target = next(iter(platforms))
+        platform = next(iter(platforms[target]))
+        platforms[target][platform]["manifest_digest"] = "sha256:not-a-digest"
+        with self.assertRaisesRegex(ReleaseError, r"^image_evidence_rejected$"):
+            image_publication_evidence(
+                result="success",
+                image_digest_json=json.dumps(CASE["image"]["digests"]),
+                platform_digests_json=json.dumps(platforms),
+                immutable_references_json=json.dumps(immutable_image_output()),
+            )
+
     def test_chart_evidence_requires_successful_remote_read_back(self) -> None:
         chart = chart_publication_evidence(
             result="success",
@@ -69,6 +93,11 @@ class ReleaseEvidenceTest(unittest.TestCase):
                 result="failure",
                 immutable_references_json="{}",
             )
+        with self.assertRaisesRegex(ReleaseError, r"^chart_evidence_rejected$"):
+            chart_publication_evidence(
+                result="success",
+                immutable_references_json="{}",
+            )
 
     def test_image_evidence_requires_successful_publication(self) -> None:
         with self.assertRaisesRegex(ReleaseError, r"^image_evidence_rejected$"):
@@ -77,6 +106,20 @@ class ReleaseEvidenceTest(unittest.TestCase):
                 image_digest_json=json.dumps(CASE["image"]["digests"]),
                 platform_digests_json=json.dumps(CASE["image"]["platform_digests"]),
                 immutable_references_json=json.dumps(immutable_image_output()),
+            )
+
+    def test_evidence_json_inputs_fail_closed_on_non_text_values(self) -> None:
+        with self.assertRaisesRegex(ReleaseError, r"^image_evidence_rejected$"):
+            image_publication_evidence(
+                result="success",
+                image_digest_json=None,
+                platform_digests_json=json.dumps(CASE["image"]["platform_digests"]),
+                immutable_references_json=json.dumps(immutable_image_output()),
+            )
+        with self.assertRaisesRegex(ReleaseError, r"^chart_evidence_rejected$"):
+            chart_publication_evidence(
+                result="success",
+                immutable_references_json=None,
             )
 
     def test_manifest_identity_rejects_secret_named_evidence_fields(self) -> None:
