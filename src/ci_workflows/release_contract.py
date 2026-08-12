@@ -14,11 +14,21 @@ PRODUCTS_PATH = Path("contracts/products.json")
 SEMVER = re.compile(
     r"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$"
 )
+RELEASE_TAG = re.compile(
+    r"^v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$"
+)
+FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
+REQUEST_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$")
 REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 IDENTIFIER = re.compile(r"^[a-z][a-z0-9-]{1,63}$")
 IMAGE_KINDS = {"oci-image", "oci-runner-image-family"}
 CHART_KINDS = {"helm-oci-chart", "helm-oci-chart-assets"}
 EXPECTED_RELEASE_IDS = ("agent-state", "flux-runner-assets", "iptv-backend")
+RELEASE_ALIASES = {
+    "backend": "iptv-backend",
+    "agent-state": "agent-state",
+    "flux": "flux-runner-assets",
+}
 
 
 def require(condition: bool, code: str) -> None:
@@ -42,6 +52,26 @@ def validate_release_version(value: str) -> str:
     return candidate
 
 
+def validate_release_tag(value: str, release_version: str) -> str:
+    candidate = value.strip()
+    version = validate_release_version(release_version)
+    require(RELEASE_TAG.fullmatch(candidate) is not None, "release_tag_rejected")
+    require(candidate == f"v{version}", "release_tag_mismatch")
+    return candidate
+
+
+def validate_request_id(value: str) -> str:
+    candidate = value.strip()
+    require(REQUEST_ID.fullmatch(candidate) is not None, "request_id_rejected")
+    return candidate
+
+
+def validate_admitted_sha(value: str) -> str:
+    candidate = value.strip()
+    require(FULL_SHA.fullmatch(candidate) is not None, "release_sha_rejected")
+    return candidate
+
+
 def _load_products(root: Path) -> dict[str, Mapping[str, Any]]:
     payload = _read_json(root / PRODUCTS_PATH, "product_inventory_invalid")
     require(payload.get("schema_version") == 1, "product_inventory_invalid")
@@ -51,7 +81,11 @@ def _load_products(root: Path) -> dict[str, Mapping[str, Any]]:
     for row in rows:
         require(isinstance(row, Mapping), "product_inventory_invalid")
         identifier = row.get("id")
-        require(isinstance(identifier, str) and IDENTIFIER.fullmatch(identifier) is not None, "product_inventory_invalid")
+        require(
+            isinstance(identifier, str)
+            and IDENTIFIER.fullmatch(identifier) is not None,
+            "product_inventory_invalid",
+        )
         require(identifier not in result, "product_inventory_invalid")
         result[identifier] = row
     return result
@@ -59,12 +93,16 @@ def _load_products(root: Path) -> dict[str, Mapping[str, Any]]:
 
 def _validate_policy(payload: Mapping[str, Any]) -> None:
     require(payload.get("schema_version") == 1, "release_contract_invalid")
-    require(payload.get("release_api") == "release.orchestrate", "release_contract_invalid")
+    require(
+        payload.get("release_api") == "release.orchestrate",
+        "release_contract_invalid",
+    )
     require(payload.get("release_api_version") == "1.0.0", "release_contract_invalid")
     tag = payload.get("tag_policy")
     require(isinstance(tag, Mapping), "release_contract_invalid")
     require(
-        tag == {
+        tag
+        == {
             "default_mode": "tag-push",
             "trusted_replay_mode": "existing-tag",
             "version_pattern": SEMVER.pattern,
@@ -107,7 +145,9 @@ def load_release_plans(root: Path) -> dict[str, ReleasePlan]:
     products = _load_products(root)
     rows = payload.get("releases")
     require(isinstance(rows, list) and len(rows) == 3, "release_contract_invalid")
-    identifiers = [row.get("release_id") if isinstance(row, Mapping) else None for row in rows]
+    identifiers = [
+        row.get("release_id") if isinstance(row, Mapping) else None for row in rows
+    ]
     require(tuple(identifiers) == EXPECTED_RELEASE_IDS, "release_contract_invalid")
     plans: dict[str, ReleasePlan] = {}
     for row in rows:
@@ -129,17 +169,41 @@ def load_release_plans(root: Path) -> dict[str, ReleasePlan]:
         repository = row.get("repository")
         image_id = row.get("image_product_id")
         chart_id = row.get("chart_product_id")
-        require(isinstance(release_id, str) and IDENTIFIER.fullmatch(release_id) is not None, "release_contract_invalid")
-        require(isinstance(repository, str) and REPOSITORY.fullmatch(repository) is not None, "release_contract_invalid")
-        require(isinstance(image_id, str) and image_id in products, "release_contract_invalid")
-        require(isinstance(chart_id, str) and chart_id in products, "release_contract_invalid")
+        require(
+            isinstance(release_id, str)
+            and IDENTIFIER.fullmatch(release_id) is not None,
+            "release_contract_invalid",
+        )
+        require(
+            isinstance(repository, str)
+            and REPOSITORY.fullmatch(repository) is not None,
+            "release_contract_invalid",
+        )
+        require(
+            isinstance(image_id, str) and image_id in products,
+            "release_contract_invalid",
+        )
+        require(
+            isinstance(chart_id, str) and chart_id in products,
+            "release_contract_invalid",
+        )
         image = products[image_id]
         chart = products[chart_id]
-        require(image.get("repository") == repository and chart.get("repository") == repository, "release_contract_invalid")
-        require(image.get("status") == "current" and chart.get("status") == "current", "release_contract_invalid")
+        require(
+            image.get("repository") == repository
+            and chart.get("repository") == repository,
+            "release_contract_invalid",
+        )
+        require(
+            image.get("status") == "current" and chart.get("status") == "current",
+            "release_contract_invalid",
+        )
         require(image.get("kind") in IMAGE_KINDS, "release_contract_invalid")
         require(chart.get("kind") in CHART_KINDS, "release_contract_invalid")
-        require(row.get("chart_requires_image_identity") is True, "release_contract_invalid")
+        require(
+            row.get("chart_requires_image_identity") is True,
+            "release_contract_invalid",
+        )
         require(row.get("github_release") is True, "release_contract_invalid")
         handoff = row.get("handoff")
         require(
@@ -167,10 +231,53 @@ def load_release_plans(root: Path) -> dict[str, ReleasePlan]:
 
 
 def resolve_release_plan(root: Path, release_id: str, repository: str) -> ReleasePlan:
-    require(isinstance(release_id, str) and IDENTIFIER.fullmatch(release_id.strip()) is not None, "release_id_rejected")
-    require(isinstance(repository, str) and REPOSITORY.fullmatch(repository.strip()) is not None, "repository_rejected")
+    require(
+        isinstance(release_id, str)
+        and IDENTIFIER.fullmatch(release_id.strip()) is not None,
+        "release_id_rejected",
+    )
+    require(
+        isinstance(repository, str)
+        and REPOSITORY.fullmatch(repository.strip()) is not None,
+        "repository_rejected",
+    )
     plans = load_release_plans(root)
-    plan = plans.get(release_id.strip())
+    normalized = RELEASE_ALIASES.get(release_id.strip(), release_id.strip())
+    plan = plans.get(normalized)
     require(plan is not None, "release_id_rejected")
     require(plan.repository == repository.strip(), "repository_rejected")
     return plan
+
+
+def resolve_public_release(
+    root: Path,
+    *,
+    release_contract: str,
+    repository: str,
+    admitted_sha: str,
+    release_tag: str,
+    release_version: str,
+    request_id: str,
+    target_id: str = "",
+) -> tuple[ReleasePlan, dict[str, str]]:
+    """Resolve the fixed public release request without caller-selected destinations."""
+    plan = resolve_release_plan(root, release_contract, repository)
+    version = validate_release_version(release_version)
+    tag = validate_release_tag(release_tag, version)
+    source_sha = validate_admitted_sha(admitted_sha)
+    request = validate_request_id(request_id)
+    target = target_id.strip()
+    if target:
+        require(
+            IDENTIFIER.fullmatch(target) is not None and target == plan.release_id,
+            "target_id_rejected",
+        )
+    return plan, {
+        "release_id": plan.release_id,
+        "release_contract": release_contract.strip(),
+        "release_tag": tag,
+        "release_version": version,
+        "admitted_sha": source_sha,
+        "request_id": request,
+        "target_id": target,
+    }
