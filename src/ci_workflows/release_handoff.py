@@ -11,6 +11,7 @@ from .release_types import PublicationIdentity, ReleaseError, ReleasePlan
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+SAFE_SELECTION_ID = re.compile(r"^[A-Za-z0-9._:@/+\-]{0,256}$")
 GITHUB_RELEASE = re.compile(
     r"^https://github\.com/StreamScapeTV/[A-Za-z0-9_.-]+/releases/tag/[0-9A-Za-z.-]+$"
 )
@@ -43,6 +44,25 @@ def _verify_sanitized(value: Any) -> None:
     require(value is None or isinstance(value, (bool, int)), "handoff_type_rejected")
 
 
+def _selection(
+    canary_id: str,
+    previous_known_good: str,
+    rollback_id: str,
+) -> dict[str, str] | None:
+    values = {
+        "canary_id": canary_id.strip(),
+        "previous_known_good": previous_known_good.strip(),
+        "rollback_id": rollback_id.strip(),
+    }
+    require(
+        all(SAFE_SELECTION_ID.fullmatch(value) is not None for value in values.values()),
+        "handoff_selection_rejected",
+    )
+    populated = [bool(value) for value in values.values()]
+    require(all(populated) or not any(populated), "handoff_selection_rejected")
+    return values if all(populated) else None
+
+
 def build_flux_handoff(
     *,
     plan: ReleasePlan,
@@ -52,6 +72,9 @@ def build_flux_handoff(
     github_release_url: str,
     image: PublicationIdentity,
     chart: PublicationIdentity,
+    canary_id: str = "",
+    previous_known_good: str = "",
+    rollback_id: str = "",
 ) -> dict[str, Any]:
     version = validate_release_version(release_version)
     require(FULL_SHA.fullmatch(source_sha) is not None, "release_sha_rejected")
@@ -62,7 +85,12 @@ def build_flux_handoff(
     require(plan.handoff_kind == "flux-selection-request", "handoff_contract_rejected")
     require(plan.handoff_target_repository == "StreamScapeTV/flux", "handoff_contract_rejected")
     require(plan.handoff_requested_action == "review-selection", "handoff_contract_rejected")
-    payload = {
+    selection = _selection(canary_id, previous_known_good, rollback_id)
+    if plan.release_id == "flux-runner-assets":
+        require(selection is not None, "handoff_selection_required")
+    else:
+        require(selection is None, "handoff_selection_rejected")
+    payload: dict[str, Any] = {
         "schema_version": 1,
         "kind": "flux-selection-request",
         "producer_repository": plan.repository,
@@ -77,6 +105,8 @@ def build_flux_handoff(
         "mutation_authorized": False,
         "secrets_included": False,
     }
+    if selection is not None:
+        payload["selection"] = selection
     _verify_sanitized(payload)
     return payload
 
