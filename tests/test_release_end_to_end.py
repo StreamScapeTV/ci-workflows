@@ -79,7 +79,7 @@ class ReleaseOrchestrationEndToEndTest(unittest.TestCase):
             release_contract="backend",
             repository=CASE["repository"],
             admitted_sha=source_sha,
-            release_tag=f"v{version}",
+            release_tag=version,
             release_version=version,
             request_id="fixture-release-request-19",
             target_id="iptv-backend",
@@ -144,7 +144,7 @@ class ReleaseOrchestrationEndToEndTest(unittest.TestCase):
         )
         desired = desired_release(
             plan=plan,
-            release_tag=f"v{version}",
+            release_tag=version,
             release_version=version,
             source_sha=source_sha,
             manifest_json=manifest_json,
