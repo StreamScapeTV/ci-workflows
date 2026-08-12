@@ -46,6 +46,7 @@ def _identity(prefix: str, args: argparse.Namespace):
         product_id=getattr(args, f"{prefix}_product_id"),
         kind="oci-image" if prefix == "image" else "helm-chart",
         digest=getattr(args, f"{prefix}_digest"),
+        digests_json=getattr(args, f"{prefix}_digests_json"),
         immutable_references_json=getattr(args, f"{prefix}_references_json"),
         evidence_json=getattr(args, f"{prefix}_evidence_json"),
     )
@@ -131,7 +132,8 @@ def _progress(args: argparse.Namespace) -> int:
 
 def _add_identity(parser: argparse.ArgumentParser, prefix: str) -> None:
     parser.add_argument(f"--{prefix}-product-id", required=True)
-    parser.add_argument(f"--{prefix}-digest", required=True)
+    parser.add_argument(f"--{prefix}-digest", default="")
+    parser.add_argument(f"--{prefix}-digests-json", default="")
     parser.add_argument(f"--{prefix}-references-json", required=True)
     parser.add_argument(f"--{prefix}-evidence-json", default="{}")
 
