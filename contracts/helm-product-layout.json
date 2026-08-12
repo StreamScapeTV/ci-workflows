@@ -3,6 +3,9 @@
     "agent-state-chart": {
       "chart_root": "charts/agent-state",
       "minimum_required_image_references": 1,
+      "required_image_repositories": [
+        "git.faruqi.dev/mimranfaruqi/agent-state"
+      ],
       "values_profiles": {
         "default": "values.yaml"
       }
@@ -10,6 +13,7 @@
     "flux-github-actions-runner-chart": {
       "chart_root": "apps/github-actions-runner",
       "minimum_required_image_references": 0,
+      "required_image_repositories": [],
       "values_profiles": {
         "default": "values.yaml"
       }
@@ -17,6 +21,9 @@
     "iptv-backend-chart": {
       "chart_root": "charts/iptv-backend",
       "minimum_required_image_references": 1,
+      "required_image_repositories": [
+        "git.faruqi.dev/mimranfaruqi/iptv-backend"
+      ],
       "values_profiles": {
         "default": "values.yaml"
       }
