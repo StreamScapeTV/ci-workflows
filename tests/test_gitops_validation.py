@@ -168,6 +168,15 @@ exit 2
         with self.assertRaisesRegex(GitOpsValidationError, 'render_drift'):
             self._execute(self._request(GitOpsProfile.HELM_RENDER), helm_name='wrong-render')
 
+    def test_helm_values_schema_admits_every_declared_local_dependency(self) -> None:
+        helm_root = self.source / 'tests/fixtures/gitops-validation/synthetic/helm'
+        chart = yaml.safe_load((helm_root / 'Chart.yaml').read_text(encoding='utf-8'))
+        schema = json.loads((helm_root / 'values.schema.json').read_text(encoding='utf-8'))
+        properties = schema['properties']
+        self.assertTrue(
+            {item['name'] for item in chart['dependencies']} <= set(properties),
+        )
+
     def test_helm_dependency_must_match_the_declared_vendored_path(self) -> None:
         helm_root = self.source / 'tests/fixtures/gitops-validation/synthetic/helm'
         chart_path = helm_root / 'Chart.yaml'

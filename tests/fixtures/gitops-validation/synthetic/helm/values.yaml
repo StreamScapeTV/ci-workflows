@@ -3,5 +3,5 @@ image:
   repository: example.invalid/synthetic
   tag: sha-0000000000000000000000000000000000000000
 message: source-only
-fixtureLib:
+fixture-lib:
   enabled: true
