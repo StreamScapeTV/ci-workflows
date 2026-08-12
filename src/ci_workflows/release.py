@@ -82,10 +82,14 @@ def _bindings(args: argparse.Namespace) -> int:
         expected_release_version=args.expected_release_version,
     )
     selection = selection or {}
+    required_image_references = [
+        digest_references[target] for target in sorted(digest_references)
+    ]
     _emit(
         {
             "image_digests_json": canonical_json(digests),
             "digest_references_json": canonical_json(digest_references),
+            "required_image_references_json": canonical_json(required_image_references),
             "image_references_json": bundle,
             "canary_id": selection.get("canary_id", ""),
             "previous_known_good": selection.get("previous_known_good", ""),
