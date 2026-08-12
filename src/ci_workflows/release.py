@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 from typing import Sequence
 
+from .release_binding import image_reference_bundle
 from .release_contract import resolve_release_plan
 from .release_github import GitHubReleaseAPI, desired_release, ensure_github_release
 from .release_handoff import flux_handoff_json
@@ -63,6 +64,22 @@ def _plan(args: argparse.Namespace) -> int:
             "chart_requires_image_identity": "true" if plan.chart_requires_image_identity else "false",
             "handoff_kind": plan.handoff_kind,
             "handoff_target_repository": plan.handoff_target_repository,
+        }
+    )
+    return 0
+
+
+def _bindings(args: argparse.Namespace) -> int:
+    digest_references, bundle = image_reference_bundle(
+        repositories_json=args.repositories_json,
+        manifest_digests_json=args.manifest_digests_json,
+        version_references_json=args.version_references_json,
+        source_references_json=args.source_references_json,
+    )
+    _emit(
+        {
+            "digest_references_json": canonical_json(digest_references),
+            "image_references_json": bundle,
         }
     )
     return 0
@@ -170,6 +187,13 @@ def build_parser() -> argparse.ArgumentParser:
     plan.add_argument("--release-id", required=True)
     plan.add_argument("--repository", required=True)
     plan.set_defaults(handler=_plan)
+
+    bindings = subparsers.add_parser("image-bindings")
+    bindings.add_argument("--repositories-json", required=True)
+    bindings.add_argument("--manifest-digests-json", required=True)
+    bindings.add_argument("--version-references-json", required=True)
+    bindings.add_argument("--source-references-json", required=True)
+    bindings.set_defaults(handler=_bindings)
 
     verify = subparsers.add_parser("verify-publications")
     verify.add_argument("--release-id", required=True)
