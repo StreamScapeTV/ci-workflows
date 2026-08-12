@@ -39,6 +39,22 @@ The API never accepts arbitrary command text, shell, arguments, callbacks, modul
 
 No command output, public browser value, host path, package cache, source content, deployment value, token, or secret is exposed.
 
+## Immutable private helper reuse
+
+Private consumers do not need a second token or permission to clone `StreamScapeTV/ci-workflows`. `validation.node` follows the already-proven private-action sharing model used by `source.resolve`: central composite actions are invoked directly as immutable private action references rather than checking the central repository out into the caller workspace.
+
+The Node workflow pins these central helpers to the reviewed commit `70e08d4ddf8930046632a7135950e924b82e22bf` and records the same identities in `contracts/action-tool-lock.json`:
+
+- `actions/validate-node`;
+- `actions/exact-checkout`;
+- `actions/prepare-workspace`;
+- `actions/render-evidence`; and
+- `actions/cleanup-workspace`.
+
+The composites resolve their central scripts and libraries relative to `GITHUB_ACTION_PATH`, so the private central implementation is supplied by the immutable action checkout itself. The public workflow has no `actions/checkout` step for the central repository, no `.ciw` clone, no caller-visible central source selector, and no new workflow secret.
+
+`exact-checkout` still checks out only the admitted caller repository/source SHA. Its optional token defaults to the caller-scoped `github.token` and is never persisted. Central helper access therefore remains separate from caller-source checkout and from product dependency credentials.
+
 ## Runtime and restore
 
 The planner resolves exactly one canonical `MAJOR.MINOR.PATCH` from an exact `.nvmrc`, exact `.node-version`, or a reviewed exact API value. Ranges, aliases, prefixes, comments, multiple values, malformed files, and contradictory sources fail closed. `package.json` Node/npm engine bounds must accept the resolved runtime.
