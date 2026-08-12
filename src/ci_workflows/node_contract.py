@@ -355,6 +355,7 @@ def load_node_contract(root: Path) -> Mapping[str, Any]:
         == {
             "StreamScapeTV/StreamScapeWeb",
             "StreamScapeTV/agent-state",
+            "StreamScapeTV/agent-state-dashboard",
             "StreamScapeTV/finance-hub",
         },
         "invalid_input",

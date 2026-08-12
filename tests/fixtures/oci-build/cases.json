@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "positive": [
+    "exact-scratch-amd64",
+    "exact-digest-multi-arch",
+    "contract-owned-flux-bootstrap-output",
+    "deterministic-engine-mapping",
+    "clean-context-and-source"
+  ],
+  "negative": [
+    "mutable-base",
+    "caller-selected-engine",
+    "caller-selected-runner",
+    "caller-selected-registry-command",
+    "arbitrary-command-or-callback",
+    "unsupported-web-mobile-apple-product",
+    "symlinked-context-or-dockerfile",
+    "dirty-context",
+    "platform-override",
+    "config-or-layer-digest-drift",
+    "secret-in-config-history-or-layer",
+    "publication-or-registry-credential",
+    "docker-socket",
+    "cleanup-failure",
+    "residue"
+  ]
+}

@@ -125,6 +125,17 @@
     },
     {
       "cleanup": "ciw workspace cleanup under if: always()",
+      "domain": "oci",
+      "failure": "OciBuildError.code",
+      "handler": "ci_workflows.ciw.handle_oci_validate",
+      "inputs": ["phase", "source_root", "admitted_sha", "product_id", "release_version", "platform_set", "artifact_exception_id", "GitHub event identity"],
+      "operation": "validate",
+      "outputs": ["result", "source_sha", "product_id", "release_version", "manifest_digests_json", "platform_results_json", "clean_tree", "cleanup_result", "artifact_exception_used", "evidence_id", "canary_id", "previous_known_good", "rollback_id", "runner_profile", "runs_on_json", "workspace_profile", "timeout_minutes", "source_trust", "failure_code"],
+      "side_effects": ["resolves one contract-owned OCI build plan", "executes daemonless Buildah VFS builds without publication", "strictly inspects local OCI manifests, configs, layers, metadata, and filesystem assertions", "enforces exact source, zero routine artifacts, cleanup, and residue policy"],
+      "trust_class": "read-only-validation"
+    },
+    {
+      "cleanup": "ciw workspace cleanup under if: always()",
       "domain": "android",
       "failure": "AndroidValidationError.code",
       "handler": "ci_workflows.ciw.handle_android_validate",
@@ -132,6 +143,17 @@
       "operation": "validate",
       "outputs": ["result", "source_sha", "validation_profile", "task_profile", "test_summary", "resolved_java_major", "resolved_android_api", "gradle_version", "private_dependency_used", "artifact_exception_used", "device_handoff_json", "debug_output_verified", "schema_verified", "clean_tree", "cleanup_result", "failure_code", "evidence_id", "runner_profile", "runs_on_json", "workspace_profile", "timeout_minutes", "source_trust"],
       "side_effects": ["resolves one contract-owned Android plan", "runs exact JDK 25 and Android API 37 validation on semantic mobile capacity", "uses the exact private dependency primitive when contract-selected", "invokes only the checked-in Gradle wrapper with no daemon and isolated state", "enforces mutation, schema, unsigned-debug, redaction, cleanup, and zero-artifact policy"],
+      "trust_class": "read-only-validation"
+    },
+    {
+      "cleanup": "ciw workspace cleanup under if: always()",
+      "domain": "apple",
+      "failure": "AppleValidationError.code",
+      "handler": "ci_workflows.ciw.handle_apple_validate",
+      "inputs": ["phase", "source_root", "admitted_sha", "validation_profile", "version_file", "working_directory", "command_profile", "script_path", "platform", "scheme", "destination_profile", "artifact_exception_id", "source_trust", "GitHub event identity"],
+      "operation": "validate",
+      "outputs": ["result", "source_sha", "consumer_contract", "validation_profile", "task_profile", "test_summary", "runner_profile", "runs_on_json", "planner_runner_profile", "workspace_profile", "timeout_minutes", "source_trust", "xcode_version", "xcode_build", "swift_version", "sdk_versions_json", "destination_family", "simulator_identity", "output_verified", "clean_tree", "cleanup_result", "artifact_exception_used", "failure_code", "evidence_id"],
+      "side_effects": ["resolves one contract-owned Apple simulator or unsigned macOS plan", "executes exact Xcode, Swift, SDK, simulator runtime, and device-type identities on semantic Apple capacity", "creates and removes only marker-owned simulators and isolated dependency, DerivedData, and result-bundle state", "enforces signing-disabled, source, redaction, cleanup, and zero-artifact policy"],
       "trust_class": "read-only-validation"
     },
     {
@@ -264,11 +286,13 @@
     {"commands": ["python validate"], "path": "scripts/ci/python.py"},
     {"commands": ["node validate"], "path": "scripts/ci/node.py"},
     {"commands": ["gitops validate"], "path": "scripts/ci/gitops.py"},
-    {"commands": ["android validate"], "path": "scripts/ci/android.py"}
+    {"commands": ["oci validate"], "path": "scripts/ci/oci.py"},
+    {"commands": ["android validate"], "path": "scripts/ci/android.py"},
+    {"commands": ["apple validate"], "path": "scripts/ci/apple.py"}
   ],
   "entry_point": "scripts/ci/ciw.py",
   "forbidden_dispatch_inputs": ["arbitrary_command", "shell", "callback", "callback_url", "handler", "function_name", "module_name", "runner", "runs_on", "runner_labels", "container_engine", "secret_name", "deletion_path", "workspace_root"],
-  "future_namespaces": ["apple", "oci", "helm", "release", "device", "github"],
+  "future_namespaces": ["helm", "release", "device", "github"],
   "program": "ciw",
   "schema_version": 1
 }
