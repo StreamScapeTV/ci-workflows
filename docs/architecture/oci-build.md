@@ -6,9 +6,9 @@
 Dockerfile, target stage, platforms, fixed arguments, assertion profile,
 measured Buildah tier, and Flux handoff fields. Consumer input cannot override
 those decisions. Product repositories retain their Dockerfiles, source pins,
-smoke scripts, and product assertions. Flux retains runner inventory, desired
-state, canary selection, previous-known-good acceptance, rollback policy,
-credentials, and live reconciliation.
+smoke scripts when they exist, and product assertions. Flux retains runner
+inventory, desired state, canary selection, previous-known-good acceptance,
+rollback policy, credentials, and live reconciliation.
 
 `oci.build` has read-only repository permission, no registry secret contract,
 no Kubernetes/SOPS/Flux authority, no image publication, and no retained image
@@ -24,10 +24,16 @@ exact source rather than trust this workflow's temporary result.
   deterministic engine/profile mapping.
 - `oci_execution.py` stages tracked context, checks immutable bases, invokes the
   reviewed daemonless Buildah adapter, independently verifies the OCI layout,
-  runs bounded smoke, detects secret leakage, and owns cleanup/residue checks.
-- `ciw_oci.py` is the issue-owned plan/execute/cleanup/residue adapter. Shared
-  CIW and public-workflow registrations remain deferred until issue #15 merges.
-- `actions/validate-oci` and the reusable workflow are intentionally thin.
+  detects secret leakage, and owns cleanup/residue checks.
+- `oci_execution_safe.py` adds bounded local-filesystem verification and the
+  hardened non-publishing execution sequence used by the public façade.
+- `oci.py` exposes the public `build` and `inspect` implementation components and
+  delegates to the hardened executor and strict inspector.
+- `ciw_oci.py` implements the bounded `ciw oci validate` phases while
+  `scripts/ci/oci.py` remains a compatibility adapter for existing validation
+  and generated-mapping checks.
+- `actions/validate-oci` and the reusable workflow are intentionally thin and
+  dispatch through the stable `ciw` registry.
 
 The public API is engine-neutral even though the first required internal
 implementation is `buildah-v1`. A future engine may be added only as a reviewed
@@ -47,18 +53,31 @@ product source must pin every base and dependency input under its own contract;
 mutable bases are rejected before Buildah runs. Final publication and remote
 normalization/read-back belong to issue #17.
 
+## Reusable-workflow source identity
+
+Both reusable-workflow jobs check out the exact called central workflow source
+using `job.workflow_repository` and `job.workflow_sha`, then verify the detached
+checkout before invoking local central actions. Caller source remains separately
+bound to the admitted product SHA. This prevents a private consumer from
+substituting the central implementation through caller-oriented workflow
+context.
+
 ## Runner separation
 
-Planning runs on semantic `portable`. Build execution uses exactly the trusted
-planner's JSON selector. Product measurements plus reviewed headroom select one
-of `buildah-tiny`, `buildah-small`, `buildah-medium`, or `buildah-high` in
+Planning runs directly on the approved general-Linux capability selector
+`[linux, amd64, general]`. Build execution uses exactly the trusted planner's
+JSON selector. Product measurements plus reviewed headroom select one of
+`buildah-tiny`, `buildah-small`, `buildah-medium`, or `buildah-high` in
 contract data. A caller cannot request labels. Buildah capacity is privileged,
 trusted exact-source capacity and contains no Docker daemon, Docker socket,
 registry credential, Kubernetes token, or Agent State credential.
 
 Flux replacement images use the separate high-capacity independent bootstrap
-record. The workflow emits canary and rollback data only; it cannot select or
-reconcile a live image.
+record. Its current build targets are exactly
+`images/github-actions-runner-buildah/Dockerfile` and
+`images/github-actions-runner-mobile/Dockerfile`; there is no synthetic portable
+image target. The workflow emits canary and rollback data only; it cannot select
+or reconcile a live image.
 
 ## Failure and cleanup
 
