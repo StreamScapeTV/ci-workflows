@@ -10,6 +10,11 @@ from typing import Sequence
 
 from .release_binding import image_reference_bundle
 from .release_contract import resolve_release_plan
+from .release_evidence import (
+    chart_publication_evidence,
+    evidence_json,
+    image_publication_evidence,
+)
 from .release_github import GitHubReleaseAPI, desired_release, ensure_github_release
 from .release_handoff import flux_handoff_json
 from .release_manifest import canonical_json, publication_identity, publication_progress, release_manifest_json
@@ -80,6 +85,28 @@ def _bindings(args: argparse.Namespace) -> int:
         {
             "digest_references_json": canonical_json(digest_references),
             "image_references_json": bundle,
+        }
+    )
+    return 0
+
+
+def _evidence(args: argparse.Namespace) -> int:
+    image = image_publication_evidence(
+        platform_digests_json=args.platform_digests_json,
+        evidence_id=args.evidence_id,
+        replayed=args.replayed,
+        canary_id=args.canary_id,
+        previous_known_good=args.previous_known_good,
+        rollback_id=args.rollback_id,
+    )
+    chart = chart_publication_evidence(
+        result=args.chart_result,
+        immutable_references_json=args.chart_references_json,
+    )
+    _emit(
+        {
+            "image_evidence_json": evidence_json(image),
+            "chart_evidence_json": evidence_json(chart),
         }
     )
     return 0
@@ -196,6 +223,17 @@ def build_parser() -> argparse.ArgumentParser:
     bindings.add_argument("--version-references-json", required=True)
     bindings.add_argument("--source-references-json", required=True)
     bindings.set_defaults(handler=_bindings)
+
+    evidence = subparsers.add_parser("evidence")
+    evidence.add_argument("--platform-digests-json", required=True)
+    evidence.add_argument("--evidence-id", required=True)
+    evidence.add_argument("--replayed", required=True)
+    evidence.add_argument("--canary-id", default="")
+    evidence.add_argument("--previous-known-good", default="")
+    evidence.add_argument("--rollback-id", default="")
+    evidence.add_argument("--chart-result", required=True)
+    evidence.add_argument("--chart-references-json", required=True)
+    evidence.set_defaults(handler=_evidence)
 
     verify = subparsers.add_parser("verify-publications")
     verify.add_argument("--release-id", required=True)
