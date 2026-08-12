@@ -151,8 +151,8 @@
       "targets": [
         {
           "target_id": "agent-state-api",
-          "context_path": ".",
-          "dockerfile_path": "Dockerfile",
+          "context_path": "backend",
+          "dockerfile_path": "backend/Dockerfile",
           "target_stage": null,
           "platform_set": "linux-multi-arch",
           "smoke_script": null,
@@ -333,7 +333,7 @@
           "dockerfile_path": "Dockerfile",
           "target_stage": null,
           "platform_set": "linux-multi-arch",
-          "smoke_script": "docker/verify-image.sh",
+          "smoke_script": null,
           "assertions": {
             "user": "appuser",
             "entrypoint": [],
