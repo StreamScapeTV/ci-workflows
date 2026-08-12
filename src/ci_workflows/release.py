@@ -188,6 +188,9 @@ def _handoff(args: argparse.Namespace) -> int:
         github_release_url=args.github_release_url,
         image=image,
         chart=chart,
+        canary_id=args.canary_id,
+        previous_known_good=args.previous_known_good,
+        rollback_id=args.rollback_id,
     )
     _emit({"flux_handoff_json": rendered, "flux_handoff_sha256": digest})
     return 0
@@ -271,6 +274,9 @@ def build_parser() -> argparse.ArgumentParser:
     handoff.add_argument("--source-sha", required=True)
     handoff.add_argument("--manifest-sha256", required=True)
     handoff.add_argument("--github-release-url", required=True)
+    handoff.add_argument("--canary-id", default="")
+    handoff.add_argument("--previous-known-good", default="")
+    handoff.add_argument("--rollback-id", default="")
     _add_identity(handoff, "image")
     _add_identity(handoff, "chart")
     handoff.set_defaults(handler=_handoff)
