@@ -102,6 +102,57 @@ class ReleaseWorkflowContractTest(unittest.TestCase):
             "needs.publish_images.outputs.immutable_references_json", immutable
         )
 
+    def test_tag_push_and_trusted_replay_share_one_resolved_authority_tuple(self) -> None:
+        plan = self.jobs["plan"]
+        steps = {step.get("id"): step for step in plan["steps"] if step.get("id")}
+        tag = steps["authority_tag"]
+        replay = steps["authority_replay"]
+        bind = steps["authority"]
+
+        self.assertEqual("${{ github.ref_type == 'tag' }}", str(tag["if"]))
+        self.assertEqual("tag-push", tag["with"]["release_mode"])
+        self.assertNotIn("release_version", tag["with"])
+        self.assertNotIn("release_source_sha", tag["with"])
+
+        self.assertEqual("${{ github.ref_type != 'tag' }}", str(replay["if"]))
+        self.assertEqual("existing-tag", replay["with"]["release_mode"])
+        self.assertEqual(
+            "${{ steps.release.outputs.release_version }}",
+            replay["with"]["release_version"],
+        )
+        self.assertEqual(
+            "${{ steps.release.outputs.admitted_sha }}",
+            replay["with"]["release_source_sha"],
+        )
+
+        rendered = json.dumps(bind, sort_keys=True)
+        self.assertIn('test "${REQUESTED_TAG}" = "${version}"', rendered)
+        self.assertIn('test "${REQUESTED_VERSION}" = "${version}"', rendered)
+        self.assertIn('test "${REQUESTED_SHA}" = "${source_sha}"', rendered)
+        self.assertIn('test "${REQUESTED_SHA}" = "${commit_sha}"', rendered)
+        self.assertEqual(
+            "${{ steps.authority.outputs.release_mode }}",
+            plan["outputs"]["release_mode"],
+        )
+
+        for job_name in (
+            "run_release_gates",
+            "publish_images",
+            "publish_charts_or_assets",
+            "verify_and_record",
+        ):
+            revalidations = [
+                step
+                for step in self.jobs[job_name]["steps"]
+                if "resolve-release-tag" in str(step.get("uses", ""))
+            ]
+            self.assertEqual(1, len(revalidations), msg=job_name)
+            self.assertEqual(
+                "${{ needs.plan.outputs.release_mode }}",
+                revalidations[0]["with"]["release_mode"],
+                msg=job_name,
+            )
+
     def test_publication_jobs_use_only_trusted_planner_runner_output(self) -> None:
         expected = "${{ fromJSON(needs.plan.outputs.runs_on_json) }}"
         self.assertEqual(expected, self.jobs["publish_images"]["runs-on"])
