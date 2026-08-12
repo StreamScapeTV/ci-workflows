@@ -24,7 +24,7 @@ from ci_workflows.issue_dependencies import (  # noqa: E402
     IssueRef,
     NativeDependency,
     RepositoryRecord,
-    sync_organization,
+    sync_organization_resilient,
 )
 
 API_ROOT = "https://api.github.com"
@@ -307,6 +307,10 @@ def _verify_execution_environment(env: Mapping[str, str]) -> str:
     return token
 
 
+def _emit_workflow_warning(message: str) -> None:
+    print(f"::warning::{message}", file=sys.stderr)
+
+
 def run(
     *,
     env: Mapping[str, str],
@@ -321,7 +325,11 @@ def run(
         raise DependencySyncError("checked-in issue dependency schema is unreadable") from None
     if not isinstance(schema, Mapping):
         raise DependencySyncError("checked-in issue dependency schema is not an object")
-    return sync_organization(gateway, schema).as_dict()
+    return sync_organization_resilient(
+        gateway,
+        schema,
+        warn=_emit_workflow_warning,
+    ).as_dict()
 
 
 def main(argv: Sequence[str] | None = None) -> int:
