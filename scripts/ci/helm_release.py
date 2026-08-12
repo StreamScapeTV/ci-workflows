@@ -19,6 +19,7 @@ from ci_workflows.helm_contract import (
 )
 from ci_workflows.helm_dependency_policy import resolve_validation_plan
 from ci_workflows.helm_manifest import remote_chart_manifest_digest
+from ci_workflows.helm_policy import run_policy_hook
 from ci_workflows.helm_registry import publish_and_read_back
 from ci_workflows.helm_release import (
     load_release_bindings,
@@ -99,6 +100,13 @@ def _execute(
         request.admitted_sha,
         references,
         product_release_contract,
+        environment,
+    )
+    run_policy_hook(
+        source_root,
+        state_root,
+        plan,
+        request.admitted_sha,
         environment,
     )
     validation = finalize_validation_archive(

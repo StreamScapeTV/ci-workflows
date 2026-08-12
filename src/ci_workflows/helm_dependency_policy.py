@@ -1,4 +1,4 @@
-"""Central exact dependency and stable upstream policy for Helm planning."""
+"""Central network, upstream-origin, and policy-hook admission for Helm planning."""
 from __future__ import annotations
 
 import json
@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 
 from .helm_contract import NAME, SEMVER, require
 from .helm_contract import resolve_validation_plan as _resolve_validation_plan
+from .helm_policy import POLICY_HOOKS_PATH, enforce_policy_hook, load_policy_hook_contract
 from .helm_types import HelmPlan, HelmRequest, HelmValidationError
 from .helm_upstream_policy import (
     UPSTREAM_POLICY_PATH,
@@ -121,7 +122,7 @@ def resolve_validation_plan(
     *,
     contract_root: Path = CENTRAL_ROOT,
 ) -> HelmPlan:
-    """Resolve caller intent and enforce central network/origin policy."""
+    """Resolve caller intent and enforce every central product policy first."""
 
     require(
         contract.get("dependency_policy_contract")
@@ -132,6 +133,15 @@ def resolve_validation_plan(
         contract.get("upstream_policy_contract")
         == UPSTREAM_POLICY_PATH.as_posix(),
         "invalid_contract",
+    )
+    require(
+        contract.get("policy_hook_contract") == POLICY_HOOKS_PATH.as_posix(),
+        "invalid_contract",
+    )
+    enforce_policy_hook(
+        source_root,
+        request.product_id,
+        load_policy_hook_contract(contract_root),
     )
     enforce_upstream_policy(
         source_root,

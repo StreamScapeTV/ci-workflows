@@ -8,6 +8,7 @@ from .helm_archive import finalize_validation_archive
 from .helm_contract import HelmPlan, load_helm_contract, request_from_environment
 from .helm_dependency_policy import resolve_validation_plan
 from .helm_execution import validate_and_package
+from .helm_policy import run_policy_hook
 from .helm_registry import publish_and_read_back
 from .helm_types import HelmPublicationResult, HelmValidationError, HelmValidationResult
 
@@ -22,6 +23,13 @@ def validate(
     """Validate one resolved product chart and emit its deterministic digest."""
 
     preliminary = validate_and_package(
+        source_root,
+        state_root,
+        plan,
+        admitted_sha,
+        environment,
+    )
+    run_policy_hook(
         source_root,
         state_root,
         plan,

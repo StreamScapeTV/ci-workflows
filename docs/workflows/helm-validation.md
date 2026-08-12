@@ -45,6 +45,22 @@ cannot redirect validation to another HTTPS or OCI repository by editing its
 manifest, `Chart.yaml`, and lock data together. Credential-bearing or malformed
 central repository entries also fail closed.
 
+## Product-owned policy hooks
+
+`policy_path` is not a caller-selected command. `contracts/helm-policy-hooks.json`
+centrally binds the one optional checked-in `.sh` hook path for each product;
+all current products are explicitly `null`. A caller manifest that introduces
+or changes a hook without a central contract update fails before validation.
+
+For a future approved hook, the workflow first completes ordinary Helm
+validation on the isolated chart copy, then runs exactly `bash --noprofile
+--norc <approved-hook>` with that isolated chart as the working directory.
+The hook receives only bounded `CIW_HELM_*` path/product/version variables plus
+the normal scrubbed Helm runtime. Registry credentials, `KUBECONFIG`, SOPS or
+other caller environment are not propagated. Exact source cleanliness is
+verified before and after the hook. Validation, exact-tag release validation,
+and the named Helm façade all traverse this same hook boundary.
+
 ## Deterministic package canonicalization
 
 Helm first operates on an isolated chart copy. The resulting package is then
@@ -121,19 +137,25 @@ If not, the central Buildah escalation policy selects the next sufficient tier.
 ## Publication and read-back
 
 Tag-push publication uses pull-compare-before-push, mandatory Helm pull
-read-back, and a second raw OCI manifest inspection with Skopeo. A failed first
-pull is treated as proof of absence only when the registry returns the standard
-`MANIFEST_UNKNOWN` (including Helm's `manifest unknown` rendering) or
+read-back, and a second independent manifest inspection with Skopeo. A failed
+first pull is treated as proof of absence only when the registry returns the
+standard `MANIFEST_UNKNOWN` (including Helm's `manifest unknown` rendering) or
 `NAME_UNKNOWN` error code. Generic `404 Not Found`, authentication, proxy,
 network, or other lookup failures are `registry_lookup_failed` and never become
 a `helm push` attempt. A failed absence lookup must also leave the destination
 directory empty before publication is allowed.
 
-Public `chart_digest` is the SHA-256 of the exact remote Helm OCI manifest
-bytes. Package content remains a separate `chart_package_sha256`, also included
-in Helm's `immutable_references_json`. Tag-push replays and manual verify-only
-replays succeed only on exact package parity; conflicting immutable versions
-fail closed. Manual replay never creates a missing version.
+For `chart_digest`, Skopeo first reports the digest of the exact top-level
+registry object without enumerating tags. A separate `--raw` inspection must
+hash back to that same digest, must use the Helm OCI config media type, must
+contain exactly one Helm chart content layer, and that layer digest must equal
+the recursively canonical local package SHA-256. The public `chart_digest` is
+the registry-reported top-level manifest digest, while
+`chart_package_sha256` remains the separate package-content identity.
+
+Tag-push replays and manual verify-only replays succeed only on exact package
+and manifest parity; conflicting immutable versions fail closed. Manual replay
+never creates a missing version.
 
 Privileged publication execute has exactly one entry point: the release-only
 adapter that binds tag authority and OCI evidence. The generic `ciw helm

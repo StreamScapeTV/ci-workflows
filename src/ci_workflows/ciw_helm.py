@@ -24,6 +24,7 @@ from .helm_execution import (
     validate_and_package,
     verify_no_helm_residue,
 )
+from .helm_policy import run_policy_hook
 from .helm_types import HelmRequest, HelmValidationError
 from .workspace import resolve_state_root
 
@@ -164,6 +165,13 @@ def execute(
     source_root = _source_root(root, environment, source_relative)
     plan = resolve_validation_plan(source_root, contract, request)
     validation = validate_and_package(
+        source_root,
+        state_root,
+        plan,
+        request.admitted_sha,
+        environment,
+    )
+    run_policy_hook(
         source_root,
         state_root,
         plan,
