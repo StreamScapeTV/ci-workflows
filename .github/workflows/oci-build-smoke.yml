@@ -154,7 +154,7 @@ jobs:
           release_version: 0.0.0-smoke
           platform_set: linux-amd64
 
-      - name: Diagnose malformed OCI layout structure
+      - name: Diagnose OCI descriptor bindings
         if: ${{ steps.execute.outcome == 'failure' }}
         continue-on-error: true
         shell: bash
@@ -164,28 +164,29 @@ jobs:
         run: |
           set -Eeuo pipefail
           python3 - <<'PY'
-          import json, os
+          import hashlib, json, os
           from ci_workflows.oci_execution import state_root
-          root = state_root(os.environ)
-          layouts = sorted((root / "layouts").iterdir())
-          if len(layouts) != 1:
-              raise SystemExit(f"expected one OCI layout, found {len(layouts)}")
-          layout = layouts[0]
-          def blob(descriptor):
-              digest = descriptor["digest"].removeprefix("sha256:")
-              return json.loads((layout / "blobs" / "sha256" / digest).read_text())
-          index = json.loads((layout / "index.json").read_text())
-          rows = []
-          for outer in index.get("manifests", []):
-              outer_payload = blob(outer)
-              children = outer_payload.get("manifests", []) if isinstance(outer_payload, dict) and "manifests" in outer_payload else [outer]
-              for child in children:
-                  manifest = blob(child)
-                  config_desc = manifest.get("config", {}) if isinstance(manifest, dict) else {}
-                  config = blob(config_desc) if isinstance(config_desc, dict) and "digest" in config_desc else {}
-                  rootfs = config.get("rootfs", {}) if isinstance(config, dict) else {}
-                  rows.append({"outer_media_type": outer.get("mediaType"), "child_media_type": child.get("mediaType"), "platform": child.get("platform"), "manifest_media_type": manifest.get("mediaType") if isinstance(manifest, dict) else None, "config_media_type": config_desc.get("mediaType") if isinstance(config_desc, dict) else None, "layer_media_types": [layer.get("mediaType") for layer in manifest.get("layers", [])] if isinstance(manifest, dict) else [], "os": config.get("os") if isinstance(config, dict) else None, "architecture": config.get("architecture") if isinstance(config, dict) else None, "variant": config.get("variant") if isinstance(config, dict) else None, "rootfs_type": rootfs.get("type") if isinstance(rootfs, dict) else None, "diff_id_count": len(rootfs.get("diff_ids", [])) if isinstance(rootfs, dict) and isinstance(rootfs.get("diff_ids", []), list) else None, "layer_count": len(manifest.get("layers", [])) if isinstance(manifest, dict) and isinstance(manifest.get("layers", []), list) else None, "config_keys": sorted(config.keys()) if isinstance(config, dict) else []})
-          print(json.dumps({"root_media_type": index.get("mediaType"), "rows": rows}, sort_keys=True))
+          layout = next((state_root(os.environ) / "layouts").iterdir())
+          def read_descriptor(descriptor):
+              path = layout / "blobs" / "sha256" / descriptor["digest"].removeprefix("sha256:")
+              data = path.read_bytes()
+              check = {"media_type": descriptor.get("mediaType"), "declared_size": descriptor.get("size"), "actual_size": len(data), "digest_matches": "sha256:" + hashlib.sha256(data).hexdigest() == descriptor.get("digest")}
+              return json.loads(data), check
+          root = json.loads((layout / "index.json").read_text())
+          result = {"root_schema": root.get("schemaVersion"), "root_media_type": root.get("mediaType"), "entries": []}
+          for outer in root.get("manifests", []):
+              inner, outer_check = read_descriptor(outer)
+              entry = {"outer": outer_check, "inner_schema": inner.get("schemaVersion"), "inner_media_type": inner.get("mediaType"), "children": []}
+              for child in inner.get("manifests", []):
+                  manifest, child_check = read_descriptor(child)
+                  config, config_check = read_descriptor(manifest["config"])
+                  layers = []
+                  for layer in manifest.get("layers", []):
+                      _, layer_check = read_descriptor(layer)
+                      layers.append(layer_check)
+                  entry["children"].append({"child": child_check, "manifest_schema": manifest.get("schemaVersion"), "manifest_media_type": manifest.get("mediaType"), "platform": child.get("platform"), "config": config_check, "os": config.get("os"), "architecture": config.get("architecture"), "rootfs_type": (config.get("rootfs") or {}).get("type"), "diff_id_count": len((config.get("rootfs") or {}).get("diff_ids", [])), "layers": layers})
+              result["entries"].append(entry)
+          print(json.dumps(result, sort_keys=True))
           PY
 
       - name: Render deterministic redacted OCI smoke evidence
