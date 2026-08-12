@@ -4,7 +4,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Mapping
 
-from .helm_contract import HelmPlan, load_helm_contract, request_from_environment, resolve_validation_plan
+from .helm_contract import HelmPlan, load_helm_contract, request_from_environment
+from .helm_dependency_policy import resolve_validation_plan
 from .helm_execution import validate_and_package
 from .helm_registry import publish_and_read_back
 from .helm_types import HelmPublicationResult, HelmValidationError, HelmValidationResult

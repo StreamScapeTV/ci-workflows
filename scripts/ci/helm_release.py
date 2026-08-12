@@ -15,8 +15,8 @@ from ci_workflows.helm_contract import (
     load_helm_publication_contract,
     request_from_environment,
     require,
-    resolve_validation_plan,
 )
+from ci_workflows.helm_dependency_policy import resolve_validation_plan
 from ci_workflows.helm_registry import publish_and_read_back
 from ci_workflows.helm_release import (
     load_release_bindings,
@@ -88,6 +88,7 @@ def _execute(
         source_root,
         load_helm_contract(root),
         request,
+        contract_root=root,
     )
     product_release_contract = release_contract["products"][request.product_id]
     validation = validate_and_package_release(

@@ -30,6 +30,21 @@ clean. The current Agent State chart still lacks an `image.digest` value path,
 so it intentionally fails closed until producer-side adoption adds immutable
 digest rendering; #18 never falls back to a mutable tag.
 
+## Central dependency policy
+
+A caller manifest may describe its locked dependency tuple, but it does not own
+the network destination used by `helm dependency build`.
+`contracts/helm-dependency-policy.json` centrally fixes the exact dependency
+set for each admitted chart product. The current backend tuple is exactly
+`valkey` `0.11.0` from `https://valkey.io/valkey-helm/`; Agent State and the
+Flux wrapper currently admit no Helm dependencies through this mechanism.
+
+The production Helm planners compare the caller manifest's parsed dependency
+tuples to that central policy before any dependency build. A fork therefore
+cannot redirect validation to another HTTPS or OCI repository by editing its
+manifest, `Chart.yaml`, and lock data together. Credential-bearing or malformed
+central repository entries also fail closed.
+
 ## Flux wrapper provenance
 
 The Flux wrapper has no application-image binding, but it references two
@@ -94,6 +109,13 @@ bytes. Package content remains a separate `chart_package_sha256`, also included
 in Helm's `immutable_references_json`. Tag-push replays and manual verify-only
 replays succeed only on exact package parity; conflicting immutable versions
 fail closed. Manual replay never creates a missing version.
+
+Privileged publication execute has exactly one entry point: the release-only
+adapter that binds tag authority and OCI evidence. The generic `ciw helm
+publish` surface may plan and perform cleanup/residue checks, but its `execute`
+phase fails with `release_adapter_required` before caller source or packaging is
+reached. This prevents direct CIW invocation from bypassing release mode or OCI
+evidence admission.
 
 Both Helm workflows use isolated temporary state and unconditional cleanup.
 They retain zero routine Actions artifacts. Helm publication rejects Kubernetes

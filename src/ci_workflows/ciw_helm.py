@@ -16,8 +16,8 @@ from .helm_contract import (
     load_helm_publication_contract,
     request_from_environment,
     require,
-    resolve_validation_plan,
 )
+from .helm_dependency_policy import resolve_validation_plan
 from .helm_execution import (
     cleanup_helm_state,
     validate_and_package,

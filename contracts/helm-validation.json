@@ -1,5 +1,6 @@
 {
   "artifact_policy": "zero-default",
+  "dependency_policy_contract": "contracts/helm-dependency-policy.json",
   "dependency_repository_schemes": [
     "https",
     "oci"
