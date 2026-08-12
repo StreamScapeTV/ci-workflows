@@ -60,6 +60,7 @@ def image_reference_bundle(
     version_references_json: str,
     source_references_json: str,
 ) -> tuple[dict[str, str], str]:
+    repositories = _mapping(repositories_json, "image_repository_map_rejected")
     digest_references = digest_pinned_image_references(
         repositories_json,
         manifest_digests_json,
@@ -67,18 +68,26 @@ def image_reference_bundle(
     versions = _mapping(version_references_json, "image_reference_map_rejected")
     sources = _mapping(source_references_json, "image_reference_map_rejected")
     expected = set(digest_references)
-    require(set(versions) == expected and set(sources) == expected, "image_target_mismatch")
+    require(
+        set(repositories) == expected
+        and set(versions) == expected
+        and set(sources) == expected,
+        "image_target_mismatch",
+    )
     for mapping in (versions, sources):
         for target, value in mapping.items():
+            repository = repositories[target]
             require(
-                isinstance(value, str)
+                isinstance(repository, str)
+                and REPOSITORY.fullmatch(repository) is not None
+                and isinstance(value, str)
                 and 0 < len(value) <= 512
                 and not any(character.isspace() for character in value)
                 and ":latest" not in value.casefold(),
                 "image_reference_map_rejected",
             )
             require(
-                value.startswith(f"{repositories_json and json.loads(repositories_json)[target]}:"),
+                value.startswith(f"{repository}:"),
                 "image_reference_map_rejected",
             )
     bundle = {
