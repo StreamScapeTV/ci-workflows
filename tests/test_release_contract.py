@@ -47,10 +47,16 @@ class ReleaseContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ReleaseError, r"^release_id_rejected$"):
             resolve_release_plan(ROOT, "invented-release", "StreamScapeTV/iptv-backend")
 
-    def test_release_version_is_canonical_semver_without_v_prefix(self) -> None:
+    def test_release_version_is_stable_semver_without_v_prefix(self) -> None:
         self.assertEqual("1.2.3", validate_release_version("1.2.3"))
-        self.assertEqual("1.2.3-rc.1", validate_release_version("1.2.3-rc.1"))
-        for invalid in ("v1.2.3", "01.2.3", "1.2", "latest", "1.2.3 latest"):
+        for invalid in (
+            "v1.2.3",
+            "01.2.3",
+            "1.2",
+            "latest",
+            "1.2.3 latest",
+            "1.2.3-rc.1",
+        ):
             with self.subTest(invalid=invalid):
                 with self.assertRaises(ReleaseError):
                     validate_release_version(invalid)
