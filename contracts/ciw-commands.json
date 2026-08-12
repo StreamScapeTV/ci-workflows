@@ -147,6 +147,17 @@
     },
     {
       "cleanup": "ciw workspace cleanup under if: always()",
+      "domain": "apple",
+      "failure": "AppleValidationError.code",
+      "handler": "ci_workflows.ciw.handle_apple_validate",
+      "inputs": ["phase", "source_root", "admitted_sha", "validation_profile", "version_file", "working_directory", "command_profile", "script_path", "platform", "scheme", "destination_profile", "artifact_exception_id", "source_trust", "GitHub event identity"],
+      "operation": "validate",
+      "outputs": ["result", "source_sha", "consumer_contract", "validation_profile", "task_profile", "test_summary", "runner_profile", "runs_on_json", "planner_runner_profile", "workspace_profile", "timeout_minutes", "source_trust", "xcode_version", "xcode_build", "swift_version", "sdk_versions_json", "destination_family", "simulator_identity", "output_verified", "clean_tree", "cleanup_result", "artifact_exception_used", "failure_code", "evidence_id"],
+      "side_effects": ["resolves one contract-owned Apple simulator or unsigned macOS plan", "executes exact Xcode, Swift, SDK, simulator runtime, and device-type identities on semantic Apple capacity", "creates and removes only marker-owned simulators and isolated dependency, DerivedData, and result-bundle state", "enforces signing-disabled, source, redaction, cleanup, and zero-artifact policy"],
+      "trust_class": "read-only-validation"
+    },
+    {
+      "cleanup": "ciw workspace cleanup under if: always()",
       "domain": "flutter",
       "failure": "FlutterValidationError.code",
       "handler": "ci_workflows.ciw.handle_flutter_validate",
@@ -276,11 +287,12 @@
     {"commands": ["node validate"], "path": "scripts/ci/node.py"},
     {"commands": ["gitops validate"], "path": "scripts/ci/gitops.py"},
     {"commands": ["oci validate"], "path": "scripts/ci/oci.py"},
-    {"commands": ["android validate"], "path": "scripts/ci/android.py"}
+    {"commands": ["android validate"], "path": "scripts/ci/android.py"},
+    {"commands": ["apple validate"], "path": "scripts/ci/apple.py"}
   ],
   "entry_point": "scripts/ci/ciw.py",
   "forbidden_dispatch_inputs": ["arbitrary_command", "shell", "callback", "callback_url", "handler", "function_name", "module_name", "runner", "runs_on", "runner_labels", "container_engine", "secret_name", "deletion_path", "workspace_root"],
-  "future_namespaces": ["apple", "helm", "release", "device", "github"],
+  "future_namespaces": ["helm", "release", "device", "github"],
   "program": "ciw",
   "schema_version": 1
 }

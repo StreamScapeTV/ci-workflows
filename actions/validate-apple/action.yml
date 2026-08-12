@@ -1,0 +1,124 @@
+name: Validate exact Apple source
+description: Plan, execute, clean, or inspect one checked-in Apple validation profile
+
+inputs:
+  phase:
+    description: "Bounded internal phase: plan, execute, cleanup, or residue"
+    required: false
+    default: execute
+  admitted_sha:
+    description: Exact admitted caller source SHA
+    required: true
+  validation_profile:
+    description: Bounded Apple validation profile
+    required: true
+  version_file:
+    description: Optional exact contract-matching version or resolution authority file
+    required: false
+    default: ""
+  working_directory:
+    description: Exact contract-matching working directory
+    required: false
+    default: "."
+  command_profile:
+    description: Reviewed product-neutral Apple consumer contract identifier
+    required: true
+  script_path:
+    description: Optional exact contract-matching checked-in script
+    required: false
+    default: ""
+  platform:
+    description: Exact bounded Apple platform selected by the reviewed profile
+    required: true
+  scheme:
+    description: Optional exact contract-matching scheme
+    required: false
+    default: ""
+  destination_profile:
+    description: Optional exact contract-matching destination profile identifier
+    required: false
+    default: ""
+  artifact_exception_id:
+    description: Optional registered redacted diagnostic exception; absent by default
+    required: false
+    default: ""
+  source_trust:
+    description: Internal exact admitted source trust class
+    required: false
+    default: ""
+
+outputs:
+  result:
+    value: ${{ steps.apple.outputs.result }}
+  source_sha:
+    value: ${{ steps.apple.outputs.source_sha }}
+  consumer_contract:
+    value: ${{ steps.apple.outputs.consumer_contract }}
+  validation_profile:
+    value: ${{ steps.apple.outputs.validation_profile }}
+  task_profile:
+    value: ${{ steps.apple.outputs.task_profile }}
+  runner_profile:
+    value: ${{ steps.apple.outputs.runner_profile }}
+  runs_on_json:
+    value: ${{ steps.apple.outputs.runs_on_json }}
+  planner_runner_profile:
+    value: ${{ steps.apple.outputs.planner_runner_profile }}
+  workspace_profile:
+    value: ${{ steps.apple.outputs.workspace_profile }}
+  timeout_minutes:
+    value: ${{ steps.apple.outputs.timeout_minutes }}
+  source_trust:
+    value: ${{ steps.apple.outputs.source_trust }}
+  xcode_version:
+    value: ${{ steps.apple.outputs.xcode_version }}
+  xcode_build:
+    value: ${{ steps.apple.outputs.xcode_build }}
+  swift_version:
+    value: ${{ steps.apple.outputs.swift_version }}
+  sdk_versions_json:
+    value: ${{ steps.apple.outputs.sdk_versions_json }}
+  destination_family:
+    value: ${{ steps.apple.outputs.destination_family }}
+  simulator_identity:
+    value: ${{ steps.apple.outputs.simulator_identity }}
+  test_summary:
+    value: ${{ steps.apple.outputs.test_summary }}
+  output_verified:
+    value: ${{ steps.apple.outputs.output_verified }}
+  artifact_exception_used:
+    value: ${{ steps.apple.outputs.artifact_exception_used }}
+  clean_tree:
+    value: ${{ steps.apple.outputs.clean_tree }}
+  cleanup_result:
+    value: ${{ steps.apple.outputs.cleanup_result }}
+  evidence_id:
+    value: ${{ steps.apple.outputs.evidence_id }}
+  failure_code:
+    value: ${{ steps.apple.outputs.failure_code }}
+
+runs:
+  using: composite
+  steps:
+    - id: apple
+      name: Dispatch bounded Apple validation
+      shell: bash
+      env:
+        PYTHONDONTWRITEBYTECODE: "1"
+        INPUT_ADMITTED_SHA: ${{ inputs.admitted_sha }}
+        INPUT_VALIDATION_PROFILE: ${{ inputs.validation_profile }}
+        INPUT_VERSION_FILE: ${{ inputs.version_file }}
+        INPUT_WORKING_DIRECTORY: ${{ inputs.working_directory }}
+        INPUT_COMMAND_PROFILE: ${{ inputs.command_profile }}
+        INPUT_SCRIPT_PATH: ${{ inputs.script_path }}
+        INPUT_PLATFORM: ${{ inputs.platform }}
+        INPUT_SCHEME: ${{ inputs.scheme }}
+        INPUT_DESTINATION_PROFILE: ${{ inputs.destination_profile }}
+        INPUT_ARTIFACT_EXCEPTION_ID: ${{ inputs.artifact_exception_id }}
+        INPUT_SOURCE_TRUST: ${{ inputs.source_trust }}
+      run: |
+        set -Eeuo pipefail
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
+          apple validate \
+          --phase "${{ inputs.phase }}" \
+          --source-root source

@@ -1,0 +1,323 @@
+name: CI / Apple validation
+
+on:
+  workflow_call:
+    inputs:
+      admitted_sha:
+        description: Exact lowercase source SHA admitted by source.resolve
+        required: true
+        type: string
+      validation_profile:
+        description: Bounded Apple validation profile
+        required: true
+        type: string
+      version_file:
+        description: Optional exact contract-matching version or resolution authority file
+        required: false
+        default: ""
+        type: string
+      working_directory:
+        description: Exact contract-matching source directory
+        required: false
+        default: "."
+        type: string
+      command_profile:
+        description: Reviewed product-neutral Apple consumer contract identifier
+        required: true
+        type: string
+      script_path:
+        description: Optional exact contract-matching checked-in script
+        required: false
+        default: ""
+        type: string
+      platform:
+        description: Exact bounded Apple platform selected by the reviewed profile
+        required: true
+        type: string
+      scheme:
+        description: Optional exact contract-matching scheme
+        required: false
+        default: ""
+        type: string
+      destination_profile:
+        description: Optional exact contract-matching destination profile identifier
+        required: false
+        default: ""
+        type: string
+      artifact_exception_id:
+        description: Optional registered redacted diagnostic exception; absent by default
+        required: false
+        default: ""
+        type: string
+    outputs:
+      result:
+        description: Success only after exact Apple validation and terminal cleanup
+        value: ${{ jobs.apple.outputs.result }}
+      test_summary:
+        description: Deterministic bounded stage summary
+        value: ${{ jobs.apple.outputs.test_summary }}
+      artifact_exception_used:
+        description: Whether one registered redacted exception was requested
+        value: ${{ jobs.apple.outputs.artifact_exception_used }}
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Resolve bounded Apple validation plan
+    runs-on: [linux, amd64, general]
+    timeout-minutes: 10
+    outputs:
+      runner_profile: ${{ steps.plan.outputs.runner_profile }}
+      runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
+      workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
+      timeout_minutes: ${{ steps.plan.outputs.timeout_minutes }}
+      source_trust: ${{ steps.plan.outputs.source_trust }}
+    steps:
+      - name: Check out exact central workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact central workflow source
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -Eeuo pipefail
+          (cd .ciw && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
+
+      - id: plan
+        name: Resolve contract-owned Apple plan
+        uses: ./.ciw/actions/validate-apple
+        with:
+          phase: plan
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          version_file: ${{ inputs.version_file }}
+          working_directory: ${{ inputs.working_directory }}
+          command_profile: ${{ inputs.command_profile }}
+          script_path: ${{ inputs.script_path }}
+          platform: ${{ inputs.platform }}
+          scheme: ${{ inputs.scheme }}
+          destination_profile: ${{ inputs.destination_profile }}
+          artifact_exception_id: ${{ inputs.artifact_exception_id }}
+
+  apple:
+    name: Execute exact Apple validation
+    needs: plan
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
+    timeout-minutes: 120
+    outputs:
+      result: ${{ steps.execute.outputs.result }}
+      test_summary: ${{ steps.execute.outputs.test_summary }}
+      artifact_exception_used: ${{ steps.execute.outputs.artifact_exception_used }}
+    steps:
+      - name: Clear fixed central workflow checkout root
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import os
+          import stat
+          from pathlib import Path
+
+          def remove_no_follow(path: Path) -> None:
+              try:
+                  metadata = os.lstat(path)
+              except FileNotFoundError:
+                  return
+              if stat.S_ISLNK(metadata.st_mode) or stat.S_ISREG(metadata.st_mode):
+                  os.unlink(path)
+              elif stat.S_ISDIR(metadata.st_mode):
+                  with os.scandir(path) as entries:
+                      children = [path / entry.name for entry in entries]
+                  for child in children:
+                      remove_no_follow(child)
+                  os.rmdir(path)
+              else:
+                  raise SystemExit("unsupported fixed checkout entry")
+
+          remove_no_follow(Path(".ciw"))
+          if os.path.lexists(".ciw"):
+              raise SystemExit("fixed central checkout root remains")
+          PY
+          test ! -e .ciw
+          test ! -L .ciw
+
+      - name: Check out exact central workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact central workflow source
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -Eeuo pipefail
+          (cd .ciw && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
+
+      - name: Clear fixed admitted source checkout root
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 .ciw/scripts/ci/apple_checkout_cleanup.py source
+
+      - name: Check out exact admitted caller source
+        uses: ./.ciw/actions/exact-checkout
+        with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          admitted_sha: ${{ inputs.admitted_sha }}
+          path: source
+          fetch_depth: "1"
+
+      - name: Verify exact admitted caller source
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.admitted_sha }}
+        run: |
+          set -Eeuo pipefail
+          (
+            cd source
+            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+            test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          )
+
+      - id: workspace
+        name: Prepare isolated Apple state
+        uses: ./.ciw/actions/prepare-workspace
+        with:
+          profile: ${{ needs.plan.outputs.workspace_profile }}
+          cache_mode: disabled
+          source_sha: ${{ inputs.admitted_sha }}
+          trust_mode: ${{ needs.plan.outputs.source_trust }}
+
+      - id: execute
+        name: Execute bounded Apple validation
+        continue-on-error: true
+        uses: ./.ciw/actions/validate-apple
+        with:
+          phase: execute
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          version_file: ${{ inputs.version_file }}
+          working_directory: ${{ inputs.working_directory }}
+          command_profile: ${{ inputs.command_profile }}
+          script_path: ${{ inputs.script_path }}
+          platform: ${{ inputs.platform }}
+          scheme: ${{ inputs.scheme }}
+          destination_profile: ${{ inputs.destination_profile }}
+          artifact_exception_id: ${{ inputs.artifact_exception_id }}
+          source_trust: ${{ needs.plan.outputs.source_trust }}
+
+      - id: apple_cleanup
+        name: Remove Apple-specific state
+        if: always()
+        continue-on-error: true
+        uses: ./.ciw/actions/validate-apple
+        with:
+          phase: cleanup
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          version_file: ${{ inputs.version_file }}
+          working_directory: ${{ inputs.working_directory }}
+          command_profile: ${{ inputs.command_profile }}
+          script_path: ${{ inputs.script_path }}
+          platform: ${{ inputs.platform }}
+          scheme: ${{ inputs.scheme }}
+          destination_profile: ${{ inputs.destination_profile }}
+          artifact_exception_id: ${{ inputs.artifact_exception_id }}
+          source_trust: ${{ needs.plan.outputs.source_trust }}
+
+      - id: apple_residue
+        name: Verify zero Apple-specific residue
+        if: always()
+        continue-on-error: true
+        uses: ./.ciw/actions/validate-apple
+        with:
+          phase: residue
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          version_file: ${{ inputs.version_file }}
+          working_directory: ${{ inputs.working_directory }}
+          command_profile: ${{ inputs.command_profile }}
+          script_path: ${{ inputs.script_path }}
+          platform: ${{ inputs.platform }}
+          scheme: ${{ inputs.scheme }}
+          destination_profile: ${{ inputs.destination_profile }}
+          artifact_exception_id: ${{ inputs.artifact_exception_id }}
+          source_trust: ${{ needs.plan.outputs.source_trust }}
+
+      - id: source_cleanup
+        name: Remove exact admitted source checkout
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 .ciw/scripts/ci/apple_checkout_cleanup.py source
+
+      - id: workspace_cleanup
+        name: Remove and verify all registered workflow state
+        if: always()
+        continue-on-error: true
+        uses: ./.ciw/actions/cleanup-workspace
+
+      - id: ciw_cleanup
+        name: Remove exact central workflow checkout without following links
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 .ciw/scripts/ci/apple_checkout_cleanup.py central
+
+      - name: Project primary and combined terminal Apple failures
+        if: always()
+        shell: bash
+        env:
+          EXECUTE_OUTCOME: ${{ steps.execute.outcome }}
+          APPLE_CLEANUP_OUTCOME: ${{ steps.apple_cleanup.outcome }}
+          APPLE_RESIDUE_OUTCOME: ${{ steps.apple_residue.outcome }}
+          SOURCE_CLEANUP_OUTCOME: ${{ steps.source_cleanup.outcome }}
+          WORKSPACE_CLEANUP_OUTCOME: ${{ steps.workspace_cleanup.outcome }}
+          CIW_CLEANUP_OUTCOME: ${{ steps.ciw_cleanup.outcome }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+
+          primary = os.environ["EXECUTE_OUTCOME"]
+          cleanup = {
+              "apple": os.environ["APPLE_CLEANUP_OUTCOME"],
+              "apple_residue": os.environ["APPLE_RESIDUE_OUTCOME"],
+              "source": os.environ["SOURCE_CLEANUP_OUTCOME"],
+              "workspace": os.environ["WORKSPACE_CLEANUP_OUTCOME"],
+              "central_checkout": os.environ["CIW_CLEANUP_OUTCOME"],
+          }
+          failed_cleanup = sorted(
+              name for name, outcome in cleanup.items() if outcome != "success"
+          )
+          projection = {
+              "primary": None if primary == "success" else primary,
+              "cleanup_failures": failed_cleanup,
+          }
+          print(json.dumps(projection, sort_keys=True, separators=(",", ":")))
+          if primary != "success" or failed_cleanup:
+              raise SystemExit(1)
+          PY
