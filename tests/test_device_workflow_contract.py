@@ -61,6 +61,19 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         )
         self.assertIn("Execute only the exact typed plan emitted by the planner", self.workflow)
 
+    def test_called_workflow_uses_own_repository_and_sha_for_central_source(self) -> None:
+        self.assertNotIn("github.workflow_sha", self.workflow)
+        self.assertEqual(
+            2,
+            self.workflow.count("repository: ${{ job.workflow_repository }}"),
+        )
+        self.assertEqual(2, self.workflow.count("ref: ${{ job.workflow_sha }}"))
+        self.assertEqual(
+            2,
+            self.workflow.count("EXPECTED_SHA: ${{ job.workflow_sha }}"),
+        )
+        self.assertGreaterEqual(self.workflow.count("persist-credentials: false"), 2)
+
     def test_concurrency_group_is_planner_owned_and_never_cancellable(self) -> None:
         self.assertIn(
             "group: ${{ needs.plan.outputs.concurrency_group }}",
