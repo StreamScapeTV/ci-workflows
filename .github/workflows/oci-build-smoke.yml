@@ -87,7 +87,9 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          test -n "${TOKEN_SCOPE}"
+          if test -z "${TOKEN_SCOPE}"; then
+            exit 0
+          fi
           case "${TOKEN_SCOPE}" in
             "${RUNNER_TEMP}"/ciw-oci-token.*) ;;
             *) exit 1 ;;
@@ -114,7 +116,9 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          test -n "${TOKEN_SCOPE}"
+          if test -z "${TOKEN_SCOPE}"; then
+            exit 0
+          fi
           test ! -e "${TOKEN_SCOPE}"
           test ! -L "${TOKEN_SCOPE}"
 
