@@ -84,6 +84,13 @@ def _selection(
     previous_known_good: str,
     rollback_id: str,
 ) -> dict[str, str] | None:
+    require(
+        all(
+            isinstance(value, str)
+            for value in (canary_id, previous_known_good, rollback_id)
+        ),
+        "handoff_selection_rejected",
+    )
     values = {
         "canary_id": canary_id.strip(),
         "previous_known_good": previous_known_good.strip(),
@@ -130,6 +137,13 @@ def _validate_product(value: Any) -> Mapping[str, Any]:
         ),
         "handoff_product_rejected",
     )
+    normalized_digests = dict(sorted(digests.items()))
+    allowed_primary_digests = set(normalized_digests.values())
+    if len(normalized_digests) > 1:
+        allowed_primary_digests.add(
+            f"sha256:{sha256_text(canonical_json(normalized_digests))}"
+        )
+    require(digest in allowed_primary_digests, "handoff_product_rejected")
     require(
         isinstance(references, list)
         and 0 < len(references) <= 16
@@ -243,13 +257,18 @@ def build_flux_handoff(
     rollback_id: str = "",
 ) -> dict[str, Any]:
     version = validate_release_version(release_version)
-    require(FULL_SHA.fullmatch(source_sha) is not None, "release_sha_rejected")
     require(
-        SHA256.fullmatch(release_manifest_sha256) is not None,
+        isinstance(source_sha, str) and FULL_SHA.fullmatch(source_sha) is not None,
+        "release_sha_rejected",
+    )
+    require(
+        isinstance(release_manifest_sha256, str)
+        and SHA256.fullmatch(release_manifest_sha256) is not None,
         "manifest_digest_rejected",
     )
     require(
-        GITHUB_RELEASE.fullmatch(github_release_url) is not None,
+        isinstance(github_release_url, str)
+        and GITHUB_RELEASE.fullmatch(github_release_url) is not None,
         "github_release_url_rejected",
     )
     require(
