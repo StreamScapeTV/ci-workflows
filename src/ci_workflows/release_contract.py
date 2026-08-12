@@ -12,7 +12,7 @@ from .release_types import ReleaseError, ReleasePlan
 RELEASES_PATH = Path("contracts/releases.json")
 PRODUCTS_PATH = Path("contracts/products.json")
 SEMVER = re.compile(
-    r"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
+    r"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$"
 )
 REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 IDENTIFIER = re.compile(r"^[a-z][a-z0-9-]{1,63}$")
