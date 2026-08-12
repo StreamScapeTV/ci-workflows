@@ -82,6 +82,26 @@ class ReleaseWorkflowContractTest(unittest.TestCase):
         self.assertNotIn("reusable-oci-publish.yml", self.text)
         self.assertNotIn("reusable-helm-publish.yml", self.text)
 
+    def test_helm_image_evidence_is_gated_by_checked_in_binding_flag(self) -> None:
+        self.assertEqual(
+            "${{ steps.release.outputs.chart_requires_image_identity }}",
+            self.jobs["plan"]["outputs"]["chart_requires_image_identity"],
+        )
+        helm = next(
+            step
+            for step in self.jobs["publish_charts_or_assets"]["steps"]
+            if step.get("id") == "helm"
+        )
+        image_digest = str(helm["env"]["INPUT_IMAGE_DIGEST"])
+        immutable = str(helm["env"]["INPUT_IMMUTABLE_REFERENCES_JSON"])
+        for value in (image_digest, immutable):
+            self.assertIn("chart_requires_image_identity == 'true'", value)
+            self.assertIn("|| ''", value)
+        self.assertIn("needs.publish_images.outputs.image_digest", image_digest)
+        self.assertIn(
+            "needs.publish_images.outputs.immutable_references_json", immutable
+        )
+
     def test_publication_jobs_use_only_trusted_planner_runner_output(self) -> None:
         expected = "${{ fromJSON(needs.plan.outputs.runs_on_json) }}"
         self.assertEqual(expected, self.jobs["publish_images"]["runs-on"])
