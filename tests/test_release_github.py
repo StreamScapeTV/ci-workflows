@@ -46,6 +46,7 @@ class GitHubReleaseReplayTest(unittest.TestCase):
         plan = resolve_release_plan(ROOT, "iptv-backend", "StreamScapeTV/iptv-backend")
         self.desired = desired_release(
             plan=plan,
+            release_tag="v1.4.2",
             release_version="1.4.2",
             source_sha=SOURCE_SHA,
             manifest_json=MANIFEST,
@@ -57,7 +58,7 @@ class GitHubReleaseReplayTest(unittest.TestCase):
             "body": self.desired.body,
             "draft": False,
             "prerelease": False,
-            "html_url": "https://github.com/StreamScapeTV/iptv-backend/releases/tag/1.4.2",
+            "html_url": "https://github.com/StreamScapeTV/iptv-backend/releases/tag/v1.4.2",
         }
 
     def test_matching_existing_release_is_idempotent(self) -> None:
@@ -79,7 +80,7 @@ class GitHubReleaseReplayTest(unittest.TestCase):
         url, state = ensure_github_release(api, self.desired)
         self.assertEqual("created", state)
         self.assertEqual(self.exact["html_url"], url)
-        self.assertEqual("1.4.2", api.created_payload["tag_name"])
+        self.assertEqual("v1.4.2", api.created_payload["tag_name"])
         self.assertEqual(SOURCE_SHA, api.created_payload["target_commitish"])
         self.assertFalse(api.created_payload["generate_release_notes"])
         self.assertFalse(api.created_payload["draft"])
@@ -115,17 +116,29 @@ class GitHubReleaseReplayTest(unittest.TestCase):
 
     def test_verify_existing_rejects_external_release_url(self) -> None:
         external = dict(self.exact)
-        external["html_url"] = "https://example.com/release/1.4.2"
+        external["html_url"] = "https://example.com/release/v1.4.2"
         with self.assertRaisesRegex(ReleaseError, r"^github_release_response_rejected$"):
             verify_existing_release(external, self.desired)
 
     def test_verify_existing_rejects_other_streamscape_repository_url(self) -> None:
         redirected = dict(self.exact)
         redirected["html_url"] = (
-            "https://github.com/StreamScapeTV/agent-state/releases/tag/1.4.2"
+            "https://github.com/StreamScapeTV/agent-state/releases/tag/v1.4.2"
         )
         with self.assertRaisesRegex(ReleaseError, r"^github_release_response_rejected$"):
             verify_existing_release(redirected, self.desired)
+
+    def test_tag_without_v_prefix_is_rejected(self) -> None:
+        plan = resolve_release_plan(ROOT, "iptv-backend", "StreamScapeTV/iptv-backend")
+        with self.assertRaisesRegex(ReleaseError, r"^release_tag_rejected$"):
+            desired_release(
+                plan=plan,
+                release_tag="1.4.2",
+                release_version="1.4.2",
+                source_sha=SOURCE_SHA,
+                manifest_json=MANIFEST,
+                manifest_sha256=MANIFEST_SHA,
+            )
 
 
 if __name__ == "__main__":
