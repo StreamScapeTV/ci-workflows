@@ -33,6 +33,24 @@ cannot consume `mobile` or `portable`; no profile grants physical-device
 authority. Dynamic execution consumes only the exact planner-produced selector
 through `${{ fromJSON(needs.plan.outputs.runs_on_json) }}`.
 
+## Immutable private helper reuse
+
+Private same-organization consumers do not clone `StreamScapeTV/ci-workflows`
+with their caller-scoped token. The planner and each portable, mobile, and Apple
+execution lane invoke reviewed central composite actions directly through exact
+full-SHA references. `validate-flutter` uses the issue #125 immutable private
+action checkpoint, while exact checkout, workspace preparation, and terminal
+workspace cleanup reuse the foundation checkpoint established by #116.
+
+Those private action archives supply their central scripts and Python modules
+relative to `GITHUB_ACTION_PATH`. The reusable workflow therefore has no `.ciw`
+central checkout, central PAT input, `secrets: inherit`, mutable helper ref, or
+caller-selected helper version. Product source authority remains separate: the
+exact admitted caller SHA is checked out through the immutable exact-checkout
+action and explicitly reverified before execution proceeds. All existing
+runner, toolchain, pub-cache, cleanup, residue, and zero-artifact boundaries are
+unchanged by the helper distribution mechanism.
+
 ## Runtime authority
 
 The selected consumer contract declares exact allowed pin sources. Supported
