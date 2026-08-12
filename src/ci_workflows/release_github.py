@@ -17,7 +17,7 @@ from .release_types import ReleaseError, ReleasePlan
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 REPOSITORY = re.compile(r"^StreamScapeTV/[A-Za-z0-9_.-]+$")
 RELEASE_TAG = re.compile(
-    r"^v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$"
+    r"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$"
 )
 MARKER_PREFIX = "<!-- streamscape-release-manifest-sha256:"
 
