@@ -15,7 +15,8 @@ outputs:
 runs:
   using: composite
   steps:
-    - id: maintenance
+    - name: Run exact merged-branch hygiene
+      id: maintenance
       shell: bash
       env:
         PYTHONDONTWRITEBYTECODE: '1'

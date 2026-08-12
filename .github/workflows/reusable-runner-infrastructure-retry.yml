@@ -17,9 +17,6 @@ on:
 permissions:
   actions: write
   contents: read
-concurrency:
-  group: maintenance-runner-retry-${{ inputs.project_id }}-${{ inputs.run_id }}
-  cancel-in-progress: false
 jobs:
   retry:
     name: Maintenance / Runner retry
@@ -44,9 +41,13 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          test "${{ job.workflow_repository }}" = "StreamScapeTV/ci-workflows"
-          test "$(git -C .ciw rev-parse HEAD)" = "${{ job.workflow_sha }}"
-      - id: retry
+          (
+            cd .ciw
+            test "${{ job.workflow_repository }}" = "StreamScapeTV/ci-workflows"
+            test "$(git rev-parse HEAD)" = "${{ job.workflow_sha }}"
+          )
+      - name: Classify and run bounded infrastructure retry
+        id: retry
         uses: ./.ciw/actions/maintenance-runner-retry
         with:
           project_id: ${{ inputs.project_id }}
@@ -55,3 +56,11 @@ jobs:
           dry_run: ${{ inputs.dry_run }}
           request_id: ${{ inputs.request_id }}
           token: ${{ secrets.organization_maintenance_token }}
+      - name: Cleanup maintenance workflow state
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          state="${RUNNER_TEMP}/ci-workflows-maintenance-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          rm -rf "${state}"
+          test ! -e "${state}"

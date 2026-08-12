@@ -27,9 +27,6 @@ on:
 permissions:
   actions: write
   contents: read
-concurrency:
-  group: maintenance-artifacts-${{ inputs.repository_scope || 'all' }}
-  cancel-in-progress: false
 jobs:
   cleanup:
     name: Maintenance / Artifact cleanup
@@ -54,12 +51,24 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          test "${{ job.workflow_repository }}" = "StreamScapeTV/ci-workflows"
-          test "$(git -C .ciw rev-parse HEAD)" = "${{ job.workflow_sha }}"
-      - id: cleanup
+          (
+            cd .ciw
+            test "${{ job.workflow_repository }}" = "StreamScapeTV/ci-workflows"
+            test "$(git rev-parse HEAD)" = "${{ job.workflow_sha }}"
+          )
+      - name: Run bounded artifact maintenance
+        id: cleanup
         uses: ./.ciw/actions/maintenance-artifacts
         with:
           repository_scope: ${{ inputs.repository_scope }}
           dry_run: ${{ inputs.dry_run }}
           request_id: ${{ inputs.request_id }}
           token: ${{ secrets.organization_maintenance_token }}
+      - name: Cleanup maintenance workflow state
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          state="${RUNNER_TEMP}/ci-workflows-maintenance-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          rm -rf "${state}"
+          test ! -e "${state}"

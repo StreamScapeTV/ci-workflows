@@ -13,7 +13,8 @@ outputs:
 runs:
   using: composite
   steps:
-    - id: maintenance
+    - name: Run bounded artifact maintenance
+      id: maintenance
       shell: bash
       env:
         PYTHONDONTWRITEBYTECODE: '1'

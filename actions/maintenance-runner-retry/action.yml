@@ -16,7 +16,8 @@ outputs:
 runs:
   using: composite
   steps:
-    - id: maintenance
+    - name: Classify and run bounded infrastructure retry
+      id: maintenance
       shell: bash
       env:
         PYTHONDONTWRITEBYTECODE: '1'

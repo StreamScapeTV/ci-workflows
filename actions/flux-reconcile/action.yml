@@ -19,7 +19,8 @@ outputs:
 runs:
   using: composite
   steps:
-    - id: reconcile
+    - name: Resolve and run trusted Flux reconciliation
+      id: reconcile
       shell: bash
       env:
         PYTHONDONTWRITEBYTECODE: '1'

@@ -14,7 +14,8 @@ outputs:
 runs:
   using: composite
   steps:
-    - id: maintenance
+    - name: Run bounded organization conformance
+      id: maintenance
       shell: bash
       env:
         PYTHONDONTWRITEBYTECODE: '1'
