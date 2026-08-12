@@ -134,18 +134,20 @@ def _synthetic_runs_on_json(contract: Mapping[str, object], plan: device_validat
 def _runs_on_json(root: Path, plan: device_validation.DevicePlan) -> str:
     try:
         contract = runners.load_runner_contract(root)  # type: ignore[name-defined]
-        if plan.profile.synthetic_only and plan.request.source_trust == "trusted-pr":
-            # Synthetic PR validation is source-only and does not require the later
-            # shared validation.device workflow binding. The selector still comes
-            # exclusively from the central runner contract and is revalidated as
-            # an approved concrete selector before it is serialized.
+        if not plan.execution_authorized:
+            # A denied plan never schedules the physical-device job. Still emit the
+            # centrally approved base selector so the planner can return the stable
+            # physical_authorization_required result instead of failing earlier as
+            # a profile mismatch. This selector is not lock or execution authority.
             value = _synthetic_runs_on_json(contract, plan)
         else:
             resolved = runners.resolve_runner_profile(  # type: ignore[name-defined]
                 contract,
                 workflow_api="validation.device",
                 source_trust=plan.request.source_trust,
-                requested_profile=plan.profile.base_runner_profile,
+                requested_profile="physical-device",
+                device_family=plan.request.family.value,
+                lock_evidence=None,
             )
             value = resolved.as_dict()["runs_on_json"]
     except (NameError, AttributeError, OSError, ValueError) as error:
