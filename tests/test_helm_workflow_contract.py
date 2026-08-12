@@ -14,6 +14,7 @@ VALIDATE_WORKFLOW = ROOT / ".github/workflows/reusable-helm-validate.yml"
 PUBLISH_WORKFLOW = ROOT / ".github/workflows/reusable-helm-publish.yml"
 VALIDATE_ACTION = ROOT / "actions/validate-helm/action.yml"
 PUBLISH_ACTION = ROOT / "actions/publish-helm/action.yml"
+MEASURE_ACTION = ROOT / "actions/measure-helm/action.yml"
 
 
 class HelmWorkflowContractTests(unittest.TestCase):
@@ -28,6 +29,9 @@ class HelmWorkflowContractTests(unittest.TestCase):
         )
         cls.publish_action = yaml.load(
             PUBLISH_ACTION.read_text(encoding="utf-8"), Loader=ActionsLoader
+        )
+        cls.measure_action = yaml.load(
+            MEASURE_ACTION.read_text(encoding="utf-8"), Loader=ActionsLoader
         )
         product_contract = json.loads(
             (ROOT / "contracts/public-workflows/products.json").read_text(
@@ -83,6 +87,7 @@ class HelmWorkflowContractTests(unittest.TestCase):
             set(self.public_publish["outputs"]),
             set(publish_call["outputs"]),
         )
+        self.assertNotIn("runner_evidence_json", publish_call["outputs"])
         self.assertEqual(
             set(publish_call["secrets"]),
             {"registry_username", "registry_token"},
@@ -90,7 +95,16 @@ class HelmWorkflowContractTests(unittest.TestCase):
         self.assertEqual(self.public_validate["status"], "implemented")
         self.assertEqual(self.public_publish["status"], "implemented")
 
-    def test_jobs_resolve_portable_capability_without_caller_control(self) -> None:
+    def test_called_workflow_source_identity_is_not_caller_workflow_identity(self) -> None:
+        for text in (self.validate_text, self.publish_text):
+            self.assertIn("${{ job.workflow_repository }}", text)
+            self.assertIn("${{ job.workflow_sha }}", text)
+            self.assertIn('test "${CALLED_WORKFLOW_REPOSITORY}" = "StreamScapeTV/ci-workflows"', text)
+            self.assertNotIn("github.workflow_sha", text)
+            self.assertNotIn("GITHUB_WORKFLOW_SHA", text)
+            self.assertEqual(text.count("persist-credentials: false"), 2)
+
+    def test_jobs_use_contract_resolved_runner_without_caller_control(self) -> None:
         for workflow, text, job in (
             (self.validate, self.validate_text, "validate"),
             (self.publish, self.publish_text, "publish"),
@@ -106,7 +120,6 @@ class HelmWorkflowContractTests(unittest.TestCase):
             )
             self.assertNotIn("self-hosted", text)
             self.assertNotIn("secrets: inherit", text)
-            self.assertEqual(text.count("persist-credentials: false"), 2)
             self.assertIn(
                 "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
                 text,
@@ -153,6 +166,38 @@ class HelmWorkflowContractTests(unittest.TestCase):
         self.assertNotIn(
             "required_image_references_json", self.publish_action["inputs"]
         )
+
+    def test_measurement_action_is_internal_bounded_and_secret_free(self) -> None:
+        self.assertEqual(self.measure_action["runs"]["using"], "composite")
+        self.assertEqual(
+            set(self.measure_action["inputs"]),
+            {"phase", "admitted_sha", "product_id"},
+        )
+        self.assertEqual(
+            set(self.measure_action["outputs"]),
+            {
+                "result",
+                "peak_memory_bytes",
+                "peak_local_storage_bytes",
+                "runner_evidence_json",
+                "selected_profile",
+            },
+        )
+        text = MEASURE_ACTION.read_text(encoding="utf-8").casefold()
+        for token in ("registry", "token", "password", "kubectl", "sops", "docker "):
+            self.assertNotIn(token, text)
+
+    def test_measurement_brackets_publication_and_is_terminal_evidence(self) -> None:
+        publish_job = self.publish["jobs"]["publish"]
+        ids = [step.get("id") for step in publish_job["steps"]]
+        self.assertLess(ids.index("measurement_start"), ids.index("helm"))
+        self.assertLess(ids.index("helm"), ids.index("measurement_stop"))
+        self.assertLess(ids.index("measurement_stop"), ids.index("helm_cleanup"))
+        result = publish_job["outputs"]["result"]
+        self.assertIn("steps.measurement_start.outcome == 'success'", result)
+        self.assertIn("steps.measurement_stop.outcome == 'success'", result)
+        self.assertIn("Helm runner evidence:", self.publish_text)
+        self.assertIn("actions/measure-helm", self.publish_text)
 
     def test_publish_workflow_forbids_deployment_and_artifacts(self) -> None:
         lowered = self.publish_text.casefold()

@@ -66,21 +66,25 @@ jobs:
       tag_object_sha: ${{ steps.authority.outputs.tag_object_sha }}
       tag_commit_sha: ${{ steps.authority.outputs.tag_commit_sha }}
     steps:
-      - name: Check out exact central workflow source
+      - name: Check out exact called workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: StreamScapeTV/ci-workflows
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: .ciw
           fetch-depth: 1
           clean: true
           persist-credentials: false
           set-safe-directory: false
-      - name: Verify exact central workflow source
+      - name: Verify exact called workflow source
         shell: bash
+        env:
+          CALLED_WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          CALLED_WORKFLOW_SHA: ${{ job.workflow_sha }}
         run: |
           set -Eeuo pipefail
-          (cd .ciw && test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}")
+          test "${CALLED_WORKFLOW_REPOSITORY}" = "StreamScapeTV/ci-workflows"
+          (cd .ciw && test "$(git rev-parse HEAD)" = "${CALLED_WORKFLOW_SHA}")
       - id: authority
         name: Resolve exact release tag authority
         uses: ./.ciw/actions/resolve-release-tag
@@ -118,25 +122,29 @@ jobs:
     runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
     timeout-minutes: 90
     outputs:
-      result: ${{ steps.helm.outcome == 'success' && steps.helm_cleanup.outcome == 'success' && steps.residue.outcome == 'success' && steps.workspace_cleanup.outcome == 'success' && 'success' || 'failure' }}
+      result: ${{ steps.measurement_start.outcome == 'success' && steps.helm.outcome == 'success' && steps.measurement_stop.outcome == 'success' && steps.helm_cleanup.outcome == 'success' && steps.residue.outcome == 'success' && steps.workspace_cleanup.outcome == 'success' && 'success' || 'failure' }}
       chart_digest: ${{ steps.helm.outputs.chart_digest }}
       immutable_references_json: ${{ steps.helm.outputs.immutable_references_json }}
     steps:
-      - name: Check out exact central workflow source
+      - name: Check out exact called workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: StreamScapeTV/ci-workflows
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: .ciw
           fetch-depth: 1
           clean: true
           persist-credentials: false
           set-safe-directory: false
-      - name: Verify exact central workflow source
+      - name: Verify exact called workflow source
         shell: bash
+        env:
+          CALLED_WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          CALLED_WORKFLOW_SHA: ${{ job.workflow_sha }}
         run: |
           set -Eeuo pipefail
-          (cd .ciw && test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}")
+          test "${CALLED_WORKFLOW_REPOSITORY}" = "StreamScapeTV/ci-workflows"
+          (cd .ciw && test "$(git rev-parse HEAD)" = "${CALLED_WORKFLOW_SHA}")
       - name: Check out exact admitted caller source
         uses: ./.ciw/actions/exact-checkout
         with:
@@ -151,6 +159,13 @@ jobs:
           cache_mode: disabled
           source_sha: ${{ inputs.admitted_sha }}
           trust_mode: ${{ needs.plan.outputs.source_trust }}
+      - id: measurement_start
+        name: Start bounded Helm runner measurement
+        uses: ./.ciw/actions/measure-helm
+        with:
+          phase: start
+          admitted_sha: ${{ inputs.admitted_sha }}
+          product_id: ${{ inputs.product_id }}
       - name: Revalidate exact release tag immediately before registry write
         uses: ./.ciw/actions/resolve-release-tag
         with:
@@ -176,6 +191,24 @@ jobs:
           source_trust: ${{ needs.plan.outputs.source_trust }}
           registry_username: ${{ secrets.registry_username }}
           registry_token: ${{ secrets.registry_token }}
+      - id: measurement_stop
+        name: Stop and validate bounded Helm runner measurement
+        if: always() && steps.measurement_start.outcome == 'success'
+        continue-on-error: true
+        uses: ./.ciw/actions/measure-helm
+        with:
+          phase: stop
+          admitted_sha: ${{ inputs.admitted_sha }}
+          product_id: ${{ inputs.product_id }}
+      - name: Record bounded Helm runner evidence
+        if: always() && steps.measurement_stop.outcome == 'success'
+        shell: bash
+        env:
+          RUNNER_EVIDENCE_JSON: ${{ steps.measurement_stop.outputs.runner_evidence_json }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${RUNNER_EVIDENCE_JSON}"
+          printf 'Helm runner evidence: %s\n' "${RUNNER_EVIDENCE_JSON}"
       - id: helm_cleanup
         name: Remove Helm package, registry, and credential state
         if: always()
@@ -210,13 +243,17 @@ jobs:
         if: always()
         shell: bash
         env:
+          MEASUREMENT_START_OUTCOME: ${{ steps.measurement_start.outcome }}
           HELM_OUTCOME: ${{ steps.helm.outcome }}
+          MEASUREMENT_STOP_OUTCOME: ${{ steps.measurement_stop.outcome }}
           HELM_CLEANUP_OUTCOME: ${{ steps.helm_cleanup.outcome }}
           RESIDUE_OUTCOME: ${{ steps.residue.outcome }}
           WORKSPACE_CLEANUP_OUTCOME: ${{ steps.workspace_cleanup.outcome }}
         run: |
           set -Eeuo pipefail
+          test "${MEASUREMENT_START_OUTCOME}" = success
           test "${HELM_OUTCOME}" = success
+          test "${MEASUREMENT_STOP_OUTCOME}" = success
           test "${HELM_CLEANUP_OUTCOME}" = success
           test "${RESIDUE_OUTCOME}" = success
           test "${WORKSPACE_CLEANUP_OUTCOME}" = success

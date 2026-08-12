@@ -51,21 +51,25 @@ jobs:
       workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
       source_trust: ${{ steps.plan.outputs.source_trust }}
     steps:
-      - name: Check out exact central workflow source
+      - name: Check out exact called workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: StreamScapeTV/ci-workflows
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: .ciw
           fetch-depth: 1
           clean: true
           persist-credentials: false
           set-safe-directory: false
-      - name: Verify exact central workflow source
+      - name: Verify exact called workflow source
         shell: bash
+        env:
+          CALLED_WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          CALLED_WORKFLOW_SHA: ${{ job.workflow_sha }}
         run: |
           set -Eeuo pipefail
-          (cd .ciw && test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}")
+          test "${CALLED_WORKFLOW_REPOSITORY}" = "StreamScapeTV/ci-workflows"
+          (cd .ciw && test "$(git rev-parse HEAD)" = "${CALLED_WORKFLOW_SHA}")
       - id: plan
         name: Resolve fixed Helm contract
         uses: ./.ciw/actions/validate-helm
@@ -89,21 +93,25 @@ jobs:
       chart_digest: ${{ steps.helm.outputs.chart_digest }}
       artifact_exception_used: ${{ steps.helm.outputs.artifact_exception_used }}
     steps:
-      - name: Check out exact central workflow source
+      - name: Check out exact called workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: StreamScapeTV/ci-workflows
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: .ciw
           fetch-depth: 1
           clean: true
           persist-credentials: false
           set-safe-directory: false
-      - name: Verify exact central workflow source
+      - name: Verify exact called workflow source
         shell: bash
+        env:
+          CALLED_WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          CALLED_WORKFLOW_SHA: ${{ job.workflow_sha }}
         run: |
           set -Eeuo pipefail
-          (cd .ciw && test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}")
+          test "${CALLED_WORKFLOW_REPOSITORY}" = "StreamScapeTV/ci-workflows"
+          (cd .ciw && test "$(git rev-parse HEAD)" = "${CALLED_WORKFLOW_SHA}")
       - name: Check out exact admitted caller source
         uses: ./.ciw/actions/exact-checkout
         with:
