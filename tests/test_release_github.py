@@ -76,11 +76,14 @@ class GitHubReleaseReplayTest(unittest.TestCase):
         with self.assertRaisesRegex(ReleaseError, r"^github_release_conflict$"):
             ensure_github_release(FakeReleaseAPI(existing=conflicting), self.desired)
 
-    def test_existing_release_with_different_target_source_fails_closed(self) -> None:
-        conflicting = dict(self.exact)
-        conflicting["target_commitish"] = "2" * 40
-        with self.assertRaisesRegex(ReleaseError, r"^github_release_conflict$"):
-            ensure_github_release(FakeReleaseAPI(existing=conflicting), self.desired)
+    def test_existing_release_target_commitish_is_not_source_authority(self) -> None:
+        # GitHub documents target_commitish as unused when the Git tag already
+        # exists. The exact tag/peeled source tuple is revalidated separately.
+        existing = dict(self.exact)
+        existing["target_commitish"] = "main"
+        url, state = ensure_github_release(FakeReleaseAPI(existing=existing), self.desired)
+        self.assertEqual(self.exact["html_url"], url)
+        self.assertEqual("existing-matched", state)
 
     def test_create_path_uses_exact_tag_source_and_disables_generated_notes(self) -> None:
         api = FakeReleaseAPI(existing=None, create_result=self.exact)
