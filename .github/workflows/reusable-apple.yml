@@ -78,8 +78,8 @@ jobs:
       - name: Check out exact central workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: StreamScapeTV/ci-workflows
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: .ciw
           fetch-depth: 1
           clean: true
@@ -89,7 +89,7 @@ jobs:
       - name: Verify exact central workflow source
         shell: bash
         env:
-          EXPECTED_SHA: ${{ github.workflow_sha }}
+          EXPECTED_SHA: ${{ job.workflow_sha }}
         run: |
           set -Eeuo pipefail
           (cd .ciw && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
@@ -155,8 +155,8 @@ jobs:
       - name: Check out exact central workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: StreamScapeTV/ci-workflows
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: .ciw
           fetch-depth: 1
           clean: true
@@ -166,7 +166,7 @@ jobs:
       - name: Verify exact central workflow source
         shell: bash
         env:
-          EXPECTED_SHA: ${{ github.workflow_sha }}
+          EXPECTED_SHA: ${{ job.workflow_sha }}
         run: |
           set -Eeuo pipefail
           (cd .ciw && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
