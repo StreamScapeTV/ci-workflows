@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from datetime import datetime
 from pathlib import Path
@@ -14,6 +15,7 @@ from .release_types import PublicationIdentity, ReleaseError, ReleasePlan
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 DIGEST = re.compile(r"^(?:sha256:)?[0-9a-f]{64}$")
+IDENTIFIER = re.compile(r"^[a-z][a-z0-9-]{1,63}$")
 LATEST_REFERENCE = re.compile(r"(?i)(?:^|[:/])latest(?:@|$)")
 SENSITIVE_KEY = re.compile(r"(?i)(?:^|[_-])(authorization|credential|password|secret|token)(?:$|[_-])")
 SENSITIVE_VALUE = re.compile(
@@ -35,6 +37,7 @@ def canonical_json(value: Any) -> str:
 
 
 def sha256_text(value: str) -> str:
+    require(isinstance(value, str), "canonical_text_rejected")
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
@@ -64,6 +67,7 @@ def _sha256_bundle(root: Path, paths: Iterable[Path]) -> str:
 
 
 def _timestamp(value: str) -> str:
+    require(isinstance(value, str), "source_timestamp_rejected")
     candidate = value.strip()
     try:
         parsed = datetime.fromisoformat(candidate.replace("Z", "+00:00"))
@@ -74,18 +78,26 @@ def _timestamp(value: str) -> str:
 
 
 def normalize_digest(value: str) -> str:
+    require(isinstance(value, str), "publication_digest_rejected")
     candidate = value.strip()
     require(DIGEST.fullmatch(candidate) is not None, "publication_digest_rejected")
     return candidate if candidate.startswith("sha256:") else f"sha256:{candidate}"
 
 
 def _digest_map(digest: str, digests_json: str) -> tuple[str, dict[str, str]]:
+    require(
+        isinstance(digest, str) and isinstance(digests_json, str),
+        "publication_digest_rejected",
+    )
     if digests_json.strip():
         try:
             payload = json.loads(digests_json)
-        except json.JSONDecodeError as error:
+        except (TypeError, json.JSONDecodeError) as error:
             raise ReleaseError("publication_digest_rejected") from error
-        require(isinstance(payload, Mapping) and 0 < len(payload) <= 16, "publication_digest_rejected")
+        require(
+            isinstance(payload, Mapping) and 0 < len(payload) <= 16,
+            "publication_digest_rejected",
+        )
         normalized: dict[str, str] = {}
         for key, value in payload.items():
             require(
@@ -152,8 +164,12 @@ def _evidence_is_safe(value: Any, *, key: str | None = None) -> bool:
             for child_key, child in value.items()
         )
     if isinstance(value, list):
-        return len(value) <= 64 and all(_evidence_is_safe(item, key=key) for item in value)
-    return value is None or isinstance(value, (bool, int, float))
+        return len(value) <= 64 and all(
+            _evidence_is_safe(item, key=key) for item in value
+        )
+    if isinstance(value, float):
+        return math.isfinite(value)
+    return value is None or isinstance(value, (bool, int))
 
 
 def publication_identity(
@@ -165,11 +181,21 @@ def publication_identity(
     immutable_references_json: str,
     evidence_json: str = "{}",
 ) -> PublicationIdentity:
+    require(
+        isinstance(product_id, str)
+        and IDENTIFIER.fullmatch(product_id) is not None,
+        "publication_product_rejected",
+    )
     require(kind in {"oci-image", "helm-chart"}, "publication_kind_rejected")
+    require(
+        isinstance(immutable_references_json, str)
+        and isinstance(evidence_json, str),
+        "publication_evidence_rejected",
+    )
     try:
         reference_payload = json.loads(immutable_references_json)
         evidence = json.loads(evidence_json or "{}")
-    except json.JSONDecodeError as error:
+    except (TypeError, json.JSONDecodeError) as error:
         raise ReleaseError("publication_evidence_rejected") from error
     require(isinstance(evidence, Mapping), "publication_evidence_rejected")
     require(
@@ -179,7 +205,10 @@ def publication_identity(
         "publication_evidence_rejected",
     )
     references = sorted(set(_reference_values(reference_payload)))
-    require(bool(references) and len(references) <= 16, "publication_reference_rejected")
+    require(
+        bool(references) and len(references) <= 16,
+        "publication_reference_rejected",
+    )
     require(
         all(
             0 < len(reference) <= MAX_REFERENCE_LENGTH
@@ -191,7 +220,10 @@ def publication_identity(
     )
     primary, digests = _digest_map(digest, digests_json)
     if kind == "helm-chart":
-        require(isinstance(reference_payload, Mapping), "publication_reference_rejected")
+        require(
+            isinstance(reference_payload, Mapping),
+            "publication_reference_rejected",
+        )
         chart_digest = reference_payload.get("chart_digest")
         require(isinstance(chart_digest, str), "publication_digest_rejected")
         require(
@@ -234,7 +266,9 @@ def _release_surface(root: Path) -> dict[str, Any]:
             "version": "1.0.0",
             "sha256": _sha256_bundle(root, release_modules),
         },
-        "schemas": {name: _sha256_file(path) for name, path in sorted(schema_paths.items())},
+        "schemas": {
+            name: _sha256_file(path) for name, path in sorted(schema_paths.items())
+        },
         "action_lock": {
             "version": "resolve-release-tag-v1",
             "sha256": _sha256_file(root / "actions/resolve-release-tag/action.yml"),
@@ -265,10 +299,19 @@ def build_release_manifest(
 ) -> dict[str, Any]:
     version = validate_release_version(release_version)
     for value in (source_sha, tag_object_sha, tag_commit_sha, workflow_sha):
-        require(FULL_SHA.fullmatch(value) is not None, "release_sha_rejected")
+        require(
+            isinstance(value, str) and FULL_SHA.fullmatch(value) is not None,
+            "release_sha_rejected",
+        )
     require(source_sha == tag_commit_sha, "tag_source_mismatch")
-    require(image.product_id == plan.image_product_id and image.kind == "oci-image", "image_identity_mismatch")
-    require(chart.product_id == plan.chart_product_id and chart.kind == "helm-chart", "chart_identity_mismatch")
+    require(
+        image.product_id == plan.image_product_id and image.kind == "oci-image",
+        "image_identity_mismatch",
+    )
+    require(
+        chart.product_id == plan.chart_product_id and chart.kind == "helm-chart",
+        "chart_identity_mismatch",
+    )
     created_at = _timestamp(source_timestamp)
     surface = _release_surface(root.resolve())
     product_release = {
@@ -286,7 +329,10 @@ def build_release_manifest(
             "image": image.as_manifest_dict(),
             "chart": chart.as_manifest_dict(),
         },
-        "github_release": {"required": plan.github_release, "state": "pending-or-matching"},
+        "github_release": {
+            "required": plan.github_release,
+            "state": "pending-or-matching",
+        },
         "flux_handoff": {
             "kind": plan.handoff_kind,
             "target_repository": plan.handoff_target_repository,
@@ -322,7 +368,10 @@ def release_manifest_json(**kwargs: Any) -> tuple[str, str]:
 
 def publication_progress(*, image_result: str, chart_result: str) -> str:
     allowed = {"success", "failure", "skipped", "cancelled", "missing"}
-    require(image_result in allowed and chart_result in allowed, "publication_progress_rejected")
+    require(
+        image_result in allowed and chart_result in allowed,
+        "publication_progress_rejected",
+    )
     if image_result == "success" and chart_result == "success":
         return "complete"
     if image_result == "success":
