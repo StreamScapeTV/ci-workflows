@@ -4,16 +4,8 @@
   "contract_version": "1.0.0",
   "workflow_inventory_path": "contracts/workflow-inventory.json",
   "artifact_exceptions_path": "contracts/artifact-exceptions.json",
-  "maintenance_runner_selector": [
-    "linux",
-    "amd64",
-    "general"
-  ],
-  "flux_runner_selector": [
-    "linux",
-    "amd64",
-    "flux-control"
-  ],
+  "maintenance_runner_selector": ["linux", "amd64", "general"],
+  "flux_runner_selector": ["linux", "amd64", "flux-control"],
   "request_id_pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$",
   "projects": [
     {"project_id":"ci-workflows","repository":"StreamScapeTV/ci-workflows","integration_branch":"main"},
@@ -29,14 +21,70 @@
     {"project_id":"organization-rules","repository":"StreamScapeTV/organization-rules","integration_branch":"main"}
   ],
   "operations": {
-    "artifacts": {"dry_run_default":true,"minimum_age_hours":2,"maximum_deletions":100,"recommended_schedule":"17,47 * * * *","credential":"organization_maintenance_token"},
-    "branches": {"dry_run_default":true,"branch_prefix":"issue/","require_exact_merged_pull_request":true,"credential":"organization_maintenance_token"},
-    "conformance": {"dry_run_default":true,"report_repository":"StreamScapeTV/ci-workflows","report_title_prefix":"Organization conformance","maximum_findings":500,"credential_read":"organization_read_token","credential_update":"organization_update_token"},
-    "runner_retry": {"dry_run_default":true,"maximum_failed_jobs":20,"maximum_log_bytes":2097152,"allowed_inventory_trust":["read"],"allowed_events":["pull_request","push","workflow_dispatch"],"credential":"organization_maintenance_token","infrastructure_signatures":["lost communication with the runner","the runner has received a shutdown signal","runner listener exited unexpectedly","the self-hosted runner was lost","the runner was removed before this job could start","the runner registration has been deleted"],"product_failure_signatures":["process completed with exit code","assertionerror","tests failed","test failed","compilation failed","compiler error","lint failed","security scan failed","dependency failed","exceeded the maximum execution time","manually canceled","manually cancelled"]},
-    "flux_reconcile": {"dry_run_default":true,"repository":"StreamScapeTV/flux","allowed_operations":["deploy","restart"],"policy_path":"scripts/rollout/validate_request.py","allowlist_path":".github/flux-rollout-allowlist.json","executor_path":"scripts/rollout/execute_request.py","policy_interface":"central-flux-policy-v1","credentials":["flux_kubeconfig","flux_sops_age_key"],"live_mutation_requires_flux_owned_authorization":true}
+    "artifacts": {
+      "dry_run_default": true,
+      "trust_class": "trusted-maintenance",
+      "credential": "organization_maintenance_token",
+      "outputs": ["result", "mutation_count", "request_id"],
+      "trigger": {"owner":"thin-caller","events":["schedule","workflow_dispatch"],"recommended_cron":"17,47 * * * *"},
+      "policy_source": {"authority":"central-contract","supporting_contracts":["contracts/artifact-exceptions.json"]},
+      "minimum_age_hours": 2,
+      "maximum_deletions": 100
+    },
+    "branches": {
+      "dry_run_default": true,
+      "trust_class": "trusted-maintenance",
+      "credential": "organization_maintenance_token",
+      "outputs": ["result", "mutation_count", "request_id"],
+      "trigger": {"owner":"thin-caller","events":["pull_request-closed","workflow_dispatch"],"recommended_cron":null},
+      "policy_source": {"authority":"central-contract","supporting_contracts":[]},
+      "branch_prefix": "issue/",
+      "require_exact_merged_pull_request": true
+    },
+    "conformance": {
+      "dry_run_default": true,
+      "trust_class": "trusted-maintenance",
+      "credential_read": "organization_read_token",
+      "credential_update": "organization_update_token",
+      "outputs": ["result", "mutation_count", "report_issue_url", "request_id"],
+      "trigger": {"owner":"thin-caller","events":["schedule","workflow_dispatch"],"recommended_cron":"23 3 * * *"},
+      "policy_source": {"authority":"central-inventory","supporting_contracts":["contracts/workflow-inventory.json"]},
+      "report_repository": "StreamScapeTV/ci-workflows",
+      "report_title_prefix": "Organization conformance",
+      "maximum_findings": 500
+    },
+    "runner_retry": {
+      "dry_run_default": true,
+      "trust_class": "trusted-maintenance",
+      "credential": "organization_maintenance_token",
+      "outputs": ["result", "retry_run_id", "request_id"],
+      "trigger": {"owner":"thin-caller","events":["schedule","workflow_dispatch"],"recommended_cron":"*/10 * * * *"},
+      "policy_source": {"authority":"central-inventory","supporting_contracts":["contracts/workflow-inventory.json"]},
+      "maximum_failed_jobs": 20,
+      "maximum_log_bytes": 2097152,
+      "allowed_inventory_trust": ["read"],
+      "allowed_events": ["pull_request", "push", "workflow_dispatch"],
+      "infrastructure_signatures": ["lost communication with the runner","the runner has received a shutdown signal","runner listener exited unexpectedly","the self-hosted runner was lost","the runner was removed before this job could start","the runner registration has been deleted"],
+      "product_failure_signatures": ["process completed with exit code","assertionerror","tests failed","test failed","compilation failed","compiler error","lint failed","security scan failed","dependency failed","exceeded the maximum execution time","manually canceled","manually cancelled"]
+    },
+    "flux_reconcile": {
+      "dry_run_default": true,
+      "trust_class": "flux-authorized",
+      "credentials": ["flux_kubeconfig", "flux_sops_age_key"],
+      "outputs": ["result", "reconciliation_state", "request_id"],
+      "trigger": {"owner":"thin-flux-caller","events":["workflow_dispatch","repository_dispatch"],"recommended_cron":null},
+      "policy_source": {"authority":"exact-flux-admitted-sha","supporting_contracts":[]},
+      "repository": "StreamScapeTV/flux",
+      "allowed_operations": ["deploy", "restart"],
+      "policy_path": "scripts/rollout/validate_request.py",
+      "allowlist_path": ".github/flux-rollout-allowlist.json",
+      "executor_path": "scripts/rollout/execute_request.py",
+      "policy_interface": "central-flux-policy-v1",
+      "live_mutation_requires_flux_owned_authorization": true
+    }
   },
   "retired_boundaries": {
-    "agent_state_transport": ["agent-state-claim","agent-state-lifecycle","agent-state-ownership","receipt","compatibility dispatcher"],
-    "forbidden_behavior": ["force-push","delete-unmerged-branch","delete-protected-branch","retry-product-failure","arbitrary-shell","arbitrary-callback","hardcoded-flux-target","hardcoded-cluster-credential"]
+    "agent_state_transport": ["agent-state-claim", "agent-state-lifecycle", "agent-state-ownership", "receipt", "compatibility dispatcher"],
+    "forbidden_behavior": ["force-push", "delete-unmerged-branch", "delete-protected-branch", "retry-product-failure", "arbitrary-shell", "arbitrary-callback", "hardcoded-flux-target", "hardcoded-cluster-credential"]
   }
 }

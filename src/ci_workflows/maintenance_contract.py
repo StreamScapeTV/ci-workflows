@@ -71,6 +71,37 @@ def _relative(value: Any) -> str:
         raise MaintenanceError("invalid_contract")
     return value
 
+def _operation_metadata(operations: Mapping[str, Mapping[str, Any]]) -> None:
+    expected = {
+        "artifacts": ("trusted-maintenance", {"result", "mutation_count", "request_id"}),
+        "branches": ("trusted-maintenance", {"result", "mutation_count", "request_id"}),
+        "conformance": ("trusted-maintenance", {"result", "mutation_count", "report_issue_url", "request_id"}),
+        "runner_retry": ("trusted-maintenance", {"result", "retry_run_id", "request_id"}),
+        "flux_reconcile": ("flux-authorized", {"result", "reconciliation_state", "request_id"}),
+    }
+    for name, (trust_class, expected_outputs) in expected.items():
+        operation = operations[name]
+        if operation.get("trust_class") != trust_class:
+            raise MaintenanceError("invalid_contract")
+        if set(_strings(operation.get("outputs"))) != expected_outputs:
+            raise MaintenanceError("invalid_contract")
+        trigger = operation.get("trigger")
+        if not isinstance(trigger, Mapping) or set(trigger) != {"owner", "events", "recommended_cron"}:
+            raise MaintenanceError("invalid_contract")
+        if not isinstance(trigger.get("owner"), str) or not trigger.get("owner"):
+            raise MaintenanceError("invalid_contract")
+        _strings(trigger.get("events"))
+        cron = trigger.get("recommended_cron")
+        if cron is not None and (not isinstance(cron, str) or not cron.strip()):
+            raise MaintenanceError("invalid_contract")
+        policy_source = operation.get("policy_source")
+        if not isinstance(policy_source, Mapping) or set(policy_source) != {"authority", "supporting_contracts"}:
+            raise MaintenanceError("invalid_contract")
+        if not isinstance(policy_source.get("authority"), str) or not policy_source.get("authority"):
+            raise MaintenanceError("invalid_contract")
+        for relative in _strings(policy_source.get("supporting_contracts"), nonempty=False):
+            _relative(relative)
+
 def load_contract(root: Path) -> MaintenanceContract:
     try:
         raw = json.loads((root / CONTRACT_PATH).read_text(encoding="utf-8"))
@@ -104,6 +135,7 @@ def load_contract(root: Path) -> MaintenanceContract:
         raise MaintenanceError("invalid_contract")
     if any(not isinstance(value, Mapping) or value.get("dry_run_default") is not True for value in operations.values()):
         raise MaintenanceError("invalid_contract")
+    _operation_metadata(operations)
     artifacts = operations["artifacts"]
     if not isinstance(artifacts.get("minimum_age_hours"), int) or not 1 <= int(artifacts["minimum_age_hours"]) <= 168 or not isinstance(artifacts.get("maximum_deletions"), int) or not 1 <= int(artifacts["maximum_deletions"]) <= 1000:
         raise MaintenanceError("invalid_contract")

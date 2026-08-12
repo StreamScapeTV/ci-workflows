@@ -68,6 +68,7 @@ jobs:
           PYTHONPATH="${VALIDATION_ROOT}/python:${GITHUB_WORKSPACE}/src" \
             "${VERIFIED_PYTHON}" -m unittest -v \
               tests.test_maintenance_contract \
+              tests.test_maintenance_component_facade \
               tests.test_maintenance_runtime \
               tests.test_maintenance_security \
               tests.test_flux_component_facade \

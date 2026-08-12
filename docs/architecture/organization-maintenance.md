@@ -46,7 +46,24 @@ Maintenance and Flux credentials are explicit named reusable-workflow secrets; `
 - runner retry: `actions: write`, `contents: read`;
 - Flux reconciliation: read-only source permissions; cluster credentials only from the protected Flux caller.
 
-Dry-run is the default. Focused PR validation is read-only and receives no maintenance or cluster credential.
+Dry-run is the default. Focused PR validation is read-only and receives no maintenance or cluster credential. The machine-readable contract also records each operation's trust class, caller trigger/cadence, policy-source authority, named credential boundary, and public output set.
+
+## Maintenance/control decision record
+
+The workflow inventory is the classification source. Issue #20 applies these decisions rather than copying repository-specific policy into central code.
+
+| Current responsibility | Classification | Central destination | Authority retained outside central orchestration |
+|---|---|---|---|
+| Agent State organization artifact cleanup | central public orchestration | `maintenance.artifacts` | caller cadence and credential installation |
+| Agent State branch hygiene plus consumer merged-head cleanup variants | central public orchestration + thin callers | `maintenance.branches` | caller close trigger; no repository-specific cancellation receipt is retained |
+| Agent State runner-infrastructure retry observer | central public orchestration | `maintenance.runner-retry` | caller cadence; workflow allowlist derives from central inventory |
+| organization workflow/shared-reference drift scanning | central report operation | `maintenance.conformance` | repository-specific assertions remain repository-owned; consumer edits remain reviewable follow-up work |
+| Flux `reconcile-allowlisted-release` orchestration | central privileged orchestration + thin Flux caller | `flux.reconcile` | target allowlist, desired state, policy adapter, cluster credentials, live health/rollback acceptance |
+| Agent State claim/lifecycle/ownership workflow transport | retired coordination transport | none | authoritative Agent State API remains outside GitHub workflow transport |
+| runner-retry fixtures, recovery workflows, one-shot diagnostics | retired one-shot/fixture work | none | historical evidence only |
+| Flux runner image/chart build/publication control | separate infrastructure-product orchestration | issue #33 / `flux.assets` | Flux product definitions, bootstrap/canary selection, registry/cluster policy |
+
+This decision record intentionally centralizes generic mechanics without turning `ci-workflows` into a store for product, Agent State, or Flux domain decisions.
 
 ## Flux policy and filesystem boundary
 
