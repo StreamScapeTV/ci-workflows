@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -17,6 +18,8 @@ _MAJOR = re.compile(r'(?:openjdk version |java version |javac )?"?([0-9]+)')
 _GRADLE = re.compile(r'(?m)^Gradle\s+([0-9]+\.[0-9]+\.[0-9]+)\s*$')
 _SECRET = re.compile(r'(?i)(token|password|authorization|secret|keystore)\s*[:=]\s*\S+')
 SYNTHETIC_SMOKE_TASK = ":verifyToolchainSmoke"
+GRADLE_DAEMON_CLEANUP_GRACE_SECONDS = 30
+GRADLE_DAEMON_CLEANUP_POLL_SECONDS = 0.25
 
 
 def sanitize(text: str, roots: Sequence[Path] = ()) -> str:
@@ -306,14 +309,21 @@ def verify_wrapper(
     environment: Mapping[str, str],
 ) -> str:
     working = bounded_path(copy, plan.working_directory)
-    wrapper = bounded_path(working, plan.gradle_wrapper_path)
+    require(plan.gradle_wrapper_path == plan.wrapper.launcher_path, "wrapper_invalid")
+    wrapper = bounded_path(working, plan.wrapper.launcher_path)
     require(
         wrapper.is_file() and not wrapper.is_symlink() and os.access(wrapper, os.X_OK),
         "wrapper_invalid",
     )
-    properties = bounded_path(copy, plan.wrapper.properties_path)
-    if not properties.exists():
-        properties = bounded_path(working, plan.wrapper.properties_path)
+    properties = bounded_path(working, plan.wrapper.properties_path)
+    require(properties.is_file() and not properties.is_symlink(), "wrapper_invalid")
+    jar = (
+        bounded_path(working, plan.wrapper.jar_path)
+        if plan.wrapper.jar_path is not None
+        else None
+    )
+    if jar is not None:
+        require(jar.is_file() and not jar.is_symlink(), "wrapper_invalid")
     values = _properties(properties, "wrapper_invalid")
     require(
         values.get("distributionUrl") == plan.wrapper.distribution_url,
@@ -324,11 +334,17 @@ def verify_wrapper(
             values.get("distributionSha256Sum") == plan.wrapper.distribution_sha256,
             "wrapper_distribution_drift",
         )
-    if plan.wrapper.tracked_blob_sha1:
-        require(git_blob_sha1(wrapper) == plan.wrapper.tracked_blob_sha1, "wrapper_invalid")
-    if plan.wrapper.properties_blob_sha1:
+    require(
+        git_blob_sha1(wrapper) == plan.wrapper.launcher_blob_sha1,
+        "wrapper_invalid",
+    )
+    require(
+        git_blob_sha1(properties) == plan.wrapper.properties_blob_sha1,
+        "wrapper_invalid",
+    )
+    if jar is not None:
         require(
-            git_blob_sha1(properties) == plan.wrapper.properties_blob_sha1,
+            git_blob_sha1(jar) == plan.wrapper.jar_blob_sha1,
             "wrapper_invalid",
         )
     result = run_command(
@@ -635,8 +651,7 @@ def execute_android_plan(
     )
 
 
-def cleanup_android_state(state: Path, contract: Mapping[str, Any]) -> None:
-    require(state.is_absolute(), "cleanup_failed")
+def _gradle_daemon_is_active(state: Path) -> bool:
     processes = run_command(
         ["ps", "-axo", "command="],
         cwd=state.parent,
@@ -645,13 +660,23 @@ def cleanup_android_state(state: Path, contract: Mapping[str, Any]) -> None:
         failure_code="cleanup_failed",
         check=False,
     ).stdout
-    require(
-        not any(
-            "GradleDaemon" in row and str(state) in row
-            for row in processes.splitlines()
-        ),
-        "cleanup_failed",
+    return any(
+        "GradleDaemon" in row and str(state) in row
+        for row in processes.splitlines()
     )
+
+
+def _wait_for_gradle_daemon_exit(state: Path) -> None:
+    deadline = time.monotonic() + GRADLE_DAEMON_CLEANUP_GRACE_SECONDS
+    while _gradle_daemon_is_active(state):
+        if time.monotonic() >= deadline:
+            raise AndroidValidationError("cleanup_failed")
+        time.sleep(GRADLE_DAEMON_CLEANUP_POLL_SECONDS)
+
+
+def cleanup_android_state(state: Path, contract: Mapping[str, Any]) -> None:
+    require(state.is_absolute(), "cleanup_failed")
+    _wait_for_gradle_daemon_exit(state)
     for path in (state / "android-source", state / "android-validation"):
         remove_no_follow(path)
     require(

@@ -67,10 +67,12 @@ class PythonWorkflowContractTests(unittest.TestCase):
         )
         self.assertEqual(self.public_record["stable_check_name"], "CI / Python validation")
 
-    def test_workflow_uses_a_portable_planner_and_exact_planner_runner_output(self) -> None:
+    def test_workflow_uses_general_linux_planner_and_exact_planner_runner_output(self) -> None:
         jobs = self.workflow["jobs"]
         self.assertEqual(set(jobs), {"plan", "validate"})
-        self.assertEqual(jobs["plan"]["runs-on"], "portable")
+        self.assertEqual(
+            jobs["plan"]["runs-on"], ["linux", "amd64", "general"]
+        )
         self.assertEqual(
             jobs["validate"]["runs-on"],
             "${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
@@ -78,14 +80,19 @@ class PythonWorkflowContractTests(unittest.TestCase):
         self.assertEqual(jobs["validate"]["timeout-minutes"], 120)
         self.assertEqual(jobs["validate"]["name"], "CI / Python validation")
         self.assertNotIn("self-hosted", self.workflow_text)
+        self.assertNotIn("runs-on: portable", self.workflow_text)
         self.assertNotIn("docker-capable", self.workflow_text)
 
     def test_exact_central_and_caller_source_are_verified(self) -> None:
-        self.assertEqual(self.workflow_text.count("repository: StreamScapeTV/ci-workflows"), 2)
-        self.assertEqual(self.workflow_text.count("ref: ${{ github.workflow_sha }}"), 2)
+        self.assertEqual(self.workflow_text.count("repository: ${{ job.workflow_repository }}"), 2)
+        self.assertEqual(self.workflow_text.count("ref: ${{ job.workflow_sha }}"), 2)
+        self.assertEqual(self.workflow_text.count("EXPECTED_REPOSITORY: ${{ job.workflow_repository }}"), 2)
+        self.assertEqual(self.workflow_text.count("EXPECTED_SHA: ${{ job.workflow_sha }}"), 2)
         self.assertEqual(self.workflow_text.count("persist-credentials: false"), 2)
         self.assertEqual(self.workflow_text.count("set-safe-directory: false"), 2)
-        self.assertEqual(self.workflow_text.count('test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"'), 2)
+        self.assertEqual(self.workflow_text.count('test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"'), 2)
+        self.assertNotIn("github.workflow_sha", self.workflow_text)
+        self.assertNotIn("GITHUB_WORKFLOW_SHA", self.workflow_text)
         self.assertIn("uses: ./.ciw/actions/exact-checkout", self.workflow_text)
         self.assertIn("admitted_sha: ${{ inputs.admitted_sha }}", self.workflow_text)
         self.assertIn('test "$(git rev-parse HEAD)" = "${{ inputs.admitted_sha }}"', self.workflow_text)

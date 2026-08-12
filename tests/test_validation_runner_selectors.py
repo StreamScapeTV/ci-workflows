@@ -45,6 +45,7 @@ class ValidationRunnerSelectorTests(unittest.TestCase):
         findings: list[Finding] = []
         for selector in (
             ["linux", "amd64", "general"],
+            ["linux", "amd64", "buildah", "high"],
             ["macOS", "ARM64"],
         ):
             with self.subTest(selector=selector):
@@ -80,7 +81,38 @@ class ValidationRunnerSelectorTests(unittest.TestCase):
                     )
                 )
 
-    def test_semantic_profile_and_trusted_planner_remain_supported(self) -> None:
+    def test_direct_semantic_profiles_fail_closed(self) -> None:
+        config = HarnessConfig(
+            max_inline_run_lines=40,
+            max_matrix_jobs=16,
+            max_timeout_minutes=240,
+            allowed_runner_profiles=frozenset({"portable", "buildah-high"}),
+            required_fixture_callers=frozenset(),
+            required_event_fixtures=frozenset(),
+            required_service_scenarios={},
+            exceptions={},
+            allowed_runner_selectors=frozenset(
+                {("linux", "amd64", "general")}
+            ),
+        )
+        for selector in (
+            "portable",
+            "buildah-high",
+        ):
+            with self.subTest(selector=selector):
+                findings: list[Finding] = []
+                _validate_runner(
+                    selector,
+                    ".github/workflows/example.yml",
+                    config,
+                    findings,
+                )
+                self.assertEqual(
+                    ["semantic-runner-direct"],
+                    [finding.rule for finding in findings],
+                )
+
+    def test_trusted_planner_output_remains_supported(self) -> None:
         config = HarnessConfig(
             max_inline_run_lines=40,
             max_matrix_jobs=16,
@@ -95,7 +127,6 @@ class ValidationRunnerSelectorTests(unittest.TestCase):
             ),
         )
         for selector in (
-            "portable",
             "${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
         ):
             with self.subTest(selector=selector):

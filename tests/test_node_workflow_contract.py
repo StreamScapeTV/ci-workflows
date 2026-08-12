@@ -82,16 +82,21 @@ class NodeWorkflowContractTests(unittest.TestCase):
         )
         self.assertEqual(set(self.public_record["outputs"]), set(call["outputs"]))
 
-    def test_jobs_use_only_portable_and_no_caller_matrix(self) -> None:
+    def test_jobs_use_only_general_linux_capabilities_and_no_caller_matrix(self) -> None:
         jobs = self.workflow["jobs"]
         self.assertEqual(set(jobs), {"plan", "validate"})
-        self.assertEqual(jobs["plan"]["runs-on"], "portable")
-        self.assertEqual(jobs["validate"]["runs-on"], "portable")
+        self.assertEqual(
+            jobs["plan"]["runs-on"], ["linux", "amd64", "general"]
+        )
+        self.assertEqual(
+            jobs["validate"]["runs-on"], ["linux", "amd64", "general"]
+        )
         self.assertEqual(jobs["validate"]["name"], "CI / Node validation")
         self.assertEqual(jobs["validate"]["timeout-minutes"], 90)
         self.assertNotIn("strategy", jobs["plan"])
         self.assertNotIn("strategy", jobs["validate"])
         self.assertNotIn("self-hosted", self.workflow_text)
+        self.assertNotIn("runs-on: portable", self.workflow_text)
         self.assertNotIn("fromJSON(needs.plan.outputs.runs_on", self.workflow_text)
 
     def test_setup_node_is_exact_locked_and_cache_disabled(self) -> None:
@@ -136,10 +141,14 @@ class NodeWorkflowContractTests(unittest.TestCase):
         self.assertEqual(cleanup["if"], "always()")
 
     def test_exact_central_and_caller_source_are_verified(self) -> None:
-        self.assertEqual(self.workflow_text.count("repository: StreamScapeTV/ci-workflows"), 2)
-        self.assertEqual(self.workflow_text.count("ref: ${{ github.workflow_sha }}"), 2)
+        self.assertEqual(self.workflow_text.count("repository: ${{ job.workflow_repository }}"), 2)
+        self.assertEqual(self.workflow_text.count("ref: ${{ job.workflow_sha }}"), 2)
+        self.assertEqual(self.workflow_text.count("EXPECTED_REPOSITORY: ${{ job.workflow_repository }}"), 2)
+        self.assertEqual(self.workflow_text.count("EXPECTED_SHA: ${{ job.workflow_sha }}"), 2)
         self.assertEqual(self.workflow_text.count("persist-credentials: false"), 2)
         self.assertEqual(self.workflow_text.count("set-safe-directory: false"), 2)
+        self.assertNotIn("github.workflow_sha", self.workflow_text)
+        self.assertNotIn("GITHUB_WORKFLOW_SHA", self.workflow_text)
         self.assertIn("uses: ./.ciw/actions/exact-checkout", self.workflow_text)
         self.assertIn("admitted_sha: ${{ inputs.admitted_sha }}", self.workflow_text)
         self.assertIn('test "$(git rev-parse HEAD)" = "${{ inputs.admitted_sha }}"', self.workflow_text)

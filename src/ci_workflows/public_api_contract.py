@@ -316,7 +316,7 @@ def permission_profiles(data: ContractData) -> dict[str, Mapping[str, Any]]:
         )
         nonempty(row.get("notes"), f"{identifier}.notes")
         profiles[identifier] = row
-    require(len(profiles) == 11, f"expected 11 permission profiles, found {len(profiles)}")
+    require(len(profiles) == 12, f"expected 12 permission profiles, found {len(profiles)}")
     return profiles
 
 
