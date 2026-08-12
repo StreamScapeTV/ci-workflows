@@ -81,9 +81,17 @@ def _inspect_remote_digest(reference: str, authfile: Path) -> str | None:
     raise OciPublishError("registry_inspection_failed")
 
 
-def _publication_allowed(environment: Mapping[str, str]) -> bool:
+def _publication_allowed(plan: PublishPlan, environment: Mapping[str, str]) -> bool:
+    """Return true only for an exact version-tag push; manual calls are read-only."""
+
     event = environment.get("GITHUB_EVENT_NAME", "")
     if event == "push":
+        _require(
+            environment.get("GITHUB_REF_TYPE") == "tag"
+            and environment.get("GITHUB_REF_NAME") == plan.release_version
+            and environment.get("GITHUB_REF") == f"refs/tags/{plan.release_version}",
+            "publication_ref_forbidden",
+        )
         return True
     if event == "workflow_dispatch":
         return False
@@ -99,7 +107,7 @@ def publish(
     """Publish missing immutable refs or verify an existing pair without writes."""
 
     if allow_publish is None:
-        allow_publish = _publication_allowed(environment)
+        allow_publish = _publication_allowed(plan, environment)
     _require(isinstance(allow_publish, bool), "invalid_request")
     root = publication_state_root(environment)
     authfile = _runtime._secure_existing_authfile(root)  # noqa: SLF001
