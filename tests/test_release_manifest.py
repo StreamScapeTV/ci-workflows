@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from ci_workflows.release_contract import resolve_release_plan
 from ci_workflows.release_manifest import (
@@ -19,6 +20,24 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = json.loads(
     (ROOT / "tests/fixtures/release/publications.json").read_text(encoding="utf-8")
 )["cases"]
+SURFACE = {
+    "workflow_apis": {
+        "release.orchestrate": {
+            "version": "1.0.0",
+            "file": ".github/workflows/reusable-release.yml",
+            "sha256": "1" * 64,
+        }
+    },
+    "function_library": {"version": "1.0.0", "sha256": "2" * 64},
+    "schemas": {
+        "flux-handoff": "3" * 64,
+        "release-manifest": "4" * 64,
+        "releases": "5" * 64,
+    },
+    "action_lock": {"version": "resolve-release-tag-v1", "sha256": "6" * 64},
+    "tool_lock": {"version": "validation-lock", "sha256": "7" * 64},
+    "runner_profiles": {"version": "semantic-runner-profiles", "sha256": "8" * 64},
+}
 
 
 def identities(case: dict[str, object]):
@@ -102,18 +121,19 @@ class ReleaseManifestTest(unittest.TestCase):
         assert isinstance(case, dict)
         image, chart = identities(case)
         plan = resolve_release_plan(ROOT, release_id, str(case["repository"]))
-        return release_manifest_json(
-            root=ROOT,
-            plan=plan,
-            release_version=str(case["release_version"]),
-            source_sha=str(case["source_sha"]),
-            tag_object_sha=str(case["tag_object_sha"]),
-            tag_commit_sha=str(case["source_sha"]),
-            source_timestamp=str(case["source_timestamp"]),
-            workflow_sha=str(case["workflow_sha"]),
-            image=image,
-            chart=chart,
-        )
+        with patch("ci_workflows.release_manifest._release_surface", return_value=SURFACE):
+            return release_manifest_json(
+                root=ROOT,
+                plan=plan,
+                release_version=str(case["release_version"]),
+                source_sha=str(case["source_sha"]),
+                tag_object_sha=str(case["tag_object_sha"]),
+                tag_commit_sha=str(case["source_sha"]),
+                source_timestamp=str(case["source_timestamp"]),
+                workflow_sha=str(case["workflow_sha"]),
+                image=image,
+                chart=chart,
+            )
 
     def test_manifest_is_canonical_deterministic_and_binds_exact_authority(self) -> None:
         first, first_sha = self._render("iptv-backend")
