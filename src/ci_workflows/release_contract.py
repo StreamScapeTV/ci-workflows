@@ -14,9 +14,7 @@ PRODUCTS_PATH = Path("contracts/products.json")
 SEMVER = re.compile(
     r"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$"
 )
-RELEASE_TAG = re.compile(
-    r"^v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$"
-)
+RELEASE_TAG = re.compile(SEMVER.pattern)
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 REQUEST_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$")
 REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -56,7 +54,7 @@ def validate_release_tag(value: str, release_version: str) -> str:
     candidate = value.strip()
     version = validate_release_version(release_version)
     require(RELEASE_TAG.fullmatch(candidate) is not None, "release_tag_rejected")
-    require(candidate == f"v{version}", "release_tag_mismatch")
+    require(candidate == version, "release_tag_mismatch")
     return candidate
 
 
