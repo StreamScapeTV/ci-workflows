@@ -483,7 +483,6 @@ def build_target(
             "--layers=false",
             "--no-cache",
             "--identity-label=false",
-            "--inherit-labels=false",
             "--platform", platform, "--manifest", manifest,
             "--timestamp", str(epoch), "--file", str(dockerfile),
         ]
