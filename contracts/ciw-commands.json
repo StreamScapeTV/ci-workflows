@@ -125,6 +125,17 @@
     },
     {
       "cleanup": "ciw workspace cleanup under if: always()",
+      "domain": "oci",
+      "failure": "OciBuildError.code",
+      "handler": "ci_workflows.ciw.handle_oci_validate",
+      "inputs": ["phase", "source_root", "admitted_sha", "product_id", "release_version", "platform_set", "artifact_exception_id", "GitHub event identity"],
+      "operation": "validate",
+      "outputs": ["result", "source_sha", "product_id", "release_version", "manifest_digests_json", "platform_results_json", "clean_tree", "cleanup_result", "artifact_exception_used", "evidence_id", "canary_id", "previous_known_good", "rollback_id", "runner_profile", "runs_on_json", "workspace_profile", "timeout_minutes", "source_trust", "failure_code"],
+      "side_effects": ["resolves one contract-owned OCI build plan", "executes daemonless Buildah VFS builds without publication", "strictly inspects local OCI manifests, configs, layers, metadata, and filesystem assertions", "enforces exact source, zero routine artifacts, cleanup, and residue policy"],
+      "trust_class": "read-only-validation"
+    },
+    {
+      "cleanup": "ciw workspace cleanup under if: always()",
       "domain": "android",
       "failure": "AndroidValidationError.code",
       "handler": "ci_workflows.ciw.handle_android_validate",
@@ -264,11 +275,12 @@
     {"commands": ["python validate"], "path": "scripts/ci/python.py"},
     {"commands": ["node validate"], "path": "scripts/ci/node.py"},
     {"commands": ["gitops validate"], "path": "scripts/ci/gitops.py"},
+    {"commands": ["oci validate"], "path": "scripts/ci/oci.py"},
     {"commands": ["android validate"], "path": "scripts/ci/android.py"}
   ],
   "entry_point": "scripts/ci/ciw.py",
   "forbidden_dispatch_inputs": ["arbitrary_command", "shell", "callback", "callback_url", "handler", "function_name", "module_name", "runner", "runs_on", "runner_labels", "container_engine", "secret_name", "deletion_path", "workspace_root"],
-  "future_namespaces": ["apple", "oci", "helm", "release", "device", "github"],
+  "future_namespaces": ["apple", "helm", "release", "device", "github"],
   "program": "ciw",
   "schema_version": 1
 }
