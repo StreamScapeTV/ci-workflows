@@ -274,6 +274,7 @@ def build_release_manifest(
     product_release = {
         "release_id": plan.release_id,
         "repository": plan.repository,
+        "release_tag": f"v{version}",
         "version": version,
         "source_sha": source_sha,
         "tag_object_sha": tag_object_sha,
