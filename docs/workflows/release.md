@@ -16,6 +16,63 @@ The checked-in source of truth is `contracts/releases.json`. It maps the current
 
 Callers cannot redirect one release ID to another repository or arbitrary product ID. The release map is cross-checked against the central product inventory and fails closed on drift.
 
+## Thin producer callers
+
+Producer repositories keep only a thin trusted tag caller. The central workflow reference must be a reviewed immutable `ci-workflows` commit, never `main` or another mutable ref. The tag glob is only an event prefilter; the central release authority still requires exact stable SemVer before any publication.
+
+The backend caller differs only by its checked-in release ID:
+
+```yaml
+name: Release
+on:
+  push:
+    tags: ['[0-9]*.[0-9]*.[0-9]*']
+permissions:
+  contents: write
+jobs:
+  release:
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-release.yml@<PINNED_CI_WORKFLOWS_SHA>
+    with:
+      release_id: iptv-backend
+      release_mode: tag-push
+    secrets:
+      registry_username: ${{ secrets.RELEASE_REGISTRY_USERNAME }}
+      registry_token: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+      github_release_token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+The Agent State caller uses the same permission and secret boundary with `release_id: agent-state`:
+
+```yaml
+jobs:
+  release:
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-release.yml@<PINNED_CI_WORKFLOWS_SHA>
+    with:
+      release_id: agent-state
+      release_mode: tag-push
+    secrets:
+      registry_username: ${{ secrets.RELEASE_REGISTRY_USERNAME }}
+      registry_token: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+      github_release_token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+The Flux infrastructure caller publishes runner images and chart assets but does not reconcile the cluster. It uses `release_id: flux-runner-assets`; the resulting canary/known-good/rollback identities are carried only in the reviewed handoff:
+
+```yaml
+jobs:
+  release:
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-release.yml@<PINNED_CI_WORKFLOWS_SHA>
+    with:
+      release_id: flux-runner-assets
+      release_mode: tag-push
+    secrets:
+      registry_username: ${{ secrets.RELEASE_REGISTRY_USERNAME }}
+      registry_token: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+      github_release_token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+A trusted historical replay calls the same immutable workflow with `release_mode: existing-tag`, the stable `release_version`, and the exact `release_source_sha`. The resolver accepts it only when the existing tag still peels to that exact source. Ordinary `workflow_dispatch` is not a bypass for publication authority.
+
 ## Version and source authority
 
 Product release versions are stable SemVer without a `v` prefix, for example `1.4.2`. Pre-release versions and mutable aliases such as `latest` are rejected by this orchestration layer because the current OCI publication contract accepts stable release versions only.
@@ -96,9 +153,9 @@ The manifest is serialized as canonical sorted JSON and addressed by its SHA-256
 
 The GitHub Release is keyed to the same stable version and admitted source. Its body contains the canonical release manifest and a manifest SHA-256 marker.
 
-Creation is idempotent only for an exact match. An existing release must match the expected tag, release name, canonical body, draft state, and prerelease state. A concurrent create race is re-read and accepted only if the winner is that exact release. Any conflicting release fails closed.
+Creation is idempotent only for an exact match. An existing release must match the expected repository, tag, release name, canonical body, draft state, and prerelease state. A concurrent create race is re-read and accepted only if the winner is that exact release. Any conflicting release fails closed.
 
-The GitHub token is consumed only by the GitHub Release stage. It is not placed in the release manifest, Flux handoff, job outputs, or logs.
+The GitHub release token is consumed only by the GitHub Release stage. It is not placed in the release manifest, Flux handoff, job outputs, or logs.
 
 ## Flux handoff
 
@@ -122,6 +179,8 @@ For `flux-runner-assets`, all three selection identities are mandatory. They are
 ## Credentials, runners, and cleanup
 
 Reusable publication workflows receive only their explicit named registry credentials. Release orchestration does not use broad secret inheritance. Read-only planning/verification jobs do not receive registry credentials.
+
+The GitHub release credential is a separate named secret and is consumed only by the release-metadata job. No Flux cluster or dispatch credential enters product publication jobs.
 
 General Linux control-plane work runs on the semantic general profile from `RUNNERS.md`. Publication workflows retain their own product-specific runner selection.
 
