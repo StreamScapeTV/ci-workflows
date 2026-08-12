@@ -24,11 +24,11 @@ on:
         description: Least-privilege username for the fixed checked-in registry destination
         required: true
       registry_token:
-        description: Least-privilege write token for the fixed checked-in registry destination
+        description: Least-privilege write token for tag publication; verify-only never writes
         required: true
     outputs:
       result:
-        description: Success only after exact build, immutable publication, read-back, and cleanup
+        description: Success only after exact build, immutable publication/read-back, and cleanup
         value: ${{ jobs.publish.outputs.result }}
       image_digest:
         description: Deterministic JSON map of independently read-back registry manifest digests
@@ -52,15 +52,16 @@ jobs:
       runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
       workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
       runner_profile: ${{ steps.plan.outputs.runner_profile }}
-      release_source_sha: ${{ steps.release.outputs.release_source_sha }}
-      tag_object_sha: ${{ steps.release.outputs.tag_object_sha }}
-      tag_commit_sha: ${{ steps.release.outputs.tag_commit_sha }}
+      release_mode: ${{ steps.authority.outputs.release_mode }}
+      release_source_sha: ${{ steps.authority.outputs.release_source_sha }}
+      tag_object_sha: ${{ steps.authority.outputs.tag_object_sha }}
+      tag_commit_sha: ${{ steps.authority.outputs.tag_commit_sha }}
     steps:
       - name: Check out exact central workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: StreamScapeTV/ci-workflows
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: .ciw
           fetch-depth: 1
           clean: true
@@ -69,20 +70,36 @@ jobs:
 
       - name: Verify exact central workflow source
         shell: bash
+        env:
+          EXPECTED_REPOSITORY: ${{ job.workflow_repository }}
+          EXPECTED_SHA: ${{ job.workflow_sha }}
         run: |
           set -Eeuo pipefail
+          test "${EXPECTED_REPOSITORY}" = "StreamScapeTV/ci-workflows"
           (
             cd .ciw
-            test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
+            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
           )
 
-      - id: release
-        name: Resolve exact existing release tag authority
+      - id: authority
+        name: Resolve exact caller release authority
         uses: ./.ciw/actions/resolve-release-tag
         with:
-          release_mode: existing-tag
-          release_version: ${{ inputs.release_version }}
-          release_source_sha: ${{ inputs.admitted_sha }}
+          release_mode: ${{ github.event_name == 'workflow_dispatch' && 'existing-tag' || 'tag-push' }}
+          release_version: ${{ github.event_name == 'workflow_dispatch' && inputs.release_version || '' }}
+          release_source_sha: ${{ github.event_name == 'workflow_dispatch' && inputs.admitted_sha || '' }}
+
+      - name: Verify authority matches the public release request
+        shell: bash
+        env:
+          ADMITTED_SHA: ${{ inputs.admitted_sha }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          AUTHORITY_SHA: ${{ steps.authority.outputs.release_source_sha }}
+          AUTHORITY_VERSION: ${{ steps.authority.outputs.release_version }}
+        run: |
+          set -Eeuo pipefail
+          test "${AUTHORITY_SHA}" = "${ADMITTED_SHA}"
+          test "${AUTHORITY_VERSION}" = "${RELEASE_VERSION}"
 
       - id: plan
         name: Resolve contract-owned product, destination, and runner
@@ -90,7 +107,7 @@ jobs:
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
-          release_authority_sha: ${{ steps.release.outputs.release_source_sha }}
+          release_authority_sha: ${{ steps.authority.outputs.release_source_sha }}
           product_id: ${{ inputs.product_id }}
           release_version: ${{ inputs.release_version }}
           platform_set: ${{ inputs.platform_set }}
@@ -109,8 +126,8 @@ jobs:
       - name: Check out exact central workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: StreamScapeTV/ci-workflows
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: .ciw
           fetch-depth: 1
           clean: true
@@ -119,11 +136,15 @@ jobs:
 
       - name: Verify exact central workflow source
         shell: bash
+        env:
+          EXPECTED_REPOSITORY: ${{ job.workflow_repository }}
+          EXPECTED_SHA: ${{ job.workflow_sha }}
         run: |
           set -Eeuo pipefail
+          test "${EXPECTED_REPOSITORY}" = "StreamScapeTV/ci-workflows"
           (
             cd .ciw
-            test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
+            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
           )
 
       - name: Check out exact admitted caller source
@@ -144,15 +165,27 @@ jobs:
           trust_mode: trusted-exact
 
       - id: revalidate
-        name: Revalidate release authority immediately before privileged work
+        name: Revalidate exact release authority immediately before privileged work
         uses: ./.ciw/actions/resolve-release-tag
         with:
           phase: revalidate
-          release_mode: existing-tag
+          release_mode: ${{ needs.plan.outputs.release_mode }}
           release_version: ${{ inputs.release_version }}
           release_source_sha: ${{ inputs.admitted_sha }}
           expected_tag_object_sha: ${{ needs.plan.outputs.tag_object_sha }}
           expected_tag_commit_sha: ${{ needs.plan.outputs.tag_commit_sha }}
+
+      - name: Verify revalidated release authority stayed exact
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.admitted_sha }}
+          EXPECTED_VERSION: ${{ inputs.release_version }}
+          ACTUAL_SHA: ${{ steps.revalidate.outputs.release_source_sha }}
+          ACTUAL_VERSION: ${{ steps.revalidate.outputs.release_version }}
+        run: |
+          set -Eeuo pipefail
+          test "${ACTUAL_SHA}" = "${EXPECTED_SHA}"
+          test "${ACTUAL_VERSION}" = "${EXPECTED_VERSION}"
 
       - id: build
         name: Rebuild and inspect exact source through OCI build contract
@@ -181,7 +214,7 @@ jobs:
           registry_token: ${{ secrets.registry_token }}
 
       - id: publish
-        name: Publish immutable version and source identities idempotently
+        name: Publish or verify immutable version and source identities
         if: ${{ steps.authenticate.outcome == 'success' }}
         continue-on-error: true
         uses: ./.ciw/actions/publish-oci

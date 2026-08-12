@@ -10,11 +10,14 @@ on:
       - contracts/oci-publication.schema.json
       - docs/workflows/oci-publish.md
       - scripts/ci/oci_publish.py
+      - src/ci_workflows/oci.py
+      - src/ci_workflows/ciw_oci.py
       - src/ci_workflows/oci_publish*.py
       - tests/fixtures/oci-publish/**
       - tests/test_oci_publication*.py
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -26,7 +29,7 @@ jobs:
     name: CI / OCI publication mock validation
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: [linux, amd64, general]
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Check out exact same-repository pull-request head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -43,20 +46,68 @@ jobs:
           set -Eeuo pipefail
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
 
-      - name: Run focused trusted-publication unit and workflow-contract tests
+      - name: Run focused trusted-publication and recovery tests
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONPATH: src
+        run: |
+          set -Eeuo pipefail
+          python3 -m unittest -v \
+            tests.test_oci_publication \
+            tests.test_oci_publication_contract_alignment \
+            tests.test_oci_publication_recovery \
+            tests.test_oci_publication_workflow_contract
+
+      - name: Compile publication, facade, and CIW adapters
         shell: bash
         run: |
           set -Eeuo pipefail
-          PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 \
-            python3 -m unittest -v \
-              tests.test_oci_publication \
-              tests.test_oci_publication_contract_alignment \
-              tests.test_oci_publication_workflow_contract
+          PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile \
+            scripts/ci/oci_publish.py \
+            src/ci_workflows/oci.py \
+            src/ci_workflows/ciw_oci.py \
+            src/ci_workflows/oci_publish.py \
+            src/ci_workflows/oci_publish_contract.py \
+            src/ci_workflows/oci_publish_guards.py \
+            tests/test_oci_publication.py \
+            tests/test_oci_publication_contract_alignment.py \
+            tests/test_oci_publication_recovery.py \
+            tests/test_oci_publication_workflow_contract.py
 
       - name: Verify smoke source remains clean and credential-free
         if: always()
         shell: bash
         run: |
           set -Eeuo pipefail
+          find . -type d -name __pycache__ -prune -exec rm -rf {} +
+          find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
           test -z "$(git status --porcelain --untracked-files=all)"
           test ! -e "${RUNNER_TEMP}/registry-auth.json"
+          test -z "$(find "${RUNNER_TEMP}" -maxdepth 1 -name 'ciw-oci-publish-*' -print -quit)"
+
+      - name: Confirm exact run retained zero Actions artifacts
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+          request = urllib.request.Request(
+              f"{os.environ['GITHUB_API_URL']}/repos/{os.environ['GITHUB_REPOSITORY']}"
+              f"/actions/runs/{os.environ['GITHUB_RUN_ID']}/artifacts?per_page=100",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              payload = json.load(response)
+          if int(payload.get("total_count", 0)) != 0 or payload.get("artifacts") != []:
+              raise SystemExit("OCI publication smoke retained an artifact")
+          PY

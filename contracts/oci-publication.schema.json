@@ -4,18 +4,11 @@
   "title": "StreamScapeTV trusted OCI publication public request and result",
   "type": "object",
   "oneOf": [
-    {
-      "$ref": "#/$defs/request"
-    },
-    {
-      "$ref": "#/$defs/result"
-    }
+    {"$ref": "#/$defs/request"},
+    {"$ref": "#/$defs/result"}
   ],
   "$defs": {
-    "sha": {
-      "type": "string",
-      "pattern": "^[0-9a-f]{40}$"
-    },
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "stableSemver": {
       "type": "string",
       "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
@@ -24,86 +17,110 @@
       "type": "string",
       "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"
     },
-    "digest": {
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "repository": {
       "type": "string",
-      "pattern": "^sha256:[0-9a-f]{64}$"
+      "pattern": "^ghcr\\.io/streamscapetv/[a-z0-9._/-]+$"
+    },
+    "immutableTagReference": {
+      "type": "string",
+      "pattern": "^ghcr\\.io/streamscapetv/[a-z0-9._/-]+:(?:[0-9]+\\.[0-9]+\\.[0-9]+|sha-[0-9a-f]{40})$"
+    },
+    "platformEvidence": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "patternProperties": {
+        "^linux/(?:amd64|arm64/v8)$": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["manifest_digest", "config_digest", "layer_digests", "labels"],
+          "properties": {
+            "manifest_digest": {"$ref": "#/$defs/digest"},
+            "config_digest": {"$ref": "#/$defs/digest"},
+            "layer_digests": {
+              "type": "array",
+              "minItems": 1,
+              "items": {"$ref": "#/$defs/digest"}
+            },
+            "labels": {
+              "type": "object",
+              "minProperties": 1,
+              "additionalProperties": {"type": "string"}
+            }
+          }
+        }
+      }
     },
     "request": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "admitted_sha",
-        "product_id",
-        "release_version"
-      ],
+      "required": ["admitted_sha", "product_id", "release_version"],
       "properties": {
-        "admitted_sha": {
-          "$ref": "#/$defs/sha"
-        },
-        "product_id": {
-          "$ref": "#/$defs/productId"
-        },
-        "release_version": {
-          "$ref": "#/$defs/stableSemver"
-        },
-        "platform_set": {
-          "$ref": "#/$defs/productId"
-        }
+        "admitted_sha": {"$ref": "#/$defs/sha"},
+        "product_id": {"$ref": "#/$defs/productId"},
+        "release_version": {"$ref": "#/$defs/stableSemver"},
+        "platform_set": {"$ref": "#/$defs/productId"}
+      }
+    },
+    "targetReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "version", "source_sha", "manifest_digest"],
+      "properties": {
+        "repository": {"$ref": "#/$defs/repository"},
+        "version": {"$ref": "#/$defs/immutableTagReference"},
+        "source_sha": {"$ref": "#/$defs/immutableTagReference"},
+        "manifest_digest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "fluxSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["canary_id", "previous_known_good", "rollback_id"],
+      "properties": {
+        "canary_id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "previous_known_good": {"type": "string", "minLength": 1, "maxLength": 256},
+        "rollback_id": {"type": "string", "minLength": 1, "maxLength": 256}
       }
     },
     "result": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "result",
-        "image_digest",
-        "platform_digests",
-        "immutable_references"
-      ],
+      "required": ["result", "image_digest", "platform_digests", "immutable_references"],
       "properties": {
-        "result": {
-          "const": "success"
-        },
+        "result": {"const": "success"},
         "image_digest": {
           "type": "object",
-          "additionalProperties": {
-            "$ref": "#/$defs/digest"
-          }
+          "minProperties": 1,
+          "additionalProperties": {"$ref": "#/$defs/digest"}
         },
         "platform_digests": {
-          "type": "object"
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {"$ref": "#/$defs/platformEvidence"}
         },
         "immutable_references": {
           "type": "object",
-          "required": [
-            "targets",
-            "release"
-          ],
+          "additionalProperties": false,
+          "required": ["targets", "release"],
           "properties": {
             "targets": {
-              "type": "object"
+              "type": "object",
+              "minProperties": 1,
+              "additionalProperties": {"$ref": "#/$defs/targetReference"}
             },
             "release": {
               "type": "object",
-              "required": [
-                "source_sha",
-                "version"
-              ],
+              "additionalProperties": false,
+              "required": ["source_sha", "version"],
               "properties": {
-                "source_sha": {
-                  "$ref": "#/$defs/sha"
-                },
-                "version": {
-                  "$ref": "#/$defs/stableSemver"
-                }
-              },
-              "additionalProperties": false
+                "source_sha": {"$ref": "#/$defs/sha"},
+                "version": {"$ref": "#/$defs/stableSemver"}
+              }
             },
-            "flux": {
-              "type": "object"
-            }
-          },
-          "additionalProperties": false
+            "flux": {"$ref": "#/$defs/fluxSelection"}
+          }
         }
       }
     }

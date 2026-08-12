@@ -9,9 +9,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class OciPublicationWorkflowContractTests(unittest.TestCase):
     def test_public_workflow_is_call_only_and_has_bounded_api(self) -> None:
-        text = (ROOT / ".github/workflows/reusable-oci-publish.yml").read_text(encoding="utf-8")
+        text = (ROOT / ".github/workflows/reusable-oci-publish.yml").read_text(
+            encoding="utf-8"
+        )
         self.assertIn("workflow_call:", text)
-        self.assertNotIn("workflow_dispatch:", text)
+        self.assertNotIn("workflow_dispatch:\n", text)
         self.assertNotIn("pull_request_target:", text)
         self.assertNotIn("secrets: inherit", text)
         self.assertNotIn("upload-artifact", text)
@@ -24,15 +26,29 @@ class OciPublicationWorkflowContractTests(unittest.TestCase):
         self.assertIn("platform_set:", text)
         self.assertIn("name: Release / OCI publication", text)
         for stage in (
+            "Resolve exact caller release authority",
+            "Verify authority matches the public release request",
             "Resolve contract-owned product, destination, and runner",
             "Rebuild and inspect exact source through OCI build contract",
             "Authenticate with workflow-scoped named registry credentials",
-            "Publish immutable version and source identities idempotently",
+            "Publish or verify immutable version and source identities",
             "Read back registry manifests through independent Skopeo inspection",
             "Verify exact manifest, platform, metadata, and assertion parity",
             "Remove registry auth, read-back layouts, and publication state",
         ):
             self.assertIn(stage, text)
+
+    def test_called_workflow_source_and_authority_modes_are_exact(self) -> None:
+        text = (ROOT / ".github/workflows/reusable-oci-publish.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("repository: ${{ job.workflow_repository }}", text)
+        self.assertIn("ref: ${{ job.workflow_sha }}", text)
+        self.assertNotIn("ref: ${{ github.workflow_sha }}", text)
+        self.assertIn("github.event_name == 'workflow_dispatch'", text)
+        self.assertIn("'existing-tag' || 'tag-push'", text)
+        self.assertIn("release_mode: ${{ needs.plan.outputs.release_mode }}", text)
+        self.assertIn("Verify revalidated release authority stayed exact", text)
 
     def test_composite_action_is_thin_and_has_no_caller_destination_or_command(self) -> None:
         text = (ROOT / "actions/publish-oci/action.yml").read_text(encoding="utf-8")
@@ -43,30 +59,61 @@ class OciPublicationWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("runner_labels:", text)
         self.assertNotIn("secrets: inherit", text)
 
-    def test_mock_smoke_has_no_registry_credentials_or_artifacts(self) -> None:
-        text = (ROOT / ".github/workflows/oci-publish-smoke.yml").read_text(encoding="utf-8")
+    def test_mock_smoke_has_no_registry_credentials_and_proves_zero_artifacts(self) -> None:
+        text = (ROOT / ".github/workflows/oci-publish-smoke.yml").read_text(
+            encoding="utf-8"
+        )
         self.assertIn("pull_request:", text)
         self.assertIn("[linux, amd64, general]", text)
         self.assertNotIn("registry_token", text)
         self.assertNotIn("registry_username", text)
         self.assertNotIn("upload-artifact", text)
         self.assertNotIn("packages: write", text)
+        self.assertIn("actions: read", text)
+        self.assertIn("tests.test_oci_publication_recovery", text)
+        self.assertIn("/artifacts?per_page=100", text)
 
-    def test_publication_schema_excludes_destination_and_command_inputs(self) -> None:
-        schema = json.loads((ROOT / "contracts/oci-publication.schema.json").read_text(encoding="utf-8"))
+    def test_publication_schema_excludes_destination_and_closes_nested_results(self) -> None:
+        schema = json.loads(
+            (ROOT / "contracts/oci-publication.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
         request = schema["$defs"]["request"]
         self.assertFalse(request["additionalProperties"])
         self.assertEqual(
             set(request["properties"]),
             {"admitted_sha", "product_id", "release_version", "platform_set"},
         )
+        result = schema["$defs"]["result"]
+        self.assertFalse(result["additionalProperties"])
+        immutable = result["properties"]["immutable_references"]
+        self.assertFalse(immutable["additionalProperties"])
+        self.assertFalse(schema["$defs"]["targetReference"]["additionalProperties"])
+        self.assertFalse(schema["$defs"]["platformEvidence"]["additionalProperties"])
+        self.assertFalse(schema["$defs"]["fluxSelection"]["additionalProperties"])
 
     def test_public_workflow_exposes_exact_registered_outputs(self) -> None:
-        text = (ROOT / ".github/workflows/reusable-oci-publish.yml").read_text(encoding="utf-8")
+        text = (ROOT / ".github/workflows/reusable-oci-publish.yml").read_text(
+            encoding="utf-8"
+        )
         call_section = text.split("permissions:", 1)[0]
-        for name in ("result", "image_digest", "platform_digests_json", "immutable_references_json"):
+        for name in (
+            "result",
+            "image_digest",
+            "platform_digests_json",
+            "immutable_references_json",
+        ):
             self.assertIn(f"      {name}:\n", call_section)
-        for old in ("repositories_json", "version_references_json", "source_references_json", "replayed", "evidence_id", "canary_id", "rollback_id"):
+        for old in (
+            "repositories_json",
+            "version_references_json",
+            "source_references_json",
+            "replayed",
+            "evidence_id",
+            "canary_id",
+            "rollback_id",
+        ):
             self.assertNotIn(f"      {old}:\n", call_section)
 
 

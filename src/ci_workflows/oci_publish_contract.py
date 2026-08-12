@@ -1,4 +1,4 @@
-"""Public oci.publish contract projection over the issue-#17 registry runtime."""
+"""Public oci.publish contract projection over guarded registry publication."""
 from __future__ import annotations
 
 import json
@@ -8,20 +8,24 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from . import oci_publish as _runtime
+from . import oci_publish_guards as _guards
 
 OciPublishError = _runtime.OciPublishError
 PublishTarget = _runtime.PublishTarget
 PublishPlan = _runtime.PublishPlan
-authenticate = _runtime.authenticate
-cleanup = _runtime.cleanup
-inspect_layout = _runtime.inspect_layout
-publication_state_root = _runtime.publication_state_root
-publish = _runtime.publish
-read_back = _runtime.read_back
-replay_decision = _runtime.replay_decision
-residue = _runtime.residue
+authenticate = _guards.authenticate
+cleanup = _guards.cleanup
+inspect_layout = _guards.inspect_layout
+publication_state_root = _guards.publication_state_root
+publish = _guards.publish
+read_back = _guards.read_back
+replay_decision = _guards.replay_decision
+residue = _guards.residue
 
 _PRODUCT = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
+_SUPPORTED_PRODUCTS = frozenset(
+    {"iptv-backend-image", "agent-state-image", "flux-runner-images"}
+)
 
 
 @dataclass(frozen=True)
@@ -39,6 +43,8 @@ def request_from_environment(environment: Mapping[str, str]) -> PublishRequest:
     """Validate the registered public request plus internal release authority."""
 
     base = _runtime.request_from_environment(environment)
+    if base.product_id not in _SUPPORTED_PRODUCTS:
+        raise OciPublishError("unsupported_product")
     platform_set = environment.get("INPUT_PLATFORM_SET", "")
     if platform_set and _PRODUCT.fullmatch(platform_set) is None:
         raise OciPublishError("invalid_platform_set")
