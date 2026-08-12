@@ -22,9 +22,10 @@ def require(condition: bool, code: str) -> None:
 
 
 def _mapping(value: str, code: str) -> Mapping[str, Any]:
+    require(isinstance(value, str), code)
     try:
         parsed = json.loads(value)
-    except json.JSONDecodeError as error:
+    except (TypeError, json.JSONDecodeError) as error:
         raise ReleaseError(code) from error
     require(isinstance(parsed, Mapping) and 0 < len(parsed) <= 32, code)
     return parsed
@@ -56,22 +57,43 @@ def image_reference_bundle(
     expected_source_sha: str,
     expected_release_version: str,
 ) -> tuple[dict[str, str], dict[str, str], str, dict[str, str] | None]:
-    require(FULL_SHA.fullmatch(expected_source_sha) is not None, "image_release_identity_rejected")
+    require(
+        isinstance(expected_source_sha, str)
+        and FULL_SHA.fullmatch(expected_source_sha) is not None,
+        "image_release_identity_rejected",
+    )
     version = validate_release_version(expected_release_version)
     digests = _mapping(image_digest_json, "image_digest_map_rejected")
-    immutable = _mapping(immutable_references_json, "image_reference_map_rejected")
-    require(set(immutable).issubset({"targets", "release", "flux"}), "image_reference_map_rejected")
-    require({"targets", "release"}.issubset(immutable), "image_reference_map_rejected")
+    immutable = _mapping(
+        immutable_references_json, "image_reference_map_rejected"
+    )
+    require(
+        set(immutable).issubset({"targets", "release", "flux"}),
+        "image_reference_map_rejected",
+    )
+    require(
+        {"targets", "release"}.issubset(immutable),
+        "image_reference_map_rejected",
+    )
     release = immutable["release"]
     targets = immutable["targets"]
-    require(isinstance(release, Mapping) and isinstance(targets, Mapping), "image_reference_map_rejected")
-    require(set(release) == {"source_sha", "version"}, "image_reference_map_rejected")
+    require(
+        isinstance(release, Mapping) and isinstance(targets, Mapping),
+        "image_reference_map_rejected",
+    )
+    require(
+        set(release) == {"source_sha", "version"},
+        "image_reference_map_rejected",
+    )
     require(
         release.get("source_sha") == expected_source_sha
         and release.get("version") == version,
         "image_release_identity_mismatch",
     )
-    require(0 < len(targets) <= 16 and set(targets) == set(digests), "image_target_mismatch")
+    require(
+        0 < len(targets) <= 16 and set(targets) == set(digests),
+        "image_target_mismatch",
+    )
 
     normalized_digests: dict[str, str] = {}
     digest_references: dict[str, str] = {}
@@ -84,7 +106,8 @@ def image_reference_bundle(
             isinstance(target, str)
             and TARGET.fullmatch(target) is not None
             and isinstance(row, Mapping)
-            and set(row) == {"repository", "version", "source_sha", "manifest_digest"},
+            and set(row)
+            == {"repository", "version", "source_sha", "manifest_digest"},
             "image_reference_map_rejected",
         )
         repository = row["repository"]
@@ -92,7 +115,8 @@ def image_reference_bundle(
         source_reference = row["source_sha"]
         manifest_digest = row["manifest_digest"]
         require(
-            isinstance(repository, str) and REPOSITORY.fullmatch(repository) is not None,
+            isinstance(repository, str)
+            and REPOSITORY.fullmatch(repository) is not None,
             "image_reference_map_rejected",
         )
         require(
@@ -121,5 +145,7 @@ def image_reference_bundle(
         "source_references": source_references,
         "version_references": version_references,
     }
-    rendered = json.dumps(bundle, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    rendered = json.dumps(
+        bundle, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
     return normalized_digests, digest_references, rendered, selection
