@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -21,15 +22,37 @@ class MaintenanceContractTests(unittest.TestCase):
         self.assertEqual(contract.project("agent-state").repository, "StreamScapeTV/agent-state")
         self.assertEqual(len(contract.selected_projects("")), 11)
 
-    def test_operation_metadata_records_trust_triggers_policy_source_and_outputs(self) -> None:
+    def test_operation_metadata_records_reviewed_authority_exactly(self) -> None:
         contract = load_contract(ROOT)
-        self.assertEqual(contract.operation("artifacts")["trust_class"], "trusted-maintenance")
-        self.assertEqual(contract.operation("flux_reconcile")["trust_class"], "flux-authorized")
+        self.assertEqual(contract.operation("artifacts")["credential"], "organization_maintenance_token")
         self.assertEqual(contract.operation("artifacts")["trigger"]["recommended_cron"], "17,47 * * * *")
+        self.assertIsNone(contract.operation("conformance")["trigger"]["recommended_cron"])
+        self.assertEqual(contract.operation("conformance")["credential_read"], "organization_read_token")
+        self.assertEqual(contract.operation("conformance")["credential_update"], "organization_update_token")
         self.assertEqual(contract.operation("runner_retry")["trigger"]["recommended_cron"], "*/10 * * * *")
         self.assertEqual(contract.operation("conformance")["policy_source"]["authority"], "central-inventory")
         self.assertEqual(set(contract.operation("conformance")["outputs"]), {"result", "mutation_count", "report_issue_url", "request_id"})
+        self.assertEqual(tuple(contract.operation("flux_reconcile")["credentials"]), ("flux_kubeconfig", "flux_sops_age_key"))
         self.assertIsNone(contract.operation("flux_reconcile")["trigger"]["recommended_cron"])
+
+    def test_reviewed_credential_or_trigger_drift_fails_closed(self) -> None:
+        raw = json.loads((ROOT / "contracts/organization-maintenance.json").read_text(encoding="utf-8"))
+        raw["operations"]["artifacts"]["credential"] = "broad-token"
+        with tempfile.TemporaryDirectory() as directory:
+            contracts = Path(directory) / "contracts"
+            contracts.mkdir()
+            (contracts / "organization-maintenance.json").write_text(json.dumps(raw), encoding="utf-8")
+            with self.assertRaisesRegex(MaintenanceError, "invalid_contract"):
+                load_contract(Path(directory))
+
+        raw = json.loads((ROOT / "contracts/organization-maintenance.json").read_text(encoding="utf-8"))
+        raw["operations"]["conformance"]["trigger"]["recommended_cron"] = "23 3 * * *"
+        with tempfile.TemporaryDirectory() as directory:
+            contracts = Path(directory) / "contracts"
+            contracts.mkdir()
+            (contracts / "organization-maintenance.json").write_text(json.dumps(raw), encoding="utf-8")
+            with self.assertRaisesRegex(MaintenanceError, "invalid_contract"):
+                load_contract(Path(directory))
 
     def test_unknown_project_request_and_mutable_sha_fail_closed(self) -> None:
         contract = load_contract(ROOT)

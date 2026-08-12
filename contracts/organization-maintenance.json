@@ -47,7 +47,7 @@
       "credential_read": "organization_read_token",
       "credential_update": "organization_update_token",
       "outputs": ["result", "mutation_count", "report_issue_url", "request_id"],
-      "trigger": {"owner":"thin-caller","events":["schedule","workflow_dispatch"],"recommended_cron":"23 3 * * *"},
+      "trigger": {"owner":"thin-caller","events":["schedule","workflow_dispatch"],"recommended_cron":null},
       "policy_source": {"authority":"central-inventory","supporting_contracts":["contracts/workflow-inventory.json"]},
       "report_repository": "StreamScapeTV/ci-workflows",
       "report_title_prefix": "Organization conformance",
