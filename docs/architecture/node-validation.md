@@ -24,7 +24,19 @@ The `plan` phase validates immutable GitHub identity and bounded action inputs, 
 
 ## Exact source and trust
 
-The workflow receives an exact SHA already admitted by the source contract. It checks out exact central orchestration and exact caller source without persisted credentials, then verifies both identities. Fork source may use only non-privileged compatible profiles. No profile introduces publication, deployment, registry, Kubernetes, Flux, database, device, signing, store, or Agent State authority.
+The workflow receives an exact SHA already admitted by the source contract. Caller source is checked out through the exact-checkout foundation and is verified again after cleanup. Fork source may use only non-privileged compatible profiles. No profile introduces publication, deployment, registry, Kubernetes, Flux, database, device, signing, store, or Agent State authority.
+
+The private central implementation is not cloned into the caller workspace. Instead, the Node workflow reuses the same immutable private-action sharing model already proven by `source.resolve`. The central helpers are pinned at reviewed commit `70e08d4ddf8930046632a7135950e924b82e22bf`:
+
+- `StreamScapeTV/ci-workflows/actions/validate-node`;
+- `StreamScapeTV/ci-workflows/actions/exact-checkout`;
+- `StreamScapeTV/ci-workflows/actions/prepare-workspace`;
+- `StreamScapeTV/ci-workflows/actions/render-evidence`; and
+- `StreamScapeTV/ci-workflows/actions/cleanup-workspace`.
+
+Every helper identity is registered in `contracts/action-tool-lock.json` with runtime `composite`. Each action resolves its central Python/scripts relative to `GITHUB_ACTION_PATH`; no second central repository checkout, caller-provided central source ref, `private_dependency_token`, broad secret inheritance, or central-repository credential is required. The caller-scoped `github.token` remains limited to exact checkout of the admitted caller repository when that helper needs it.
+
+This deliberately differs from Android/Flutter/Python reusable workflows that still use an exact `job.workflow_repository` / `job.workflow_sha` checkout. Both models preserve immutable central source identity; Node uses immutable private action identities because that form works for private reusable consumers without requiring a separate central clone credential.
 
 ## Runtime authority
 
@@ -92,4 +104,4 @@ The final workflow verifies exact source equality, clean tracked and untracked s
 
 ## Deliberate exclusions
 
-Issue #10 does not implement Python changes beyond the shared command registry extension, Android, Flutter, Apple, devices, GitOps, OCI/Helm, release, publication, deployment, Flux reconciliation, canonical Supabase, or Agent State decision behavior. It does not modify `.github/workflows/self-check.yml`, runner infrastructure, organization-rules, or consumer repositories.
+Issue #116 changes only the private central helper distribution model for `validation.node`. It does not broaden the Node API, add caller secrets, add arbitrary refs or commands, change consumer compatibility records, alter runner selection, enable artifacts/caches/deployment, or modify Android, Flutter, Apple, devices, GitOps, OCI/Helm, release, Flux reconciliation, canonical Supabase, or Agent State decision behavior.
