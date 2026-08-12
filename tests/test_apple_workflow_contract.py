@@ -170,7 +170,16 @@ class AppleWorkflowContractTests(unittest.TestCase):
         self.assertEqual(self.contract["artifact_policy"], "zero-default")
 
     def test_exact_source_and_terminal_cleanup_are_mandatory(self) -> None:
-        self.assertIn("github.workflow_sha", self.workflow)
+        self.assertNotIn("github.workflow_sha", self.workflow)
+        self.assertEqual(
+            self.workflow.count("repository: ${{ job.workflow_repository }}"),
+            2,
+        )
+        self.assertEqual(self.workflow.count("ref: ${{ job.workflow_sha }}"), 2)
+        self.assertEqual(
+            self.workflow.count("EXPECTED_SHA: ${{ job.workflow_sha }}"),
+            2,
+        )
         self.assertGreaterEqual(self.workflow.count("persist-credentials: false"), 2)
         self.assertIn("test \"$(git rev-parse HEAD)\" = \"${EXPECTED_SHA}\"", self.workflow)
         self.assertIn("phase: cleanup", self.workflow)
