@@ -15,6 +15,10 @@ on:
         description: Exact stable SemVer tag without refs or a v prefix
         required: true
         type: string
+      platform_set:
+        description: Optional exact checked-in platform set confirmation; no arbitrary matrix
+        required: false
+        type: string
     secrets:
       registry_username:
         description: Least-privilege username for the fixed checked-in registry destination
@@ -23,36 +27,18 @@ on:
         description: Least-privilege write token for the fixed checked-in registry destination
         required: true
     outputs:
-      repositories_json:
-        description: Canonical checked-in registry repositories by target
-        value: ${{ jobs.publish.outputs.repositories_json }}
-      version_references_json:
-        description: Immutable release-version references by target
-        value: ${{ jobs.publish.outputs.version_references_json }}
-      source_references_json:
-        description: Immutable source-SHA references by target
-        value: ${{ jobs.publish.outputs.source_references_json }}
-      manifest_digests_json:
-        description: Independently read-back registry manifest digests by target
-        value: ${{ jobs.publish.outputs.manifest_digests_json }}
+      result:
+        description: Success only after exact build, immutable publication, read-back, and cleanup
+        value: ${{ jobs.publish.outputs.result }}
+      image_digest:
+        description: Deterministic JSON map of independently read-back registry manifest digests
+        value: ${{ jobs.publish.outputs.image_digest }}
       platform_digests_json:
-        description: Independently read-back platform/config/layer digest evidence
+        description: Exact read-back platform manifest, config, and layer identities
         value: ${{ jobs.publish.outputs.platform_digests_json }}
-      replayed:
-        description: True when one or more matching immutable references already existed
-        value: ${{ jobs.publish.outputs.replayed }}
-      evidence_id:
-        description: Deterministic redacted publication/read-back evidence identity
-        value: ${{ jobs.publish.outputs.evidence_id }}
-      canary_id:
-        description: Contract-owned Flux canary identity when the product is a Flux asset
-        value: ${{ jobs.publish.outputs.canary_id }}
-      previous_known_good:
-        description: Contract-owned previous-known-good policy identity for Flux assets
-        value: ${{ jobs.publish.outputs.previous_known_good }}
-      rollback_id:
-        description: Contract-owned rollback identity for Flux assets
-        value: ${{ jobs.publish.outputs.rollback_id }}
+      immutable_references_json:
+        description: Canonical repositories, immutable version/source identities, and Flux handoff identities
+        value: ${{ jobs.publish.outputs.immutable_references_json }}
 
 permissions:
   contents: read
@@ -107,23 +93,18 @@ jobs:
           release_authority_sha: ${{ steps.release.outputs.release_source_sha }}
           product_id: ${{ inputs.product_id }}
           release_version: ${{ inputs.release_version }}
+          platform_set: ${{ inputs.platform_set }}
 
   publish:
-    name: CI / OCI trusted publication
+    name: Release / OCI publication
     needs: plan
     runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
     timeout-minutes: 180
     outputs:
-      repositories_json: ${{ steps.verify.outputs.repositories_json }}
-      version_references_json: ${{ steps.verify.outputs.version_references_json }}
-      source_references_json: ${{ steps.verify.outputs.source_references_json }}
-      manifest_digests_json: ${{ steps.verify.outputs.manifest_digests_json }}
+      result: ${{ steps.verify.outputs.result }}
+      image_digest: ${{ steps.verify.outputs.image_digest }}
       platform_digests_json: ${{ steps.verify.outputs.platform_digests_json }}
-      replayed: ${{ steps.verify.outputs.replayed }}
-      evidence_id: ${{ steps.verify.outputs.evidence_id }}
-      canary_id: ${{ steps.verify.outputs.canary_id }}
-      previous_known_good: ${{ steps.verify.outputs.previous_known_good }}
-      rollback_id: ${{ steps.verify.outputs.rollback_id }}
+      immutable_references_json: ${{ steps.verify.outputs.immutable_references_json }}
     steps:
       - name: Check out exact central workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -182,6 +163,7 @@ jobs:
           admitted_sha: ${{ inputs.admitted_sha }}
           product_id: ${{ inputs.product_id }}
           release_version: ${{ inputs.release_version }}
+          platform_set: ${{ inputs.platform_set }}
 
       - id: authenticate
         name: Authenticate with workflow-scoped named registry credentials
@@ -194,6 +176,7 @@ jobs:
           release_authority_sha: ${{ steps.revalidate.outputs.release_source_sha }}
           product_id: ${{ inputs.product_id }}
           release_version: ${{ inputs.release_version }}
+          platform_set: ${{ inputs.platform_set }}
           registry_username: ${{ secrets.registry_username }}
           registry_token: ${{ secrets.registry_token }}
 
@@ -208,6 +191,7 @@ jobs:
           release_authority_sha: ${{ steps.revalidate.outputs.release_source_sha }}
           product_id: ${{ inputs.product_id }}
           release_version: ${{ inputs.release_version }}
+          platform_set: ${{ inputs.platform_set }}
 
       - id: readback
         name: Read back registry manifests through independent Skopeo inspection
@@ -220,6 +204,7 @@ jobs:
           release_authority_sha: ${{ steps.revalidate.outputs.release_source_sha }}
           product_id: ${{ inputs.product_id }}
           release_version: ${{ inputs.release_version }}
+          platform_set: ${{ inputs.platform_set }}
 
       - id: verify
         name: Verify exact manifest, platform, metadata, and assertion parity
@@ -232,6 +217,7 @@ jobs:
           release_authority_sha: ${{ steps.revalidate.outputs.release_source_sha }}
           product_id: ${{ inputs.product_id }}
           release_version: ${{ inputs.release_version }}
+          platform_set: ${{ inputs.platform_set }}
 
       - name: Render deterministic redacted publication evidence
         if: ${{ always() && !cancelled() }}
@@ -257,6 +243,7 @@ jobs:
           release_authority_sha: ${{ inputs.admitted_sha }}
           product_id: ${{ inputs.product_id }}
           release_version: ${{ inputs.release_version }}
+          platform_set: ${{ inputs.platform_set }}
 
       - id: publication_residue
         name: Verify zero publication credential or layout residue
@@ -268,6 +255,7 @@ jobs:
           release_authority_sha: ${{ inputs.admitted_sha }}
           product_id: ${{ inputs.product_id }}
           release_version: ${{ inputs.release_version }}
+          platform_set: ${{ inputs.platform_set }}
 
       - id: build_cleanup
         name: Remove images, manifests, builders, local layouts, and caches
@@ -278,6 +266,7 @@ jobs:
           admitted_sha: ${{ inputs.admitted_sha }}
           product_id: ${{ inputs.product_id }}
           release_version: ${{ inputs.release_version }}
+          platform_set: ${{ inputs.platform_set }}
 
       - id: build_residue
         name: Verify zero OCI build residue
@@ -288,6 +277,7 @@ jobs:
           admitted_sha: ${{ inputs.admitted_sha }}
           product_id: ${{ inputs.product_id }}
           release_version: ${{ inputs.release_version }}
+          platform_set: ${{ inputs.platform_set }}
 
       - id: workspace_cleanup
         name: Remove and verify registered workspace state
