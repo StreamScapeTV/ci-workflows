@@ -11,14 +11,14 @@ from ci_workflows.release_types import ReleaseError
 
 
 ROOT = Path(__file__).resolve().parents[1]
-FIXTURE = json.loads(
+FIXTURES = json.loads(
     (ROOT / "tests/fixtures/release/publications.json").read_text(encoding="utf-8")
-)["cases"]["iptv-backend"]
+)["cases"]
 
 
-def fixture_identities():
-    image = FIXTURE["image"]
-    chart = FIXTURE["chart"]
+def fixture_identities(case):
+    image = case["image"]
+    chart = case["chart"]
     return (
         publication_identity(
             product_id=image["product_id"],
@@ -48,7 +48,7 @@ class ReleaseHandoffTest(unittest.TestCase):
             "iptv-backend",
             "StreamScapeTV/iptv-backend",
         )
-        self.image, self.chart = fixture_identities()
+        self.image, self.chart = fixture_identities(FIXTURES["iptv-backend"])
 
     def _payload(self):
         return build_flux_handoff(
@@ -71,6 +71,7 @@ class ReleaseHandoffTest(unittest.TestCase):
         self.assertFalse(payload["mutation_authorized"])
         self.assertFalse(payload["secrets_included"])
         self.assertEqual(2, len(payload["products"]))
+        self.assertNotIn("selection", payload)
         for product in payload["products"]:
             self.assertNotIn("evidence", product)
             self.assertTrue(product["digests"])
@@ -103,6 +104,55 @@ class ReleaseHandoffTest(unittest.TestCase):
         self.assertEqual(first_sha, second_sha)
         self.assertEqual(self._payload(), json.loads(first))
 
+    def test_flux_runner_handoff_requires_exact_canary_and_rollback_selection(self) -> None:
+        case = FIXTURES["flux-runner-assets"]
+        image, chart = fixture_identities(case)
+        plan = resolve_release_plan(ROOT, "flux-runner-assets", "StreamScapeTV/flux")
+        kwargs = {
+            "plan": plan,
+            "release_version": case["release_version"],
+            "source_sha": case["source_sha"],
+            "release_manifest_sha256": "b" * 64,
+            "github_release_url": (
+                "https://github.com/StreamScapeTV/flux/releases/tag/2.0.0"
+            ),
+            "image": image,
+            "chart": chart,
+        }
+        with self.assertRaisesRegex(ReleaseError, r"^handoff_selection_required$"):
+            build_flux_handoff(**kwargs)
+        payload = build_flux_handoff(
+            **kwargs,
+            canary_id="runner-images-canary",
+            previous_known_good="flux-policy:runner-images/current-known-good",
+            rollback_id="runner-images-rollback",
+        )
+        self.assertEqual(
+            {
+                "canary_id": "runner-images-canary",
+                "previous_known_good": "flux-policy:runner-images/current-known-good",
+                "rollback_id": "runner-images-rollback",
+            },
+            payload["selection"],
+        )
+
+    def test_non_flux_release_rejects_selection_identity_smuggling(self) -> None:
+        with self.assertRaisesRegex(ReleaseError, r"^handoff_selection_rejected$"):
+            build_flux_handoff(
+                plan=self.plan,
+                release_version="1.4.2",
+                source_sha="1" * 40,
+                release_manifest_sha256="a" * 64,
+                github_release_url=(
+                    "https://github.com/StreamScapeTV/iptv-backend/releases/tag/1.4.2"
+                ),
+                image=self.image,
+                chart=self.chart,
+                canary_id="unexpected",
+                previous_known_good="unexpected",
+                rollback_id="unexpected",
+            )
+
     def test_external_or_unreviewed_handoff_targets_are_impossible(self) -> None:
         with self.assertRaisesRegex(ReleaseError, r"^github_release_url_rejected$"):
             build_flux_handoff(
@@ -115,7 +165,7 @@ class ReleaseHandoffTest(unittest.TestCase):
                 chart=self.chart,
             )
 
-    def test_schema_forbids_credentials_and_live_mutation(self) -> None:
+    def test_schema_forbids_credentials_live_mutation_and_weak_flux_selection(self) -> None:
         schema = json.loads(
             (ROOT / "contracts/flux-handoff.schema.json").read_text(encoding="utf-8")
         )
@@ -124,6 +174,10 @@ class ReleaseHandoffTest(unittest.TestCase):
         self.assertEqual(
             "review-selection",
             schema["properties"]["requested_action"]["const"],
+        )
+        self.assertEqual(
+            ["selection"],
+            schema["allOf"][0]["then"]["required"],
         )
         serialized = json.dumps(schema).casefold()
         self.assertNotIn("kubeconfig", serialized)
