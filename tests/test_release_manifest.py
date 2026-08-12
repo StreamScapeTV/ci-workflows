@@ -74,10 +74,7 @@ def identities(case: dict[str, object]):
 class PublicationIdentityTest(unittest.TestCase):
     def test_single_target_identity_preserves_exact_remote_digest(self) -> None:
         image, _ = identities(FIXTURES["iptv-backend"])
-        self.assertEqual(
-            "sha256:" + "a" * 64,
-            image.digest,
-        )
+        self.assertEqual("sha256:" + "a" * 64, image.digest)
         self.assertEqual({"server": "sha256:" + "a" * 64}, image.digests)
         self.assertEqual(2, len(image.immutable_references))
         self.assertTrue(all("latest" not in value for value in image.immutable_references))
@@ -149,9 +146,7 @@ class PublicationIdentityTest(unittest.TestCase):
                 kind="helm-chart",
                 digest=chart["digest"],
                 immutable_references_json=canonical_json(chart["immutable_references"]),
-                evidence_json=canonical_json(
-                    {"read_back": read_back, "result": "success"}
-                ),
+                evidence_json=canonical_json({"read_back": read_back, "result": "success"}),
             )
 
 
@@ -185,6 +180,8 @@ class ReleaseManifestTest(unittest.TestCase):
         self.assertEqual("product", payload["shared_release"]["kind"])
         self.assertEqual("1.4.2", payload["shared_release"]["tag"])
         self.assertEqual("1" * 40, payload["shared_release"]["commit"])
+        self.assertEqual("v1.4.2", payload["product_release"]["release_tag"])
+        self.assertEqual("1.4.2", payload["product_release"]["version"])
         self.assertEqual("2" * 40, payload["product_release"]["tag_object_sha"])
         self.assertEqual("1" * 40, payload["product_release"]["tag_commit_sha"])
         self.assertEqual("exact-match-only", payload["product_release"]["replay_policy"])
@@ -194,10 +191,7 @@ class ReleaseManifestTest(unittest.TestCase):
         rendered, _ = self._render("flux-runner-assets")
         payload = json.loads(rendered)
         image = payload["product_release"]["publications"]["image"]
-        self.assertEqual(
-            {"linux-builder", "linux-general"},
-            set(image["digests"]),
-        )
+        self.assertEqual({"linux-builder", "linux-general"}, set(image["digests"]))
         self.assertEqual(4, len(image["immutable_references"]))
 
     def test_tag_commit_mismatch_fails_before_manifest_creation(self) -> None:
@@ -237,6 +231,7 @@ class ReleaseManifestTest(unittest.TestCase):
             set(schema["required"]),
         )
         self.assertIn("product_release", schema["properties"])
+        self.assertIn("release_tag", schema["$defs"]["productRelease"]["required"])
 
     def test_partial_publication_state_is_explicit_and_replayable(self) -> None:
         self.assertEqual(
