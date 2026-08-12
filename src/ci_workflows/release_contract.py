@@ -44,6 +44,7 @@ def _read_json(path: Path, code: str) -> Mapping[str, Any]:
 
 
 def validate_release_version(value: str) -> str:
+    require(isinstance(value, str), "release_version_rejected")
     candidate = value.strip()
     require(SEMVER.fullmatch(candidate) is not None, "release_version_rejected")
     require(candidate.casefold() != "latest", "latest_forbidden")
@@ -51,6 +52,7 @@ def validate_release_version(value: str) -> str:
 
 
 def validate_release_tag(value: str, release_version: str) -> str:
+    require(isinstance(value, str), "release_tag_rejected")
     candidate = value.strip()
     version = validate_release_version(release_version)
     require(RELEASE_TAG.fullmatch(candidate) is not None, "release_tag_rejected")
@@ -59,12 +61,14 @@ def validate_release_tag(value: str, release_version: str) -> str:
 
 
 def validate_request_id(value: str) -> str:
+    require(isinstance(value, str), "request_id_rejected")
     candidate = value.strip()
     require(REQUEST_ID.fullmatch(candidate) is not None, "request_id_rejected")
     return candidate
 
 
 def validate_admitted_sha(value: str) -> str:
+    require(isinstance(value, str), "release_sha_rejected")
     candidate = value.strip()
     require(FULL_SHA.fullmatch(candidate) is not None, "release_sha_rejected")
     return candidate
@@ -260,11 +264,15 @@ def resolve_public_release(
     target_id: str = "",
 ) -> tuple[ReleasePlan, dict[str, str]]:
     """Resolve the fixed public release request without caller-selected destinations."""
-    plan = resolve_release_plan(root, release_contract, repository)
+    require(isinstance(release_contract, str), "release_contract_rejected")
+    public_contract = release_contract.strip()
+    require(public_contract in RELEASE_ALIASES, "release_contract_rejected")
+    plan = resolve_release_plan(root, public_contract, repository)
     version = validate_release_version(release_version)
     tag = validate_release_tag(release_tag, version)
     source_sha = validate_admitted_sha(admitted_sha)
     request = validate_request_id(request_id)
+    require(isinstance(target_id, str), "target_id_rejected")
     target = target_id.strip()
     if target:
         require(
@@ -273,7 +281,7 @@ def resolve_public_release(
         )
     return plan, {
         "release_id": plan.release_id,
-        "release_contract": release_contract.strip(),
+        "release_contract": public_contract,
         "release_tag": tag,
         "release_version": version,
         "admitted_sha": source_sha,
