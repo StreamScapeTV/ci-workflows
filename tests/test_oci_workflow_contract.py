@@ -129,6 +129,9 @@ class OciWorkflowContractTests(unittest.TestCase):
         self.assertIn("platform_set: linux-amd64", self.smoke)
         self.assertIn("Check out exact admitted smoke source", self.smoke)
         self.assertIn("Verify exact smoke source remained clean", self.smoke)
+        self.assertIn("Run focused OCI contract, security, and media tests", self.smoke)
+        self.assertIn("python3 -m unittest discover -s tests -p 'test_oci_*.py' -v", self.smoke)
+        self.assertIn("Verify focused OCI tests left central source clean", self.smoke)
         self.assertIn(
             "concurrency:\n"
             "  group: oci-build-smoke-${{ github.event.pull_request.number }}\n"
