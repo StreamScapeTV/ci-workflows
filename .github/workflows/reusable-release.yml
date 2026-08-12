@@ -3,91 +3,78 @@ name: Reusable exact-tag release orchestration
 on:
   workflow_call:
     inputs:
-      release_id:
-        description: Checked-in release ID from contracts/releases.json
+      admitted_sha:
+        description: Exact lowercase source SHA admitted for this release
         required: true
         type: string
-      release_mode:
-        description: tag-push for normal releases or existing-tag for trusted replay
-        required: false
-        default: tag-push
+      release_contract:
+        description: Checked-in release contract identifier
+        required: true
+        type: string
+      release_tag:
+        description: Exact immutable v-prefixed release tag
+        required: true
         type: string
       release_version:
-        description: Stable SemVer required only for trusted existing-tag replay
-        required: false
-        default: ""
+        description: Exact stable SemVer release version without v prefix
+        required: true
         type: string
-      release_source_sha:
-        description: Exact source SHA required only for trusted existing-tag replay
+      request_id:
+        description: Caller-generated idempotency identity for the reviewed handoff
+        required: true
+        type: string
+      target_id:
+        description: Optional confirmation of the checked-in release target
         required: false
-        default: ""
         type: string
     secrets:
       registry_username:
-        description: Explicit registry username for image and chart publication
+        description: Least-privilege private registry username
         required: true
       registry_token:
-        description: Explicit registry token for image and chart publication
+        description: Least-privilege private registry token
         required: true
-      github_release_token:
-        description: Explicit token used only to create or verify GitHub Release metadata
+      flux_handoff_token:
+        description: Token limited to submitting a reviewed handoff request to StreamScapeTV/flux
         required: true
     outputs:
       result:
-        description: Success only after exact publication, release metadata, handoff, and terminal finalization
-        value: ${{ jobs.cleanup-and-finalize.outputs.result }}
-      release_version:
-        description: Exact stable release version resolved from the trusted tag authority
-        value: ${{ jobs.resolve-tag-source.outputs.release_version }}
-      release_source_sha:
-        description: Exact immutable source commit admitted by the tag authority
-        value: ${{ jobs.resolve-tag-source.outputs.release_source_sha }}
-      image_digest:
-        description: Exact image digest or deterministic digest-map identity
-        value: ${{ jobs.verify-read-back.outputs.image_digest }}
-      image_digests_json:
-        description: Deterministic target-to-image-digest JSON map
-        value: ${{ jobs.verify-read-back.outputs.image_digests_json }}
-      chart_digest:
-        description: Exact independently read-back chart digest
-        value: ${{ jobs.verify-read-back.outputs.chart_digest }}
+        description: Success only after verified publication, release metadata, and reviewed handoff request
+        value: ${{ jobs.request_handoff_and_finalize.outputs.result }}
+      immutable_references_json:
+        description: Bounded immutable image and chart publication identities
+        value: ${{ jobs.verify_and_record.outputs.immutable_references_json }}
       release_manifest_sha256:
         description: SHA-256 of the canonical immutable release manifest
-        value: ${{ jobs.create-release-manifest.outputs.manifest_sha256 }}
-      github_release_url:
-        description: Exact GitHub Release URL after create-or-match verification
-        value: ${{ jobs.create-or-verify-github-release.outputs.github_release_url }}
-      github_release_state:
-        description: created or exact existing-match replay state
-        value: ${{ jobs.create-or-verify-github-release.outputs.github_release_state }}
-      flux_handoff_json:
-        description: Bounded immutable review-selection request for StreamScapeTV/flux
-        value: ${{ jobs.request-reviewed-handoff.outputs.flux_handoff_json }}
-      flux_handoff_sha256:
-        description: SHA-256 of the canonical bounded Flux handoff
-        value: ${{ jobs.request-reviewed-handoff.outputs.flux_handoff_sha256 }}
-      publication_progress:
-        description: complete or bounded partial-publication state
-        value: ${{ jobs.cleanup-and-finalize.outputs.publication_progress }}
+        value: ${{ jobs.verify_and_record.outputs.release_manifest_sha256 }}
+      handoff_state:
+        description: State of the bounded review-only Flux handoff request
+        value: ${{ jobs.request_handoff_and_finalize.outputs.handoff_state }}
+      request_id:
+        description: Exact caller request identity
+        value: ${{ jobs.request_handoff_and_finalize.outputs.request_id }}
 
 permissions:
-  contents: read
-
-concurrency:
-  group: release-${{ github.repository }}-${{ inputs.release_version || github.ref }}
-  cancel-in-progress: false
+  actions: read
+  contents: write
 
 jobs:
-  resolve-tag-source:
-    name: Resolve exact tag and source authority
+  plan:
+    name: Resolve exact release and publication plan
     runs-on: [linux, amd64, general]
-    timeout-minutes: 10
+    timeout-minutes: 15
     outputs:
-      release_mode: ${{ steps.authority.outputs.release_mode }}
-      release_version: ${{ steps.authority.outputs.release_version }}
-      release_source_sha: ${{ steps.authority.outputs.release_source_sha }}
+      release_id: ${{ steps.release.outputs.release_id }}
+      release_tag: ${{ steps.release.outputs.release_tag }}
+      release_version: ${{ steps.release.outputs.release_version }}
+      admitted_sha: ${{ steps.release.outputs.admitted_sha }}
+      request_id: ${{ steps.release.outputs.request_id }}
+      image_product_id: ${{ steps.release.outputs.image_product_id }}
+      chart_product_id: ${{ steps.release.outputs.chart_product_id }}
       tag_object_sha: ${{ steps.authority.outputs.tag_object_sha }}
       tag_commit_sha: ${{ steps.authority.outputs.tag_commit_sha }}
+      image_workspace_profile: ${{ steps.image_plan.outputs.workspace_profile }}
+      runs_on_json: ${{ steps.runner.outputs.runs_on_json }}
     steps:
       - name: Check out exact central workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -107,60 +94,57 @@ jobs:
           EXPECTED_SHA: ${{ job.workflow_sha }}
         run: |
           set -Eeuo pipefail
-          (
-            cd .ciw
-            test "${EXPECTED_REPOSITORY}" = "StreamScapeTV/ci-workflows"
-            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
-          )
+          test "${EXPECTED_REPOSITORY}" = "StreamScapeTV/ci-workflows"
+          test "$(git -C .ciw rev-parse HEAD)" = "${EXPECTED_SHA}"
 
-      - id: authority
-        name: Resolve immutable release tag authority
-        uses: ./.ciw/actions/resolve-release-tag
-        with:
-          phase: resolve
-          release_mode: ${{ inputs.release_mode }}
-          release_version: ${{ inputs.release_version }}
-          release_source_sha: ${{ inputs.release_source_sha }}
-
-  validate-release-contract:
-    name: Validate checked-in release contract
-    needs: resolve-tag-source
-    runs-on: [linux, amd64, general]
-    timeout-minutes: 10
-    outputs:
-      image_product_id: ${{ steps.plan.outputs.image_product_id }}
-      chart_product_id: ${{ steps.plan.outputs.chart_product_id }}
-    steps:
-      - name: Check out exact central workflow source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          path: .ciw
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
-
-      - id: plan
-        name: Resolve exact product publication plan
+      - id: release
+        name: Resolve checked-in public release contract
         shell: bash
         env:
-          RELEASE_ID: ${{ inputs.release_id }}
           PRODUCER_REPOSITORY: ${{ github.repository }}
         run: |
           set -Eeuo pipefail
           .ciw/scripts/ci/release.py plan \
-            --release-id "${RELEASE_ID}" \
-            --repository "${PRODUCER_REPOSITORY}"
+            --release-contract "${{ inputs.release_contract }}" \
+            --repository "${PRODUCER_REPOSITORY}" \
+            --admitted-sha "${{ inputs.admitted_sha }}" \
+            --release-tag "${{ inputs.release_tag }}" \
+            --release-version "${{ inputs.release_version }}" \
+            --request-id "${{ inputs.request_id }}" \
+            --target-id "${{ inputs.target_id }}"
 
-  run-release-gates:
-    name: Revalidate authority and exact source gate
-    needs: [resolve-tag-source, validate-release-contract]
+      - id: authority
+        name: Resolve exact existing tag authority
+        uses: ./.ciw/actions/resolve-release-tag
+        with:
+          release_mode: existing-tag
+          release_version: ${{ steps.release.outputs.release_version }}
+          release_source_sha: ${{ steps.release.outputs.admitted_sha }}
+
+      - id: image_plan
+        name: Resolve OCI product, destination, and runner
+        uses: ./.ciw/actions/publish-oci
+        with:
+          phase: plan
+          admitted_sha: ${{ steps.release.outputs.admitted_sha }}
+          release_authority_sha: ${{ steps.authority.outputs.release_source_sha }}
+          product_id: ${{ steps.release.outputs.image_product_id }}
+          release_version: ${{ steps.release.outputs.release_version }}
+
+      - id: runner
+        name: Resolve shared publication runner
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          .ciw/scripts/ci/release.py runner-plan \
+            --image-runs-on-json '${{ steps.image_plan.outputs.runs_on_json }}' \
+            --chart-runs-on-json '["linux","amd64","general"]'
+
+  run_release_gates:
+    name: Revalidate exact tag and source gate
+    needs: plan
     runs-on: [linux, amd64, general]
     timeout-minutes: 15
-    outputs:
-      result: ${{ steps.source.outputs.verified == 'true' && steps.revalidate.outcome == 'success' && 'success' || 'failure' }}
     steps:
       - name: Check out exact central workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -173,63 +157,250 @@ jobs:
           persist-credentials: false
           set-safe-directory: false
 
-      - id: revalidate
-        name: Revalidate exact tag before publication gates
+      - name: Verify exact central workflow source
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C .ciw rev-parse HEAD)" = "${EXPECTED_SHA}"
+
+      - name: Revalidate exact tag before publication
         uses: ./.ciw/actions/resolve-release-tag
         with:
           phase: revalidate
-          release_mode: ${{ needs.resolve-tag-source.outputs.release_mode }}
-          release_version: ${{ needs.resolve-tag-source.outputs.release_version }}
-          release_source_sha: ${{ needs.resolve-tag-source.outputs.release_source_sha }}
-          expected_tag_object_sha: ${{ needs.resolve-tag-source.outputs.tag_object_sha }}
-          expected_tag_commit_sha: ${{ needs.resolve-tag-source.outputs.tag_commit_sha }}
+          release_mode: existing-tag
+          release_version: ${{ needs.plan.outputs.release_version }}
+          release_source_sha: ${{ needs.plan.outputs.admitted_sha }}
+          expected_tag_object_sha: ${{ needs.plan.outputs.tag_object_sha }}
+          expected_tag_commit_sha: ${{ needs.plan.outputs.tag_commit_sha }}
 
-      - id: source
-        name: Check out exact admitted producer source
+      - name: Check out exact admitted producer source
         uses: ./.ciw/actions/exact-checkout
         with:
           repository: ${{ github.repository }}
-          admitted_sha: ${{ needs.resolve-tag-source.outputs.release_source_sha }}
+          admitted_sha: ${{ needs.plan.outputs.admitted_sha }}
           path: source
           fetch_depth: "1"
 
-      - name: Verify gated source is detached, exact, and clean
+      - name: Verify exact gated source remains clean
         shell: bash
         env:
-          EXPECTED_SHA: ${{ needs.resolve-tag-source.outputs.release_source_sha }}
+          EXPECTED_SHA: ${{ needs.plan.outputs.admitted_sha }}
         run: |
           set -Eeuo pipefail
-          (
-            cd source
-            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
-            test -z "$(git status --porcelain --untracked-files=all)"
-          )
+          test "$(git -C source rev-parse HEAD)" = "${EXPECTED_SHA}"
+          test -z "$(git -C source status --porcelain --untracked-files=all)"
 
-  publish-images:
-    name: Publish and read back immutable images
-    needs: [resolve-tag-source, validate-release-contract, run-release-gates]
-    if: ${{ needs.run-release-gates.outputs.result == 'success' }}
-    permissions:
-      contents: read
-    uses: ./.github/workflows/reusable-oci-publish.yml
-    with:
-      admitted_sha: ${{ needs.resolve-tag-source.outputs.release_source_sha }}
-      product_id: ${{ needs.validate-release-contract.outputs.image_product_id }}
-      release_version: ${{ needs.resolve-tag-source.outputs.release_version }}
-    secrets:
-      registry_username: ${{ secrets.registry_username }}
-      registry_token: ${{ secrets.registry_token }}
-
-  bind-published-images:
-    name: Bind verified image digests for chart publication
-    needs: [resolve-tag-source, publish-images]
-    if: ${{ needs.publish-images.outputs.result == 'success' }}
-    runs-on: [linux, amd64, general]
-    timeout-minutes: 10
+  publish_images:
+    name: Publish and independently read back immutable images
+    needs: [plan, run_release_gates]
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
+    timeout-minutes: 180
     outputs:
+      result: ${{ steps.verify.outcome == 'success' && steps.publication_cleanup.outcome == 'success' && steps.publication_residue.outcome == 'success' && steps.build_cleanup.outcome == 'success' && steps.build_residue.outcome == 'success' && steps.workspace_cleanup.outcome == 'success' && 'success' || 'failure' }}
+      image_digest: ${{ steps.verify.outputs.image_digest }}
+      platform_digests_json: ${{ steps.verify.outputs.platform_digests_json }}
+      immutable_references_json: ${{ steps.verify.outputs.immutable_references_json }}
+    steps:
+      - name: Check out exact central workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact central workflow source
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C .ciw rev-parse HEAD)" = "${EXPECTED_SHA}"
+
+      - name: Check out exact admitted producer source
+        uses: ./.ciw/actions/exact-checkout
+        with:
+          repository: ${{ github.repository }}
+          admitted_sha: ${{ needs.plan.outputs.admitted_sha }}
+          path: source
+          fetch_depth: "1"
+
+      - name: Prepare isolated OCI publication state
+        uses: ./.ciw/actions/prepare-workspace
+        with:
+          profile: ${{ needs.plan.outputs.image_workspace_profile }}
+          cache_mode: disabled
+          source_sha: ${{ needs.plan.outputs.admitted_sha }}
+          trust_mode: trusted-exact
+
+      - id: revalidate
+        name: Revalidate exact tag immediately before image publication
+        uses: ./.ciw/actions/resolve-release-tag
+        with:
+          phase: revalidate
+          release_mode: existing-tag
+          release_version: ${{ needs.plan.outputs.release_version }}
+          release_source_sha: ${{ needs.plan.outputs.admitted_sha }}
+          expected_tag_object_sha: ${{ needs.plan.outputs.tag_object_sha }}
+          expected_tag_commit_sha: ${{ needs.plan.outputs.tag_commit_sha }}
+
+      - id: build
+        name: Rebuild and inspect exact source through OCI build contract
+        continue-on-error: true
+        uses: ./.ciw/actions/validate-oci
+        with:
+          phase: execute
+          admitted_sha: ${{ needs.plan.outputs.admitted_sha }}
+          product_id: ${{ needs.plan.outputs.image_product_id }}
+          release_version: ${{ needs.plan.outputs.release_version }}
+
+      - id: authenticate
+        name: Authenticate with named registry credentials
+        if: ${{ steps.build.outcome == 'success' }}
+        continue-on-error: true
+        uses: ./.ciw/actions/publish-oci
+        with:
+          phase: authenticate
+          admitted_sha: ${{ needs.plan.outputs.admitted_sha }}
+          release_authority_sha: ${{ steps.revalidate.outputs.release_source_sha }}
+          product_id: ${{ needs.plan.outputs.image_product_id }}
+          release_version: ${{ needs.plan.outputs.release_version }}
+          registry_username: ${{ secrets.registry_username }}
+          registry_token: ${{ secrets.registry_token }}
+
+      - id: publish
+        name: Publish immutable image identities idempotently
+        if: ${{ steps.authenticate.outcome == 'success' }}
+        continue-on-error: true
+        uses: ./.ciw/actions/publish-oci
+        with:
+          phase: publish
+          admitted_sha: ${{ needs.plan.outputs.admitted_sha }}
+          release_authority_sha: ${{ steps.revalidate.outputs.release_source_sha }}
+          product_id: ${{ needs.plan.outputs.image_product_id }}
+          release_version: ${{ needs.plan.outputs.release_version }}
+
+      - id: readback
+        name: Read back registry manifests independently
+        if: ${{ steps.publish.outcome == 'success' }}
+        continue-on-error: true
+        uses: ./.ciw/actions/publish-oci
+        with:
+          phase: readback
+          admitted_sha: ${{ needs.plan.outputs.admitted_sha }}
+          release_authority_sha: ${{ steps.revalidate.outputs.release_source_sha }}
+          product_id: ${{ needs.plan.outputs.image_product_id }}
+          release_version: ${{ needs.plan.outputs.release_version }}
+
+      - id: verify
+        name: Verify immutable image read-back evidence
+        if: ${{ steps.readback.outcome == 'success' }}
+        continue-on-error: true
+        uses: ./.ciw/actions/publish-oci
+        with:
+          phase: verify
+          admitted_sha: ${{ needs.plan.outputs.admitted_sha }}
+          release_authority_sha: ${{ steps.revalidate.outputs.release_source_sha }}
+          product_id: ${{ needs.plan.outputs.image_product_id }}
+          release_version: ${{ needs.plan.outputs.release_version }}
+
+      - id: publication_cleanup
+        name: Remove OCI publication credential and layout state
+        if: always()
+        uses: ./.ciw/actions/publish-oci
+        with:
+          phase: cleanup
+          admitted_sha: ${{ needs.plan.outputs.admitted_sha }}
+          release_authority_sha: ${{ needs.plan.outputs.admitted_sha }}
+          product_id: ${{ needs.plan.outputs.image_product_id }}
+          release_version: ${{ needs.plan.outputs.release_version }}
+
+      - id: publication_residue
+        name: Verify zero OCI publication residue
+        if: always()
+        uses: ./.ciw/actions/publish-oci
+        with:
+          phase: residue
+          admitted_sha: ${{ needs.plan.outputs.admitted_sha }}
+          release_authority_sha: ${{ needs.plan.outputs.admitted_sha }}
+          product_id: ${{ needs.plan.outputs.image_product_id }}
+          release_version: ${{ needs.plan.outputs.release_version }}
+
+      - id: build_cleanup
+        name: Remove OCI build state
+        if: always()
+        uses: ./.ciw/actions/validate-oci
+        with:
+          phase: cleanup
+          admitted_sha: ${{ needs.plan.outputs.admitted_sha }}
+          product_id: ${{ needs.plan.outputs.image_product_id }}
+          release_version: ${{ needs.plan.outputs.release_version }}
+
+      - id: build_residue
+        name: Verify zero OCI build residue
+        if: always()
+        uses: ./.ciw/actions/validate-oci
+        with:
+          phase: residue
+          admitted_sha: ${{ needs.plan.outputs.admitted_sha }}
+          product_id: ${{ needs.plan.outputs.image_product_id }}
+          release_version: ${{ needs.plan.outputs.release_version }}
+
+      - id: workspace_cleanup
+        name: Remove and verify registered OCI workspace state
+        if: always()
+        uses: ./.ciw/actions/cleanup-workspace
+
+      - name: Verify exact producer source remained clean
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C source rev-parse HEAD)" = "${{ needs.plan.outputs.admitted_sha }}"
+          test -z "$(git -C source status --porcelain --untracked-files=all)"
+
+      - name: Project terminal OCI publication status
+        if: always()
+        shell: bash
+        env:
+          BUILD: ${{ steps.build.outcome }}
+          AUTH: ${{ steps.authenticate.outcome }}
+          PUBLISH: ${{ steps.publish.outcome }}
+          READBACK: ${{ steps.readback.outcome }}
+          VERIFY: ${{ steps.verify.outcome }}
+          CLEANUP: ${{ steps.publication_cleanup.outcome }}
+          RESIDUE: ${{ steps.publication_residue.outcome }}
+          BUILD_CLEANUP: ${{ steps.build_cleanup.outcome }}
+          BUILD_RESIDUE: ${{ steps.build_residue.outcome }}
+          WORKSPACE_CLEANUP: ${{ steps.workspace_cleanup.outcome }}
+        run: |
+          set -Eeuo pipefail
+          test "${BUILD}" = success
+          test "${AUTH}" = success
+          test "${PUBLISH}" = success
+          test "${READBACK}" = success
+          test "${VERIFY}" = success
+          test "${CLEANUP}" = success
+          test "${RESIDUE}" = success
+          test "${BUILD_CLEANUP}" = success
+          test "${BUILD_RESIDUE}" = success
+          test "${WORKSPACE_CLEANUP}" = success
+
+  publish_charts_or_assets:
+    name: Publish and independently read back immutable charts
+    needs: [plan, run_release_gates, publish_images]
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
+    timeout-minutes: 90
+    outputs:
+      result: ${{ steps.helm.outcome == 'success' && steps.helm_cleanup.outcome == 'success' && steps.helm_residue.outcome == 'success' && steps.workspace_cleanup.outcome == 'success' && 'success' || 'failure' }}
+      chart_digest: ${{ steps.helm.outputs.chart_digest }}
+      immutable_references_json: ${{ steps.helm.outputs.immutable_references_json }}
       image_digests_json: ${{ steps.bind.outputs.image_digests_json }}
-      digest_references_json: ${{ steps.bind.outputs.digest_references_json }}
-      required_image_references_json: ${{ steps.bind.outputs.required_image_references_json }}
       image_references_json: ${{ steps.bind.outputs.image_references_json }}
       canary_id: ${{ steps.bind.outputs.canary_id }}
       previous_known_good: ${{ steps.bind.outputs.previous_known_good }}
@@ -246,270 +417,121 @@ jobs:
           persist-credentials: false
           set-safe-directory: false
 
-      - id: bind
-        name: Convert image read-back to digest-pinned chart inputs
+      - name: Verify exact central workflow source
         shell: bash
         env:
-          IMAGE_DIGEST_JSON: ${{ needs.publish-images.outputs.image_digest }}
-          IMMUTABLE_REFERENCES_JSON: ${{ needs.publish-images.outputs.immutable_references_json }}
-          EXPECTED_SOURCE_SHA: ${{ needs.resolve-tag-source.outputs.release_source_sha }}
-          EXPECTED_RELEASE_VERSION: ${{ needs.resolve-tag-source.outputs.release_version }}
+          EXPECTED_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C .ciw rev-parse HEAD)" = "${EXPECTED_SHA}"
+
+      - id: bind
+        name: Verify image evidence and derive digest-pinned bindings
+        shell: bash
         run: |
           set -Eeuo pipefail
           .ciw/scripts/ci/release.py image-bindings \
-            --image-digest-json "${IMAGE_DIGEST_JSON}" \
-            --immutable-references-json "${IMMUTABLE_REFERENCES_JSON}" \
-            --expected-source-sha "${EXPECTED_SOURCE_SHA}" \
-            --expected-release-version "${EXPECTED_RELEASE_VERSION}"
+            --image-digest-json '${{ needs.publish_images.outputs.image_digest }}' \
+            --immutable-references-json '${{ needs.publish_images.outputs.immutable_references_json }}' \
+            --expected-source-sha '${{ needs.plan.outputs.admitted_sha }}' \
+            --expected-release-version '${{ needs.plan.outputs.release_version }}'
 
-  publish-charts-or-assets:
-    name: Publish and read back immutable charts or chart assets
-    needs: [resolve-tag-source, validate-release-contract, bind-published-images]
-    if: ${{ needs.bind-published-images.result == 'success' }}
-    permissions:
-      contents: read
-    uses: ./.github/workflows/reusable-helm-publish.yml
-    with:
-      admitted_sha: ${{ needs.resolve-tag-source.outputs.release_source_sha }}
-      product_id: ${{ needs.validate-release-contract.outputs.chart_product_id }}
-      release_version: ${{ needs.resolve-tag-source.outputs.release_version }}
-      required_image_references_json: ${{ needs.bind-published-images.outputs.required_image_references_json }}
-    secrets:
-      registry_username: ${{ secrets.registry_username }}
-      registry_token: ${{ secrets.registry_token }}
-
-  verify-read-back:
-    name: Verify normalized immutable publication evidence
-    needs:
-      - resolve-tag-source
-      - validate-release-contract
-      - publish-images
-      - bind-published-images
-      - publish-charts-or-assets
-    if: ${{ needs.publish-images.outputs.result == 'success' && needs.publish-charts-or-assets.outputs.result == 'success' }}
-    runs-on: [linux, amd64, general]
-    timeout-minutes: 10
-    outputs:
-      result: ${{ steps.verify.outputs.result }}
-      image_digest: ${{ steps.verify.outputs.image_digest }}
-      image_digests_json: ${{ steps.verify.outputs.image_digests_json }}
-      image_references_json: ${{ steps.verify.outputs.image_references_json }}
-      image_evidence_json: ${{ steps.verify.outputs.image_evidence_json }}
-      chart_digest: ${{ steps.verify.outputs.chart_digest }}
-      chart_digests_json: ${{ steps.verify.outputs.chart_digests_json }}
-      chart_references_json: ${{ steps.verify.outputs.chart_references_json }}
-      chart_evidence_json: ${{ steps.verify.outputs.chart_evidence_json }}
-    steps:
-      - name: Check out exact central workflow source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          path: .ciw
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
-
-      - id: evidence
-        name: Normalize bounded dependency read-back evidence
-        shell: bash
-        env:
-          IMAGE_RESULT: ${{ needs.publish-images.outputs.result }}
-          IMAGE_DIGEST_JSON: ${{ needs.publish-images.outputs.image_digest }}
-          PLATFORM_DIGESTS_JSON: ${{ needs.publish-images.outputs.platform_digests_json }}
-          IMAGE_IMMUTABLE_REFERENCES_JSON: ${{ needs.publish-images.outputs.immutable_references_json }}
-          CHART_RESULT: ${{ needs.publish-charts-or-assets.outputs.result }}
-          CHART_IMMUTABLE_REFERENCES_JSON: ${{ needs.publish-charts-or-assets.outputs.immutable_references_json }}
-        run: |
-          set -Eeuo pipefail
-          .ciw/scripts/ci/release.py evidence \
-            --image-result "${IMAGE_RESULT}" \
-            --image-digest-json "${IMAGE_DIGEST_JSON}" \
-            --platform-digests-json "${PLATFORM_DIGESTS_JSON}" \
-            --immutable-references-json "${IMAGE_IMMUTABLE_REFERENCES_JSON}" \
-            --chart-result "${CHART_RESULT}" \
-            --chart-references-json "${CHART_IMMUTABLE_REFERENCES_JSON}"
-
-      - id: verify
-        name: Verify exact product identities after independent read-back
-        shell: bash
-        env:
-          RELEASE_ID: ${{ inputs.release_id }}
-          PRODUCER_REPOSITORY: ${{ github.repository }}
-          IMAGE_PRODUCT_ID: ${{ needs.validate-release-contract.outputs.image_product_id }}
-          IMAGE_DIGESTS_JSON: ${{ needs.bind-published-images.outputs.image_digests_json }}
-          IMAGE_REFERENCES_JSON: ${{ needs.bind-published-images.outputs.image_references_json }}
-          IMAGE_EVIDENCE_JSON: ${{ steps.evidence.outputs.image_evidence_json }}
-          CHART_PRODUCT_ID: ${{ needs.validate-release-contract.outputs.chart_product_id }}
-          CHART_DIGEST: ${{ needs.publish-charts-or-assets.outputs.chart_digest }}
-          CHART_REFERENCES_JSON: ${{ needs.publish-charts-or-assets.outputs.immutable_references_json }}
-          CHART_EVIDENCE_JSON: ${{ steps.evidence.outputs.chart_evidence_json }}
-        run: |
-          set -Eeuo pipefail
-          .ciw/scripts/ci/release.py verify-publications \
-            --release-id "${RELEASE_ID}" \
-            --repository "${PRODUCER_REPOSITORY}" \
-            --image-product-id "${IMAGE_PRODUCT_ID}" \
-            --image-digests-json "${IMAGE_DIGESTS_JSON}" \
-            --image-references-json "${IMAGE_REFERENCES_JSON}" \
-            --image-evidence-json "${IMAGE_EVIDENCE_JSON}" \
-            --chart-product-id "${CHART_PRODUCT_ID}" \
-            --chart-digest "${CHART_DIGEST}" \
-            --chart-references-json "${CHART_REFERENCES_JSON}" \
-            --chart-evidence-json "${CHART_EVIDENCE_JSON}"
-
-  create-release-manifest:
-    name: Create deterministic immutable release manifest
-    needs: [resolve-tag-source, validate-release-contract, verify-read-back]
-    if: ${{ needs.verify-read-back.outputs.result == 'success' }}
-    runs-on: [linux, amd64, general]
-    timeout-minutes: 15
-    outputs:
-      manifest_json: ${{ steps.manifest.outputs.manifest_json }}
-      manifest_sha256: ${{ steps.manifest.outputs.manifest_sha256 }}
-    steps:
-      - name: Check out exact central workflow source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          path: .ciw
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
-
-      - name: Check out exact admitted producer source for timestamp evidence
+      - name: Check out exact admitted producer source
         uses: ./.ciw/actions/exact-checkout
         with:
           repository: ${{ github.repository }}
-          admitted_sha: ${{ needs.resolve-tag-source.outputs.release_source_sha }}
+          admitted_sha: ${{ needs.plan.outputs.admitted_sha }}
           path: source
           fetch_depth: "1"
 
-      - id: timestamp
-        name: Resolve deterministic source commit timestamp
-        shell: bash
-        env:
-          EXPECTED_SHA: ${{ needs.resolve-tag-source.outputs.release_source_sha }}
-        run: |
-          set -Eeuo pipefail
-          value="$(git -C source show -s --format=%cI "${EXPECTED_SHA}")"
-          test -n "${value}"
-          printf 'source_timestamp=%s\n' "${value}" >> "${GITHUB_OUTPUT}"
-
-      - id: manifest
-        name: Render canonical release manifest
-        shell: bash
-        env:
-          RELEASE_ID: ${{ inputs.release_id }}
-          PRODUCER_REPOSITORY: ${{ github.repository }}
-          RELEASE_VERSION: ${{ needs.resolve-tag-source.outputs.release_version }}
-          SOURCE_SHA: ${{ needs.resolve-tag-source.outputs.release_source_sha }}
-          TAG_OBJECT_SHA: ${{ needs.resolve-tag-source.outputs.tag_object_sha }}
-          TAG_COMMIT_SHA: ${{ needs.resolve-tag-source.outputs.tag_commit_sha }}
-          SOURCE_TIMESTAMP: ${{ steps.timestamp.outputs.source_timestamp }}
-          WORKFLOW_SHA: ${{ job.workflow_sha }}
-          IMAGE_PRODUCT_ID: ${{ needs.validate-release-contract.outputs.image_product_id }}
-          IMAGE_DIGEST: ${{ needs.verify-read-back.outputs.image_digest }}
-          IMAGE_DIGESTS_JSON: ${{ needs.verify-read-back.outputs.image_digests_json }}
-          IMAGE_REFERENCES_JSON: ${{ needs.verify-read-back.outputs.image_references_json }}
-          IMAGE_EVIDENCE_JSON: ${{ needs.verify-read-back.outputs.image_evidence_json }}
-          CHART_PRODUCT_ID: ${{ needs.validate-release-contract.outputs.chart_product_id }}
-          CHART_DIGEST: ${{ needs.verify-read-back.outputs.chart_digest }}
-          CHART_DIGESTS_JSON: ${{ needs.verify-read-back.outputs.chart_digests_json }}
-          CHART_REFERENCES_JSON: ${{ needs.verify-read-back.outputs.chart_references_json }}
-          CHART_EVIDENCE_JSON: ${{ needs.verify-read-back.outputs.chart_evidence_json }}
-        run: |
-          set -Eeuo pipefail
-          .ciw/scripts/ci/release.py manifest \
-            --release-id "${RELEASE_ID}" \
-            --repository "${PRODUCER_REPOSITORY}" \
-            --release-version "${RELEASE_VERSION}" \
-            --source-sha "${SOURCE_SHA}" \
-            --tag-object-sha "${TAG_OBJECT_SHA}" \
-            --tag-commit-sha "${TAG_COMMIT_SHA}" \
-            --source-timestamp "${SOURCE_TIMESTAMP}" \
-            --workflow-sha "${WORKFLOW_SHA}" \
-            --image-product-id "${IMAGE_PRODUCT_ID}" \
-            --image-digest "${IMAGE_DIGEST}" \
-            --image-digests-json "${IMAGE_DIGESTS_JSON}" \
-            --image-references-json "${IMAGE_REFERENCES_JSON}" \
-            --image-evidence-json "${IMAGE_EVIDENCE_JSON}" \
-            --chart-product-id "${CHART_PRODUCT_ID}" \
-            --chart-digest "${CHART_DIGEST}" \
-            --chart-digests-json "${CHART_DIGESTS_JSON}" \
-            --chart-references-json "${CHART_REFERENCES_JSON}" \
-            --chart-evidence-json "${CHART_EVIDENCE_JSON}"
-
-  create-or-verify-github-release:
-    name: Create or exactly verify GitHub Release
-    needs: [resolve-tag-source, create-release-manifest]
-    if: ${{ needs.create-release-manifest.result == 'success' }}
-    runs-on: [linux, amd64, general]
-    timeout-minutes: 15
-    permissions:
-      contents: write
-    outputs:
-      github_release_url: ${{ steps.release.outputs.github_release_url }}
-      github_release_state: ${{ steps.release.outputs.github_release_state }}
-    steps:
-      - name: Check out exact central workflow source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Prepare isolated Helm publication state
+        uses: ./.ciw/actions/prepare-workspace
         with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          path: .ciw
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
+          profile: minimal
+          cache_mode: disabled
+          source_sha: ${{ needs.plan.outputs.admitted_sha }}
+          trust_mode: trusted-exact
 
-      - name: Revalidate exact tag before release metadata publication
+      - name: Revalidate exact tag immediately before chart publication
         uses: ./.ciw/actions/resolve-release-tag
         with:
           phase: revalidate
-          release_mode: ${{ needs.resolve-tag-source.outputs.release_mode }}
-          release_version: ${{ needs.resolve-tag-source.outputs.release_version }}
-          release_source_sha: ${{ needs.resolve-tag-source.outputs.release_source_sha }}
-          expected_tag_object_sha: ${{ needs.resolve-tag-source.outputs.tag_object_sha }}
-          expected_tag_commit_sha: ${{ needs.resolve-tag-source.outputs.tag_commit_sha }}
+          release_mode: existing-tag
+          release_version: ${{ needs.plan.outputs.release_version }}
+          release_source_sha: ${{ needs.plan.outputs.admitted_sha }}
+          expected_tag_object_sha: ${{ needs.plan.outputs.tag_object_sha }}
+          expected_tag_commit_sha: ${{ needs.plan.outputs.tag_commit_sha }}
 
-      - id: release
-        name: Create or verify exact GitHub Release manifest
+      - id: helm
+        name: Package, publish, and independently read back Helm OCI chart
+        continue-on-error: true
         shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.github_release_token }}
-          RELEASE_ID: ${{ inputs.release_id }}
-          PRODUCER_REPOSITORY: ${{ github.repository }}
-          RELEASE_VERSION: ${{ needs.resolve-tag-source.outputs.release_version }}
-          SOURCE_SHA: ${{ needs.resolve-tag-source.outputs.release_source_sha }}
-          MANIFEST_JSON: ${{ needs.create-release-manifest.outputs.manifest_json }}
-          MANIFEST_SHA256: ${{ needs.create-release-manifest.outputs.manifest_sha256 }}
+          INPUT_ADMITTED_SHA: ${{ needs.plan.outputs.admitted_sha }}
+          INPUT_PRODUCT_ID: ${{ needs.plan.outputs.chart_product_id }}
+          INPUT_RELEASE_VERSION: ${{ needs.plan.outputs.release_version }}
+          INPUT_SOURCE_TRUST: trusted-exact
+          INPUT_IMAGE_DIGEST: ${{ needs.publish_images.outputs.image_digest }}
+          INPUT_IMMUTABLE_REFERENCES_JSON: ${{ needs.publish_images.outputs.immutable_references_json }}
+          INPUT_REGISTRY_USERNAME: ${{ secrets.registry_username }}
+          INPUT_REGISTRY_TOKEN: ${{ secrets.registry_token }}
         run: |
           set -Eeuo pipefail
-          .ciw/scripts/ci/release.py github-release \
-            --release-id "${RELEASE_ID}" \
-            --repository "${PRODUCER_REPOSITORY}" \
-            --release-version "${RELEASE_VERSION}" \
-            --source-sha "${SOURCE_SHA}" \
-            --manifest-json "${MANIFEST_JSON}" \
-            --manifest-sha256 "${MANIFEST_SHA256}"
+          PYTHONPATH=".ciw/src" python3 .ciw/scripts/ci/helm_release.py execute
 
-  request-reviewed-handoff:
-    name: Produce bounded reviewed Flux selection handoff
-    needs:
-      - resolve-tag-source
-      - validate-release-contract
-      - bind-published-images
-      - verify-read-back
-      - create-release-manifest
-      - create-or-verify-github-release
-    if: ${{ needs.create-or-verify-github-release.result == 'success' }}
+      - id: helm_cleanup
+        name: Remove Helm publication credential and package state
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PYTHONPATH=".ciw/src" python3 -c 'import os; from pathlib import Path; from ci_workflows.ciw_helm import execute; execute(Path(".ciw").resolve(), os.environ, operation="publish", phase="cleanup", source_relative="source")'
+
+      - id: helm_residue
+        name: Verify zero Helm publication residue
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PYTHONPATH=".ciw/src" python3 -c 'import os; from pathlib import Path; from ci_workflows.ciw_helm import execute; execute(Path(".ciw").resolve(), os.environ, operation="publish", phase="residue", source_relative="source")'
+
+      - id: workspace_cleanup
+        name: Remove and verify registered Helm workspace state
+        if: always()
+        uses: ./.ciw/actions/cleanup-workspace
+
+      - name: Verify exact producer source remained clean
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C source rev-parse HEAD)" = "${{ needs.plan.outputs.admitted_sha }}"
+          test -z "$(git -C source status --porcelain --untracked-files=all)"
+
+      - name: Project terminal Helm publication status
+        if: always()
+        shell: bash
+        env:
+          HELM: ${{ steps.helm.outcome }}
+          CLEANUP: ${{ steps.helm_cleanup.outcome }}
+          RESIDUE: ${{ steps.helm_residue.outcome }}
+          WORKSPACE_CLEANUP: ${{ steps.workspace_cleanup.outcome }}
+        run: |
+          set -Eeuo pipefail
+          test "${HELM}" = success
+          test "${CLEANUP}" = success
+          test "${RESIDUE}" = success
+          test "${WORKSPACE_CLEANUP}" = success
+
+  verify_and_record:
+    name: Verify release evidence and create exact GitHub Release
+    needs: [plan, publish_images, publish_charts_or_assets]
     runs-on: [linux, amd64, general]
-    timeout-minutes: 10
+    timeout-minutes: 20
     outputs:
+      immutable_references_json: ${{ steps.verify.outputs.immutable_references_json }}
+      release_manifest_sha256: ${{ steps.manifest.outputs.manifest_sha256 }}
+      github_release_url: ${{ steps.github_release.outputs.github_release_url }}
       flux_handoff_json: ${{ steps.handoff.outputs.flux_handoff_json }}
       flux_handoff_sha256: ${{ steps.handoff.outputs.flux_handoff_sha256 }}
     steps:
@@ -524,67 +546,142 @@ jobs:
           persist-credentials: false
           set-safe-directory: false
 
-      - id: handoff
-        name: Render immutable review-only producer-to-Flux handoff
+      - name: Verify exact central workflow source
         shell: bash
         env:
-          RELEASE_ID: ${{ inputs.release_id }}
-          PRODUCER_REPOSITORY: ${{ github.repository }}
-          RELEASE_VERSION: ${{ needs.resolve-tag-source.outputs.release_version }}
-          SOURCE_SHA: ${{ needs.resolve-tag-source.outputs.release_source_sha }}
-          MANIFEST_SHA256: ${{ needs.create-release-manifest.outputs.manifest_sha256 }}
-          GITHUB_RELEASE_URL: ${{ needs.create-or-verify-github-release.outputs.github_release_url }}
-          IMAGE_PRODUCT_ID: ${{ needs.validate-release-contract.outputs.image_product_id }}
-          IMAGE_DIGEST: ${{ needs.verify-read-back.outputs.image_digest }}
-          IMAGE_DIGESTS_JSON: ${{ needs.verify-read-back.outputs.image_digests_json }}
-          IMAGE_REFERENCES_JSON: ${{ needs.verify-read-back.outputs.image_references_json }}
-          CHART_PRODUCT_ID: ${{ needs.validate-release-contract.outputs.chart_product_id }}
-          CHART_DIGEST: ${{ needs.verify-read-back.outputs.chart_digest }}
-          CHART_DIGESTS_JSON: ${{ needs.verify-read-back.outputs.chart_digests_json }}
-          CHART_REFERENCES_JSON: ${{ needs.verify-read-back.outputs.chart_references_json }}
-          CANARY_ID: ${{ needs.bind-published-images.outputs.canary_id }}
-          PREVIOUS_KNOWN_GOOD: ${{ needs.bind-published-images.outputs.previous_known_good }}
-          ROLLBACK_ID: ${{ needs.bind-published-images.outputs.rollback_id }}
+          EXPECTED_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C .ciw rev-parse HEAD)" = "${EXPECTED_SHA}"
+
+      - name: Check out exact admitted producer source
+        uses: ./.ciw/actions/exact-checkout
+        with:
+          repository: ${{ github.repository }}
+          admitted_sha: ${{ needs.plan.outputs.admitted_sha }}
+          path: source
+          fetch_depth: "1"
+
+      - id: evidence
+        name: Normalize bounded independent read-back evidence
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          .ciw/scripts/ci/release.py evidence \
+            --image-result '${{ needs.publish_images.outputs.result }}' \
+            --image-digest-json '${{ needs.publish_images.outputs.image_digest }}' \
+            --platform-digests-json '${{ needs.publish_images.outputs.platform_digests_json }}' \
+            --immutable-references-json '${{ needs.publish_images.outputs.immutable_references_json }}' \
+            --chart-result '${{ needs.publish_charts_or_assets.outputs.result }}' \
+            --chart-references-json '${{ needs.publish_charts_or_assets.outputs.immutable_references_json }}'
+
+      - id: verify
+        name: Verify exact immutable product identities
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          .ciw/scripts/ci/release.py verify-publications \
+            --release-id '${{ needs.plan.outputs.release_id }}' \
+            --repository '${{ github.repository }}' \
+            --image-product-id '${{ needs.plan.outputs.image_product_id }}' \
+            --image-digests-json '${{ needs.publish_charts_or_assets.outputs.image_digests_json }}' \
+            --image-references-json '${{ needs.publish_charts_or_assets.outputs.image_references_json }}' \
+            --image-evidence-json '${{ steps.evidence.outputs.image_evidence_json }}' \
+            --chart-product-id '${{ needs.plan.outputs.chart_product_id }}' \
+            --chart-digest '${{ needs.publish_charts_or_assets.outputs.chart_digest }}' \
+            --chart-references-json '${{ needs.publish_charts_or_assets.outputs.immutable_references_json }}' \
+            --chart-evidence-json '${{ steps.evidence.outputs.chart_evidence_json }}'
+
+      - id: source_time
+        name: Resolve exact source commit timestamp
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          printf 'source_timestamp=%s\n' "$(git -C source show -s --format=%cI HEAD)" >> "${GITHUB_OUTPUT}"
+
+      - id: manifest
+        name: Create deterministic immutable release manifest
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          .ciw/scripts/ci/release.py manifest \
+            --release-id '${{ needs.plan.outputs.release_id }}' \
+            --repository '${{ github.repository }}' \
+            --release-version '${{ needs.plan.outputs.release_version }}' \
+            --source-sha '${{ needs.plan.outputs.admitted_sha }}' \
+            --tag-object-sha '${{ needs.plan.outputs.tag_object_sha }}' \
+            --tag-commit-sha '${{ needs.plan.outputs.tag_commit_sha }}' \
+            --source-timestamp '${{ steps.source_time.outputs.source_timestamp }}' \
+            --workflow-sha '${{ github.workflow_sha }}' \
+            --image-product-id '${{ needs.plan.outputs.image_product_id }}' \
+            --image-digests-json '${{ needs.publish_charts_or_assets.outputs.image_digests_json }}' \
+            --image-references-json '${{ needs.publish_charts_or_assets.outputs.image_references_json }}' \
+            --image-evidence-json '${{ steps.evidence.outputs.image_evidence_json }}' \
+            --chart-product-id '${{ needs.plan.outputs.chart_product_id }}' \
+            --chart-digest '${{ needs.publish_charts_or_assets.outputs.chart_digest }}' \
+            --chart-references-json '${{ needs.publish_charts_or_assets.outputs.immutable_references_json }}' \
+            --chart-evidence-json '${{ steps.evidence.outputs.chart_evidence_json }}'
+
+      - name: Revalidate exact tag immediately before GitHub Release write
+        uses: ./.ciw/actions/resolve-release-tag
+        with:
+          phase: revalidate
+          release_mode: existing-tag
+          release_version: ${{ needs.plan.outputs.release_version }}
+          release_source_sha: ${{ needs.plan.outputs.admitted_sha }}
+          expected_tag_object_sha: ${{ needs.plan.outputs.tag_object_sha }}
+          expected_tag_commit_sha: ${{ needs.plan.outputs.tag_commit_sha }}
+
+      - id: github_release
+        name: Create or verify exact GitHub Release replay
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          .ciw/scripts/ci/release.py github-release \
+            --release-id '${{ needs.plan.outputs.release_id }}' \
+            --repository '${{ github.repository }}' \
+            --release-tag '${{ needs.plan.outputs.release_tag }}' \
+            --release-version '${{ needs.plan.outputs.release_version }}' \
+            --source-sha '${{ needs.plan.outputs.admitted_sha }}' \
+            --manifest-json '${{ steps.manifest.outputs.manifest_json }}' \
+            --manifest-sha256 '${{ steps.manifest.outputs.manifest_sha256 }}'
+
+      - id: handoff
+        name: Construct sanitized immutable Flux review handoff
+        shell: bash
         run: |
           set -Eeuo pipefail
           .ciw/scripts/ci/release.py handoff \
-            --release-id "${RELEASE_ID}" \
-            --repository "${PRODUCER_REPOSITORY}" \
-            --release-version "${RELEASE_VERSION}" \
-            --source-sha "${SOURCE_SHA}" \
-            --manifest-sha256 "${MANIFEST_SHA256}" \
-            --github-release-url "${GITHUB_RELEASE_URL}" \
-            --canary-id "${CANARY_ID}" \
-            --previous-known-good "${PREVIOUS_KNOWN_GOOD}" \
-            --rollback-id "${ROLLBACK_ID}" \
-            --image-product-id "${IMAGE_PRODUCT_ID}" \
-            --image-digest "${IMAGE_DIGEST}" \
-            --image-digests-json "${IMAGE_DIGESTS_JSON}" \
-            --image-references-json "${IMAGE_REFERENCES_JSON}" \
-            --chart-product-id "${CHART_PRODUCT_ID}" \
-            --chart-digest "${CHART_DIGEST}" \
-            --chart-digests-json "${CHART_DIGESTS_JSON}" \
-            --chart-references-json "${CHART_REFERENCES_JSON}"
+            --release-id '${{ needs.plan.outputs.release_id }}' \
+            --repository '${{ github.repository }}' \
+            --release-version '${{ needs.plan.outputs.release_version }}' \
+            --source-sha '${{ needs.plan.outputs.admitted_sha }}' \
+            --manifest-sha256 '${{ steps.manifest.outputs.manifest_sha256 }}' \
+            --github-release-url '${{ steps.github_release.outputs.github_release_url }}' \
+            --canary-id '${{ needs.publish_charts_or_assets.outputs.canary_id }}' \
+            --previous-known-good '${{ needs.publish_charts_or_assets.outputs.previous_known_good }}' \
+            --rollback-id '${{ needs.publish_charts_or_assets.outputs.rollback_id }}' \
+            --image-product-id '${{ needs.plan.outputs.image_product_id }}' \
+            --image-digests-json '${{ needs.publish_charts_or_assets.outputs.image_digests_json }}' \
+            --image-references-json '${{ needs.publish_charts_or_assets.outputs.image_references_json }}' \
+            --image-evidence-json '${{ steps.evidence.outputs.image_evidence_json }}' \
+            --chart-product-id '${{ needs.plan.outputs.chart_product_id }}' \
+            --chart-digest '${{ needs.publish_charts_or_assets.outputs.chart_digest }}' \
+            --chart-references-json '${{ needs.publish_charts_or_assets.outputs.immutable_references_json }}' \
+            --chart-evidence-json '${{ steps.evidence.outputs.chart_evidence_json }}'
 
-  cleanup-and-finalize:
-    name: Finalize release status after terminal cleanup
+  request_handoff_and_finalize:
+    name: Release / Verified products
+    needs: [plan, publish_images, publish_charts_or_assets, verify_and_record]
     if: ${{ always() }}
-    needs:
-      - resolve-tag-source
-      - validate-release-contract
-      - run-release-gates
-      - publish-images
-      - bind-published-images
-      - publish-charts-or-assets
-      - verify-read-back
-      - create-release-manifest
-      - create-or-verify-github-release
-      - request-reviewed-handoff
     runs-on: [linux, amd64, general]
     timeout-minutes: 10
     outputs:
       result: ${{ steps.final.outputs.result }}
-      publication_progress: ${{ steps.progress.outputs.publication_progress }}
+      handoff_state: ${{ steps.final.outputs.handoff_state }}
+      request_id: ${{ steps.final.outputs.request_id }}
     steps:
       - name: Check out exact central workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -597,52 +694,46 @@ jobs:
           persist-credentials: false
           set-safe-directory: false
 
-      - id: progress
-        name: Project bounded partial-publication state
+      - name: Verify exact central workflow source
         shell: bash
         env:
-          IMAGE_RESULT: ${{ needs.publish-images.outputs.result || 'missing' }}
-          CHART_RESULT: ${{ needs.publish-charts-or-assets.outputs.result || 'missing' }}
+          EXPECTED_SHA: ${{ job.workflow_sha }}
         run: |
           set -Eeuo pipefail
-          .ciw/scripts/ci/release.py progress \
-            --image-result "${IMAGE_RESULT}" \
-            --chart-result "${CHART_RESULT}"
+          test "$(git -C .ciw rev-parse HEAD)" = "${EXPECTED_SHA}"
+
+      - id: dispatch
+        name: Submit bounded review-only Flux handoff request
+        if: ${{ needs.verify_and_record.result == 'success' }}
+        continue-on-error: true
+        shell: bash
+        env:
+          FLUX_HANDOFF_TOKEN: ${{ secrets.flux_handoff_token }}
+        run: |
+          set -Eeuo pipefail
+          .ciw/scripts/ci/release.py dispatch-handoff \
+            --request-id '${{ needs.plan.outputs.request_id }}' \
+            --flux-handoff-json '${{ needs.verify_and_record.outputs.flux_handoff_json }}' \
+            --flux-handoff-sha256 '${{ needs.verify_and_record.outputs.flux_handoff_sha256 }}'
 
       - id: final
-        name: Fail closed unless every required release stage completed
+        name: Finalize release status
+        if: always()
         shell: bash
         env:
-          RESOLVE_RESULT: ${{ needs.resolve-tag-source.result }}
-          CONTRACT_RESULT: ${{ needs.validate-release-contract.result }}
-          GATES_RESULT: ${{ needs.run-release-gates.result }}
-          IMAGE_RESULT: ${{ needs.publish-images.result }}
-          BIND_RESULT: ${{ needs.bind-published-images.result }}
-          CHART_RESULT: ${{ needs.publish-charts-or-assets.result }}
-          VERIFY_RESULT: ${{ needs.verify-read-back.result }}
-          MANIFEST_RESULT: ${{ needs.create-release-manifest.result }}
-          GITHUB_RELEASE_RESULT: ${{ needs.create-or-verify-github-release.result }}
-          HANDOFF_RESULT: ${{ needs.request-reviewed-handoff.result }}
+          VERIFY_JOB: ${{ needs.verify_and_record.result }}
+          HANDOFF_OUTCOME: ${{ steps.dispatch.outcome }}
+          HANDOFF_STATE: ${{ steps.dispatch.outputs.handoff_state }}
+          REQUEST_ID: ${{ needs.plan.outputs.request_id }}
         run: |
           set -Eeuo pipefail
-          result=success
-          for value in \
-            "${RESOLVE_RESULT}" \
-            "${CONTRACT_RESULT}" \
-            "${GATES_RESULT}" \
-            "${IMAGE_RESULT}" \
-            "${BIND_RESULT}" \
-            "${CHART_RESULT}" \
-            "${VERIFY_RESULT}" \
-            "${MANIFEST_RESULT}" \
-            "${GITHUB_RELEASE_RESULT}" \
-            "${HANDOFF_RESULT}"
-          do
-            if [[ "${value}" != success ]]; then
-              result=failure
-            fi
-          done
-          printf 'result=%s\n' "${result}" >> "${GITHUB_OUTPUT}"
-          if [[ "${result}" != success ]]; then
-            exit 1
+          result=failure
+          state=skipped
+          if [[ "${VERIFY_JOB}" == success && "${HANDOFF_OUTCOME}" == success ]]; then
+            result=success
+            state="${HANDOFF_STATE}"
           fi
+          printf 'result=%s\n' "${result}" >> "${GITHUB_OUTPUT}"
+          printf 'handoff_state=%s\n' "${state}" >> "${GITHUB_OUTPUT}"
+          printf 'request_id=%s\n' "${REQUEST_ID}" >> "${GITHUB_OUTPUT}"
+          test "${result}" = success
