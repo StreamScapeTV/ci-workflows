@@ -84,7 +84,7 @@ env:
 jobs:
   admit:
     name: Resolve exact release tag authority
-    runs-on: buildah-high
+    runs-on: [linux, amd64, buildah, high]
     timeout-minutes: 10
     outputs:
       release_mode: ${{ steps.authority.outputs.release_mode }}
@@ -399,7 +399,7 @@ jobs:
   publish:
     name: Publish exact tag image and chart
     needs: admit
-    runs-on: buildah-high
+    runs-on: [linux, amd64, buildah, high]
     timeout-minutes: 90
     concurrency:
       group: tag-image-chart-${{ github.repository }}-${{ needs.admit.outputs.version }}
