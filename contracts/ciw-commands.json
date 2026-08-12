@@ -114,6 +114,17 @@
     },
     {
       "cleanup": "ciw workspace cleanup under if: always()",
+      "domain": "gitops",
+      "failure": "GitOpsValidationError.code",
+      "handler": "ci_workflows.ciw.handle_gitops_validate",
+      "inputs": ["phase", "admitted_sha", "validation_profile", "consumer_contract", "change_base_sha", "policy_script_profile", "artifact_exception_id", "GitHub event identity"],
+      "operation": "validate",
+      "outputs": ["result", "source_sha", "consumer_contract", "validation_profile", "runner_profile", "runs_on_json", "workspace_profile", "timeout_minutes", "source_trust", "test_summary", "target_ids_json", "selected_targets_json", "validated_files", "rendered_objects", "render_digest", "policy_result", "tool_versions_json", "clean_tree", "cleanup_result", "artifact_exception_used", "evidence_id", "failure_code"],
+      "side_effects": ["resolves one contract-owned GitOps plan", "executes pinned source-only YAML, Helm, Kustomize, and policy validation in marker-bound state", "never decrypts SOPS data or contacts Flux, Kubernetes, registries, or deployment targets", "enforces exact source, clean-tree, redaction, terminal cleanup, and zero-artifact policy"],
+      "trust_class": "read-only-validation"
+    },
+    {
+      "cleanup": "ciw workspace cleanup under if: always()",
       "domain": "android",
       "failure": "AndroidValidationError.code",
       "handler": "ci_workflows.ciw.handle_android_validate",
@@ -252,11 +263,12 @@
     {"commands": ["release-tag resolve", "release-tag revalidate"], "path": "scripts/ci/release_tag_authority.py"},
     {"commands": ["python validate"], "path": "scripts/ci/python.py"},
     {"commands": ["node validate"], "path": "scripts/ci/node.py"},
+    {"commands": ["gitops validate"], "path": "scripts/ci/gitops.py"},
     {"commands": ["android validate"], "path": "scripts/ci/android.py"}
   ],
   "entry_point": "scripts/ci/ciw.py",
   "forbidden_dispatch_inputs": ["arbitrary_command", "shell", "callback", "callback_url", "handler", "function_name", "module_name", "runner", "runs_on", "runner_labels", "container_engine", "secret_name", "deletion_path", "workspace_root"],
-  "future_namespaces": ["apple", "gitops", "oci", "helm", "release", "device", "github"],
+  "future_namespaces": ["apple", "oci", "helm", "release", "device", "github"],
   "program": "ciw",
   "schema_version": 1
 }

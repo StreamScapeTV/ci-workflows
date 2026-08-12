@@ -1,0 +1,406 @@
+{
+  "api": {
+    "name": "validation.gitops",
+    "stable_check": "CI / GitOps validation",
+    "version": "1.0.0",
+    "workflow": ".github/workflows/reusable-gitops-validation.yml"
+  },
+  "artifact_policy": "zero-default",
+  "cleanup": {
+    "no_follow_symlinks": true,
+    "preserve_primary_failure": true,
+    "registered_root_only": true,
+    "remove_cache": true,
+    "remove_downloads": true,
+    "remove_home": true,
+    "remove_logs": true,
+    "remove_results": true,
+    "remove_tools": true,
+    "verify_zero_residue": true
+  },
+  "consumer_contracts": {
+    "agent-state-chart": {
+      "profiles": {
+        "helm-render": {
+          "policy_script": null,
+          "targets": [
+            "agent-state-helm"
+          ]
+        },
+        "source-audit": {
+          "policy_script": null,
+          "targets": []
+        }
+      },
+      "repository": "StreamScapeTV/agent-state"
+    },
+    "backend-chart-audit": {
+      "profiles": {
+        "source-audit": {
+          "policy_script": null,
+          "targets": []
+        }
+      },
+      "repository": "StreamScapeTV/iptv-backend"
+    },
+    "flux-source": {
+      "profiles": {
+        "changed-tree": {
+          "policy_script": null,
+          "targets": [
+            "flux-yaml"
+          ]
+        },
+        "full": {
+          "policy_script": null,
+          "targets": [
+            "flux-yaml"
+          ]
+        },
+        "source-audit": {
+          "policy_script": null,
+          "targets": []
+        },
+        "yaml": {
+          "policy_script": null,
+          "targets": [
+            "flux-yaml"
+          ]
+        }
+      },
+      "repository": "StreamScapeTV/flux"
+    },
+    "synthetic": {
+      "profiles": {
+        "changed-tree": {
+          "policy_script": "synthetic-policy",
+          "targets": [
+            "synthetic-yaml",
+            "synthetic-helm",
+            "synthetic-kustomize"
+          ]
+        },
+        "full": {
+          "policy_script": "synthetic-policy",
+          "targets": [
+            "synthetic-yaml",
+            "synthetic-helm",
+            "synthetic-kustomize"
+          ]
+        },
+        "helm-render": {
+          "policy_script": "synthetic-policy",
+          "targets": [
+            "synthetic-helm"
+          ]
+        },
+        "kustomize-render": {
+          "policy_script": "synthetic-policy",
+          "targets": [
+            "synthetic-kustomize"
+          ]
+        },
+        "source-audit": {
+          "policy_script": "synthetic-policy",
+          "targets": []
+        },
+        "yaml": {
+          "policy_script": "synthetic-policy",
+          "targets": [
+            "synthetic-yaml"
+          ]
+        }
+      },
+      "repository": "StreamScapeTV/ci-workflows"
+    }
+  },
+  "contract_version": "1.0.0",
+  "failure_codes": [
+    "invalid_input",
+    "contract_invalid",
+    "tool_identity_drift",
+    "invalid_path",
+    "path_missing",
+    "path_symlink_rejected",
+    "path_escape_rejected",
+    "consumer_contract_rejected",
+    "profile_consumer_mismatch",
+    "source_trust_rejected",
+    "change_base_required",
+    "change_base_invalid",
+    "policy_profile_rejected",
+    "artifact_policy_failed",
+    "source_mismatch",
+    "source_dirty",
+    "tool_download_failed",
+    "tool_digest_mismatch",
+    "tool_archive_rejected",
+    "tool_identity_mismatch",
+    "yaml_invalid",
+    "yaml_style_failed",
+    "schema_invalid",
+    "helm_lock_invalid",
+    "helm_failed",
+    "required_value_missing",
+    "kustomize_invalid",
+    "kustomize_failed",
+    "sops_plaintext_rejected",
+    "render_drift",
+    "duplicate_object_ownership",
+    "policy_failed",
+    "source_mutated",
+    "cleanup_failed",
+    "primary_and_cleanup_failed"
+  ],
+  "forbidden_inputs": [
+    "runner",
+    "runs_on",
+    "runner_labels",
+    "tool_url",
+    "tool_digest",
+    "tool_version",
+    "command",
+    "arguments",
+    "shell",
+    "callback",
+    "registry",
+    "cluster",
+    "kubeconfig",
+    "namespace",
+    "service_account",
+    "sops_key",
+    "decryption_key",
+    "deployment",
+    "flux_reconcile",
+    "artifact_upload",
+    "helm_repository",
+    "kustomize_binary",
+    "database_url",
+    "secret_name"
+  ],
+  "organization": "StreamScapeTV",
+  "policy_scripts": {
+    "synthetic-policy": {
+      "allowed_profiles": [
+        "source-audit",
+        "yaml",
+        "helm-render",
+        "kustomize-render",
+        "changed-tree",
+        "full"
+      ],
+      "argv": [
+        "python3",
+        "tests/fixtures/gitops-validation/synthetic/policy/check.py"
+      ],
+      "max_output_bytes": 4096,
+      "path": "tests/fixtures/gitops-validation/synthetic/policy/check.py",
+      "sha256": "e1aa127cf7f909eb853f8e87d886480e54a6f8efab799b55e77c563cc4a49a17",
+      "timeout_seconds": 30
+    }
+  },
+  "profiles": {
+    "changed-tree": {
+      "allowed_source_trust": [
+        "trusted-pr",
+        "trusted-exact"
+      ],
+      "timeout_minutes": 60
+    },
+    "full": {
+      "allowed_source_trust": [
+        "trusted-pr",
+        "trusted-exact"
+      ],
+      "timeout_minutes": 90
+    },
+    "helm-render": {
+      "allowed_source_trust": [
+        "trusted-pr",
+        "trusted-exact"
+      ],
+      "timeout_minutes": 60
+    },
+    "kustomize-render": {
+      "allowed_source_trust": [
+        "trusted-pr",
+        "trusted-exact"
+      ],
+      "timeout_minutes": 45
+    },
+    "source-audit": {
+      "allowed_source_trust": [
+        "untrusted-fork",
+        "trusted-pr",
+        "trusted-exact"
+      ],
+      "timeout_minutes": 15
+    },
+    "yaml": {
+      "allowed_source_trust": [
+        "untrusted-fork",
+        "trusted-pr",
+        "trusted-exact"
+      ],
+      "timeout_minutes": 30
+    }
+  },
+  "runner_profile": "portable",
+  "schema_version": 1,
+  "targets": {
+    "agent-state-helm": {
+      "expected_render_path": null,
+      "include": [
+        "Chart.yaml",
+        "values.yaml",
+        "values.schema.json",
+        "templates/*.yaml"
+      ],
+      "kind": "helm",
+      "kubernetes_version": "1.34.0",
+      "required_values": [
+        "replicaCount",
+        "image.repository",
+        "service.port"
+      ],
+      "root": "charts/agent-state",
+      "schema_path": null,
+      "sops_files": [],
+      "values_files": [
+        "charts/agent-state/values.yaml"
+      ],
+      "vendored_dependencies": []
+    },
+    "flux-yaml": {
+      "expected_render_path": null,
+      "include": [
+        "apps/**/*.yaml",
+        "clusters/**/*.yaml",
+        ".github/workflows/*.yml",
+        ".github/workflows/*.yaml"
+      ],
+      "kind": "yaml",
+      "kubernetes_version": "1.34.0",
+      "required_values": [],
+      "root": ".",
+      "schema_path": null,
+      "sops_files": [],
+      "values_files": [],
+      "vendored_dependencies": []
+    },
+    "synthetic-helm": {
+      "expected_render_path": "tests/fixtures/gitops-validation/synthetic/expected/helm.yaml",
+      "include": [
+        "Chart.yaml",
+        "Chart.lock",
+        "values.yaml",
+        "values.schema.json",
+        "templates/*.yaml",
+        "charts/fixture-lib/**/*.yaml"
+      ],
+      "kind": "helm",
+      "kubernetes_version": "1.34.0",
+      "required_values": [
+        "replicaCount",
+        "image.repository",
+        "image.tag",
+        "message"
+      ],
+      "root": "tests/fixtures/gitops-validation/synthetic/helm",
+      "schema_path": null,
+      "sops_files": [],
+      "values_files": [
+        "tests/fixtures/gitops-validation/synthetic/helm/values.yaml"
+      ],
+      "vendored_dependencies": [
+        {
+          "name": "fixture-lib",
+          "path": "tests/fixtures/gitops-validation/synthetic/helm/charts/fixture-lib",
+          "tree_sha256": "30dc3ee3e63bf5b933a9d263d6a60eb8e94336e8f4566a633d6a0387e92d83d5",
+          "version": "0.1.0"
+        }
+      ]
+    },
+    "synthetic-kustomize": {
+      "expected_render_path": "tests/fixtures/gitops-validation/synthetic/expected/kustomize.yaml",
+      "include": [
+        "**/*.yaml"
+      ],
+      "kind": "kustomize",
+      "kubernetes_version": "1.34.0",
+      "required_values": [],
+      "root": "tests/fixtures/gitops-validation/synthetic/kustomize",
+      "schema_path": null,
+      "sops_files": [],
+      "values_files": [],
+      "vendored_dependencies": []
+    },
+    "synthetic-yaml": {
+      "expected_render_path": null,
+      "include": [
+        "**/*.yaml"
+      ],
+      "kind": "yaml",
+      "kubernetes_version": "1.34.0",
+      "required_values": [],
+      "root": "tests/fixtures/gitops-validation/synthetic/yaml",
+      "schema_path": "tests/fixtures/gitops-validation/synthetic/yaml/schema/configmap.schema.json",
+      "sops_files": [
+        "tests/fixtures/gitops-validation/synthetic/yaml/secret.enc.yaml"
+      ],
+      "values_files": [],
+      "vendored_dependencies": []
+    }
+  },
+  "tools": {
+    "helm": {
+      "allowed_hosts": [
+        "get.helm.sh"
+      ],
+      "archive_member": "linux-amd64/helm",
+      "max_bytes": 30000000,
+      "max_unpacked_bytes": 61000000,
+      "sha256": "3f43c0aa57243852dd542493a0f54f1396c0bc8ec7296bbb2c01e802010819ce",
+      "url": "https://get.helm.sh/helm-v3.18.6-linux-amd64.tar.gz",
+      "version": "3.18.6",
+      "version_args": [
+        "version",
+        "--short"
+      ],
+      "version_pattern": "v3\\.18\\.6(?:\\+g[0-9a-f]+)?"
+    },
+    "kustomize": {
+      "allowed_hosts": [
+        "github.com",
+        "release-assets.githubusercontent.com",
+        "objects.githubusercontent.com"
+      ],
+      "archive_member": "kustomize",
+      "max_bytes": 20000000,
+      "max_unpacked_bytes": 13000000,
+      "sha256": "029a7f0f4e1932c52a0476cf02a0fd855c0bb85694b82c338fc648dcb53a819d",
+      "url": "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/v5.8.1/kustomize_v5.8.1_linux_amd64.tar.gz",
+      "version": "5.8.1",
+      "version_args": [
+        "version"
+      ],
+      "version_pattern": "v?5\\.8\\.1"
+    },
+    "pyyaml": {
+      "allowed_hosts": [
+        "files.pythonhosted.org"
+      ],
+      "archive_member": "yaml/__init__.py",
+      "max_bytes": 3000000,
+      "max_unpacked_bytes": 3000000,
+      "sha256": "ba1cc08a7ccde2d2ec775841541641e4548226580ab850948cbfda66a1befcdc",
+      "url": "https://files.pythonhosted.org/packages/8b/9d/b3589d3877982d4f2329302ef98a8026e7f4443c765c46cfecc8858c6b4b/pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "version": "6.0.3",
+      "version_args": [
+        "--version"
+      ],
+      "version_pattern": "6\\.0\\.3"
+    }
+  },
+  "workspace_profile": "minimal"
+}

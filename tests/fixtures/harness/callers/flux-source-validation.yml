@@ -2,6 +2,7 @@ name: Flux source validation caller
 on:
   pull_request:
 permissions:
+  actions: read
   contents: read
 jobs:
   validate_flux_source:
@@ -9,5 +10,5 @@ jobs:
     uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-gitops-validation.yml@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
     with:
       admitted_sha: ${{ github.event.pull_request.head.sha }}
-      validation_profile: flux
-      command_profile: source
+      validation_profile: source-audit
+      consumer_contract: flux-source
