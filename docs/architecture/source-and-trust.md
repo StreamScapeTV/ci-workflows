@@ -70,6 +70,16 @@ After admission, a separate job or step may invoke `actions/exact-checkout` with
 
 Downloaded workflow artifacts remain untrusted data. This contract has no artifact input and does not promote an artifact into trusted source. A future signed evidence transport requires a separate reviewed contract.
 
+## Immutable private reusable-helper distribution
+
+A reusable validator invoked from another private StreamScapeTV repository must not clone `StreamScapeTV/ci-workflows` with the caller-scoped `github.token` merely to reach central actions, scripts, or libraries. That token is scoped to the calling repository and a private central clone can fail before product validation begins.
+
+Reusable validators instead compose reviewed central composite actions through exact full-SHA references. The immutable private action archive supplies its central scripts and Python modules relative to `GITHUB_ACTION_PATH`; the workflow therefore does not need a `.ciw` checkout, a central-repository PAT, `secrets: inherit`, a mutable helper ref, or a caller-selected helper version. Every remotely composed central action identity is recorded in `contracts/action-tool-lock.json` before the final candidate is eligible to merge.
+
+This distribution rule does not weaken source authority. Product source remains separately admitted by `source.resolve`, checked out only through the exact-checkout contract, and reverified after cleanup where the validator requires it. Runner intent, public inputs and outputs, permissions, stable checks, cleanup, and zero-artifact policy remain owned by the reusable workflow and its checked-in contracts.
+
+New reusable validators should use this immutable private-action model by default. A different mechanism requires a reviewed product-neutral reason and must still avoid caller-token central clones, generic credential inputs, mutable helper selection, and a second compatibility transport.
+
 ## Consumer patterns
 
 Backend and Android manual validation pass an optional exact SHA with `source_mode: manual`; mutable branch or ref input is rejected. Apple and media callers assert `develop` or their exact integration branch. Web PR and push callers use PR or branch admission without duplicating event parsing. Agent State coordination is outside this workflow transport and uses approved direct Supabase RPCs. Tag-triggered image and chart publication consumes `tag_name` and `tag_commit_sha`, so a tag on a historical commit releases that exact historical source. Flux source validation may use ordinary exact admission, while cluster-authorized reconciliation remains a separate Flux-owned workflow using exact protected Flux policy source.
