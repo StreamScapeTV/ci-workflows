@@ -169,6 +169,7 @@ def load_release_plans(root: Path) -> dict[str, ReleasePlan]:
         repository = row.get("repository")
         image_id = row.get("image_product_id")
         chart_id = row.get("chart_product_id")
+        chart_requires_image_identity = row.get("chart_requires_image_identity")
         require(
             isinstance(release_id, str)
             and IDENTIFIER.fullmatch(release_id) is not None,
@@ -187,6 +188,10 @@ def load_release_plans(root: Path) -> dict[str, ReleasePlan]:
             isinstance(chart_id, str) and chart_id in products,
             "release_contract_invalid",
         )
+        require(
+            isinstance(chart_requires_image_identity, bool),
+            "release_contract_invalid",
+        )
         image = products[image_id]
         chart = products[chart_id]
         require(
@@ -200,10 +205,6 @@ def load_release_plans(root: Path) -> dict[str, ReleasePlan]:
         )
         require(image.get("kind") in IMAGE_KINDS, "release_contract_invalid")
         require(chart.get("kind") in CHART_KINDS, "release_contract_invalid")
-        require(
-            row.get("chart_requires_image_identity") is True,
-            "release_contract_invalid",
-        )
         require(row.get("github_release") is True, "release_contract_invalid")
         handoff = row.get("handoff")
         require(
@@ -221,7 +222,7 @@ def load_release_plans(root: Path) -> dict[str, ReleasePlan]:
             repository=repository,
             image_product_id=image_id,
             chart_product_id=chart_id,
-            chart_requires_image_identity=True,
+            chart_requires_image_identity=chart_requires_image_identity,
             github_release=True,
             handoff_kind="flux-selection-request",
             handoff_target_repository="StreamScapeTV/flux",
