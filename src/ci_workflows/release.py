@@ -99,9 +99,11 @@ def _verify(args: argparse.Namespace) -> int:
             "image_digest": image.digest,
             "image_digests_json": canonical_json(image.digests),
             "image_references_json": canonical_json(list(image.immutable_references)),
+            "image_evidence_json": canonical_json(image.evidence),
             "chart_digest": chart.digest,
             "chart_digests_json": canonical_json(chart.digests),
             "chart_references_json": canonical_json(list(chart.immutable_references)),
+            "chart_evidence_json": canonical_json(chart.evidence),
             "result": "success",
         }
     )
