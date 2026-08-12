@@ -71,12 +71,14 @@ jobs:
       admitted_sha: ${{ needs.release_source.outputs.sha }}
       product_id: iptv-backend-image
       release_version: ${{ needs.release_source.outputs.version }}
+      # Optional contract confirmation; omission never broadens the checked-in matrix.
+      platform_set: linux-multi-arch
     secrets:
       registry_username: ${{ secrets.OCI_REGISTRY_USERNAME }}
       registry_token: ${{ secrets.OCI_REGISTRY_TOKEN }}
 ```
 
-The called workflow itself has no branch, schedule, manual, or pull-request trigger.
+The called workflow itself has no branch, schedule, manual, or pull-request trigger. `platform_set` is optional and can only confirm the exact checked-in platform set for every target; it cannot request a new or narrower matrix.
 
 ## Product shapes
 
@@ -90,20 +92,16 @@ The called workflow itself has no branch, schedule, manual, or pull-request trig
 
 ### Flux runner images
 
-`flux-runner-images` is a multi-target product. Each checked-in runner target receives a distinct deterministic repository. Read-back must preserve the exact tool/runtime bytes already validated by the issue-#16 build layer. The workflow returns only the contract-owned `canary_id`, `previous_known_good`, and `rollback_id` for later issue-#33 selection logic. Publication does not edit Flux manifests, choose a live runner image, reconcile a scale set, or receive Kubernetes/SOPS authority.
+`flux-runner-images` is a multi-target product. Each checked-in runner target receives a distinct deterministic repository. Read-back must preserve the exact tool/runtime bytes already validated by the issue-#16 build layer. The contract-owned canary, previous-known-good, and rollback identities are carried inside `immutable_references_json` for later issue-#33 selection logic. Publication does not edit Flux manifests, choose a live runner image, reconcile a scale set, or receive Kubernetes/SOPS authority.
 
 ## Outputs
 
-The final verify phase returns only redacted bounded values:
+The final verify phase returns only the four registered redacted values:
 
-- `repositories_json`;
-- `version_references_json`;
-- `source_references_json`;
-- `manifest_digests_json`;
-- `platform_digests_json`;
-- `replayed`;
-- `evidence_id`;
-- Flux handoff IDs when the product contract declares them.
+- `result`;
+- `image_digest` — deterministic JSON map of target IDs to read-back manifest/index digests;
+- `platform_digests_json` — per-target platform manifest/config/layer identity evidence;
+- `immutable_references_json` — canonical target repositories plus version/source identities and, for Flux products, the contract-owned canary/previous-known-good/rollback handoff identities.
 
 No credential, auth-file path, runner identity, private host detail, builder storage path, or image archive is returned.
 
