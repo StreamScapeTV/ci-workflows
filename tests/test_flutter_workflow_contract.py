@@ -196,9 +196,17 @@ class FlutterWorkflowContractTests(unittest.TestCase):
             self.assertLess(execute, persistent_verify)
             self.assertLess(persistent_verify, cleanup)
             self.assertLess(cleanup, residue)
-            self.assertIn("if: always()", block[persistent_verify - 160:persistent_verify])
-            self.assertIn("if: always()", block[cleanup - 200:cleanup])
-            self.assertIn("if: always()", block[residue - 180:residue])
+            terminal_steps = {
+                "persistent_cache_verify": "phase: persistent-cache-verify",
+                "flutter_cleanup": "phase: cleanup",
+                "flutter_residue": "phase: residue",
+            }
+            for step_id, phase in terminal_steps.items():
+                start = block.index(f"- id: {step_id}")
+                end = block.find("\n      - ", start + 1)
+                step_block = block[start : end if end >= 0 else None]
+                self.assertIn("if: always()", step_block, step_id)
+                self.assertIn(phase, step_block, step_id)
         self.assertLess(mobile.index("uses: actions/setup-java@"), mobile.index("uses: subosito/flutter-action@"))
         self.assertNotIn("uses: actions/setup-java@", apple)
 
