@@ -54,6 +54,7 @@ class GitHubReleaseReplayTest(unittest.TestCase):
         )
         self.exact = {
             "tag_name": self.desired.tag_name,
+            "target_commitish": self.desired.target_commitish,
             "name": self.desired.name,
             "body": self.desired.body,
             "draft": False,
@@ -72,6 +73,12 @@ class GitHubReleaseReplayTest(unittest.TestCase):
     def test_existing_release_with_different_manifest_fails_closed(self) -> None:
         conflicting = dict(self.exact)
         conflicting["body"] = conflicting["body"].replace(MANIFEST_SHA, "0" * 64)
+        with self.assertRaisesRegex(ReleaseError, r"^github_release_conflict$"):
+            ensure_github_release(FakeReleaseAPI(existing=conflicting), self.desired)
+
+    def test_existing_release_with_different_target_source_fails_closed(self) -> None:
+        conflicting = dict(self.exact)
+        conflicting["target_commitish"] = "2" * 40
         with self.assertRaisesRegex(ReleaseError, r"^github_release_conflict$"):
             ensure_github_release(FakeReleaseAPI(existing=conflicting), self.desired)
 
@@ -137,6 +144,27 @@ class GitHubReleaseReplayTest(unittest.TestCase):
                 release_version="1.4.2",
                 source_sha=SOURCE_SHA,
                 manifest_json=MANIFEST,
+                manifest_sha256=MANIFEST_SHA,
+            )
+
+    def test_non_text_manifest_or_source_fails_closed(self) -> None:
+        plan = resolve_release_plan(ROOT, "iptv-backend", "StreamScapeTV/iptv-backend")
+        with self.assertRaisesRegex(ReleaseError, r"^release_sha_rejected$"):
+            desired_release(
+                plan=plan,
+                release_tag="1.4.2",
+                release_version="1.4.2",
+                source_sha=None,
+                manifest_json=MANIFEST,
+                manifest_sha256=MANIFEST_SHA,
+            )
+        with self.assertRaisesRegex(ReleaseError, r"^manifest_json_rejected$"):
+            desired_release(
+                plan=plan,
+                release_tag="1.4.2",
+                release_version="1.4.2",
+                source_sha=SOURCE_SHA,
+                manifest_json=None,
                 manifest_sha256=MANIFEST_SHA,
             )
 
