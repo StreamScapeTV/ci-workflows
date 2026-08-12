@@ -10,6 +10,7 @@ from typing import Mapping, Sequence
 
 from ci_workflows.ciw_helm import _failure_outputs, _source_root, _state_root
 from ci_workflows.ciw_types import write_command_file
+from ci_workflows.helm import publish as publish_chart
 from ci_workflows.helm_archive import finalize_validation_archive
 from ci_workflows.helm_contract import (
     load_helm_contract,
@@ -18,9 +19,7 @@ from ci_workflows.helm_contract import (
     require,
 )
 from ci_workflows.helm_dependency_policy import resolve_validation_plan
-from ci_workflows.helm_manifest import remote_chart_manifest_digest
 from ci_workflows.helm_policy import run_policy_hook
-from ci_workflows.helm_registry import publish_and_read_back
 from ci_workflows.helm_release import (
     load_release_bindings,
     parse_oci_publication_evidence,
@@ -113,7 +112,7 @@ def _execute(
         validation,
         plan.product.chart_name,
     )
-    publication = publish_and_read_back(
+    publication = publish_chart(
         source_root,
         state_root,
         plan,
@@ -123,20 +122,12 @@ def _execute(
     chart_reference = (
         f"{plan.product.registry_repository}/{plan.product.chart_name}"
     )
-    chart_digest = remote_chart_manifest_digest(
-        source_root,
-        state_root,
-        chart_reference=chart_reference,
-        release_version=request.release_version,
-        expected_package_sha256=validation.package_sha256,
-        inherited=environment,
-    )
     immutable_references_json = json.dumps(
         {
             "admitted_sha": request.admitted_sha,
             "chart": f"{chart_reference}:{request.release_version}",
-            "chart_digest": chart_digest,
-            "package_sha256": validation.package_sha256,
+            "chart_digest": publication.chart_digest,
+            "package_sha256": publication.package_sha256,
             "product_id": request.product_id,
             "release_version": request.release_version,
             "required_image_references": list(references),
@@ -148,7 +139,6 @@ def _execute(
     values.update(
         {
             "artifact_exception_used": "false",
-            "chart_digest": chart_digest,
             "immutable_references_json": immutable_references_json,
             "failure_code": "",
             "runner_profile": "buildah-tiny",

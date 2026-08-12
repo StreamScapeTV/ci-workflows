@@ -253,13 +253,17 @@ class HelmRegistryPublicationTests(unittest.TestCase):
                 any(command[:2] == ["helm", "push"] for command in calls)
             )
 
-    def test_named_helm_facade_and_release_adapter_use_hardened_registry_primitive(self) -> None:
+    def test_named_helm_facade_and_release_adapter_use_hardened_publication_path(self) -> None:
         self.assertIs(helm.publish_and_read_back, publish_and_read_back)
         script = (ROOT / "scripts/ci/helm_release.py").read_text(encoding="utf-8")
-        self.assertIn(
+        self.assertIn("from ci_workflows.helm import publish as publish_chart", script)
+        self.assertNotIn(
             "from ci_workflows.helm_registry import publish_and_read_back",
             script,
         )
+        facade = (ROOT / "src/ci_workflows/helm.py").read_text(encoding="utf-8")
+        self.assertIn("from .helm_registry import publish_and_read_back", facade)
+        self.assertIn("from .helm_manifest import remote_chart_manifest_digest", facade)
         contract = (ROOT / "contracts/helm-publication.json").read_text(
             encoding="utf-8"
         )
