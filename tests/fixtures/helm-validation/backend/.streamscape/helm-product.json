@@ -9,7 +9,13 @@
   },
   "policy_path": null,
   "registry_repository": "oci://git.faruqi.dev/mimranfaruqi/helm-charts",
-  "locked_dependencies": [],
+  "locked_dependencies": [
+    {
+      "name": "valkey",
+      "repository": "https://valkey.io/valkey-helm/",
+      "version": "0.11.0"
+    }
+  ],
   "required_image_references": [
     "registry.example/iptv-backend@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   ]

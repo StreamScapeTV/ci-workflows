@@ -24,7 +24,7 @@ from .helm_execution import (
     validate_and_package,
     verify_no_helm_residue,
 )
-from .helm_types import HelmValidationError
+from .helm_types import HelmRequest, HelmValidationError
 from .workspace import resolve_state_root
 
 
@@ -39,16 +39,32 @@ def _state_root(root: Path, environment: Mapping[str, str]) -> Path:
     except KeyError as error:
         raise HelmValidationError("invalid_input") from error
     temporary = state / "tmp"
-    require(temporary.is_dir() and not temporary.is_symlink(), "cleanup_failed")
+    require(
+        temporary.is_dir() and not temporary.is_symlink(),
+        "cleanup_failed",
+    )
     return temporary
 
 
-def _source_root(root: Path, environment: Mapping[str, str], relative: str) -> Path:
+def _source_root(
+    root: Path,
+    environment: Mapping[str, str],
+    relative: str,
+) -> Path:
     workspace = Path(environment.get("GITHUB_WORKSPACE", ".")).resolve()
     return bounded_path(workspace, relative, "source_mismatch")
 
 
-def _failure_outputs(environment: Mapping[str, str], code: str, operation: str) -> None:
+def _require_operation_trust(request: HelmRequest, operation: str) -> None:
+    if operation == "publish":
+        require(request.source_trust == "trusted-exact", "source_trust_rejected")
+
+
+def _failure_outputs(
+    environment: Mapping[str, str],
+    code: str,
+    operation: str,
+) -> None:
     path = environment.get("GITHUB_OUTPUT", "")
     if not path:
         return
@@ -69,13 +85,22 @@ def _failure_outputs(environment: Mapping[str, str], code: str, operation: str) 
     write_command_file(Path(path), common)
 
 
-def _plan(root: Path, environment: Mapping[str, str], operation: str) -> dict[str, str]:
+def _plan(
+    root: Path,
+    environment: Mapping[str, str],
+    operation: str,
+) -> dict[str, str]:
     contract = load_helm_contract(root)
     if operation == "publish":
         load_helm_publication_contract(root)
     request = request_from_environment(environment)
+    _require_operation_trust(request, operation)
     template = contract["products"].get(request.product_id)
-    require(isinstance(template, Mapping) and template.get("repository") == request.repository, "repository_rejected")
+    require(
+        isinstance(template, Mapping)
+        and template.get("repository") == request.repository,
+        "repository_rejected",
+    )
     api = "helm.publish" if operation == "publish" else "helm.validate"
     resolved = runners.resolve_runner_profile(
         runners.load_runner_contract(root),
@@ -113,41 +138,62 @@ def execute(
     state_root = _state_root(root, environment)
     if phase == "cleanup":
         cleanup_helm_state(state_root)
-        return {"result": "success", "cleanup_result": "success", "failure_code": ""}
+        return {
+            "result": "success",
+            "cleanup_result": "success",
+            "failure_code": "",
+        }
     if phase == "residue":
         verify_no_helm_residue(state_root)
-        return {"result": "success", "cleanup_result": "success", "failure_code": ""}
+        return {
+            "result": "success",
+            "cleanup_result": "success",
+            "failure_code": "",
+        }
     contract = load_helm_contract(root)
     if operation == "publish":
         load_helm_publication_contract(root)
     request = request_from_environment(environment)
+    _require_operation_trust(request, operation)
     source_root = _source_root(root, environment, source_relative)
     plan = resolve_validation_plan(source_root, contract, request)
     validation = validate_and_package(
-        source_root, state_root, plan, request.admitted_sha, environment
+        source_root,
+        state_root,
+        plan,
+        request.admitted_sha,
+        environment,
     )
     if operation == "validate":
         values = validation.output_values()
-        values.update({
+        values.update(
+            {
+                "failure_code": "",
+                "runner_profile": "portable",
+                "workspace_profile": "minimal",
+                "timeout_minutes": "60",
+                "source_trust": request.source_trust,
+            }
+        )
+        return values
+    published = publish_and_read_back(
+        source_root,
+        state_root,
+        plan,
+        validation,
+        environment,
+    )
+    values = published.output_values()
+    values.update(
+        {
+            "artifact_exception_used": "false",
             "failure_code": "",
             "runner_profile": "portable",
             "workspace_profile": "minimal",
-            "timeout_minutes": "60",
+            "timeout_minutes": "90",
             "source_trust": request.source_trust,
-        })
-        return values
-    published = publish_and_read_back(
-        source_root, state_root, plan, validation, environment
+        }
     )
-    values = published.output_values()
-    values.update({
-        "artifact_exception_used": "false",
-        "failure_code": "",
-        "runner_profile": "portable",
-        "workspace_profile": "minimal",
-        "timeout_minutes": "90",
-        "source_trust": request.source_trust,
-    })
     return values
 
 

@@ -77,6 +77,7 @@ jobs:
           values_profile: ${{ inputs.values_profile }}
           policy_path: ${{ inputs.policy_path }}
           artifact_exception_id: ${{ inputs.artifact_exception_id }}
+          source_trust: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'untrusted-fork' || github.event_name == 'pull_request' && 'trusted-pr' || 'trusted-exact' }}
 
   validate:
     name: CI / Helm validation
@@ -129,6 +130,7 @@ jobs:
           values_profile: ${{ inputs.values_profile }}
           policy_path: ${{ inputs.policy_path }}
           artifact_exception_id: ${{ inputs.artifact_exception_id }}
+          source_trust: ${{ needs.plan.outputs.source_trust }}
       - id: helm_cleanup
         name: Remove Helm package and credential state
         if: always()
@@ -137,6 +139,7 @@ jobs:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
           product_id: ${{ inputs.product_id }}
+          source_trust: ${{ needs.plan.outputs.source_trust }}
       - id: residue
         name: Verify zero Helm-specific residue
         if: always()
@@ -145,6 +148,7 @@ jobs:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
           product_id: ${{ inputs.product_id }}
+          source_trust: ${{ needs.plan.outputs.source_trust }}
       - id: workspace_cleanup
         name: Remove and verify all registered workspace state
         if: always()

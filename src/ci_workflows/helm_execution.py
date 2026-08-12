@@ -7,10 +7,13 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import tarfile
 from pathlib import Path, PurePosixPath
 from typing import Mapping, Sequence
+
+import yaml
 
 from .helm_contract import (
     SEMVER,
@@ -19,8 +22,8 @@ from .helm_contract import (
     require,
     validate_chart_layout,
 )
-from .helm_types import HelmPublicationResult, HelmValidationResult
 from .helm_runtime import HELM_VERSION
+from .helm_types import HelmPublicationResult, HelmValidationResult
 
 _SECRET = re.compile(
     r"(?i)(authorization|password|secret|token)\s*[:=]\s*[^\s${}]+"
@@ -31,6 +34,7 @@ _TOKEN = re.compile(
 )
 _JUNK = {".git", ".ds_store", "__pycache__", ".env", ".npmrc"}
 _SENSITIVE_SUFFIXES = {".pem", ".key", ".p12", ".pfx", ".kubeconfig"}
+_SERVICE_ACCOUNT_TOKEN = Path("/var/run/secrets/kubernetes.io/serviceaccount/token")
 
 
 def sanitize(value: str, roots: Sequence[Path] = ()) -> str:
@@ -51,7 +55,10 @@ def _run(
     stdin: str | None = None,
     check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
-    require(bool(argv) and all(isinstance(value, str) and value for value in argv), "invalid_input")
+    require(
+        bool(argv) and all(isinstance(value, str) and value for value in argv),
+        "invalid_input",
+    )
     try:
         result = subprocess.run(
             list(argv),
@@ -96,8 +103,14 @@ def verify_no_helm_residue(state_root: Path) -> None:
     require(not residue.exists() and not residue.is_symlink(), "cleanup_failed")
 
 
-def _runtime_environment(inherited: Mapping[str, str], state_root: Path) -> dict[str, str]:
-    require(state_root.is_absolute() and state_root.is_dir() and not state_root.is_symlink(), "invalid_input")
+def _runtime_environment(
+    inherited: Mapping[str, str],
+    state_root: Path,
+) -> dict[str, str]:
+    require(
+        state_root.is_absolute() and state_root.is_dir() and not state_root.is_symlink(),
+        "invalid_input",
+    )
     path = inherited.get("PATH", "")
     home = inherited.get("HOME", "")
     require(bool(path) and bool(home) and Path(home).is_absolute(), "invalid_input")
@@ -128,7 +141,10 @@ def _runtime_environment(inherited: Mapping[str, str], state_root: Path) -> dict
     }
 
 
-def verify_helm_toolchain(source_root: Path, environment: Mapping[str, str]) -> None:
+def verify_helm_toolchain(
+    source_root: Path,
+    environment: Mapping[str, str],
+) -> None:
     output = _run(
         ["helm", "version", "--template", "{{.Version}}"],
         cwd=source_root,
@@ -139,14 +155,31 @@ def verify_helm_toolchain(source_root: Path, environment: Mapping[str, str]) -> 
     require(output == HELM_VERSION, "toolchain_mismatch")
 
 
-def verify_exact_source(source_root: Path, admitted_sha: str, environment: Mapping[str, str]) -> None:
-    require(source_root.is_dir() and not source_root.is_symlink() and (source_root / ".git").exists(), "source_mismatch")
+def verify_exact_source(
+    source_root: Path,
+    admitted_sha: str,
+    environment: Mapping[str, str],
+) -> None:
+    require(
+        source_root.is_dir()
+        and not source_root.is_symlink()
+        and (source_root / ".git").exists(),
+        "source_mismatch",
+    )
     head = _run(
-        ["git", "rev-parse", "HEAD"], cwd=source_root, environment=environment, timeout=30, code="source_mismatch"
+        ["git", "rev-parse", "HEAD"],
+        cwd=source_root,
+        environment=environment,
+        timeout=30,
+        code="source_mismatch",
     ).stdout.strip()
     require(head == admitted_sha, "source_mismatch")
     status = _run(
-        ["git", "status", "--porcelain=v1", "--untracked-files=all"], cwd=source_root, environment=environment, timeout=30, code="dirty_tree"
+        ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+        cwd=source_root,
+        environment=environment,
+        timeout=30,
+        code="dirty_tree",
     ).stdout.strip()
     require(not status, "dirty_tree")
 
@@ -162,12 +195,22 @@ def _archive_member_name(name: str, chart_name: str) -> str:
         and all(part not in {"", ".", ".."} for part in parts),
         "archive_invalid",
     )
-    require(not any(part.casefold() in _JUNK for part in parts), "archive_invalid")
-    require(not Path(parts[-1]).suffix.casefold() in _SENSITIVE_SUFFIXES, "archive_invalid")
+    require(
+        not any(part.casefold() in _JUNK for part in parts),
+        "archive_invalid",
+    )
+    require(
+        not Path(parts[-1]).suffix.casefold() in _SENSITIVE_SUFFIXES,
+        "archive_invalid",
+    )
     return "/".join(parts)
 
 
-def normalize_chart_archive(source: Path, destination: Path, chart_name: str) -> str:
+def normalize_chart_archive(
+    source: Path,
+    destination: Path,
+    chart_name: str,
+) -> str:
     """Rewrite one ordinary chart archive to stable order, modes, and mtimes."""
 
     require(source.is_file() and not source.is_symlink(), "archive_invalid")
@@ -189,15 +232,20 @@ def normalize_chart_archive(source: Path, destination: Path, chart_name: str) ->
                 expanded_size += len(content)
                 require(expanded_size <= 64 * 1024 * 1024, "archive_invalid")
                 decoded = content.decode("utf-8", errors="replace")
-                if "/templates/" not in f"/{name}" and (
-                    _TOKEN.search(decoded) or _SECRET.search(decoded)
-                ):
+                if _TOKEN.search(decoded) or _SECRET.search(decoded):
                     raise HelmValidationError("archive_secret_detected")
                 members.append((name, False, content))
     except (OSError, tarfile.TarError) as error:
         raise HelmValidationError("archive_invalid") from error
-    require(members and any(name == f"{chart_name}/Chart.yaml" for name, _, _ in members), "archive_invalid")
-    require(len({name for name, _, _ in members}) == len(members), "archive_invalid")
+    require(
+        members
+        and any(name == f"{chart_name}/Chart.yaml" for name, _, _ in members),
+        "archive_invalid",
+    )
+    require(
+        len({name for name, _, _ in members}) == len(members),
+        "archive_invalid",
+    )
     destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     try:
         with destination.open("wb") as raw:
@@ -222,18 +270,56 @@ def normalize_chart_archive(source: Path, destination: Path, chart_name: str) ->
     return hashlib.sha256(destination.read_bytes()).hexdigest()
 
 
-def _image_reference_assertions(rendered: str, expected: Sequence[str]) -> None:
-    if not expected:
-        return
-    for reference in expected:
-        require(reference in rendered, "image_reference_mismatch")
+def _image_reference_assertions(
+    rendered: str,
+    expected: Sequence[str],
+) -> None:
+    rendered_images: list[str] = []
     for line in rendered.splitlines():
-        if re.match(r"^\s*image:\s*", line):
-            value = line.split(":", 1)[1].strip().strip('"\'')
+        if re.match(r"^\s*(?:-\s*)?image:\s*", line):
+            value = line.split(":", 1)[1].strip().strip("\"'")
             require(
                 re.search(r"@sha256:[0-9a-f]{64}$", value) is not None,
                 "image_reference_mismatch",
             )
+            rendered_images.append(value)
+    for reference in expected:
+        require(reference in rendered, "image_reference_mismatch")
+    if expected:
+        require(bool(rendered_images), "image_reference_mismatch")
+
+
+def _chart_version(chart_root: Path) -> str:
+    try:
+        metadata = yaml.safe_load((chart_root / "Chart.yaml").read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as error:
+        raise HelmValidationError("chart_metadata_invalid") from error
+    require(isinstance(metadata, Mapping), "chart_metadata_invalid")
+    version = metadata.get("version")
+    require(
+        isinstance(version, str) and SEMVER.fullmatch(version) is not None,
+        "chart_metadata_invalid",
+    )
+    return version
+
+
+def _copy_chart_for_build(
+    chart_root: Path,
+    values_path: Path,
+    state_root: Path,
+    chart_name: str,
+) -> tuple[Path, Path]:
+    work_root = state_root / "helm-validation" / "work"
+    work_chart = work_root / chart_name
+    require(not work_chart.exists() and not work_chart.is_symlink(), "workspace_failed")
+    try:
+        shutil.copytree(chart_root, work_chart, symlinks=False)
+    except OSError as error:
+        raise HelmValidationError("workspace_failed") from error
+    relative_values = values_path.relative_to(chart_root)
+    work_values = work_chart / relative_values
+    require(work_values.is_file() and not work_values.is_symlink(), "workspace_failed")
+    return work_chart, work_values
 
 
 def validate_and_package(
@@ -247,33 +333,84 @@ def validate_and_package(
     verify_exact_source(source_root, admitted_sha, environment)
     chart_root, values_path = validate_chart_layout(source_root, plan)
     verify_helm_toolchain(source_root, environment)
+    source_version = _chart_version(chart_root)
+    work_chart, work_values = _copy_chart_for_build(
+        chart_root,
+        values_path,
+        state_root,
+        plan.product.chart_name,
+    )
     if plan.product.locked_dependencies:
-        _run(["helm", "dependency", "build", str(chart_root)], cwd=source_root, environment=environment, timeout=120, code="dependency_build_failed")
-    _run(["helm", "lint", "--strict", str(chart_root), "--values", str(values_path)], cwd=source_root, environment=environment, timeout=120, code="lint_failed")
+        _run(
+            ["helm", "dependency", "build", str(work_chart)],
+            cwd=source_root,
+            environment=environment,
+            timeout=120,
+            code="dependency_build_failed",
+        )
+    _run(
+        ["helm", "lint", "--strict", str(work_chart), "--values", str(work_values)],
+        cwd=source_root,
+        environment=environment,
+        timeout=120,
+        code="lint_failed",
+    )
     rendered = _run(
-        ["helm", "template", plan.product.chart_name, str(chart_root), "--include-crds", "--values", str(values_path)],
+        [
+            "helm",
+            "template",
+            plan.product.chart_name,
+            str(work_chart),
+            "--include-crds",
+            "--values",
+            str(work_values),
+        ],
         cwd=source_root,
         environment=environment,
         timeout=120,
         code="template_failed",
     ).stdout
     _image_reference_assertions(rendered, plan.product.required_image_references)
-    metadata = (chart_root / "Chart.yaml").read_text(encoding="utf-8")
-    version = next((line.split(":", 1)[1].strip() for line in metadata.splitlines() if line.startswith("version:")), "")
-    if plan.release_version is not None:
-        require(version == plan.release_version, "release_version_mismatch")
+
+    package_version = plan.release_version or source_version
     output_root = state_root / "helm-validation" / "package"
     output_root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    _run(["helm", "package", str(chart_root), "--destination", str(output_root)], cwd=source_root, environment=environment, timeout=120, code="package_failed")
-    candidate = output_root / f"{plan.product.chart_name}-{version}.tgz"
-    require(candidate.is_file() and not candidate.is_symlink(), "package_failed")
+    package_args = [
+        "helm",
+        "package",
+        str(work_chart),
+        "--destination",
+        str(output_root),
+    ]
+    if plan.release_version is not None:
+        package_args.extend(
+            ["--version", plan.release_version, "--app-version", plan.release_version]
+        )
+    _run(
+        package_args,
+        cwd=source_root,
+        environment=environment,
+        timeout=120,
+        code="package_failed",
+    )
+    candidate = output_root / f"{plan.product.chart_name}-{package_version}.tgz"
+    require(
+        candidate.is_file() and not candidate.is_symlink(),
+        "package_failed",
+    )
     normalized = output_root / "normalized.tgz"
-    package_sha256 = normalize_chart_archive(candidate, normalized, plan.product.chart_name)
+    package_sha256 = normalize_chart_archive(
+        candidate,
+        normalized,
+        plan.product.chart_name,
+    )
     candidate.unlink()
+    verify_exact_source(source_root, admitted_sha, environment)
     summary = json.dumps(
         {
             "chart_name": plan.product.chart_name,
             "package_sha256": package_sha256,
+            "release_version": package_version,
             "status": "success",
             "values_profile": plan.values_profile,
         },
@@ -296,6 +433,17 @@ def _registry_host(repository: str) -> str:
     return host
 
 
+def _verify_no_kubernetes_authority(inherited: Mapping[str, str]) -> None:
+    require(
+        not inherited.get("KUBECONFIG", "").strip(),
+        "kubernetes_authority_rejected",
+    )
+    require(
+        not _SERVICE_ACCOUNT_TOKEN.exists(),
+        "kubernetes_authority_rejected",
+    )
+
+
 def publish_and_read_back(
     source_root: Path,
     state_root: Path,
@@ -305,14 +453,27 @@ def publish_and_read_back(
 ) -> HelmPublicationResult:
     """Push once or prove byte-identical prior publication, then pull it back."""
 
-    require(plan.release_version is not None and SEMVER.fullmatch(plan.release_version) is not None, "release_version_mismatch")
+    require(
+        plan.release_version is not None
+        and SEMVER.fullmatch(plan.release_version) is not None,
+        "release_version_mismatch",
+    )
+    _verify_no_kubernetes_authority(inherited)
     username = inherited.get("INPUT_REGISTRY_USERNAME", "")
     token = inherited.get("INPUT_REGISTRY_TOKEN", "")
     require(bool(username) and bool(token), "registry_auth_missing")
     environment = _runtime_environment(inherited, state_root)
     host = _registry_host(plan.product.registry_repository)
     _run(
-        ["helm", "registry", "login", host, "--username", username, "--password-stdin"],
+        [
+            "helm",
+            "registry",
+            "login",
+            host,
+            "--username",
+            username,
+            "--password-stdin",
+        ],
         cwd=source_root,
         environment=environment,
         timeout=60,
@@ -321,29 +482,82 @@ def publish_and_read_back(
     )
     remote_root = state_root / "helm-validation" / "read-back"
     remote_root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    chart_reference = f"{plan.product.registry_repository}/{plan.product.chart_name}"
-    pull_args = ["helm", "pull", chart_reference, "--version", plan.release_version, "--destination", str(remote_root)]
-    prior = _run(pull_args, cwd=source_root, environment=environment, timeout=120, code="remote_read_back_failed", check=False)
+    chart_reference = (
+        f"{plan.product.registry_repository}/{plan.product.chart_name}"
+    )
+    pull_args = [
+        "helm",
+        "pull",
+        chart_reference,
+        "--version",
+        plan.release_version,
+        "--destination",
+        str(remote_root),
+    ]
+    prior = _run(
+        pull_args,
+        cwd=source_root,
+        environment=environment,
+        timeout=120,
+        code="remote_read_back_failed",
+        check=False,
+    )
     published = prior.returncode != 0
     if published:
-        lookup = sanitize(prior.stdout + prior.stderr, (source_root, state_root)).casefold()
+        lookup = sanitize(
+            prior.stdout + prior.stderr,
+            (source_root, state_root),
+        ).casefold()
         require(
             "manifest unknown" in lookup
             or "not found" in lookup
             or "not exist" in lookup,
             "registry_lookup_failed",
         )
-    remote_archive = remote_root / f"{plan.product.chart_name}-{plan.release_version}.tgz"
+    remote_archive = (
+        remote_root / f"{plan.product.chart_name}-{plan.release_version}.tgz"
+    )
     if published:
-        _run(["helm", "push", str(validation.archive_path), plan.product.registry_repository], cwd=source_root, environment=environment, timeout=120, code="publication_failed")
-        _run(pull_args, cwd=source_root, environment=environment, timeout=120, code="remote_read_back_failed")
-    require(remote_archive.is_file() and not remote_archive.is_symlink(), "remote_read_back_failed")
+        _run(
+            [
+                "helm",
+                "push",
+                str(validation.archive_path),
+                plan.product.registry_repository,
+            ],
+            cwd=source_root,
+            environment=environment,
+            timeout=120,
+            code="publication_failed",
+        )
+        _run(
+            pull_args,
+            cwd=source_root,
+            environment=environment,
+            timeout=120,
+            code="remote_read_back_failed",
+        )
+    require(
+        remote_archive.is_file() and not remote_archive.is_symlink(),
+        "remote_read_back_failed",
+    )
     readback = remote_root / "normalized.tgz"
-    remote_sha256 = normalize_chart_archive(remote_archive, readback, plan.product.chart_name)
-    require(remote_sha256 == validation.package_sha256, "immutable_conflict")
+    remote_sha256 = normalize_chart_archive(
+        remote_archive,
+        readback,
+        plan.product.chart_name,
+    )
+    require(
+        remote_sha256 == validation.package_sha256,
+        "immutable_conflict",
+    )
     reference = f"{chart_reference}:{plan.release_version}"
     immutable = json.dumps(
-        {"chart": reference, "chart_digest": validation.chart_digest, "package_sha256": validation.package_sha256},
+        {
+            "chart": reference,
+            "chart_digest": validation.chart_digest,
+            "package_sha256": validation.package_sha256,
+        },
         sort_keys=True,
         separators=(",", ":"),
     )

@@ -79,6 +79,7 @@ jobs:
           release_version: ${{ inputs.release_version }}
           values_profile: ${{ inputs.values_profile }}
           policy_path: ${{ inputs.policy_path }}
+          source_trust: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && 'trusted-pr' || 'trusted-exact' }}
 
   publish:
     name: Release / Helm publication
@@ -130,6 +131,7 @@ jobs:
           release_version: ${{ inputs.release_version }}
           values_profile: ${{ inputs.values_profile }}
           policy_path: ${{ inputs.policy_path }}
+          source_trust: ${{ needs.plan.outputs.source_trust }}
           registry_username: ${{ secrets.registry_username }}
           registry_token: ${{ secrets.registry_token }}
       - id: helm_cleanup
@@ -141,6 +143,7 @@ jobs:
           admitted_sha: ${{ inputs.admitted_sha }}
           product_id: ${{ inputs.product_id }}
           release_version: ${{ inputs.release_version }}
+          source_trust: ${{ needs.plan.outputs.source_trust }}
       - id: residue
         name: Verify zero Helm publication residue
         if: always()
@@ -150,6 +153,7 @@ jobs:
           admitted_sha: ${{ inputs.admitted_sha }}
           product_id: ${{ inputs.product_id }}
           release_version: ${{ inputs.release_version }}
+          source_trust: ${{ needs.plan.outputs.source_trust }}
       - id: workspace_cleanup
         name: Remove and verify all registered workspace state
         if: always()

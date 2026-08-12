@@ -13,7 +13,7 @@ inputs:
     description: Central product-contract identifier
     required: true
   release_version:
-    description: Optional exact release version to bind to Chart.yaml
+    description: Optional exact release version to bind in the isolated package copy
     required: false
   values_profile:
     description: Optional product-manifest values profile
@@ -24,6 +24,9 @@ inputs:
   artifact_exception_id:
     description: Must remain empty because package artifacts are never retained
     required: false
+  source_trust:
+    description: Explicit admitted source trust classification
+    required: true
 
 outputs:
   result:
@@ -57,6 +60,7 @@ runs:
         INPUT_VALUES_PROFILE: ${{ inputs.values_profile }}
         INPUT_POLICY_PATH: ${{ inputs.policy_path }}
         INPUT_ARTIFACT_EXCEPTION_ID: ${{ inputs.artifact_exception_id }}
+        INPUT_SOURCE_TRUST: ${{ inputs.source_trust }}
       run: |
         set -Eeuo pipefail
         python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \

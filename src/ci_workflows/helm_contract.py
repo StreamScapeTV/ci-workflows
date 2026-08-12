@@ -5,6 +5,7 @@ import json
 import re
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -86,21 +87,46 @@ def load_helm_contract(root: Path) -> Mapping[str, Any]:
     require(payload.get("runner_profile") == "portable", "invalid_contract")
     require(payload.get("workspace_profile") == "minimal", "invalid_contract")
     require(payload.get("artifact_policy") == "zero-default", "invalid_contract")
+    require(
+        payload.get("dependency_repository_schemes") == ["https", "oci"],
+        "invalid_contract",
+    )
+    require(
+        payload.get("release_package_binding")
+        == "isolated-copy-version-app-version",
+        "invalid_contract",
+    )
     require(payload.get("product_manifest_path") == PRODUCT_MANIFEST_PATH.as_posix(), "invalid_contract")
     products = payload.get("products")
     require(isinstance(products, Mapping) and len(products) == 3, "invalid_contract")
-    expected = {"iptv-backend-chart", "agent-state-chart", "flux-runner-chart-assets"}
+    expected = {
+        "iptv-backend-chart",
+        "agent-state-chart",
+        "flux-github-actions-runner-chart",
+    }
     require(set(products) == expected, "invalid_contract")
     for product_id, value in products.items():
         require(isinstance(value, Mapping), "invalid_contract")
-        require(value.get("repository") in {
-            "StreamScapeTV/iptv-backend",
-            "StreamScapeTV/agent-state",
-            "StreamScapeTV/flux",
-        }, "invalid_contract")
-        require(isinstance(value.get("chart_name"), str) and NAME.fullmatch(value["chart_name"]) is not None, "invalid_contract")
+        require(
+            value.get("repository")
+            in {
+                "StreamScapeTV/iptv-backend",
+                "StreamScapeTV/agent-state",
+                "StreamScapeTV/flux",
+            },
+            "invalid_contract",
+        )
+        require(
+            isinstance(value.get("chart_name"), str)
+            and NAME.fullmatch(value["chart_name"]) is not None,
+            "invalid_contract",
+        )
         repository = value.get("registry_repository")
-        require(isinstance(repository, str) and OCI_REPOSITORY.fullmatch(repository) is not None, "invalid_contract")
+        require(
+            isinstance(repository, str)
+            and OCI_REPOSITORY.fullmatch(repository) is not None,
+            "invalid_contract",
+        )
         require(product_id in expected, "invalid_contract")
     return payload
 
@@ -109,12 +135,38 @@ def load_helm_publication_contract(root: Path) -> Mapping[str, Any]:
     payload = _json(root / PUBLICATION_CONTRACT_PATH, "invalid_publication_contract")
     require(payload.get("schema_version") == 1, "invalid_publication_contract")
     require(payload.get("registry_host") == "git.faruqi.dev", "invalid_publication_contract")
-    require(payload.get("registry_namespace") == "mimranfaruqi/helm-charts", "invalid_publication_contract")
-    require(payload.get("version_policy") == "immutable-semver-no-latest", "invalid_publication_contract")
-    require(payload.get("idempotency") == "pull-compare-before-push", "invalid_publication_contract")
-    require(payload.get("read_back") == "required-oci-pull-and-normalized-sha256", "invalid_publication_contract")
-    require(payload.get("named_secrets") == ["registry_username", "registry_token"], "invalid_publication_contract")
-    require(payload.get("forbidden_capabilities") == ["kubernetes", "sops-decryption", "latest"], "invalid_publication_contract")
+    require(
+        payload.get("registry_namespace") == "mimranfaruqi/helm-charts",
+        "invalid_publication_contract",
+    )
+    require(
+        payload.get("version_policy") == "immutable-semver-no-latest",
+        "invalid_publication_contract",
+    )
+    require(
+        payload.get("idempotency") == "pull-compare-before-push",
+        "invalid_publication_contract",
+    )
+    require(
+        payload.get("read_back") == "required-oci-pull-and-normalized-sha256",
+        "invalid_publication_contract",
+    )
+    require(
+        payload.get("named_secrets") == ["registry_username", "registry_token"],
+        "invalid_publication_contract",
+    )
+    require(
+        payload.get("source_trust") == "trusted-exact",
+        "invalid_publication_contract",
+    )
+    require(
+        payload.get("kubernetes_authority") == "forbidden",
+        "invalid_publication_contract",
+    )
+    require(
+        payload.get("forbidden_capabilities") == ["kubernetes", "sops-decryption", "latest"],
+        "invalid_publication_contract",
+    )
     return payload
 
 
@@ -132,31 +184,62 @@ def request_from_environment(environment: Mapping[str, str]) -> HelmRequest:
         values_profile=values_profile,
         policy_path=policy_path,
         artifact_exception_id=artifact_exception_id,
-        source_trust=environment.get("INPUT_SOURCE_TRUST", "trusted-exact").strip(),
+        source_trust=value("SOURCE_TRUST"),
     )
     require(FULL_SHA.fullmatch(request.admitted_sha) is not None, "invalid_input")
     require(NAME.fullmatch(request.product_id) is not None, "invalid_input")
-    require(request.source_trust in {"trusted-pr", "trusted-exact"}, "invalid_input")
+    require(
+        request.source_trust in {"untrusted-fork", "trusted-pr", "trusted-exact"},
+        "invalid_input",
+    )
     if request.release_version is not None:
         require(SEMVER.fullmatch(request.release_version) is not None, "invalid_input")
     if request.values_profile is not None:
         require(NAME.fullmatch(request.values_profile) is not None, "invalid_input")
     if request.policy_path is not None:
         safe_relative(request.policy_path, "invalid_input")
-    # Routine package diagnostics are never retained by this workflow family.
     require(request.artifact_exception_id is None, "artifact_policy_failed")
     return request
+
+
+def _dependency_repository(value: Any) -> str:
+    require(isinstance(value, str), "invalid_product_manifest")
+    repository = value.strip()
+    if OCI_REPOSITORY.fullmatch(repository) is not None:
+        return repository
+    parsed = urlsplit(repository)
+    require(
+        parsed.scheme == "https"
+        and bool(parsed.hostname)
+        and parsed.username is None
+        and parsed.password is None
+        and not parsed.query
+        and not parsed.fragment
+        and parsed.path not in {"", "/"},
+        "invalid_product_manifest",
+    )
+    return repository
 
 
 def _locked_dependencies(value: Any) -> tuple[tuple[str, str, str], ...]:
     require(isinstance(value, list), "invalid_product_manifest")
     rows: list[tuple[str, str, str]] = []
     for item in value:
-        require(isinstance(item, Mapping) and set(item) == {"name", "repository", "version"}, "invalid_product_manifest")
-        name, version, repository = item["name"], item["version"], item["repository"]
-        require(isinstance(name, str) and NAME.fullmatch(name) is not None, "invalid_product_manifest")
-        require(isinstance(version, str) and SEMVER.fullmatch(version) is not None, "invalid_product_manifest")
-        require(isinstance(repository, str) and OCI_REPOSITORY.fullmatch(repository) is not None, "invalid_product_manifest")
+        require(
+            isinstance(item, Mapping)
+            and set(item) == {"name", "repository", "version"},
+            "invalid_product_manifest",
+        )
+        name, version = item["name"], item["version"]
+        require(
+            isinstance(name, str) and NAME.fullmatch(name) is not None,
+            "invalid_product_manifest",
+        )
+        require(
+            isinstance(version, str) and SEMVER.fullmatch(version) is not None,
+            "invalid_product_manifest",
+        )
+        repository = _dependency_repository(item["repository"])
         rows.append((name, version, repository))
     require(rows == sorted(rows), "invalid_product_manifest")
     require(len(rows) == len(set(rows)), "invalid_product_manifest")
@@ -172,15 +255,32 @@ def load_product_manifest(
     template = products.get(request.product_id)
     require(isinstance(template, Mapping), "unsupported_product")
     require(request.repository == template["repository"], "repository_rejected")
-    manifest_path = bounded_path(source_root, PRODUCT_MANIFEST_PATH.as_posix(), "invalid_product_manifest")
-    require(manifest_path.is_file() and not manifest_path.is_symlink(), "invalid_product_manifest")
+    manifest_path = bounded_path(
+        source_root,
+        PRODUCT_MANIFEST_PATH.as_posix(),
+        "invalid_product_manifest",
+    )
+    require(
+        manifest_path.is_file() and not manifest_path.is_symlink(),
+        "invalid_product_manifest",
+    )
     data = _json(manifest_path, "invalid_product_manifest")
     required = {
-        "schema_version", "product_id", "repository", "chart_name", "chart_root",
-        "values_profiles", "policy_path", "registry_repository", "locked_dependencies",
+        "schema_version",
+        "product_id",
+        "repository",
+        "chart_name",
+        "chart_root",
+        "values_profiles",
+        "policy_path",
+        "registry_repository",
+        "locked_dependencies",
         "required_image_references",
     }
-    require(set(data) == required and data.get("schema_version") == 1, "invalid_product_manifest")
+    require(
+        set(data) == required and data.get("schema_version") == 1,
+        "invalid_product_manifest",
+    )
     require(data.get("product_id") == request.product_id, "invalid_product_manifest")
     for key in ("repository", "chart_name", "registry_repository"):
         require(data.get(key) == template.get(key), "invalid_product_manifest")
@@ -193,7 +293,10 @@ def load_product_manifest(
     require(isinstance(profiles, Mapping) and profiles, "invalid_product_manifest")
     parsed_profiles: dict[str, str] = {}
     for name, path in profiles.items():
-        require(isinstance(name, str) and NAME.fullmatch(name) is not None, "invalid_product_manifest")
+        require(
+            isinstance(name, str) and NAME.fullmatch(name) is not None,
+            "invalid_product_manifest",
+        )
         parsed_profiles[name] = safe_relative(path, "invalid_product_manifest")
     require(list(parsed_profiles) == sorted(parsed_profiles), "invalid_product_manifest")
     images = data.get("required_image_references")
@@ -240,11 +343,18 @@ def resolve_validation_plan(
 
 def validate_chart_metadata(chart_root: Path, product: HelmProduct) -> Mapping[str, Any]:
     chart_file = bounded_path(chart_root, "Chart.yaml", "chart_metadata_invalid")
-    require(chart_file.is_file() and not chart_file.is_symlink(), "chart_metadata_invalid")
+    require(
+        chart_file.is_file() and not chart_file.is_symlink(),
+        "chart_metadata_invalid",
+    )
     metadata = _yaml(chart_file, "chart_metadata_invalid")
     require(metadata.get("apiVersion") == "v2", "chart_metadata_invalid")
     require(metadata.get("name") == product.chart_name, "chart_metadata_invalid")
-    require(isinstance(metadata.get("version"), str) and SEMVER.fullmatch(metadata["version"]) is not None, "chart_metadata_invalid")
+    require(
+        isinstance(metadata.get("version"), str)
+        and SEMVER.fullmatch(metadata["version"]) is not None,
+        "chart_metadata_invalid",
+    )
     dependencies = metadata.get("dependencies", [])
     require(isinstance(dependencies, list), "dependency_lock_invalid")
     actual = []
@@ -262,32 +372,50 @@ def validate_chart_lock(chart_root: Path, product: HelmProduct) -> None:
     lock = bounded_path(chart_root, "Chart.lock", "dependency_lock_invalid")
     require(lock.is_file() and not lock.is_symlink(), "dependency_lock_invalid")
     data = _yaml(lock, "dependency_lock_invalid")
-    require(isinstance(data.get("digest"), str) and DIGEST.fullmatch(data["digest"]) is not None, "dependency_lock_invalid")
+    require(
+        isinstance(data.get("digest"), str)
+        and DIGEST.fullmatch(data["digest"]) is not None,
+        "dependency_lock_invalid",
+    )
     dependencies = data.get("dependencies")
     require(isinstance(dependencies, list), "dependency_lock_invalid")
-    actual = tuple((item.get("name"), item.get("version"), item.get("repository")) for item in dependencies if isinstance(item, Mapping))
-    require(actual == product.locked_dependencies and len(actual) == len(dependencies), "dependency_lock_invalid")
+    actual = tuple(
+        (item.get("name"), item.get("version"), item.get("repository"))
+        for item in dependencies
+        if isinstance(item, Mapping)
+    )
+    require(
+        actual == product.locked_dependencies and len(actual) == len(dependencies),
+        "dependency_lock_invalid",
+    )
 
 
 def validate_chart_layout(source_root: Path, plan: HelmPlan) -> tuple[Path, Path]:
     chart_root = bounded_path(source_root, plan.product.chart_root, "chart_root_rejected")
-    require(chart_root.is_dir() and not chart_root.is_symlink(), "chart_root_rejected")
+    require(
+        chart_root.is_dir() and not chart_root.is_symlink(),
+        "chart_root_rejected",
+    )
+    for candidate in chart_root.rglob("*"):
+        require(not candidate.is_symlink(), "chart_root_rejected")
     values_path = bounded_path(chart_root, plan.values_path, "values_profile_rejected")
-    require(values_path.is_file() and not values_path.is_symlink(), "values_profile_rejected")
+    require(
+        values_path.is_file() and not values_path.is_symlink(),
+        "values_profile_rejected",
+    )
     _yaml(values_path, "values_profile_rejected")
     schema = chart_root / "values.schema.json"
     if schema.exists() or schema.is_symlink():
         require(schema.is_file() and not schema.is_symlink(), "schema_invalid")
         _json(schema, "schema_invalid")
     templates = chart_root / "templates"
-    require(templates.is_dir() and not templates.is_symlink(), "template_invalid")
-    for candidate in templates.rglob("*"):
-        require(not candidate.is_symlink(), "template_invalid")
+    require(
+        templates.is_dir() and not templates.is_symlink(),
+        "template_invalid",
+    )
     crds = chart_root / "crds"
     if crds.exists() or crds.is_symlink():
         require(crds.is_dir() and not crds.is_symlink(), "template_invalid")
-        for candidate in crds.rglob("*"):
-            require(not candidate.is_symlink(), "template_invalid")
     validate_chart_metadata(chart_root, plan.product)
     validate_chart_lock(chart_root, plan.product)
     if plan.policy_path is not None:

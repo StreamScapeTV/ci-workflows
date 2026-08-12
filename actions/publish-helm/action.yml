@@ -21,6 +21,9 @@ inputs:
   policy_path:
     description: Optional product-manifest policy file path
     required: false
+  source_trust:
+    description: Explicit admitted source trust classification
+    required: true
   registry_username:
     description: Named OCI registry username
     required: false
@@ -61,6 +64,7 @@ runs:
         INPUT_RELEASE_VERSION: ${{ inputs.release_version }}
         INPUT_VALUES_PROFILE: ${{ inputs.values_profile }}
         INPUT_POLICY_PATH: ${{ inputs.policy_path }}
+        INPUT_SOURCE_TRUST: ${{ inputs.source_trust }}
         INPUT_REGISTRY_USERNAME: ${{ inputs.registry_username }}
         INPUT_REGISTRY_TOKEN: ${{ inputs.registry_token }}
       run: |

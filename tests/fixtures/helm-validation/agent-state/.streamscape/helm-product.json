@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "product_id": "agent-state-chart",
+  "repository": "StreamScapeTV/agent-state",
+  "chart_name": "agent-state",
+  "chart_root": "charts/agent-state",
+  "values_profiles": {
+    "default": "values.yaml"
+  },
+  "policy_path": null,
+  "registry_repository": "oci://git.faruqi.dev/mimranfaruqi/helm-charts",
+  "locked_dependencies": [],
+  "required_image_references": [
+    "registry.example/agent-state@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  ]
+}

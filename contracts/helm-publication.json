@@ -1,10 +1,19 @@
 {
-  "schema_version": 1,
+  "forbidden_capabilities": [
+    "kubernetes",
+    "sops-decryption",
+    "latest"
+  ],
+  "idempotency": "pull-compare-before-push",
+  "kubernetes_authority": "forbidden",
+  "named_secrets": [
+    "registry_username",
+    "registry_token"
+  ],
+  "read_back": "required-oci-pull-and-normalized-sha256",
   "registry_host": "git.faruqi.dev",
   "registry_namespace": "mimranfaruqi/helm-charts",
-  "version_policy": "immutable-semver-no-latest",
-  "idempotency": "pull-compare-before-push",
-  "read_back": "required-oci-pull-and-normalized-sha256",
-  "named_secrets": ["registry_username", "registry_token"],
-  "forbidden_capabilities": ["kubernetes", "sops-decryption", "latest"]
+  "schema_version": 1,
+  "source_trust": "trusted-exact",
+  "version_policy": "immutable-semver-no-latest"
 }
