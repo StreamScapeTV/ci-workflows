@@ -6,6 +6,7 @@ import unittest
 from ci_workflows.release_tag_authority import (
     ReleaseEvent,
     ReleaseInputs,
+    ReleaseTagError,
     revalidate_release_authority,
     resolve_release_authority,
 )
@@ -114,7 +115,7 @@ class HistoricalReleaseAuthorityIntegrationTest(unittest.TestCase):
         provider = HistoricalProvider(annotated=True)
         authority = self.resolve(provider)
         provider.moved = True
-        with self.assertRaisesRegex(Exception, r"release_tag_moved"):
+        with self.assertRaisesRegex(ReleaseTagError, r"^release_tag_moved$"):
             revalidate_release_authority(
                 authority,
                 trusted_replay_event(),
