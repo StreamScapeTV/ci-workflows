@@ -1,212 +1,170 @@
 # Exact-tag release orchestration
 
-`release.orchestrate` is the central release contract for the current StreamScapeTV image-and-chart products. It turns one already-existing stable product tag into independently verified immutable publications, a deterministic release manifest, an exact GitHub Release, and a bounded review request for Flux.
+`release.orchestrate` is the central release contract for current StreamScapeTV image-and-chart products. It turns one already-existing stable product tag into independently verified immutable publications, a deterministic release manifest, an exact GitHub Release, and a bounded review request for Flux.
 
-The workflow is release orchestration only. It does not reconcile Flux, install Helm charts, run `kubectl`, write live GitOps state, or choose deployment policy.
+The workflow is release orchestration only. It does not reconcile Flux, install Helm charts, run `kubectl`, write live GitOps state, or receive Kubernetes/SOPS credentials.
 
-## Supported releases
+## Registered public API
 
-The checked-in source of truth is `contracts/releases.json`. It maps the current release IDs to the existing product inventory in `contracts/products.json`:
+The `release.orchestrate` `1.0.0` workflow accepts exactly these inputs:
 
-| Release ID | Repository | Image product | Chart product |
-| --- | --- | --- | --- |
-| `agent-state` | `StreamScapeTV/agent-state` | `agent-state-image` | `agent-state-chart` |
-| `flux-runner-assets` | `StreamScapeTV/flux` | `flux-runner-images` | `flux-runner-chart-assets` |
-| `iptv-backend` | `StreamScapeTV/iptv-backend` | `iptv-backend-image` | `iptv-backend-chart` |
+- `admitted_sha` — exact lowercase source commit SHA;
+- `release_contract` — checked-in release contract alias;
+- `release_tag` — exact `vX.Y.Z` existing tag;
+- `release_version` — exact stable `X.Y.Z` version;
+- `request_id` — caller idempotency identity for the reviewed handoff; and
+- optional `target_id` — confirmation only, never a destination selector.
 
-Callers cannot redirect one release ID to another repository or arbitrary product ID. The release map is cross-checked against the central product inventory and fails closed on drift.
+It accepts only the named secrets `registry_username`, `registry_token`, and `flux_handoff_token`. Its public outputs are `result`, `immutable_references_json`, `release_manifest_sha256`, `handoff_state`, and `request_id`.
 
-## Thin producer callers
+The workflow requires the registered `release-orchestration` permissions: `actions: read` and `contents: write`. `contents: write` supplies the workflow-scoped GitHub token used to create or exactly verify the GitHub Release; there is no caller-supplied GitHub Release token.
 
-Producer repositories keep only a thin trusted tag caller. The central workflow reference must be a reviewed immutable `ci-workflows` commit, never `main` or another mutable ref. The tag glob is only an event prefilter; the central release authority still requires exact stable SemVer before any publication.
+## Supported release contracts
 
-The backend caller differs only by its checked-in release ID:
+`contracts/releases.json` is the exact release map. Public aliases resolve only to these checked-in releases:
+
+| Public `release_contract` | Release ID | Repository | Image product | Chart product |
+| --- | --- | --- | --- | --- |
+| `backend` | `iptv-backend` | `StreamScapeTV/iptv-backend` | `iptv-backend-image` | `iptv-backend-chart` |
+| `agent-state` | `agent-state` | `StreamScapeTV/agent-state` | `agent-state-image` | `agent-state-chart` |
+| `flux` | `flux-runner-assets` | `StreamScapeTV/flux` | `flux-runner-images` | `flux-runner-chart-assets` |
+
+Callers cannot redirect a release alias to another repository, registry destination, product, runner, or Flux target. When `target_id` is supplied it must equal the fixed resolved release ID.
+
+## Thin producer caller
+
+Producer repositories keep a thin tag caller. The central workflow reference must be a reviewed immutable `ci-workflows` commit, never a mutable privileged reference.
 
 ```yaml
 name: Release
 on:
   push:
-    tags: ['[0-9]*.[0-9]*.[0-9]*']
+    tags:
+      - 'v*'
 permissions:
+  actions: read
   contents: write
 jobs:
-  release:
+  release_products:
     uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-release.yml@<PINNED_CI_WORKFLOWS_SHA>
     with:
-      release_id: iptv-backend
-      release_mode: tag-push
+      admitted_sha: ${{ github.sha }}
+      release_contract: backend
+      release_tag: ${{ github.ref_name }}
+      release_version: 1.2.3
+      request_id: release:${{ github.run_id }}:${{ github.run_attempt }}
     secrets:
-      registry_username: ${{ secrets.RELEASE_REGISTRY_USERNAME }}
-      registry_token: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
-      github_release_token: ${{ secrets.GITHUB_TOKEN }}
+      registry_username: ${{ secrets.REGISTRY_USERNAME }}
+      registry_token: ${{ secrets.REGISTRY_TOKEN }}
+      flux_handoff_token: ${{ secrets.FLUX_HANDOFF_TOKEN }}
 ```
 
-The Agent State caller uses the same permission and secret boundary with `release_id: agent-state`:
+Agent State uses `release_contract: agent-state`; Flux runner assets use `release_contract: flux`. The contract alias changes product selection only through the checked-in release map.
 
-```yaml
-jobs:
-  release:
-    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-release.yml@<PINNED_CI_WORKFLOWS_SHA>
-    with:
-      release_id: agent-state
-      release_mode: tag-push
-    secrets:
-      registry_username: ${{ secrets.RELEASE_REGISTRY_USERNAME }}
-      registry_token: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
-      github_release_token: ${{ secrets.GITHUB_TOKEN }}
-```
+## Exact tag and source authority
 
-The Flux infrastructure caller publishes runner images and chart assets but does not reconcile the cluster. It uses `release_id: flux-runner-assets`; the resulting canary/known-good/rollback identities are carried only in the reviewed handoff:
+Product versions are stable SemVer without a prefix, for example `1.4.2`. The corresponding public release tag must be exactly `v1.4.2`. Pre-release versions, malformed tags, mutable aliases such as `latest`, tag/version mismatches, source mismatches, and repository mismatches fail closed.
 
-```yaml
-jobs:
-  release:
-    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-release.yml@<PINNED_CI_WORKFLOWS_SHA>
-    with:
-      release_id: flux-runner-assets
-      release_mode: tag-push
-    secrets:
-      registry_username: ${{ secrets.RELEASE_REGISTRY_USERNAME }}
-      registry_token: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
-      github_release_token: ${{ secrets.GITHUB_TOKEN }}
-```
+The existing tag authority records the tag object SHA, peeled tag commit SHA, and exact admitted source SHA. This supports both lightweight and bounded annotated tags, including historical releases whose source commit is older than the current default branch.
 
-A trusted historical replay calls the same immutable workflow with `release_mode: existing-tag`, the stable `release_version`, and the exact `release_source_sha`. The resolver accepts it only when the existing tag still peels to that exact source. Ordinary `workflow_dispatch` is not a bypass for publication authority.
+The same tag object/commit tuple is revalidated before each privileged publication boundary and again immediately before the GitHub Release write. Moving, deleting, or retargeting the tag after admission therefore fails the release.
 
-## Version and source authority
+## Bounded six-job graph
 
-Product release versions are stable SemVer without a `v` prefix, for example `1.4.2`. Pre-release versions and mutable aliases such as `latest` are rejected by this orchestration layer because the current OCI publication contract accepts stable release versions only.
+The public workflow stays within the repository readability limit of seven jobs and reusable depth one. It performs the conceptual release stages in six jobs:
 
-The default authority mode is a tag-push release. Explicit trusted replay may resolve an existing tag, but it is still the exact same immutable release identity. The tag resolver records and propagates:
+1. `plan` resolves the public release request, exact tag authority, OCI product plan, and one contract-owned publication runner selector;
+2. `run_release_gates` revalidates the tag and proves an exact clean detached source checkout;
+3. `publish_images` executes the reviewed #17 OCI build/publication/read-back primitives and their unconditional cleanup/residue checks;
+4. `publish_charts_or_assets` verifies #17 image evidence, binds exact image digests, executes the reviewed #18 Helm publication/read-back primitive, and runs unconditional cleanup/residue checks;
+5. `verify_and_record` normalizes evidence, verifies immutable identities, renders the deterministic manifest, revalidates the tag, creates or exactly verifies the GitHub Release, and constructs the sanitized handoff; and
+6. `request_handoff_and_finalize` submits only the reviewed handoff request and exposes the stable `Release / Verified products` terminal check.
 
-- release version;
-- tag object SHA;
-- peeled tag commit SHA;
-- exact admitted source SHA; and
-- source timestamp.
+The workflow deliberately composes #17/#18 named actions/scripts directly instead of nesting their public reusable workflows. That preserves their publication engines while respecting the repository-wide reusable-depth limit.
 
-Every privileged publication boundary must revalidate that the same tag still resolves to the same object and commit before it writes to a registry. A tag move, source mismatch, missing tag, or ambiguous authority fails the release.
+## Publication and remote read-back
 
-## Publication order and immutable image binding
+Image publication reuses the #17 sequence: exact source rebuild, workflow-scoped registry authentication, immutable version/source publication, independent Skopeo read-back, manifest/platform/config/layer verification, and unconditional publication/build/workspace cleanup.
 
-The release path is deliberately ordered:
+Chart publication consumes the exact #17 publication evidence. The binding layer validates source/version/target parity and derives digest-pinned `repository@sha256:<digest>` identities. The #18 release primitive then packages, publishes, independently reads back, and verifies the Helm OCI chart. A mutable image version tag is not an equivalent binding.
 
-1. resolve exact tag/source authority;
-2. validate the checked-in release and product contracts;
-3. run release gates on the exact source;
-4. publish and independently read back OCI images;
-5. derive digest-pinned image identities from the OCI read-back;
-6. publish charts/assets using those digest-pinned image identities;
-7. independently read back the chart publication;
-8. normalize and verify the publication evidence;
-9. create the deterministic release manifest;
-10. create or exactly verify the GitHub Release;
-11. emit the bounded Flux selection request; and
-12. always run terminal cleanup/status projection.
+Flux runner images may contain multiple targets. Every target digest is preserved; the release never collapses a multi-target family to one arbitrary digest.
 
-The OCI publication API returns its exact target-to-digest map plus a bounded immutable reference description. `release.py image-bindings` verifies target parity, exact repository ownership, stable version references, source-SHA references, and remote manifest digests. It then derives chart-facing identities in the form:
+Publication success is not deployment success. No #19 step performs Flux reconciliation or Kubernetes mutation.
 
-```text
-ghcr.io/streamscapetv/<repository>@sha256:<digest>
-```
+## Replay and partial publication
 
-Charts must consume the verified digest-pinned identities produced by the same release. Reading a mutable version tag from source is not an equivalent proof.
+Immutable publication replay is exact-match only:
 
-Flux runner images may contain several publication targets. The release manifest and handoff preserve every target digest. A multi-target family is never collapsed to an arbitrary single image digest.
-
-## Remote read-back and replay
-
-Publication success means the independently fetched remote object matches the expected immutable identity. Local build/package success by itself is not release success.
-
-Replay is exact-match only:
-
-- if a remote image/chart already exists and independently reads back to the expected immutable identity, the publication stage may return success without rewriting it;
-- if the same release identity exists with different content, the release fails closed;
-- if image publication completed but chart publication did not, the state is reported as `image-published-awaiting-chart` and a trusted retry verifies the already-published image before continuing;
-- a release is `complete` only after both image and chart publication read-back succeed.
+- a remotely existing image/chart that independently reads back to the expected identity is accepted without rewriting it;
+- a conflicting immutable identity fails closed;
+- a trusted retry after image success/chart failure must reverify the already-published image before continuing; and
+- release completion requires successful independent image and chart read-back.
 
 No stage repairs a conflict by retagging, overwriting a mismatched immutable identity, or switching to `latest`.
 
-## Release manifest
+## Deterministic release manifest
 
-The canonical JSON release manifest uses `contracts/release-manifest.schema.json`. Product releases extend the existing shared-workflow manifest without changing the legacy root required-field contract.
+`contracts/release-manifest.schema.json` preserves the existing shared-workflow manifest contract while adding a strict product-release record. The canonical product manifest binds:
 
-The product release record binds at least:
+- release ID, repository, stable version, source SHA, tag object SHA, and peeled commit SHA;
+- source timestamp and exact central workflow SHA;
+- hashes of the release workflow/function/schema/tool/runner surfaces;
+- image product ID, complete digest map, immutable references, and bounded read-back evidence;
+- chart product ID, remote chart digest, immutable references, and bounded read-back evidence;
+- exact-match replay policy; and
+- review-only Flux handoff intent.
 
-- release ID and repository;
-- stable version;
-- exact source SHA;
-- tag object SHA and peeled tag commit SHA;
-- source timestamp;
-- exact central workflow SHA;
-- hashes of the release workflow/function surface and checked-in schemas;
-- action/tool/runner-profile hashes;
-- image product ID, exact target digest map, immutable references, and bounded read-back evidence;
-- chart product ID, digest, immutable references, and bounded read-back evidence;
-- exact-match replay policy;
-- GitHub Release requirement; and
-- bounded Flux handoff intent.
+The manifest is canonical sorted JSON addressed by SHA-256. Credential-bearing or arbitrary caller JSON is rejected as evidence.
 
-The manifest is serialized as canonical sorted JSON and addressed by its SHA-256. Arbitrary credential-bearing runtime blobs are not accepted as publication evidence.
+## GitHub Release identity
 
-## GitHub Release behavior
+The GitHub Release is keyed to the exact public `vX.Y.Z` tag and exact admitted source. Its body contains only the canonical release manifest plus its SHA-256 marker.
 
-The GitHub Release is keyed to the same stable version and admitted source. Its body contains the canonical release manifest and a manifest SHA-256 marker.
+Creation is idempotent only for an exact match. Repository, tag, release name, body, draft state, and prerelease state must all agree. A concurrent create race is re-read and accepted only when the winner is that exact release. Any mismatch fails closed.
 
-Creation is idempotent only for an exact match. An existing release must match the expected repository, tag, release name, canonical body, draft state, and prerelease state. A concurrent create race is re-read and accepted only if the winner is that exact release. Any conflicting release fails closed.
+The automatic workflow token is used only in the release-recording job and is never placed in the manifest, public outputs, or Flux handoff.
 
-The GitHub release token is consumed only by the GitHub Release stage. It is not placed in the release manifest, Flux handoff, job outputs, or logs.
+## Review-only Flux handoff
 
-## Flux handoff
+`contracts/flux-handoff.schema.json` defines the producer-to-Flux payload. It is fixed to:
 
-`contracts/flux-handoff.schema.json` defines the only producer-to-Flux payload generated by release orchestration. It is a `flux-selection-request` directed at `StreamScapeTV/flux` with `requested_action=review-selection`.
+- `target_repository=StreamScapeTV/flux`;
+- `requested_action=review-selection`;
+- `mutation_authorized=false`; and
+- `secrets_included=false`.
 
-The handoff contains only bounded immutable release identities:
+The payload contains only bounded immutable release/product identities and, for `flux-runner-assets`, the checked-in canary, previous-known-good, and rollback identities returned by the OCI publication contract.
 
-- producer and target repositories;
-- release ID and stable version;
-- exact source SHA;
-- release-manifest SHA-256;
-- exact GitHub Release URL;
-- image/chart product IDs;
-- exact digest maps and immutable references; and
-- for `flux-runner-assets`, the checked-in canary, previous-known-good, and rollback selection identities returned by the OCI product contract.
+The final job uses `flux_handoff_token` only to submit a fixed `release-selection-review` repository-dispatch request to `StreamScapeTV/flux`. The request includes the caller `request_id`, the handoff SHA-256, and the sanitized handoff JSON. It does not carry cluster credentials or authorize reconciliation; Flux-owned review/policy remains a separate boundary.
 
-The payload fixes both `mutation_authorized=false` and `secrets_included=false`. It cannot carry Kubernetes credentials, Flux credentials, registry credentials, reconciliation commands, or live deployment mutations.
+## Credentials, artifacts, and cleanup
 
-For `flux-runner-assets`, all three selection identities are mandatory. They are omitted and rejected for non-Flux product releases.
+Registry credentials appear only in the two publication jobs. The Flux handoff token appears only in the final handoff job. Product publication never receives Flux/Kubernetes/SOPS authority, and the handoff job never receives registry credentials.
 
-## Credentials, runners, and cleanup
+Routine Actions artifact upload/download is forbidden. Evidence is represented through independently verified remote identities, the GitHub Release manifest, and the bounded handoff.
 
-Reusable publication workflows receive only their explicit named registry credentials. Release orchestration does not use broad secret inheritance. Read-only planning/verification jobs do not receive registry credentials.
+OCI publication cleanup removes and verifies publication auth/layout state, OCI build state, and the registered workspace under `if: always()`. Helm publication similarly removes and verifies package/credential/workspace state on every terminal path.
 
-The GitHub release credential is a separate named secret and is consumed only by the release-metadata job. No Flux cluster or dispatch credential enters product publication jobs.
+## Release helper commands
 
-General Linux control-plane work runs on the semantic general profile from `RUNNERS.md`. Publication workflows retain their own product-specific runner selection.
-
-Routine GitHub Actions artifact upload is forbidden. Release evidence is stored in the immutable remote publications, GitHub Release manifest, and bounded handoff instead of ordinary workflow artifacts.
-
-Credential-bearing and publication workspaces must be removed on all terminal paths. Cleanup/residue verification runs even when a preceding publication step fails.
-
-## Local contract tools
-
-Issue-#19 release helpers intentionally use a standalone adapter (`scripts/ci/release.py`) so this parallel implementation does not modify shared `ciw` command registration.
-
-Useful commands are:
+`scripts/ci/release.py` is the thin issue-#19 command adapter. Its relevant commands are:
 
 ```text
 release.py plan
+release.py runner-plan
 release.py image-bindings
 release.py evidence
 release.py verify-publications
 release.py manifest
 release.py github-release
 release.py handoff
+release.py dispatch-handoff
 release.py progress
 ```
 
-All GitHub Actions outputs emitted by this adapter are bounded single-line values. The helpers reject malformed release IDs, source identities, registry redirects, digest conflicts, mutable references, secret-shaped evidence, and unauthorized handoff fields rather than trying to infer or repair them.
+All GitHub outputs are bounded single-line values. Malformed release identities, tag/source mismatches, runner-selector injection, registry redirects, digest conflicts, mutable references, secret-shaped evidence, unauthorized handoff fields, handoff digest mismatch, and missing handoff credentials fail closed.
 
-## Integration invariant
+## Integration boundary
 
-The final `reusable-release.yml` must compose the registered publication interfaces rather than their private implementation details. In particular, the Helm publication boundary must accept the digest-pinned image identity derived from the OCI read-back and must preserve/revalidate the same exact tag authority immediately before its registry write. The release workflow is not complete until those dependency interfaces are available and its exact-head contract tests verify the composition.
+The #19-owned workflow and release core do not modify #17/#18 resources or shared public-registration files. Final integration requires the #17/#18 publication primitives and their shared registrations to be present on the candidate `main` graph. `release.orchestrate` itself remains non-mergeable until the canonical public contract is switched from planned to implemented, its registered implementation-component references agree with the depth-one design, and exact-head validation is green.
