@@ -57,12 +57,14 @@ class ReleaseAPI(Protocol):
 
 def release_body(manifest_json: str, manifest_sha256: str) -> str:
     require(
-        re.fullmatch(r"[0-9a-f]{64}", manifest_sha256) is not None,
+        isinstance(manifest_sha256, str)
+        and re.fullmatch(r"[0-9a-f]{64}", manifest_sha256) is not None,
         "manifest_digest_rejected",
     )
+    require(isinstance(manifest_json, str), "manifest_json_rejected")
     try:
         parsed = json.loads(manifest_json)
-    except json.JSONDecodeError as error:
+    except (TypeError, json.JSONDecodeError) as error:
         raise ReleaseError("manifest_json_rejected") from error
     canonical = canonical_json(parsed)
     require(sha256_text(canonical) == manifest_sha256, "manifest_digest_mismatch")
@@ -86,7 +88,10 @@ def desired_release(
 ) -> DesiredGitHubRelease:
     version = validate_release_version(release_version)
     tag = validate_release_tag(release_tag, version)
-    require(FULL_SHA.fullmatch(source_sha) is not None, "release_sha_rejected")
+    require(
+        isinstance(source_sha, str) and FULL_SHA.fullmatch(source_sha) is not None,
+        "release_sha_rejected",
+    )
     require(REPOSITORY.fullmatch(plan.repository) is not None, "repository_rejected")
     return DesiredGitHubRelease(
         repository=plan.repository,
@@ -103,6 +108,10 @@ def verify_existing_release(
     existing: Mapping[str, Any], desired: DesiredGitHubRelease
 ) -> str:
     require(existing.get("tag_name") == desired.tag_name, "github_release_conflict")
+    require(
+        existing.get("target_commitish") == desired.target_commitish,
+        "github_release_conflict",
+    )
     require(existing.get("name") == desired.name, "github_release_conflict")
     require(existing.get("body") == desired.body, "github_release_conflict")
     require(existing.get("draft") is desired.draft, "github_release_conflict")
@@ -183,6 +192,7 @@ class GitHubReleaseAPI:
         return parsed
 
     def get_by_tag(self, tag: str) -> Mapping[str, Any] | None:
+        require(isinstance(tag, str), "release_tag_rejected")
         candidate = tag.strip()
         require(RELEASE_TAG.fullmatch(candidate) is not None, "release_tag_rejected")
         return self._request(
