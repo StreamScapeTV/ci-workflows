@@ -124,17 +124,24 @@
     "publication": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["product_id", "kind", "digest", "immutable_references", "evidence"],
+      "required": ["product_id", "kind", "digest", "digests", "immutable_references", "evidence"],
       "properties": {
         "product_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$"},
         "kind": {"enum": ["oci-image", "helm-chart"]},
         "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "digests": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 16,
+          "propertyNames": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^\\S+$"},
+          "additionalProperties": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+        },
         "immutable_references": {
           "type": "array",
           "minItems": 1,
           "maxItems": 16,
           "uniqueItems": true,
-          "items": {"type": "string", "minLength": 1, "maxLength": 512}
+          "items": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^\\S+$"}
         },
         "evidence": {"type": "object", "maxProperties": 64}
       }
