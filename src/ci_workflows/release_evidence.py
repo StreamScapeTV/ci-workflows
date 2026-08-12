@@ -11,7 +11,10 @@ from .release_types import ReleaseError
 MAX_JSON_BYTES = 64 * 1024
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 TARGET = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
-PLATFORM = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}/[a-z0-9][a-z0-9._-]{0,63}$")
+PLATFORM = re.compile(
+    r"^[a-z0-9][a-z0-9._-]{0,63}/[a-z0-9][a-z0-9._-]{0,63}"
+    r"(?:/[a-z0-9][a-z0-9._-]{0,63})?$"
+)
 
 
 def require(condition: bool, code: str) -> None:
