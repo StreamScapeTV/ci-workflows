@@ -21,6 +21,7 @@
     ],
     "no_image_binding": "both-inputs-omitted"
   },
+  "publication_execute_surface": "release-adapter-only",
   "read_back": "required-oci-pull-and-normalized-sha256",
   "registry_host": "git.faruqi.dev",
   "registry_namespace": "mimranfaruqi/helm-charts",

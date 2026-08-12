@@ -20,7 +20,6 @@ from .helm_contract import (
 )
 from .helm_execution import (
     cleanup_helm_state,
-    publish_and_read_back,
     validate_and_package,
     verify_no_helm_residue,
 )
@@ -138,6 +137,7 @@ def execute(
     phase: str,
     source_relative: str,
 ) -> dict[str, str]:
+    require(operation in {"validate", "publish"}, "invalid_operation")
     if phase == "plan":
         return _plan(root, environment, operation)
     state_root = _state_root(root, environment)
@@ -155,11 +155,14 @@ def execute(
             "cleanup_result": "success",
             "failure_code": "",
         }
-    contract = load_helm_contract(root)
     if operation == "publish":
-        load_helm_publication_contract(root)
+        # Publication execute must traverse the release-only adapter so exact
+        # tag authority, direct OCI publication evidence, and read-only replay
+        # mode cannot be bypassed through the generic CIW command surface.
+        require(False, "release_adapter_required")
+
+    contract = load_helm_contract(root)
     request = request_from_environment(environment)
-    _require_operation_trust(request, operation)
     source_root = _source_root(root, environment, source_relative)
     plan = resolve_validation_plan(source_root, contract, request)
     validation = validate_and_package(
@@ -169,33 +172,13 @@ def execute(
         request.admitted_sha,
         environment,
     )
-    if operation == "validate":
-        values = validation.output_values()
-        values.update(
-            {
-                "failure_code": "",
-                "runner_profile": "portable",
-                "workspace_profile": "minimal",
-                "timeout_minutes": "60",
-                "source_trust": request.source_trust,
-            }
-        )
-        return values
-    published = publish_and_read_back(
-        source_root,
-        state_root,
-        plan,
-        validation,
-        environment,
-    )
-    values = published.output_values()
+    values = validation.output_values()
     values.update(
         {
-            "artifact_exception_used": "false",
             "failure_code": "",
-            "runner_profile": "buildah-tiny",
+            "runner_profile": "portable",
             "workspace_profile": "minimal",
-            "timeout_minutes": "90",
+            "timeout_minutes": "60",
             "source_trust": request.source_trust,
         }
     )
