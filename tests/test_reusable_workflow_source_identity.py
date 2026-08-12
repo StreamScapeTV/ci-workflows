@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 APPLE_SHA = "3175577052ac22b838789709f7082dfee372cfa7"
 OCI_SHA = "29cb88e406a0490834bd556bb825d0e227c862ac"
+GITOPS_SHA = "8445e63dd9fa9468b60b6d0c61e543da9681b47b"
 
 FOUNDATION = "issue #116 immutable private-action checkpoint"
 ISSUE_104 = "issue #104 immutable private-action checkpoint"
@@ -60,6 +61,13 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
         "StreamScapeTV/ci-workflows/actions/render-evidence": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
     },
+    ".github/workflows/reusable-gitops-validation.yml": {
+        "StreamScapeTV/ci-workflows/actions/validate-gitops": (GITOPS_SHA, ISSUE_125),
+        "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/render-evidence": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
+    },
 }
 
 ANDROID_WORKFLOW = ".github/workflows/reusable-android.yml"
@@ -88,7 +96,9 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
                 source, workflow = self.load(relative)
                 self.assertNotIn("actions/checkout@", source)
                 self.assertNotIn("repository: ${{ job.workflow_repository }}", source)
+                self.assertNotIn("repository: StreamScapeTV/ci-workflows", source)
                 self.assertNotIn("ref: ${{ job.workflow_sha }}", source)
+                self.assertNotIn("ref: ${{ github.workflow_sha }}", source)
                 self.assertNotIn("path: .ciw", source)
                 self.assertNotIn("./.ciw/actions/", source)
                 self.assertNotIn("secrets: inherit", source)
