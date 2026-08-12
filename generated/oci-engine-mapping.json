@@ -1,6 +1,6 @@
 {
   "contract_version": "1.0.0",
-  "mapping_sha256": "968ce507dda6a8debc1b27afe1059d01b51621090661162a258dcc87d081f630",
+  "mapping_sha256": "45906aa8b4b3402b5324df5f673aa1eb0b05a487e829744f50ddaa270ad5bd58",
   "products": {
     "agent-state-image": {
       "builder_id": "buildah-v1",
@@ -63,12 +63,6 @@
             "linux/amd64"
           ],
           "target_id": "runner-mobile"
-        },
-        {
-          "platforms": [
-            "linux/amd64"
-          ],
-          "target_id": "runner-portable"
         }
       ]
     },
