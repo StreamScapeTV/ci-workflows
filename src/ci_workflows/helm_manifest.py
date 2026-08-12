@@ -1,4 +1,4 @@
-"""Independent Helm OCI manifest digest and layer read-back proof."""
+"""Independent Helm OCI raw-manifest digest and layer read-back proof."""
 from __future__ import annotations
 
 import hashlib
@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Mapping
 
-from .helm_contract import DIGEST, require
+from .helm_contract import require
 from .helm_execution import _run, _runtime_environment
 from .helm_types import HelmValidationError
 
@@ -19,7 +19,7 @@ def remote_chart_manifest_digest(
     expected_package_sha256: str,
     inherited: Mapping[str, str],
 ) -> str:
-    """Return the registry-reported manifest digest after independent raw proof."""
+    """Hash the exact raw remote manifest bytes and verify the Helm content layer."""
 
     environment = _runtime_environment(inherited, state_root)
     authfile = Path(environment["HELM_CONFIG_HOME"]) / "registry" / "config.json"
@@ -27,24 +27,6 @@ def remote_chart_manifest_digest(
     docker_reference = (
         "docker://" + chart_reference.removeprefix("oci://") + ":" + release_version
     )
-
-    reported = _run(
-        [
-            "skopeo",
-            "inspect",
-            "--authfile",
-            str(authfile),
-            "--no-tags",
-            "--format",
-            "{{.Digest}}",
-            docker_reference,
-        ],
-        cwd=source_root,
-        environment=environment,
-        timeout=120,
-        code="remote_manifest_read_back_failed",
-    ).stdout.strip()
-    require(DIGEST.fullmatch(reported) is not None, "remote_manifest_invalid")
 
     manifest = _run(
         [
@@ -62,8 +44,7 @@ def remote_chart_manifest_digest(
     ).stdout
     raw = manifest.encode("utf-8")
     require(0 < len(raw) <= 2_000_000, "remote_manifest_read_back_failed")
-    raw_digest = "sha256:" + hashlib.sha256(raw).hexdigest()
-    require(raw_digest == reported, "remote_manifest_digest_mismatch")
+    digest = "sha256:" + hashlib.sha256(raw).hexdigest()
 
     try:
         payload = json.loads(manifest)
@@ -86,7 +67,7 @@ def remote_chart_manifest_digest(
         and layer.get("digest") == f"sha256:{expected_package_sha256}",
         "remote_manifest_invalid",
     )
-    return reported
+    return digest
 
 
 __all__ = ["remote_chart_manifest_digest"]

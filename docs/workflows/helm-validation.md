@@ -137,21 +137,22 @@ If not, the central Buildah escalation policy selects the next sufficient tier.
 ## Publication and read-back
 
 Tag-push publication uses pull-compare-before-push, mandatory Helm pull
-read-back, and a second independent manifest inspection with Skopeo. A failed
-first pull is treated as proof of absence only when the registry returns the
-standard `MANIFEST_UNKNOWN` (including Helm's `manifest unknown` rendering) or
-`NAME_UNKNOWN` error code. Generic `404 Not Found`, authentication, proxy,
-network, or other lookup failures are `registry_lookup_failed` and never become
-a `helm push` attempt. A failed absence lookup must also leave the destination
-directory empty before publication is allowed.
+read-back, and a second independent raw manifest inspection with Skopeo. A
+failed first pull is treated as proof of absence only when the registry returns
+the standard `MANIFEST_UNKNOWN` (including Helm's `manifest unknown`
+rendering) or `NAME_UNKNOWN` error code. Generic `404 Not Found`,
+authentication, proxy, network, or other lookup failures are
+`registry_lookup_failed` and never become a `helm push` attempt. A failed
+absence lookup must also leave the destination directory empty before
+publication is allowed.
 
-For `chart_digest`, Skopeo first reports the digest of the exact top-level
-registry object without enumerating tags. A separate `--raw` inspection must
-hash back to that same digest, must use the Helm OCI config media type, must
-contain exactly one Helm chart content layer, and that layer digest must equal
-the recursively canonical local package SHA-256. The public `chart_digest` is
-the registry-reported top-level manifest digest, while
-`chart_package_sha256` remains the separate package-content identity.
+For `chart_digest`, `skopeo inspect --raw` supplies the exact fetched manifest
+bytes without converting the Helm artifact through image inspection. #18
+hashes those exact bytes with SHA-256, parses the same bytes to require the Helm
+OCI config media type, requires exactly one Helm chart content layer, and
+requires that layer digest to equal the recursively canonical local package
+SHA-256. The public `chart_digest` is this exact raw remote-manifest digest,
+while `chart_package_sha256` remains the separate package-content identity.
 
 Tag-push replays and manual verify-only replays succeed only on exact package
 and manifest parity; conflicting immutable versions fail closed. Manual replay

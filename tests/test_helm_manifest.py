@@ -44,7 +44,7 @@ class HelmManifestReadBackTests(unittest.TestCase):
             separators=(",", ":"),
         )
 
-    def test_registry_reported_digest_and_raw_bytes_must_agree(self) -> None:
+    def test_exact_raw_manifest_bytes_define_chart_digest(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source, state = self.setup_state(root)
@@ -56,8 +56,6 @@ class HelmManifestReadBackTests(unittest.TestCase):
             def fake_run(argv, **kwargs):
                 command = list(argv)
                 calls.append(command)
-                if "--format" in command:
-                    return subprocess.CompletedProcess(command, 0, digest + "\n", "")
                 return subprocess.CompletedProcess(command, 0, manifest, "")
 
             with patch("ci_workflows.helm_manifest._run", side_effect=fake_run):
@@ -70,76 +68,20 @@ class HelmManifestReadBackTests(unittest.TestCase):
                     {"PATH": "/usr/bin", "HOME": str(root)},
                 )
             self.assertEqual(actual, digest)
-            self.assertEqual(len(calls), 2)
-            self.assertIn("--format", calls[0])
-            self.assertNotIn("--raw", calls[0])
-            self.assertIn("--raw", calls[1])
+            self.assertEqual(len(calls), 1)
+            self.assertIn("--raw", calls[0])
+            self.assertNotIn("--format", calls[0])
 
-    def test_raw_manifest_digest_mismatch_fails_closed(self) -> None:
+    def test_helm_layer_shape_and_package_digest_are_strict(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source, state = self.setup_state(root)
             package_sha = "e" * 64
-            manifest = self.manifest(package_sha)
-            wrong = "sha256:" + "0" * 64
-
-            def fake_run(argv, **kwargs):
-                command = list(argv)
-                if "--format" in command:
-                    return subprocess.CompletedProcess(command, 0, wrong, "")
-                return subprocess.CompletedProcess(command, 0, manifest, "")
-
-            with patch("ci_workflows.helm_manifest._run", side_effect=fake_run):
-                with self.assertRaisesRegex(
-                    HelmValidationError,
-                    "remote_manifest_digest_mismatch",
-                ):
-                    remote_chart_manifest_digest(
-                        source,
-                        state,
-                        "oci://git.faruqi.dev/mimranfaruqi/helm-charts/iptv-backend",
-                        "1.2.3",
-                        package_sha,
-                        {"PATH": "/usr/bin", "HOME": str(root)},
-                    )
-
-    def test_reported_digest_and_helm_layer_shape_are_strict(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            source, state = self.setup_state(root)
-            package_sha = "e" * 64
-            manifest = self.manifest(package_sha)
-            digest = "sha256:" + hashlib.sha256(manifest.encode("utf-8")).hexdigest()
-
-            with patch(
-                "ci_workflows.helm_manifest._run",
-                side_effect=[
-                    subprocess.CompletedProcess([], 0, "not-a-digest", ""),
-                ],
-            ):
-                with self.assertRaisesRegex(
-                    HelmValidationError,
-                    "remote_manifest_invalid",
-                ):
-                    remote_chart_manifest_digest(
-                        source,
-                        state,
-                        "oci://git.faruqi.dev/mimranfaruqi/helm-charts/iptv-backend",
-                        "1.2.3",
-                        package_sha,
-                        {"PATH": "/usr/bin", "HOME": str(root)},
-                    )
 
             bad_manifest = self.manifest("0" * 64)
-            bad_digest = "sha256:" + hashlib.sha256(
-                bad_manifest.encode("utf-8")
-            ).hexdigest()
             with patch(
                 "ci_workflows.helm_manifest._run",
-                side_effect=[
-                    subprocess.CompletedProcess([], 0, bad_digest, ""),
-                    subprocess.CompletedProcess([], 0, bad_manifest, ""),
-                ],
+                return_value=subprocess.CompletedProcess([], 0, bad_manifest, ""),
             ):
                 with self.assertRaisesRegex(
                     HelmValidationError,
@@ -154,7 +96,66 @@ class HelmManifestReadBackTests(unittest.TestCase):
                         {"PATH": "/usr/bin", "HOME": str(root)},
                     )
 
-    def test_release_adapter_routes_manifest_proof_through_new_module(self) -> None:
+            invalid_media = json.loads(self.manifest(package_sha))
+            invalid_media["config"]["mediaType"] = "application/octet-stream"
+            invalid_raw = json.dumps(invalid_media, separators=(",", ":"))
+            with patch(
+                "ci_workflows.helm_manifest._run",
+                return_value=subprocess.CompletedProcess([], 0, invalid_raw, ""),
+            ):
+                with self.assertRaisesRegex(
+                    HelmValidationError,
+                    "remote_manifest_invalid",
+                ):
+                    remote_chart_manifest_digest(
+                        source,
+                        state,
+                        "oci://git.faruqi.dev/mimranfaruqi/helm-charts/iptv-backend",
+                        "1.2.3",
+                        package_sha,
+                        {"PATH": "/usr/bin", "HOME": str(root)},
+                    )
+
+    def test_malformed_or_oversized_raw_manifest_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, state = self.setup_state(root)
+            with patch(
+                "ci_workflows.helm_manifest._run",
+                return_value=subprocess.CompletedProcess([], 0, "not-json", ""),
+            ):
+                with self.assertRaisesRegex(
+                    HelmValidationError,
+                    "remote_manifest_invalid",
+                ):
+                    remote_chart_manifest_digest(
+                        source,
+                        state,
+                        "oci://git.faruqi.dev/mimranfaruqi/helm-charts/iptv-backend",
+                        "1.2.3",
+                        "e" * 64,
+                        {"PATH": "/usr/bin", "HOME": str(root)},
+                    )
+
+            oversized = "{" + (" " * 2_000_001) + "}"
+            with patch(
+                "ci_workflows.helm_manifest._run",
+                return_value=subprocess.CompletedProcess([], 0, oversized, ""),
+            ):
+                with self.assertRaisesRegex(
+                    HelmValidationError,
+                    "remote_manifest_read_back_failed",
+                ):
+                    remote_chart_manifest_digest(
+                        source,
+                        state,
+                        "oci://git.faruqi.dev/mimranfaruqi/helm-charts/iptv-backend",
+                        "1.2.3",
+                        "e" * 64,
+                        {"PATH": "/usr/bin", "HOME": str(root)},
+                    )
+
+    def test_release_adapter_routes_manifest_proof_through_raw_module(self) -> None:
         script = (
             Path(__file__).resolve().parents[1] / "scripts/ci/helm_release.py"
         ).read_text(encoding="utf-8")

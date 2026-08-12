@@ -27,7 +27,7 @@
   "registry_namespace": "mimranfaruqi/helm-charts",
   "release_binding_contract": "contracts/helm-release-bindings.json",
   "remote_absence_classifier": "docker-distribution-manifest-or-name-unknown-only",
-  "remote_manifest_proof": "registry-reported-digest-plus-raw-byte-and-helm-layer-parity",
+  "remote_manifest_proof": "skopeo-raw-byte-sha256-plus-helm-layer-parity",
   "runner_measurement": {
     "candidate_profile": "buildah-tiny",
     "headroom_percent": 25,
