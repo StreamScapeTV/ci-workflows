@@ -14,7 +14,9 @@ from .release_types import PublicationIdentity, ReleaseError, ReleasePlan
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 DIGEST = re.compile(r"^(?:sha256:)?[0-9a-f]{64}$")
+LATEST_REFERENCE = re.compile(r"(?i)(?:^|[:/])latest(?:@|$)")
 MAX_REFERENCE_LENGTH = 512
+MAX_EVIDENCE_BYTES = 64 * 1024
 
 
 def require(condition: bool, code: str) -> None:
@@ -71,6 +73,36 @@ def normalize_digest(value: str) -> str:
     return candidate if candidate.startswith("sha256:") else f"sha256:{candidate}"
 
 
+def _digest_map(digest: str, digests_json: str) -> tuple[str, dict[str, str]]:
+    if digests_json.strip():
+        try:
+            payload = json.loads(digests_json)
+        except json.JSONDecodeError as error:
+            raise ReleaseError("publication_digest_rejected") from error
+        require(isinstance(payload, Mapping) and 0 < len(payload) <= 16, "publication_digest_rejected")
+        normalized: dict[str, str] = {}
+        for key, value in payload.items():
+            require(
+                isinstance(key, str)
+                and 0 < len(key) <= 128
+                and not any(character.isspace() for character in key)
+                and isinstance(value, str),
+                "publication_digest_rejected",
+            )
+            normalized[key] = normalize_digest(value)
+        normalized = dict(sorted(normalized.items()))
+        if digest.strip():
+            primary = normalize_digest(digest)
+            require(primary in set(normalized.values()), "publication_digest_mismatch")
+        elif len(normalized) == 1:
+            primary = next(iter(normalized.values()))
+        else:
+            primary = f"sha256:{sha256_text(canonical_json(normalized))}"
+        return primary, normalized
+    primary = normalize_digest(digest)
+    return primary, {"primary": primary}
+
+
 def _reference_values(value: Any, *, key: str | None = None) -> list[str]:
     references: list[str] = []
     if isinstance(value, str):
@@ -95,7 +127,8 @@ def publication_identity(
     *,
     product_id: str,
     kind: str,
-    digest: str,
+    digest: str = "",
+    digests_json: str = "",
     immutable_references_json: str,
     evidence_json: str = "{}",
 ) -> PublicationIdentity:
@@ -106,21 +139,24 @@ def publication_identity(
     except json.JSONDecodeError as error:
         raise ReleaseError("publication_evidence_rejected") from error
     require(isinstance(evidence, Mapping), "publication_evidence_rejected")
+    require(len(evidence) <= 64 and len(canonical_json(evidence).encode("utf-8")) <= MAX_EVIDENCE_BYTES, "publication_evidence_rejected")
     references = sorted(set(_reference_values(reference_payload)))
     require(bool(references) and len(references) <= 16, "publication_reference_rejected")
     require(
         all(
             0 < len(reference) <= MAX_REFERENCE_LENGTH
             and not any(character.isspace() for character in reference)
-            and "latest" not in reference.casefold().split("/")[-1].split(":")[-1:]
+            and LATEST_REFERENCE.search(reference) is None
             for reference in references
         ),
         "publication_reference_rejected",
     )
+    primary, digests = _digest_map(digest, digests_json)
     return PublicationIdentity(
         product_id=product_id,
         kind=kind,
-        digest=normalize_digest(digest),
+        digest=primary,
+        digests=digests,
         immutable_references=tuple(references),
         evidence=dict(evidence),
     )
