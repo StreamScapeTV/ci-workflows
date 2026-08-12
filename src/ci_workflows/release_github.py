@@ -26,6 +26,7 @@ def require(condition: bool, code: str) -> None:
 
 @dataclass(frozen=True)
 class DesiredGitHubRelease:
+    repository: str
     tag_name: str
     target_commitish: str
     name: str
@@ -78,13 +79,15 @@ def desired_release(
 ) -> DesiredGitHubRelease:
     version = validate_release_version(release_version)
     require(FULL_SHA.fullmatch(source_sha) is not None, "release_sha_rejected")
+    require(REPOSITORY.fullmatch(plan.repository) is not None, "repository_rejected")
     return DesiredGitHubRelease(
+        repository=plan.repository,
         tag_name=version,
         target_commitish=source_sha,
         name=f"{plan.release_id} {version}",
         body=release_body(manifest_json, manifest_sha256),
         draft=False,
-        prerelease="-" in version,
+        prerelease=False,
     )
 
 
@@ -95,14 +98,11 @@ def verify_existing_release(existing: Mapping[str, Any], desired: DesiredGitHubR
     require(existing.get("draft") is desired.draft, "github_release_conflict")
     require(existing.get("prerelease") is desired.prerelease, "github_release_conflict")
     url = existing.get("html_url")
-    require(
-        isinstance(url, str)
-        and url.startswith("https://github.com/StreamScapeTV/")
-        and "/releases/tag/" in url
-        and len(url) <= 512,
-        "github_release_response_rejected",
+    expected_url = (
+        f"https://github.com/{desired.repository}/releases/tag/{desired.tag_name}"
     )
-    return url
+    require(url == expected_url, "github_release_response_rejected")
+    return expected_url
 
 
 def ensure_github_release(api: ReleaseAPI, desired: DesiredGitHubRelease) -> tuple[str, str]:
