@@ -95,7 +95,10 @@ jobs:
         run: |
           set -Eeuo pipefail
           test "${EXPECTED_REPOSITORY}" = "StreamScapeTV/ci-workflows"
-          test "$(git -C .ciw rev-parse HEAD)" = "${EXPECTED_SHA}"
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+          )
 
       - id: release
         name: Resolve checked-in public release contract
@@ -163,7 +166,10 @@ jobs:
           EXPECTED_SHA: ${{ job.workflow_sha }}
         run: |
           set -Eeuo pipefail
-          test "$(git -C .ciw rev-parse HEAD)" = "${EXPECTED_SHA}"
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+          )
 
       - name: Revalidate exact tag before publication
         uses: ./.ciw/actions/resolve-release-tag
@@ -220,7 +226,10 @@ jobs:
           EXPECTED_SHA: ${{ job.workflow_sha }}
         run: |
           set -Eeuo pipefail
-          test "$(git -C .ciw rev-parse HEAD)" = "${EXPECTED_SHA}"
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+          )
 
       - name: Check out exact admitted producer source
         uses: ./.ciw/actions/exact-checkout
@@ -423,7 +432,10 @@ jobs:
           EXPECTED_SHA: ${{ job.workflow_sha }}
         run: |
           set -Eeuo pipefail
-          test "$(git -C .ciw rev-parse HEAD)" = "${EXPECTED_SHA}"
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+          )
 
       - id: bind
         name: Verify image evidence and derive digest-pinned bindings
@@ -552,7 +564,10 @@ jobs:
           EXPECTED_SHA: ${{ job.workflow_sha }}
         run: |
           set -Eeuo pipefail
-          test "$(git -C .ciw rev-parse HEAD)" = "${EXPECTED_SHA}"
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+          )
 
       - name: Check out exact admitted producer source
         uses: ./.ciw/actions/exact-checkout
@@ -700,7 +715,10 @@ jobs:
           EXPECTED_SHA: ${{ job.workflow_sha }}
         run: |
           set -Eeuo pipefail
-          test "$(git -C .ciw rev-parse HEAD)" = "${EXPECTED_SHA}"
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+          )
 
       - id: dispatch
         name: Submit bounded review-only Flux handoff request
