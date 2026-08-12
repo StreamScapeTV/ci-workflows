@@ -7,6 +7,7 @@ import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from ci_workflows.helm_archive import (
     canonicalize_chart_archive,
@@ -25,12 +26,7 @@ def chart_bytes(
     uid: int = 1000,
 ) -> bytes:
     raw = io.BytesIO()
-    with gzip.GzipFile(
-        fileobj=raw,
-        mode="wb",
-        mtime=gzip_mtime,
-        filename=f"unstable-{gzip_mtime}",
-    ) as compressed:
+    with gzip.GzipFile(fileobj=raw, mode="wb", mtime=gzip_mtime, filename=f"unstable-{gzip_mtime}") as compressed:
         with tarfile.open(fileobj=compressed, mode="w") as archive:
             directory = tarfile.TarInfo(root_name + "/")
             directory.type = tarfile.DIRTYPE
@@ -50,12 +46,7 @@ def chart_bytes(
     return raw.getvalue()
 
 
-def outer_with_dependency(
-    dependency: bytes,
-    *,
-    gzip_mtime: int,
-    tar_mtime: int,
-) -> bytes:
+def outer_with_dependency(dependency: bytes, *, gzip_mtime: int, tar_mtime: int) -> bytes:
     return chart_bytes(
         "backend",
         {
@@ -72,70 +63,63 @@ class HelmArchiveTests(unittest.TestCase):
     def test_nested_dependency_metadata_is_recursively_deterministic(self) -> None:
         dependency_one = chart_bytes(
             "dep",
-            {
-                "Chart.yaml": b"apiVersion: v2\nname: dep\nversion: 1.0.0\n",
-                "templates/configmap.yaml": b"kind: ConfigMap\n",
-            },
+            {"Chart.yaml": b"apiVersion: v2\nname: dep\nversion: 1.0.0\n", "templates/configmap.yaml": b"kind: ConfigMap\n"},
             gzip_mtime=11,
             tar_mtime=111,
             uid=123,
         )
         dependency_two = chart_bytes(
             "dep",
-            {
-                "Chart.yaml": b"apiVersion: v2\nname: dep\nversion: 1.0.0\n",
-                "templates/configmap.yaml": b"kind: ConfigMap\n",
-            },
+            {"Chart.yaml": b"apiVersion: v2\nname: dep\nversion: 1.0.0\n", "templates/configmap.yaml": b"kind: ConfigMap\n"},
             gzip_mtime=22,
             tar_mtime=222,
             uid=456,
         )
         self.assertNotEqual(dependency_one, dependency_two)
-
         first = canonicalize_chart_archive_bytes(
-            outer_with_dependency(
-                dependency_one,
-                gzip_mtime=33,
-                tar_mtime=333,
-            ),
+            outer_with_dependency(dependency_one, gzip_mtime=33, tar_mtime=333),
             expected_root="backend",
         )
         second = canonicalize_chart_archive_bytes(
-            outer_with_dependency(
-                dependency_two,
-                gzip_mtime=44,
-                tar_mtime=444,
-            ),
+            outer_with_dependency(dependency_two, gzip_mtime=44, tar_mtime=444),
             expected_root="backend",
         )
         self.assertEqual(first, second)
-
         with tarfile.open(fileobj=io.BytesIO(first), mode="r:gz") as outer:
-            nested_member = outer.getmember("backend/charts/dep-1.0.0.tgz")
-            nested = outer.extractfile(nested_member)
+            nested = outer.extractfile(outer.getmember("backend/charts/dep-1.0.0.tgz"))
             self.assertIsNotNone(nested)
             nested_bytes = nested.read()
         with tarfile.open(fileobj=io.BytesIO(nested_bytes), mode="r:gz") as archive:
             self.assertTrue(all(member.mtime == 0 for member in archive.getmembers()))
-            self.assertTrue(
-                all(member.uid == 0 and member.gid == 0 for member in archive.getmembers())
-            )
+            self.assertTrue(all(member.uid == 0 and member.gid == 0 for member in archive.getmembers()))
+
+    def test_recursive_archives_share_one_total_member_budget(self) -> None:
+        leaf = chart_bytes(
+            "leaf",
+            {"Chart.yaml": b"apiVersion: v2\nname: leaf\nversion: 1.0.0\n"},
+            gzip_mtime=1,
+            tar_mtime=1,
+        )
+        middle = chart_bytes(
+            "dep",
+            {"Chart.yaml": b"apiVersion: v2\nname: dep\nversion: 1.0.0\n", "charts/leaf-1.0.0.tgz": leaf},
+            gzip_mtime=1,
+            tar_mtime=1,
+        )
+        outer = outer_with_dependency(middle, gzip_mtime=1, tar_mtime=1)
+        with patch("ci_workflows.helm_archive._MAX_MEMBERS", 5):
+            with self.assertRaisesRegex(HelmValidationError, "archive_invalid"):
+                canonicalize_chart_archive_bytes(outer, expected_root="backend")
 
     def test_secret_inside_packaged_dependency_is_rejected(self) -> None:
         dependency = chart_bytes(
             "dep",
-            {
-                "Chart.yaml": b"apiVersion: v2\nname: dep\nversion: 1.0.0\n",
-                "templates/secret.yaml": b"token: ghp_abcdefghijklmnopqrstuv\n",
-            },
+            {"Chart.yaml": b"apiVersion: v2\nname: dep\nversion: 1.0.0\n", "templates/secret.yaml": b"token: ghp_abcdefghijklmnopqrstuv\n"},
             gzip_mtime=1,
             tar_mtime=1,
         )
         outer = outer_with_dependency(dependency, gzip_mtime=2, tar_mtime=2)
-        with self.assertRaisesRegex(
-            HelmValidationError,
-            "archive_secret_detected",
-        ):
+        with self.assertRaisesRegex(HelmValidationError, "archive_secret_detected"):
             canonicalize_chart_archive_bytes(outer, expected_root="backend")
 
     def test_symlink_inside_packaged_dependency_is_rejected(self) -> None:
@@ -164,19 +148,11 @@ class HelmArchiveTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             preliminary = root / "normalized.tgz"
-            preliminary.write_bytes(
-                outer_with_dependency(dependency, gzip_mtime=10, tar_mtime=10)
-            )
+            preliminary.write_bytes(outer_with_dependency(dependency, gzip_mtime=10, tar_mtime=10))
             validation = HelmValidationResult(
                 chart_digest="sha256:" + "a" * 64,
                 package_sha256="a" * 64,
-                summary=json.dumps(
-                    {
-                        "chart_name": "backend",
-                        "package_sha256": "a" * 64,
-                        "status": "success",
-                    }
-                ),
+                summary=json.dumps({"chart_name": "backend", "package_sha256": "a" * 64, "status": "success"}),
                 archive_path=preliminary,
             )
             result = finalize_validation_archive(validation, "backend")
@@ -184,17 +160,9 @@ class HelmArchiveTests(unittest.TestCase):
             self.assertTrue(result.archive_path.is_file())
             self.assertEqual(result.archive_path.name, "canonical.tgz")
             self.assertEqual(result.chart_digest, "sha256:" + result.package_sha256)
-            self.assertEqual(
-                json.loads(result.summary)["package_sha256"],
-                result.package_sha256,
-            )
-
+            self.assertEqual(json.loads(result.summary)["package_sha256"], result.package_sha256)
             second = root / "second.tgz"
-            digest = canonicalize_chart_archive(
-                result.archive_path,
-                second,
-                "backend",
-            )
+            digest = canonicalize_chart_archive(result.archive_path, second, "backend")
             self.assertEqual(digest, result.package_sha256)
             self.assertEqual(second.read_bytes(), result.archive_path.read_bytes())
 
