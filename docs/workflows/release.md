@@ -27,9 +27,11 @@ The workflow requires the registered `release-orchestration` permissions: `actio
 | --- | --- | --- | --- | --- |
 | `backend` | `iptv-backend` | `StreamScapeTV/iptv-backend` | `iptv-backend-image` | `iptv-backend-chart` |
 | `agent-state` | `agent-state` | `StreamScapeTV/agent-state` | `agent-state-image` | `agent-state-chart` |
-| `flux` | `flux-runner-assets` | `StreamScapeTV/flux` | `flux-runner-images` | `flux-runner-chart-assets` |
+| `flux` | `flux-runner-assets` | `StreamScapeTV/flux` | `flux-runner-images` | current checked-in Flux runner chart product |
 
 Callers cannot redirect a release alias to another repository, registry destination, product, runner, or Flux target. When `target_id` is supplied it must equal the fixed resolved release ID.
+
+The final Helm binding contract distinguishes image-bound charts from chart-only assets. Backend and Agent State charts consume exact #17 OCI publication evidence. The Flux GitHub Actions runner chart has no image binding: its chart release omits both `image_digest` and `immutable_references_json`, while the independently published runner-image family remains part of the same release manifest and Flux handoff evidence.
 
 ## Thin producer caller
 
@@ -76,7 +78,7 @@ The public workflow stays within the repository readability limit of seven jobs 
 1. `plan` resolves the public release request, exact tag authority, OCI product plan, and one contract-owned publication runner selector;
 2. `run_release_gates` revalidates the tag and proves an exact clean detached source checkout;
 3. `publish_images` executes the reviewed #17 OCI build/publication/read-back primitives and their unconditional cleanup/residue checks;
-4. `publish_charts_or_assets` verifies #17 image evidence, binds exact image digests, executes the reviewed #18 Helm publication/read-back primitive, and runs unconditional cleanup/residue checks;
+4. `publish_charts_or_assets` verifies #17 image evidence for release provenance, conditionally passes it to image-bound #18 Helm publication, and runs unconditional cleanup/residue checks;
 5. `verify_and_record` normalizes evidence, verifies immutable identities, renders the deterministic manifest, revalidates the tag, creates or exactly verifies the GitHub Release, and constructs the sanitized handoff; and
 6. `request_handoff_and_finalize` submits only the reviewed handoff request and exposes the stable `Release / Verified products` terminal check.
 
@@ -86,7 +88,9 @@ The workflow deliberately composes #17/#18 named actions/scripts directly instea
 
 Image publication reuses the #17 sequence: exact source rebuild, workflow-scoped registry authentication, immutable version/source publication, independent Skopeo read-back, manifest/platform/config/layer verification, and unconditional publication/build/workspace cleanup.
 
-Chart publication consumes the exact #17 publication evidence. The binding layer validates source/version/target parity and derives digest-pinned `repository@sha256:<digest>` identities. The #18 release primitive then packages, publishes, independently reads back, and verifies the Helm OCI chart. A mutable image version tag is not an equivalent binding.
+For image-bound charts, Helm publication consumes the exact #17 public `image_digest` and `immutable_references_json` pair. #18 validates source/version/product parity and derives digest-pinned `repository@sha256:<digest>` bindings internally. Supplying only one evidence input fails closed.
+
+For a chart whose checked-in Helm binding contract has no image binding, both OCI evidence inputs are omitted from Helm publication. Supplying either one fails closed. This is the intended Flux GitHub Actions runner chart behavior; it does not remove the separately verified Flux runner-image family from release evidence.
 
 Flux runner images may contain multiple targets. Every target digest is preserved; the release never collapses a multi-target family to one arbitrary digest.
 
@@ -168,3 +172,5 @@ All GitHub outputs are bounded single-line values. Malformed release identities,
 ## Integration boundary
 
 The #19-owned workflow and release core do not modify #17/#18 resources or shared public-registration files. Final integration requires the #17/#18 publication primitives and their shared registrations to be present on the candidate `main` graph. `release.orchestrate` itself remains non-mergeable until the canonical public contract is switched from planned to implemented, its registered implementation-component references agree with the depth-one design, and exact-head validation is green.
+
+After the serialized shared merge that introduces `flux-github-actions-runner-chart`, #19 updates only its own `contracts/releases.json` entry to that final product ID and sets `chart_requires_image_identity=false`; before that shared product exists, the current placeholder remains intentionally unchanged to keep the branch fail-closed and mergeable against present inventory.
