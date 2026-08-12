@@ -91,11 +91,14 @@ class AndroidCommand:
 class AndroidWrapperContract:
     mode: str
     version: str
+    launcher_path: str
     properties_path: str
+    jar_path: str | None
     distribution_url: str
     distribution_sha256: str | None
-    tracked_blob_sha1: str | None
-    properties_blob_sha1: str | None
+    launcher_blob_sha1: str
+    properties_blob_sha1: str
+    jar_blob_sha1: str | None
 
 
 @dataclass(frozen=True)

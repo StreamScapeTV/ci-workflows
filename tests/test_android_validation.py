@@ -54,6 +54,38 @@ class AndroidValidationContractTests(unittest.TestCase):
         self.assertNotIn("self-hosted", serialized)
         self.assertNotIn("google jib", serialized)
 
+    def test_wrapper_component_identities_are_explicit_and_current(self) -> None:
+        wrapper = self.contract["wrappers"]["iptv-gradle-9.5.0"]
+        self.assertEqual(
+            set(wrapper),
+            {
+                "mode", "version", "launcher_path", "properties_path", "jar_path",
+                "distribution_url", "distribution_sha256", "launcher_blob_sha1",
+                "properties_blob_sha1", "jar_blob_sha1",
+            },
+        )
+        self.assertEqual(wrapper["launcher_path"], "gradlew")
+        self.assertEqual(
+            wrapper["launcher_blob_sha1"],
+            "739907dfd15937f032b5a46390e9d63709e87f7a",
+        )
+        self.assertEqual(
+            wrapper["properties_blob_sha1"],
+            "1a704683a00238cd4d05f55dd79bdc7614d90f4c",
+        )
+        self.assertEqual(wrapper["jar_path"], "gradle/wrapper/gradle-wrapper.jar")
+        self.assertEqual(
+            wrapper["jar_blob_sha1"],
+            "d997cfc60f4cff0e7451d19d49a82fa986695d07",
+        )
+        self.assertNotEqual(wrapper["launcher_blob_sha1"], wrapper["jar_blob_sha1"])
+
+        legacy = dict(wrapper)
+        legacy["tracked_blob_sha1"] = legacy.pop("launcher_blob_sha1")
+        with self.assertRaises(AndroidValidationError) as failure:
+            android_contract.validate_wrapper(legacy)
+        self.assertEqual(failure.exception.code, "wrapper_invalid")
+
     def test_positive_fixture_requests_resolve_to_mobile(self) -> None:
         for case in self.cases["positive"]:
             with self.subTest(case=case["name"]):
