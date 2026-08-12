@@ -85,7 +85,8 @@ class OciPublicFacadeTests(unittest.TestCase):
                 '["linux","amd64","buildah","tiny"]',
                 values["runs_on_json"],
             )
-            self.assertEqual("false", values["artifact_exception_used"])
+            self.assertEqual("", values["failure_code"])
+            self.assertNotIn("artifact_exception_used", values)
 
 
 if __name__ == "__main__":
