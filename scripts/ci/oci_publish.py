@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from ci_workflows.oci_publish import (  # noqa: E402
+from ci_workflows.oci_publish_contract import (  # noqa: E402
     OciPublishError,
     authenticate,
     cleanup,
