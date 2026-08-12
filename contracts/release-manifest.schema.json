@@ -1,1 +1,201 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://streamscapetv.invalid/schemas/ci-workflows-release-manifest-v1.json","title":"StreamScapeTV CI Workflows release manifest","type":"object","additionalProperties":false,"required":["schema_version","shared_release","workflow_apis","function_library","schemas","action_lock","tool_lock","runner_profiles","consumers"],"properties":{"schema_version":{"const":1},"shared_release":{"type":"object","additionalProperties":false,"required":["tag","commit","created_at","previous_known_good"],"properties":{"tag":{"type":"string","pattern":"^v[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"},"commit":{"type":"string","pattern":"^[0-9a-f]{40}$"},"created_at":{"type":"string","format":"date-time"},"previous_known_good":{"type":"string","pattern":"^(?:[0-9a-f]{40}|v[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?)$"}}},"workflow_apis":{"type":"object","minProperties":1,"additionalProperties":{"type":"object","additionalProperties":false,"required":["version","file","sha256"],"properties":{"version":{"type":"string","pattern":"^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"},"file":{"type":"string","pattern":"^\\.github/workflows/reusable-[A-Za-z0-9._-]+\\.(?:yml|yaml)$"},"sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}}}},"function_library":{"type":"object","additionalProperties":false,"required":["version","sha256"],"properties":{"version":{"type":"string","pattern":"^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"},"sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}}},"schemas":{"type":"object","minProperties":1,"additionalProperties":{"type":"string","pattern":"^[0-9a-f]{64}$"}},"action_lock":{"$ref":"#/$defs/versionedDigest"},"tool_lock":{"$ref":"#/$defs/versionedDigest"},"runner_profiles":{"$ref":"#/$defs/versionedDigest"},"consumers":{"type":"array","minItems":1,"uniqueItems":true,"items":{"type":"object","additionalProperties":false,"required":["repository","reference","products"],"properties":{"repository":{"type":"string","pattern":"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},"reference":{"type":"string","pattern":"^(?:[0-9a-f]{40}|v[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?)$"},"products":{"type":"array","uniqueItems":true,"items":{"type":"string","pattern":"^[a-z][a-z0-9-]{1,63}$"}}}}}},"$defs":{"versionedDigest":{"type":"object","additionalProperties":false,"required":["version","sha256"],"properties":{"version":{"type":"string","minLength":1,"maxLength":128},"sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}}}}}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://streamscapetv.invalid/schemas/ci-workflows-release-manifest-v1.json",
+  "title": "StreamScapeTV CI Workflows release manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "shared_release",
+    "workflow_apis",
+    "function_library",
+    "schemas",
+    "action_lock",
+    "tool_lock",
+    "runner_profiles",
+    "consumers"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "shared_release": {
+      "oneOf": [
+        {"$ref": "#/$defs/sharedLibraryRelease"},
+        {"$ref": "#/$defs/productSharedRelease"}
+      ]
+    },
+    "workflow_apis": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "file", "sha256"],
+        "properties": {
+          "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"},
+          "file": {"type": "string", "pattern": "^\\.github/workflows/reusable-[A-Za-z0-9._-]+\\.(?:yml|yaml)$"},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "function_library": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "sha256"],
+      "properties": {
+        "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "schemas": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+    },
+    "action_lock": {"$ref": "#/$defs/versionedDigest"},
+    "tool_lock": {"$ref": "#/$defs/versionedDigest"},
+    "runner_profiles": {"$ref": "#/$defs/versionedDigest"},
+    "consumers": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["repository", "reference", "products"],
+        "properties": {
+          "repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+          "reference": {"type": "string", "pattern": "^(?:[0-9a-f]{40}|v[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?)$"},
+          "products": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$"}
+          }
+        }
+      }
+    },
+    "product_release": {"$ref": "#/$defs/productRelease"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "shared_release": {
+            "type": "object",
+            "required": ["kind"],
+            "properties": {"kind": {"const": "product"}}
+          }
+        }
+      },
+      "then": {"required": ["product_release"]}
+    }
+  ],
+  "$defs": {
+    "sharedLibraryRelease": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tag", "commit", "created_at", "previous_known_good"],
+      "properties": {
+        "tag": {"type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"},
+        "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "created_at": {"type": "string", "format": "date-time"},
+        "previous_known_good": {"type": "string", "pattern": "^(?:[0-9a-f]{40}|v[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?)$"}
+      }
+    },
+    "productSharedRelease": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "tag", "commit", "created_at"],
+      "properties": {
+        "kind": {"const": "product"},
+        "tag": {"type": "string", "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"},
+        "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "created_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "versionedDigest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "sha256"],
+      "properties": {
+        "version": {"type": "string", "minLength": 1, "maxLength": 128},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "publication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["product_id", "kind", "digest", "immutable_references", "evidence"],
+      "properties": {
+        "product_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$"},
+        "kind": {"enum": ["oci-image", "helm-chart"]},
+        "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "immutable_references": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 512}
+        },
+        "evidence": {"type": "object", "maxProperties": 64}
+      }
+    },
+    "productRelease": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "release_id",
+        "repository",
+        "version",
+        "source_sha",
+        "tag_object_sha",
+        "tag_commit_sha",
+        "source_timestamp",
+        "workflow_sha",
+        "replay_policy",
+        "publications",
+        "github_release",
+        "flux_handoff"
+      ],
+      "properties": {
+        "release_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$"},
+        "repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+        "version": {"type": "string", "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"},
+        "source_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "tag_object_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "tag_commit_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "source_timestamp": {"type": "string", "format": "date-time"},
+        "workflow_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "replay_policy": {"const": "exact-match-only"},
+        "publications": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["image", "chart"],
+          "properties": {
+            "image": {"$ref": "#/$defs/publication"},
+            "chart": {"$ref": "#/$defs/publication"}
+          }
+        },
+        "github_release": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["required", "state"],
+          "properties": {
+            "required": {"const": true},
+            "state": {"const": "pending-or-matching"}
+          }
+        },
+        "flux_handoff": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "target_repository", "requested_action", "mutation_authorized"],
+          "properties": {
+            "kind": {"const": "flux-selection-request"},
+            "target_repository": {"const": "StreamScapeTV/flux"},
+            "requested_action": {"const": "review-selection"},
+            "mutation_authorized": {"const": false}
+          }
+        }
+      }
+    }
+  }
+}
