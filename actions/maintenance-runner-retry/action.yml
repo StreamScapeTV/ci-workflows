@@ -1,0 +1,29 @@
+name: Classify runner infrastructure retry
+description: Rerun failed jobs once only after exact-head and infrastructure-only evidence revalidation
+inputs:
+  project_id: {description: Checked-in project identifier, required: true}
+  run_id: {description: Exact workflow run id, required: true}
+  expected_head_sha: {description: Exact current source SHA, required: true}
+  dry_run: {description: Classify only when true, required: true}
+  request_id: {description: Bounded request identifier, required: true}
+  token: {description: Named organization maintenance credential, required: true}
+outputs:
+  result: {value: '${{ steps.maintenance.outputs.result }}'}
+  mutation_count: {value: '${{ steps.maintenance.outputs.mutation_count }}'}
+  retry_run_id: {value: '${{ steps.maintenance.outputs.retry_run_id }}'}
+  request_id: {value: '${{ steps.maintenance.outputs.request_id }}'}
+  failure_code: {value: '${{ steps.maintenance.outputs.failure_code }}'}
+runs:
+  using: composite
+  steps:
+    - id: maintenance
+      shell: bash
+      env:
+        PYTHONDONTWRITEBYTECODE: '1'
+        MAINTENANCE_GITHUB_TOKEN: ${{ inputs.token }}
+      run: |
+        set -Eeuo pipefail
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/maintenance.py" runner-retry \
+          --project-id "${{ inputs.project_id }}" --run-id "${{ inputs.run_id }}" \
+          --expected-head-sha "${{ inputs.expected_head_sha }}" --dry-run "${{ inputs.dry_run }}" \
+          --request-id "${{ inputs.request_id }}"

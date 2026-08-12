@@ -1,0 +1,57 @@
+name: Reusable runner infrastructure retry
+
+on:
+  workflow_call:
+    inputs:
+      project_id: {description: Checked-in project identifier, required: true, type: string}
+      run_id: {description: Exact failed workflow run id, required: true, type: number}
+      expected_head_sha: {description: Exact still-current source SHA, required: true, type: string}
+      dry_run: {description: Classify the failure without requesting a rerun, required: false, default: true, type: boolean}
+      request_id: {description: Bounded request identifier, required: true, type: string}
+    secrets:
+      organization_maintenance_token: {description: Least-privilege Actions rerun token, required: true}
+    outputs:
+      result: {value: '${{ jobs.retry.outputs.result }}'}
+      retry_run_id: {value: '${{ jobs.retry.outputs.retry_run_id }}'}
+      request_id: {value: '${{ jobs.retry.outputs.request_id }}'}
+permissions:
+  actions: write
+  contents: read
+concurrency:
+  group: maintenance-runner-retry-${{ inputs.project_id }}-${{ inputs.run_id }}
+  cancel-in-progress: false
+jobs:
+  retry:
+    name: Maintenance / Runner retry
+    runs-on: [linux, amd64, general]
+    timeout-minutes: 30
+    outputs:
+      result: ${{ steps.retry.outputs.result }}
+      retry_run_id: ${{ steps.retry.outputs.retry_run_id }}
+      request_id: ${{ steps.retry.outputs.request_id }}
+    steps:
+      - name: Check out exact central workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+      - name: Verify exact central workflow source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "${{ job.workflow_repository }}" = "StreamScapeTV/ci-workflows"
+          test "$(git -C .ciw rev-parse HEAD)" = "${{ job.workflow_sha }}"
+      - id: retry
+        uses: ./.ciw/actions/maintenance-runner-retry
+        with:
+          project_id: ${{ inputs.project_id }}
+          run_id: ${{ inputs.run_id }}
+          expected_head_sha: ${{ inputs.expected_head_sha }}
+          dry_run: ${{ inputs.dry_run }}
+          request_id: ${{ inputs.request_id }}
+          token: ${{ secrets.organization_maintenance_token }}

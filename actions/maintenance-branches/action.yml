@@ -1,0 +1,27 @@
+name: Run exact merged-branch hygiene
+description: Delete only one exact unchanged unprotected branch proven merged by pull request
+inputs:
+  project_id: {description: Checked-in project identifier, required: true}
+  pr_number: {description: Optional exact merged pull request number, required: false}
+  expected_head_sha: {description: Exact expected branch head SHA, required: true}
+  dry_run: {description: Report only when true, required: true}
+  request_id: {description: Bounded request identifier, required: true}
+  token: {description: Named organization maintenance credential, required: true}
+outputs:
+  result: {value: '${{ steps.maintenance.outputs.result }}'}
+  mutation_count: {value: '${{ steps.maintenance.outputs.mutation_count }}'}
+  request_id: {value: '${{ steps.maintenance.outputs.request_id }}'}
+  failure_code: {value: '${{ steps.maintenance.outputs.failure_code }}'}
+runs:
+  using: composite
+  steps:
+    - id: maintenance
+      shell: bash
+      env:
+        PYTHONDONTWRITEBYTECODE: '1'
+        MAINTENANCE_GITHUB_TOKEN: ${{ inputs.token }}
+      run: |
+        set -Eeuo pipefail
+        args=(python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/maintenance.py" branches --project-id "${{ inputs.project_id }}" --expected-head-sha "${{ inputs.expected_head_sha }}" --dry-run "${{ inputs.dry_run }}" --request-id "${{ inputs.request_id }}")
+        if [[ -n "${{ inputs.pr_number }}" ]]; then args+=(--pr-number "${{ inputs.pr_number }}"); fi
+        "${args[@]}"

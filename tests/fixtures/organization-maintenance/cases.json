@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "positive": [
+    "expired-completed-artifact",
+    "exact-merged-issue-branch",
+    "inventory-conformance-dry-run",
+    "proven-runner-infrastructure-failure",
+    "structured-flux-policy-plan"
+  ],
+  "negative": [
+    "retained-artifact-exception",
+    "active-run-artifact",
+    "changed-artifact-before-delete",
+    "unmerged-branch",
+    "protected-branch",
+    "changed-branch-before-delete",
+    "deterministic-product-failure",
+    "stale-run-head",
+    "flux-policy-path-mismatch",
+    "flux-source-mutation",
+    "flux-command-field-in-plan"
+  ]
+}

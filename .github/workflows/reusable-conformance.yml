@@ -1,0 +1,58 @@
+name: Reusable organization conformance report
+
+on:
+  workflow_call:
+    inputs:
+      repository_scope: {description: Optional checked-in project identifier; empty means every allowlisted project, required: false, type: string}
+      dry_run: {description: Return findings without creating or updating the report issue, required: false, default: true, type: boolean}
+      request_id: {description: Bounded request identifier, required: true, type: string}
+    secrets:
+      organization_read_token: {description: Least-privilege organization read token, required: false}
+      organization_update_token: {description: Least-privilege issue-report update token, required: false}
+    outputs:
+      result: {value: '${{ jobs.report.outputs.result }}'}
+      mutation_count: {value: '${{ jobs.report.outputs.mutation_count }}'}
+      report_issue_url: {value: '${{ jobs.report.outputs.report_issue_url }}'}
+      request_id: {value: '${{ jobs.report.outputs.request_id }}'}
+permissions:
+  actions: read
+  contents: read
+  issues: write
+  pull-requests: write
+concurrency:
+  group: maintenance-conformance-${{ inputs.repository_scope || 'all' }}
+  cancel-in-progress: false
+jobs:
+  report:
+    name: Maintenance / Organization conformance
+    runs-on: [linux, amd64, general]
+    timeout-minutes: 90
+    outputs:
+      result: ${{ steps.report.outputs.result }}
+      mutation_count: ${{ steps.report.outputs.mutation_count }}
+      report_issue_url: ${{ steps.report.outputs.report_issue_url }}
+      request_id: ${{ steps.report.outputs.request_id }}
+    steps:
+      - name: Check out exact central workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+      - name: Verify exact central workflow source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "${{ job.workflow_repository }}" = "StreamScapeTV/ci-workflows"
+          test "$(git -C .ciw rev-parse HEAD)" = "${{ job.workflow_sha }}"
+      - id: report
+        uses: ./.ciw/actions/maintenance-conformance
+        with:
+          repository_scope: ${{ inputs.repository_scope }}
+          dry_run: ${{ inputs.dry_run }}
+          request_id: ${{ inputs.request_id }}
+          token: ${{ inputs.dry_run && secrets.organization_read_token || secrets.organization_update_token }}

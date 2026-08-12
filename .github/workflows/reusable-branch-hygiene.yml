@@ -1,0 +1,57 @@
+name: Reusable exact merged-branch hygiene
+
+on:
+  workflow_call:
+    inputs:
+      project_id: {description: Checked-in project identifier, required: true, type: string}
+      pr_number: {description: Optional exact merged pull request number, required: false, type: number}
+      expected_head_sha: {description: Exact unchanged issue-branch head SHA, required: true, type: string}
+      dry_run: {description: Report the exact deletion without deleting, required: false, default: true, type: boolean}
+      request_id: {description: Bounded request identifier, required: true, type: string}
+    secrets:
+      organization_maintenance_token: {description: Least-privilege branch maintenance token, required: true}
+    outputs:
+      result: {value: '${{ jobs.hygiene.outputs.result }}'}
+      mutation_count: {value: '${{ jobs.hygiene.outputs.mutation_count }}'}
+      request_id: {value: '${{ jobs.hygiene.outputs.request_id }}'}
+permissions:
+  contents: write
+  pull-requests: read
+concurrency:
+  group: maintenance-branches-${{ inputs.project_id }}
+  cancel-in-progress: false
+jobs:
+  hygiene:
+    name: Maintenance / Branch hygiene
+    runs-on: [linux, amd64, general]
+    timeout-minutes: 30
+    outputs:
+      result: ${{ steps.hygiene.outputs.result }}
+      mutation_count: ${{ steps.hygiene.outputs.mutation_count }}
+      request_id: ${{ steps.hygiene.outputs.request_id }}
+    steps:
+      - name: Check out exact central workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+      - name: Verify exact central workflow source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "${{ job.workflow_repository }}" = "StreamScapeTV/ci-workflows"
+          test "$(git -C .ciw rev-parse HEAD)" = "${{ job.workflow_sha }}"
+      - id: hygiene
+        uses: ./.ciw/actions/maintenance-branches
+        with:
+          project_id: ${{ inputs.project_id }}
+          pr_number: ${{ inputs.pr_number }}
+          expected_head_sha: ${{ inputs.expected_head_sha }}
+          dry_run: ${{ inputs.dry_run }}
+          request_id: ${{ inputs.request_id }}
+          token: ${{ secrets.organization_maintenance_token }}

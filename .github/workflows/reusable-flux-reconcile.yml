@@ -1,0 +1,79 @@
+name: Reusable trusted Flux reconciliation
+
+on:
+  workflow_call:
+    inputs:
+      admitted_sha: {description: Exact trusted Flux policy source SHA, required: true, type: string}
+      target_id: {description: Opaque Flux target id interpreted only by Flux-owned policy, required: true, type: string}
+      product_id: {description: Opaque product id interpreted only by Flux-owned policy, required: true, type: string}
+      operation: {description: Contract-bounded deploy or restart operation, required: true, type: string}
+      policy_path: {description: Exact contract-matched Flux-owned policy adapter path, required: true, type: string}
+      allowlist_path: {description: Exact contract-matched Flux-owned allowlist path, required: true, type: string}
+      request_id: {description: Bounded request identifier, required: true, type: string}
+      dry_run: {description: Resolve and verify policy without cluster mutation, required: false, default: true, type: boolean}
+    secrets:
+      flux_kubeconfig: {description: Environment-bound Flux caller kubeconfig, required: false}
+      flux_sops_age_key: {description: Environment-bound Flux caller SOPS age key, required: false}
+    outputs:
+      result: {value: '${{ jobs.reconcile.outputs.result }}'}
+      reconciliation_state: {value: '${{ jobs.reconcile.outputs.reconciliation_state }}'}
+      request_id: {value: '${{ jobs.reconcile.outputs.request_id }}'}
+permissions:
+  actions: read
+  contents: read
+concurrency:
+  group: flux-reconcile-${{ inputs.target_id }}
+  cancel-in-progress: false
+jobs:
+  reconcile:
+    name: Flux / Reconciliation
+    runs-on: [linux, amd64, flux-control]
+    timeout-minutes: 120
+    outputs:
+      result: ${{ steps.reconcile.outputs.result }}
+      reconciliation_state: ${{ steps.reconcile.outputs.reconciliation_state }}
+      request_id: ${{ steps.reconcile.outputs.request_id }}
+    steps:
+      - name: Check out exact central workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+      - name: Verify exact central workflow source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "${{ job.workflow_repository }}" = "StreamScapeTV/ci-workflows"
+          test "$(git -C .ciw rev-parse HEAD)" = "${{ job.workflow_sha }}"
+      - name: Check out exact trusted Flux policy source
+        uses: ./.ciw/actions/exact-checkout
+        with:
+          repository: StreamScapeTV/flux
+          admitted_sha: ${{ inputs.admitted_sha }}
+          path: source
+          fetch_depth: '1'
+      - id: reconcile
+        uses: ./.ciw/actions/flux-reconcile
+        with:
+          admitted_sha: ${{ inputs.admitted_sha }}
+          target_id: ${{ inputs.target_id }}
+          product_id: ${{ inputs.product_id }}
+          operation: ${{ inputs.operation }}
+          policy_path: ${{ inputs.policy_path }}
+          allowlist_path: ${{ inputs.allowlist_path }}
+          request_id: ${{ inputs.request_id }}
+          dry_run: ${{ inputs.dry_run }}
+          flux_kubeconfig: ${{ secrets.flux_kubeconfig }}
+          flux_sops_age_key: ${{ secrets.flux_sops_age_key }}
+      - name: Verify exact Flux source remained clean
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C source rev-parse HEAD)" = "${{ inputs.admitted_sha }}"
+          test -z "$(git -C source status --porcelain --untracked-files=all)"

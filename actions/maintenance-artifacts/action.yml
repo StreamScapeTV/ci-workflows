@@ -1,0 +1,26 @@
+name: Run organization artifact maintenance
+description: Run bounded artifact retention cleanup through the checked-in maintenance contract
+inputs:
+  repository_scope: {description: Optional allowlisted project scope, required: false}
+  dry_run: {description: Report only when true, required: true}
+  request_id: {description: Bounded request identifier, required: true}
+  token: {description: Named organization maintenance credential, required: true}
+outputs:
+  result: {value: '${{ steps.maintenance.outputs.result }}'}
+  mutation_count: {value: '${{ steps.maintenance.outputs.mutation_count }}'}
+  request_id: {value: '${{ steps.maintenance.outputs.request_id }}'}
+  failure_code: {value: '${{ steps.maintenance.outputs.failure_code }}'}
+runs:
+  using: composite
+  steps:
+    - id: maintenance
+      shell: bash
+      env:
+        PYTHONDONTWRITEBYTECODE: '1'
+        MAINTENANCE_GITHUB_TOKEN: ${{ inputs.token }}
+      run: |
+        set -Eeuo pipefail
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/maintenance.py" artifacts \
+          --repository-scope "${{ inputs.repository_scope }}" \
+          --dry-run "${{ inputs.dry_run }}" \
+          --request-id "${{ inputs.request_id }}"

@@ -1,0 +1,34 @@
+name: Run trusted Flux reconciliation
+description: Resolve and optionally apply one structured plan from exact Flux-owned policy source
+inputs:
+  admitted_sha: {description: Exact trusted Flux source SHA, required: true}
+  target_id: {description: Opaque target identifier interpreted only by Flux-owned policy, required: true}
+  product_id: {description: Opaque product identifier interpreted only by Flux-owned policy, required: true}
+  operation: {description: Contract-bounded reconciliation operation, required: true}
+  policy_path: {description: Exact contract-matched Flux-owned policy adapter path, required: true}
+  allowlist_path: {description: Exact contract-matched Flux-owned allowlist path, required: true}
+  request_id: {description: Bounded request identifier, required: true}
+  dry_run: {description: Resolve policy only when true, required: true}
+  flux_kubeconfig: {description: Named Flux caller kubeconfig secret, required: false}
+  flux_sops_age_key: {description: Named Flux caller SOPS age key, required: false}
+outputs:
+  result: {value: '${{ steps.reconcile.outputs.result }}'}
+  reconciliation_state: {value: '${{ steps.reconcile.outputs.reconciliation_state }}'}
+  request_id: {value: '${{ steps.reconcile.outputs.request_id }}'}
+  failure_code: {value: '${{ steps.reconcile.outputs.failure_code }}'}
+runs:
+  using: composite
+  steps:
+    - id: reconcile
+      shell: bash
+      env:
+        PYTHONDONTWRITEBYTECODE: '1'
+        FLUX_KUBECONFIG: ${{ inputs.flux_kubeconfig }}
+        FLUX_SOPS_AGE_KEY: ${{ inputs.flux_sops_age_key }}
+      run: |
+        set -Eeuo pipefail
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/flux_reconcile.py" \
+          --source-root source --source-repository StreamScapeTV/flux --admitted-sha "${{ inputs.admitted_sha }}" \
+          --target-id "${{ inputs.target_id }}" --product-id "${{ inputs.product_id }}" --operation "${{ inputs.operation }}" \
+          --policy-path "${{ inputs.policy_path }}" --allowlist-path "${{ inputs.allowlist_path }}" \
+          --request-id "${{ inputs.request_id }}" --dry-run "${{ inputs.dry_run }}"
