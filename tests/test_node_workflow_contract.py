@@ -141,10 +141,14 @@ class NodeWorkflowContractTests(unittest.TestCase):
         self.assertEqual(cleanup["if"], "always()")
 
     def test_exact_central_and_caller_source_are_verified(self) -> None:
-        self.assertEqual(self.workflow_text.count("repository: StreamScapeTV/ci-workflows"), 2)
-        self.assertEqual(self.workflow_text.count("ref: ${{ github.workflow_sha }}"), 2)
+        self.assertEqual(self.workflow_text.count("repository: ${{ job.workflow_repository }}"), 2)
+        self.assertEqual(self.workflow_text.count("ref: ${{ job.workflow_sha }}"), 2)
+        self.assertEqual(self.workflow_text.count("EXPECTED_REPOSITORY: ${{ job.workflow_repository }}"), 2)
+        self.assertEqual(self.workflow_text.count("EXPECTED_SHA: ${{ job.workflow_sha }}"), 2)
         self.assertEqual(self.workflow_text.count("persist-credentials: false"), 2)
         self.assertEqual(self.workflow_text.count("set-safe-directory: false"), 2)
+        self.assertNotIn("github.workflow_sha", self.workflow_text)
+        self.assertNotIn("GITHUB_WORKFLOW_SHA", self.workflow_text)
         self.assertIn("uses: ./.ciw/actions/exact-checkout", self.workflow_text)
         self.assertIn("admitted_sha: ${{ inputs.admitted_sha }}", self.workflow_text)
         self.assertIn('test "$(git rev-parse HEAD)" = "${{ inputs.admitted_sha }}"', self.workflow_text)
