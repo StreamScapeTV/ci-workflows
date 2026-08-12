@@ -19,6 +19,9 @@ class FluxReconcileWorkflowContractTests(unittest.TestCase):
         cls.record = next(row for row in operations["workflows"] if row["api_name"] == "flux.reconcile")
         permissions = json.loads((ROOT / "contracts/permission-profiles.json").read_text(encoding="utf-8"))
         cls.permission = next(row for row in permissions["profiles"] if row["id"] == cls.record["permission_profile"])
+        cls.maintenance_contract_text = (
+            ROOT / "contracts/organization-maintenance.json"
+        ).read_text(encoding="utf-8")
         cls.path = ROOT / cls.record["file"]
         cls.text = cls.path.read_text(encoding="utf-8")
         cls.workflow = yaml.load(cls.text, Loader=ActionsLoader)
@@ -40,8 +43,9 @@ class FluxReconcileWorkflowContractTests(unittest.TestCase):
         self.assertIn("repository: StreamScapeTV/flux", self.text)
         self.assertIn("admitted_sha: ${{ inputs.admitted_sha }}", self.text)
         self.assertIn("persist-credentials: false", self.text)
-        self.assertIn("git -C source rev-parse HEAD", self.text)
-        self.assertIn("git -C source status --porcelain", self.text)
+        self.assertIn("cd source", self.text)
+        self.assertIn('test "$(git rev-parse HEAD)" = "${{ inputs.admitted_sha }}"', self.text)
+        self.assertIn("git status --porcelain --untracked-files=all", self.text)
         for forbidden in ("pull_request_target", "issue_comment", "workflow_run", "secrets: inherit", "runs-on: self-hosted", "kubectl apply", "helm upgrade"):
             self.assertNotIn(forbidden, self.text)
 
@@ -52,7 +56,8 @@ class FluxReconcileWorkflowContractTests(unittest.TestCase):
         for domain_value in ("agent-state-api", "iptv-backend-worker", "directus-web", "tailscale", "longhorn"):
             self.assertNotIn(domain_value, combined)
         self.assertNotIn("flux_kubeconfig_b64", combined)
-        self.assertIn("central-flux-policy-v1", source)
+        self.assertIn("central-flux-policy-v1", self.maintenance_contract_text)
+        self.assertIn('policy["policy_interface"]', source)
         self.assertIn("--central-request", source)
         self.assertNotIn("shell=true", source.replace(" ", "").casefold())
 
