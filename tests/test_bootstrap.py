@@ -40,6 +40,7 @@ class BootstrapContractTests(unittest.TestCase):
             MODULE.allowed_bootstrap_workflows(),
             [
                 ".github/workflows/reusable-android.yml",
+                ".github/workflows/reusable-apple.yml",
                 ".github/workflows/reusable-flutter.yml",
                 ".github/workflows/reusable-gitops-validation.yml",
                 ".github/workflows/reusable-node.yml",
