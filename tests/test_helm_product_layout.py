@@ -36,13 +36,16 @@ class HelmProductLayoutTests(unittest.TestCase):
         cls.contract = load_helm_contract(ROOT)
         cls.layout = load_product_layout(ROOT)
 
-    def test_current_roots_profiles_and_minimum_image_counts_are_central(self) -> None:
+    def test_current_roots_profiles_and_validation_image_repositories_are_central(self) -> None:
         self.assertEqual(
             self.layout["products"]["iptv-backend-chart"],
             {
                 "chart_root": "charts/iptv-backend",
                 "values_profiles": {"default": "values.yaml"},
                 "minimum_required_image_references": 1,
+                "required_image_repositories": [
+                    "git.faruqi.dev/mimranfaruqi/iptv-backend"
+                ],
             },
         )
         self.assertEqual(
@@ -51,6 +54,9 @@ class HelmProductLayoutTests(unittest.TestCase):
                 "chart_root": "charts/agent-state",
                 "values_profiles": {"default": "values.yaml"},
                 "minimum_required_image_references": 1,
+                "required_image_repositories": [
+                    "git.faruqi.dev/mimranfaruqi/agent-state"
+                ],
             },
         )
         self.assertEqual(
@@ -59,6 +65,7 @@ class HelmProductLayoutTests(unittest.TestCase):
                 "chart_root": "apps/github-actions-runner",
                 "values_profiles": {"default": "values.yaml"},
                 "minimum_required_image_references": 0,
+                "required_image_repositories": [],
             },
         )
 
@@ -127,6 +134,22 @@ class HelmProductLayoutTests(unittest.TestCase):
             ):
                 self.resolve_backend(root)
 
+    def test_application_chart_cannot_redirect_digest_pinned_image_repository(self) -> None:
+        with self.copied_backend() as directory:
+            root = Path(directory)
+            manifest_path = root / "source/.streamscape/helm-product.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            digest = manifest["required_image_references"][0].rsplit("@", 1)[1]
+            manifest["required_image_references"] = [
+                f"ghcr.io/attacker/backend@{digest}"
+            ]
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(
+                HelmValidationError,
+                "product_layout_mismatch",
+            ):
+                self.resolve_backend(root)
+
     def test_layout_contract_rejects_unexpected_product(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -139,6 +162,7 @@ class HelmProductLayoutTests(unittest.TestCase):
                 "chart_root": "charts/unexpected",
                 "values_profiles": {"default": "values.yaml"},
                 "minimum_required_image_references": 0,
+                "required_image_repositories": [],
             }
             (contracts / "helm-product-layout.json").write_text(
                 json.dumps(payload), encoding="utf-8"
