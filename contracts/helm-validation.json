@@ -39,5 +39,6 @@
   "release_package_binding": "isolated-copy-version-app-version",
   "runner_profile": "portable",
   "schema_version": 1,
+  "upstream_policy_contract": "contracts/helm-upstream-policy.json",
   "workspace_profile": "minimal"
 }

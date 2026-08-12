@@ -45,6 +45,23 @@ cannot redirect validation to another HTTPS or OCI repository by editing its
 manifest, `Chart.yaml`, and lock data together. Credential-bearing or malformed
 central repository entries also fail closed.
 
+## Deterministic package canonicalization
+
+Helm first operates on an isolated chart copy. The resulting package is then
+recursively canonicalized by `ci_workflows.helm_archive` before it becomes the
+validation/publication identity. The canonicalizer normalizes gzip metadata,
+tar order, timestamps, ownership, names, and modes for the outer chart and for
+every packaged subchart under `charts/*.tgz`.
+
+Packaged dependencies are not opaque bytes: nested chart members receive the
+same path/type bounds and secret/token scanning as the outer package. Symlinks
+and other non-file/non-directory entries fail closed. This prevents regenerated
+dependency archives from carrying unstable gzip/tar metadata or hiding
+credential-like content inside an otherwise deterministic outer archive.
+
+The recursively canonical package SHA-256 is the local package identity used
+for replay comparison and the expected Helm OCI content-layer digest.
+
 ## Flux wrapper provenance
 
 The Flux wrapper has no application-image binding, but it references two
@@ -52,17 +69,25 @@ mirrored ARC charts. The product manifest therefore carries a separate
 `upstream_assets` provenance list for `gha-runner-scale-set` and
 `gha-runner-scale-set-controller`.
 
-Each row must contain the exact upstream GitHub repository, stable tag, full
-upstream commit SHA, upstream chart digest, SPDX-style license, exact approved
-private mirror repository, mirror chart digest, and reviewed patch list. The
-current contract admits only unpatched mirrors: patch lists must be empty,
-upstream and mirror digests must match, and both tags must equal the wrapper
-`Chart.yaml` `appVersion`.
+`contracts/helm-upstream-policy.json` centrally fixes the stable origin facts
+that are independently verifiable for this release family: the official
+`actions/actions-runner-controller` GitHub repository, version `0.14.2`, exact
+upstream source commit `9bb16ae49d0ce585d8e682aa7e2668a6e832d5d8`,
+Apache-2.0 license, and the two approved private mirror repositories. Caller
+source cannot substitute a fork, different version/commit/license, or another
+mirror destination.
 
-The checked-in test fixture uses deliberately synthetic upstream hashes and
-source identity. Live Flux has not yet recorded the full immutable tuple; that
-producer adoption is tracked by `StreamScapeTV/flux#306`. Missing provenance is
-a hard validation failure, not a reason to infer facts from the mutable tag.
+Flux remains responsible for recording the remaining immutable producer facts:
+the upstream chart-content digest, independently verified mirror chart-content
+digest, and reviewed patch list. The current central fixture uses synthetic
+chart digests only to exercise the validation path; those are not accepted as
+live Flux evidence. For the currently supported unpatched case, upstream and
+mirror digests must match exactly and the patch list must be empty.
+
+Live Flux has not yet checked in the complete digest tuple or bounded Helm
+product manifest; that producer adoption is tracked by `StreamScapeTV/flux#306`.
+Missing live provenance is a hard validation failure, not a reason to infer or
+invent registry content identities.
 
 ## Publication trust and runner selection
 
