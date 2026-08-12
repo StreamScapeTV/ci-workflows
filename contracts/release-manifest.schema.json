@@ -18,9 +18,32 @@
   "properties": {
     "schema_version": {"const": 1},
     "shared_release": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {"const": "product"},
+        "tag": {"type": "string"},
+        "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "created_at": {"type": "string", "format": "date-time"},
+        "previous_known_good": {"type": "string"}
+      },
       "oneOf": [
-        {"$ref": "#/$defs/sharedLibraryRelease"},
-        {"$ref": "#/$defs/productSharedRelease"}
+        {
+          "required": ["tag", "commit", "created_at", "previous_known_good"],
+          "not": {"required": ["kind"]},
+          "properties": {
+            "tag": {"pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"},
+            "previous_known_good": {"pattern": "^(?:[0-9a-f]{40}|v[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?)$"}
+          }
+        },
+        {
+          "required": ["kind", "tag", "commit", "created_at"],
+          "not": {"required": ["previous_known_good"]},
+          "properties": {
+            "kind": {"const": "product"},
+            "tag": {"pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$"}
+          }
+        }
       ]
     },
     "workflow_apis": {
@@ -90,28 +113,6 @@
     }
   ],
   "$defs": {
-    "sharedLibraryRelease": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["tag", "commit", "created_at", "previous_known_good"],
-      "properties": {
-        "tag": {"type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"},
-        "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
-        "created_at": {"type": "string", "format": "date-time"},
-        "previous_known_good": {"type": "string", "pattern": "^(?:[0-9a-f]{40}|v[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?)$"}
-      }
-    },
-    "productSharedRelease": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["kind", "tag", "commit", "created_at"],
-      "properties": {
-        "kind": {"const": "product"},
-        "tag": {"type": "string", "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$"},
-        "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
-        "created_at": {"type": "string", "format": "date-time"}
-      }
-    },
     "versionedDigest": {
       "type": "object",
       "additionalProperties": false,
