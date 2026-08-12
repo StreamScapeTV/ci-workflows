@@ -72,7 +72,7 @@ class ReleaseCliTest(unittest.TestCase):
                 "--admitted-sha",
                 source,
                 "--release-tag",
-                "v1.2.3",
+                "1.2.3",
                 "--release-version",
                 "1.2.3",
                 "--request-id",
@@ -82,10 +82,11 @@ class ReleaseCliTest(unittest.TestCase):
         self.assertEqual(0, result)
         self.assertEqual("iptv-backend", values["release_id"])
         self.assertEqual("backend", values["release_contract"])
-        self.assertEqual("v1.2.3", values["release_tag"])
+        self.assertEqual("1.2.3", values["release_tag"])
         self.assertEqual(source, values["admitted_sha"])
         self.assertEqual("iptv-backend-image", values["image_product_id"])
         self.assertEqual("iptv-backend-chart", values["chart_product_id"])
+        self.assertEqual("true", values["chart_requires_image_identity"])
 
     def test_runner_plan_chooses_stronger_contract_owned_buildah_tier(self) -> None:
         result, values = self.run_with_output(
