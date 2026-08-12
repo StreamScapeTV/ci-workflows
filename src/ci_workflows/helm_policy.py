@@ -1,7 +1,10 @@
 """Central product-owned Helm policy hook admission and execution."""
 from __future__ import annotations
 
+import hashlib
 import json
+import os
+import stat
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -17,6 +20,8 @@ PRODUCT_IDS = {
     "agent-state-chart",
     "flux-github-actions-runner-chart",
 }
+_MAX_HOOK_TREE_FILES = 4_096
+_MAX_HOOK_TREE_BYTES = 256 * 1024 * 1024
 
 
 def _policy_path(value: Any) -> str | None:
@@ -26,6 +31,56 @@ def _policy_path(value: Any) -> str | None:
     path = safe_relative(value, "invalid_policy_hook_contract")
     require(path.endswith(".sh"), "invalid_policy_hook_contract")
     return path
+
+
+def _tree_fingerprint(root: Path) -> str:
+    """Hash the isolated chart tree without following links."""
+
+    require(root.is_dir() and not root.is_symlink(), "policy_hook_invalid")
+    digest = hashlib.sha256()
+    files = 0
+    total = 0
+    stack = [root]
+    while stack:
+        directory = stack.pop()
+        try:
+            entries = sorted(os.scandir(directory), key=lambda entry: entry.name)
+        except OSError as error:
+            raise HelmValidationError("policy_hook_invalid") from error
+        for entry in entries:
+            path = Path(entry.path)
+            try:
+                metadata = entry.stat(follow_symlinks=False)
+            except OSError as error:
+                raise HelmValidationError("policy_hook_invalid") from error
+            relative = path.relative_to(root).as_posix()
+            require(
+                not entry.is_symlink()
+                and (stat.S_ISDIR(metadata.st_mode) or stat.S_ISREG(metadata.st_mode)),
+                "policy_hook_invalid",
+            )
+            digest.update(relative.encode("utf-8") + b"\0")
+            digest.update(str(stat.S_IMODE(metadata.st_mode)).encode("ascii") + b"\0")
+            if stat.S_ISDIR(metadata.st_mode):
+                digest.update(b"D\0")
+                stack.append(path)
+                continue
+            files += 1
+            require(files <= _MAX_HOOK_TREE_FILES, "policy_hook_invalid")
+            require(metadata.st_size <= _MAX_HOOK_TREE_BYTES, "policy_hook_invalid")
+            total += metadata.st_size
+            require(total <= _MAX_HOOK_TREE_BYTES, "policy_hook_invalid")
+            digest.update(b"F\0")
+            try:
+                with path.open("rb") as handle:
+                    while True:
+                        chunk = handle.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        digest.update(chunk)
+            except OSError as error:
+                raise HelmValidationError("policy_hook_invalid") from error
+    return digest.hexdigest()
 
 
 def load_policy_hook_contract(root: Path = CENTRAL_ROOT) -> Mapping[str, Any]:
@@ -87,7 +142,7 @@ def run_policy_hook(
     admitted_sha: str,
     inherited: Mapping[str, str],
 ) -> int:
-    """Run one centrally approved checked-in shell hook with scrubbed state."""
+    """Run one centrally approved checked-in shell hook as a read-only validator."""
 
     if plan.policy_path is None:
         return 0
@@ -119,12 +174,17 @@ def run_policy_hook(
         }
     )
     verify_exact_source(source_root, admitted_sha, environment)
+    before = _tree_fingerprint(work_chart)
     _run(
         ["bash", "--noprofile", "--norc", str(hook)],
         cwd=work_chart,
         environment=environment,
         timeout=120,
         code="policy_hook_failed",
+    )
+    require(
+        _tree_fingerprint(work_chart) == before,
+        "policy_hook_mutated_chart",
     )
     verify_exact_source(source_root, admitted_sha, environment)
     return 1

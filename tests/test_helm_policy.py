@@ -94,19 +94,24 @@ class HelmPolicyHookTests(unittest.TestCase):
             hook.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
             enforce_policy_hook(source, "iptv-backend-chart", policy)
 
+    def hook_fixture(self, root: Path) -> tuple[Path, Path, Path]:
+        source = root / "source"
+        source.mkdir()
+        hook = source / "ci/helm-policy.sh"
+        hook.parent.mkdir()
+        hook.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        state = root / "state"
+        state.mkdir()
+        work_chart = state / "helm-validation/work/iptv-backend"
+        work_chart.mkdir(parents=True)
+        (work_chart / "values.yaml").write_text("{}\n", encoding="utf-8")
+        return source, state, hook
+
     def test_hook_execution_uses_fixed_bash_argv_and_scrubbed_environment(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            source = root / "source"
-            source.mkdir()
-            hook = source / "ci/helm-policy.sh"
-            hook.parent.mkdir()
-            hook.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-            state = root / "state"
-            state.mkdir()
+            source, state, hook = self.hook_fixture(root)
             work_chart = state / "helm-validation/work/iptv-backend"
-            work_chart.mkdir(parents=True)
-            (work_chart / "values.yaml").write_text("{}\n", encoding="utf-8")
             runtime = {
                 "PATH": "/usr/bin:/bin",
                 "HOME": str(root),
@@ -155,6 +160,62 @@ class HelmPolicyHookTests(unittest.TestCase):
                 execution_environment["CIW_HELM_PRODUCT_ID"],
                 "iptv-backend-chart",
             )
+
+    def test_hook_may_not_mutate_isolated_chart(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, state, _ = self.hook_fixture(root)
+            values = state / "helm-validation/work/iptv-backend/values.yaml"
+
+            def fake_run(argv, **kwargs):
+                values.write_text("mutated: true\n", encoding="utf-8")
+                from subprocess import CompletedProcess
+
+                return CompletedProcess(list(argv), 0, "", "")
+
+            with (
+                patch("ci_workflows.helm_policy.verify_exact_source"),
+                patch("ci_workflows.helm_policy._run", side_effect=fake_run),
+            ):
+                with self.assertRaisesRegex(
+                    HelmValidationError,
+                    "policy_hook_mutated_chart",
+                ):
+                    run_policy_hook(
+                        source,
+                        state,
+                        plan("ci/helm-policy.sh"),
+                        SHA,
+                        {"PATH": "/usr/bin:/bin", "HOME": str(root)},
+                    )
+
+    def test_hook_may_not_add_symlink_to_isolated_chart(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, state, _ = self.hook_fixture(root)
+            work_chart = state / "helm-validation/work/iptv-backend"
+
+            def fake_run(argv, **kwargs):
+                (work_chart / "escape").symlink_to("/etc/passwd")
+                from subprocess import CompletedProcess
+
+                return CompletedProcess(list(argv), 0, "", "")
+
+            with (
+                patch("ci_workflows.helm_policy.verify_exact_source"),
+                patch("ci_workflows.helm_policy._run", side_effect=fake_run),
+            ):
+                with self.assertRaisesRegex(
+                    HelmValidationError,
+                    "policy_hook_invalid",
+                ):
+                    run_policy_hook(
+                        source,
+                        state,
+                        plan("ci/helm-policy.sh"),
+                        SHA,
+                        {"PATH": "/usr/bin:/bin", "HOME": str(root)},
+                    )
 
     def test_null_hook_is_noop(self) -> None:
         with patch("ci_workflows.helm_policy._run") as run:
