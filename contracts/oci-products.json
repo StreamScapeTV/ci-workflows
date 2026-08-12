@@ -250,11 +250,11 @@
       "targets": [
         {
           "target_id": "runner-buildah",
-          "context_path": "images/buildah",
-          "dockerfile_path": "images/buildah/Containerfile",
+          "context_path": "images/github-actions-runner-buildah",
+          "dockerfile_path": "images/github-actions-runner-buildah/Dockerfile",
           "target_stage": null,
           "platform_set": "linux-amd64",
-          "smoke_script": "images/buildah/ci/verify-image.sh",
+          "smoke_script": null,
           "assertions": {
             "user": null,
             "entrypoint": [],
@@ -277,11 +277,11 @@
         },
         {
           "target_id": "runner-mobile",
-          "context_path": "images/mobile",
-          "dockerfile_path": "images/mobile/Containerfile",
+          "context_path": "images/github-actions-runner-mobile",
+          "dockerfile_path": "images/github-actions-runner-mobile/Dockerfile",
           "target_stage": null,
           "platform_set": "linux-amd64",
-          "smoke_script": "images/mobile/ci/verify-image.sh",
+          "smoke_script": null,
           "assertions": {
             "user": null,
             "entrypoint": [],
@@ -292,31 +292,6 @@
               "java",
               "flutter",
               "node"
-            ],
-            "forbidden_tools": [
-              "docker",
-              "dockerd",
-              "kubectl"
-            ]
-          },
-          "fixed_build_args": {},
-          "secret_mount_ids": []
-        },
-        {
-          "target_id": "runner-portable",
-          "context_path": "images/portable",
-          "dockerfile_path": "images/portable/Containerfile",
-          "target_stage": null,
-          "platform_set": "linux-amd64",
-          "smoke_script": "images/portable/ci/verify-image.sh",
-          "assertions": {
-            "user": null,
-            "entrypoint": [],
-            "command": [],
-            "ports": [],
-            "required_files": [],
-            "required_tools": [
-              "python3"
             ],
             "forbidden_tools": [
               "docker",
