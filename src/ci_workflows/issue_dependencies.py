@@ -7,6 +7,7 @@ from .issue_dependency_reconcile import (
     build_plans,
     discover_manifests,
     sync_organization,
+    sync_organization_resilient,
     validate_semantics,
 )
 from .issue_dependency_types import (
@@ -48,6 +49,7 @@ __all__ = (
     "load_manifest",
     "parse_protected_integration_branch",
     "sync_organization",
+    "sync_organization_resilient",
     "validate_json_schema",
     "validate_semantics",
 )
