@@ -43,6 +43,7 @@ class BootstrapContractTests(unittest.TestCase):
                 ".github/workflows/reusable-flutter.yml",
                 ".github/workflows/reusable-gitops-validation.yml",
                 ".github/workflows/reusable-node.yml",
+                ".github/workflows/reusable-oci-build.yml",
                 ".github/workflows/reusable-python.yml",
                 ".github/workflows/reusable-resolve-source.yml",
                 ".github/workflows/reusable-tag-image-chart.yml",
