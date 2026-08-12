@@ -1,0 +1,99 @@
+name: Flux infrastructure asset contract adapter
+description: Thin adapter over typed inventory, bootstrap, read-back, and handoff logic
+
+inputs:
+  phase:
+    description: plan, release, cleanup, or residue
+    required: true
+  admitted_sha:
+    description: Exact admitted Flux source SHA
+    required: false
+    default: ""
+  product_id:
+    description: Checked-in Flux infrastructure product identifier
+    required: false
+    default: ""
+  release_version:
+    description: Exact immutable release version
+    required: false
+    default: ""
+  operation:
+    description: plan, release, or verify-only
+    required: false
+    default: ""
+  policy_path:
+    description: Checked-in Flux-owned non-secret policy/source path
+    required: false
+    default: ""
+  request_id:
+    description: Bounded release request identity
+    required: false
+    default: ""
+  source_ref_type:
+    description: GitHub source ref type used to enforce exact-tag publication
+    required: false
+    default: ""
+  source_ref_name:
+    description: GitHub source ref name used to enforce exact-tag publication
+    required: false
+    default: ""
+  source_root:
+    description: Exact admitted Flux source checkout root
+    required: false
+    default: ""
+  dependency_evidence_json:
+    description: Bounded outputs from registered OCI or Helm dependency interfaces
+    required: false
+    default: "{}"
+
+outputs:
+  runs_on_json:
+    description: Contract-owned exact capability selector
+    value: ${{ steps.execute.outputs.runs_on_json }}
+  workspace_profile:
+    description: Contract-owned workspace profile
+    value: ${{ steps.execute.outputs.workspace_profile }}
+  plan_json:
+    description: Canonical bounded dependency plan
+    value: ${{ steps.execute.outputs.plan_json }}
+  result:
+    description: Planned, verified, cleanup, or residue result
+    value: ${{ steps.execute.outputs.result }}
+  immutable_references_json:
+    description: Canonical immutable asset and review-only handoff identities
+    value: ${{ steps.execute.outputs.immutable_references_json }}
+  release_manifest_sha256:
+    description: SHA-256 of the canonical infrastructure release manifest
+    value: ${{ steps.execute.outputs.release_manifest_sha256 }}
+  request_id:
+    description: Exact bounded request identity
+    value: ${{ steps.execute.outputs.request_id }}
+
+runs:
+  using: composite
+  steps:
+    - id: execute
+      name: Execute typed Flux infrastructure asset phase
+      shell: bash
+      env:
+        PHASE: ${{ inputs.phase }}
+        ADMITTED_SHA: ${{ inputs.admitted_sha }}
+        PRODUCT_ID: ${{ inputs.product_id }}
+        RELEASE_VERSION: ${{ inputs.release_version }}
+        OPERATION: ${{ inputs.operation }}
+        POLICY_PATH: ${{ inputs.policy_path }}
+        REQUEST_ID: ${{ inputs.request_id }}
+        SOURCE_REF_TYPE: ${{ inputs.source_ref_type }}
+        SOURCE_REF_NAME: ${{ inputs.source_ref_name }}
+        SOURCE_ROOT: ${{ inputs.source_root }}
+        DEPENDENCY_EVIDENCE_JSON: ${{ inputs.dependency_evidence_json }}
+      run: |
+        set -Eeuo pipefail
+        state_root="${RUNNER_TEMP}/flux-assets-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/flux_assets.py" "${PHASE}" \
+          --admitted-sha "${ADMITTED_SHA}" --product-id "${PRODUCT_ID}" \
+          --release-version "${RELEASE_VERSION}" --operation "${OPERATION}" \
+          --policy-path "${POLICY_PATH}" --request-id "${REQUEST_ID}" \
+          --source-ref-type "${SOURCE_REF_TYPE}" --source-ref-name "${SOURCE_REF_NAME}" \
+          --source-root "${SOURCE_ROOT}" --dependency-evidence-json "${DEPENDENCY_EVIDENCE_JSON}" \
+          --state-root "${state_root}" --github-output "${GITHUB_OUTPUT}"

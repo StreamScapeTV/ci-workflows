@@ -1,0 +1,205 @@
+name: Reusable Flux infrastructure assets
+
+on:
+  workflow_call:
+    inputs:
+      admitted_sha:
+        description: Exact lowercase Flux source SHA admitted by source.resolve
+        required: true
+        type: string
+      product_id:
+        description: flux-runner-images or flux-runner-chart-assets
+        required: true
+        type: string
+      release_version:
+        description: Exact immutable product version
+        required: true
+        type: string
+      operation:
+        description: plan, release, or verify-only
+        required: true
+        type: string
+      policy_path:
+        description: Exact checked-in Flux-owned non-secret policy/source path
+        required: true
+        type: string
+      request_id:
+        description: Bounded release request identity
+        required: true
+        type: string
+    secrets:
+      registry_username:
+        description: Explicit private-registry username for dependency publication
+        required: false
+      registry_token:
+        description: Explicit private-registry token for dependency publication
+        required: false
+    outputs:
+      result:
+        description: Planned or independently verified infrastructure asset result
+        value: ${{ jobs.release_assets.outputs.result }}
+      immutable_references_json:
+        description: Immutable image/chart identities plus review-only Flux handoff
+        value: ${{ jobs.release_assets.outputs.immutable_references_json }}
+      release_manifest_sha256:
+        description: SHA-256 of the canonical infrastructure release manifest
+        value: ${{ jobs.release_assets.outputs.release_manifest_sha256 }}
+      request_id:
+        description: Exact bounded request identity
+        value: ${{ jobs.release_assets.outputs.request_id }}
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  plan:
+    name: Resolve bounded Flux infrastructure asset plan
+    runs-on: [linux, amd64, general]
+    timeout-minutes: 15
+    outputs:
+      runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
+      workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
+      plan_json: ${{ steps.plan.outputs.plan_json }}
+    steps:
+      - name: Check out exact central workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact central workflow source
+        shell: bash
+        env:
+          GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -Eeuo pipefail
+          cd .ciw
+          test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
+
+      - id: plan
+        name: Resolve inventory-owned asset and runner plan
+        uses: ./.ciw/actions/flux-assets
+        with:
+          phase: plan
+          admitted_sha: ${{ inputs.admitted_sha }}
+          product_id: ${{ inputs.product_id }}
+          release_version: ${{ inputs.release_version }}
+          operation: ${{ inputs.operation }}
+          policy_path: ${{ inputs.policy_path }}
+          request_id: ${{ inputs.request_id }}
+          source_ref_type: ${{ github.ref_type }}
+          source_ref_name: ${{ github.ref_name }}
+
+  release_assets:
+    name: Release / Flux infrastructure assets
+    needs: plan
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
+    timeout-minutes: 240
+    outputs:
+      result: ${{ steps.compose.outputs.result }}
+      immutable_references_json: ${{ steps.compose.outputs.immutable_references_json }}
+      release_manifest_sha256: ${{ steps.compose.outputs.release_manifest_sha256 }}
+      request_id: ${{ steps.compose.outputs.request_id }}
+    steps:
+      - name: Check out exact central workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact central workflow source
+        shell: bash
+        env:
+          GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -Eeuo pipefail
+          cd .ciw
+          test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
+
+      - name: Check out exact admitted Flux source
+        uses: ./.ciw/actions/exact-checkout
+        with:
+          repository: ${{ github.repository }}
+          admitted_sha: ${{ inputs.admitted_sha }}
+          path: source
+          fetch_depth: "0"
+
+      - id: compose
+        name: Validate source and compose bounded dependency evidence
+        uses: ./.ciw/actions/flux-assets
+        with:
+          phase: release
+          admitted_sha: ${{ inputs.admitted_sha }}
+          product_id: ${{ inputs.product_id }}
+          release_version: ${{ inputs.release_version }}
+          operation: ${{ inputs.operation }}
+          policy_path: ${{ inputs.policy_path }}
+          request_id: ${{ inputs.request_id }}
+          source_ref_type: ${{ github.ref_type }}
+          source_ref_name: ${{ github.ref_name }}
+          source_root: source
+          dependency_evidence_json: "{}"
+
+      - id: cleanup
+        name: Remove Flux asset transient state and authentication residue
+        if: always()
+        uses: ./.ciw/actions/flux-assets
+        with:
+          phase: cleanup
+
+      - name: Verify zero Flux asset residue
+        if: always()
+        uses: ./.ciw/actions/flux-assets
+        with:
+          phase: residue
+
+      - name: Verify exact admitted source remained clean
+        if: always()
+        shell: bash
+        env:
+          ADMITTED_SHA: ${{ inputs.admitted_sha }}
+        run: |
+          set -Eeuo pipefail
+          cd source
+          test "$(git rev-parse HEAD)" = "${ADMITTED_SHA}"
+          test -z "$(git status --porcelain --untracked-files=all)"
+
+      - name: Confirm zero Actions artifacts
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+          url = (
+              f"{os.environ['GITHUB_API_URL']}/repos/{os.environ['GITHUB_REPOSITORY']}"
+              f"/actions/runs/{os.environ['GITHUB_RUN_ID']}/artifacts?per_page=100"
+          )
+          request = urllib.request.Request(
+              url,
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              payload = json.load(response)
+          if int(payload.get("total_count", 0)) != 0 or payload.get("artifacts") != []:
+              raise SystemExit("Flux infrastructure asset workflow retained an artifact")
+          PY

@@ -1,0 +1,128 @@
+name: Flux infrastructure assets exact-head smoke
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/reusable-flux-infrastructure-assets.yml
+      - .github/workflows/flux-infrastructure-assets-smoke.yml
+      - actions/flux-assets/**
+      - contracts/flux-infrastructure-products*.json
+      - scripts/ci/flux_assets.py
+      - src/ci_workflows/flux_assets*.py
+      - tests/fixtures/flux-infrastructure-assets/**
+      - tests/test_flux_assets*.py
+      - docs/workflows/flux-infrastructure-assets.md
+      - docs/architecture/flux-infrastructure-assets.md
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flux-infrastructure-assets-smoke-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: CI / Flux infrastructure assets mock validation
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: [linux, amd64, general]
+    timeout-minutes: 15
+    steps:
+      - name: Admit exact same-repository smoke source
+        id: source
+        shell: bash
+        env:
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -Eeuo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == pull_request ]]; then
+            test "${HEAD_REPOSITORY}" = "${GITHUB_REPOSITORY}"
+            sha="${HEAD_SHA}"
+          else
+            sha="${GITHUB_SHA}"
+          fi
+          [[ "${sha}" =~ ^[0-9a-f]{40}$ ]]
+          echo "sha=${sha}" >> "${GITHUB_OUTPUT}"
+
+      - name: Check out exact smoke source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.source.outputs.sha }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact mock-smoke source
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+
+      - name: Run focused Flux asset contract and orchestration tests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 \
+            python3 -m unittest -v \
+              tests.test_flux_assets \
+              tests.test_flux_assets_workflow_contract
+
+      - name: Compile issue-owned Python sources
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile \
+            scripts/ci/flux_assets.py \
+            src/ci_workflows/flux_assets.py \
+            tests/test_flux_assets.py \
+            tests/test_flux_assets_workflow_contract.py
+
+      - name: Parse issue-owned JSON contracts and fixtures
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          paths = [
+              Path('contracts/flux-infrastructure-products.json'),
+              Path('contracts/flux-infrastructure-products.schema.json'),
+              Path('tests/fixtures/flux-infrastructure-assets/live-inventory.json'),
+              Path('tests/fixtures/flux-infrastructure-assets/dependency-evidence.json'),
+              Path('tests/fixtures/flux-infrastructure-assets/cases.json'),
+          ]
+          for path in paths:
+              json.loads(path.read_text(encoding='utf-8'))
+          PY
+
+      - name: Prove plan mode remains credential-free and non-mutating
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          output="${RUNNER_TEMP}/flux-assets-plan-output-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          rm -f "${output}"
+          python3 scripts/ci/flux_assets.py plan \
+            --admitted-sha 1111111111111111111111111111111111111111 \
+            --product-id flux-runner-images \
+            --release-version 1.2.3 \
+            --operation plan \
+            --policy-path images/github-actions-runner-buildah/Dockerfile \
+            --request-id smoke-plan \
+            --github-output "${output}"
+          grep -Fxq 'request_id=smoke-plan' "${output}"
+          grep -Fq 'runs_on_json=["linux","amd64","general"]' "${output}"
+          rm -f "${output}"
+
+      - name: Verify source clean and zero credential residue
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          find . -type d -name __pycache__ -prune -exec rm -rf {} +
+          find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+          test -z "$(git status --porcelain --untracked-files=all)"
+          test -z "$(find "${RUNNER_TEMP}" -maxdepth 1 -name 'flux-assets-*' -print -quit)"

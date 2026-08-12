@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"name": "buildah-known-good-bootstrap", "expected": "accept"},
+    {"name": "mobile-known-good-bootstrap", "expected": "accept"},
+    {"name": "portable-is-upstream-not-custom", "expected": "reject-custom-product"},
+    {"name": "mirrored-arc-chart-locked-upstream", "expected": "accept"},
+    {"name": "unsupported-product", "expected": "unsupported_product"},
+    {"name": "malicious-policy-path", "expected": "invalid_policy_path"},
+    {"name": "mutable-base-image", "expected": "mutable_base_image"},
+    {"name": "self-bootstrap-candidate", "expected": "self_bootstrap_forbidden"},
+    {"name": "missing-runtime-tool", "expected": "tool_version_mismatch"},
+    {"name": "forbidden-docker-socket", "expected": "forbidden_socket_present"},
+    {"name": "credential-residue", "expected": "credential_residue"},
+    {"name": "missing-chart-attribution", "expected": "attribution_missing"},
+    {"name": "unlocked-chart-upstream", "expected": "mutable_upstream"},
+    {"name": "conflicting-immutable-version", "expected": "immutable_conflict"},
+    {"name": "mutable-latest-reference", "expected": "mutable_reference"},
+    {"name": "review-only-canary-handoff", "expected": "accept"},
+    {"name": "previous-known-good-rollback", "expected": "accept"},
+    {"name": "cleanup-residue", "expected": "residue_detected"}
+  ]
+}

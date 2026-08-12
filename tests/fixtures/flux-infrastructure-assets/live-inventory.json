@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "source_repository": "StreamScapeTV/flux",
+  "custom_runner_image_roots": [
+    "images/github-actions-runner-buildah",
+    "images/github-actions-runner-mobile"
+  ],
+  "portable_runner_image": {
+    "custom_product": false,
+    "authority": "upstream-actions-runner"
+  },
+  "runner_chart": {
+    "root": "apps/github-actions-runner",
+    "inventory_version": "1.3.0",
+    "app_version": "0.14.2"
+  },
+  "tree_paths": [
+    "images/github-actions-runner-buildah",
+    "images/github-actions-runner-mobile",
+    "apps/github-actions-runner/Chart.yaml",
+    "apps/github-actions-runner/values.yaml",
+    "apps/github-actions-runner/values.schema.json",
+    "clusters/devops/flux-system-common/helm-repository/gha-runner-scale-set-controller.oci.yaml",
+    "clusters/devops/flux-system-common/helm-repository/gha-runner-scale-set.oci.yaml"
+  ]
+}

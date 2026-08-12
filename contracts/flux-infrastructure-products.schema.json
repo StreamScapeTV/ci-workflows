@@ -1,0 +1,273 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://streamscapetv.invalid/contracts/flux-infrastructure-products.schema.json",
+  "title": "Flux infrastructure products",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "contract_version",
+    "workflow_api",
+    "source_repository",
+    "artifact_policy",
+    "cluster_mutation_authorized",
+    "kubernetes_credentials",
+    "latest_forbidden",
+    "dependency_interfaces",
+    "products"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "contract_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "workflow_api": {"const": "flux.assets"},
+    "source_repository": {"const": "StreamScapeTV/flux"},
+    "artifact_policy": {"const": "zero"},
+    "cluster_mutation_authorized": {"const": false},
+    "kubernetes_credentials": {"const": false},
+    "latest_forbidden": {"const": true},
+    "dependency_interfaces": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["oci.build", "oci.publish", "helm.validate", "helm.publish"],
+      "properties": {
+        "oci.build": {"$ref": "#/$defs/dependency"},
+        "oci.publish": {"$ref": "#/$defs/dependency"},
+        "helm.validate": {"$ref": "#/$defs/dependency"},
+        "helm.publish": {"$ref": "#/$defs/dependency"}
+      }
+    },
+    "products": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["flux-runner-images", "flux-runner-chart-assets"],
+      "properties": {
+        "flux-runner-images": {"$ref": "#/$defs/imageFamily"},
+        "flux-runner-chart-assets": {"$ref": "#/$defs/chartBundle"}
+      }
+    }
+  },
+  "$defs": {
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["product_id", "required_outputs"],
+      "properties": {
+        "product_id": {"type": "string", "minLength": 1},
+        "required_outputs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "runnerProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["labels", "workspace_profile"],
+      "properties": {
+        "labels": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "workspace_profile": {"enum": ["minimal", "standard", "large"]}
+      }
+    },
+    "runnerProfiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plan", "release", "verify-only"],
+      "properties": {
+        "plan": {"$ref": "#/$defs/runnerProfile"},
+        "release": {"$ref": "#/$defs/runnerProfile"},
+        "verify-only": {"$ref": "#/$defs/runnerProfile"}
+      }
+    },
+    "operations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plan", "release", "verify-only"],
+      "properties": {
+        "plan": {"type": "array", "maxItems": 0},
+        "release": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"enum": ["oci.build", "oci.publish", "helm.validate", "helm.publish"]}
+        },
+        "verify-only": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"enum": ["oci.publish", "helm.publish"]}
+        }
+      }
+    },
+    "bootstrap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "known_good_required",
+        "builder_profile",
+        "candidate_must_not_build_itself",
+        "builder_reference_policy"
+      ],
+      "properties": {
+        "known_good_required": {"const": true},
+        "builder_profile": {"enum": ["buildah-small", "buildah-high"]},
+        "candidate_must_not_build_itself": {"const": true},
+        "builder_reference_policy": {"type": "string", "pattern": "^flux-policy:"}
+      }
+    },
+    "handoff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["canary_id", "previous_known_good_policy", "rollback_id"],
+      "properties": {
+        "canary_id": {"type": "string", "minLength": 1},
+        "previous_known_good_policy": {"type": "string", "pattern": "^flux-policy:"},
+        "rollback_id": {"type": "string", "minLength": 1}
+      }
+    },
+    "imageMember": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "source_root",
+        "dockerfile_path",
+        "platform",
+        "required_tools",
+        "forbidden_tools",
+        "forbidden_sockets",
+        "required_labels",
+        "digest_pinned_bases_required"
+      ],
+      "properties": {
+        "id": {"enum": ["github-actions-runner-buildah", "github-actions-runner-mobile"]},
+        "source_root": {"type": "string", "pattern": "^images/github-actions-runner-"},
+        "dockerfile_path": {"type": "string", "pattern": "^images/github-actions-runner-.+/Dockerfile$"},
+        "platform": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["os", "architecture"],
+          "properties": {"os": {"const": "linux"}, "architecture": {"const": "amd64"}}
+        },
+        "required_tools": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {"type": "string", "minLength": 1}
+        },
+        "forbidden_tools": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "forbidden_sockets": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^/"}
+        },
+        "required_labels": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {"type": "string"}
+        },
+        "subordinate_id": {"type": "string"},
+        "storage_driver": {"type": "string"},
+        "digest_pinned_bases_required": {"const": true}
+      }
+    },
+    "imageFamily": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "policy_roots",
+        "runner_profiles",
+        "operations",
+        "bootstrap",
+        "handoff",
+        "members"
+      ],
+      "properties": {
+        "kind": {"const": "runner-image-family"},
+        "policy_roots": {"$ref": "#/$defs/policyRoots"},
+        "runner_profiles": {"$ref": "#/$defs/runnerProfiles"},
+        "operations": {"$ref": "#/$defs/operations"},
+        "bootstrap": {"$ref": "#/$defs/bootstrap"},
+        "handoff": {"$ref": "#/$defs/handoff"},
+        "members": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"$ref": "#/$defs/imageMember"}
+        }
+      }
+    },
+    "upstreamAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "upstream_repository",
+        "version",
+        "license",
+        "digest_required",
+        "flux_source_file"
+      ],
+      "properties": {
+        "id": {"enum": ["gha-runner-scale-set-controller", "gha-runner-scale-set"]},
+        "upstream_repository": {"type": "string", "pattern": "^oci://ghcr.io/actions/actions-runner-controller-charts/"},
+        "version": {"const": "0.14.2"},
+        "license": {"const": "MIT"},
+        "digest_required": {"const": true},
+        "flux_source_file": {"type": "string", "pattern": "^clusters/devops/flux-system-common/helm-repository/"}
+      }
+    },
+    "chartBundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "chart_root",
+        "inventory_chart_version",
+        "inventory_app_version",
+        "policy_roots",
+        "runner_profiles",
+        "operations",
+        "bootstrap",
+        "handoff",
+        "upstream_assets"
+      ],
+      "properties": {
+        "kind": {"const": "runner-chart-bundle"},
+        "chart_root": {"const": "apps/github-actions-runner"},
+        "inventory_chart_version": {"type": "string", "minLength": 1},
+        "inventory_app_version": {"const": "0.14.2"},
+        "policy_roots": {"$ref": "#/$defs/policyRoots"},
+        "runner_profiles": {"$ref": "#/$defs/runnerProfiles"},
+        "operations": {"$ref": "#/$defs/operations"},
+        "bootstrap": {"$ref": "#/$defs/bootstrap"},
+        "handoff": {"$ref": "#/$defs/handoff"},
+        "upstream_assets": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"$ref": "#/$defs/upstreamAsset"}
+        }
+      }
+    },
+    "policyRoots": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    }
+  }
+}

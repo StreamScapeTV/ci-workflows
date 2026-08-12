@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "source_sha": "1111111111111111111111111111111111111111",
+  "release_version": "1.2.3",
+  "image": {
+    "oci.build": {
+      "result": "success",
+      "image_digest": "{\"runner-buildah\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"runner-mobile\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}",
+      "platform_digests_json": "{\"runner-buildah/linux-amd64\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"runner-mobile/linux-amd64\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}",
+      "artifact_exception_used": false
+    },
+    "oci.publish": {
+      "result": "verified",
+      "image_digest": "{\"runner-buildah\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"runner-mobile\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}",
+      "platform_digests_json": "{\"runner-buildah/linux-amd64\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"runner-mobile/linux-amd64\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}",
+      "immutable_references_json": "{\"runner-buildah\":{\"source\":\"registry.invalid/runner-buildah:sha-1111111111111111111111111111111111111111\",\"version\":\"registry.invalid/runner-buildah:1.2.3\"},\"runner-mobile\":{\"source\":\"registry.invalid/runner-mobile:sha-1111111111111111111111111111111111111111\",\"version\":\"registry.invalid/runner-mobile:1.2.3\"}}"
+    }
+  },
+  "chart": {
+    "helm.validate": {
+      "result": "success",
+      "chart_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "artifact_exception_used": false
+    },
+    "helm.publish": {
+      "result": "verified",
+      "chart_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "immutable_references_json": "{\"gha-runner-scale-set-controller\":\"oci://registry.invalid/arc/gha-runner-scale-set-controller:1.2.3\",\"gha-runner-scale-set\":\"oci://registry.invalid/arc/gha-runner-scale-set:1.2.3\"}"
+    }
+  },
+  "chart_upstream": {
+    "gha-runner-scale-set-controller": {
+      "repository": "oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller",
+      "version": "0.14.2",
+      "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "license": "MIT",
+      "attribution_preserved": true,
+      "templates_mutated": false
+    },
+    "gha-runner-scale-set": {
+      "repository": "oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set",
+      "version": "0.14.2",
+      "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "license": "MIT",
+      "attribution_preserved": true,
+      "templates_mutated": false
+    }
+  }
+}
