@@ -110,6 +110,8 @@ class OciExecutionSecurityTests(unittest.TestCase):
             build = next(command for command, _ in commands if "bud" in command)
             self.assertIn("--network", build)
             self.assertEqual("none", build[build.index("--network") + 1])
+            self.assertIn("--identity-label=false", build)
+            self.assertIn("--inherit-labels=false", build)
             self.assertEqual(str(authfile), build[build.index("--authfile") + 1])
             push = next(command for command, _ in commands if "push" in command)
             self.assertEqual(str(authfile), push[push.index("--authfile") + 1])
