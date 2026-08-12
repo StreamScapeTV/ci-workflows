@@ -66,6 +66,9 @@ on:
       chart_reference:
         description: Published immutable Helm OCI reference
         value: ${{ jobs.publish.outputs.chart_reference }}
+      chart_digest:
+        description: Verified remote Helm OCI manifest digest
+        value: ${{ jobs.publish.outputs.chart_digest }}
       chart_package_sha256:
         description: Verified chart package SHA-256
         value: ${{ jobs.publish.outputs.chart_package_sha256 }}
@@ -417,6 +420,7 @@ jobs:
       image_reference: ${{ steps.image.outputs.reference }}
       image_digest: ${{ steps.image.outputs.digest }}
       chart_reference: ${{ steps.chart.outputs.reference }}
+      chart_digest: ${{ steps.chart.outputs.digest }}
       chart_package_sha256: ${{ steps.chart.outputs.package_sha256 }}
 
     steps:
@@ -1320,6 +1324,9 @@ jobs:
               raise SystemExit("remote chart content layer digest differs")
           PY
 
+          chart_digest="sha256:$(sha256sum "${chart_manifest}" | awk '{print $1}')"
+          [[ "${chart_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+
           remote_dependency_entries="$(
             tar -tzf "${remote_package}" \
               | grep -Ec "^${CHART_NAME}/charts/[^/]+\\.tgz$" \
@@ -1335,6 +1342,7 @@ jobs:
 
           {
             printf 'reference=%s:%s\n' "${CHART_REFERENCE}" "${VERSION}"
+            printf 'digest=%s\n' "${chart_digest}"
             printf 'package_sha256=%s\n' "${local_sha}"
             printf 'replayed=%s\n' "${remote_exists}"
           } >> "${GITHUB_OUTPUT}"
@@ -1389,6 +1397,7 @@ jobs:
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
           IMAGE_REPLAYED: ${{ steps.image.outputs.replayed }}
           CHART_REFERENCE: ${{ steps.chart.outputs.reference }}
+          CHART_DIGEST: ${{ steps.chart.outputs.digest }}
           CHART_PACKAGE_SHA: ${{ steps.chart.outputs.package_sha256 }}
           CHART_REPLAYED: ${{ steps.chart.outputs.replayed }}
         run: |
@@ -1402,6 +1411,7 @@ jobs:
             echo "- Image digest: \`${IMAGE_DIGEST}\`"
             echo "- Image replayed: \`${IMAGE_REPLAYED}\`"
             echo "- Chart: \`${CHART_REFERENCE}\`"
+            echo "- Chart OCI digest: \`${CHART_DIGEST}\`"
             echo "- Chart package SHA-256: \`${CHART_PACKAGE_SHA}\`"
             echo "- Chart replayed: \`${CHART_REPLAYED}\`"
             echo "- Platforms: \`linux/amd64, linux/arm64\`"

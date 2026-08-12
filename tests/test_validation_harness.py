@@ -21,6 +21,9 @@ from ci_workflows.validation_harness import (
 )
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
 class ValidationHarnessTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -201,6 +204,53 @@ class ValidationHarnessTest(unittest.TestCase):
         self.assertIn("stable-check-drift", rules)
         self.assertIn("missing-implementation-component", rules)
         self.assertIn("public-api-doc-drift", rules)
+
+    def test_bootstrap_chart_digest_uses_exact_verified_remote_manifest_bytes(self) -> None:
+        source = (
+            ROOT / ".github/workflows/reusable-tag-image-chart.yml"
+        ).read_text(encoding="utf-8")
+        manifest_fetch = source.index(
+            'chart_manifest="${STATE_ROOT}/chart-remote-manifest.json"'
+        )
+        semantic_validation = source.index(
+            'raise SystemExit("remote chart content layer digest differs")',
+            manifest_fetch,
+        )
+        digest_line = source.index(
+            'chart_digest="sha256:$(sha256sum "${chart_manifest}" | awk \'{print $1}\')"',
+            semantic_validation,
+        )
+        output_line = source.index(
+            "printf 'digest=%s\\n' \"${chart_digest}\"",
+            digest_line,
+        )
+        self.assertLess(manifest_fetch, semantic_validation)
+        self.assertLess(semantic_validation, digest_line)
+        self.assertLess(digest_line, output_line)
+        self.assertIn(
+            '[[ "${chart_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]',
+            source,
+        )
+        self.assertIn(
+            "value: ${{ jobs.publish.outputs.chart_digest }}",
+            source,
+        )
+        self.assertIn(
+            "chart_digest: ${{ steps.chart.outputs.digest }}",
+            source,
+        )
+        self.assertIn(
+            "printf 'package_sha256=%s\\n' \"${local_sha}\"",
+            source,
+        )
+        self.assertIn(
+            "CHART_DIGEST: ${{ steps.chart.outputs.digest }}",
+            source,
+        )
+        self.assertIn(
+            'echo "- Chart OCI digest: \\`${CHART_DIGEST}\\`"',
+            source,
+        )
 
     def test_reusable_workflow_call_graph_rejects_missing_cycle_depth_and_internal_nesting(self) -> None:
         first = self.root / ".github/workflows/reusable-sample.yml"
