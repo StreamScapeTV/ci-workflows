@@ -41,7 +41,7 @@ class ReleaseHandoffDispatchTest(unittest.TestCase):
             "source_sha": "a" * 40,
             "release_manifest_sha256": "b" * 64,
             "github_release_url": (
-                "https://github.com/StreamScapeTV/iptv-backend/releases/tag/v1.2.3"
+                "https://github.com/StreamScapeTV/iptv-backend/releases/tag/1.2.3"
             ),
             "products": [
                 {
