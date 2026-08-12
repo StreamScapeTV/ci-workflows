@@ -117,9 +117,18 @@ class OciWorkflowContractTests(unittest.TestCase):
         self.assertLess(len(self.action.splitlines()), 120)
 
     def test_smoke_is_real_non_publishing_buildah_contract_caller(self) -> None:
-        self.assertIn("uses: ./.github/workflows/reusable-oci-build.yml", self.smoke)
+        self.assertNotIn("uses: ./.github/workflows/reusable-oci-build.yml", self.smoke)
+        self.assertIn("plan:\n    name: Resolve bounded OCI smoke plan", self.smoke)
+        self.assertIn("smoke:\n    name: Non-publishing Buildah smoke", self.smoke)
+        self.assertIn("runs-on: [linux, amd64, general]", self.smoke)
+        self.assertIn("runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}", self.smoke)
+        self.assertIn("timeout-minutes: 180", self.smoke)
+        self.assertIn("uses: ./.ciw/actions/validate-oci", self.smoke)
+        self.assertIn("phase: execute", self.smoke)
         self.assertIn("product_id: ciw-oci-smoke", self.smoke)
         self.assertIn("platform_set: linux-amd64", self.smoke)
+        self.assertIn("Check out exact admitted smoke source", self.smoke)
+        self.assertIn("Verify exact smoke source remained clean", self.smoke)
         self.assertIn(
             "concurrency:\n"
             "  group: oci-build-smoke-${{ github.event.pull_request.number }}\n"
