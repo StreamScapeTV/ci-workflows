@@ -112,16 +112,42 @@ def _source_path(root: Path, relative: str, environment: Mapping[str, str]) -> P
     return source
 
 
+def _synthetic_runs_on_json(contract: Mapping[str, object], plan: device_validation.DevicePlan) -> str:
+    profile_id = plan.profile.base_runner_profile
+    profile = runners.profile_index(contract).get(profile_id)  # type: ignore[name-defined]
+    if not isinstance(profile, Mapping) or profile.get("kind") != "runner":
+        raise ValueError("invalid synthetic runner profile")
+    runners.validate_source(profile, plan.request.source_trust)  # type: ignore[name-defined]
+    raw_selector = profile.get("default_internal_selector")
+    if (
+        not isinstance(raw_selector, list)
+        or not raw_selector
+        or not all(isinstance(label, str) and label for label in raw_selector)
+    ):
+        raise ValueError("invalid synthetic runner selector")
+    resolved_profile = runners.validate_direct_selector(contract, raw_selector)  # type: ignore[name-defined]
+    if resolved_profile != profile_id:
+        raise ValueError("synthetic runner selector/profile mismatch")
+    return json.dumps(raw_selector, separators=(",", ":"))
+
+
 def _runs_on_json(root: Path, plan: device_validation.DevicePlan) -> str:
     try:
         contract = runners.load_runner_contract(root)  # type: ignore[name-defined]
-        resolved = runners.resolve_runner_profile(  # type: ignore[name-defined]
-            contract,
-            workflow_api="validation.device",
-            source_trust=plan.request.source_trust,
-            requested_profile=plan.profile.base_runner_profile,
-        )
-        value = resolved.as_dict()["runs_on_json"]
+        if plan.profile.synthetic_only and plan.request.source_trust == "trusted-pr":
+            # Synthetic PR validation is source-only and does not require the later
+            # shared validation.device workflow binding. The selector still comes
+            # exclusively from the central runner contract and is revalidated as
+            # an approved concrete selector before it is serialized.
+            value = _synthetic_runs_on_json(contract, plan)
+        else:
+            resolved = runners.resolve_runner_profile(  # type: ignore[name-defined]
+                contract,
+                workflow_api="validation.device",
+                source_trust=plan.request.source_trust,
+                requested_profile=plan.profile.base_runner_profile,
+            )
+            value = resolved.as_dict()["runs_on_json"]
     except (NameError, AttributeError, OSError, ValueError) as error:
         # The focused package deliberately carries no duplicate runner authority.
         # A tiny deterministic fallback is used only outside the full repository.
