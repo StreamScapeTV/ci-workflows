@@ -93,10 +93,10 @@ class ReleaseImageBindingTest(unittest.TestCase):
         immutable = json.loads(json.dumps(self.immutable))
         target = next(iter(immutable["targets"]))
         immutable["targets"][target]["repository"] = "evil.example/streamscapetv/runner"
-        with self.assertRaisesRegex(ReleaseError, r"^image_digest_map_rejected$"):
+        with self.assertRaisesRegex(ReleaseError, r"^image_reference_map_rejected$"):
             self.bind(immutable=immutable)
 
-    def test_version_reference_must_match_release_identity(self) -> None:
+    def test_version_reference_must_match_read_back_repository(self) -> None:
         immutable = json.loads(json.dumps(self.immutable))
         target = next(iter(immutable["targets"]))
         repository = immutable["targets"][target]["repository"]
