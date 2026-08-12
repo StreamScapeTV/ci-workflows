@@ -76,6 +76,28 @@ jobs:
           release_version: 0.0.0-smoke
           platform_set: linux-amd64
 
+      - name: Run focused OCI contract, security, and media tests
+        working-directory: .ciw
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONPATH: src
+        run: |
+          set -Eeuo pipefail
+          python3 -m unittest discover -s tests -p 'test_oci_*.py' -v
+
+      - name: Verify focused OCI tests left central source clean
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -Eeuo pipefail
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+            test -z "$(git status --porcelain --untracked-files=all)"
+          )
+
   smoke:
     name: Non-publishing Buildah smoke
     needs: plan
