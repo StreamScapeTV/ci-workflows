@@ -7,6 +7,7 @@ import unittest
 
 from ci_workflows.release_contract import (
     load_release_plans,
+    resolve_public_release,
     resolve_release_plan,
     validate_release_version,
 )
@@ -14,6 +15,7 @@ from ci_workflows.release_types import ReleaseError
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SOURCE_SHA = "a" * 40
 
 
 class ReleaseContractTest(unittest.TestCase):
@@ -34,6 +36,51 @@ class ReleaseContractTest(unittest.TestCase):
             self.assertEqual("flux-selection-request", plan.handoff_kind)
             self.assertEqual("StreamScapeTV/flux", plan.handoff_target_repository)
             self.assertEqual("review-selection", plan.handoff_requested_action)
+
+    def test_registered_release_contract_aliases_resolve_fixed_repositories(self) -> None:
+        cases = {
+            "backend": ("iptv-backend", "StreamScapeTV/iptv-backend"),
+            "agent-state": ("agent-state", "StreamScapeTV/agent-state"),
+            "flux": ("flux-runner-assets", "StreamScapeTV/flux"),
+        }
+        for release_contract, (release_id, repository) in cases.items():
+            with self.subTest(release_contract=release_contract):
+                plan, request = resolve_public_release(
+                    ROOT,
+                    release_contract=release_contract,
+                    repository=repository,
+                    admitted_sha=SOURCE_SHA,
+                    release_tag="v1.2.3",
+                    release_version="1.2.3",
+                    request_id="fixture-request-0003",
+                )
+                self.assertEqual(release_id, plan.release_id)
+                self.assertEqual(release_contract, request["release_contract"])
+                self.assertEqual("v1.2.3", request["release_tag"])
+                self.assertEqual(SOURCE_SHA, request["admitted_sha"])
+
+    def test_public_release_rejects_tag_version_or_target_mismatch(self) -> None:
+        with self.assertRaisesRegex(ReleaseError, r"^release_tag_mismatch$"):
+            resolve_public_release(
+                ROOT,
+                release_contract="backend",
+                repository="StreamScapeTV/iptv-backend",
+                admitted_sha=SOURCE_SHA,
+                release_tag="v1.2.4",
+                release_version="1.2.3",
+                request_id="fixture-request-0003",
+            )
+        with self.assertRaisesRegex(ReleaseError, r"^target_id_rejected$"):
+            resolve_public_release(
+                ROOT,
+                release_contract="backend",
+                repository="StreamScapeTV/iptv-backend",
+                admitted_sha=SOURCE_SHA,
+                release_tag="v1.2.3",
+                release_version="1.2.3",
+                request_id="fixture-request-0003",
+                target_id="agent-state",
+            )
 
     def test_repository_cannot_be_redirected_by_caller(self) -> None:
         with self.assertRaisesRegex(ReleaseError, r"^repository_rejected$"):
