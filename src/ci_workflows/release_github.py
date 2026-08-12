@@ -9,13 +9,16 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any, Mapping, Protocol
 
-from .release_contract import validate_release_version
+from .release_contract import validate_release_tag, validate_release_version
 from .release_manifest import canonical_json, sha256_text
 from .release_types import ReleaseError, ReleasePlan
 
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 REPOSITORY = re.compile(r"^StreamScapeTV/[A-Za-z0-9_.-]+$")
+RELEASE_TAG = re.compile(
+    r"^v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$"
+)
 MARKER_PREFIX = "<!-- streamscape-release-manifest-sha256:"
 
 
@@ -53,7 +56,10 @@ class ReleaseAPI(Protocol):
 
 
 def release_body(manifest_json: str, manifest_sha256: str) -> str:
-    require(re.fullmatch(r"[0-9a-f]{64}", manifest_sha256) is not None, "manifest_digest_rejected")
+    require(
+        re.fullmatch(r"[0-9a-f]{64}", manifest_sha256) is not None,
+        "manifest_digest_rejected",
+    )
     try:
         parsed = json.loads(manifest_json)
     except json.JSONDecodeError as error:
@@ -72,17 +78,19 @@ def release_body(manifest_json: str, manifest_sha256: str) -> str:
 def desired_release(
     *,
     plan: ReleasePlan,
+    release_tag: str,
     release_version: str,
     source_sha: str,
     manifest_json: str,
     manifest_sha256: str,
 ) -> DesiredGitHubRelease:
     version = validate_release_version(release_version)
+    tag = validate_release_tag(release_tag, version)
     require(FULL_SHA.fullmatch(source_sha) is not None, "release_sha_rejected")
     require(REPOSITORY.fullmatch(plan.repository) is not None, "repository_rejected")
     return DesiredGitHubRelease(
         repository=plan.repository,
-        tag_name=version,
+        tag_name=tag,
         target_commitish=source_sha,
         name=f"{plan.release_id} {version}",
         body=release_body(manifest_json, manifest_sha256),
@@ -91,12 +99,17 @@ def desired_release(
     )
 
 
-def verify_existing_release(existing: Mapping[str, Any], desired: DesiredGitHubRelease) -> str:
+def verify_existing_release(
+    existing: Mapping[str, Any], desired: DesiredGitHubRelease
+) -> str:
     require(existing.get("tag_name") == desired.tag_name, "github_release_conflict")
     require(existing.get("name") == desired.name, "github_release_conflict")
     require(existing.get("body") == desired.body, "github_release_conflict")
     require(existing.get("draft") is desired.draft, "github_release_conflict")
-    require(existing.get("prerelease") is desired.prerelease, "github_release_conflict")
+    require(
+        existing.get("prerelease") is desired.prerelease,
+        "github_release_conflict",
+    )
     url = existing.get("html_url")
     expected_url = (
         f"https://github.com/{desired.repository}/releases/tag/{desired.tag_name}"
@@ -105,7 +118,9 @@ def verify_existing_release(existing: Mapping[str, Any], desired: DesiredGitHubR
     return expected_url
 
 
-def ensure_github_release(api: ReleaseAPI, desired: DesiredGitHubRelease) -> tuple[str, str]:
+def ensure_github_release(
+    api: ReleaseAPI, desired: DesiredGitHubRelease
+) -> tuple[str, str]:
     existing = api.get_by_tag(desired.tag_name)
     if existing is not None:
         return verify_existing_release(existing, desired), "existing-matched"
@@ -129,7 +144,12 @@ class GitHubReleaseAPI:
         self.repository = repository
         self._token = token
 
-    def _request(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> Mapping[str, Any] | None:
+    def _request(
+        self,
+        method: str,
+        path: str,
+        payload: Mapping[str, Any] | None = None,
+    ) -> Mapping[str, Any] | None:
         url = f"https://api.github.com/repos/{self.repository}{path}"
         data = None if payload is None else canonical_json(payload).encode("utf-8")
         request = urllib.request.Request(
@@ -163,8 +183,11 @@ class GitHubReleaseAPI:
         return parsed
 
     def get_by_tag(self, tag: str) -> Mapping[str, Any] | None:
-        version = validate_release_version(tag)
-        return self._request("GET", f"/releases/tags/{urllib.parse.quote(version, safe='')}")
+        candidate = tag.strip()
+        require(RELEASE_TAG.fullmatch(candidate) is not None, "release_tag_rejected")
+        return self._request(
+            "GET", f"/releases/tags/{urllib.parse.quote(candidate, safe='')}"
+        )
 
     def create(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
         result = self._request("POST", "/releases", payload)
