@@ -154,30 +154,6 @@ jobs:
           release_version: 0.0.0-smoke
           platform_set: linux-amd64
 
-      - name: Diagnose final OCI config invariants
-        if: ${{ steps.execute.outcome == 'failure' }}
-        continue-on-error: true
-        shell: bash
-        env:
-          PYTHONDONTWRITEBYTECODE: "1"
-          PYTHONPATH: .ciw/src
-        run: |
-          set -Eeuo pipefail
-          python3 - <<'PY'
-          import json, os, re
-          from ci_workflows.oci_execution import state_root
-          layout = next((state_root(os.environ) / "layouts").iterdir())
-          def blob(descriptor):
-              return json.loads((layout / "blobs" / "sha256" / descriptor["digest"].removeprefix("sha256:")).read_text())
-          root = json.loads((layout / "index.json").read_text())
-          inner = blob(root["manifests"][0])
-          child = inner["manifests"][0]
-          manifest = blob(child)
-          config = blob(manifest["config"])
-          diff_ids = (config.get("rootfs") or {}).get("diff_ids", [])
-          print(json.dumps({"oci_layout": json.loads((layout / "oci-layout").read_text()), "runtime_config_is_dict": isinstance(config.get("config"), dict), "diff_ids_is_list": isinstance(diff_ids, list), "diff_id_checks": [isinstance(value, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", value) is not None for value in diff_ids], "declared_platform": child.get("platform"), "config_platform": {"os": config.get("os"), "architecture": config.get("architecture"), "variant": config.get("variant")}}, sort_keys=True))
-          PY
-
       - name: Render deterministic redacted OCI smoke evidence
         if: ${{ always() && !cancelled() }}
         uses: ./.ciw/actions/render-evidence
