@@ -109,10 +109,11 @@ class OciWorkflowContractTests(unittest.TestCase):
         for forbidden in ("evidence_id", "canary_id", "previous_known_good", "rollback_id"):
             self.assertNotIn(forbidden, public_block)
 
-    def test_action_is_thin_and_uses_direct_issue_owned_cli_until_shared_registration(self) -> None:
-        self.assertIn("scripts/ci/oci.py", self.action)
+    def test_action_is_thin_and_uses_stable_ciw_registration(self) -> None:
+        self.assertIn("scripts/ci/ciw.py", self.action)
+        self.assertIn("oci validate", self.action)
         self.assertIn("--phase", self.action)
-        self.assertNotIn("scripts/ci/ciw.py", self.action)
+        self.assertNotIn("scripts/ci/oci.py", self.action)
         self.assertNotIn("shell callback", self.action.lower())
         self.assertLess(len(self.action.splitlines()), 120)
 
