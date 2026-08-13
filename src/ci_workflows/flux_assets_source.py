@@ -13,6 +13,18 @@ _API_PRODUCT_KIND = {
     "helm.validate": "helm-oci-chart-assets",
     "helm.publish": "helm-oci-chart-assets",
 }
+_RUNTIME_REPOSITORIES = {"StreamScapeTV/ci-workflows", "StreamScapeTV/flux"}
+
+
+def validate_runtime_repository(repository: str) -> str:
+    """Allow only central self-test or the authoritative Flux product repository."""
+
+    if repository not in _RUNTIME_REPOSITORIES:
+        raise FluxAssetError(
+            "caller_repository_forbidden",
+            "Flux infrastructure asset runtime requires central self-test or Flux caller",
+        )
+    return repository
 
 
 def validate_dependency_product_inventory(
