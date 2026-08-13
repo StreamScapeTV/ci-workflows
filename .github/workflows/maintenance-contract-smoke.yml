@@ -75,8 +75,10 @@ jobs:
               tests.test_maintenance_security \
               tests.test_maintenance_conformance_race \
               tests.test_maintenance_credential_separation \
+              tests.test_maintenance_mutation_verification \
               tests.test_maintenance_projection_contract \
               tests.test_maintenance_projection \
+              tests.test_maintenance_projection_verification \
               tests.test_maintenance_reference_proposals \
               tests.test_flux_component_facade \
               tests.test_flux_reconcile_contract \
