@@ -27,6 +27,16 @@ def test_docker_runner_contains_client_tooling_only() -> None:
     assert "docker-compose" in source
     assert "docker:dind" not in source
     assert "DOCKER_HOST=" not in source
+    for inherited_runtime in (
+        "/usr/bin/containerd",
+        "/usr/bin/containerd-shim-runc-v2",
+        "/usr/bin/ctr",
+        "/usr/bin/docker-init",
+        "/usr/bin/docker-proxy",
+        "/usr/bin/dockerd",
+        "/usr/bin/runc",
+    ):
+        assert inherited_runtime in source
 
 
 def test_docker_runner_input_lock_is_immutable() -> None:
@@ -55,3 +65,4 @@ def test_docker_runner_smoke_is_checked_in() -> None:
     assert "/home/runner/run.sh" in source
     assert "docker --version" in source
     assert "docker buildx version" in source
+    assert "docker compose version" in source
