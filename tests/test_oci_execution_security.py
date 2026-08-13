@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from dataclasses import replace
+import hashlib
+import io
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from unittest import mock
@@ -14,7 +18,12 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from ci_workflows import oci_execution as execution  # noqa: E402
 from ci_workflows import oci_execution_safe as safe  # noqa: E402
+from ci_workflows.oci_input_contract import (  # noqa: E402
+    OciBaseLock,
+    OciTargetInputLock,
+)
 from ci_workflows.oci_types import (  # noqa: E402
+    OciBuildInputEvidence,
     OciBuildError,
     OciBuildPlan,
     OciBuildResult,
@@ -42,6 +51,8 @@ def target(smoke: str | None = "ci/verify.sh") -> OciTarget:
         forbidden_tools=("docker",),
         fixed_build_args={},
         secret_mount_ids=(),
+        build_input_lock_path="inputs.lock.json",
+        input_policy_id="scratch-only-v1",
     )
 
 
@@ -67,7 +78,243 @@ def plan(source_trust: str = "trusted-exact") -> OciBuildPlan:
     )
 
 
+def materialized_scratch() -> execution.MaterializedTargetInputs:
+    lock = OciTargetInputLock(
+        product_id="fixture-product",
+        target_id="fixture",
+        input_policy_id="scratch-only-v1",
+        platforms=("linux/amd64",),
+        bases=(
+            OciBaseLock(
+                stage_id="stage-1",
+                from_ordinal=1,
+                stage_marker="final",
+                kind="scratch",
+                declared_reference="scratch",
+                dockerfile_platform=None,
+                platforms=("linux/amd64",),
+                platform_identities=(),
+            ),
+        ),
+        external_inputs=(),
+        lock_digest="sha256:" + "f" * 64,
+    )
+    return execution.MaterializedTargetInputs(
+        lock=lock,
+        evidence=OciBuildInputEvidence.empty(),
+        image_ids_by_platform={"linux/amd64": {}},
+    )
+
+
 class OciExecutionSecurityTests(unittest.TestCase):
+    def test_private_engine_namespace_binds_only_registered_implicit_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "state"
+            private = root / "implicit-containers"
+            system = Path(temp) / "system-containers"
+            private.mkdir(parents=True)
+            system.mkdir()
+            mount = mock.Mock(return_value=0)
+            unshare = mock.Mock()
+            with mock.patch.object(
+                execution.os, "unshare", unshare, create=True
+            ), mock.patch.object(
+                execution.os, "CLONE_NEWNS", 0x20000, create=True
+            ), mock.patch.object(execution, "_MOUNT", mount):
+                execution._private_engine_preexec(root, system)()
+            unshare.assert_called_once_with(0x20000)
+            mount.assert_any_call(
+                None,
+                b"/",
+                None,
+                execution._MOUNT_REC | execution._MOUNT_PRIVATE,
+                None,
+            )
+            mount.assert_any_call(
+                os.fsencode(private),
+                os.fsencode(system),
+                None,
+                execution._MOUNT_BIND | execution._MOUNT_REC,
+                None,
+            )
+
+    def test_every_engine_command_receives_private_namespace_preexec(self) -> None:
+        root = Path("/registered/state")
+        prepared = mock.Mock()
+        completed = subprocess.CompletedProcess([], 0, "", "")
+        with mock.patch.object(
+            execution, "_private_engine_preexec", return_value=prepared
+        ), mock.patch.object(
+            execution, "execute_command", return_value=completed
+        ) as command:
+            result = execution.execute_engine_command(
+                root, ["skopeo", "--version"], capture=True, env={"PATH": "/bin"}
+            )
+        self.assertIs(completed, result)
+        command.assert_called_once_with(
+            ["skopeo", "--version"],
+            cwd=None,
+            capture=True,
+            env={"PATH": "/bin"},
+            preexec_fn=prepared,
+        )
+
+    def test_engine_command_maps_private_namespace_setup_failure(self) -> None:
+        with mock.patch.object(
+            execution,
+            "execute_command",
+            side_effect=subprocess.SubprocessError("Exception occurred in preexec_fn."),
+        ):
+            with self.assertRaisesRegex(OciBuildError, "engine_isolation_failed"):
+                execution.execute_engine_command(
+                    Path("/registered/state"),
+                    ["buildah", "--version"],
+                )
+
+    def test_binary_engine_capture_preserves_exact_newline_bearing_bytes(self) -> None:
+        root = Path("/registered/state")
+        prepared = mock.Mock()
+        payload = b'{"schemaVersion":2}\n'
+        completed = subprocess.CompletedProcess([], 0, payload, b"")
+        with mock.patch.object(
+            execution, "_private_engine_preexec", return_value=prepared
+        ), mock.patch.object(
+            execution, "execute_binary_command", return_value=completed
+        ) as command:
+            result = execution.capture_engine_bytes(
+                root,
+                ["skopeo", "inspect", "--raw", "oci:/verified/layout"],
+                env={"PATH": "/bin"},
+            )
+        self.assertEqual(payload, result)
+        command.assert_called_once_with(
+            ["skopeo", "inspect", "--raw", "oci:/verified/layout"],
+            cwd=None,
+            env={"PATH": "/bin"},
+            preexec_fn=prepared,
+        )
+
+    def test_private_engine_namespace_rejects_relative_registered_state(self) -> None:
+        with self.assertRaisesRegex(OciBuildError, "engine_isolation_failed"):
+            execution._private_engine_preexec(Path("relative-state"))
+
+    def test_layer_inventory_accepts_busybox_and_container_root_symlinks(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            layout = Path(temp)
+            buffer = io.BytesIO()
+            with tarfile.open(fileobj=buffer, mode="w") as archive:
+                for name, linkname, member_type in (
+                    ("bin/sh", "bin/[", tarfile.LNKTYPE),
+                    ("usr/bin/env", "../../bin/env", tarfile.SYMTYPE),
+                    ("lib64", "lib", tarfile.SYMTYPE),
+                    ("var/run", "/run", tarfile.SYMTYPE),
+                ):
+                    member = tarfile.TarInfo(name)
+                    member.type = member_type
+                    member.linkname = linkname
+                    archive.addfile(member)
+            payload = buffer.getvalue()
+            digest = "sha256:" + hashlib.sha256(payload).hexdigest()
+            blob = layout / "blobs" / "sha256" / digest.removeprefix("sha256:")
+            blob.parent.mkdir(parents=True)
+            blob.write_bytes(payload)
+            self.assertEqual(
+                {"/bin/sh", "/usr/bin/env", "/lib64", "/var/run"},
+                safe._layer_paths(layout, (digest,)),
+            )
+
+    def test_layer_inventory_still_rejects_symlink_traversal(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            layout = Path(temp)
+            buffer = io.BytesIO()
+            with tarfile.open(fileobj=buffer, mode="w") as archive:
+                member = tarfile.TarInfo("safe/link")
+                member.type = tarfile.SYMTYPE
+                member.linkname = "../../outside"
+                archive.addfile(member)
+            payload = buffer.getvalue()
+            digest = "sha256:" + hashlib.sha256(payload).hexdigest()
+            blob = layout / "blobs" / "sha256" / digest.removeprefix("sha256:")
+            blob.parent.mkdir(parents=True)
+            blob.write_bytes(payload)
+            with self.assertRaisesRegex(OciBuildError, "oci_layout_malformed"):
+                safe._layer_paths(layout, (digest,))
+
+    def test_layer_inventory_rejects_hard_link_archive_root_traversal(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            layout = Path(temp)
+            buffer = io.BytesIO()
+            with tarfile.open(fileobj=buffer, mode="w") as archive:
+                member = tarfile.TarInfo("safe/link")
+                member.type = tarfile.LNKTYPE
+                member.linkname = "../outside"
+                archive.addfile(member)
+            payload = buffer.getvalue()
+            digest = "sha256:" + hashlib.sha256(payload).hexdigest()
+            blob = layout / "blobs" / "sha256" / digest.removeprefix("sha256:")
+            blob.parent.mkdir(parents=True)
+            blob.write_bytes(payload)
+            with self.assertRaisesRegex(OciBuildError, "oci_layout_malformed"):
+                safe._layer_paths(layout, (digest,))
+
+    def test_layer_inventory_streams_verified_blobs_without_read_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            layout = Path(temp)
+            buffer = io.BytesIO()
+            with tarfile.open(fileobj=buffer, mode="w") as archive:
+                member = tarfile.TarInfo("usr/bin/tool")
+                member.mode = 0o755
+                member.size = 1
+                archive.addfile(member, io.BytesIO(b"x"))
+            payload = buffer.getvalue()
+            digest = "sha256:" + hashlib.sha256(payload).hexdigest()
+            blob = layout / "blobs" / "sha256" / digest.removeprefix("sha256:")
+            blob.parent.mkdir(parents=True)
+            blob.write_bytes(payload)
+            with mock.patch.object(Path, "read_bytes", side_effect=AssertionError):
+                self.assertEqual({"/usr/bin/tool"}, safe._layer_paths(layout, (digest,)))
+
+    def test_whiteouts_do_not_remove_same_layer_additions(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            layout = Path(temp)
+            digests: list[str] = []
+            for entries in (("usr/bin/old",), ("usr/bin/new", "usr/bin/.wh.new")):
+                buffer = io.BytesIO()
+                with tarfile.open(fileobj=buffer, mode="w") as archive:
+                    for name in entries:
+                        member = tarfile.TarInfo(name)
+                        member.size = 1
+                        archive.addfile(member, io.BytesIO(b"x"))
+                payload = buffer.getvalue()
+                digest = "sha256:" + hashlib.sha256(payload).hexdigest()
+                blob = layout / "blobs" / "sha256" / digest.removeprefix("sha256:")
+                blob.parent.mkdir(parents=True, exist_ok=True)
+                blob.write_bytes(payload)
+                digests.append(digest)
+            self.assertEqual(
+                {"/usr/bin/old", "/usr/bin/new"},
+                safe._layer_paths(layout, tuple(digests)),
+            )
+
+    def test_later_non_directory_ancestor_removes_lower_children(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            layout = Path(temp)
+            digests: list[str] = []
+            for entries in (("usr/bin/tool",), ("usr",)):
+                buffer = io.BytesIO()
+                with tarfile.open(fileobj=buffer, mode="w") as archive:
+                    for name in entries:
+                        member = tarfile.TarInfo(name)
+                        member.size = 1
+                        archive.addfile(member, io.BytesIO(b"x"))
+                payload = buffer.getvalue()
+                digest = "sha256:" + hashlib.sha256(payload).hexdigest()
+                blob = layout / "blobs" / "sha256" / digest.removeprefix("sha256:")
+                blob.parent.mkdir(parents=True, exist_ok=True)
+                blob.write_bytes(payload)
+                digests.append(digest)
+            self.assertEqual({"/usr"}, safe._layer_paths(layout, tuple(digests)))
+
     def test_build_engine_disables_network_during_context_execution(self) -> None:
         commands: list[tuple[list[str], dict[str, object]]] = []
 
@@ -106,6 +353,7 @@ class OciExecutionSecurityTests(unittest.TestCase):
                     {},
                     authfile,
                     execution.credential_free_environment(authfile),
+                    materialized_scratch(),
                 )
             build = next(command for command, _ in commands if "bud" in command)
             self.assertIn("--network", build)
@@ -192,16 +440,39 @@ class OciExecutionSecurityTests(unittest.TestCase):
                     str(root / "auth.json"),
                     cleanup_environment["REGISTRY_AUTH_FILE"],
                 )
+                self.assertEqual(
+                    str(root / "storage.conf"),
+                    cleanup_environment["CONTAINERS_STORAGE_CONF"],
+                )
+                self.assertEqual(str(root / "home"), cleanup_environment["HOME"])
+                self.assertEqual(
+                    str(root / "xdg-cache"), cleanup_environment["XDG_CACHE_HOME"]
+                )
+                self.assertEqual(
+                    str(root / "xdg-data"), cleanup_environment["XDG_DATA_HOME"]
+                )
+                for forbidden in (
+                    "INPUT_REGISTRY_TOKEN",
+                    "DOCKER_CONFIG",
+                    "HTTPS_PROXY",
+                    "AWS_SECRET_ACCESS_KEY",
+                    "GH_TOKEN",
+                ):
+                    self.assertNotIn(forbidden, cleanup_environment)
 
     def test_isolated_smoke_uses_networkless_capability_dropped_container(self) -> None:
         commands: list[list[str]] = []
+        environments: list[dict[str, str]] = []
 
         def fake_run(argv, **kwargs):
             commands.append(list(argv))
+            environments.append(dict(kwargs["env"]))
             return subprocess.CompletedProcess(argv, 0, "", "")
 
         with tempfile.TemporaryDirectory() as temp, mock.patch.object(
-            safe.base, "execute_command", side_effect=fake_run
+            safe.base,
+            "execute_engine_command",
+            side_effect=lambda _root, argv, **kwargs: fake_run(argv, **kwargs),
         ), mock.patch.object(
             safe.subprocess,
             "run",
@@ -216,6 +487,26 @@ class OciExecutionSecurityTests(unittest.TestCase):
         self.assertIn("--security-opt no-new-privileges", joined)
         self.assertIn("copy", joined)
         self.assertNotIn(f"/bin/bash {script}", joined)
+        self.assertTrue(environments)
+        for environment in environments:
+            self.assertEqual(str(Path(temp) / "home"), environment["HOME"])
+            self.assertEqual(
+                str(Path(temp) / "xdg-cache"), environment["XDG_CACHE_HOME"]
+            )
+            self.assertEqual(
+                str(Path(temp) / "xdg-config"), environment["XDG_CONFIG_HOME"]
+            )
+            self.assertEqual(
+                str(Path(temp) / "xdg-data"), environment["XDG_DATA_HOME"]
+            )
+            self.assertEqual(
+                str(Path(temp) / "xdg-runtime"), environment["XDG_RUNTIME_DIR"]
+            )
+            self.assertEqual(str(Path(temp) / "tmp"), environment["TMPDIR"])
+            self.assertEqual(
+                str(Path(temp) / "storage.conf"),
+                environment["CONTAINERS_STORAGE_CONF"],
+            )
 
     def test_isolated_smoke_rejects_a_symlinked_script(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -226,6 +517,22 @@ class OciExecutionSecurityTests(unittest.TestCase):
             alias.symlink_to(script)
             with self.assertRaisesRegex(OciBuildError, "invalid_path"):
                 safe._run_isolated_smoke(root, plan(), target(), alias)
+
+    def test_isolated_smoke_maps_namespace_failure_during_removal(self) -> None:
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(
+            safe.base,
+            "execute_engine_command",
+            return_value=subprocess.CompletedProcess([], 0, "", ""),
+        ), mock.patch.object(
+            safe.subprocess,
+            "run",
+            side_effect=subprocess.SubprocessError("Exception occurred in preexec_fn."),
+        ):
+            root = Path(temp)
+            script = root / "verify.sh"
+            script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            with self.assertRaisesRegex(OciBuildError, "cleanup_failed"):
+                safe._run_isolated_smoke(root, plan(), target(), script)
 
     def test_execute_masks_consumer_script_before_base_builder(self) -> None:
         captured: list[OciBuildPlan] = []
@@ -242,6 +549,17 @@ class OciExecutionSecurityTests(unittest.TestCase):
             canary_id=None,
             previous_known_good=None,
             rollback_id=None,
+        )
+        input_evidence = OciBuildInputEvidence(
+            lock_digest="sha256:" + "f" * 64,
+            acquisition_policy_id="public-root-only-v1",
+            resolved_bases=(),
+            resolved_external_inputs=(),
+            evidence_id="d" * 64,
+        )
+        base_result = replace(
+            base_result,
+            targets=(replace(base_result.targets[0], build_input_evidence=input_evidence),),
         )
 
         def fake_execute(repository_root, source_root, received, environment, secret_files):
@@ -272,6 +590,7 @@ class OciExecutionSecurityTests(unittest.TestCase):
             isolated.call_args.args[3],
         )
         self.assertEqual("isolated-script-passed", result.targets[0].smoke_result)
+        self.assertEqual(input_evidence, result.targets[0].build_input_evidence)
 
     def test_trusted_pr_defers_consumer_script_but_keeps_central_inspection(self) -> None:
         original = plan("trusted-pr")

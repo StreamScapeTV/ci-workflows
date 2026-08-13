@@ -1,6 +1,6 @@
 {
-  "contract_version": "1.0.0",
-  "mapping_sha256": "45906aa8b4b3402b5324df5f673aa1eb0b05a487e829744f50ddaa270ad5bd58",
+  "contract_version": "1.1.0",
+  "mapping_sha256": "aab99b577d62a2689d13c4d9d876ed585dc85249fe21a11104a741f9fb5b880c",
   "products": {
     "agent-state-image": {
       "builder_id": "buildah-v1",
@@ -14,11 +14,34 @@
       "storage_driver": "vfs",
       "targets": [
         {
+          "build_input_lock_path": ".ciw/oci-build-inputs/agent-state-api.json",
+          "input_policy_id": "oci-inputs-public-v1",
           "platforms": [
             "linux/amd64",
             "linux/arm64/v8"
           ],
           "target_id": "agent-state-api"
+        }
+      ]
+    },
+    "ciw-oci-input-smoke": {
+      "builder_id": "buildah-v1",
+      "runner_profile": "buildah-tiny",
+      "runs_on": [
+        "linux",
+        "amd64",
+        "buildah",
+        "tiny"
+      ],
+      "storage_driver": "vfs",
+      "targets": [
+        {
+          "build_input_lock_path": "tests/fixtures/oci-build/input-smoke/inputs.lock.json",
+          "input_policy_id": "oci-inputs-public-v1",
+          "platforms": [
+            "linux/amd64"
+          ],
+          "target_id": "immutable-input-smoke"
         }
       ]
     },
@@ -34,6 +57,8 @@
       "storage_driver": "vfs",
       "targets": [
         {
+          "build_input_lock_path": "tests/fixtures/oci-build/smoke/inputs.lock.json",
+          "input_policy_id": "scratch-only-v1",
           "platforms": [
             "linux/amd64"
           ],
@@ -53,12 +78,16 @@
       "storage_driver": "vfs",
       "targets": [
         {
+          "build_input_lock_path": ".ciw/oci-build-inputs/runner-buildah.json",
+          "input_policy_id": "oci-inputs-public-v1",
           "platforms": [
             "linux/amd64"
           ],
           "target_id": "runner-buildah"
         },
         {
+          "build_input_lock_path": ".ciw/oci-build-inputs/runner-mobile.json",
+          "input_policy_id": "oci-inputs-public-v1",
           "platforms": [
             "linux/amd64"
           ],
@@ -78,6 +107,8 @@
       "storage_driver": "vfs",
       "targets": [
         {
+          "build_input_lock_path": ".ciw/oci-build-inputs/iptv-backend.json",
+          "input_policy_id": "oci-inputs-public-v1",
           "platforms": [
             "linux/amd64",
             "linux/arm64/v8"

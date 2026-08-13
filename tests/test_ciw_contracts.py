@@ -98,6 +98,33 @@ class CIWContractTests(unittest.TestCase):
         for path in wrappers:
             self.assertTrue((ROOT / path).is_file())
 
+    def test_oci_action_outputs_match_the_registered_ciw_result_exactly(self) -> None:
+        contract = load_command_contract(ROOT)
+        command = next(
+            item
+            for item in contract["commands"]
+            if item["domain"] == "oci" and item["operation"] == "validate"
+        )
+        action = (ROOT / "actions/validate-oci/action.yml").read_text(encoding="utf-8")
+        output_block = action.split("outputs:\n", 1)[1].split("\nruns:\n", 1)[0]
+        action_outputs = {
+            line.removeprefix("  ").removesuffix(":")
+            for line in output_block.splitlines()
+            if line.startswith("  ")
+            and not line.startswith("    ")
+            and line.endswith(":")
+        }
+        self.assertEqual(set(command["outputs"]), action_outputs)
+        self.assertIn("resolved_inputs_json", action_outputs)
+        self.assertEqual(
+            "${{ steps.oci.outputs.resolved_inputs_json }}",
+            next(
+                line.strip().removeprefix("value: ")
+                for line in output_block.splitlines()
+                if "steps.oci.outputs.resolved_inputs_json" in line
+            ),
+        )
+
     def test_error_projection_preserves_domain_codes_and_redacts_unexpected_errors(self) -> None:
         cases = (
             (SourceAdmissionError("stale_pr_head"), "source", "stale_pr_head"),

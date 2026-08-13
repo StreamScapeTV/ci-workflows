@@ -144,6 +144,10 @@ class OciBuildTests(unittest.TestCase):
         plan = resolve_plan(ROOT, request)
         self.assertEqual("buildah-v1", plan.builder_id)
         self.assertEqual(("linux", "amd64", "buildah", "tiny"), plan.runs_on)
+        self.assertEqual(
+            "tests/fixtures/oci-build/smoke/inputs.lock.json",
+            plan.targets[0].build_input_lock_path,
+        )
         for field in (
             "engine", "builder", "docker", "buildah", "buildkit", "podman",
             "socket", "storage_driver", "registry_command", "runner",
@@ -258,6 +262,17 @@ class OciBuildTests(unittest.TestCase):
             pinned = root / "pinned"
             pinned.write_text("FROM example.invalid/base@sha256:" + "b" * 64 + "\n", encoding="utf-8")
             self.assertEqual(1, len(validate_dockerfile_bases(pinned)))
+            multi_stage = root / "multi-stage"
+            multi_stage.write_text(
+                "FROM example.invalid/base@sha256:"
+                + "b" * 64
+                + " AS build\nFROM build AS final\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                ("example.invalid/base@sha256:" + "b" * 64, "build"),
+                validate_dockerfile_bases(multi_stage),
+            )
             for source in ("FROM python:3.12\n", "ARG BASE\nFROM $BASE\n", "FROM example.invalid/base@sha256:bad\n"):
                 bad = root / hashlib.sha256(source.encode()).hexdigest()
                 bad.write_text(source, encoding="utf-8")
@@ -281,7 +296,7 @@ class OciBuildTests(unittest.TestCase):
             subprocess.run(["git", "commit", "-qm", "fixture"], cwd=root, check=True)
             target = OciTarget(
                 "fixture", ".", "Containerfile", None, ("linux/amd64",), "verify.sh",
-                None, (), (), (), (), (), (), {}, (),
+                None, (), (), (), (), (), (), {}, (), "inputs.lock.json", "scratch-only-v1",
             )
             staged = stage_context(root, target, Path(temp) / "stage")
             self.assertEqual("payload\n", (staged / "payload").read_text())
