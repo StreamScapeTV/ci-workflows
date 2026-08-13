@@ -11,6 +11,7 @@ from .maintenance_core import (
     MaintenanceApi,
     OperationResult,
     _inventory_repo,
+    _nested,
     _positive,
     _workflow_rows,
     load_json_file,
@@ -94,8 +95,32 @@ def _validate_reference_target(
     if not target:
         return ""
     contract.validate_sha(target)
-    commit = api.get_commit(_CENTRAL_REPOSITORY, target)
+    central = contract.project("ci-workflows")
+    if central.repository != _CENTRAL_REPOSITORY:
+        raise MaintenanceError("shared_reference_target_invalid")
+    branch = api.get_branch(central.repository, central.integration_branch)
+    head_sha = _nested(branch, "commit", "sha")
+    if (
+        not isinstance(branch, Mapping)
+        or branch.get("protected") is not True
+        or not isinstance(head_sha, str)
+    ):
+        raise MaintenanceError("shared_reference_target_invalid")
+    try:
+        contract.validate_sha(head_sha)
+    except MaintenanceError as error:
+        raise MaintenanceError("shared_reference_target_invalid") from error
+    commit = api.get_commit(central.repository, target)
     if commit is None or commit.get("sha") != target:
+        raise MaintenanceError("shared_reference_target_invalid")
+    if target == head_sha:
+        return target
+    comparison = api.compare_commits(central.repository, target, head_sha)
+    if (
+        comparison.get("status") != "ahead"
+        or _nested(comparison, "base_commit", "sha") != target
+        or _nested(comparison, "merge_base_commit", "sha") != target
+    ):
         raise MaintenanceError("shared_reference_target_invalid")
     return target
 
