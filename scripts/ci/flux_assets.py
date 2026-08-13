@@ -27,10 +27,12 @@ from ci_workflows.flux_assets_guards import (  # noqa: E402
     validate_operation_context,
 )
 from ci_workflows.flux_assets_source import (  # noqa: E402
+    validate_dependency_product_inventory,
     validate_source_contract_strict,
 )
 
 DEFAULT_CONTRACT = ROOT / "contracts/flux-infrastructure-products.json"
+PRODUCTS_INVENTORY = ROOT / "contracts/products.json"
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -137,8 +139,16 @@ def _emit(path: Path | None, payload: Mapping[str, Any]) -> None:
             handle.write(f"{key}={value}\n")
 
 
+def _load_current_contract(path: Path) -> dict[str, Any]:
+    contract = load_contract(path)
+    validate_dependency_product_inventory(
+        contract, products_path=PRODUCTS_INVENTORY
+    )
+    return contract
+
+
 def _plan(args: argparse.Namespace) -> Mapping[str, Any]:
-    contract = load_contract(args.contract)
+    contract = _load_current_contract(args.contract)
     plan = build_release_plan(contract, **_request(args))
     _validate_context(args)
     return {
@@ -150,7 +160,7 @@ def _plan(args: argparse.Namespace) -> Mapping[str, Any]:
 
 
 def _release(args: argparse.Namespace) -> Mapping[str, Any]:
-    contract = load_contract(args.contract)
+    contract = _load_current_contract(args.contract)
     build_release_plan(contract, **_request(args))
     _validate_context(args)
     source_root = Path(args.source_root) if args.source_root else None
