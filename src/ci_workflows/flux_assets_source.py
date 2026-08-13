@@ -6,7 +6,7 @@ import re
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
-from .flux_assets import FluxAssetError, validate_source_contract
+from .flux_assets import FluxAssetError, validate_dockerfile_bases
 
 _API_PRODUCT_KIND = {
     "oci.build": "oci-runner-image-family",
@@ -305,13 +305,7 @@ def _resolve_inside(root: Path, relative: PurePosixPath, *, kind: str) -> Path:
 def validate_source_contract_strict(
     contract: Mapping[str, Any], *, product_id: str, source_root: Path
 ) -> dict[str, Any]:
-    """Validate source without following chart roots/files outside admitted source.
-
-    Runner-image validation delegates to the existing Dockerfile validator, which
-    already resolves each Dockerfile strictly beneath the admitted source root.
-    The chart path receives the same boundary here before any publication
-    dependency can receive credentials.
-    """
+    """Validate product source without following policy paths or required files."""
 
     products = contract.get("products")
     if not isinstance(products, Mapping):
@@ -319,10 +313,6 @@ def validate_source_contract_strict(
     product = products.get(product_id)
     if not isinstance(product, Mapping):
         raise FluxAssetError("unsupported_product", f"unsupported product {product_id!r}")
-    if product.get("kind") != "runner-chart-bundle":
-        return validate_source_contract(
-            contract, product_id=product_id, source_root=source_root
-        )
 
     try:
         root = source_root.resolve(strict=True)
@@ -331,6 +321,32 @@ def validate_source_contract_strict(
     if source_root.is_symlink() or not root.is_dir():
         raise FluxAssetError("source_path_escape", "admitted source root is invalid")
 
+    if product.get("kind") == "runner-image-family":
+        members = product.get("members")
+        if not isinstance(members, list) or not members:
+            raise FluxAssetError("invalid_contract", "runner image members are invalid")
+        bases: dict[str, list[str]] = {}
+        for raw in members:
+            if not isinstance(raw, Mapping):
+                raise FluxAssetError("invalid_contract", "runner image member is invalid")
+            member_id = raw.get("id")
+            if not isinstance(member_id, str) or not member_id:
+                raise FluxAssetError("invalid_contract", "runner image member id is invalid")
+            relative = _relative_contract_path(
+                raw.get("dockerfile_path"), name=f"{member_id}.dockerfile_path"
+            )
+            resolved = _resolve_inside(root, relative, kind=f"{member_id} Dockerfile")
+            if not resolved.is_file():
+                raise FluxAssetError(
+                    "missing_source", f"{relative.as_posix()} is not a file"
+                )
+            bases[member_id] = list(
+                validate_dockerfile_bases(resolved.read_text(encoding="utf-8"))
+            )
+        return {"kind": "runner-image-family", "bases": bases}
+
+    if product.get("kind") != "runner-chart-bundle":
+        raise FluxAssetError("invalid_contract", "unsupported product kind")
     chart_relative = _relative_contract_path(product.get("chart_root"), name="chart_root")
     chart_root = _resolve_inside(root, chart_relative, kind="chart root")
     if not chart_root.is_dir():
