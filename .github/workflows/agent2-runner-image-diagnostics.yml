@@ -9,17 +9,26 @@ permissions:
   contents: read
 
 jobs:
-  inspect-zstd-source:
-    name: Inspect zstd source input
+  inspect-utility-packages:
+    name: Inspect Noble utility package inputs
     runs-on: [linux, amd64, buildah, tiny]
     timeout-minutes: 10
     steps:
-      - name: Hash public zstd source archive
+      - name: Hash zstd package
         shell: bash
         run: |
           set -Eeuo pipefail
-          file="${RUNNER_TEMP}/zstd-1.5.7.tar.gz"
-          curl --fail --silent --show-error --location https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz --output "${file}"
+          file="${RUNNER_TEMP}/zstd.pkg"
+          curl --fail --silent --show-error --location 'https://archive.ubuntu.com/ubuntu/pool/main/libz/libzstd/zstd_1.5.5%2Bdfsg2-2build1.1_amd64.deb' --output "${file}"
+          sha256sum "${file}"
+          wc -c "${file}"
+          rm -f "${file}"
+      - name: Hash zip package
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          file="${RUNNER_TEMP}/zip.pkg"
+          curl --fail --silent --show-error --location https://archive.ubuntu.com/ubuntu/pool/main/z/zip/zip_3.0-13ubuntu0.2_amd64.deb --output "${file}"
           sha256sum "${file}"
           wc -c "${file}"
           rm -f "${file}"
