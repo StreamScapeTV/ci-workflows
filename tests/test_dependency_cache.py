@@ -161,9 +161,12 @@ class DependencyCacheTests(unittest.TestCase):
         sha = "55cc8345863c7cc4c66a329aec7e433d2d1c52a9"
         self.assertIn(f"actions/cache/restore@{sha}", source)
         self.assertIn(f"actions/cache/save@{sha}", source)
-        self.assertIn("INPUT_PHASE", source)
         self.assertIn("validation_succeeded", source)
         self.assertIn("restored_cache_hit", source)
+        self.assertIn("expected_cache_key", source)
+        self.assertIn('root / "tmp" / "dependency-cache"', source)
+        self.assertIn("cache_identity_missing", source)
+        self.assertIn("cache_identity_changed", source)
         self.assertIn("steps.plan.outcome == 'success'", source)
         self.assertIn("GITHUB_STEP_SUMMARY", source)
         self.assertNotIn("upload-artifact", source)
