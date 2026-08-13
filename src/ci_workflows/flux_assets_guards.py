@@ -432,32 +432,77 @@ def compose_guarded_release(
 def validate_runtime_probe_strict(
     expected: Mapping[str, Any], probe: Mapping[str, Any]
 ) -> dict[str, Any]:
-    """Extend the base runtime probe with required label/storage identity checks."""
+    """Validate one canonical image-member contract against runtime evidence."""
 
-    validate_runtime_probe(expected, probe)
-    required_labels = expected.get("required_labels", [])
+    platform = expected.get("platform")
+    required_tools = expected.get("required_tools")
+    required_labels = expected.get("required_labels")
     _require(
-        isinstance(required_labels, list)
-        and all(isinstance(item, str) and item for item in required_labels),
+        isinstance(platform, Mapping)
+        and set(platform) == {"os", "architecture"}
+        and isinstance(platform.get("os"), str)
+        and isinstance(platform.get("architecture"), str),
         "invalid_runtime_probe",
-        "required_labels contract is invalid",
+        "platform contract must contain exact os and architecture",
     )
+    _require(
+        isinstance(required_tools, Mapping) and bool(required_tools),
+        "invalid_runtime_probe",
+        "required_tools contract must be a non-empty object",
+    )
+    _require(
+        isinstance(required_labels, Mapping)
+        and bool(required_labels)
+        and all(
+            isinstance(label, str)
+            and bool(label)
+            and isinstance(value, str)
+            and bool(value)
+            for label, value in required_labels.items()
+        ),
+        "invalid_runtime_probe",
+        "required_labels contract must map labels to exact values",
+    )
+    base_expected = {
+        "os": platform["os"],
+        "architecture": platform["architecture"],
+        "required_tools": dict(required_tools),
+    }
+    validate_runtime_probe(base_expected, probe)
+
     labels = probe.get("labels", {})
     _require(
         isinstance(labels, Mapping),
         "runtime_capability_mismatch",
         "runtime probe labels must be an object",
     )
-    missing = [
+    mismatched_labels = [
         label
-        for label in required_labels
-        if not isinstance(labels.get(label), str) or not str(labels.get(label)).strip()
+        for label, value in required_labels.items()
+        if labels.get(label) != value
     ]
     _require(
-        not missing,
+        not mismatched_labels,
         "runtime_capability_mismatch",
-        f"runtime probe is missing required OCI labels: {missing}",
+        f"runtime OCI labels differ from contract: {mismatched_labels}",
     )
+
+    forbidden_tools = expected.get("forbidden_tools", [])
+    _require(
+        isinstance(forbidden_tools, list)
+        and all(isinstance(item, str) and item for item in forbidden_tools),
+        "invalid_runtime_probe",
+        "forbidden_tools contract must be a list of names",
+    )
+    tools = probe.get("tools", {})
+    assert isinstance(tools, Mapping)
+    present_forbidden_tools = [item for item in forbidden_tools if item in tools]
+    _require(
+        not present_forbidden_tools,
+        "forbidden_tool_present",
+        f"runtime probe contains forbidden tools: {present_forbidden_tools}",
+    )
+
     subordinate_id = expected.get("subordinate_id")
     if subordinate_id is not None:
         _require(
@@ -475,7 +520,7 @@ def validate_runtime_probe_strict(
     result: dict[str, Any] = {
         "os": probe.get("os"),
         "architecture": probe.get("architecture"),
-        "tools": dict(probe.get("tools", {})),
+        "tools": dict(tools),
         "labels": {label: str(labels[label]) for label in required_labels},
     }
     if subordinate_id is not None:
