@@ -48,6 +48,20 @@ def _validate_durable_text(text: str, stable: Mapping[str, Any]) -> None:
         require(not matched, "physical_evidence_private_metadata")
 
 
+def _durable_id(value: Any, stable: Mapping[str, Any]) -> str:
+    normalized = safe_id(value, "physical_evidence_invalid")
+    lowered = normalized.casefold()
+    fragments = tuple(
+        fragment.casefold()
+        for fragment in _policy_list(stable.get("forbidden_identifier_fragments"))
+    )
+    require(
+        not any(fragment in lowered for fragment in fragments),
+        "physical_evidence_private_metadata",
+    )
+    return normalized
+
+
 def validate_durable_text(text: str, *, contract_root: Path) -> str:
     policy = load_physical_log_policy(contract_root)
     stable = policy["stable_evidence"]
@@ -104,12 +118,8 @@ def validate_stable_evidence(
     require(isinstance(family, str) and family in families, "physical_evidence_invalid")
     normalized["device_family"] = family
 
-    normalized["request_id"] = safe_id(
-        payload["request_id"], "physical_evidence_invalid"
-    )
-    normalized["evidence_id"] = safe_id(
-        payload["evidence_id"], "physical_evidence_invalid"
-    )
+    normalized["request_id"] = _durable_id(payload["request_id"], stable)
+    normalized["evidence_id"] = _durable_id(payload["evidence_id"], stable)
 
     results = set(_policy_list(stable.get("results")))
     for field in ("result", "cleanup_result"):
@@ -119,9 +129,7 @@ def validate_stable_evidence(
 
     for field in ("validation_profile", "toolchain_profile"):
         if field in payload:
-            normalized[field] = safe_id(
-                payload[field], "physical_evidence_invalid"
-            )
+            normalized[field] = _durable_id(payload[field], stable)
 
     _validate_durable_text(canonical_json(normalized), stable)
     return normalized
