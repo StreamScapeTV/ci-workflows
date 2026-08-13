@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DEVICE_ACTION_SHA = "aaf429c4badf1978e9f3f559260b122ede72b284"
+DEVICE_ACTION_SHA = "20bbfbd381c19c93adae8c1ebb9ac18a34271cf8"
 FOUNDATION_ACTION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 
 
