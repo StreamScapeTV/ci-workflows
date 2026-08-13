@@ -83,6 +83,17 @@
       "live_mutation_requires_flux_owned_authorization": true
     }
   },
+  "projection": {
+    "repository_authority": "projects",
+    "expected_state_required": true,
+    "status_states": ["error", "failure", "pending", "success"],
+    "status_context_pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:/-]{0,99}$",
+    "status_description_max_bytes": 140,
+    "comment_marker_pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$",
+    "comment_body_max_bytes": 16000,
+    "label_max_count": 20,
+    "label_max_bytes": 50
+  },
   "retired_boundaries": {
     "agent_state_transport": ["agent-state-claim", "agent-state-lifecycle", "agent-state-ownership", "receipt", "compatibility dispatcher"],
     "forbidden_behavior": ["force-push", "delete-unmerged-branch", "delete-protected-branch", "retry-product-failure", "arbitrary-shell", "arbitrary-callback", "hardcoded-flux-target", "hardcoded-cluster-credential"]
