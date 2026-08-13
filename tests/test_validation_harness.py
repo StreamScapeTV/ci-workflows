@@ -119,6 +119,115 @@ class ValidationHarnessTest(unittest.TestCase):
         self.assertIn("missing-timeout", rules)
         self.assertIn("opaque-matrix", rules)
 
+    def test_runner_timeout_values_remain_positive_integers_and_bounded(self) -> None:
+        path = self.root / ".github/workflows/reusable-sample.yml"
+        original = path.read_text()
+        cases = (
+            ("zero", "0", "missing-timeout"),
+            ("negative", "-1", "missing-timeout"),
+            ("string", '"20"', "missing-timeout"),
+            ("boolean", "true", "missing-timeout"),
+            ("excessive", "241", "excessive-timeout"),
+        )
+        for case, value, expected_rule in cases:
+            with self.subTest(case=case):
+                path.write_text(
+                    original.replace(
+                        "timeout-minutes: 20",
+                        f"timeout-minutes: {value}",
+                        1,
+                    )
+                )
+                self.assertIn(expected_rule, self.rules())
+        path.write_text(original)
+
+    def test_reusable_call_job_does_not_require_timeout_and_rejects_execution_mix(self) -> None:
+        public = self.root / ".github/workflows/reusable-sample.yml"
+        internal = self.root / ".github/workflows/internal-flux-assets.yml"
+        public_text = """name: Sample reusable validation
+on:
+  workflow_call:
+    inputs:
+      admitted_sha:
+        required: true
+        type: string
+    outputs:
+      result:
+        description: Validation result
+        value: ${{ jobs.call_assets.outputs.result }}
+permissions:
+  contents: read
+jobs:
+  call_assets:
+    name: CI / Sample
+    uses: ./.github/workflows/internal-flux-assets.yml
+    with:
+      admitted_sha: ${{ inputs.admitted_sha }}
+"""
+        internal_text = f"""name: Internal Flux assets fixture
+on:
+  workflow_call:
+    inputs:
+      admitted_sha:
+        required: true
+        type: string
+    outputs:
+      result:
+        description: Internal fixture result
+        value: ${{{{ jobs.validate.outputs.result }}}}
+permissions:
+  contents: read
+jobs:
+  validate:
+    name: Execute internal Flux assets fixture
+    runs-on: [linux, amd64, general]
+    timeout-minutes: 20
+    outputs:
+      result: ${{{{ steps.execute.outputs.result }}}}
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@{CHECKOUT_SHA} # v7.0.1
+        with:
+          ref: ${{{{ inputs.admitted_sha }}}}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+      - id: execute
+        name: Validate exact head
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "${{{{ inputs.admitted_sha }}}}"
+          echo "result=success" >> "${{{{ GITHUB_OUTPUT }}}}"
+"""
+        write_text(public, public_text)
+        write_text(internal, internal_text)
+
+        rules = self.rules()
+        self.assertNotIn("missing-timeout", rules)
+        self.assertNotIn("invalid-reusable-job", rules)
+
+        invalid_execution_keys = (
+            ("runs-on", "    runs-on: [linux, amd64, general]\n"),
+            (
+                "steps",
+                "    steps:\n"
+                "      - name: Invalid mixed execution step\n"
+                "        run: echo invalid\n",
+            ),
+        )
+        for case, extra in invalid_execution_keys:
+            with self.subTest(case=case):
+                public.write_text(
+                    public_text.replace(
+                        "    with:\n",
+                        extra + "    with:\n",
+                        1,
+                    )
+                )
+                self.assertIn("invalid-reusable-job", self.rules())
+        public.write_text(public_text)
+
     def test_permissions_secrets_and_high_risk_checkout_rules(self) -> None:
         path = self.root / ".github/workflows/reusable-sample.yml"
         text = path.read_text()
@@ -272,7 +381,6 @@ jobs:
   call_leaf:
     name: CI / Sample
     uses: ./.github/workflows/internal-leaf.yml
-    timeout-minutes: 20
 """
         )
         write_text(
@@ -286,7 +394,6 @@ jobs:
   call_back:
     name: Call back
     uses: ./.github/workflows/reusable-sample.yml
-    timeout-minutes: 10
 """,
         )
         rules = self.rules()
