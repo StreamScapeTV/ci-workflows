@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import hashlib
-import io
 import json
 import subprocess
 import tarfile
@@ -17,19 +16,49 @@ from .oci_types import OciBuildError, OciBuildPlan, OciBuildResult, OciTarget, O
 def _layer_paths(layout: Path, layer_digests: Sequence[str]) -> set[str]:
     paths: set[str] = set()
     for digest in layer_digests:
-        blob = base._blob(layout, digest).read_bytes()
         try:
-            archive = tarfile.open(fileobj=io.BytesIO(blob), mode="r:*")
-        except tarfile.TarError as error:
+            archive = tarfile.open(name=base._blob(layout, digest), mode="r:*")
+        except (OSError, tarfile.TarError) as error:
             raise OciBuildError("oci_layout_malformed") from error
+        additions: dict[str, bool] = {}
+        opaque_prefixes: set[str] = set()
+        removed_paths: set[str] = set()
         with archive:
-            for member in archive.getmembers():
+            for member in archive:
                 pure = PurePosixPath(member.name)
                 if pure.is_absolute() or ".." in pure.parts:
                     raise OciBuildError("oci_layout_malformed")
                 if member.issym() or member.islnk():
                     link = PurePosixPath(member.linkname)
-                    if link.is_absolute() or ".." in link.parts:
+                    # Absolute links are container-root identities, not host
+                    # paths. Relative links may traverse within that root (for
+                    # example BusyBox applets under /usr/bin commonly point to
+                    # ../../bin/busybox). Reject only lexical traversal above
+                    # the container root; this scanner never extracts or
+                    # follows the links.
+                    if link.is_absolute():
+                        link_parts = link.parts[1:]
+                        depth = 0
+                    elif member.islnk():
+                        # Tar hard-link names are archive-root relative, while
+                        # symbolic-link names are relative to their parent.
+                        link_parts = link.parts
+                        depth = 0
+                    else:
+                        link_parts = link.parts
+                        depth = len(pure.parent.parts)
+                    escaped = False
+                    for part in link_parts:
+                        if part in {"", ".", "/"}:
+                            continue
+                        if part == "..":
+                            if depth == 0:
+                                escaped = True
+                                break
+                            depth -= 1
+                        else:
+                            depth += 1
+                    if escaped:
                         raise OciBuildError("oci_layout_malformed")
                 name = pure.as_posix().lstrip("./")
                 if not name:
@@ -38,16 +67,31 @@ def _layer_paths(layout: Path, layer_digests: Sequence[str]) -> set[str]:
                 parent = PurePosixPath(name).parent.as_posix()
                 prefix = "/" + ("" if parent == "." else parent.rstrip("/") + "/")
                 if basename == ".wh..wh..opq":
-                    paths = {path for path in paths if not path.startswith(prefix)}
+                    opaque_prefixes.add(prefix)
                     continue
                 if basename.startswith(".wh."):
                     removed = prefix + basename.removeprefix(".wh.")
-                    paths = {
-                        path for path in paths
-                        if path != removed and not path.startswith(removed.rstrip("/") + "/")
-                    }
+                    removed_paths.add(removed)
                     continue
-                paths.add("/" + name.rstrip("/"))
+                additions["/" + name.rstrip("/")] = member.isdir()
+        # OCI whiteouts remove entries inherited from lower layers, regardless
+        # of where the marker appears relative to additions in this layer.
+        for prefix in opaque_prefixes:
+            paths = {path for path in paths if not path.startswith(prefix)}
+        for removed in removed_paths:
+            removed_prefix = removed.rstrip("/") + "/"
+            paths = {
+                path
+                for path in paths
+                if path != removed and not path.startswith(removed_prefix)
+            }
+        for added, is_directory in additions.items():
+            if not is_directory:
+                # A later file or link replacing a lower-layer directory also
+                # removes every child inherited below that directory.
+                added_prefix = added.rstrip("/") + "/"
+                paths = {path for path in paths if not path.startswith(added_prefix)}
+            paths.add(added)
     return paths
 
 
@@ -111,19 +155,30 @@ def _run_isolated_smoke(
     manifest = f"ciw-{target.target_id}-{token}"
     container = f"{manifest}-smoke"
     command = base._buildah_base(root, plan.storage_driver)
-    builder_environment = base.credential_free_environment(root / "auth.json")
+    storage_config = base._ensure_cleanup_storage_config(root)
+    registries_config = root / "registries.conf"
+    builder_environment = base._private_builder_environment(
+        root,
+        root / "auth.json",
+        storage_config,
+        {},
+        registries_config if registries_config.is_file() else None,
+    )
     created = False
     try:
-        base.execute_command(
+        base.execute_engine_command(
+            root,
             [*command, "from", "--name", container, "--platform", "linux/amd64", manifest],
             env=builder_environment,
         )
         created = True
-        base.execute_command(
+        base.execute_engine_command(
+            root,
             [*command, "copy", container, str(script), "/tmp/ciw-smoke.sh"],
             env=builder_environment,
         )
-        base.execute_command(
+        base.execute_engine_command(
+            root,
             [
                 *command,
                 "run",
@@ -149,12 +204,16 @@ def _run_isolated_smoke(
         raise OciBuildError("smoke_failed") from error
     finally:
         if created:
-            removed = subprocess.run(
-                [*command, "rm", "--force", container],
-                text=True,
-                capture_output=True,
-                env=builder_environment,
-            )
+            try:
+                removed = subprocess.run(
+                    [*command, "rm", "--force", container],
+                    text=True,
+                    capture_output=True,
+                    env=builder_environment,
+                    preexec_fn=base._private_engine_preexec(root),
+                )
+            except (OSError, subprocess.SubprocessError) as error:
+                raise OciBuildError("cleanup_failed") from error
             if removed.returncode != 0 and "no such" not in removed.stderr.lower():
                 raise OciBuildError("cleanup_failed")
     return "isolated-script-passed"

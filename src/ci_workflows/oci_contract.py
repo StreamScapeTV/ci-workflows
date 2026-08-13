@@ -2,13 +2,20 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
-from .oci_types import OciBuildError, OciBuildPlan, OciBuildRequest, OciTarget
+from .oci_types import (
+    OciBuildError,
+    OciBuildPlan,
+    OciBuildRequest,
+    OciInputPolicy,
+    OciTarget,
+)
 
 CONTRACT_PATH = Path("contracts/oci-products.json")
 MAPPING_PATH = Path("generated/oci-engine-mapping.json")
@@ -63,6 +70,23 @@ def strings(value: Any, *, nonempty: bool = False) -> tuple[str, ...]:
     return tuple(value)
 
 
+def central_public_host(value: str) -> bool:
+    if (
+        re.fullmatch(
+            r"[a-z0-9](?:[a-z0-9-]{0,62}\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?",
+            value,
+        )
+        is None
+        or value.endswith((".local", ".internal", ".home", ".lan", ".localhost"))
+    ):
+        return False
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        return True
+    return False
+
+
 def safe_relative(value: Any, *, allow_dot: bool = False) -> str:
     require(isinstance(value, str), "invalid_path")
     if allow_dot and value == ".":
@@ -103,7 +127,7 @@ def _validate_target(value: Mapping[str, Any], platform_sets: Mapping[str, Any])
         == {
             "target_id", "context_path", "dockerfile_path", "target_stage",
             "platform_set", "smoke_script", "assertions", "fixed_build_args",
-            "secret_mount_ids",
+            "secret_mount_ids", "build_input_lock_path", "input_policy_id",
         },
         "invalid_contract",
     )
@@ -136,6 +160,15 @@ def _validate_target(value: Mapping[str, Any], platform_sets: Mapping[str, Any])
         normalized_args[key] = item
     secret_ids = strings(value["secret_mount_ids"])
     require(all(re.fullmatch(r"[a-z][a-z0-9_-]{1,63}", item) for item in secret_ids), "invalid_contract")
+    raw_lock_path = value["build_input_lock_path"]
+    require(isinstance(raw_lock_path, str), "invalid_contract")
+    build_input_lock_path = safe_relative(raw_lock_path)
+    input_policy_id = value["input_policy_id"]
+    require(
+        isinstance(input_policy_id, str)
+        and _PRODUCT.fullmatch(input_policy_id) is not None,
+        "invalid_contract",
+    )
     return OciTarget(
         target_id=target_id,
         context_path=safe_relative(value["context_path"], allow_dot=True),
@@ -152,6 +185,8 @@ def _validate_target(value: Mapping[str, Any], platform_sets: Mapping[str, Any])
         forbidden_tools=strings(assertions["forbidden_tools"]),
         fixed_build_args=normalized_args,
         secret_mount_ids=secret_ids,
+        build_input_lock_path=build_input_lock_path,
+        input_policy_id=input_policy_id,
     )
 
 
@@ -161,8 +196,31 @@ def load_contract(root: Path) -> Mapping[str, Any]:
     except (OSError, json.JSONDecodeError) as error:
         raise OciBuildError("invalid_contract") from error
     payload = mapping(payload)
+    require(
+        set(payload)
+        == {
+            "schema_version",
+            "contract_version",
+            "organization",
+            "workflow_api",
+            "stable_check_name",
+            "publication",
+            "registry_credentials",
+            "artifact_policy",
+            "allowed_source_trust",
+            "storage_driver",
+            "required_metadata_labels",
+            "forbidden_public_inputs",
+            "failure_codes",
+            "platform_sets",
+            "runner_profiles",
+            "input_policies",
+            "products",
+        },
+        "invalid_contract",
+    )
     require(payload.get("schema_version") == 1, "invalid_contract")
-    require(payload.get("contract_version") == "1.0.0", "invalid_contract")
+    require(payload.get("contract_version") == "1.1.0", "invalid_contract")
     require(payload.get("organization") == "StreamScapeTV", "invalid_contract")
     require(payload.get("workflow_api") == "oci.build", "invalid_contract")
     require(payload.get("stable_check_name") == "CI / OCI build validation", "invalid_contract")
@@ -173,8 +231,96 @@ def load_contract(root: Path) -> Mapping[str, Any]:
     require(payload.get("storage_driver") == "vfs", "invalid_contract")
     require(set(strings(payload.get("required_metadata_labels"), nonempty=True)) == _REQUIRED_LABELS, "invalid_contract")
     require(_FORBIDDEN <= set(strings(payload.get("forbidden_public_inputs"), nonempty=True)), "invalid_contract")
+    failure_codes = strings(payload.get("failure_codes"), nonempty=True)
+    require(
+        all(re.fullmatch(r"[a-z][a-z0-9_]{2,95}", code) for code in failure_codes),
+        "invalid_contract",
+    )
     platforms = mapping(payload.get("platform_sets"))
     runners = mapping(payload.get("runner_profiles"))
+    raw_input_policies = mapping(payload.get("input_policies"))
+    input_policies: dict[str, OciInputPolicy] = {}
+    for policy_id, raw_policy in raw_input_policies.items():
+        require(
+            isinstance(policy_id, str) and _PRODUCT.fullmatch(policy_id) is not None,
+            "invalid_contract",
+        )
+        policy = mapping(raw_policy)
+        require(
+            set(policy)
+            == {
+                "allowed_registry_hosts",
+                "allowed_registry_api_hosts",
+                "allowed_registry_token_hosts",
+                "allowed_registry_blob_hosts",
+                "allowed_download_hosts",
+                "https_only",
+                "ambient_auth",
+                "redirect_policy",
+                "maximum_redirects",
+                "maximum_input_bytes",
+            },
+            "invalid_contract",
+        )
+        registry_hosts = strings(policy["allowed_registry_hosts"])
+        registry_api_hosts = strings(policy["allowed_registry_api_hosts"])
+        registry_token_hosts = strings(policy["allowed_registry_token_hosts"])
+        registry_blob_hosts = strings(policy["allowed_registry_blob_hosts"])
+        download_hosts = strings(policy["allowed_download_hosts"])
+        require(
+            all(
+                central_public_host(host)
+                for host in (
+                    *registry_hosts,
+                    *registry_api_hosts,
+                    *registry_token_hosts,
+                    *registry_blob_hosts,
+                    *download_hosts,
+                )
+            ),
+            "invalid_contract",
+        )
+        require(policy["https_only"] is True, "invalid_contract")
+        require(policy["ambient_auth"] is False, "invalid_contract")
+        require(policy["redirect_policy"] == "same-profile-hosts", "invalid_contract")
+        require(
+            type(policy["maximum_redirects"]) is int
+            and 0 <= policy["maximum_redirects"] <= 5,
+            "invalid_contract",
+        )
+        minimum_input_bytes = 0 if policy_id == "scratch-only-v1" else 1
+        require(
+            type(policy["maximum_input_bytes"]) is int
+            and minimum_input_bytes
+            <= policy["maximum_input_bytes"]
+            <= 1073741824,
+            "invalid_contract",
+        )
+        if policy_id == "scratch-only-v1":
+            require(
+                not registry_hosts
+                and not registry_api_hosts
+                and not registry_token_hosts
+                and not registry_blob_hosts
+                and not download_hosts
+                and policy["maximum_input_bytes"] == 0,
+                "invalid_contract",
+            )
+        else:
+            require(bool(registry_hosts) and bool(registry_api_hosts), "invalid_contract")
+        input_policies[policy_id] = OciInputPolicy(
+            policy_id=policy_id,
+            allowed_registry_hosts=registry_hosts,
+            allowed_registry_api_hosts=registry_api_hosts,
+            allowed_registry_token_hosts=registry_token_hosts,
+            allowed_registry_blob_hosts=registry_blob_hosts,
+            allowed_download_hosts=download_hosts,
+            https_only=True,
+            ambient_auth=False,
+            redirect_policy="same-profile-hosts",
+            maximum_redirects=policy["maximum_redirects"],
+            maximum_input_bytes=policy["maximum_input_bytes"],
+        )
     products = mapping(payload.get("products"))
     require(set(products) >= {"iptv-backend-image", "agent-state-image", "flux-runner-images", "ciw-oci-smoke"}, "invalid_contract")
     normalized: dict[str, Any] = {}
@@ -232,6 +378,10 @@ def load_contract(root: Path) -> Mapping[str, Any]:
         require(isinstance(raw_targets, list) and raw_targets, "invalid_contract")
         targets = tuple(_validate_target(mapping(item), platforms) for item in raw_targets)
         require(len({target.target_id for target in targets}) == len(targets), "invalid_contract")
+        require(
+            all(target.input_policy_id in input_policies for target in targets),
+            "invalid_contract",
+        )
         flux_asset = product["flux_asset"]
         require(isinstance(flux_asset, bool), "invalid_contract")
         if flux_asset:
@@ -241,7 +391,11 @@ def load_contract(root: Path) -> Mapping[str, Any]:
             require(product["independent_bootstrap"] is False, "invalid_contract")
             require(all(product[key] is None for key in ("canary_id", "previous_known_good", "rollback_id")), "invalid_contract")
         normalized[product_id] = {**product, "targets": targets, "runs_on": labels}
-    return {**payload, "_products": normalized}
+    return {
+        **payload,
+        "_products": normalized,
+        "_input_policies": input_policies,
+    }
 
 
 def source_trust_from_environment(environment: Mapping[str, str]) -> str:
@@ -308,6 +462,7 @@ def resolve_plan(root: Path, request: OciBuildRequest) -> OciBuildPlan:
         builder_id=product["builder_id"],
         storage_driver=contract["storage_driver"],
         targets=product["targets"],
+        input_policies=contract["_input_policies"],
         flux_asset=product["flux_asset"],
         canary_id=product["canary_id"],
         previous_known_good=product["previous_known_good"],
@@ -339,7 +494,12 @@ def render_engine_mapping(contract: Mapping[str, Any]) -> Mapping[str, Any]:
             "runs_on": list(product["runs_on"]),
             "storage_driver": contract["storage_driver"],
             "targets": [
-                {"target_id": target.target_id, "platforms": list(target.platforms)}
+                {
+                    "target_id": target.target_id,
+                    "platforms": list(target.platforms),
+                    "build_input_lock_path": target.build_input_lock_path,
+                    "input_policy_id": target.input_policy_id,
+                }
                 for target in product["targets"]
             ],
         }

@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "lock_version": "1.0.0",
+  "product_id": "ciw-oci-input-smoke",
+  "target_id": "immutable-input-smoke",
+  "input_policy_id": "oci-inputs-public-v1",
+  "platforms": [
+    "linux/amd64"
+  ],
+  "bases": [
+    {
+      "stage_id": "stage-1",
+      "from_ordinal": 1,
+      "stage_marker": "final",
+      "kind": "external",
+      "declared_reference": "docker.io/library/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662",
+      "dockerfile_platform": null,
+      "platforms": [
+        "linux/amd64"
+      ],
+      "platform_identities": [
+        {
+          "platform": "linux/amd64",
+          "manifest_digest": "sha256:b7f3d86d6e84fc17718c48bcde1450807faa2d56704205c697b4bd5df7b9e29f",
+          "config_digest": "sha256:b116e155074440ffd9e449559433feb4cd2341eb3554b1da1c638c976e56451d"
+        }
+      ]
+    }
+  ],
+  "external_inputs": [
+    {
+      "input_id": "busybox-readme",
+      "url": "https://raw.githubusercontent.com/docker-library/busybox/9c2087811429374737832a4c936fc411c1b4a22b/README.md",
+      "sha256": "17f3e2d1c534738042206970bcf147badf46a95343d3e5ae9e3f88c9c9afa612",
+      "maximum_bytes": 4096,
+      "destination": ".ciw-build-inputs/README.md"
+    }
+  ]
+}

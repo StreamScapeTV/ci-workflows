@@ -56,6 +56,18 @@ class OciReusableSourceIdentityTests(unittest.TestCase):
         )
         self.assertIn("git status --porcelain --untracked-files=all", source)
 
+    def test_reusable_oci_projects_redacted_input_evidence(self) -> None:
+        source = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(
+            "value: ${{ jobs.build.outputs.resolved_inputs_json }}",
+            source,
+        )
+        self.assertIn(
+            "resolved_inputs_json: ${{ steps.execute.outputs.resolved_inputs_json }}",
+            source,
+        )
+        self.assertEqual(2, source.count("resolved_inputs_json:"))
+
 
 if __name__ == "__main__":
     unittest.main()

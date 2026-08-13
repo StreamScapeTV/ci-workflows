@@ -72,7 +72,7 @@ jobs:
         with:
           phase: plan
           admitted_sha: ${{ github.event.pull_request.head.sha }}
-          product_id: ciw-oci-smoke
+          product_id: ciw-oci-input-smoke
           release_version: 0.0.0-smoke
           platform_set: linux-amd64
 
@@ -143,6 +143,15 @@ jobs:
           source_sha: ${{ github.event.pull_request.head.sha }}
           trust_mode: ${{ needs.plan.outputs.source_trust }}
 
+      - id: implicit_cache_baseline
+        name: Require no runner-global containers/image cache at entry
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test ! -e /var/lib/containers/cache
+          test ! -L /var/lib/containers/cache
+
       - id: execute
         name: Build and inspect exact smoke source without publication
         continue-on-error: true
@@ -150,9 +159,57 @@ jobs:
         with:
           phase: execute
           admitted_sha: ${{ github.event.pull_request.head.sha }}
-          product_id: ciw-oci-smoke
+          product_id: ciw-oci-input-smoke
           release_version: 0.0.0-smoke
           platform_set: linux-amd64
+
+      - id: input_evidence
+        name: Verify exact resolved OCI input evidence is nonempty and redacted
+        if: ${{ always() && !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        env:
+          EXECUTE_OUTCOME: ${{ steps.execute.outcome }}
+          RESOLVED_INPUTS_JSON: ${{ steps.execute.outputs.resolved_inputs_json }}
+        run: |
+          set -Eeuo pipefail
+          test "${EXECUTE_OUTCOME}" = "success"
+          python3 - <<'PY'
+          import json
+          import os
+
+          raw = os.environ["RESOLVED_INPUTS_JSON"]
+          evidence = json.loads(raw)
+          target = evidence["immutable-input-smoke"]
+          assert target["lock_digest"].startswith("sha256:")
+          assert target["input_policy_id"] == "oci-inputs-public-v1"
+          assert len(target["bases"]) == 1
+          assert len(target["external_inputs"]) == 1
+          base = target["bases"][0]
+          assert base["root_digest"] == (
+              "sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
+          )
+          assert [row["platform"] for row in base["platforms"]] == ["linux/amd64"]
+          assert base["platforms"][0]["manifest_digest"] == (
+              "sha256:b7f3d86d6e84fc17718c48bcde1450807faa2d56704205c697b4bd5df7b9e29f"
+          )
+          assert base["platforms"][0]["config_digest"] == (
+              "sha256:b116e155074440ffd9e449559433feb4cd2341eb3554b1da1c638c976e56451d"
+          )
+          external = target["external_inputs"][0]
+          assert external["input_id"] == "busybox-readme"
+          assert external["digest"] == (
+              "sha256:17f3e2d1c534738042206970bcf147badf46a95343d3e5ae9e3f88c9c9afa612"
+          )
+          assert external["size_bytes"] == 1688
+          lowered = raw.lower()
+          for forbidden in (
+              "https://", "raw.githubusercontent.com", "authorization",
+              "github_token", "registry_auth_file", "runner_temp", "graphroot",
+              "runroot", "/home/", "/users/",
+          ):
+              assert forbidden not in lowered
+          PY
 
       - name: Render deterministic redacted OCI smoke evidence
         if: ${{ always() && !cancelled() }}
@@ -163,7 +220,7 @@ jobs:
           runner_profile: ${{ needs.plan.outputs.runner_profile }}
           toolchain_json: >-
             {"buildah":"1.33.7","publication":"false","registry_credentials":"false"}
-          command_profile: ciw-oci-smoke
+          command_profile: ciw-oci-input-smoke
           result: ${{ steps.execute.outcome == 'success' && 'success' || 'failure' }}
           cleanup_state: not-run
           cleanup_removed_paths: "0"
@@ -175,7 +232,7 @@ jobs:
         with:
           phase: cleanup
           admitted_sha: ${{ github.event.pull_request.head.sha }}
-          product_id: ciw-oci-smoke
+          product_id: ciw-oci-input-smoke
           release_version: 0.0.0-smoke
           platform_set: linux-amd64
 
@@ -186,7 +243,7 @@ jobs:
         with:
           phase: residue
           admitted_sha: ${{ github.event.pull_request.head.sha }}
-          product_id: ciw-oci-smoke
+          product_id: ciw-oci-input-smoke
           release_version: 0.0.0-smoke
           platform_set: linux-amd64
 
@@ -194,6 +251,16 @@ jobs:
         name: Remove and verify registered OCI smoke state
         if: always()
         uses: ./.ciw/actions/cleanup-workspace
+
+      - id: implicit_cache_residue
+        name: Verify engine isolation left no runner-global cache
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test ! -e /var/lib/containers/cache
+          test ! -L /var/lib/containers/cache
 
       - name: Verify exact smoke source remained clean
         if: ${{ always() && !cancelled() }}
@@ -213,15 +280,21 @@ jobs:
         shell: bash
         env:
           EXECUTE_OUTCOME: ${{ steps.execute.outcome }}
+          IMPLICIT_CACHE_BASELINE_OUTCOME: ${{ steps.implicit_cache_baseline.outcome }}
+          INPUT_EVIDENCE_OUTCOME: ${{ steps.input_evidence.outcome }}
           OCI_CLEANUP_OUTCOME: ${{ steps.oci_cleanup.outcome }}
           RESIDUE_OUTCOME: ${{ steps.residue.outcome }}
           WORKSPACE_CLEANUP_OUTCOME: ${{ steps.workspace_cleanup.outcome }}
+          IMPLICIT_CACHE_RESIDUE_OUTCOME: ${{ steps.implicit_cache_residue.outcome }}
         run: |
           set -Eeuo pipefail
           test "${EXECUTE_OUTCOME}" = "success"
+          test "${IMPLICIT_CACHE_BASELINE_OUTCOME}" = "success"
+          test "${INPUT_EVIDENCE_OUTCOME}" = "success"
           test "${OCI_CLEANUP_OUTCOME}" = "success"
           test "${RESIDUE_OUTCOME}" = "success"
           test "${WORKSPACE_CLEANUP_OUTCOME}" = "success"
+          test "${IMPLICIT_CACHE_RESIDUE_OUTCOME}" = "success"
 
   zero_artifacts:
     name: Verify OCI smoke routine artifacts remain zero

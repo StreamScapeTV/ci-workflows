@@ -120,6 +120,20 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
                     self.assertEqual("composite", locked[helper]["runtime"])
                     self.assertEqual(release, locked[helper]["release"])
 
+    def test_oci_public_input_evidence_projection_does_not_change_action_pins(self) -> None:
+        source, workflow = self.load(".github/workflows/reusable-oci-build.yml")
+        public_outputs = workflow["on"]["workflow_call"]["outputs"]
+        job_outputs = workflow["jobs"]["build"]["outputs"]
+        self.assertEqual(
+            "${{ jobs.build.outputs.resolved_inputs_json }}",
+            public_outputs["resolved_inputs_json"]["value"],
+        )
+        self.assertEqual(
+            "${{ steps.execute.outputs.resolved_inputs_json }}",
+            job_outputs["resolved_inputs_json"],
+        )
+        self.assertEqual(4, source.count(f"actions/validate-oci@{OCI_SHA}"))
+
     def test_private_android_consumer_cannot_control_central_source_or_credential_scope(self) -> None:
         source, workflow = self.load(ANDROID_WORKFLOW)
         public = json.loads(
