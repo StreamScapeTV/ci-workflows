@@ -1,0 +1,97 @@
+name: Publish trusted OCI image
+description: Plan, authenticate, publish immutable references, read back, verify, clean, or check residue
+
+inputs:
+  phase:
+    description: Bounded internal publication phase
+    required: false
+    default: plan
+  admitted_sha:
+    description: Exact lowercase source SHA admitted by release authority
+    required: true
+  release_authority_sha:
+    description: Exact source SHA returned by the validated release-tag authority
+    required: true
+  product_id:
+    description: Checked-in OCI product identifier
+    required: true
+  release_version:
+    description: Exact stable SemVer release version without a v prefix
+    required: true
+  platform_set:
+    description: Optional exact checked-in platform set confirmation; never an arbitrary matrix
+    required: false
+  registry_username:
+    description: Named registry credential username; used only by authenticate
+    required: false
+  registry_token:
+    description: Named registry credential token; used only by authenticate
+    required: false
+
+outputs:
+  result:
+    value: ${{ steps.publish.outputs.result }}
+  source_sha:
+    value: ${{ steps.publish.outputs.source_sha }}
+  product_id:
+    value: ${{ steps.publish.outputs.product_id }}
+  release_version:
+    value: ${{ steps.publish.outputs.release_version }}
+  source_trust:
+    value: ${{ steps.publish.outputs.source_trust }}
+  runner_profile:
+    value: ${{ steps.publish.outputs.runner_profile }}
+  runs_on_json:
+    value: ${{ steps.publish.outputs.runs_on_json }}
+  workspace_profile:
+    value: ${{ steps.publish.outputs.workspace_profile }}
+  timeout_minutes:
+    value: ${{ steps.publish.outputs.timeout_minutes }}
+  repositories_json:
+    value: ${{ steps.publish.outputs.repositories_json }}
+  version_references_json:
+    value: ${{ steps.publish.outputs.version_references_json }}
+  source_references_json:
+    value: ${{ steps.publish.outputs.source_references_json }}
+  manifest_digests_json:
+    value: ${{ steps.publish.outputs.manifest_digests_json }}
+  image_digest:
+    value: ${{ steps.publish.outputs.image_digest }}
+  immutable_references_json:
+    value: ${{ steps.publish.outputs.immutable_references_json }}
+  platform_digests_json:
+    value: ${{ steps.publish.outputs.platform_digests_json }}
+  replayed:
+    value: ${{ steps.publish.outputs.replayed }}
+  evidence_id:
+    value: ${{ steps.publish.outputs.evidence_id }}
+  canary_id:
+    value: ${{ steps.publish.outputs.canary_id }}
+  previous_known_good:
+    value: ${{ steps.publish.outputs.previous_known_good }}
+  rollback_id:
+    value: ${{ steps.publish.outputs.rollback_id }}
+  cleanup_result:
+    value: ${{ steps.publish.outputs.cleanup_result }}
+  failure_code:
+    value: ${{ steps.publish.outputs.failure_code }}
+
+runs:
+  using: composite
+  steps:
+    - id: publish
+      name: Execute bounded OCI publication phase
+      shell: bash
+      env:
+        PYTHONDONTWRITEBYTECODE: "1"
+        INPUT_ADMITTED_SHA: ${{ inputs.admitted_sha }}
+        INPUT_RELEASE_AUTHORITY_SHA: ${{ inputs.release_authority_sha }}
+        INPUT_PRODUCT_ID: ${{ inputs.product_id }}
+        INPUT_RELEASE_VERSION: ${{ inputs.release_version }}
+        INPUT_PLATFORM_SET: ${{ inputs.platform_set }}
+        INPUT_REGISTRY_USERNAME: ${{ inputs.registry_username }}
+        INPUT_REGISTRY_TOKEN: ${{ inputs.registry_token }}
+      run: |
+        set -Eeuo pipefail
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/oci_publish.py" \
+          --phase "${{ inputs.phase }}"
