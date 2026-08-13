@@ -8,7 +8,7 @@ from pathlib import Path
 from ci_workflows.ciw import command_specs, runtime_command_index, validate_runtime_contract
 from ci_workflows.ciw_docs import load_command_contract, validate_command_contract
 from ci_workflows.ciw_types import CIWError, CIWResult, project_error, write_command_file
-from ci_workflows.device_types import DeviceValidationError
+from ci_workflows.device_lock import DeviceLockError
 from ci_workflows.foundation_types import FoundationError
 from ci_workflows.gitops_types import GitOpsValidationError
 from ci_workflows.node_types import NodeValidationError
@@ -32,7 +32,7 @@ class CIWContractTests(unittest.TestCase):
         self.assertEqual(26, len(expected))
         self.assertIn("android validate", expected)
         self.assertIn("apple validate", expected)
-        self.assertIn("device validate", expected)
+        self.assertIn("device lock", expected)
         self.assertIn("flutter validate", expected)
         self.assertIn("python validate", expected)
         self.assertIn("node validate", expected)
@@ -86,7 +86,6 @@ class CIWContractTests(unittest.TestCase):
                 "scripts/ci/release_tag_authority.py",
                 "scripts/ci/android.py",
                 "scripts/ci/apple.py",
-                "scripts/ci/device.py",
                 "scripts/ci/python.py",
                 "scripts/ci/node.py",
                 "scripts/ci/gitops.py",
@@ -95,13 +94,39 @@ class CIWContractTests(unittest.TestCase):
         )
         self.assertEqual(wrappers["scripts/ci/android.py"], {"android validate"})
         self.assertEqual(wrappers["scripts/ci/apple.py"], {"apple validate"})
-        self.assertEqual(wrappers["scripts/ci/device.py"], {"device validate"})
         self.assertEqual(wrappers["scripts/ci/python.py"], {"python validate"})
         self.assertEqual(wrappers["scripts/ci/node.py"], {"node validate"})
         self.assertEqual(wrappers["scripts/ci/gitops.py"], {"gitops validate"})
         self.assertEqual(wrappers["scripts/ci/oci.py"], {"oci validate"})
         for path in wrappers:
             self.assertTrue((ROOT / path).is_file())
+
+    def test_oci_action_outputs_match_the_registered_ciw_result_exactly(self) -> None:
+        contract = load_command_contract(ROOT)
+        command = next(
+            item
+            for item in contract["commands"]
+            if item["domain"] == "oci" and item["operation"] == "validate"
+        )
+        action = (ROOT / "actions/validate-oci/action.yml").read_text(encoding="utf-8")
+        output_block = action.split("outputs:\n", 1)[1].split("\nruns:\n", 1)[0]
+        action_outputs = {
+            line.removeprefix("  ").removesuffix(":")
+            for line in output_block.splitlines()
+            if line.startswith("  ")
+            and not line.startswith("    ")
+            and line.endswith(":")
+        }
+        self.assertEqual(set(command["outputs"]), action_outputs)
+        self.assertIn("resolved_inputs_json", action_outputs)
+        self.assertEqual(
+            "${{ steps.oci.outputs.resolved_inputs_json }}",
+            next(
+                line.strip().removeprefix("value: ")
+                for line in output_block.splitlines()
+                if "steps.oci.outputs.resolved_inputs_json" in line
+            ),
+        )
 
     def test_error_projection_preserves_domain_codes_and_redacts_unexpected_errors(self) -> None:
         cases = (
@@ -111,7 +136,7 @@ class CIWContractTests(unittest.TestCase):
             (NodeValidationError("lockfile_drift"), "node", "lockfile_drift"),
             (GitOpsValidationError("tool_archive_rejected"), "gitops", "tool_archive_rejected"),
             (OciBuildError("oci_layout_malformed"), "oci", "oci_layout_malformed"),
-            (DeviceValidationError("physical_authorization_required"), "device", "physical_authorization_required"),
+            (DeviceLockError("lock_stale"), "device", "lock_stale"),
             (FoundationError("cleanup_residue_detected"), "workspace", "cleanup_residue_detected"),
             (ReleaseTagError("release_tag_moved"), "release-tag", "release_tag_moved"),
         )

@@ -130,9 +130,20 @@
       "handler": "ci_workflows.ciw.handle_oci_validate",
       "inputs": ["phase", "source_root", "admitted_sha", "product_id", "release_version", "platform_set", "artifact_exception_id", "GitHub event identity"],
       "operation": "validate",
-      "outputs": ["result", "source_sha", "product_id", "release_version", "manifest_digests_json", "platform_results_json", "clean_tree", "cleanup_result", "artifact_exception_used", "evidence_id", "canary_id", "previous_known_good", "rollback_id", "runner_profile", "runs_on_json", "workspace_profile", "timeout_minutes", "source_trust", "failure_code"],
-      "side_effects": ["resolves one contract-owned OCI build plan", "executes daemonless Buildah VFS builds without publication", "strictly inspects local OCI manifests, configs, layers, metadata, and filesystem assertions", "enforces exact source, zero routine artifacts, cleanup, and residue policy"],
+      "outputs": ["result", "source_sha", "product_id", "release_version", "manifest_digests_json", "platform_results_json", "resolved_inputs_json", "clean_tree", "cleanup_result", "artifact_exception_used", "evidence_id", "canary_id", "previous_known_good", "rollback_id", "runner_profile", "runs_on_json", "workspace_profile", "timeout_minutes", "source_trust", "failure_code"],
+      "side_effects": ["resolves one contract-owned OCI build plan and consumer-source input lock", "materializes only centrally allowlisted digest-locked bases and bounded external inputs before the build", "executes daemonless Buildah VFS builds without publication or build-instruction network access", "strictly inspects resolved base descriptors, local OCI manifests, configs, layers, metadata, and filesystem assertions", "enforces exact source, redacted evidence, zero routine artifacts, cleanup, and residue policy"],
       "trust_class": "read-only-validation"
+    },
+    {
+      "cleanup": "expected-state release and residue verification under if: always()",
+      "domain": "device",
+      "failure": "DeviceLockError.code",
+      "handler": "ci_workflows.ciw.handle_device_lock",
+      "inputs": ["phase", "device_family", "device_capability", "device_identity_hash", "tested_source_sha", "authorization_receipt", "request_id", "lease_seconds", "resource_lock_receipt", "minimum_remaining_seconds", "runner-owned GitHub owner identity", "runner-owned device lock backend"],
+      "operation": "lock",
+      "outputs": ["result", "resource_lock_receipt", "receipt_id", "resource_key_hash", "owner_identity_hash", "expires_at_epoch", "release_evidence", "cleanup_evidence", "idempotent", "failure_code"],
+      "side_effects": ["acquires, verifies, expected-state releases, or residue-checks one exact-device lease in the runner-infrastructure-owned shared backend", "never accepts a caller-selected backend, raw device identity, runner identity, endpoint, or credential"],
+      "trust_class": "physical-device-fencing"
     },
     {
       "cleanup": "ciw workspace cleanup under if: always()",
@@ -155,17 +166,6 @@
       "outputs": ["result", "source_sha", "consumer_contract", "validation_profile", "task_profile", "test_summary", "runner_profile", "runs_on_json", "planner_runner_profile", "workspace_profile", "timeout_minutes", "source_trust", "xcode_version", "xcode_build", "swift_version", "sdk_versions_json", "destination_family", "simulator_identity", "output_verified", "clean_tree", "cleanup_result", "artifact_exception_used", "failure_code", "evidence_id"],
       "side_effects": ["resolves one contract-owned Apple simulator or unsigned macOS plan", "executes exact Xcode, Swift, SDK, simulator runtime, and device-type identities on semantic Apple capacity", "creates and removes only marker-owned simulators and isolated dependency, DerivedData, and result-bundle state", "enforces signing-disabled, source, redaction, cleanup, and zero-artifact policy"],
       "trust_class": "read-only-validation"
-    },
-    {
-      "cleanup": "device state cleanup and residue verification under if: always()",
-      "domain": "device",
-      "failure": "DeviceValidationError.code",
-      "handler": "ci_workflows.ciw.handle_device_validate",
-      "inputs": ["phase", "source_root", "inventory_fixture", "admitted_sha", "device_family", "device_capability", "device_alias", "command_profile", "script_path", "max_duration_minutes", "evidence_exception_id", "request_id", "validated_plan", "validated_plan_sha256", "GitHub event identity"],
-      "operation": "validate",
-      "outputs": ["result", "admitted_sha", "request_id", "device_evidence_id", "artifact_exception_used", "selected_device_hash", "runner_profile", "base_runner_profile", "runs_on_json", "workspace_profile", "timeout_minutes", "derived_source_trust", "execution_authorized", "authorization_failure", "concurrency_group", "cancel_in_progress", "validated_plan", "validated_plan_sha256", "test_summary", "cleanup_result", "failure_code"],
-      "side_effects": ["derives one contract-owned physical-device plan from exact GitHub source identity", "executes synthetic Android, iOS, and tvOS inventory fixtures only in explicit synthetic mode", "fails closed before physical execution when an accepted authorization and fencing receipt is absent", "cleans registered device and checkout state without following links"],
-      "trust_class": "physical-device-validation"
     },
     {
       "cleanup": "ciw workspace cleanup under if: always()",
@@ -299,8 +299,7 @@
     {"commands": ["gitops validate"], "path": "scripts/ci/gitops.py"},
     {"commands": ["oci validate"], "path": "scripts/ci/oci.py"},
     {"commands": ["android validate"], "path": "scripts/ci/android.py"},
-    {"commands": ["apple validate"], "path": "scripts/ci/apple.py"},
-    {"commands": ["device validate"], "path": "scripts/ci/device.py"}
+    {"commands": ["apple validate"], "path": "scripts/ci/apple.py"}
   ],
   "entry_point": "scripts/ci/ciw.py",
   "forbidden_dispatch_inputs": ["arbitrary_command", "shell", "callback", "callback_url", "handler", "function_name", "module_name", "runner", "runs_on", "runner_labels", "container_engine", "secret_name", "deletion_path", "workspace_root"],
