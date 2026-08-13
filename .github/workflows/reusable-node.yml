@@ -108,7 +108,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve contract-owned Node command plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-node@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-node@70e08d4ddf8930046632a7135950e924b82e22bf
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -144,7 +144,7 @@ jobs:
       evidence_id: ${{ steps.node.outputs.evidence_id }}
     steps:
       - name: Check out exact admitted caller source
-        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf
         with:
           repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -153,7 +153,7 @@ jobs:
 
       - id: workspace
         name: Prepare isolated marker-bound Node state
-        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf
         with:
           profile: ${{ needs.plan.outputs.workspace_profile }}
           cache_mode: disabled
@@ -161,14 +161,26 @@ jobs:
           trust_mode: ${{ needs.plan.outputs.source_trust }}
 
       - name: Set up exact contract-selected Node runtime
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: ${{ needs.plan.outputs.node_version }}
           package-manager-cache: false
 
+      - id: dependency_cache_restore
+        name: Restore exact npm dependency cache
+        if: ${{ inputs.install_profile == 'npm-ci' }}
+        uses: StreamScapeTV/ci-workflows/actions/dependency-cache@bf23a523614c21552b4c2782533f41d6447c4dd3
+        with:
+          phase: restore
+          family: npm
+          source_root: source
+          working_directory: ${{ inputs.working_directory }}
+          source_trust: ${{ needs.plan.outputs.source_trust }}
+          profile: ${{ inputs.validation_profile }}
+
       - id: node
         name: Execute bounded Node validation
-        uses: StreamScapeTV/ci-workflows/actions/validate-node@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-node@70e08d4ddf8930046632a7135950e924b82e22bf
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -186,7 +198,7 @@ jobs:
 
       - name: Render deterministic redacted Node evidence
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/render-evidence@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/render-evidence@70e08d4ddf8930046632a7135950e924b82e22bf
         with:
           source_sha: ${{ inputs.admitted_sha }}
           workflow_release: validation-node-1.0.0
@@ -198,10 +210,24 @@ jobs:
           cleanup_state: not-run
           cleanup_removed_paths: "0"
 
+      - id: dependency_cache_save
+        name: Save exact npm dependency cache after protected integration success
+        if: ${{ inputs.install_profile == 'npm-ci' && steps.node.outcome == 'success' && github.event_name == 'push' && github.ref_protected && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+        uses: StreamScapeTV/ci-workflows/actions/dependency-cache@bf23a523614c21552b4c2782533f41d6447c4dd3
+        with:
+          phase: save
+          family: npm
+          source_root: source
+          working_directory: ${{ inputs.working_directory }}
+          source_trust: ${{ needs.plan.outputs.source_trust }}
+          profile: ${{ inputs.validation_profile }}
+          validation_succeeded: "true"
+          restored_cache_hit: ${{ steps.dependency_cache_restore.outputs.cache_hit }}
+
       - id: cleanup
         name: Remove and verify all registered Node state
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf
 
       - name: Verify exact source remained clean after cleanup
         if: always()
