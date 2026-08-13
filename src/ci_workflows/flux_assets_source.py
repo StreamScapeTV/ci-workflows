@@ -7,11 +7,18 @@ from typing import Any, Mapping
 
 from .flux_assets import FluxAssetError, validate_source_contract
 
+_API_PRODUCT_KIND = {
+    "oci.build": "oci-runner-image-family",
+    "oci.publish": "oci-runner-image-family",
+    "helm.validate": "helm-oci-chart-assets",
+    "helm.publish": "helm-oci-chart-assets",
+}
+
 
 def validate_dependency_product_inventory(
     contract: Mapping[str, Any], *, products_path: Path
 ) -> dict[str, str]:
-    """Require every dependency product identity to exist in merged Flux inventory."""
+    """Require dependency identities and kinds to exist in merged Flux inventory."""
 
     try:
         payload = json.loads(products_path.read_text(encoding="utf-8"))
@@ -29,7 +36,7 @@ def validate_dependency_product_inventory(
             "invalid_product_inventory", "merged product inventory products are invalid"
         )
 
-    current_flux_ids: set[str] = set()
+    current_flux: dict[str, str] = {}
     for row in rows:
         if not isinstance(row, Mapping):
             raise FluxAssetError(
@@ -38,14 +45,17 @@ def validate_dependency_product_inventory(
         identifier = row.get("id")
         repository = row.get("repository")
         status = row.get("status")
+        kind = row.get("kind")
         if (
             repository == "StreamScapeTV/flux"
             and status == "current"
             and isinstance(identifier, str)
             and identifier
+            and isinstance(kind, str)
+            and kind
         ):
-            current_flux_ids.add(identifier)
-    if not current_flux_ids:
+            current_flux[identifier] = kind
+    if not current_flux:
         raise FluxAssetError(
             "invalid_product_inventory", "merged Flux product inventory is empty"
         )
@@ -55,6 +65,11 @@ def validate_dependency_product_inventory(
         raise FluxAssetError(
             "invalid_contract", "dependency_interfaces must be a non-empty object"
         )
+    if set(interfaces) != set(_API_PRODUCT_KIND):
+        raise FluxAssetError(
+            "invalid_contract", "dependency interface API set is not canonical"
+        )
+
     resolved: dict[str, str] = {}
     for api_name, raw in interfaces.items():
         if not isinstance(api_name, str) or not isinstance(raw, Mapping):
@@ -66,10 +81,16 @@ def validate_dependency_product_inventory(
             raise FluxAssetError(
                 "invalid_contract", f"{api_name}.product_id is required"
             )
-        if product_id not in current_flux_ids:
+        product_kind = current_flux.get(product_id)
+        if product_kind is None:
             raise FluxAssetError(
                 "dependency_product_unregistered",
                 f"{api_name} references an unmerged Flux product identity",
+            )
+        if product_kind != _API_PRODUCT_KIND[api_name]:
+            raise FluxAssetError(
+                "dependency_product_kind_mismatch",
+                f"{api_name} references the wrong merged Flux product kind",
             )
         resolved[api_name] = product_id
     return dict(sorted(resolved.items()))
