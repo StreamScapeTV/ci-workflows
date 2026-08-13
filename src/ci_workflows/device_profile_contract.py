@@ -176,7 +176,7 @@ def load_device_contract(root: Path) -> Mapping[str, Any]:
     authorization = contract.get("owner_authorization")
     require(
         isinstance(authorization, Mapping)
-        and authorization.get("mode") == "exact-family-current-chat"
+        and authorization.get("mode") == "exact-family-runtime-receipt"
         and authorization.get("authorized_families") == []
         and authorization.get("runner_or_secret_is_authorization") is False
         and authorization.get("failure_code") == "physical_authorization_required",
