@@ -19,6 +19,10 @@ class AdmissionAndPlanTests(unittest.TestCase):
 
     def test_contract_identity_and_authorization_boundary(self) -> None:
         self.assertEqual("1.1.0", self.contract["contract_version"])
+        self.assertEqual(
+            "exact-family-runtime-receipt",
+            self.contract["owner_authorization"]["mode"],
+        )
         self.assertEqual([], self.contract["owner_authorization"]["authorized_families"])
         self.assertFalse(self.contract["owner_authorization"]["runner_or_secret_is_authorization"])
         self.assertFalse(self.contract["lock_contract"]["cross_run_fencing_claimed"])
@@ -178,3 +182,7 @@ class AdmissionAndPlanTests(unittest.TestCase):
         digest = __import__("hashlib").sha256(raw.encode()).hexdigest()
         with self.assertRaisesRegex(DeviceValidationError, "device_profile_rejected"):
             validate_typed_plan(raw, digest, contract=self.contract, environment=environment)
+
+
+if __name__ == "__main__":
+    unittest.main()
