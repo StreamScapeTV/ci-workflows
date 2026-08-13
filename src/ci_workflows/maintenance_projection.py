@@ -74,12 +74,16 @@ def _issue_labels(issue: Mapping[str, Any]) -> tuple[str, ...]:
 
 
 def _issue_snapshot(issue: Mapping[str, Any]) -> tuple[Any, ...]:
-    return (
-        issue.get("number"),
-        issue.get("state"),
-        issue.get("updated_at"),
-        _issue_labels(issue),
-    )
+    number = _positive(issue.get("number"), "projection_issue_invalid")
+    state = issue.get("state")
+    updated_at = issue.get("updated_at")
+    if not isinstance(state, str) or not state:
+        raise MaintenanceError("projection_issue_invalid")
+    try:
+        _timestamp(updated_at)
+    except MaintenanceError as error:
+        raise MaintenanceError("projection_issue_invalid") from error
+    return number, state, updated_at, _issue_labels(issue)
 
 
 def _status_snapshot(
@@ -237,6 +241,10 @@ def project_comment(
         maximum=64,
         code="projection_issue_invalid",
     )
+    try:
+        _timestamp(expected_updated_at)
+    except MaintenanceError as error:
+        raise MaintenanceError("projection_issue_invalid") from error
     if (
         not isinstance(marker, str)
         or re.fullmatch(str(policy["comment_marker_pattern"]), marker) is None
@@ -251,6 +259,7 @@ def project_comment(
     issue = api.get_issue(project.repository, number)
     if issue is None:
         raise MaintenanceError("projection_issue_missing")
+    _issue_snapshot(issue)
     comments = api.list_issue_comments(project.repository, number)
     if not isinstance(comments, list) or any(
         not isinstance(comment, Mapping) for comment in comments
@@ -263,6 +272,11 @@ def project_comment(
     ]
     if len(matches) > 1:
         raise MaintenanceError("projection_comment_ambiguous")
+    comment_id = (
+        _positive(matches[0].get("id"), "projection_comment_invalid")
+        if matches
+        else None
+    )
     if matches and matches[0].get("body") == rendered:
         return OperationResult(
             "success",
@@ -290,11 +304,16 @@ def project_comment(
         for comment in fresh_comments
         if str(comment.get("body", "")).startswith(prefix)
     ]
+    fresh_comment_id = (
+        _positive(fresh_matches[0].get("id"), "projection_comment_invalid")
+        if fresh_matches
+        else None
+    )
     if (
         fresh_issue is None
         or _issue_snapshot(fresh_issue) != _issue_snapshot(issue)
         or len(fresh_matches) != len(matches)
-        or (matches and fresh_matches[0].get("id") != matches[0].get("id"))
+        or fresh_comment_id != comment_id
         or (
             matches
             and fresh_matches[0].get("body") != matches[0].get("body")
@@ -302,11 +321,7 @@ def project_comment(
     ):
         raise MaintenanceError("projection_comment_changed_before_update")
 
-    if matches:
-        comment_id = _positive(
-            matches[0].get("id"),
-            "projection_comment_invalid",
-        )
+    if comment_id is not None:
         api.update_issue_comment(project.repository, comment_id, rendered)
         action = "update_comment"
     else:
@@ -347,12 +362,17 @@ def project_labels(
         maximum=64,
         code="projection_issue_invalid",
     )
+    try:
+        _timestamp(expected_updated_at)
+    except MaintenanceError as error:
+        raise MaintenanceError("projection_issue_invalid") from error
     expected = _labels(expected_labels, policy)
     desired = _labels(desired_labels, policy)
 
     issue = api.get_issue(project.repository, number)
     if issue is None:
         raise MaintenanceError("projection_issue_missing")
+    _issue_snapshot(issue)
     current = _issue_labels(issue)
     if current == desired:
         return OperationResult(
