@@ -1,7 +1,8 @@
 name: Run organization conformance report
-description: Compare live workflow trees to the checked-in inventory and optionally publish one report issue
+description: Compare live workflow trees to inventory and produce review-only immutable shared-reference proposals
 inputs:
   repository_scope: {description: Optional allowlisted project scope, required: false}
+  shared_reference_target_sha: {description: Optional exact ci-workflows SHA used only for reviewable repin proposals, required: false}
   dry_run: {description: Report only when true, required: true}
   request_id: {description: Bounded request identifier, required: true}
   token: {description: Named read or update credential selected by the workflow, required: true}
@@ -24,5 +25,6 @@ runs:
         set -Eeuo pipefail
         python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/maintenance.py" conformance \
           --repository-scope "${{ inputs.repository_scope }}" \
+          --shared-reference-target-sha "${{ inputs.shared_reference_target_sha }}" \
           --dry-run "${{ inputs.dry_run }}" \
           --request-id "${{ inputs.request_id }}"
