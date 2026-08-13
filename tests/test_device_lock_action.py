@@ -74,14 +74,16 @@ class DeviceLockActionTests(unittest.TestCase):
             self.assertNotIn(forbidden, inputs)
         step = action["runs"]["steps"][0]
         self.assertEqual("bash", step["shell"])
-        self.assertIn("scripts/ci/device_lock.py", step["run"])
+        self.assertIn("scripts/ci/ciw.py", step["run"])
+        self.assertIn("device lock --phase", step["run"])
         self.assertIn("${CIW_LOCK_PHASE}", step["run"])
+        self.assertNotIn("scripts/ci/device_lock.py", step["run"])
         self.assertNotIn("eval ", step["run"])
         self.assertNotIn("curl ", step["run"])
         self.assertNotIn("rm -rf", step["run"])
         self.assertNotIn("CIW_DEVICE_LOCK_ROOT", step.get("env", {}))
 
-    def test_cli_acquire_verify_release_residue_round_trip(self) -> None:
+    def test_adapter_acquire_verify_release_residue_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "lock-root"
             root.mkdir(mode=0o700)
@@ -119,7 +121,7 @@ class DeviceLockActionTests(unittest.TestCase):
             self.assertEqual("clean", clean["result"])
             self.assertEqual(released["cleanup_evidence"], clean["cleanup_evidence"])
 
-    def test_cli_failure_projection_never_prints_backend_path(self) -> None:
+    def test_adapter_failure_projection_never_prints_backend_path(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "unsafe-root"
             root.mkdir(mode=0o755)
@@ -133,12 +135,6 @@ class DeviceLockActionTests(unittest.TestCase):
             self.assertEqual("backend_unavailable", failure["failure_code"])
             self.assertNotIn(str(root), stderr.getvalue())
             self.assertEqual("device-lock:backend_unavailable\n", stderr.getvalue())
-
-    def test_script_wrapper_imports_only_the_named_adapter(self) -> None:
-        source = (ROOT / "scripts/ci/device_lock.py").read_text(encoding="utf-8")
-        self.assertIn("from ci_workflows.ciw_device_lock import main", source)
-        self.assertNotIn("eval(", source)
-        self.assertNotIn("exec(", source)
 
 
 if __name__ == "__main__":
