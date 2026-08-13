@@ -71,8 +71,9 @@ def build_plan(contract: Mapping[str, Any], request: DeviceRequest) -> DevicePla
     group = f"device-validation-{profile.profile_id}-{request.family.value}-{alias_class}"
     require(re.fullmatch(r"[a-z0-9-]{16,180}", group) is not None, "group_injection_rejected")
 
-    # No family has explicit owner authorization in this chat. Runner labels,
-    # device presence, branch text, or a secret never changes this decision.
+    # Checked-in planning has no accepted runtime authorization/fencing receipt
+    # producer. Runner labels, device presence, branch text, or a secret never
+    # changes this decision.
     execution_authorized = False
     return DevicePlan(
         request=request,
