@@ -157,9 +157,12 @@ def resolve_plan(
     repository_scope = hashlib.sha256(
         request.repository.encode("utf-8")
     ).hexdigest()[:12]
+    scoped_prefix = f"{simulator.device_name_prefix} {repository_scope}"
+    if len(scoped_prefix) > 128:
+        raise AppleValidationError("simulator_contract_invalid")
     scoped_simulator = replace(
         simulator,
-        device_name_prefix=f"{simulator.device_name_prefix} {repository_scope}",
+        device_name_prefix=scoped_prefix,
     )
     return replace(plan, simulator=scoped_simulator)
 
