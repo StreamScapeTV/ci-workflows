@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from ci_workflows.flux_assets_guards import (
     validate_operation_context,
     validate_runtime_probe_strict,
 )
+from ci_workflows.flux_assets_source import validate_source_contract_strict
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = load_contract(ROOT / "contracts/flux-infrastructure-products.json")
@@ -270,6 +272,43 @@ class RuntimeProbeStrictnessTests(unittest.TestCase):
         forbidden["tools"] = {**probe["tools"], member["forbidden_tools"][0]: "1"}
         with self.assertRaisesRegex(FluxAssetError, "forbidden_tool_present"):
             validate_runtime_probe_strict(member, forbidden)
+
+
+class SourceIsolationTests(unittest.TestCase):
+    @staticmethod
+    def _write_chart(root: Path) -> Path:
+        chart = root / "apps/github-actions-runner"
+        chart.mkdir(parents=True)
+        for name in ("Chart.yaml", "values.yaml", "values.schema.json"):
+            (chart / name).write_text("{}\n", encoding="utf-8")
+        return chart
+
+    def test_chart_source_is_resolved_inside_admitted_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._write_chart(root)
+            result = validate_source_contract_strict(
+                CONTRACT,
+                product_id="flux-runner-chart-assets",
+                source_root=root,
+            )
+            self.assertEqual(result["chart_root"], "apps/github-actions-runner")
+
+    def test_chart_root_symlink_escape_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary, tempfile.TemporaryDirectory() as external:
+            root = Path(temporary)
+            outside = Path(external)
+            outside_chart = self._write_chart(outside).resolve()
+            (root / "apps").mkdir()
+            (root / "apps/github-actions-runner").symlink_to(
+                outside_chart, target_is_directory=True
+            )
+            with self.assertRaisesRegex(FluxAssetError, "source_path_escape"):
+                validate_source_contract_strict(
+                    CONTRACT,
+                    product_id="flux-runner-chart-assets",
+                    source_root=root,
+                )
 
 
 class WorkflowRecoveryTests(unittest.TestCase):
