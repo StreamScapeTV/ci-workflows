@@ -9,9 +9,9 @@ from .apple_contract import (
     AppleValidationError,
     bounded_path,
     build_plan,
+    load_apple_contract,
     safe_relative,
 )
-from .apple_contract_fragments import load_apple_contract
 from .apple_execution import (
     CommandRunner,
     assert_zero_apple_residue,
@@ -126,8 +126,14 @@ def request_from_environment(
             script_path=_optional(environment, "INPUT_SCRIPT_PATH"),
             platform=_optional(environment, "INPUT_PLATFORM"),
             scheme=_optional(environment, "INPUT_SCHEME"),
-            destination_profile=_optional(environment, "INPUT_DESTINATION_PROFILE"),
-            artifact_exception_id=_optional(environment, "INPUT_ARTIFACT_EXCEPTION_ID"),
+            destination_profile=_optional(
+                environment,
+                "INPUT_DESTINATION_PROFILE",
+            ),
+            artifact_exception_id=_optional(
+                environment,
+                "INPUT_ARTIFACT_EXCEPTION_ID",
+            ),
         )
     except AppleValidationError:
         raise
