@@ -24,5 +24,9 @@ runs:
       run: |
         set -Eeuo pipefail
         args=(python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/maintenance.py" branches --project-id "${{ inputs.project_id }}" --expected-head-sha "${{ inputs.expected_head_sha }}" --dry-run "${{ inputs.dry_run }}" --request-id "${{ inputs.request_id }}")
-        if [[ -n "${{ inputs.pr_number }}" ]]; then args+=(--pr-number "${{ inputs.pr_number }}"); fi
+        pr_number="${{ inputs.pr_number }}"
+        if [[ -n "${pr_number}" && "${pr_number}" != "0" ]]; then
+          [[ "${pr_number}" =~ ^[1-9][0-9]*$ ]]
+          args+=(--pr-number "${pr_number}")
+        fi
         "${args[@]}"
