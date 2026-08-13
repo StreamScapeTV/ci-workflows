@@ -1,10 +1,78 @@
-"""No-follow source validation for privileged Flux infrastructure asset execution."""
+"""Merged-inventory and no-follow source guards for Flux infrastructure assets."""
 from __future__ import annotations
 
+import json
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
 from .flux_assets import FluxAssetError, validate_source_contract
+
+
+def validate_dependency_product_inventory(
+    contract: Mapping[str, Any], *, products_path: Path
+) -> dict[str, str]:
+    """Require every dependency product identity to exist in merged Flux inventory."""
+
+    try:
+        payload = json.loads(products_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise FluxAssetError(
+            "invalid_product_inventory", "merged product inventory is unavailable"
+        ) from error
+    if not isinstance(payload, Mapping) or payload.get("schema_version") != 1:
+        raise FluxAssetError(
+            "invalid_product_inventory", "merged product inventory is invalid"
+        )
+    rows = payload.get("products")
+    if not isinstance(rows, list):
+        raise FluxAssetError(
+            "invalid_product_inventory", "merged product inventory products are invalid"
+        )
+
+    current_flux_ids: set[str] = set()
+    for row in rows:
+        if not isinstance(row, Mapping):
+            raise FluxAssetError(
+                "invalid_product_inventory", "merged product inventory row is invalid"
+            )
+        identifier = row.get("id")
+        repository = row.get("repository")
+        status = row.get("status")
+        if (
+            repository == "StreamScapeTV/flux"
+            and status == "current"
+            and isinstance(identifier, str)
+            and identifier
+        ):
+            current_flux_ids.add(identifier)
+    if not current_flux_ids:
+        raise FluxAssetError(
+            "invalid_product_inventory", "merged Flux product inventory is empty"
+        )
+
+    interfaces = contract.get("dependency_interfaces")
+    if not isinstance(interfaces, Mapping) or not interfaces:
+        raise FluxAssetError(
+            "invalid_contract", "dependency_interfaces must be a non-empty object"
+        )
+    resolved: dict[str, str] = {}
+    for api_name, raw in interfaces.items():
+        if not isinstance(api_name, str) or not isinstance(raw, Mapping):
+            raise FluxAssetError(
+                "invalid_contract", "dependency interface entry is invalid"
+            )
+        product_id = raw.get("product_id")
+        if not isinstance(product_id, str) or not product_id:
+            raise FluxAssetError(
+                "invalid_contract", f"{api_name}.product_id is required"
+            )
+        if product_id not in current_flux_ids:
+            raise FluxAssetError(
+                "dependency_product_unregistered",
+                f"{api_name} references an unmerged Flux product identity",
+            )
+        resolved[api_name] = product_id
+    return dict(sorted(resolved.items()))
 
 
 def _relative_contract_path(value: Any, *, name: str) -> PurePosixPath:
