@@ -198,13 +198,16 @@ def project_status(
     ):
         raise MaintenanceError("projection_status_changed_before_update")
 
-    api.create_status(
+    created = api.create_status(
         project.repository,
         expected_sha,
         state=state,
         context=context,
         description=description,
     )
+    created_snapshot = _status_snapshot([created], context, states)
+    if created_snapshot is None or created_snapshot[1:5] != desired:
+        raise MaintenanceError("projection_status_verification_failed")
     return OperationResult(
         "success",
         request_id,
@@ -259,7 +262,9 @@ def project_comment(
     issue = api.get_issue(project.repository, number)
     if issue is None:
         raise MaintenanceError("projection_issue_missing")
-    _issue_snapshot(issue)
+    issue_snapshot = _issue_snapshot(issue)
+    if issue_snapshot[0] != number:
+        raise MaintenanceError("projection_issue_invalid")
     comments = api.list_issue_comments(project.repository, number)
     if not isinstance(comments, list) or any(
         not isinstance(comment, Mapping) for comment in comments
@@ -290,7 +295,7 @@ def project_comment(
                 }
             ],
         )
-    if issue.get("updated_at") != expected_updated_at:
+    if issue_snapshot[2] != expected_updated_at:
         raise MaintenanceError("projection_issue_changed")
 
     fresh_issue = api.get_issue(project.repository, number)
@@ -311,7 +316,7 @@ def project_comment(
     )
     if (
         fresh_issue is None
-        or _issue_snapshot(fresh_issue) != _issue_snapshot(issue)
+        or _issue_snapshot(fresh_issue) != issue_snapshot
         or len(fresh_matches) != len(matches)
         or fresh_comment_id != comment_id
         or (
@@ -322,10 +327,24 @@ def project_comment(
         raise MaintenanceError("projection_comment_changed_before_update")
 
     if comment_id is not None:
-        api.update_issue_comment(project.repository, comment_id, rendered)
+        updated = api.update_issue_comment(project.repository, comment_id, rendered)
+        if (
+            not isinstance(updated, Mapping)
+            or _positive(updated.get("id"), "projection_comment_verification_failed")
+            != comment_id
+            or updated.get("body") != rendered
+        ):
+            raise MaintenanceError("projection_comment_verification_failed")
         action = "update_comment"
     else:
-        api.create_issue_comment(project.repository, number, rendered)
+        created = api.create_issue_comment(project.repository, number, rendered)
+        if (
+            not isinstance(created, Mapping)
+            or _positive(created.get("id"), "projection_comment_verification_failed")
+            <= 0
+            or created.get("body") != rendered
+        ):
+            raise MaintenanceError("projection_comment_verification_failed")
         action = "create_comment"
     return OperationResult(
         "success",
@@ -372,8 +391,10 @@ def project_labels(
     issue = api.get_issue(project.repository, number)
     if issue is None:
         raise MaintenanceError("projection_issue_missing")
-    _issue_snapshot(issue)
-    current = _issue_labels(issue)
+    issue_snapshot = _issue_snapshot(issue)
+    if issue_snapshot[0] != number:
+        raise MaintenanceError("projection_issue_invalid")
+    current = issue_snapshot[3]
     if current == desired:
         return OperationResult(
             "success",
@@ -387,13 +408,18 @@ def project_labels(
                 }
             ],
         )
-    if current != expected or issue.get("updated_at") != expected_updated_at:
+    if current != expected or issue_snapshot[2] != expected_updated_at:
         raise MaintenanceError("projection_issue_changed")
 
     fresh = api.get_issue(project.repository, number)
-    if fresh is None or _issue_snapshot(fresh) != _issue_snapshot(issue):
+    if fresh is None or _issue_snapshot(fresh) != issue_snapshot:
         raise MaintenanceError("projection_labels_changed_before_update")
-    api.set_issue_labels(project.repository, number, list(desired))
+    updated = api.set_issue_labels(project.repository, number, list(desired))
+    if not isinstance(updated, Mapping):
+        raise MaintenanceError("projection_labels_verification_failed")
+    updated_snapshot = _issue_snapshot(updated)
+    if updated_snapshot[0] != number or updated_snapshot[3] != desired:
+        raise MaintenanceError("projection_labels_verification_failed")
     return OperationResult(
         "success",
         request_id,
