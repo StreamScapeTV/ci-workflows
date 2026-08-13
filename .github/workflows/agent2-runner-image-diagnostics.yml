@@ -1,0 +1,32 @@
+name: Agent 2 runner image diagnostics
+
+on:
+  push:
+    branches:
+      - issue/143-general-runner-image
+    paths:
+      - .github/workflows/agent2-runner-image-diagnostics.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-runner-base:
+    name: Inspect actions runner OCI identity
+    runs-on: [linux, amd64, buildah, tiny]
+    timeout-minutes: 10
+    steps:
+      - name: Resolve immutable linux/amd64 identity without credentials
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          reference='ghcr.io/actions/actions-runner:2.336.0'
+          root_digest="$(skopeo inspect --format '{{.Digest}}' "docker://${reference}")"
+          skopeo inspect --raw "docker://${reference}" > "${RUNNER_TEMP}/runner-index.json"
+          child_digest="$(jq -er '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest' "${RUNNER_TEMP}/runner-index.json")"
+          skopeo inspect --raw "docker://ghcr.io/actions/actions-runner@${child_digest}" > "${RUNNER_TEMP}/runner-manifest.json"
+          config_digest="$(jq -er '.config.digest' "${RUNNER_TEMP}/runner-manifest.json")"
+          printf 'RUNNER_ROOT_DIGEST=%s\n' "${root_digest}"
+          printf 'RUNNER_AMD64_MANIFEST_DIGEST=%s\n' "${child_digest}"
+          printf 'RUNNER_AMD64_CONFIG_DIGEST=%s\n' "${config_digest}"
+          rm -f "${RUNNER_TEMP}/runner-index.json" "${RUNNER_TEMP}/runner-manifest.json"
