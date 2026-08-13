@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "product_id": "runner-general",
+  "platform": "linux/amd64",
+  "policy": {
+    "network_during_image_build": false,
+    "ambient_credentials": false,
+    "inherits_streamscape_runner_image": false,
+    "forbidden_tools": ["docker", "dockerd", "buildah", "podman", "skopeo"]
+  }
+}
