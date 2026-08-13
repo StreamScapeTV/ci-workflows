@@ -77,7 +77,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve contract-owned Apple plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@88d179740145ccea00b6986d78ceb67ea365face # issue #131 immutable Release-aware Apple checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@5c1a9a060650159f180a308063ce5c4a055bdca4 # issue #164 immutable Media VLC tvOS checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -197,7 +197,7 @@ jobs:
       - id: execute
         name: Execute bounded Apple validation
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@88d179740145ccea00b6986d78ceb67ea365face # issue #131 immutable Release-aware Apple checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@5c1a9a060650159f180a308063ce5c4a055bdca4 # issue #164 immutable Media VLC tvOS checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -216,7 +216,7 @@ jobs:
         name: Remove Apple-specific state
         if: always()
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@88d179740145ccea00b6986d78ceb67ea365face # issue #131 immutable Release-aware Apple checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@5c1a9a060650159f180a308063ce5c4a055bdca4 # issue #164 immutable Media VLC tvOS checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -235,7 +235,7 @@ jobs:
         name: Verify zero Apple-specific residue
         if: always()
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@88d179740145ccea00b6986d78ceb67ea365face # issue #131 immutable Release-aware Apple checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@5c1a9a060650159f180a308063ce5c4a055bdca4 # issue #164 immutable Media VLC tvOS checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
