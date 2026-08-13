@@ -4,12 +4,27 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from .maintenance_contract import MaintenanceContract, MaintenanceError
 from .maintenance_core import MaintenanceApi, OperationResult, _inventory_repo, _positive, _workflow_rows, load_json_file
 
 _SHARED_REF = re.compile(r"StreamScapeTV/ci-workflows/\.github/workflows/[^@\s\"']+@([A-Za-z0-9._/-]+)")
+
+
+def _issue_snapshot(value: Mapping[str, Any]) -> tuple[Any, ...]:
+    return (
+        value.get("number"),
+        value.get("title"),
+        value.get("body"),
+        value.get("state"),
+        value.get("updated_at"),
+    )
+
+
+def _report_matches(issues: list[Mapping[str, Any]], title: str) -> list[Mapping[str, Any]]:
+    return [issue for issue in issues if issue.get("title") == title and "pull_request" not in issue]
+
 
 def conformance(contract: MaintenanceContract, api: MaintenanceApi, *, root: Path, repository_scope: str, dry_run: bool, request_id: str) -> OperationResult:
     contract.validate_request_id(request_id)
@@ -47,20 +62,26 @@ def conformance(contract: MaintenanceContract, api: MaintenanceApi, *, root: Pat
     body = f"<!-- ci-workflows-maintenance:{scope} -->\n# Organization conformance report\n\n- Request: `{request_id}`\n- Scope: `{scope}`\n- Findings: **{len(findings)}**\n\n```json\n{json.dumps(findings, indent=2, sort_keys=True)}\n```\n"
     if len(body.encode()) > 60000:
         raise MaintenanceError("conformance_report_too_large")
-    existing = [issue for issue in api.list_open_issues(report_repository) if issue.get("title") == title and "pull_request" not in issue]
+    existing = _report_matches(api.list_open_issues(report_repository), title)
     if len(existing) > 1:
         raise MaintenanceError("conformance_report_ambiguous")
     if existing:
         issue = existing[0]
+        issue_number = _positive(issue.get("number"))
         url = issue.get("html_url")
         result.report_issue_url = url if isinstance(url, str) else ""
         if issue.get("body") == body:
-            result.decisions.append({"repository": report_repository, "issue_number": _positive(issue.get("number")), "action": "none", "reason": "conformance_report_unchanged"})
+            result.decisions.append({"repository": report_repository, "issue_number": issue_number, "action": "none", "reason": "conformance_report_unchanged"})
             return result
-        updated = api.update_issue(report_repository, _positive(issue.get("number")), title, body)
+        fresh = _report_matches(api.list_open_issues(report_repository), title)
+        if len(fresh) != 1 or _issue_snapshot(fresh[0]) != _issue_snapshot(issue):
+            raise MaintenanceError("conformance_report_changed_before_update")
+        updated = api.update_issue(report_repository, issue_number, title, body)
         result.mutation_count = 1
         url = updated.get("html_url")
     else:
+        if _report_matches(api.list_open_issues(report_repository), title):
+            raise MaintenanceError("conformance_report_changed_before_create")
         created = api.create_issue(report_repository, title, body)
         result.mutation_count = 1
         url = created.get("html_url")
