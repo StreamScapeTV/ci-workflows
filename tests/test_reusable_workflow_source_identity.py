@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_SHA = "87a7454aaa59cb680db8f580d22551b749ac4193"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 APPLE_SHA = "88d179740145ccea00b6986d78ceb67ea365face"
-OCI_SHA = "28bed1f62de4755d223c4aa81fbdb214805916ef"
+OCI_SHA = "676aa6b1b4d5fb8d4c26531e1a181e37b33e3433"
 GITOPS_SHA = "8445e63dd9fa9468b60b6d0c61e543da9681b47b"
 
 FOUNDATION = "issue #116 immutable private-action checkpoint"
