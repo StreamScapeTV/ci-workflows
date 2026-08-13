@@ -1,7 +1,9 @@
 """Public façade for reusable Apple validation."""
 from __future__ import annotations
 
+import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Mapping
 
@@ -58,6 +60,7 @@ __all__ = [
     "parse_swift_identity",
     "parse_xcode_identity",
     "request_from_environment",
+    "resolve_plan",
     "safe_relative",
     "select_simulator",
     "source_trust_from_environment",
@@ -141,6 +144,26 @@ def request_from_environment(
         raise AppleValidationError("invalid_input") from error
 
 
+def resolve_plan(
+    contract: Mapping[str, object],
+    request: AppleValidationRequest,
+) -> AppleValidationPlan:
+    """Resolve one Apple plan with repository-scoped simulator identity."""
+
+    plan = build_plan(contract, request)
+    simulator = plan.simulator
+    if simulator is None:
+        return plan
+    repository_scope = hashlib.sha256(
+        request.repository.encode("utf-8")
+    ).hexdigest()[:12]
+    scoped_simulator = replace(
+        simulator,
+        device_name_prefix=f"{simulator.device_name_prefix} {repository_scope}",
+    )
+    return replace(plan, simulator=scoped_simulator)
+
+
 def validate(
     *,
     contract_root: Path,
@@ -152,7 +175,7 @@ def validate(
     runner: CommandRunner | None = None,
 ) -> AppleValidationPlan | AppleValidationResult:
     contract = load_apple_contract(contract_root)
-    plan = build_plan(contract, request)
+    plan = resolve_plan(contract, request)
     if phase == "plan":
         return plan
     if phase != "execute" or source_root is None or state_root is None:
