@@ -47,11 +47,11 @@ class ProjectionApi:
         description: str,
     ):
         value = {
-            "id": len(self.created_statuses) + 1,
+            "id": len(self.created_statuses) + 100,
             "state": state,
             "context": context,
             "description": description,
-            "target_url": "",
+            "target_url": None,
             "updated_at": "2026-08-13T09:01:00Z",
         }
         self.created_statuses.append(
@@ -147,7 +147,41 @@ class MaintenanceProjectionTests(unittest.TestCase):
         self.assertEqual(replay.mutation_count, 0)
         self.assertEqual(len(api.created_statuses), 1)
 
-    def test_status_projection_rejects_source_drift_and_unbounded_context(self) -> None:
+    def test_status_projection_selects_latest_matching_status_independent_of_api_order(self) -> None:
+        api = ProjectionApi()
+        context = "Central / Ordered status"
+        api.statuses = [
+            {
+                "id": 10,
+                "state": "failure",
+                "context": context,
+                "description": "old state",
+                "target_url": None,
+                "updated_at": "2026-08-13T08:59:00Z",
+            },
+            {
+                "id": 11,
+                "state": "success",
+                "context": context,
+                "description": "current state",
+                "target_url": None,
+                "updated_at": "2026-08-13T09:05:00Z",
+            },
+        ]
+        replay = project_status(
+            self.contract,
+            api,
+            project_id="ci-workflows",
+            expected_sha=SHA,
+            state="success",
+            context=context,
+            description="current state",
+            request_id="status-order",
+        )
+        self.assertEqual(replay.mutation_count, 0)
+        self.assertEqual(api.created_statuses, [])
+
+    def test_status_projection_rejects_source_project_and_context_injection(self) -> None:
         api = ProjectionApi()
         api.commit = {"sha": "b" * 40}
         with self.assertRaisesRegex(MaintenanceError, "projection_source_changed"):
@@ -162,6 +196,17 @@ class MaintenanceProjectionTests(unittest.TestCase):
                 request_id="status-drift",
             )
         api.commit = {"sha": SHA}
+        with self.assertRaisesRegex(MaintenanceError, "project_not_allowlisted"):
+            project_status(
+                self.contract,
+                api,
+                project_id="attacker/repository",
+                expected_sha=SHA,
+                state="success",
+                context="Central / Status",
+                description="ok",
+                request_id="status-project",
+            )
         with self.assertRaisesRegex(MaintenanceError, "projection_status_invalid"):
             project_status(
                 self.contract,
@@ -201,7 +246,7 @@ class MaintenanceProjectionTests(unittest.TestCase):
         self.assertEqual(len(api.created_comments), 1)
         self.assertEqual(api.updated_comments, [])
 
-    def test_comment_projection_revalidates_before_mutation(self) -> None:
+    def test_comment_projection_revalidates_before_mutation_and_rejects_duplicate_marker(self) -> None:
         api = RacingCommentApi()
         with self.assertRaisesRegex(
             MaintenanceError,
@@ -218,6 +263,23 @@ class MaintenanceProjectionTests(unittest.TestCase):
                 request_id="comment-race",
             )
         self.assertEqual(api.created_comments, [])
+
+        duplicate = ProjectionApi()
+        duplicate.comments = [
+            {"id": 1, "body": "<!-- ci-workflows-projection:dup -->\na"},
+            {"id": 2, "body": "<!-- ci-workflows-projection:dup -->\nb"},
+        ]
+        with self.assertRaisesRegex(MaintenanceError, "projection_comment_ambiguous"):
+            project_comment(
+                self.contract,
+                duplicate,
+                project_id="ci-workflows",
+                issue_number=7,
+                expected_updated_at="2026-08-13T09:00:00Z",
+                marker="dup",
+                body="Sanitized bounded decision.",
+                request_id="comment-duplicate",
+            )
 
     def test_labels_projection_requires_exact_expected_state_and_replays(self) -> None:
         api = ProjectionApi()
