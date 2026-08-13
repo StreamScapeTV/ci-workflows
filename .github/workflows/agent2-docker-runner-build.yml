@@ -19,7 +19,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
       - name: Build candidate image
-        run: buildah bud --pull-never -f runner-images/docker/Dockerfile -t ciw-runner-docker:proof runner-images/docker
+        run: buildah bud --pull=always -f runner-images/docker/Dockerfile -t ciw-runner-docker:proof runner-images/docker
       - name: Validate image tooling
         run: podman run --rm --entrypoint /usr/local/bin/runner-image-smoke ciw-runner-docker:proof
       - name: Cleanup
