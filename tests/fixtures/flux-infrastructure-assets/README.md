@@ -9,9 +9,12 @@ Buildah and Mobile are the only custom Flux runner image roots, Portable remains
 an upstream Actions runner image, and `apps/github-actions-runner` is the
 confirmed runner chart.
 
-`dependency-evidence.json` contains synthetic immutable outputs shaped like the
-registered #16/#17/#18 public APIs. Digests and references are fake deterministic
-values used only for unit tests.
+`dependency-evidence.json` contains fake deterministic digest/reference data for
+unit tests. Only output **names** that already exist in the merged public catalog
+are treated as current authority. Nested payload examples are synthetic fixture
+data, not a substitute for an unmerged #17/#18 implementation contract; final
+#33 dependency adapters must be reconciled to the exact payloads that actually
+merge on `main` before release wiring is enabled.
 
 `cases.json` is the required negative/rollback inventory for bootstrap,
 immutable-conflict, forbidden runtime state, unsupported products, malicious
