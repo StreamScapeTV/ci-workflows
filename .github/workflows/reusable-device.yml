@@ -79,7 +79,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve contract-owned typed device plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-device@aaf429c4badf1978e9f3f559260b122ede72b284 # issue #14 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@20bbfbd381c19c93adae8c1ebb9ac18a34271cf8 # issue #14 recovered immutable private-action checkpoint
         env:
           CIW_DEVICE_LIVE_BACKEND_PRESENT: ${{ secrets.live_test_credentials != '' && 'true' || 'false' }}
         with:
@@ -136,7 +136,7 @@ jobs:
       artifact_exception_used: ${{ steps.execute.outputs.artifact_exception_used }}
     steps:
       - name: Clear fixed admitted-source checkout root without following links
-        uses: StreamScapeTV/ci-workflows/actions/validate-device@aaf429c4badf1978e9f3f559260b122ede72b284 # issue #14 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@20bbfbd381c19c93adae8c1ebb9ac18a34271cf8 # issue #14 recovered immutable private-action checkpoint
         with:
           phase: cleanup-checkout
           source_root: source
@@ -173,7 +173,7 @@ jobs:
       - id: execute
         name: Execute only the exact typed plan emitted by the planner
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/validate-device@aaf429c4badf1978e9f3f559260b122ede72b284 # issue #14 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@20bbfbd381c19c93adae8c1ebb9ac18a34271cf8 # issue #14 recovered immutable private-action checkpoint
         env:
           CIW_DEVICE_LIVE_BACKEND_PRESENT: ${{ secrets.live_test_credentials != '' && 'true' || 'false' }}
         with:
@@ -187,7 +187,7 @@ jobs:
         name: Remove physical-device-specific state
         if: always()
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/validate-device@aaf429c4badf1978e9f3f559260b122ede72b284 # issue #14 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@20bbfbd381c19c93adae8c1ebb9ac18a34271cf8 # issue #14 recovered immutable private-action checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ needs.plan.outputs.admitted_sha }}
@@ -198,7 +198,7 @@ jobs:
         name: Verify zero physical-device-specific residue
         if: always()
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/validate-device@aaf429c4badf1978e9f3f559260b122ede72b284 # issue #14 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@20bbfbd381c19c93adae8c1ebb9ac18a34271cf8 # issue #14 recovered immutable private-action checkpoint
         with:
           phase: residue
           admitted_sha: ${{ needs.plan.outputs.admitted_sha }}
@@ -209,7 +209,7 @@ jobs:
         name: Remove exact admitted source without following links
         if: always()
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/validate-device@aaf429c4badf1978e9f3f559260b122ede72b284 # issue #14 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@20bbfbd381c19c93adae8c1ebb9ac18a34271cf8 # issue #14 recovered immutable private-action checkpoint
         with:
           phase: cleanup-checkout
           source_root: source
