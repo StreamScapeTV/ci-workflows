@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+DEVICE_ACTION_SHA = "aaf429c4badf1978e9f3f559260b122ede72b284"
+FOUNDATION_ACTION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 
 
 class DeviceWorkflowContractTests(unittest.TestCase):
@@ -61,18 +63,20 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         )
         self.assertIn("Execute only the exact typed plan emitted by the planner", self.workflow)
 
-    def test_called_workflow_uses_own_repository_and_sha_for_central_source(self) -> None:
-        self.assertNotIn("github.workflow_sha", self.workflow)
-        self.assertEqual(
-            2,
-            self.workflow.count("repository: ${{ job.workflow_repository }}"),
+    def test_called_workflow_uses_immutable_private_actions_without_central_checkout(self) -> None:
+        self.assertNotIn("uses: actions/checkout@", self.workflow)
+        self.assertNotIn("job.workflow_repository", self.workflow)
+        self.assertNotIn("job.workflow_sha", self.workflow)
+        self.assertNotIn("uses: ./", self.workflow)
+        device_ref = (
+            "StreamScapeTV/ci-workflows/actions/validate-device@" + DEVICE_ACTION_SHA
         )
-        self.assertEqual(2, self.workflow.count("ref: ${{ job.workflow_sha }}"))
-        self.assertEqual(
-            2,
-            self.workflow.count("EXPECTED_SHA: ${{ job.workflow_sha }}"),
-        )
-        self.assertGreaterEqual(self.workflow.count("persist-credentials: false"), 2)
+        self.assertEqual(6, self.workflow.count(device_ref))
+        for action in ("exact-checkout", "prepare-workspace", "cleanup-workspace"):
+            self.assertIn(
+                f"StreamScapeTV/ci-workflows/actions/{action}@{FOUNDATION_ACTION_SHA}",
+                self.workflow,
+            )
 
     def test_concurrency_group_is_planner_owned_and_never_cancellable(self) -> None:
         self.assertIn(
@@ -111,14 +115,29 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         )
         self.assertFalse(self.profile["owner_authorization"]["runner_or_secret_is_authorization"])
 
-    def test_ciw_and_source_cleanup_are_always_no_follow_and_proven_absent(self) -> None:
-        combined = self.workflow + "\n" + self.smoke
-        self.assertGreaterEqual(combined.count("if: always()"), 4)
-        self.assertGreaterEqual(combined.count("cleanup-checkout --source-root .ciw"), 3)
-        self.assertGreaterEqual(combined.count("! -e .ciw"), 3)
-        self.assertGreaterEqual(combined.count("! -L .ciw"), 3)
-        self.assertGreaterEqual(combined.count("test ! -e source"), 3)
-        self.assertGreaterEqual(combined.count("test ! -L source"), 3)
+    def test_source_cleanup_is_action_owned_and_smoke_cleanup_remains_no_follow(self) -> None:
+        self.assertEqual(2, self.workflow.count("phase: cleanup-checkout"))
+        self.assertNotIn("path: .ciw", self.workflow)
+        self.assertNotIn("cleanup-checkout --source-root .ciw", self.workflow)
+        self.assertGreaterEqual(self.smoke.count("if: always()"), 2)
+        self.assertGreaterEqual(self.smoke.count("cleanup-checkout --source-root .ciw"), 2)
+        self.assertGreaterEqual(self.smoke.count("! -e .ciw"), 2)
+        self.assertGreaterEqual(self.smoke.count("! -L .ciw"), 2)
+        self.assertGreaterEqual(self.smoke.count("test ! -e source"), 2)
+        self.assertGreaterEqual(self.smoke.count("test ! -L source"), 2)
+
+    def test_terminal_projection_preserves_cleanup_failures(self) -> None:
+        device_job = self.workflow.split("  device:\n", 1)[1]
+        self.assertEqual(5, device_job.count("continue-on-error: true"))
+        self.assertIn("Project terminal physical-device result after cleanup", device_job)
+        for name in (
+            "EXECUTE_OUTCOME",
+            "DEVICE_CLEANUP_OUTCOME",
+            "DEVICE_RESIDUE_OUTCOME",
+            "SOURCE_CLEANUP_OUTCOME",
+            "WORKSPACE_CLEANUP_OUTCOME",
+        ):
+            self.assertIn(name, device_job)
 
     def test_smoke_is_source_only_and_synthetic(self) -> None:
         self.assertEqual(2, self.smoke.count("runs-on: [linux, amd64, general]"))
@@ -185,37 +204,33 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         self.assertFalse(self.profile["lock_contract"]["cross_run_fencing_claimed"])
         self.assertEqual("none-in-source-package", self.profile["lock_contract"]["production_adapter"])
 
-    def test_shared_high_collision_files_are_not_owned(self) -> None:
-        owned_roots = {
+    def test_shared_registration_surfaces_include_device(self) -> None:
+        public = json.loads((ROOT / "contracts/public-workflows.json").read_text())
+        validation = json.loads(
+            (ROOT / "contracts/public-workflows/validation.json").read_text()
+        )
+        ciw = json.loads((ROOT / "contracts/ciw-commands.json").read_text())
+        bootstrap = json.loads(
+            (ROOT / "contracts/bootstrap-public-workflows.json").read_text()
+        )
+        public_device = next(
+            item for item in public["workflows"] if item["api_name"] == "validation.device"
+        )
+        validation_device = next(
+            item
+            for item in validation["workflows"]
+            if item["api_name"] == "validation.device"
+        )
+        self.assertEqual("implemented", public_device["status"])
+        self.assertEqual("implemented", validation_device["status"])
+        self.assertIn(
+            "device validate",
+            {f"{item['domain']} {item['operation']}" for item in ciw["commands"]},
+        )
+        self.assertIn(
             ".github/workflows/reusable-device.yml",
-            ".github/workflows/device-validation-contract-smoke.yml",
-            "actions/validate-device/action.yml",
-            "scripts/ci/device.py",
-            "src/ci_workflows/device.py",
-            "src/ci_workflows/device_contract.py",
-            "src/ci_workflows/device_execution.py",
-            "src/ci_workflows/device_types.py",
-            "src/ci_workflows/ciw_device.py",
-            "contracts/device-profiles.json",
-            "contracts/device-evidence.json",
-            "tests/fixtures/device-validation",
-            "tests/test_device_validation.py",
-            "tests/test_device_workflow_contract.py",
-            "docs/workflows/devices.md",
-            "docs/architecture/device-validation.md",
-        }
-        for deferred in (
-            "contracts/public-workflows.json",
-            "contracts/public-workflow-types.json",
-            "contracts/ciw-commands.json",
-            "contracts/action-tool-lock.json",
-            "contracts/runner-profiles.json",
-            "contracts/bootstrap-public-workflows.json",
-            "generated/runner-mappings.json",
-            "src/ci_workflows/ciw.py",
-            "tests/test_bootstrap.py",
-        ):
-            self.assertNotIn(deferred, owned_roots)
+            {item["path"] for item in bootstrap["allowed"]},
+        )
 
     def test_documentation_states_all_required_boundaries(self) -> None:
         text = self.docs.casefold()
@@ -226,9 +241,9 @@ class DeviceWorkflowContractTests(unittest.TestCase):
             "cancel-in-progress: false",
             "not a fencing token",
             "physical_authorization_required",
-            "no real physical-device execution is authorized",
+            "no checked-in physical-device execution authorization",
             "zero routine actions artifacts",
-            ".ciw",
+            "immutable private action",
         ):
             self.assertIn(phrase.casefold(), text)
 
