@@ -5,7 +5,10 @@ import unittest
 from pathlib import Path
 
 from ci_workflows.flux_assets import FluxAssetError
-from ci_workflows.flux_assets_source import validate_dependency_product_inventory
+from ci_workflows.flux_assets_source import (
+    validate_dependency_product_inventory,
+    validate_runtime_repository,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = ROOT / "contracts/flux-infrastructure-products.json"
@@ -30,6 +33,18 @@ class FluxHelmDependencyAlignmentTests(unittest.TestCase):
                 contract["dependency_interfaces"][api]["product_id"],
                 expected,
             )
+
+    def test_runtime_repository_allows_only_central_self_test_or_flux(self) -> None:
+        self.assertEqual(
+            validate_runtime_repository("StreamScapeTV/ci-workflows"),
+            "StreamScapeTV/ci-workflows",
+        )
+        self.assertEqual(
+            validate_runtime_repository("StreamScapeTV/flux"),
+            "StreamScapeTV/flux",
+        )
+        with self.assertRaisesRegex(FluxAssetError, "caller_repository_forbidden"):
+            validate_runtime_repository("StreamScapeTV/iptv-backend")
 
     def test_dependency_products_must_be_current_in_merged_inventory(self) -> None:
         contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
