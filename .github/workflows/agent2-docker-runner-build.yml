@@ -1,0 +1,29 @@
+name: Agent 2 Docker runner build validation
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/agent2-docker-runner-build.yml
+      - runner-images/docker/**
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: [linux, amd64, buildah, small]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Build candidate image
+        run: buildah bud --pull-never -f runner-images/docker/Dockerfile -t ciw-runner-docker:proof runner-images/docker
+      - name: Validate image tooling
+        run: podman run --rm --entrypoint /usr/local/bin/runner-image-smoke ciw-runner-docker:proof
+      - name: Cleanup
+        if: always()
+        run: |
+          buildah rm --all || true
+          podman rmi -f ciw-runner-docker:proof || true
