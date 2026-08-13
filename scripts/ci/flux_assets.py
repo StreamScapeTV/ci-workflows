@@ -28,12 +28,14 @@ from ci_workflows.flux_assets_guards import (  # noqa: E402
 )
 from ci_workflows.flux_assets_source import (  # noqa: E402
     validate_dependency_product_inventory,
+    validate_oci_build_dependency_evidence,
     validate_runtime_repository,
     validate_source_contract_strict,
 )
 
 DEFAULT_CONTRACT = ROOT / "contracts/flux-infrastructure-products.json"
 PRODUCTS_INVENTORY = ROOT / "contracts/products.json"
+OCI_PRODUCTS_INVENTORY = ROOT / "contracts/oci-products.json"
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -172,10 +174,14 @@ def _release(args: argparse.Namespace) -> Mapping[str, Any]:
             product_id=args.product_id,
             source_root=source_root,
         )
+    dependency_outputs = _dependency_evidence(args.dependency_evidence_json)
+    validate_oci_build_dependency_evidence(
+        dependency_outputs, oci_products_path=OCI_PRODUCTS_INVENTORY
+    )
     return compose_guarded_release(
         contract,
         request=_request(args),
-        dependency_outputs=_dependency_evidence(args.dependency_evidence_json),
+        dependency_outputs=dependency_outputs,
     )
 
 
