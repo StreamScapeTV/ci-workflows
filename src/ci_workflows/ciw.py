@@ -13,6 +13,7 @@ from typing import Any, Callable, Mapping, Sequence
 from . import runners
 from .ciw_android import configure_android_validate, execute_android_validate
 from .ciw_apple import configure_apple_validate, execute_apple_validate
+from .ciw_device import configure_device_validate, execute_device_validate
 from .ciw_docs import load_command_contract
 from .ciw_flutter import configure_flutter_validate, execute_flutter_validate
 from .ciw_gitops import configure_gitops_validate, execute_gitops_validate
@@ -117,6 +118,10 @@ def _add_android_validate(parser: argparse.ArgumentParser) -> None:
 
 def _add_apple_validate(parser: argparse.ArgumentParser) -> None:
     configure_apple_validate(parser)
+
+
+def _add_device_validate(parser: argparse.ArgumentParser) -> None:
+    configure_device_validate(parser)
 
 
 def _add_flutter_validate(parser: argparse.ArgumentParser) -> None:
@@ -449,6 +454,13 @@ def handle_apple_validate(
     return execute_apple_validate(args, context)
 
 
+def handle_device_validate(
+    args: argparse.Namespace,
+    context: CIWContext,
+) -> CIWResult:
+    return execute_device_validate(args, context)
+
+
 def handle_flutter_validate(
     args: argparse.Namespace,
     context: CIWContext,
@@ -519,13 +531,11 @@ def handle_workspace_prepare(
             _foundation_environment(
                 context,
                 "GITHUB_RUN_ATTEMPT",
-                default="1",
             ),
             minimum=1,
-            maximum=1_000_000,
+            maximum=1000,
             instruction="invalid_run_attempt",
         ),
-        job=_foundation_environment(context, "GITHUB_JOB"),
         runner_os=_foundation_environment(context, "RUNNER_OS"),
     )
     state = prepare_workspace(
@@ -996,6 +1006,12 @@ def command_specs() -> tuple[CommandSpec, ...]:
             "validate",
             handle_apple_validate,
             _add_apple_validate,
+        ),
+        CommandSpec(
+            "device",
+            "validate",
+            handle_device_validate,
+            _add_device_validate,
         ),
         CommandSpec(
             "flutter",
