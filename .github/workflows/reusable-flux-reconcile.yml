@@ -31,27 +31,8 @@ jobs:
       reconciliation_state: ${{ steps.reconcile.outputs.reconciliation_state }}
       request_id: ${{ steps.reconcile.outputs.request_id }}
     steps:
-      - name: Check out exact central workflow source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          path: .ciw
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
-      - name: Verify exact central workflow source
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          (
-            cd .ciw
-            test "${{ job.workflow_repository }}" = "StreamScapeTV/ci-workflows"
-            test "$(git rev-parse HEAD)" = "${{ job.workflow_sha }}"
-          )
       - name: Check out exact trusted Flux policy source
-        uses: ./.ciw/actions/exact-checkout
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf
         with:
           repository: StreamScapeTV/flux
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -59,7 +40,7 @@ jobs:
           fetch_depth: '1'
       - name: Resolve and run trusted Flux reconciliation
         id: reconcile
-        uses: ./.ciw/actions/flux-reconcile
+        uses: StreamScapeTV/ci-workflows/actions/flux-reconcile@60881e6c2e673f1a80c1c78101f4610f9e05210c
         with:
           admitted_sha: ${{ inputs.admitted_sha }}
           target_id: ${{ inputs.target_id }}
@@ -75,12 +56,20 @@ jobs:
         if: always()
         shell: bash
         run: |
-          set -Eeuo pipefail
-          (
-            cd source
-            test "$(git rev-parse HEAD)" = "${{ inputs.admitted_sha }}"
-            test -z "$(git status --porcelain --untracked-files=all)"
-          )
+          set -u
+          cleanup_failed=0
+          if [[ -d source && ! -L source ]]; then
+            (
+              cd source
+              test "$(git rev-parse HEAD)" = "${{ inputs.admitted_sha }}"
+              test -z "$(git status --porcelain --untracked-files=all)"
+            ) || cleanup_failed=1
+            rm -rf source || cleanup_failed=1
+          elif [[ -e source || -L source ]]; then
+            rm -f source || cleanup_failed=1
+          fi
           state="${RUNNER_TEMP}/flux-reconcile-${GITHUB_RUN_ID}-${{ inputs.request_id }}"
-          rm -rf "${state}"
-          test ! -e "${state}"
+          rm -rf "${state}" || cleanup_failed=1
+          [[ ! -e source && ! -L source ]] || cleanup_failed=1
+          [[ ! -e "${state}" && ! -L "${state}" ]] || cleanup_failed=1
+          exit "${cleanup_failed}"

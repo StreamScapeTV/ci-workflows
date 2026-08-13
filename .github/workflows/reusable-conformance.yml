@@ -30,28 +30,9 @@ jobs:
       report_issue_url: ${{ steps.report.outputs.report_issue_url }}
       request_id: ${{ steps.report.outputs.request_id }}
     steps:
-      - name: Check out exact central workflow source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          path: .ciw
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
-      - name: Verify exact central workflow source
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          (
-            cd .ciw
-            test "${{ job.workflow_repository }}" = "StreamScapeTV/ci-workflows"
-            test "$(git rev-parse HEAD)" = "${{ job.workflow_sha }}"
-          )
       - name: Run bounded organization conformance
         id: report
-        uses: ./.ciw/actions/maintenance-conformance
+        uses: StreamScapeTV/ci-workflows/actions/maintenance-conformance@60881e6c2e673f1a80c1c78101f4610f9e05210c
         with:
           repository_scope: ${{ inputs.repository_scope }}
           dry_run: ${{ inputs.dry_run }}
