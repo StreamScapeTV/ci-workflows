@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-APPLE_HELPER_SHA = "3175577052ac22b838789709f7082dfee372cfa7"
+APPLE_HELPER_SHA = "88d179740145ccea00b6986d78ceb67ea365face"
 
 
 class AppleWorkflowContractTests(unittest.TestCase):
