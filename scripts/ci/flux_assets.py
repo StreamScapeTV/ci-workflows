@@ -48,10 +48,6 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--operation", default="")
     parser.add_argument("--policy-path", default="")
     parser.add_argument("--request-id", default="")
-    parser.add_argument("--source-event-name", default="")
-    parser.add_argument("--source-ref-type", default="")
-    parser.add_argument("--source-ref-name", default="")
-    parser.add_argument("--source-default-branch", default="")
     parser.add_argument("--source-root", default="")
     parser.add_argument("--dependency-evidence-json", default="{}")
     parser.add_argument("--state-root", type=Path)
@@ -59,7 +55,39 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _request(args: argparse.Namespace) -> dict[str, str]:
+def _github_context() -> dict[str, str]:
+    """Read immutable caller event/ref identities from the GitHub runtime."""
+
+    event_name = os.environ.get("GITHUB_EVENT_NAME", "")
+    ref_type = os.environ.get("GITHUB_REF_TYPE", "")
+    ref_name = os.environ.get("GITHUB_REF_NAME", "")
+    default_branch = ""
+    event_path = os.environ.get("GITHUB_EVENT_PATH", "")
+    if event_path:
+        try:
+            payload = json.loads(Path(event_path).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise FluxAssetError(
+                "invalid_github_context", "GitHub event payload is unavailable"
+            ) from error
+        if not isinstance(payload, Mapping):
+            raise FluxAssetError(
+                "invalid_github_context", "GitHub event payload must be an object"
+            )
+        repository = payload.get("repository")
+        if isinstance(repository, Mapping):
+            value = repository.get("default_branch")
+            if isinstance(value, str):
+                default_branch = value
+    return {
+        "event_name": event_name,
+        "ref_type": ref_type,
+        "ref_name": ref_name,
+        "default_branch": default_branch,
+    }
+
+
+def _request(args: argparse.Namespace, context: Mapping[str, str]) -> dict[str, str]:
     return {
         "admitted_sha": args.admitted_sha,
         "product_id": args.product_id,
@@ -67,18 +95,18 @@ def _request(args: argparse.Namespace) -> dict[str, str]:
         "operation": args.operation,
         "policy_path": args.policy_path,
         "request_id": args.request_id,
-        "source_ref_type": args.source_ref_type,
-        "source_ref_name": args.source_ref_name,
+        "source_ref_type": context["ref_type"],
+        "source_ref_name": context["ref_name"],
     }
 
 
-def _validate_context(args: argparse.Namespace) -> None:
+def _validate_context(args: argparse.Namespace, context: Mapping[str, str]) -> None:
     validate_operation_context(
         operation=args.operation,
-        event_name=args.source_event_name,
-        ref_type=args.source_ref_type,
-        ref_name=args.source_ref_name,
-        default_branch=args.source_default_branch,
+        event_name=context["event_name"],
+        ref_type=context["ref_type"],
+        ref_name=context["ref_name"],
+        default_branch=context["default_branch"],
         release_version=args.release_version,
     )
 
@@ -152,9 +180,10 @@ def _load_current_contract(path: Path) -> dict[str, Any]:
 
 
 def _plan(args: argparse.Namespace) -> Mapping[str, Any]:
+    context = _github_context()
     contract = _load_current_contract(args.contract)
-    plan = build_release_plan(contract, **_request(args))
-    _validate_context(args)
+    plan = build_release_plan(contract, **_request(args, context))
+    _validate_context(args, context)
     return {
         "runs_on_json": canonical_json(list(plan.runs_on)),
         "workspace_profile": plan.workspace_profile,
@@ -164,9 +193,11 @@ def _plan(args: argparse.Namespace) -> Mapping[str, Any]:
 
 
 def _release(args: argparse.Namespace) -> Mapping[str, Any]:
+    context = _github_context()
     contract = _load_current_contract(args.contract)
-    build_release_plan(contract, **_request(args))
-    _validate_context(args)
+    request = _request(args, context)
+    build_release_plan(contract, **request)
+    _validate_context(args, context)
     source_root = Path(args.source_root) if args.source_root else None
     if source_root is not None and args.operation != "verify-only":
         validate_source_contract_strict(
@@ -180,7 +211,7 @@ def _release(args: argparse.Namespace) -> Mapping[str, Any]:
     )
     return compose_guarded_release(
         contract,
-        request=_request(args),
+        request=request,
         dependency_outputs=dependency_outputs,
     )
 
