@@ -35,9 +35,10 @@ publication.
 `tag`, and the ref name must be the exact requested version (with or without the
 reviewed `v` prefix). It must consume successful, independently verified outputs
 from the registered OCI or Helm dependency APIs. The current issue-#33 recovery
-implementation intentionally fails closed until those dependency outputs are
-wired after issues #16-#18 integrate; it never substitutes branch-private
-implementation details or reports publication that did not run.
+implementation intentionally fails closed while `oci.publish`, `helm.validate`,
+and `helm.publish` remain planned/unmerged on the current central branch; it
+never substitutes branch-private implementation details or reports publication
+that did not run.
 
 `verify-only` is manual default-branch only. It requires `workflow_dispatch`, a
 branch ref, and the caller repository's exact default branch name. It consumes
@@ -66,27 +67,36 @@ weaken the central contract.
 The Buildah product requires the reviewed daemonless toolchain and rejects
 Docker/Dockerd, Docker sockets, Kubernetes tooling, service-account tokens,
 KUBECONFIG, and credential residue. Its strict runtime proof also requires the
-reviewed OCI labels, subordinate-ID configuration, and `vfs` storage driver. The
-Mobile product binds the exact reviewed runner/JDK/Flutter/Dart/Node/Android/NDK
-versions and applies the same forbidden credential/cluster boundary plus its
-required OCI labels.
+exact reviewed OCI label values, subordinate-ID configuration, and `vfs` storage
+driver. The Mobile product binds the exact reviewed
+runner/JDK/Flutter/Dart/Node/Android/NDK versions and applies the same forbidden
+credential/cluster boundary plus its exact required OCI label values.
 
 ## Chart asset safety
 
 The two ARC chart inputs must retain the reviewed upstream repository, exact
 version, an immutable content digest, Apache-2.0 license attribution, and
-evidence that no unreviewed template mutation occurred. #33 composes the
-canonical Helm dependency product `flux-github-actions-runner-chart` for both
-`helm.validate` and `helm.publish`; its own public product ID remains
-`flux-runner-chart-assets`. Chart validation/publication is performed through
-the shared Helm dependency APIs and never installs a chart or contacts
-Kubernetes.
+evidence that no unreviewed template mutation occurred. Until #18 actually
+merges a replacement registration, #33 composes the **current merged** Helm
+dependency product `flux-runner-chart-assets` for both `helm.validate` and
+`helm.publish`. It does not consume the branch-private
+`flux-github-actions-runner-chart` identity. Chart validation/publication is
+performed through the shared Helm dependency APIs and never installs a chart or
+contacts Kubernetes.
+
+Before any release dependency can receive publication evidence or credentials,
+the privileged adapter resolves the checked-in chart root and required
+`Chart.yaml`, `values.yaml`, and `values.schema.json` without following symlinks
+outside the exact admitted source. Absolute/traversal paths, a symlink chart
+root, a symlink required file, or any resolved path outside the admitted source
+fails closed.
 
 The Helm publication adapter preserves the exact immutable chart reference,
-remote `chart_digest`, and normalized package SHA-256 returned by #18. The chart
-reference must be an immutable OCI version matching the requested release; a
-mismatched digest/version or `latest` fails closed. Real upstream/mirror content
-digests remain Flux-owned evidence and are never invented by this repository.
+remote `chart_digest`, and normalized package SHA-256 returned by the registered
+Helm interface. The chart reference must be an immutable OCI version matching
+the requested release; a mismatched digest/version or `latest` fails closed.
+Real upstream/mirror content digests remain Flux-owned evidence and are never
+invented by this repository.
 
 ## Immutable identity, replay, and read-back
 
@@ -141,10 +151,10 @@ own contract-selected Buildah runners.
 
 The public workflow does not call this leaf yet. GitHub permits only a restricted
 set of keywords on a job that calls a reusable workflow, while the current
-repository harness requires a timeout on every job, including reusable-call
-jobs. Keeping the leaf staged but not yet called avoids committing a workflow
-that GitHub rejects. Final shared integration must reconcile that harness/call
-site rule before nesting the public workflow.
+repository harness still requires `timeout-minutes` on every job, including
+reusable-call jobs. Keeping the leaf staged but not yet called avoids committing
+a workflow that GitHub rejects. Final shared integration must reconcile that
+harness/call-site rule before nesting the public workflow.
 
 ## Cleanup and artifacts
 
@@ -159,7 +169,9 @@ accepted by the thin `actions/flux-assets` adapter itself.
 
 Issue #33 owns its inventory contract, runtime/guards, thin adapter, public and
 internal workflows, tests, and documentation. Shared public/CIW/bootstrap and
-unrelated registration surfaces remain serialized integration work. The
-issue-exclusive recovery checkpoint does not call unfinished #16/#17/#18
-branch-private workflows; once those dependencies integrate, final #33 wiring
-passes their registered outputs into the already-bounded composition layer.
+validation-harness registration surfaces remain serialized integration work.
+The issue-exclusive checkpoint consumes only interfaces actually present on
+`main`; it does not call unfinished #17/#18/#19 branch-private workflows. Once
+those dependency interfaces integrate, final #33 wiring passes their registered
+outputs into the already-bounded composition layer without changing Flux-owned
+desired-state or cluster policy.
