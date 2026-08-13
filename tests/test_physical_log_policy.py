@@ -119,7 +119,7 @@ class PhysicalLogPolicyTests(unittest.TestCase):
             "repository_source_sha_run_id_job_id_only",
         )
 
-    def test_device_evidence_must_use_durable_boundary_once_device_source_lands(self) -> None:
+    def test_device_evidence_must_call_durable_boundary_once_device_source_lands(self) -> None:
         # Issue #14 is developed on a separately owned branch. This future gate
         # takes no ownership of that branch, but makes its eventual reconciliation
         # with main fail closed unless durable publication routes through #137.
@@ -128,7 +128,7 @@ class PhysicalLogPolicyTests(unittest.TestCase):
             self.assertIn("physical_log_policy", text)
             self.assertRegex(
                 text,
-                r"\b(?:validate_stable_evidence|render_stable_evidence)\b",
+                r"\b(?:validate_stable_evidence|render_stable_evidence)\s*\(",
             )
 
     def test_documentation_records_platform_boundary_and_durable_allowlist(self) -> None:
