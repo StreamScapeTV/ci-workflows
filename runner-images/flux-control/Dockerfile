@@ -2,6 +2,7 @@
 FROM ghcr.io/actions/actions-runner:2.336.0@sha256:0cfdcc701ce933c6d243c6b0b2da767366dc9f2e99961d4c3754b0b78084cdda AS actions-runner
 
 USER root
+RUN rm -f /usr/bin/containerd /usr/bin/containerd-shim-runc-v2 /usr/bin/ctr /usr/bin/docker-init /usr/bin/docker-proxy /usr/bin/runc
 RUN rm -f /usr/bin/docker /usr/local/bin/docker /usr/bin/dockerd /usr/local/bin/dockerd /usr/local/lib/docker/cli-plugins/docker-buildx /usr/local/lib/docker/cli-plugins/docker-compose
 
 COPY .ciw-build-inputs/flux-2.9.4-linux-amd64.tar.gz /tmp/flux.tar.gz
