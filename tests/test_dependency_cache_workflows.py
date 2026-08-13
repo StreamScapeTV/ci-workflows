@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import unittest
 from pathlib import Path
 
@@ -68,12 +67,31 @@ class DependencyCacheWorkflowIntegrationTests(unittest.TestCase):
         self.assertNotIn("restore-keys", text)
         self.assertNotIn("upload-artifact", text)
 
-    def test_pub_family_is_bounded_to_marker_owned_package_cache(self) -> None:
-        contract = json.loads((ROOT / "contracts/cache-policy.json").read_text(encoding="utf-8"))
-        pub = contract["native_dependency_cache"]["families"]["pub"]
-        self.assertEqual(pub["identity_globs"], ["pubspec.lock", "pubspec.yaml"])
-        self.assertEqual(pub["paths"], [{"base_env": "PUB_CACHE", "relative": "."}])
-        self.assertNotIn("build", json.dumps(pub).casefold())
+    def test_mobile_flutter_restores_pub_after_binding_and_saves_before_cleanup(self) -> None:
+        text, workflow = self.load("reusable-flutter.yml")
+        mobile_steps = workflow["jobs"]["mobile"]["steps"]
+        bind_index = next(i for i, row in enumerate(mobile_steps) if row.get("id") == "pub_cache_bind")
+        restore_index = next(i for i, row in enumerate(mobile_steps) if row.get("id") == "dependency_cache_restore")
+        execute_index = next(i for i, row in enumerate(mobile_steps) if row.get("id") == "execute")
+        save_index = next(i for i, row in enumerate(mobile_steps) if row.get("id") == "dependency_cache_save")
+        verify_index = next(i for i, row in enumerate(mobile_steps) if row.get("id") == "persistent_cache_verify")
+        self.assertLess(bind_index, restore_index)
+        self.assertLess(restore_index, execute_index)
+        self.assertLess(execute_index, save_index)
+        self.assertLess(save_index, verify_index)
+        restore = mobile_steps[restore_index]
+        save = mobile_steps[save_index]
+        self.assertEqual(restore["uses"], CACHE_ACTION)
+        self.assertEqual(save["uses"], CACHE_ACTION)
+        self.assertEqual(restore["with"]["family"], "pub")
+        self.assertEqual(save["with"]["family"], "pub")
+        self.assertIn("steps.execute.outcome == 'success'", save["if"])
+        self.assertIn("github.ref_protected", save["if"])
+        self.assertIn("github.event.repository.default_branch", save["if"])
+        apple_steps = workflow["jobs"]["apple"]["steps"]
+        self.assertFalse(any(row.get("uses") == CACHE_ACTION for row in apple_steps))
+        self.assertNotIn("restore-keys", text)
+        self.assertNotIn("upload-artifact", text)
 
 
 if __name__ == "__main__":
