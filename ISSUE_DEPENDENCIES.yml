@@ -1,0 +1,19 @@
+version: 1
+repository: StreamScapeTV/ci-workflows
+issues:
+  14:
+    blocked_by:
+      - 136
+  18:
+    blocked_by:
+      - 17
+  19:
+    blocked_by:
+      - 18
+  33:
+    blocked_by:
+      - 19
+      - 135
+  122:
+    blocked_by:
+      - 20

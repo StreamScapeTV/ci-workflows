@@ -17,6 +17,14 @@ The Android gate follows the repository's named-function architecture:
 
 Workflow YAML does not implement Gradle task selection, repository compatibility, authentication, cleanup traversal, test-filter parsing, source-policy exception selection, or product policy. Those decisions remain in typed code and checked-in contract data.
 
+## Immutable private helper source
+
+Private reusable callers do not clone the private `StreamScapeTV/ci-workflows` repository with the caller-scoped Actions token. `reusable-android.yml` composes the reviewed central primitives directly as immutable private composite-action references pinned to `70e08d4ddf8930046632a7135950e924b82e22bf`: `validate-android`, `exact-checkout`, `prepare-workspace`, `checkout-private-dependency`, `render-evidence`, and `cleanup-workspace`.
+
+Each composite resolves its implementation and contracts relative to its own `GITHUB_ACTION_PATH`, so the called helper source is the immutable central revision rather than a caller PR merge SHA or a second central checkout. The caller cannot select or override the helper revision. The workflow does not accept a central-repository PAT, generic checkout token, mutable ref, or `secrets: inherit`.
+
+The existing optional `private_dependency_token` remains a separate product dependency credential. It is passed only to `checkout-private-dependency` when the protected Android plan selects the reviewed dependency contract; it is never used to retrieve central helper source and never reaches planning, Android execution, evidence, or cleanup actions.
+
 ## Trust and runner resolution
 
 The planner derives trust from immutable GitHub event metadata. Only `trusted-pr` and `trusted-exact` are permitted by the Android profiles. Untrusted forks fail before mobile execution, shared cache, private dependency, live backend, signing, device, or privileged state. No public input can select a semantic profile or raw label.

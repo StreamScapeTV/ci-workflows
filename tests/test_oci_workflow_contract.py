@@ -6,6 +6,8 @@ import re
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
+OCI_HELPER_SHA = "29cb88e406a0490834bd556bb825d0e227c862ac"
 
 
 class OciWorkflowContractTests(unittest.TestCase):
@@ -49,10 +51,30 @@ class OciWorkflowContractTests(unittest.TestCase):
             self.assertNotIn(f"runs-on: {deprecated_label}", self.workflow)
         self.assertIn("Resolve contract-owned OCI product and runner", self.workflow)
 
+    def test_private_central_helpers_are_immutable_without_central_clone(self) -> None:
+        self.assertNotIn("actions/checkout@", self.workflow)
+        self.assertNotIn("repository: ${{ job.workflow_repository }}", self.workflow)
+        self.assertNotIn("ref: ${{ job.workflow_sha }}", self.workflow)
+        self.assertNotIn("path: .ciw", self.workflow)
+        self.assertNotIn("./.ciw/actions/", self.workflow)
+        self.assertNotIn("secrets: inherit", self.workflow)
+        self.assertNotIn("private_dependency_token", self.workflow)
+        self.assertEqual(
+            4,
+            self.workflow.count(
+                f"uses: StreamScapeTV/ci-workflows/actions/validate-oci@{OCI_HELPER_SHA}"
+            ),
+        )
+        for helper in ("exact-checkout", "prepare-workspace", "render-evidence", "cleanup-workspace"):
+            self.assertIn(
+                f"StreamScapeTV/ci-workflows/actions/{helper}@{FOUNDATION_SHA}",
+                self.workflow,
+            )
+
     def test_exact_source_cleanup_residue_and_terminal_projection_are_unconditional(self) -> None:
         required = (
             "Check out exact admitted caller source",
-            "persist-credentials: false",
+            f"uses: StreamScapeTV/ci-workflows/actions/exact-checkout@{FOUNDATION_SHA}",
             "Build and inspect exact source without publication",
             "continue-on-error: true",
             "if: always()",
