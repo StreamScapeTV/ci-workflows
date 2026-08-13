@@ -7,5 +7,11 @@ COPY --from=python-runtime /usr/local/ /usr/local/
 COPY --from=node-runtime /usr/local/ /usr/local/
 COPY .ciw-build-inputs/zstd-noble-amd64.pkg /tmp/zstd.pkg
 COPY .ciw-build-inputs/zip-noble-amd64.pkg /tmp/zip.pkg
+RUN mkdir -p /tmp/zstd-root /tmp/zip-root && \
+    dpkg-deb -x /tmp/zstd.pkg /tmp/zstd-root && \
+    dpkg-deb -x /tmp/zip.pkg /tmp/zip-root && \
+    sudo install -m 0755 /tmp/zstd-root/usr/bin/zstd /usr/local/bin/zstd && \
+    sudo install -m 0755 /tmp/zip-root/usr/bin/zip /usr/local/bin/zip && \
+    rm -rf /tmp/zstd.pkg /tmp/zip.pkg /tmp/zstd-root /tmp/zip-root
 COPY --chmod=0755 .ciw-build-inputs/kubectl-1.36.3-linux-amd64 /usr/local/bin/kubectl
 USER runner
