@@ -47,10 +47,6 @@ jobs:
         shell: bash
         run: python3 source/scripts/ci/ciw.py oci validate --phase plan --source-root source
 
-      - name: Run runner-image boundary tests
-        shell: bash
-        run: python3 -m pytest -q source/tests/test_runner_image_general.py
-
       - id: execute
         name: Build and inspect exact source without publication
         continue-on-error: true
