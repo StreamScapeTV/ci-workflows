@@ -9,22 +9,17 @@ permissions:
   contents: read
 
 jobs:
-  inspect-python-runtime:
-    name: Inspect Python 3.12 runtime OCI identity
+  inspect-zstd-source:
+    name: Inspect zstd source input
     runs-on: [linux, amd64, buildah, tiny]
     timeout-minutes: 10
     steps:
-      - name: Resolve immutable linux amd64 identity
+      - name: Hash public zstd source archive
         shell: bash
         run: |
           set -Eeuo pipefail
-          reference='docker.io/library/python:3.12.13-slim-bookworm'
-          root_digest="$(skopeo inspect --format '{{.Digest}}' "docker://${reference}")"
-          skopeo inspect --raw "docker://${reference}" > "${RUNNER_TEMP}/python-index.json"
-          child_digest="$(jq -er '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest' "${RUNNER_TEMP}/python-index.json")"
-          skopeo inspect --raw "docker://docker.io/library/python@${child_digest}" > "${RUNNER_TEMP}/python-manifest.json"
-          config_digest="$(jq -er '.config.digest' "${RUNNER_TEMP}/python-manifest.json")"
-          printf 'PYTHON_ROOT_DIGEST=%s\n' "${root_digest}"
-          printf 'PYTHON_AMD64_MANIFEST_DIGEST=%s\n' "${child_digest}"
-          printf 'PYTHON_AMD64_CONFIG_DIGEST=%s\n' "${config_digest}"
-          rm -f "${RUNNER_TEMP}/python-index.json" "${RUNNER_TEMP}/python-manifest.json"
+          file="${RUNNER_TEMP}/zstd-1.5.7.tar.gz"
+          curl --fail --silent --show-error --location https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz --output "${file}"
+          sha256sum "${file}"
+          wc -c "${file}"
+          rm -f "${file}"
