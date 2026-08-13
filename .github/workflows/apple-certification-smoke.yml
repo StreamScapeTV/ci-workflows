@@ -121,9 +121,9 @@ jobs:
           test "${IOS_SHA}" = "${EXPECTED_SHA}"
           test "${TVOS_SHA}" = "${EXPECTED_SHA}"
           test "${MACOS_SHA}" = "${EXPECTED_SHA}"
-          test "${IOS_TASK}" = iptv-ios-release || test "${IOS_TASK}" = ciw-ios-release-smoke
-          test "${TVOS_TASK}" = iptv-tvos-release || test "${TVOS_TASK}" = ciw-tvos-release-smoke
-          test "${MACOS_TASK}" = iptv-macos-release || test "${MACOS_TASK}" = ciw-macos-release-smoke
+          test "${IOS_TASK}" = ciw-ios-release-smoke
+          test "${TVOS_TASK}" = ciw-tvos-release-smoke
+          test "${MACOS_TASK}" = ciw-macos-release-smoke
           test -n "${IOS_RUNS_ON}"
           test "${IOS_RUNS_ON}" = "${TVOS_RUNS_ON}"
           test "${IOS_RUNS_ON}" = "${MACOS_RUNS_ON}"
