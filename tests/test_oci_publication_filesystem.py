@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Mapping
 from unittest.mock import patch
 
+from ci_workflows import oci_execution as build_execution
 from ci_workflows import oci_publish as runtime
 from ci_workflows import oci_publish_guards as guards
 from ci_workflows.oci_publish import (
@@ -51,6 +52,13 @@ def _publication_ready_contract_root(
     ready = set(product_ids)
     for product_id, product in products.items():
         product["adoption_ready"] = product_id in ready
+        policy = payload["registry_write_policies"][
+            product["registry_write_policy_id"]
+        ]
+        if product_id in ready:
+            policy["status"] = "verified"
+            policy["authority_source_sha"] = "1" * 40
+            policy["evidence_id"] = "sha256:" + "2" * 64
     contract_path = temporary_root / "contracts/oci-products.json"
     contract_path.parent.mkdir(parents=True, exist_ok=True)
     contract_path.write_text(json.dumps(payload), encoding="utf-8")
@@ -801,41 +809,58 @@ class FluxPublicationAssertionTests(unittest.TestCase):
                 )
                 environment = {
                     "RUNNER_TEMP": str(temporary / "runner-temp"),
+                    "GITHUB_REPOSITORY": "StreamScapeTV/flux",
                     "GITHUB_RUN_ID": "9917",
                     "GITHUB_RUN_ATTEMPT": "1",
+                    "GITHUB_JOB": "publish",
                 }
                 narrowed_plan = replace(self.plan, targets=(target,))
-                publication_root = guards.publication_state_root(environment)
-                publication_root.mkdir(parents=True, mode=0o700)
+                publication_capacity = build_execution._test_capacity_roots(  # noqa: SLF001
+                    temporary / f"publication-capacity-{name}",
+                    domain="oci-publish",
+                    prefix="ciw-oci-publish",
+                    token={"socket": "a", "credential": "b", "healthcheck": "c"}[name] * 20,
+                )
+                build_execution.prepare_capacity_roots(publication_capacity)
+                runtime._prepare_publication_runtime(publication_capacity)  # noqa: SLF001
+                publication_root = guards.publication_state_root(
+                    environment, _capacity_roots=publication_capacity
+                )
                 authfile = publication_root / "registry-auth.json"
                 authfile.write_text("{}\n", encoding="utf-8")
                 authfile.chmod(0o600)
-                (publication_root / "publication.json").write_text(
-                    json.dumps(
-                        {
-                            "build": {
-                                "source_sha": narrowed_plan.admitted_sha,
-                                "product_id": narrowed_plan.product_id,
-                                "release_version": narrowed_plan.release_version,
-                                "evidence_id": "b" * 64,
-                            },
-                            "targets": {
-                                target.target_id: {
-                                    "local": local_summary,
-                                    "assertions": local_assertions,
-                                    "resolved_inputs": _resolved_input_evidence(
-                                        target
-                                    ),
-                                    "replayed": False,
-                                }
+                runtime._write_publication_plan_state(  # noqa: SLF001
+                    narrowed_plan, publication_capacity
+                )
+                runtime._write_state(  # noqa: SLF001
+                    publication_capacity,
+                    "publication.json",
+                    {
+                        "build": {
+                            "source_sha": narrowed_plan.admitted_sha,
+                            "product_id": narrowed_plan.product_id,
+                            "release_version": narrowed_plan.release_version,
+                            "evidence_id": "b" * 64,
+                            "input_locks_validated": "exact-source-v1",
+                        },
+                        "targets": {
+                            target.target_id: {
+                                "local": local_summary,
+                                "assertions": local_assertions,
+                                "resolved_inputs": _resolved_input_evidence(
+                                    target
+                                ),
+                                "replayed": False,
                             }
-                        }
-                    ),
-                    encoding="utf-8",
+                        },
+                    },
                 )
 
                 def copy_remote(
-                    _source: str, destination: str, _authfile: Path
+                    _source: str,
+                    destination: str,
+                    _authfile: Path,
+                    _capacity,
                 ) -> None:
                     destination_text = destination.removeprefix("oci:")
                     destination_path = Path(destination_text.rpartition(":")[0])
@@ -853,6 +878,7 @@ class FluxPublicationAssertionTests(unittest.TestCase):
                             narrowed_plan,
                             environment,
                             repository_root=contract_root,
+                            _capacity_roots=publication_capacity,
                         )
 
 

@@ -1,12 +1,14 @@
 """Typed OCI image assertions for local publication and remote read-back."""
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 import tarfile
-from dataclasses import dataclass
+from contextlib import nullcontext
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Any, Mapping, Sequence
+from typing import Any, BinaryIO, Mapping, Never, Sequence
 
 from . import oci_contract
 from . import oci_execution
@@ -54,6 +56,197 @@ class _FilesystemEntry:
     directory: bool
     executable: bool
     symlink_target: str | None
+
+
+@dataclass(frozen=True)
+class _LayerInventoryLimits:
+    """Aggregate work limits for one platform's complete layer stack."""
+
+    maximum_members: int = 262_144
+    maximum_path_bytes: int = 32 * 1024 * 1024
+    maximum_decompressed_bytes: int = 4 * 1024 * 1024 * 1024
+    maximum_metadata_nesting: int = 16
+    maximum_overlay_scan_work: int = 4_194_304
+
+
+@dataclass
+class _LayerInventoryBudget:
+    """Typed counters shared by every layer in one filesystem inventory."""
+
+    limits: _LayerInventoryLimits
+    members: int = 0
+    path_bytes: int = 0
+    decompressed_bytes: int = 0
+    declared_payload_bytes: int = 0
+    metadata_nesting: int = 0
+    overlay_scan_work: int = 0
+
+    def account_header(self) -> None:
+        self.members += 1
+        if self.members > self.limits.maximum_members:
+            raise _LayerInventoryLimitExceeded
+
+    def enter_metadata(self) -> None:
+        self.metadata_nesting += 1
+        if self.metadata_nesting > self.limits.maximum_metadata_nesting:
+            raise _LayerInventoryLimitExceeded
+
+    def leave_metadata(self) -> None:
+        self.metadata_nesting -= 1
+
+    def account_overlay_scan(self, size: int) -> None:
+        self.overlay_scan_work += size
+        if self.overlay_scan_work > self.limits.maximum_overlay_scan_work:
+            raise _LayerInventoryLimitExceeded
+
+    def account_decompressed(self, size: int) -> None:
+        self.decompressed_bytes += size
+        if self.decompressed_bytes > self.limits.maximum_decompressed_bytes:
+            raise _LayerInventoryLimitExceeded
+
+    def account_member(self, member: tarfile.TarInfo) -> None:
+        if member.sparse is not None or any(
+            key.startswith("GNU.sparse.") for key in member.pax_headers
+        ):
+            raise OciBuildError("oci_layout_malformed")
+        try:
+            path_bytes = len(member.name.encode("utf-8", errors="surrogateescape"))
+            if member.linkname:
+                path_bytes += len(
+                    member.linkname.encode("utf-8", errors="surrogateescape")
+                )
+        except UnicodeEncodeError as error:
+            raise OciBuildError("oci_layout_malformed") from error
+        self.path_bytes += path_bytes
+        if self.path_bytes > self.limits.maximum_path_bytes:
+            raise _LayerInventoryLimitExceeded
+        if type(member.size) is not int or member.size < 0:
+            raise OciBuildError("oci_layout_malformed")
+        self.declared_payload_bytes += member.size
+        if (
+            self.declared_payload_bytes
+            > self.limits.maximum_decompressed_bytes
+        ):
+            # Reject a declared expansion before advancing to the next header,
+            # which would otherwise require decompressing the current payload.
+            raise _LayerInventoryLimitExceeded
+
+
+class _LayerInventoryLimitExceeded(Exception):
+    """Internal signal mapped to the stable malformed-layout failure."""
+
+
+class _BoundedTarInfo(tarfile.TarInfo):
+    """Reject metadata records that tarfile would otherwise buffer at once."""
+
+    _MAXIMUM_METADATA_BYTES = 1024 * 1024
+
+    def _reject_global_pax(self) -> None:
+        if self.type == tarfile.XGLTYPE:
+            raise tarfile.InvalidHeaderError(
+                "global PAX layer metadata is unsupported"
+            )
+
+    def _require_bounded_metadata(self) -> None:
+        if not 0 <= self.size <= self._MAXIMUM_METADATA_BYTES:
+            raise tarfile.InvalidHeaderError("oversized layer metadata")
+
+    def _proc_gnulong(self, archive: tarfile.TarFile) -> tarfile.TarInfo:
+        self._require_bounded_metadata()
+        return super()._proc_gnulong(archive)  # type: ignore[attr-defined]
+
+    def _proc_pax(self, archive: tarfile.TarFile) -> tarfile.TarInfo:
+        self._require_bounded_metadata()
+        self._reject_global_pax()
+        return super()._proc_pax(archive)  # type: ignore[attr-defined]
+
+    def _proc_sparse(self, archive: tarfile.TarFile) -> tarfile.TarInfo:
+        # Legacy GNU sparse extensions can contain an unbounded chain of
+        # metadata blocks before a TarInfo is returned to the caller. OCI
+        # publication assertions need only regular files and links.
+        raise tarfile.InvalidHeaderError("sparse layer member is unsupported")
+
+    def _proc_gnusparse_00(
+        self,
+        _next: tarfile.TarInfo,
+        _raw_headers: object,
+    ) -> Never:
+        raise tarfile.InvalidHeaderError("sparse layer member is unsupported")
+
+    def _proc_gnusparse_01(
+        self,
+        _next: tarfile.TarInfo,
+        _pax_headers: object,
+    ) -> Never:
+        raise tarfile.InvalidHeaderError("sparse layer member is unsupported")
+
+    def _proc_gnusparse_10(
+        self,
+        _next: tarfile.TarInfo,
+        _pax_headers: object,
+        _archive: tarfile.TarFile,
+    ) -> Never:
+        raise tarfile.InvalidHeaderError("sparse layer member is unsupported")
+
+
+def _bounded_tarinfo_type(
+    budget: _LayerInventoryBudget,
+) -> type[_BoundedTarInfo]:
+    """Bind hidden PAX/GNU headers to the same aggregate member budget."""
+
+    class _BudgetedTarInfo(_BoundedTarInfo):
+        @classmethod
+        def frombuf(
+            cls,
+            buffer: bytes,
+            encoding: str,
+            errors: str,
+        ) -> tarfile.TarInfo:
+            member = super().frombuf(buffer, encoding, errors)
+            budget.account_header()
+            return member
+
+        def _proc_gnulong(self, archive: tarfile.TarFile) -> tarfile.TarInfo:
+            budget.enter_metadata()
+            try:
+                return super()._proc_gnulong(archive)
+            finally:
+                budget.leave_metadata()
+
+        def _proc_pax(self, archive: tarfile.TarFile) -> tarfile.TarInfo:
+            budget.enter_metadata()
+            try:
+                return super()._proc_pax(archive)
+            finally:
+                budget.leave_metadata()
+
+    return _BudgetedTarInfo
+
+
+@dataclass
+class _BoundedLayerReader:
+    """Count actual uncompressed bytes before the tar parser can consume them."""
+
+    source: BinaryIO
+    budget: _LayerInventoryBudget
+    _closed: bool = field(default=False, init=False)
+
+    def read(self, size: int = -1) -> bytes:
+        remaining = (
+            self.budget.limits.maximum_decompressed_bytes
+            - self.budget.decompressed_bytes
+        )
+        request = remaining + 1 if size < 0 else min(size, remaining + 1)
+        payload = self.source.read(request)
+        self.budget.account_decompressed(len(payload))
+        return payload
+
+    def close(self) -> None:
+        self._closed = True
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
 
 
 _HEALTHCHECK_FIELDS = {
@@ -455,90 +648,120 @@ def _container_link_target(path: PurePosixPath, linkname: str) -> str:
 def _layer_inventory(
     layout: Path,
     layer_digests: Sequence[str],
+    *,
+    _limits: _LayerInventoryLimits | None = None,
 ) -> Mapping[str, _FilesystemEntry]:
     """Stream an OCI layer stack into one final whiteout-aware inventory."""
 
     entries: dict[str, _FilesystemEntry] = {}
+    budget = _LayerInventoryBudget(_limits or _LayerInventoryLimits())
     for digest in layer_digests:
         blob = oci_execution._blob(layout, digest)  # noqa: SLF001
         try:
-            archive = tarfile.open(name=blob, mode="r:*")
-        except (OSError, tarfile.TarError) as error:
-            raise OciBuildError("oci_layout_malformed") from error
-        additions: list[tuple[str, _FilesystemEntry]] = []
-        opaque_prefixes: set[str] = set()
-        removed_paths: set[str] = set()
-        with archive:
-            for member in archive:
-                pure = PurePosixPath(member.name)
-                if pure.is_absolute() or ".." in pure.parts:
-                    raise OciBuildError("oci_layout_malformed")
-                if member.islnk():
-                    if not member.linkname:
-                        raise OciBuildError("oci_layout_malformed")
-                    hardlink = PurePosixPath(member.linkname)
-                    if hardlink.is_absolute() or ".." in hardlink.parts:
-                        raise OciBuildError("oci_layout_malformed")
-                name = pure.as_posix()
-                if name in {"", "."}:
-                    continue
-                basename = pure.name
-                parent = pure.parent.as_posix()
-                directory = "/" if parent == "." else f"/{parent.rstrip('/')}"
-                if basename == ".wh..wh..opq":
-                    opaque_prefixes.add(directory.rstrip("/") + "/")
-                    continue
-                if basename.startswith(".wh."):
-                    removed_name = basename.removeprefix(".wh.")
-                    if not removed_name:
-                        raise OciBuildError("oci_layout_malformed")
-                    removed_paths.add(
-                        directory.rstrip("/") + "/" + removed_name
-                    )
-                    continue
-                additions.append(
-                    (
-                        "/" + name.rstrip("/"),
-                        _FilesystemEntry(
-                            regular_file=member.isfile(),
-                            directory=member.isdir(),
-                            executable=bool(member.mode & 0o111),
-                            symlink_target=(
-                                _container_link_target(pure, member.linkname)
-                                if member.issym()
-                                else None
-                            ),
-                        ),
-                    ),
+            with blob.open("rb") as encoded:
+                signature = encoded.read(2)
+                encoded.seek(0)
+                decoder = (
+                    gzip.GzipFile(fileobj=encoded, mode="rb")
+                    if signature == b"\x1f\x8b"
+                    else nullcontext(encoded)
                 )
-        for prefix in opaque_prefixes:
-            entries = {
-                path: entry
-                for path, entry in entries.items()
-                if not path.startswith(prefix)
-            }
-        for removed in removed_paths:
-            prefix = removed.rstrip("/") + "/"
-            entries = {
-                path: entry
-                for path, entry in entries.items()
-                if path != removed and not path.startswith(prefix)
-            }
-        for path, entry in additions:
-            for ancestor in PurePosixPath(path).parents:
-                if ancestor == PurePosixPath("/"):
-                    break
-                prior = entries.get(ancestor.as_posix())
-                if prior is not None and not prior.directory:
-                    raise OciBuildError("oci_layout_malformed")
-            if not entry.directory:
-                prefix = path.rstrip("/") + "/"
-                entries = {
-                    existing_path: existing_entry
-                    for existing_path, existing_entry in entries.items()
-                    if not existing_path.startswith(prefix)
+                with decoder as decoded:
+                    reader = _BoundedLayerReader(decoded, budget)
+                    archive = tarfile.open(
+                        fileobj=reader,
+                        mode="r|",
+                        tarinfo=_bounded_tarinfo_type(budget),
+                    )
+                    additions: dict[str, _FilesystemEntry] = {}
+                    opaque_directories: set[str] = set()
+                    removed_paths: set[str] = set()
+                    with archive:
+                        for member in archive:
+                            budget.account_member(member)
+                            pure = PurePosixPath(member.name)
+                            if pure.is_absolute() or ".." in pure.parts:
+                                raise OciBuildError("oci_layout_malformed")
+                            if member.islnk():
+                                if not member.linkname:
+                                    raise OciBuildError("oci_layout_malformed")
+                                hardlink = PurePosixPath(member.linkname)
+                                if hardlink.is_absolute() or ".." in hardlink.parts:
+                                    raise OciBuildError("oci_layout_malformed")
+                            name = pure.as_posix()
+                            if name in {"", "."}:
+                                continue
+                            basename = pure.name
+                            parent = pure.parent.as_posix()
+                            directory = (
+                                "/" if parent == "." else f"/{parent.rstrip('/')}"
+                            )
+                            if basename == ".wh..wh..opq":
+                                opaque_directories.add(directory)
+                                continue
+                            if basename.startswith(".wh."):
+                                removed_name = basename.removeprefix(".wh.")
+                                if not removed_name:
+                                    raise OciBuildError("oci_layout_malformed")
+                                removed_paths.add(
+                                    directory.rstrip("/") + "/" + removed_name
+                                )
+                                continue
+                            additions["/" + name.rstrip("/")] = _FilesystemEntry(
+                                regular_file=member.isfile(),
+                                directory=member.isdir(),
+                                executable=bool(member.mode & 0o111),
+                                symlink_target=(
+                                    _container_link_target(pure, member.linkname)
+                                    if member.issym()
+                                    else None
+                                ),
+                            )
+        except OciBuildError:
+            raise
+        except (
+            _LayerInventoryLimitExceeded,
+            EOFError,
+            OSError,
+            OverflowError,
+            RecursionError,
+            tarfile.TarError,
+            ValueError,
+        ) as error:
+            raise OciBuildError("oci_layout_malformed") from error
+        try:
+            if opaque_directories or removed_paths or additions:
+                budget.account_overlay_scan(len(entries))
+                replacing_non_directories = {
+                    path for path, entry in additions.items() if not entry.directory
                 }
-            entries[path] = entry
+
+                def removed_by_layer(path: str) -> bool:
+                    for ancestor in PurePosixPath(path).parents:
+                        ancestor_text = ancestor.as_posix()
+                        if ancestor_text in opaque_directories:
+                            return True
+                        if ancestor_text in removed_paths:
+                            return True
+                        if ancestor_text in replacing_non_directories:
+                            return True
+                    return path in removed_paths
+
+                entries = {
+                    path: entry
+                    for path, entry in entries.items()
+                    if not removed_by_layer(path)
+                }
+            for path, entry in additions.items():
+                for ancestor in PurePosixPath(path).parents:
+                    if ancestor == PurePosixPath("/"):
+                        break
+                    prior = entries.get(ancestor.as_posix())
+                    if prior is not None and not prior.directory:
+                        raise OciBuildError("oci_layout_malformed")
+                entries[path] = entry
+        except _LayerInventoryLimitExceeded as error:
+            raise OciBuildError("oci_layout_malformed") from error
     return entries
 
 

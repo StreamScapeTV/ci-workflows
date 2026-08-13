@@ -74,8 +74,8 @@ jobs:
       release_version: ${{ github.ref_name }}
       platform_set: linux-multi-arch
     secrets:
-      registry_username: ${{ secrets.registry_username }}
-      registry_token: ${{ secrets.registry_token }}
+      registry_username: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+      registry_token: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
 ```
 
 ### Agent State image
@@ -104,8 +104,8 @@ jobs:
       release_version: ${{ github.ref_name }}
       platform_set: linux-multi-arch
     secrets:
-      registry_username: ${{ secrets.registry_username }}
-      registry_token: ${{ secrets.registry_token }}
+      registry_username: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+      registry_token: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
 ```
 
 ### Flux runner images
@@ -134,8 +134,8 @@ jobs:
       release_version: ${{ github.ref_name }}
       platform_set: linux-amd64
     secrets:
-      registry_username: ${{ secrets.registry_username }}
-      registry_token: ${{ secrets.registry_token }}
+      registry_username: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+      registry_token: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
 ```
 
 These callers provide no registry destination, runner label, container engine,
@@ -146,7 +146,8 @@ registry policy, and publication remains separate from deployment.
 ## Execution stages
 
 1. **resolve-product** — resolve exact caller tag authority and checked-in OCI
-   product/runner policy;
+   product/runner policy, and reject publication unless both product adoption
+   and its independent registry-write policy are ready;
 2. **verify-builder-toolchain** — require the runner's pre-provisioned Buildah
    1.33.7, Skopeo 1.13.3, and Podman 4.9.3 exactly before any build or registry
    authentication, and pass that verified version map into redacted evidence;
@@ -170,8 +171,9 @@ registry policy, and publication remains separate from deployment.
     canonical redacted record binding the exact central workflow and publication
     helper SHAs, contract-owned builder and semantic runner profile, exact
     verified toolchain, publication and foundation evidence identities, release
-    identity, execution result, and every terminal cleanup outcome. The public
-    success projection fails closed unless this final record is written.
+    identity, the exact registry-write policy authority SHA/evidence ID,
+    execution result, and every terminal cleanup outcome. The public success
+    projection fails closed unless this final record is written.
 
 Routine Actions artifacts are forbidden and publication never mutates Flux or
 Kubernetes state.
@@ -179,10 +181,37 @@ Kubernetes state.
 ## Destination and immutable identities
 
 The caller never supplies a destination. `oci.publish` preserves the reviewed
-GHCR contract expected by release orchestration:
+destination contract checked in with each product target:
 
-- single-target product: `ghcr.io/streamscapetv/<repository-name>`;
-- multi-target product: `ghcr.io/streamscapetv/<repository-name>-<target-id>`.
+- IPTV backend: `git.faruqi.dev/mimranfaruqi/iptv-backend`;
+- Agent State: `git.faruqi.dev/mimranfaruqi/agent-state`;
+- Flux Buildah runner: `git.faruqi.dev/mimranfaruqi/github-actions-runner-buildah`;
+- Flux mobile runner: `git.faruqi.dev/mimranfaruqi/github-actions-runner-mobile`.
+
+Every destination is a canonical lowercase repository identity without a tag,
+digest, or `latest` component. All targets in one product must share exactly
+one registry host. Authentication derives that host from these checked-in
+repositories and fails closed if the product contract names multiple hosts.
+
+### Server-side write-policy prerequisite
+
+Client-side tag listing, second-look inspection, and replay checks cannot make a
+registry tag immutable: a compromised or racing writer could still replace a
+tag unless the registry itself enforces create-only tag writes. The current
+checked-in Forgejo destinations do not yet have reviewed evidence of that
+server-side guarantee, so every production and internal-smoke
+`registry_write_policy` is deliberately `blocked`. Resolution fails with
+`registry_write_policy_not_ready` before authentication or registry access;
+changing `adoption_ready` alone cannot enable writes.
+
+Enabling one product requires an exact `StreamScapeTV/flux` authority commit and
+a `sha256` evidence identity proving
+`server-side-create-only-tags-v1` on the exact `git.faruqi.dev` host for the
+contract-owned destination. Only then may that closed policy record change to
+`verified`. The policy ID, host, enforcement identity, Flux authority SHA, and
+evidence ID are bound into authenticated plan state, publication evidence,
+`immutable_references_json`, and final supply evidence. This contract records a
+prerequisite; it does not claim that current Forgejo configuration satisfies it.
 
 Every target uses exactly two tags:
 
@@ -194,9 +223,25 @@ raw registry manifest digests equal the exact local manifest digest. A conflict
 fails before any write. Tag publication repairs only a missing member of an
 otherwise matching immutable pair; verify-only requires the complete pair.
 
-Remote absence is accepted only when registry inspection returns an explicit
-manifest/name-missing condition. Generic network/endpoint “not found” errors are
-not treated as evidence that an immutable reference is absent.
+Before any target can be written, publication obtains one authenticated
+`skopeo list-tags` response for every exact contract-owned repository. The
+response must remain within the accepted response-size limit, name that
+repository byte-for-byte, and contain valid, non-duplicate tags without a
+case-ambiguous spelling of either requested identity. Each requested version
+and source tag is therefore either exactly absent or present exactly once.
+Malformed, authorization, transient, repository-alias, duplicate, and
+case-ambiguous responses fail the complete multi-target preflight with zero
+registry copies.
+
+An existing listed tag is inspected and must return an exact raw manifest. A
+listed tag that cannot be inspected fails closed. Before copying an absent tag,
+publication immediately inspects that exact reference again; only an explicit
+manifest/name-missing condition permits the write. Generic network/endpoint
+“not found” errors are not treated as evidence that an immutable reference is
+absent. After any copies, publication repeats authenticated exact tag listing
+for every target repository as a second all-target barrier, requires both tags
+to be present exactly once with exact case, and only then performs final digest
+verification and records publication state.
 
 ## Independent OCI read-back
 
@@ -222,16 +267,56 @@ runtime assertions remain in the higher-level `flux.assets` contract.
 ## Registry credentials and cleanup
 
 `registry_username` and `registry_token` are the only publication secrets. The
-token is sent to `skopeo login` through stdin and is never placed in an argv,
+workflow authenticates them only to the single contract-derived registry host.
+The token is sent to `skopeo login` through stdin and is never placed in an argv,
 output, evidence object, state JSON, or Actions artifact. The auth file is a
 regular non-symlink file with owner-only permissions below the per-run
 publication state root.
 
-Cleanup removes all publication/auth/read-back state. Symlink substitution at
-the deterministic state root is unlinked without following the target and is a
-cleanup failure. The separate `oci.build` cleanup removes builders, manifests,
-images, layouts, staged source, and caches; both layers run terminal residue
-checks.
+After login, authentication exclusively creates a closed `plan.json` snapshot
+that binds the complete typed publication plan, exact product/source/version,
+contract-owned registry host and repositories, publication capacity identity,
+and a redacted identity of the exact auth-file bytes. It contains no credential
+or auth-file/host filesystem path. Guarded and direct publish, independent
+read-back, and final verification each read both files through bounded
+owner-only, no-follow descriptors and require byte-for-byte canonical state
+parity before any registry operation or publication-state consumption. Missing,
+corrupt, permission-changed, substituted, or mismatched state fails closed.
+
+Publication uses three marker-owned capacity leaves with one deterministic,
+run-scoped token. The scratch leaf is fixed below
+`/var/tmp/buildah/ciw-oci-publish-<token>`; graph and run leaves use the same
+name below `/var/lib/containers/storage` and `/run/containers/storage`. These
+parents are central runtime constants and must be the pre-provisioned runner
+mounts. No workflow input, action input, CLI option, environment variable, or
+caller path can select or replace them. Tests use an immutable internal root
+object instead of weakening production path validation.
+
+Every publication `skopeo login`, remote inspect, push, and independent
+read-back copy runs in a fresh private mount namespace. The physical graph leaf
+is bind-mounted into the publication-owned implicit-containers tree and that
+tree is then bound over `/var/lib/containers`, confining containers/image's
+implicit rootful cache to registered publication scratch. Skopeo receives a
+closed child environment: publication-owned HOME, temp and XDG roots; the exact
+0600 auth file; a 0600 registries configuration with no unqualified search and
+disabled short names; and only bounded path, locale, and certificate variables
+from the host. Ambient proxy, registry, auth, Docker, credential, and
+caller-selected cache settings are not inherited.
+
+Before either publication path reads a build layout or `result.json`, it
+independently resolves the exact `oci-build`/`ciw-oci` allocation and validates
+its fixed capacity parents plus all three ownership markers. Missing, corrupt,
+or substituted build scratch, graph, or run state fails before local image
+inspection, registry inspection, copy, or any remote write.
+
+Cleanup independently removes all three publication leaves with descriptor-
+relative, no-follow traversal. Marker mismatch or symlink/file substitution is
+reported as a cleanup failure after the unsafe entry itself is removed when
+possible; no substitution target is followed. Terminal residue requires the
+fixed capacity parents to remain valid mounts and every scratch, graph, and run
+leaf to be absent. The separate `oci.build` cleanup removes its own builders,
+manifests, images, layouts, staged source, and caches; both domains must pass
+their terminal cleanup and residue checks.
 
 ## Public outputs
 
@@ -242,8 +327,9 @@ The public API remains exactly:
 - `platform_digests_json` — nested target/platform manifest, config, layer, and
   metadata proof;
 - `immutable_references_json` — exact target repository/version/source refs plus
-  exact base references, verified assertion evidence, release identity and, for
-  Flux products, canary/known-good/rollback identities.
+  exact base references, verified assertion evidence, registry-write policy,
+  release identity and, for Flux products, canary/known-good/rollback
+  identities.
 
 Each `immutable_references_json.targets` entry names its immutable `sha-<40hex>`
 registry tag as `source_reference`. The separate
@@ -260,26 +346,29 @@ exposing host paths, credentials, or command text. The verify phase writes this
 same canonical redacted proof and its deterministic publication `evidence_id`
 to the GitHub step summary before credential/state cleanup.
 
-The publication schema is closed recursively for these nested payloads. No host,
+The publication schema is closed recursively for these nested payloads. It
+returns only the contract-owned registry-policy host; no caller-selected host,
 auth-file path, credential, mutable ref, or cluster identity is returned.
 
 ## CIW and compatibility wrappers
 
 The public facade exposes `ci_workflows.oci.publish` and
 `ci_workflows.oci.read_back`. `ciw_oci` contains the bounded `oci publish`
-adapter for plan/authenticate/publish/readback/verify/cleanup/residue. Shared
-command/public registry files are serialized organization surfaces and are
-registered only by their current owner; the issue branch does not take them
-over.
+adapter for plan/authenticate/publish/readback/verify/cleanup/residue/
+final-evidence. The adapter and checked-in product/publication registries are
+part of the reviewed contract surface and are validated together.
 
 ## Flux runner images
 
 `flux-runner-images` uses the merged #16 inventory: exactly
-`runner-buildah` and `runner-mobile`. Each target receives a deterministic GHCR
-repository. `immutable_references_json.flux` carries only the checked-in canary,
-previous-known-good, and rollback identities for later `flux.assets` review-only
-handoff. Publication does not edit Flux manifests, select a live runner image,
-reconcile a scale set, or receive Kubernetes/SOPS authority.
+`runner-buildah` and `runner-mobile`. They publish respectively to the exact
+checked-in Forgejo destinations
+`git.faruqi.dev/mimranfaruqi/github-actions-runner-buildah` and
+`git.faruqi.dev/mimranfaruqi/github-actions-runner-mobile`.
+`immutable_references_json.flux` carries only the checked-in canary,
+previous-known-good, and rollback identities for later `flux.assets`
+review-only handoff. Publication does not edit Flux manifests, select a live
+runner image, reconcile a scale set, or receive Kubernetes/SOPS authority.
 
 ## Evidence boundary
 

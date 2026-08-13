@@ -26,9 +26,13 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests/fixtures/oci-publish/oci-products.json"
 SHA = "a" * 40
 DIGEST = "sha256:" + "1" * 64
+MAX_OCI_TAG_VERSION = "1." + "1" * 124 + ".1"
+OVERSIZED_OCI_TAG_VERSION = "1." + "1" * 125 + ".1"
 
 
-def _resolved_inputs() -> dict[str, object]:
+def _resolved_inputs(
+    platforms: tuple[str, ...] = ("linux/amd64",),
+) -> dict[str, object]:
     payload = {
         "lock_digest": "sha256:" + "8" * 64,
         "input_policy_id": "oci-inputs-public-v1",
@@ -41,10 +45,11 @@ def _resolved_inputs() -> dict[str, object]:
                 "root_digest": "sha256:" + "4" * 64,
                 "platforms": [
                     {
-                        "platform": "linux/amd64",
+                        "platform": platform,
                         "manifest_digest": "sha256:" + "a" * 64,
                         "config_digest": "sha256:" + "b" * 64,
                     }
+                    for platform in platforms
                 ],
             }
         ],
@@ -62,10 +67,12 @@ def _resolved_inputs() -> dict[str, object]:
     return {**payload, "evidence_id": evidence_id}
 
 
-def _assertion_evidence() -> dict[str, object]:
+def _assertion_evidence(
+    platforms: tuple[str, ...] = ("linux/amd64",),
+) -> dict[str, object]:
     return {
         "result": "passed",
-        "verified_platforms": ["linux/amd64"],
+        "verified_platforms": list(platforms),
         "contract_digest": "sha256:" + "5" * 64,
         "runtime": {
             "user": "runner",
@@ -84,8 +91,34 @@ def _assertion_evidence() -> dict[str, object]:
     }
 
 
+def _metadata_labels(target: object | None = None) -> dict[str, str]:
+    target_id = getattr(target, "target_id", "runner-buildah")
+    source_repository = getattr(target, "source_repository", "StreamScapeTV/flux")
+    metadata = getattr(
+        target,
+        "metadata",
+        {
+            "title": "StreamScapeTV runner images",
+            "description": "Inventory-controlled organization runner image family",
+            "licenses": "Repository-defined",
+        },
+    )
+    source_reference = getattr(target, "source_reference", "sha-" + SHA)
+    version_reference = getattr(target, "version_reference", "image:1.2.3")
+    return {
+        "dev.streamscape.product": target_id,
+        "org.opencontainers.image.created": "2026-08-12T00:00:00Z",
+        "org.opencontainers.image.description": metadata["description"],
+        "org.opencontainers.image.licenses": metadata["licenses"],
+        "org.opencontainers.image.revision": source_reference.rsplit("sha-", 1)[1],
+        "org.opencontainers.image.source": f"https://github.com/{source_repository}",
+        "org.opencontainers.image.title": metadata["title"],
+        "org.opencontainers.image.version": version_reference.rsplit(":", 1)[1],
+    }
+
+
 def _target_reference() -> dict[str, object]:
-    repository = "ghcr.io/streamscapetv/flux-runner-buildah"
+    repository = "git.faruqi.dev/mimranfaruqi/github-actions-runner-buildah"
     return {
         "repository": repository,
         "version": repository + ":1.2.3",
@@ -93,6 +126,18 @@ def _target_reference() -> dict[str, object]:
         "manifest_digest": DIGEST,
         "resolved_inputs": _resolved_inputs(),
         "assertions": _assertion_evidence(),
+    }
+
+
+def _registry_write_policy() -> dict[str, str]:
+    return {
+        "policy_id": "flux-runners-create-only-v1",
+        "registry_host": "git.faruqi.dev",
+        "required_enforcement": "server-side-create-only-tags-v1",
+        "status": "verified",
+        "authority_repository": "StreamScapeTV/flux",
+        "authority_source_sha": "1" * 40,
+        "evidence_id": "sha256:" + "2" * 64,
     }
 
 
@@ -134,6 +179,25 @@ class PublicSchemaParityTests(unittest.TestCase):
             with self.subTest(value=value):
                 self._assert_rejected(value, schema)
 
+    def test_schema_destinations_equal_checked_in_public_product_authority(self) -> None:
+        product_contract = json.loads(
+            (ROOT / "contracts/oci-products.json").read_text(encoding="utf-8")
+        )
+        supported_products = (
+            "agent-state-image",
+            "flux-runner-images",
+            "iptv-backend-image",
+        )
+        expected = sorted(
+            target["publication_repository"]
+            for product_id in supported_products
+            for target in product_contract["products"][product_id]["targets"]
+        )
+        self.assertEqual(
+            self.schema["$defs"]["repository"]["enum"],
+            expected,
+        )
+
     def test_resolved_inputs_and_registry_references_reject_open_or_noncanonical_values(self) -> None:
         input_schema = self._definition_schema("resolvedInputs")
         repository_schema = self._definition_schema("repository")
@@ -151,26 +215,46 @@ class PublicSchemaParityTests(unittest.TestCase):
         mutable["bases"][0]["declared_reference"] = "example.invalid/base:latest"
         self._assert_rejected(mutable, input_schema)
 
-        repository = "ghcr.io/streamscapetv/flux-runner-buildah"
+        repository = "git.faruqi.dev/mimranfaruqi/github-actions-runner-buildah"
         validate_json_schema(repository, repository_schema)
         validate_json_schema(repository + ":1.2.3", tag_schema)
         validate_json_schema(repository + ":sha-" + SHA, tag_schema)
         for value in (
-            "ghcr.io/streamscapetv//runner",
-            "ghcr.io/streamscapetv/./runner",
-            "ghcr.io/streamscapetv/../runner",
-            "ghcr.io/streamscapetv/team/runner",
+            "ghcr.io/streamscapetv/flux-runner-buildah",
+            "git.faruqi.dev/mimranfaruqi/unknown",
+            "git.faruqi.dev/other/iptv-backend",
+            "Git.faruqi.dev/mimranfaruqi/iptv-backend",
+            "git.faruqi.dev/mimranfaruqi/iptv-backend:latest",
         ):
             with self.subTest(repository=value):
                 self._assert_rejected(value, repository_schema)
         for value in (
-            "ghcr.io/streamscapetv//runner:1.2.3",
-            "ghcr.io/streamscapetv/./runner:1.2.3",
-            "ghcr.io/streamscapetv/team/runner:1.2.3",
+            "ghcr.io/streamscapetv/flux-runner-buildah:1.2.3",
+            "git.faruqi.dev/mimranfaruqi/unknown:1.2.3",
+            "git.faruqi.dev/other/iptv-backend:1.2.3",
+            "git.faruqi.dev/mimranfaruqi/iptv-backend:latest",
             repository + ":01.2.3",
         ):
             with self.subTest(reference=value):
                 self._assert_rejected(value, tag_schema)
+
+    def test_release_tag_schema_accepts_128_characters_and_rejects_129(self) -> None:
+        version_schema = self._definition_schema("stableSemver")
+        reference_schema = self._definition_schema("immutableTagReference")
+        repository = "git.faruqi.dev/mimranfaruqi/iptv-backend"
+        self.assertEqual(len(MAX_OCI_TAG_VERSION), 128)
+        self.assertEqual(len(OVERSIZED_OCI_TAG_VERSION), 129)
+        validate_json_schema(MAX_OCI_TAG_VERSION, version_schema)
+        validate_json_schema(
+            repository + ":" + MAX_OCI_TAG_VERSION,
+            reference_schema,
+        )
+        validate_json_schema(repository + ":sha-" + SHA, reference_schema)
+        self._assert_rejected(OVERSIZED_OCI_TAG_VERSION, version_schema)
+        self._assert_rejected(
+            repository + ":" + OVERSIZED_OCI_TAG_VERSION,
+            reference_schema,
+        )
 
     def test_scratch_only_empty_input_evidence_remains_valid(self) -> None:
         target = SimpleNamespace(
@@ -199,7 +283,7 @@ class PublicSchemaParityTests(unittest.TestCase):
                         "manifest_digest": DIGEST,
                         "config_digest": "sha256:" + "2" * 64,
                         "layer_digests": ["sha256:" + "3" * 64],
-                        "labels": {"org.opencontainers.image.revision": SHA},
+                        "labels": _metadata_labels(),
                     }
                 },
             ),
@@ -214,6 +298,54 @@ class PublicSchemaParityTests(unittest.TestCase):
                 schema = self._object_schema(raw_schema)
                 validate_json_schema({"runner-buildah": value}, schema)
                 self._assert_rejected({"runner//buildah": value}, schema)
+
+    def test_platform_evidence_has_closed_cardinality_and_value_bounds(self) -> None:
+        schema = self._definition_schema("platformEvidence")
+        row = {
+            "manifest_digest": DIGEST,
+            "config_digest": "sha256:" + "2" * 64,
+            "layer_digests": ["sha256:" + "3" * 64] * 256,
+            "labels": _metadata_labels(),
+        }
+        validate_json_schema({"linux/amd64": row}, schema)
+
+        too_many_layers = {
+            **row,
+            "layer_digests": ["sha256:" + "3" * 64] * 257,
+        }
+        self._assert_rejected({"linux/amd64": too_many_layers}, schema)
+
+        extra_label = {
+            **row,
+            "labels": {**_metadata_labels(), "attacker.example": "unbounded"},
+        }
+        self._assert_rejected({"linux/amd64": extra_label}, schema)
+
+        oversized_label = _metadata_labels()
+        oversized_label["org.opencontainers.image.description"] = "x" * 513
+        self._assert_rejected(
+            {"linux/amd64": {**row, "labels": oversized_label}},
+            schema,
+        )
+
+        platform_schema = self.schema["$defs"]["platformEvidence"]
+        labels_schema = next(
+            iter(platform_schema["patternProperties"].values())
+        )["properties"]["labels"]
+        self.assertEqual(platform_schema["maxProperties"], 2)
+        self.assertEqual(labels_schema["maxProperties"], 8)
+        self.assertFalse(labels_schema["additionalProperties"])
+
+    def test_result_target_maps_are_bounded_to_supported_product_shape(self) -> None:
+        properties = self.schema["$defs"]["result"]["properties"]
+        self.assertEqual(properties["manifest_digests"]["maxProperties"], 2)
+        self.assertEqual(properties["platform_digests"]["maxProperties"], 2)
+        self.assertEqual(
+            properties["immutable_references"]["properties"]["targets"][
+                "maxProperties"
+            ],
+            2,
+        )
 
 
 class PlatformConfirmationTests(unittest.TestCase):
@@ -258,72 +390,105 @@ class PlatformConfirmationTests(unittest.TestCase):
 
 
 class PublicProjectionTests(unittest.TestCase):
-    def test_verify_projects_registered_outputs_and_flux_handoff(self) -> None:
-        target = SimpleNamespace(
-            target_id="runner-buildah",
-            platforms=("linux/amd64",),
-            input_policy_id="oci-inputs-public-v1",
-        )
-        plan = SimpleNamespace(
-            targets=(target,),
-            admitted_sha=SHA,
-            release_version="1.2.3",
-            flux_asset=True,
-            canary_id="runner-images-canary",
-            previous_known_good="flux-policy:runner-images/current-known-good",
-            rollback_id="runner-images-rollback",
-        )
+    def test_real_enabled_plan_projects_to_registered_schema_and_flux_handoff(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            contract_path = root / "contracts/oci-products.json"
+            contract_path.parent.mkdir()
+            product_contract = json.loads(
+                (ROOT / "contracts/oci-products.json").read_text(encoding="utf-8")
+            )
+            product_contract["products"]["flux-runner-images"][
+                "adoption_ready"
+            ] = True
+            policy_id = product_contract["products"]["flux-runner-images"][
+                "registry_write_policy_id"
+            ]
+            product_contract["registry_write_policies"][policy_id] = {
+                key: value
+                for key, value in _registry_write_policy().items()
+                if key != "policy_id"
+            }
+            contract_path.write_text(json.dumps(product_contract), encoding="utf-8")
+            plan = resolve_plan(
+                root,
+                PublishRequest(
+                    "StreamScapeTV/flux",
+                    SHA,
+                    SHA,
+                    "flux-runner-images",
+                    "1.2.3",
+                    "trusted-exact",
+                    "linux-amd64",
+                ),
+            )
+
         manifest = "sha256:" + "1" * 64
         config = "sha256:" + "2" * 64
         layer = "sha256:" + "3" * 64
+        targets = {target.target_id: target for target in plan.targets}
         assertion_evidence = {
-            "result": "passed",
-            "verified_platforms": ["linux/amd64"],
-            "contract_digest": "sha256:" + "5" * 64,
-            "runtime": {
-                "user": "runner",
-                "entrypoint": {"count": 0, "digest": "sha256:" + "6" * 64},
-                "command": {"count": 1, "digest": "sha256:" + "7" * 64},
-                "ports": [],
-            },
-            "filesystem": {
-                "required_files": [],
-                "required_tools": ["buildah"],
-                "required_executables": ["/usr/bin/buildah"],
-                "forbidden_tools": ["docker"],
-                "forbidden_paths": ["/var/run/docker.sock"],
-            },
-            "healthcheck": {"mode": "absent"},
+            target_id: _assertion_evidence(target.platforms)
+            for target_id, target in targets.items()
+        }
+        platform_digests = {
+            target_id: {
+                platform: {
+                    "manifest_digest": manifest,
+                    "config_digest": config,
+                    "layer_digests": [layer],
+                    "labels": _metadata_labels(target),
+                }
+                for platform in target.platforms
+            }
+            for target_id, target in targets.items()
         }
         detailed = {
             "result": "success",
-            "repositories_json": '{"runner-buildah":"ghcr.io/streamscapetv/flux-runner-buildah"}',
-            "version_references_json": '{"runner-buildah":"ghcr.io/streamscapetv/flux-runner-buildah:1.2.3"}',
-            "source_references_json": '{"runner-buildah":"ghcr.io/streamscapetv/flux-runner-buildah:sha-' + SHA + '"}',
-            "manifest_digests_json": '{"runner-buildah":"' + manifest + '"}',
+            "repositories_json": json.dumps(
+                {
+                    target_id: target.registry_repository
+                    for target_id, target in targets.items()
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+            "version_references_json": json.dumps(
+                {
+                    target_id: target.version_reference
+                    for target_id, target in targets.items()
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+            "source_references_json": json.dumps(
+                {
+                    target_id: target.source_reference
+                    for target_id, target in targets.items()
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+            "manifest_digests_json": json.dumps(
+                {target_id: manifest for target_id in targets},
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
             "resolved_inputs_json": json.dumps(
-                {"runner-buildah": _resolved_inputs()},
+                {
+                    target_id: _resolved_inputs(target.platforms)
+                    for target_id, target in targets.items()
+                },
                 sort_keys=True,
                 separators=(",", ":"),
             ),
             "assertion_evidence_json": json.dumps(
-                {"runner-buildah": assertion_evidence},
+                assertion_evidence,
                 sort_keys=True,
                 separators=(",", ":"),
             ),
             "platform_digests_json": json.dumps(
-                {
-                    "runner-buildah": {
-                        "linux/amd64": {
-                            "manifest_digest": manifest,
-                            "config_digest": config,
-                            "layer_digests": [layer],
-                            "labels": {
-                                "org.opencontainers.image.revision": SHA,
-                            },
-                        }
-                    }
-                },
+                platform_digests,
                 sort_keys=True,
                 separators=(",", ":"),
             ),
@@ -339,27 +504,35 @@ class PublicProjectionTests(unittest.TestCase):
         )
         self.assertNotIn("image_digest", outputs)
         self.assertIn(
-            '"canary_id":"runner-images-canary"',
+            '"canary_id":"flux-runner-images-canary"',
             outputs["immutable_references_json"],
         )
         self.assertIn(
-            '"rollback_id":"runner-images-rollback"',
+            '"rollback_id":"flux-runner-images-rollback"',
             outputs["immutable_references_json"],
         )
         immutable_references = json.loads(outputs["immutable_references_json"])
         target_reference = immutable_references["targets"]["runner-buildah"]
         self.assertEqual(
             target_reference["source_reference"],
-            "ghcr.io/streamscapetv/flux-runner-buildah:sha-" + SHA,
+            "git.faruqi.dev/mimranfaruqi/github-actions-runner-buildah:sha-"
+            + SHA,
         )
         self.assertNotIn("source_sha", target_reference)
         self.assertEqual(immutable_references["release"]["source_sha"], SHA)
+        self.assertEqual(
+            immutable_references["registry_write_policy"],
+            _registry_write_policy(),
+        )
         self.assertEqual(target_reference["manifest_digest"], manifest)
         self.assertEqual(
             target_reference["resolved_inputs"],
-            _resolved_inputs(),
+            _resolved_inputs(("linux/amd64",)),
         )
-        self.assertEqual(target_reference["assertions"], assertion_evidence)
+        self.assertEqual(
+            target_reference["assertions"],
+            assertion_evidence["runner-buildah"],
+        )
 
         types = json.loads(
             (ROOT / "contracts/public-workflow-types.json").read_text(

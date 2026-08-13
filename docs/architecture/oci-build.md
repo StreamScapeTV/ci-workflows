@@ -5,9 +5,15 @@
 `contracts/oci-products.json` owns the product, repository, context,
 Dockerfile, target stage, platforms, fixed arguments, assertion profile,
 measured Buildah tier, input-policy identifier, fixed source-lock path, allowed
-registry and download hosts, and Flux handoff fields. Consumer input cannot
-override those decisions. Product repositories retain their Dockerfiles, the
-exact input lock at that central-fixed per-target path, source pins, smoke
+registry and download hosts, fixed lowercase publication repository, and Flux
+handoff fields. Consumer input cannot override those decisions. Multi-target
+products must use one common publication host and it must equal the product's
+closed `registry_write_policy`. Publication remains blocked until an exact Flux
+authority commit and sha256 evidence verify
+`server-side-create-only-tags-v1`; client preflight is not treated as registry
+immutability. The registry host is derived from target repositories only when
+publication authenticates. Product repositories retain
+their Dockerfiles, the exact input lock at that central-fixed per-target path, source pins, smoke
 scripts when they exist, and product assertions. Flux retains runner inventory,
 desired state, canary selection, previous-known-good acceptance, rollback
 policy, credentials, and live reconciliation.
@@ -120,13 +126,27 @@ Planning runs directly on the approved general-Linux capability selector
 JSON selector. Product measurements plus reviewed headroom select one of
 `buildah-tiny`, `buildah-small`, `buildah-medium`, or `buildah-high` in
 contract data. A caller cannot request labels. Buildah capacity is privileged,
-trusted exact-source capacity. Every Buildah, Skopeo, and Podman subprocess runs
-inside a fresh private mount namespace that bind-mounts the registered run's
-implicit containers state over `/var/lib/containers`; this confines the pinned
-containers/image rootful blob-info cache without mutating the runner-wide path.
-Cleanup engine calls use the same namespace before removing the registered
-state. The capacity contains no Docker daemon, Docker socket, registry
-credential, Kubernetes token, or Agent State credential.
+trusted exact-source capacity. Central code, never caller or ambient path
+input, allocates exactly three marker-bound `0700` leaves: scratch below
+`/var/tmp/buildah/ciw-oci-<token>`, physical graph storage at
+`/var/lib/containers/storage/ciw-oci-<token>`, and physical run state at
+`/run/containers/storage/ciw-oci-<token>`. No public input, `RUNNER_TEMP`,
+`TMPDIR`, or other ambient path selects these roots. Production requires Linux,
+effective UID 0, and all
+three fixed parents to be pre-provisioned non-symlink directories and exact
+mount points in `/proc/self/mountinfo`.
+
+Every Buildah, Skopeo, and Podman subprocess runs inside a fresh private mount
+namespace. The namespace first bind-mounts the physical graph leaf onto the
+scratch tree's `implicit-containers/storage`, then recursively bind-mounts that
+private containers tree over `/var/lib/containers`. Buildah retains the fixed
+logical graph root `/var/lib/containers/storage`, while its bytes and Skopeo's
+rootful blob-info cache remain in the allocation. The Buildah run root is the
+physical run leaf. Staged source, downloads, layouts, HOME, XDG directories,
+and temporary files remain under scratch. Cleanup engine calls use the same
+namespace before removing the allocation. The capacity contains no Docker
+daemon, Docker socket, registry credential, Kubernetes token, or Agent State
+credential.
 
 Flux replacement images use the separate high-capacity independent bootstrap
 record. Its current build targets are exactly
@@ -147,3 +167,11 @@ tree, downloaded bytes, authentication files, base layouts and local tags, all
 other issue-owned state, and every recorded manifest, container, and local
 image. A separate residue phase and exact clean-source check make any remaining
 state terminal.
+
+Each leaf's private `0600` marker binds the operation domain, token, and all
+three recomputed paths. Exact directory/file type and modes are revalidated
+before engine execution, and each fixed parent is revalidated as an exact
+mountpoint. Cleanup never follows a substituted entry, never
+traverses a marker-mismatched directory, attempts all three leaves, and reports
+substitution or incomplete removal as `cleanup_failed`. Residue requires every
+leaf to be absent while preserving sibling allocations.

@@ -21,6 +21,7 @@ publish = _guards.publish
 read_back = _guards.read_back
 replay_decision = _guards.replay_decision
 residue = _guards.residue
+registry_write_policy_evidence = _runtime.registry_write_policy_evidence
 
 _PRODUCT = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
 _SUPPORTED_PRODUCTS = frozenset(
@@ -114,6 +115,7 @@ def verify(plan: PublishPlan, environment: Mapping[str, str]) -> dict[str, str]:
         versions = json.loads(values["version_references_json"])
         sources = json.loads(values["source_references_json"])
         manifests = json.loads(values["manifest_digests_json"])
+        platforms = json.loads(values["platform_digests_json"])
         resolved_inputs = json.loads(values.pop("resolved_inputs_json"))
         assertion_evidence = json.loads(values.pop("assertion_evidence_json"))
     except (KeyError, TypeError, json.JSONDecodeError) as error:
@@ -126,6 +128,7 @@ def verify(plan: PublishPlan, environment: Mapping[str, str]) -> dict[str, str]:
             versions,
             sources,
             manifests,
+            platforms,
             resolved_inputs,
             assertion_evidence,
         )
@@ -140,6 +143,7 @@ def verify(plan: PublishPlan, environment: Mapping[str, str]) -> dict[str, str]:
         for target in plan.targets
     }
     immutable: dict[str, Any] = {
+        "registry_write_policy": _runtime.registry_write_policy_evidence(plan),
         "targets": {
             target.target_id: {
                 "repository": repositories[target.target_id],
@@ -162,7 +166,12 @@ def verify(plan: PublishPlan, environment: Mapping[str, str]) -> dict[str, str]:
             "previous_known_good": plan.previous_known_good,
             "rollback_id": plan.rollback_id,
         }
-    values["immutable_references_json"] = json.dumps(
-        immutable, sort_keys=True, separators=(",", ":")
+    values.update(
+        _runtime.public_json_outputs(
+            plan.targets,
+            manifests,
+            platforms,
+            immutable,
+        )
     )
     return values

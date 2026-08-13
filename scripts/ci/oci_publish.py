@@ -30,6 +30,7 @@ def main(
             "verify",
             "cleanup",
             "residue",
+            "final-evidence",
         ),
         required=True,
     )

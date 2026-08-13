@@ -5,11 +5,19 @@ import json
 import hashlib
 import re
 from dataclasses import dataclass, field
-from typing import Mapping
+from typing import Mapping, Sequence
 
 _SAFE_CODE = re.compile(r"^[a-z][a-z0-9_]{2,95}$")
 _BASE_NAME = re.compile(r"^[a-z0-9](?:[a-z0-9._:/-]{0,253}[a-z0-9])?$")
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+OCI_TAG_MAX_LENGTH = 128
+_PUBLICATION_HOST = re.compile(
+    r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+    r"(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
+)
+_PUBLICATION_PATH_SEGMENT = re.compile(
+    r"^[a-z0-9]+(?:(?:[._-]|__)[a-z0-9]+)*$"
+)
 
 
 def is_exact_base_reference(value: object) -> bool:
@@ -28,6 +36,27 @@ def is_exact_base_reference(value: object) -> bool:
     ):
         return False
     return True
+
+
+def is_canonical_publication_repository(value: object) -> bool:
+    """Return whether value is a fixed lowercase registry repository identity."""
+
+    if not isinstance(value, str) or not value or len(value) > 255:
+        return False
+    if value != value.strip() or value != value.lower() or ":" in value or "@" in value:
+        return False
+    parts = value.split("/")
+    if len(parts) < 3 or _PUBLICATION_HOST.fullmatch(parts[0]) is None:
+        return False
+    if any(_PUBLICATION_PATH_SEGMENT.fullmatch(part) is None for part in parts[1:]):
+        return False
+    return parts[-1] != "latest"
+
+
+def has_valid_oci_tag_length(value: object) -> bool:
+    """Return whether an already-validated tag fits the OCI/Docker tag bound."""
+
+    return isinstance(value, str) and 1 <= len(value) <= OCI_TAG_MAX_LENGTH
 
 
 class OciBuildError(RuntimeError):
@@ -67,6 +96,34 @@ class OciInputPolicy:
 
 
 @dataclass(frozen=True)
+class OciRegistryWritePolicy:
+    """Closed registry authority required before an immutable tag write."""
+
+    policy_id: str
+    registry_host: str
+    required_enforcement: str
+    status: str
+    authority_repository: str
+    authority_source_sha: str | None
+    evidence_id: str | None
+
+    def evidence(self) -> dict[str, str]:
+        """Project the verified, redacted authority bound to publication."""
+
+        if self.authority_source_sha is None or self.evidence_id is None:
+            raise ValueError("registry write policy is not verified")
+        return {
+            "policy_id": self.policy_id,
+            "registry_host": self.registry_host,
+            "required_enforcement": self.required_enforcement,
+            "status": self.status,
+            "authority_repository": self.authority_repository,
+            "authority_source_sha": self.authority_source_sha,
+            "evidence_id": self.evidence_id,
+        }
+
+
+@dataclass(frozen=True)
 class OciTarget:
     target_id: str
     context_path: str
@@ -85,6 +142,7 @@ class OciTarget:
     secret_mount_ids: tuple[str, ...]
     build_input_lock_path: str
     input_policy_id: str
+    publication_repository: str = ""
 
 
 @dataclass(frozen=True)
@@ -253,6 +311,59 @@ class OciTargetResult:
         }
 
 
+def oci_build_evidence_payload(
+    admitted_sha: str,
+    product_id: str,
+    release_version: str,
+    targets: Sequence[OciTargetResult | Mapping[str, object]],
+    canary_id: str | None,
+    previous_known_good: str | None,
+    rollback_id: str | None,
+) -> dict[str, object]:
+    """Return the one canonical exact-build evidence payload."""
+
+    return {
+        "api": "oci.build",
+        "version": "1.0.0",
+        "source": admitted_sha,
+        "product": product_id,
+        "release_version": release_version,
+        "targets": [
+            row.to_dict() if isinstance(row, OciTargetResult) else dict(row)
+            for row in targets
+        ],
+        "flux": {
+            "canary_id": canary_id,
+            "previous_known_good": previous_known_good,
+            "rollback_id": rollback_id,
+        },
+    }
+
+
+def oci_build_evidence_id(
+    admitted_sha: str,
+    product_id: str,
+    release_version: str,
+    targets: Sequence[OciTargetResult | Mapping[str, object]],
+    canary_id: str | None,
+    previous_known_good: str | None,
+    rollback_id: str | None,
+) -> str:
+    """Hash the canonical exact-build evidence payload."""
+
+    payload = oci_build_evidence_payload(
+        admitted_sha,
+        product_id,
+        release_version,
+        targets,
+        canary_id,
+        previous_known_good,
+        rollback_id,
+    )
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 @dataclass(frozen=True)
 class OciBuildResult:
     product_id: str
@@ -305,4 +416,16 @@ class OciBuildResult:
             "previous_known_good": self.previous_known_good or "",
             "rollback_id": self.rollback_id or "",
             "failure_code": "",
+        }
+
+    def persisted_values(self) -> dict[str, str]:
+        """Return internal build state sufficient to verify ``evidence_id``."""
+
+        return {
+            **self.output_values(),
+            "target_results_json": json.dumps(
+                [row.to_dict() for row in self.targets],
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
         }

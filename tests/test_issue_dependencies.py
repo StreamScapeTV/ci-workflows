@@ -21,6 +21,7 @@ from ci_workflows.issue_dependencies import (
     parse_protected_integration_branch,
     sync_organization,
 )
+from ci_workflows.issue_dependency_manifest import validate_json_schema
 
 
 SCHEMA = json.loads(
@@ -137,6 +138,40 @@ class ProtectedBranchTests(unittest.TestCase):
 
 
 class ManifestContractTests(unittest.TestCase):
+    def test_trusted_schema_subset_enforces_collection_and_string_maxima(self):
+        schema = {
+            "type": "object",
+            "minProperties": 1,
+            "maxProperties": 1,
+            "additionalProperties": {"type": "array"},
+            "patternProperties": {
+                "^key$": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 1,
+                    "items": {
+                        "oneOf": [
+                            {"type": "string", "maxLength": 3, "enum": ["abc"]},
+                            {"type": "integer", "maximum": 3},
+                        ]
+                    },
+                }
+            },
+        }
+        validate_json_schema({"key": ["abc"]}, schema)
+        for value in (
+            {},
+            {"key": ["abcd"]},
+            {"key": ["def"]},
+            {"key": [4]},
+            {"key": ["abc", "def"]},
+            {"key": ["abc"], "extra": []},
+        ):
+            with self.subTest(value=value), self.assertRaises(
+                ManifestValidationError
+            ):
+                validate_json_schema(value, schema)
+
     def test_accepts_same_repo_cross_repo_and_explicit_empty(self):
         text = manifest(
             "StreamScapeTV/demo",

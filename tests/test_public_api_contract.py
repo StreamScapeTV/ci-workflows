@@ -205,6 +205,22 @@ class PublicApiContractTests(unittest.TestCase):
         )
         self.assertEqual([], self.data.types["breaking_change_acknowledgements"])
 
+    def test_oci_platform_set_is_one_bounded_contract_id(self) -> None:
+        self.assertEqual(
+            {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{1,63}$",
+                "nullable": True,
+            },
+            self.data.types["input_catalog"]["platform_set"],
+        )
+        for api_name in ("oci.build", "oci.publish"):
+            input_map = {
+                item["name"]: item for item in self.workflows[api_name]["inputs"]
+            }
+            self.assertIn("platform_set", input_map)
+            self.assertFalse(input_map["platform_set"]["required"])
+
     def test_existing_bootstrap_workflow_matches_its_versioned_api_record(self) -> None:
         row = self.workflows["release.tag-image-chart-bootstrap"]
         self.assertEqual("1.2.0", row["api_version"])

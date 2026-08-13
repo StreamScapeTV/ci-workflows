@@ -11,10 +11,12 @@
     "sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "stableSemver": {
       "type": "string",
-      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+      "maxLength": 128,
+      "pattern": "^(?=.{1,128}$)(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
     },
     "productId": {
       "type": "string",
+      "maxLength": 64,
       "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"
     },
     "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
@@ -28,7 +30,7 @@
       "additionalProperties": false,
       "required": ["count", "digest"],
       "properties": {
-        "count": {"type": "integer", "minimum": 0},
+        "count": {"type": "integer", "minimum": 0, "maximum": 64},
         "digest": {"$ref": "#/$defs/digest"}
       }
     },
@@ -41,6 +43,7 @@
         "verified_platforms": {
           "type": "array",
           "minItems": 1,
+          "maxItems": 2,
           "uniqueItems": true,
           "items": {"type": "string", "pattern": "^linux/(?:amd64|arm64/v8)$"}
         },
@@ -60,6 +63,7 @@
             "command": {"$ref": "#/$defs/assertionVector"},
             "ports": {
               "type": "array",
+              "maxItems": 64,
               "uniqueItems": true,
               "items": {"type": "string", "pattern": "^[0-9]{1,5}/(?:tcp|udp)$"}
             }
@@ -70,11 +74,11 @@
           "additionalProperties": false,
           "required": ["required_files", "required_tools", "required_executables", "forbidden_tools", "forbidden_paths"],
           "properties": {
-            "required_files": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/containerPath"}},
-            "required_tools": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Za-z0-9._+-]+$"}},
-            "required_executables": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/containerPath"}},
-            "forbidden_tools": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Za-z0-9._+-]+$"}},
-            "forbidden_paths": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/containerPath"}}
+            "required_files": {"type": "array", "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/containerPath"}},
+            "required_tools": {"type": "array", "maxItems": 64, "uniqueItems": true, "items": {"type": "string", "maxLength": 64, "pattern": "^[A-Za-z0-9._+-]+$"}},
+            "required_executables": {"type": "array", "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/containerPath"}},
+            "forbidden_tools": {"type": "array", "maxItems": 64, "uniqueItems": true, "items": {"type": "string", "maxLength": 64, "pattern": "^[A-Za-z0-9._+-]+$"}},
+            "forbidden_paths": {"type": "array", "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/containerPath"}}
           }
         },
         "healthcheck": {
@@ -93,11 +97,11 @@
                 "mode": {"const": "exact"},
                 "test_mode": {"enum": ["CMD", "CMD-SHELL", "NONE"]},
                 "test": {"$ref": "#/$defs/assertionVector"},
-                "interval_nanoseconds": {"type": "integer", "minimum": 0},
-                "timeout_nanoseconds": {"type": "integer", "minimum": 0},
-                "start_period_nanoseconds": {"type": "integer", "minimum": 0},
-                "start_interval_nanoseconds": {"type": "integer", "minimum": 0},
-                "retries": {"type": "integer", "minimum": 0}
+                "interval_nanoseconds": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807},
+                "timeout_nanoseconds": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807},
+                "start_period_nanoseconds": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807},
+                "start_interval_nanoseconds": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807},
+                "retries": {"type": "integer", "minimum": 0, "maximum": 2147483647}
               }
             }
           ]
@@ -179,19 +183,29 @@
     },
     "repository": {
       "type": "string",
-      "pattern": "^ghcr\\.io/streamscapetv/(?!\\.{1,2}$)[a-z0-9._-]+$"
+      "enum": [
+        "git.faruqi.dev/mimranfaruqi/agent-state",
+        "git.faruqi.dev/mimranfaruqi/github-actions-runner-buildah",
+        "git.faruqi.dev/mimranfaruqi/github-actions-runner-mobile",
+        "git.faruqi.dev/mimranfaruqi/iptv-backend"
+      ],
+      "pattern": "^git\\.faruqi\\.dev/mimranfaruqi/(?:agent-state|github-actions-runner-buildah|github-actions-runner-mobile|iptv-backend)$"
     },
     "immutableTagReference": {
       "type": "string",
-      "pattern": "^ghcr\\.io/streamscapetv/(?!\\.{1,2}:)[a-z0-9._-]+:(?:(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)|sha-[0-9a-f]{40})$"
+      "maxLength": 256,
+      "pattern": "^git\\.faruqi\\.dev/mimranfaruqi/(?:agent-state|github-actions-runner-buildah|github-actions-runner-mobile|iptv-backend):(?=.{1,128}$)(?:(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)|sha-[0-9a-f]{40})$"
     },
     "platformEvidence": {
       "type": "object",
       "minProperties": 1,
+      "maxProperties": 2,
       "additionalProperties": false,
       "patternProperties": {
         "^linux/(?:amd64|arm64/v8)$": {
           "type": "object",
+          "minProperties": 4,
+          "maxProperties": 4,
           "additionalProperties": false,
           "required": ["manifest_digest", "config_digest", "layer_digests", "labels"],
           "properties": {
@@ -200,15 +214,80 @@
             "layer_digests": {
               "type": "array",
               "minItems": 1,
+              "maxItems": 256,
               "items": {"$ref": "#/$defs/digest"}
             },
             "labels": {
               "type": "object",
-              "minProperties": 1,
-              "additionalProperties": {"type": "string"}
+              "minProperties": 8,
+              "maxProperties": 8,
+              "additionalProperties": false,
+              "required": [
+                "dev.streamscape.product",
+                "org.opencontainers.image.created",
+                "org.opencontainers.image.description",
+                "org.opencontainers.image.licenses",
+                "org.opencontainers.image.revision",
+                "org.opencontainers.image.source",
+                "org.opencontainers.image.title",
+                "org.opencontainers.image.version"
+              ],
+              "properties": {
+                "dev.streamscape.product": {"$ref": "#/$defs/productId"},
+                "org.opencontainers.image.created": {
+                  "type": "string",
+                  "maxLength": 64,
+                  "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$"
+                },
+                "org.opencontainers.image.description": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512,
+                  "pattern": "^[^\\u0000\\r\\n]+$"
+                },
+                "org.opencontainers.image.licenses": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256,
+                  "pattern": "^[^\\u0000\\r\\n]+$"
+                },
+                "org.opencontainers.image.revision": {"$ref": "#/$defs/sha"},
+                "org.opencontainers.image.source": {
+                  "type": "string",
+                  "maxLength": 256,
+                  "pattern": "^https://github\\.com/StreamScapeTV/[A-Za-z0-9_.-]+$"
+                },
+                "org.opencontainers.image.title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256,
+                  "pattern": "^[^\\u0000\\r\\n]+$"
+                },
+                "org.opencontainers.image.version": {"$ref": "#/$defs/stableSemver"}
+              }
             }
           }
         }
+      }
+    },
+    "registryWritePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy_id", "registry_host", "required_enforcement", "status", "authority_repository", "authority_source_sha", "evidence_id"],
+      "properties": {
+        "policy_id": {
+          "enum": [
+            "agent-state-create-only-v1",
+            "flux-runners-create-only-v1",
+            "iptv-backend-create-only-v1"
+          ]
+        },
+        "registry_host": {"const": "git.faruqi.dev"},
+        "required_enforcement": {"const": "server-side-create-only-tags-v1"},
+        "status": {"const": "verified"},
+        "authority_repository": {"const": "StreamScapeTV/flux"},
+        "authority_source_sha": {"$ref": "#/$defs/sha"},
+        "evidence_id": {"$ref": "#/$defs/digest"}
       }
     },
     "request": {
@@ -254,6 +333,7 @@
         "manifest_digests": {
           "type": "object",
           "minProperties": 1,
+          "maxProperties": 2,
           "propertyNames": {"$ref": "#/$defs/productId"},
           "additionalProperties": false,
           "patternProperties": {
@@ -263,6 +343,7 @@
         "platform_digests": {
           "type": "object",
           "minProperties": 1,
+          "maxProperties": 2,
           "propertyNames": {"$ref": "#/$defs/productId"},
           "additionalProperties": false,
           "patternProperties": {
@@ -272,11 +353,13 @@
         "immutable_references": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["targets", "release"],
+          "required": ["registry_write_policy", "targets", "release"],
           "properties": {
+            "registry_write_policy": {"$ref": "#/$defs/registryWritePolicy"},
             "targets": {
               "type": "object",
               "minProperties": 1,
+              "maxProperties": 2,
               "propertyNames": {"$ref": "#/$defs/productId"},
               "additionalProperties": false,
               "patternProperties": {

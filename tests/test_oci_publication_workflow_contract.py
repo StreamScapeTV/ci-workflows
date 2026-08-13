@@ -25,6 +25,7 @@ class OciPublicationWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("runner_labels:", text)
         self.assertNotIn("registry_host:", text)
         self.assertNotIn("registry_repository:", text)
+        self.assertNotIn("publication_repository:", text)
         self.assertIn("registry_username:", text)
         self.assertIn("registry_token:", text)
         for forbidden in ("kubeconfig", "sops", "kubectl", "service_account", "namespace"):
@@ -142,6 +143,7 @@ class OciPublicationWorkflowContractTests(unittest.TestCase):
         self.assertNotIn('--phase "${{ inputs.phase }}"', text)
         self.assertNotIn("registry_repository:", text)
         self.assertNotIn("registry_host:", text)
+        self.assertNotIn("publication_repository:", text)
         self.assertNotIn("command:", text)
         self.assertNotIn("runner_labels:", text)
         self.assertNotIn("secrets: inherit", text)
@@ -181,7 +183,7 @@ class OciPublicationWorkflowContractTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("pull_request:", text)
-        self.assertIn("[linux, amd64, general]", text)
+        self.assertIn("[linux, amd64, buildah, tiny]", text)
         self.assertNotIn("registry_token", text)
         self.assertNotIn("registry_username", text)
         self.assertNotIn("upload-artifact", text)
@@ -195,6 +197,9 @@ class OciPublicationWorkflowContractTests(unittest.TestCase):
         )
         self.assertIn("phase: residue", text)
         self.assertIn("CHECKPOINT_RESULT", text)
+        self.assertIn("/var/lib/containers/storage", text)
+        self.assertIn("/run/containers/storage", text)
+        self.assertIn("/var/tmp/buildah", text)
         self.assertIn("/artifacts?per_page=100", text)
 
     def test_publication_schema_excludes_destination_and_closes_nested_results(self) -> None:

@@ -7,14 +7,27 @@ on:
       - .github/workflows/reusable-oci-publish.yml
       - .github/workflows/oci-publish-smoke.yml
       - actions/publish-oci/**
+      - actions/validate-oci/**
+      - contracts/oci-products.json
       - contracts/oci-publication.schema.json
+      - contracts/runner-profiles.json
       - docs/workflows/oci-publish.md
+      - generated/oci-engine-mapping.json
+      - generated/runner-mappings.json
       - scripts/ci/oci_publish.py
       - src/ci_workflows/oci.py
       - src/ci_workflows/ciw_oci.py
+      - src/ci_workflows/issue_dependency_manifest.py
+      - src/ci_workflows/oci_contract.py
+      - src/ci_workflows/oci_execution.py
+      - src/ci_workflows/oci_execution_safe.py
       - src/ci_workflows/oci_publish*.py
+      - src/ci_workflows/oci_supply_evidence.py
+      - src/ci_workflows/oci_types.py
       - tests/fixtures/oci-publish/**
+      - tests/test_oci_capacity_roots.py
       - tests/test_oci_publication*.py
+      - tests/test_oci_registry_write_policy.py
 
 permissions:
   actions: read
@@ -28,7 +41,7 @@ jobs:
   mock_validation:
     name: CI / OCI publication mock validation
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: [linux, amd64, general]
+    runs-on: [linux, amd64, buildah, tiny]
     timeout-minutes: 20
     steps:
       - name: Check out exact same-repository pull-request head
@@ -45,6 +58,8 @@ jobs:
         run: |
           set -Eeuo pipefail
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          test ! -e /var/lib/containers/cache
+          test ! -L /var/lib/containers/cache
 
       - id: immutable_checkpoint
         name: Exercise the immutable publication checkpoint residue guard
@@ -80,9 +95,14 @@ jobs:
             tests.test_oci_publication_contract_alignment \
             tests.test_oci_publication_event_guard \
             tests.test_oci_publication_facade \
+            tests.test_oci_publication_failure_codes \
             tests.test_oci_publication_filesystem \
+            tests.test_oci_publication_output_bounds \
             tests.test_oci_publication_recovery \
-            tests.test_oci_publication_workflow_contract
+            tests.test_oci_publication_workflow_contract \
+            tests.test_oci_registry_write_policy \
+            tests.test_oci_terminal_supply_evidence \
+            tests.test_oci_capacity_roots
 
       - name: Compile publication, facade, and CIW adapters
         shell: bash
@@ -92,18 +112,27 @@ jobs:
             scripts/ci/oci_publish.py \
             src/ci_workflows/oci.py \
             src/ci_workflows/ciw_oci.py \
+            src/ci_workflows/issue_dependency_manifest.py \
+            src/ci_workflows/oci_contract.py \
             src/ci_workflows/oci_publish.py \
             src/ci_workflows/oci_publish_assertions.py \
             src/ci_workflows/oci_publish_contract.py \
             src/ci_workflows/oci_publish_guards.py \
+            src/ci_workflows/oci_supply_evidence.py \
+            src/ci_workflows/oci_types.py \
             tests/test_oci_publication.py \
             tests/test_oci_publication_assertion_evidence.py \
             tests/test_oci_publication_contract_alignment.py \
             tests/test_oci_publication_event_guard.py \
             tests/test_oci_publication_facade.py \
+            tests/test_oci_publication_failure_codes.py \
             tests/test_oci_publication_filesystem.py \
+            tests/test_oci_publication_output_bounds.py \
             tests/test_oci_publication_recovery.py \
-            tests/test_oci_publication_workflow_contract.py
+            tests/test_oci_publication_workflow_contract.py \
+            tests/test_oci_registry_write_policy.py \
+            tests/test_oci_terminal_supply_evidence.py \
+            tests/test_oci_capacity_roots.py
 
       - name: Verify smoke source remains clean and credential-free
         if: always()
@@ -113,8 +142,13 @@ jobs:
           find . -type d -name __pycache__ -prune -exec rm -rf {} +
           find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
           test -z "$(git status --porcelain --untracked-files=all)"
-          test ! -e "${RUNNER_TEMP}/registry-auth.json"
-          test -z "$(find "${RUNNER_TEMP}" -maxdepth 1 -name 'ciw-oci-publish-*' -print -quit)"
+          test ! -e /var/lib/containers/cache
+          test ! -L /var/lib/containers/cache
+          for parent in /var/tmp/buildah /var/lib/containers/storage /run/containers/storage; do
+            test -d "${parent}"
+            test ! -L "${parent}"
+            test -z "$(find "${parent}" -maxdepth 1 -name 'ciw-oci-publish-*' -print -quit)"
+          done
 
       - name: Confirm exact run retained zero Actions artifacts
         if: always()

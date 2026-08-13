@@ -39,9 +39,20 @@
       }
     }
   },
+  "registry_write_policies": {
+    "fixture-create-only-v1": {
+      "registry_host": "registry.example.invalid",
+      "required_enforcement": "server-side-create-only-tags-v1",
+      "status": "verified",
+      "authority_repository": "StreamScapeTV/flux",
+      "authority_source_sha": "1111111111111111111111111111111111111111",
+      "evidence_id": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+    }
+  },
   "products": {
     "backend-image": {
       "repository": "StreamScapeTV/backend",
+      "registry_write_policy_id": "fixture-create-only-v1",
       "runner_profile": "buildah-small",
       "workspace_profile": "container",
       "timeout_minutes": 90,
@@ -53,6 +64,7 @@
       "targets": [
         {
           "target_id": "backend",
+          "publication_repository": "registry.example.invalid/fixtures/backend",
           "context_path": ".",
           "dockerfile_path": "Dockerfile",
           "target_stage": null,
@@ -82,6 +94,7 @@
     },
     "runner-images": {
       "repository": "StreamScapeTV/flux",
+      "registry_write_policy_id": "fixture-create-only-v1",
       "runner_profile": "buildah-high",
       "workspace_profile": "container",
       "timeout_minutes": 180,
@@ -93,6 +106,7 @@
       "targets": [
         {
           "target_id": "runner-buildah",
+          "publication_repository": "registry.example.invalid/fixtures/github-actions-runner-buildah",
           "context_path": "images/buildah",
           "dockerfile_path": "images/buildah/Dockerfile",
           "target_stage": null,
@@ -114,6 +128,7 @@
         },
         {
           "target_id": "runner-mobile",
+          "publication_repository": "registry.example.invalid/fixtures/github-actions-runner-mobile",
           "context_path": "images/mobile",
           "dockerfile_path": "images/mobile/Dockerfile",
           "target_stage": null,

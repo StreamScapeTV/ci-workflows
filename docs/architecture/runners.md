@@ -74,6 +74,12 @@ The tier resolver compares measured peak memory and local storage, with reviewed
 
 Generic `buildah` resolves to `buildah-small`; it is not an automatic escalation request. Docker and DinD selectors fail closed.
 
+Binding a workflow API to these tiers establishes only which reviewed capacity
+classes it may resolve. Real adoption remains gated on a per-product,
+per-workflow-role measurement for the exact source plus reviewed headroom; an
+aggregate or smoke measurement proves only the role it measured and does not
+make any real product ready for build or publication.
+
 ## Compatibility and drift
 
 `generate_compatibility_report` applies reviewed migration-class rules to every row in `contracts/workflow-inventory.json`. Every current workflow/job family must have one or more semantic profiles or an explicit `retire`/adoption exception. Missing migration classes fail validation.

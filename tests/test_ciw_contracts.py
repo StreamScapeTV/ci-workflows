@@ -160,6 +160,10 @@ class CIWContractTests(unittest.TestCase):
         self.assertEqual(wrappers["scripts/ci/gitops.py"], {"gitops validate"})
         self.assertEqual(wrappers["scripts/ci/oci.py"], {"oci validate"})
         self.assertEqual(wrappers["scripts/ci/oci_publish.py"], {"oci publish"})
+        self.assertIn(
+            '"final-evidence"',
+            (ROOT / "scripts/ci/oci_publish.py").read_text(encoding="utf-8"),
+        )
         for path in wrappers:
             self.assertTrue((ROOT / path).is_file())
 

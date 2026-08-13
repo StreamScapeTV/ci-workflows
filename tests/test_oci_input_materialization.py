@@ -112,6 +112,12 @@ def scratch_lock(target_id: str = "first") -> OciTargetInputLock:
     )
 
 
+def prepared_roots(base_path: Path) -> execution.CapacityRoots:
+    roots = execution._test_capacity_roots(base_path)
+    execution.prepare_capacity_roots(roots)
+    return roots
+
+
 class OciInputMaterializationTests(unittest.TestCase):
     def test_local_base_import_uses_the_single_verified_oci_descriptor(self) -> None:
         commands: list[list[str]] = []
@@ -155,11 +161,12 @@ class OciInputMaterializationTests(unittest.TestCase):
         ), mock.patch.object(
             execution, "capture_engine_bytes", side_effect=capture
         ):
-            root = Path(directory)
+            roots = prepared_roots(Path(directory) / "capacity")
+            root = roots.scratch_root
             child_layout = root / "verified-child"
             image_id = execution._import_base_platform(
                 child_layout,
-                root=root,
+                roots=roots,
                 authfile=root / "auth.json",
                 policy_file=root / "policy.json",
                 builder_environment={},
@@ -192,7 +199,7 @@ class OciInputMaterializationTests(unittest.TestCase):
                 f"oci:{child_layout}",
                 (
                     "containers-storage:"
-                    f"[vfs@{root / 'storage'}+{root / 'runroot'}]{alias}"
+                    f"[vfs@/var/lib/containers/storage+{roots.run_root}]{alias}"
                 ),
             ],
             copy,
@@ -241,9 +248,9 @@ class OciInputMaterializationTests(unittest.TestCase):
                 "--storage-driver",
                 "vfs",
                 "--root",
-                str(root / "storage"),
+                "/var/lib/containers/storage",
                 "--runroot",
-                str(root / "runroot"),
+                str(roots.run_root),
                 "images",
                 "--no-trunc",
                 "--quiet",
@@ -283,7 +290,8 @@ class OciInputMaterializationTests(unittest.TestCase):
             "malformed-image-id",
         ):
             with self.subTest(corrupted=corrupted), tempfile.TemporaryDirectory() as directory:
-                root = Path(directory)
+                roots = prepared_roots(Path(directory) / "capacity")
+                root = roots.scratch_root
 
                 def run(_root, argv, **_kwargs):
                     command = list(argv)
@@ -320,7 +328,7 @@ class OciInputMaterializationTests(unittest.TestCase):
                 ), self.assertRaisesRegex(OciBuildError, "base_import_failed"):
                     execution._import_base_platform(
                         root / "verified-child",
-                        root=root,
+                        roots=roots,
                         authfile=root / "auth.json",
                         policy_file=root / "policy.json",
                         builder_environment={},
@@ -358,33 +366,29 @@ class OciInputMaterializationTests(unittest.TestCase):
                 "skipped",
             ), f"manifest-{selected.target_id}"
 
-        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
-            execution, "assert_clean_source"
-        ), mock.patch.object(
-            execution, "verify_builder_runtime"
-        ), mock.patch.object(
-            execution, "source_date_epoch", return_value=1
-        ), mock.patch.object(
-            execution, "load_contract", return_value={"_products": {}}
-        ), mock.patch.object(
-            execution, "metadata_labels", return_value={}
-        ), mock.patch.object(
-            execution, "stage_context", side_effect=stage
-        ), mock.patch.object(
-            execution, "_materialize_target_inputs", side_effect=materialize
-        ), mock.patch.object(
-            execution, "build_target", side_effect=build
-        ):
-            execution.execute_plan(
-                Path(directory),
-                Path(directory),
-                plan(),
-                {
-                    "RUNNER_TEMP": directory,
-                    "GITHUB_RUN_ID": "11",
-                    "GITHUB_RUN_ATTEMPT": "1",
-                },
-            )
+        with tempfile.TemporaryDirectory() as directory:
+            roots = execution._test_capacity_roots(Path(directory) / "capacity")
+            with mock.patch.object(
+                execution, "assert_clean_source"
+            ), mock.patch.object(
+                execution, "verify_builder_runtime"
+            ), mock.patch.object(
+                execution, "source_date_epoch", return_value=1
+            ), mock.patch.object(
+                execution, "load_contract", return_value={"_products": {}}
+            ), mock.patch.object(
+                execution, "metadata_labels", return_value={}
+            ), mock.patch.object(
+                execution, "stage_context", side_effect=stage
+            ), mock.patch.object(
+                execution, "_materialize_target_inputs", side_effect=materialize
+            ), mock.patch.object(
+                execution, "build_target", side_effect=build
+            ):
+                execution.execute_plan(
+                    Path(directory), Path(directory), plan(), {},
+                    _capacity_roots=roots,
+                )
         self.assertEqual(
             [
                 "stage:first",
@@ -423,6 +427,8 @@ class OciInputMaterializationTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory)
+            roots = prepared_roots(state / "capacity")
+            root = roots.scratch_root
             source_root = state / "source"
             staged = state / "staged"
             source_root.mkdir()
@@ -453,9 +459,9 @@ class OciInputMaterializationTests(unittest.TestCase):
                         plan(),
                         target("first"),
                         staged,
-                        state,
-                        state / "auth.json",
-                        state / "policy.json",
+                        roots,
+                        root / "auth.json",
+                        root / "policy.json",
                         {},
                     )
         acquired.assert_called_once()
@@ -523,6 +529,8 @@ class OciInputMaterializationTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory)
+            roots = prepared_roots(state / "capacity")
+            root = roots.scratch_root
             source_root = state / "source"
             staged = state / "staged"
             source_root.mkdir()
@@ -546,9 +554,9 @@ class OciInputMaterializationTests(unittest.TestCase):
                         plan(),
                         target("first"),
                         staged,
-                        state,
-                        state / "auth.json",
-                        state / "policy.json",
+                        roots,
+                        root / "auth.json",
+                        root / "policy.json",
                         {},
                     )
 
@@ -589,6 +597,8 @@ class OciInputMaterializationTests(unittest.TestCase):
         scratch_plan = replace(plan(), input_policies={scratch_policy.policy_id: scratch_policy})
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory)
+            roots = prepared_roots(state / "capacity")
+            root = roots.scratch_root
             source_root = state / "source"
             staged = state / "staged"
             source_root.mkdir()
@@ -610,9 +620,9 @@ class OciInputMaterializationTests(unittest.TestCase):
                     scratch_plan,
                     scratch_target,
                     staged,
-                    state,
-                    state / "auth.json",
-                    state / "policy.json",
+                    roots,
+                    root / "auth.json",
+                    root / "policy.json",
                     {},
                 )
         self.assertIs(lock, materialized.lock)
@@ -689,34 +699,28 @@ class OciInputMaterializationTests(unittest.TestCase):
                 "linux/amd64": {source_reference: "sha256:" + "b" * 64}
             },
         )
-        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
-            execution, "execute_command", side_effect=run
-        ), mock.patch.object(
-            execution,
-            "inspect_layout",
-            return_value=OciTargetResult(
-                "first", "sha256:" + "c" * 64, (), {}, "not-run"
-            ),
-        ), mock.patch.object(execution, "verify_no_secret_leakage"):
-            root = Path(directory)
+        with tempfile.TemporaryDirectory() as directory:
+            roots = prepared_roots(Path(directory) / "capacity")
+            root = roots.scratch_root
             staged = root / "staged"
             staged.mkdir()
             (staged / "Containerfile").write_text("FROM " + source_reference + "\n")
             auth = root / "auth.json"
             auth.write_text('{"auths":{}}\n')
-            execution.build_target(
-                plan(),
-                selected,
-                staged,
-                root,
-                {},
-                1,
-                {},
-                auth,
-                {"REGISTRY_AUTH_FILE": str(auth)},
-                materialized,
-                root / "policy.json",
-            )
+            with mock.patch.object(
+                execution, "execute_command", side_effect=run
+            ), mock.patch.object(
+                execution,
+                "inspect_layout",
+                return_value=OciTargetResult(
+                    "first", "sha256:" + "c" * 64, (), {}, "not-run"
+                ),
+            ), mock.patch.object(execution, "verify_no_secret_leakage"):
+                execution.build_target(
+                    plan(), selected, staged, roots, {}, 1, {}, auth,
+                    {"REGISTRY_AUTH_FILE": str(auth)}, materialized,
+                    root / "policy.json",
+                )
         bud = next(command for command in commands if "bud" in command)
         self.assertIn("--pull=never", bud)
         self.assertEqual("none", bud[bud.index("--network") + 1])

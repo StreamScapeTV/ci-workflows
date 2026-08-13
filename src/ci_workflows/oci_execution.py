@@ -7,9 +7,11 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import shutil
 import stat
 import subprocess
+import sys
 from dataclasses import replace
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -43,6 +45,7 @@ from .oci_types import (
     OciResolvedExternalInput,
     OciTarget,
     OciTargetResult,
+    oci_build_evidence_id,
 )
 
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -61,6 +64,7 @@ _LAYER_MEDIA_TYPES = frozenset(
         "application/vnd.oci.image.layer.v1.tar+gzip",
     }
 )
+_MAXIMUM_LAYERS = 256
 _SAFE_IMAGE_ID = re.compile(r"^sha256:[0-9a-f]{64}$")
 _SENSITIVE_ENVIRONMENT = re.compile(
     r"(?:AUTH|TOKEN|PASSWORD|PASSWD|SECRET|CREDENTIAL|COOKIE|PROXY|DOCKER)",
@@ -83,6 +87,82 @@ if _MOUNT is not None:
 _MOUNT_BIND = 4096
 _MOUNT_REC = 16384
 _MOUNT_PRIVATE = 1 << 18
+_CAPACITY_MARKER = ".ciw-capacity-root.json"
+_CAPACITY_PROFILES = frozenset(
+    {
+        ("oci-build", "ciw-oci"),
+        ("oci-publish", "ciw-oci-publish"),
+    }
+)
+
+
+@dataclass(frozen=True)
+class CapacityRoots:
+    """Internal fixed-capacity allocation for one OCI operation.
+
+    Production callers can select only a reviewed domain/prefix pair.  Path
+    parents are fixed here rather than accepted from action inputs or ambient
+    environment.  Tests inject a complete immutable instance with
+    ``production=False``; production never derives capacity paths from that
+    seam.
+    """
+
+    domain: str
+    prefix: str
+    token: str
+    scratch_parent: Path
+    graph_parent: Path
+    run_parent: Path
+    production: bool
+
+    def __post_init__(self) -> None:
+        if (self.domain, self.prefix) not in _CAPACITY_PROFILES:
+            raise OciBuildError("capacity_identity_invalid")
+        if re.fullmatch(r"[0-9a-f]{20}", self.token) is None:
+            raise OciBuildError("capacity_identity_invalid")
+        for parent in (self.scratch_parent, self.graph_parent, self.run_parent):
+            if not parent.is_absolute() or parent.name in {"", ".", ".."}:
+                raise OciBuildError("capacity_root_invalid")
+        if self.production and (
+            self.scratch_parent != Path("/var/tmp/buildah")
+            or self.graph_parent != Path("/var/lib/containers/storage")
+            or self.run_parent != Path("/run/containers/storage")
+        ):
+            raise OciBuildError("capacity_root_invalid")
+
+    @property
+    def leaf_name(self) -> str:
+        return f"{self.prefix}-{self.token}"
+
+    @property
+    def scratch_root(self) -> Path:
+        return self.scratch_parent / self.leaf_name
+
+    @property
+    def graph_root(self) -> Path:
+        return self.graph_parent / self.leaf_name
+
+    @property
+    def run_root(self) -> Path:
+        return self.run_parent / self.leaf_name
+
+    @property
+    def roots(self) -> tuple[Path, Path, Path]:
+        return self.scratch_root, self.graph_root, self.run_root
+
+
+@dataclass(frozen=True)
+class DirectoryIdentity:
+    device: int
+    inode: int
+    mount_id: int
+
+    def to_dict(self) -> dict[str, int]:
+        return {
+            "device": self.device,
+            "inode": self.inode,
+            "mount_id": self.mount_id,
+        }
 
 
 @dataclass(frozen=True)
@@ -90,6 +170,1233 @@ class MaterializedTargetInputs:
     lock: OciTargetInputLock
     evidence: OciBuildInputEvidence
     image_ids_by_platform: Mapping[str, Mapping[str, str]]
+
+
+def build_capacity_roots(
+    environment: Mapping[str, str],
+    *,
+    domain: str = "oci-build",
+    prefix: str = "ciw-oci",
+) -> CapacityRoots:
+    """Resolve one production allocation without accepting path authority."""
+
+    if (domain, prefix) not in _CAPACITY_PROFILES:
+        raise OciBuildError("capacity_identity_invalid")
+    repository = environment.get("GITHUB_REPOSITORY", "")
+    run_id = environment.get("GITHUB_RUN_ID", "")
+    run_attempt = environment.get("GITHUB_RUN_ATTEMPT", "")
+    job = environment.get("GITHUB_JOB", "")
+    if (
+        re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository) is None
+        or re.fullmatch(r"[1-9][0-9]*", run_id) is None
+        or re.fullmatch(r"[1-9][0-9]*", run_attempt) is None
+        or re.fullmatch(r"[A-Za-z0-9_.-]+", job) is None
+    ):
+        raise OciBuildError("capacity_identity_invalid")
+    identity = {
+        "domain": domain,
+        "repository": repository,
+        "run_id": run_id,
+        "run_attempt": run_attempt,
+        "job": job,
+    }
+    token = hashlib.sha256(
+        json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()[:20]
+    return CapacityRoots(
+        domain=domain,
+        prefix=prefix,
+        token=token,
+        scratch_parent=Path("/var/tmp/buildah"),
+        graph_parent=Path("/var/lib/containers/storage"),
+        run_parent=Path("/run/containers/storage"),
+        production=True,
+    )
+
+
+def _test_capacity_roots(
+    base: Path,
+    *,
+    domain: str = "oci-build",
+    prefix: str = "ciw-oci",
+    token: str = "0" * 20,
+) -> CapacityRoots:
+    """Create test-only parents and return an immutable injected allocation."""
+
+    if not base.is_absolute():
+        raise OciBuildError("capacity_root_invalid")
+    parents = (
+        base / "scratch-capacity",
+        base / "graph-capacity",
+        base / "run-capacity",
+    )
+    for parent in parents:
+        parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return CapacityRoots(domain, prefix, token, *parents, production=False)
+
+
+def _decode_mount_path(value: str) -> str:
+    return re.sub(
+        r"\\([0-7]{3})",
+        lambda match: chr(int(match.group(1), 8)),
+        value,
+    )
+
+
+def _mounted_path_ids(
+    mountinfo: Path = Path("/proc/self/mountinfo"),
+) -> Mapping[Path, int]:
+    try:
+        lines = mountinfo.read_text(encoding="utf-8").splitlines()
+    except OSError as error:
+        raise OciBuildError("capacity_mount_invalid") from error
+    paths: dict[Path, int] = {}
+    for line in lines:
+        fields = line.split()
+        if len(fields) < 10 or "-" not in fields:
+            raise OciBuildError("capacity_mount_invalid")
+        try:
+            mount_id = int(fields[0])
+        except ValueError as error:
+            raise OciBuildError("capacity_mount_invalid") from error
+        paths[Path(_decode_mount_path(fields[4]))] = mount_id
+    return paths
+
+
+def _mounted_paths(mountinfo: Path = Path("/proc/self/mountinfo")) -> frozenset[Path]:
+    return frozenset(_mounted_path_ids(mountinfo))
+
+
+def _mount_id_for_fd(descriptor: int) -> int:
+    """Return a mount identity, including same-filesystem bind boundaries."""
+
+    if sys.platform != "linux":
+        # Unit tests on non-Linux hosts inject this seam to model bind mounts.
+        # The fallback still confines ordinary cross-filesystem traversal;
+        # production is Linux-only and always uses fdinfo's kernel mount ID.
+        return os.fstat(descriptor).st_dev
+    try:
+        lines = Path(f"/proc/self/fdinfo/{descriptor}").read_text(
+            encoding="utf-8"
+        ).splitlines()
+    except OSError as error:
+        raise OciBuildError("capacity_mount_invalid") from error
+    values = [line.removeprefix("mnt_id:").strip() for line in lines if line.startswith("mnt_id:")]
+    if len(values) != 1 or re.fullmatch(r"[1-9][0-9]*", values[0]) is None:
+        raise OciBuildError("capacity_mount_invalid")
+    return int(values[0])
+
+
+def _directory_identity(descriptor: int) -> DirectoryIdentity:
+    try:
+        metadata = os.fstat(descriptor)
+    except OSError as error:
+        raise OciBuildError("capacity_root_invalid") from error
+    if not stat.S_ISDIR(metadata.st_mode):
+        raise OciBuildError("capacity_root_invalid")
+    return DirectoryIdentity(metadata.st_dev, metadata.st_ino, _mount_id_for_fd(descriptor))
+
+
+def _same_inode(metadata: os.stat_result, identity: DirectoryIdentity) -> bool:
+    return metadata.st_dev == identity.device and metadata.st_ino == identity.inode
+
+
+def _open_bound_parent(path: Path) -> tuple[int, DirectoryIdentity]:
+    descriptor: int | None = None
+    try:
+        descriptor = _open_directory(path)
+        identity = _directory_identity(descriptor)
+        pathname = path.lstat()
+    except (OSError, OciBuildError) as error:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+        if isinstance(error, OciBuildError):
+            raise
+        raise OciBuildError("capacity_root_invalid") from error
+    if (
+        stat.S_ISLNK(pathname.st_mode)
+        or not stat.S_ISDIR(pathname.st_mode)
+        or not _same_inode(pathname, identity)
+    ):
+        os.close(descriptor)
+        raise OciBuildError("capacity_root_invalid")
+    return descriptor, identity
+
+
+def _require_reviewed_parent_mount(
+    parent: Path, identity: DirectoryIdentity, roots: CapacityRoots
+) -> None:
+    if roots.production and _mounted_path_ids().get(parent) != identity.mount_id:
+        raise OciBuildError("capacity_mount_invalid")
+
+
+def _validate_capacity_parents(roots: CapacityRoots) -> None:
+    if roots.production and (sys.platform != "linux" or os.geteuid() != 0):
+        raise OciBuildError("capacity_host_invalid")
+    descriptors: list[int] = []
+    try:
+        identities: list[DirectoryIdentity] = []
+        for parent in (roots.scratch_parent, roots.graph_parent, roots.run_parent):
+            descriptor, identity = _open_bound_parent(parent)
+            descriptors.append(descriptor)
+            identities.append(identity)
+        for parent, identity in zip(
+            (roots.scratch_parent, roots.graph_parent, roots.run_parent),
+            identities,
+            strict=True,
+        ):
+            _require_reviewed_parent_mount(parent, identity, roots)
+    finally:
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
+
+
+def _capacity_marker_payload(
+    roots: CapacityRoots,
+    *,
+    parent_identities: Mapping[str, DirectoryIdentity] | None = None,
+    leaf_identities: Mapping[str, DirectoryIdentity] | None = None,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "schema": "ciw.oci-capacity.v1",
+        "domain": roots.domain,
+        "prefix": roots.prefix,
+        "token": roots.token,
+        "production": roots.production,
+        "scratch_root": str(roots.scratch_root),
+        "graph_root": str(roots.graph_root),
+        "run_root": str(roots.run_root),
+    }
+    if parent_identities is not None and leaf_identities is not None:
+        payload["parent_identities"] = {
+            key: value.to_dict() for key, value in sorted(parent_identities.items())
+        }
+        payload["leaf_identities"] = {
+            key: value.to_dict() for key, value in sorted(leaf_identities.items())
+        }
+    return payload
+
+
+def _open_directory(path: Path) -> int:
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    return os.open(path, flags)
+
+
+def _write_capacity_marker(directory_fd: int, marker: bytes) -> None:
+    marker_fd = os.open(
+        _CAPACITY_MARKER,
+        os.O_WRONLY
+        | os.O_CREAT
+        | os.O_EXCL
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0),
+        0o600,
+        dir_fd=directory_fd,
+    )
+    try:
+        offset = 0
+        while offset < len(marker):
+            written = os.write(marker_fd, marker[offset:])
+            if written <= 0:
+                raise OSError(errno.EIO, "short capacity marker write")
+            offset += written
+        os.fsync(marker_fd)
+    finally:
+        os.close(marker_fd)
+    os.fsync(directory_fd)
+
+
+def _read_marker_fd(directory_fd: int) -> dict[str, object]:
+    directory_mode = os.fstat(directory_fd).st_mode
+    if not stat.S_ISDIR(directory_mode) or stat.S_IMODE(directory_mode) != 0o700:
+        raise OciBuildError("capacity_marker_invalid")
+    try:
+        marker_fd = os.open(
+            _CAPACITY_MARKER,
+            os.O_RDONLY
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0),
+            dir_fd=directory_fd,
+        )
+        try:
+            marker_metadata = os.fstat(marker_fd)
+            if (
+                not stat.S_ISREG(marker_metadata.st_mode)
+                or stat.S_IMODE(marker_metadata.st_mode) != 0o600
+                or marker_metadata.st_size > 4096
+            ):
+                raise OciBuildError("capacity_marker_invalid")
+            payload = b""
+            while len(payload) <= 4096:
+                chunk = os.read(marker_fd, 4097 - len(payload))
+                if not chunk:
+                    break
+                payload += chunk
+        finally:
+            os.close(marker_fd)
+    except OciBuildError:
+        raise
+    except OSError as error:
+        raise OciBuildError("capacity_marker_invalid") from error
+    if len(payload) > 4096:
+        raise OciBuildError("capacity_marker_invalid")
+    try:
+        value = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise OciBuildError("capacity_marker_invalid") from error
+    if not isinstance(value, dict):
+        raise OciBuildError("capacity_marker_invalid")
+    return value
+
+
+def _identity_from_value(value: object) -> DirectoryIdentity:
+    if not isinstance(value, dict) or set(value) != {"device", "inode", "mount_id"}:
+        raise OciBuildError("capacity_marker_invalid")
+    if any(
+        not isinstance(value[key], int)
+        or isinstance(value[key], bool)
+        or value[key] < 0
+        for key in value
+    ):
+        raise OciBuildError("capacity_marker_invalid")
+    return DirectoryIdentity(value["device"], value["inode"], value["mount_id"])
+
+
+def _parse_marker_identities(
+    payload: Mapping[str, object], roots: CapacityRoots
+) -> tuple[Mapping[str, DirectoryIdentity], Mapping[str, DirectoryIdentity]]:
+    static = _capacity_marker_payload(roots)
+    if any(payload.get(key) != value for key, value in static.items()):
+        raise OciBuildError("capacity_marker_invalid")
+    if set(payload) != set(static) | {"parent_identities", "leaf_identities"}:
+        raise OciBuildError("capacity_marker_invalid")
+    raw_parents = payload.get("parent_identities")
+    raw_leaves = payload.get("leaf_identities")
+    if not isinstance(raw_parents, dict) or not isinstance(raw_leaves, dict):
+        raise OciBuildError("capacity_marker_invalid")
+    if set(raw_parents) != {"scratch", "graph", "run"} or set(raw_leaves) != {
+        "scratch", "graph", "run"
+    }:
+        raise OciBuildError("capacity_marker_invalid")
+    return (
+        {key: _identity_from_value(value) for key, value in raw_parents.items()},
+        {key: _identity_from_value(value) for key, value in raw_leaves.items()},
+    )
+
+
+def _capacity_rows(roots: CapacityRoots) -> tuple[tuple[str, Path], ...]:
+    return (
+        ("scratch", roots.scratch_parent),
+        ("graph", roots.graph_parent),
+        ("run", roots.run_parent),
+    )
+
+
+def _open_capacity_leaf(
+    parent_fd: int,
+    leaf_name: str,
+    *,
+    error_code: str = "capacity_root_invalid",
+) -> tuple[int, DirectoryIdentity]:
+    try:
+        descriptor = os.open(
+            leaf_name,
+            os.O_RDONLY
+            | getattr(os, "O_DIRECTORY", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+            dir_fd=parent_fd,
+        )
+    except OSError as error:
+        raise OciBuildError(error_code) from error
+    try:
+        identity = _directory_identity(descriptor)
+        pathname = os.stat(leaf_name, dir_fd=parent_fd, follow_symlinks=False)
+        if not _same_inode(pathname, identity):
+            raise OciBuildError("capacity_root_invalid")
+    except BaseException:
+        os.close(descriptor)
+        raise
+    return descriptor, identity
+
+
+def _open_verified_capacity(
+    roots: CapacityRoots,
+) -> tuple[
+    Mapping[str, int],
+    Mapping[str, DirectoryIdentity],
+    Mapping[str, int],
+    Mapping[str, DirectoryIdentity],
+]:
+    parent_fds: dict[str, int] = {}
+    leaf_fds: dict[str, int] = {}
+    leaf_identities: dict[str, DirectoryIdentity] = {}
+    try:
+        parent_identities: dict[str, DirectoryIdentity] = {}
+        payloads: list[dict[str, object]] = []
+        for key, parent in _capacity_rows(roots):
+            parent_fd, parent_identity = _open_bound_parent(parent)
+            parent_fds[key] = parent_fd
+            parent_identities[key] = parent_identity
+            _require_reviewed_parent_mount(parent, parent_identity, roots)
+            leaf_fd, leaf_identity = _open_capacity_leaf(parent_fd, roots.leaf_name)
+            leaf_fds[key] = leaf_fd
+            leaf_identities[key] = leaf_identity
+            if leaf_identity.mount_id != parent_identity.mount_id:
+                raise OciBuildError("capacity_mount_invalid")
+            payloads.append(_read_marker_fd(leaf_fd))
+            registry = _read_capacity_registry(parent_fd, roots)
+            if registry != payloads[-1]:
+                raise OciBuildError("capacity_marker_invalid")
+        if any(payload != payloads[0] for payload in payloads[1:]):
+            raise OciBuildError("capacity_marker_invalid")
+        expected_parents, expected_leaves = _parse_marker_identities(payloads[0], roots)
+        if parent_identities != expected_parents or leaf_identities != expected_leaves:
+            raise OciBuildError("capacity_marker_invalid")
+        return parent_fds, parent_identities, leaf_fds, leaf_identities
+    except BaseException:
+        for descriptor in reversed(tuple(leaf_fds.values())):
+            os.close(descriptor)
+        for descriptor in reversed(tuple(parent_fds.values())):
+            os.close(descriptor)
+        raise
+
+
+def _verify_capacity_markers(roots: CapacityRoots) -> None:
+    parent_fds, _, leaf_fds, _ = _open_verified_capacity(roots)
+    for descriptor in reversed(tuple(leaf_fds.values())):
+        os.close(descriptor)
+    for descriptor in reversed(tuple(parent_fds.values())):
+        os.close(descriptor)
+
+
+def _tombstone_name(roots: CapacityRoots) -> str:
+    return f".{roots.leaf_name}.delete-{secrets.token_hex(16)}"
+
+
+def _capacity_registry_name(roots: CapacityRoots) -> str:
+    return f".{roots.leaf_name}.allocation.json"
+
+
+def _write_capacity_registry(parent_fd: int, roots: CapacityRoots, payload: bytes) -> None:
+    name = _capacity_registry_name(roots)
+    descriptor = os.open(
+        name,
+        os.O_WRONLY
+        | os.O_CREAT
+        | os.O_EXCL
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0),
+        0o600,
+        dir_fd=parent_fd,
+    )
+    created = os.fstat(descriptor)
+    try:
+        offset = 0
+        while offset < len(payload):
+            written = os.write(descriptor, payload[offset:])
+            if written <= 0:
+                raise OSError(errno.EIO, "short capacity registry write")
+            offset += written
+        os.fsync(descriptor)
+        os.close(descriptor)
+        descriptor = -1
+        os.fsync(parent_fd)
+    except BaseException:
+        if descriptor >= 0:
+            os.close(descriptor)
+        tombstone = _quarantine_nondirectory(parent_fd, name, created, roots)
+        if tombstone is not None:
+            try:
+                os.unlink(tombstone, dir_fd=parent_fd)
+            except OSError:
+                pass
+        raise
+
+
+def _read_capacity_registry(
+    parent_fd: int, roots: CapacityRoots, *, name: str | None = None
+) -> dict[str, object]:
+    selected_name = _capacity_registry_name(roots) if name is None else name
+    try:
+        descriptor = os.open(
+            selected_name,
+            os.O_RDONLY
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0),
+            dir_fd=parent_fd,
+        )
+        try:
+            metadata = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or stat.S_IMODE(metadata.st_mode) != 0o600
+                or metadata.st_size > 4096
+            ):
+                raise OciBuildError("capacity_marker_invalid")
+            payload = b""
+            while len(payload) <= 4096:
+                chunk = os.read(descriptor, 4097 - len(payload))
+                if not chunk:
+                    break
+                payload += chunk
+        finally:
+            os.close(descriptor)
+    except OciBuildError:
+        raise
+    except OSError as error:
+        raise OciBuildError("capacity_marker_invalid") from error
+    if len(payload) > 4096:
+        raise OciBuildError("capacity_marker_invalid")
+    try:
+        value = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise OciBuildError("capacity_marker_invalid") from error
+    if not isinstance(value, dict):
+        raise OciBuildError("capacity_marker_invalid")
+    return value
+
+
+def _remove_capacity_registry(
+    parent_fd: int,
+    parent_identity: DirectoryIdentity,
+    key: str,
+    roots: CapacityRoots,
+) -> bool:
+    name = _capacity_registry_name(roots)
+    try:
+        metadata = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        # Registry tombstones are never accepted as durable authority. The
+        # writer restores the exact canonical name after an interrupted
+        # unlink; a forged or externally renamed record is preserved.
+        return True
+    except OSError:
+        return False
+    if not stat.S_ISREG(metadata.st_mode):
+        return False
+    try:
+        payload = _read_capacity_registry(parent_fd, roots)
+        parent_ids, _leaf_ids = _parse_marker_identities(payload, roots)
+    except OciBuildError:
+        return False
+    if parent_ids[key] != parent_identity:
+        return False
+    tombstone = _quarantine_nondirectory(parent_fd, name, metadata, roots)
+    if tombstone is None:
+        return False
+    try:
+        os.unlink(tombstone, dir_fd=parent_fd)
+    except OSError:
+        try:
+            os.rename(
+                tombstone,
+                name,
+                src_dir_fd=parent_fd,
+                dst_dir_fd=parent_fd,
+            )
+        except OSError:
+            pass
+        return False
+    return True
+
+
+def _path_matches_directory(
+    parent_fd: int, name: str, identity: DirectoryIdentity
+) -> bool:
+    try:
+        metadata = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    except OSError:
+        return False
+    return stat.S_ISDIR(metadata.st_mode) and _same_inode(metadata, identity)
+
+
+def _path_matches_stat(parent_fd: int, name: str, expected: os.stat_result) -> bool:
+    try:
+        actual = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    except OSError:
+        return False
+    return actual.st_dev == expected.st_dev and actual.st_ino == expected.st_ino
+
+
+def _quarantine_directory(
+    parent_fd: int,
+    name: str,
+    directory_fd: int,
+    identity: DirectoryIdentity,
+    roots: CapacityRoots,
+) -> str | None:
+    if not _path_matches_directory(parent_fd, name, identity):
+        return None
+    tombstone = _tombstone_name(roots)
+    try:
+        os.rename(
+            name,
+            tombstone,
+            src_dir_fd=parent_fd,
+            dst_dir_fd=parent_fd,
+        )
+    except OSError:
+        return None
+    if not _path_matches_directory(parent_fd, tombstone, identity):
+        rebound_name = _find_bound_directory_name(parent_fd, identity)
+        if rebound_name is None:
+            return None
+        tombstone = rebound_name
+    if _directory_identity(directory_fd) != identity:
+        return None
+    return tombstone
+
+
+def _find_bound_directory_name(
+    parent_fd: int, identity: DirectoryIdentity
+) -> str | None:
+    """Find the one directory entry still naming an already-bound inode."""
+
+    matches: list[str] = []
+    try:
+        entries = list(os.scandir(parent_fd))
+    except OSError:
+        return None
+    for entry in entries:
+        try:
+            metadata = entry.stat(follow_symlinks=False)
+        except OSError:
+            continue
+        if not stat.S_ISDIR(metadata.st_mode) or not _same_inode(metadata, identity):
+            continue
+        try:
+            candidate_fd, candidate_identity = _open_capacity_leaf(
+                parent_fd, entry.name
+            )
+        except OciBuildError:
+            continue
+        try:
+            if candidate_identity == identity:
+                matches.append(entry.name)
+        finally:
+            os.close(candidate_fd)
+    return matches[0] if len(matches) == 1 else None
+
+
+def _quarantine_nondirectory(
+    parent_fd: int, name: str, expected: os.stat_result, roots: CapacityRoots
+) -> str | None:
+    if not _path_matches_stat(parent_fd, name, expected):
+        return None
+    tombstone = _tombstone_name(roots)
+    try:
+        os.rename(name, tombstone, src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
+    except OSError:
+        return None
+    return tombstone if _path_matches_stat(parent_fd, tombstone, expected) else None
+
+
+def _remove_tree_contents_nofollow(
+    directory_fd: int,
+    expected_mount_id: int,
+    roots: CapacityRoots,
+    *,
+    preserve_names: frozenset[str] = frozenset(),
+) -> bool:
+    identity = _directory_identity(directory_fd)
+    mount_id = expected_mount_id
+    if identity.mount_id != mount_id:
+        return False
+    try:
+        entries = list(os.scandir(directory_fd))
+    except OSError:
+        return False
+    clean = True
+    for entry in entries:
+        name = entry.name
+        if name in preserve_names:
+            continue
+        try:
+            metadata = entry.stat(follow_symlinks=False)
+        except OSError:
+            clean = False
+            continue
+        if stat.S_ISDIR(metadata.st_mode):
+            try:
+                child_fd = os.open(
+                    name,
+                    os.O_RDONLY
+                    | getattr(os, "O_DIRECTORY", 0)
+                    | getattr(os, "O_CLOEXEC", 0)
+                    | getattr(os, "O_NOFOLLOW", 0),
+                    dir_fd=directory_fd,
+                )
+                child_identity = _directory_identity(child_fd)
+            except (OSError, OciBuildError):
+                clean = False
+                continue
+            try:
+                if (
+                    not _same_inode(metadata, child_identity)
+                    or child_identity.mount_id != mount_id
+                ):
+                    clean = False
+                    continue
+                tombstone = _quarantine_directory(
+                    directory_fd,
+                    name,
+                    child_fd,
+                    child_identity,
+                    roots,
+                )
+                if tombstone is None:
+                    clean = False
+                    continue
+                child_clean = _remove_tree_contents_nofollow(
+                    child_fd, mount_id, roots
+                )
+                if (
+                    not child_clean
+                    or not _path_matches_directory(
+                        directory_fd, tombstone, child_identity
+                    )
+                ):
+                    clean = False
+                    continue
+                try:
+                    os.rmdir(tombstone, dir_fd=directory_fd)
+                except OSError:
+                    clean = False
+            finally:
+                os.close(child_fd)
+        else:
+            tombstone = _quarantine_nondirectory(
+                directory_fd, name, metadata, roots
+            )
+            if tombstone is None or not _path_matches_stat(
+                directory_fd, tombstone, metadata
+            ):
+                clean = False
+                continue
+            try:
+                os.unlink(tombstone, dir_fd=directory_fd)
+            except OSError:
+                clean = False
+    return clean
+
+
+def _capacity_tree_mounts_confined(
+    directory_fd: int, expected_mount_id: int
+) -> bool:
+    """Reject every descendant mount without following symlink targets."""
+
+    if _mount_id_for_fd(directory_fd) != expected_mount_id:
+        return False
+    try:
+        entries = list(os.scandir(directory_fd))
+    except OSError:
+        return False
+    for entry in entries:
+        try:
+            metadata = entry.stat(follow_symlinks=False)
+            if stat.S_ISDIR(metadata.st_mode):
+                flags = (
+                    os.O_RDONLY
+                    | getattr(os, "O_DIRECTORY", 0)
+                    | getattr(os, "O_CLOEXEC", 0)
+                    | getattr(os, "O_NOFOLLOW", 0)
+                )
+            else:
+                flags = (
+                    getattr(os, "O_PATH", os.O_RDONLY)
+                    | getattr(os, "O_CLOEXEC", 0)
+                    | getattr(os, "O_NOFOLLOW", 0)
+                    | getattr(os, "O_NONBLOCK", 0)
+                )
+            descriptor = os.open(entry.name, flags, dir_fd=directory_fd)
+        except OSError:
+            return False
+        try:
+            actual = os.fstat(descriptor)
+            if (
+                actual.st_dev != metadata.st_dev
+                or actual.st_ino != metadata.st_ino
+                or _mount_id_for_fd(descriptor) != expected_mount_id
+            ):
+                return False
+            if stat.S_ISDIR(metadata.st_mode) and not _capacity_tree_mounts_confined(
+                descriptor, expected_mount_id
+            ):
+                return False
+        except (OSError, OciBuildError):
+            return False
+        finally:
+            os.close(descriptor)
+    return True
+
+
+def _remove_open_capacity_leaf(
+    parent_fd: int,
+    leaf_fd: int,
+    leaf_identity: DirectoryIdentity,
+    roots: CapacityRoots,
+    *,
+    require_marker: bool = True,
+) -> bool:
+    leaf_name = roots.leaf_name
+    if not _path_matches_directory(parent_fd, leaf_name, leaf_identity):
+        rebound_name = _find_bound_directory_name(parent_fd, leaf_identity)
+        if rebound_name is None:
+            return False
+        leaf_name = rebound_name
+    tombstone = _quarantine_directory(
+        parent_fd, leaf_name, leaf_fd, leaf_identity, roots
+    )
+    if tombstone is None:
+        return False
+    clean = _remove_tree_contents_nofollow(
+        leaf_fd,
+        leaf_identity.mount_id,
+        roots,
+        preserve_names=(
+            frozenset({_CAPACITY_MARKER}) if require_marker else frozenset()
+        ),
+    )
+    if clean and require_marker:
+        try:
+            _read_marker_fd(leaf_fd)
+            marker_metadata = os.stat(
+                _CAPACITY_MARKER,
+                dir_fd=leaf_fd,
+                follow_symlinks=False,
+            )
+        except (OSError, OciBuildError):
+            clean = False
+        else:
+            marker_tombstone = _quarantine_nondirectory(
+                leaf_fd,
+                _CAPACITY_MARKER,
+                marker_metadata,
+                roots,
+            )
+            if marker_tombstone is None or not _path_matches_stat(
+                leaf_fd, marker_tombstone, marker_metadata
+            ):
+                clean = False
+            else:
+                try:
+                    os.unlink(marker_tombstone, dir_fd=leaf_fd)
+                except OSError:
+                    clean = False
+    if not _path_matches_directory(parent_fd, tombstone, leaf_identity):
+        return False
+    if clean:
+        try:
+            os.rmdir(tombstone, dir_fd=parent_fd)
+        except OSError:
+            clean = False
+    # A concurrent replacement at the public leaf name is not ours and must
+    # survive, but it also prevents terminal cleanup from being declared clean.
+    try:
+        os.stat(roots.leaf_name, dir_fd=parent_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        pass
+    except OSError:
+        clean = False
+    else:
+        clean = False
+    return clean
+
+
+def prepare_capacity_roots(roots: CapacityRoots) -> None:
+    """Exclusively allocate all three reviewed capacity leaves."""
+
+    _validate_capacity_parents(roots)
+    parent_fds: dict[str, int] = {}
+    leaf_fds: dict[str, int] = {}
+    parent_identities: dict[str, DirectoryIdentity] = {}
+    leaf_identities: dict[str, DirectoryIdentity] = {}
+    registries: list[str] = []
+    allocation_unbound = False
+    try:
+        for key, parent in _capacity_rows(roots):
+            parent_fd, parent_identity = _open_bound_parent(parent)
+            parent_fds[key] = parent_fd
+            parent_identities[key] = parent_identity
+            _require_reviewed_parent_mount(parent, parent_identity, roots)
+            os.mkdir(roots.leaf_name, 0o700, dir_fd=parent_fd)
+            try:
+                leaf_fd, leaf_identity = _open_capacity_leaf(
+                    parent_fd,
+                    roots.leaf_name,
+                    error_code="capacity_root_invalid",
+                )
+            except BaseException:
+                # mkdirat succeeded, but without a bound descriptor identity we
+                # cannot safely remove whatever now occupies the public name.
+                allocation_unbound = True
+                raise
+            leaf_fds[key] = leaf_fd
+            leaf_identities[key] = leaf_identity
+            if leaf_identity.mount_id != parent_identity.mount_id:
+                raise OciBuildError("capacity_mount_invalid")
+        marker = (
+            json.dumps(
+                _capacity_marker_payload(
+                    roots,
+                    parent_identities=parent_identities,
+                    leaf_identities=leaf_identities,
+                ),
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n"
+        ).encode()
+        for key, _parent in _capacity_rows(roots):
+            _write_capacity_marker(leaf_fds[key], marker)
+        for key, _parent in _capacity_rows(roots):
+            _write_capacity_registry(parent_fds[key], roots, marker)
+            registries.append(key)
+        # Verify public names before committing while the allocation's
+        # original descriptors are still available for race-safe rollback.
+        _verify_capacity_markers(roots)
+    except BaseException as error:
+        rollback_ok = not allocation_unbound
+        for key in reversed(tuple(leaf_fds)):
+            if not _remove_open_capacity_leaf(
+                parent_fds[key],
+                leaf_fds[key],
+                leaf_identities[key],
+                roots,
+                require_marker=False,
+            ):
+                rollback_ok = False
+        for key in reversed(tuple(registries)):
+            if not _remove_capacity_registry(
+                parent_fds[key], parent_identities[key], key, roots
+            ):
+                rollback_ok = False
+        if not rollback_ok:
+            raise OciBuildError("cleanup_failed") from error
+        if isinstance(error, FileExistsError):
+            raise OciBuildError("residue_detected") from error
+        if isinstance(error, OciBuildError):
+            raise
+        if isinstance(error, OSError):
+            raise OciBuildError("capacity_root_invalid") from error
+        raise
+    finally:
+        for descriptor in reversed(tuple(leaf_fds.values())):
+            os.close(descriptor)
+        for descriptor in reversed(tuple(parent_fds.values())):
+            os.close(descriptor)
+
+
+def _remove_capacity_leaf(parent: Path, roots: CapacityRoots) -> bool:
+    try:
+        parent_fd, parent_identity = _open_bound_parent(parent)
+        _require_reviewed_parent_mount(parent, parent_identity, roots)
+    except (OSError, OciBuildError):
+        return False
+    try:
+        try:
+            metadata = os.stat(
+                roots.leaf_name, dir_fd=parent_fd, follow_symlinks=False
+            )
+        except FileNotFoundError:
+            return True
+        except OSError:
+            return False
+        if not stat.S_ISDIR(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
+            # A substituted non-directory is never traversed. Moving it to an
+            # unpredictable tombstone first prevents unlinking a later
+            # replacement at the public name.
+            tombstone = _quarantine_nondirectory(
+                parent_fd, roots.leaf_name, metadata, roots
+            )
+            if tombstone is None or not _path_matches_stat(parent_fd, tombstone, metadata):
+                return False
+            try:
+                os.unlink(tombstone, dir_fd=parent_fd)
+            except OSError:
+                return False
+            return False
+        try:
+            leaf_fd, leaf_identity = _open_capacity_leaf(parent_fd, roots.leaf_name)
+        except (OSError, OciBuildError):
+            return False
+        try:
+            key = next(key for key, selected in _capacity_rows(roots) if selected == parent)
+            if not _capacity_leaf_is_owned(
+                parent_fd,
+                parent_identity,
+                key,
+                leaf_fd,
+                leaf_identity,
+                roots,
+            ):
+                return False
+            return _remove_open_capacity_leaf(
+                parent_fd,
+                leaf_fd,
+                leaf_identity,
+                roots,
+                require_marker=not _capacity_registry_authenticates_leaf(
+                    parent_fd,
+                    parent_identity,
+                    key,
+                    leaf_identity,
+                    roots,
+                ),
+            )
+        finally:
+            os.close(leaf_fd)
+    finally:
+        os.close(parent_fd)
+
+
+def _owned_capacity_leaf_names(
+    parent_fd: int,
+    parent_identity: DirectoryIdentity,
+    key: str,
+    roots: CapacityRoots,
+) -> tuple[str, ...]:
+    """Find marker-authenticated leaves for one exact capacity parent."""
+
+    names: list[str] = []
+    registry_present = False
+    expected_leaf: DirectoryIdentity | None = None
+    try:
+        os.stat(
+            _capacity_registry_name(roots),
+            dir_fd=parent_fd,
+            follow_symlinks=False,
+        )
+        registry_present = True
+        registry = _read_capacity_registry(parent_fd, roots)
+        parent_ids, leaf_ids = _parse_marker_identities(registry, roots)
+        if parent_ids[key] != parent_identity:
+            raise OciBuildError("capacity_marker_invalid")
+        expected_leaf = leaf_ids[key]
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        raise OciBuildError("residue_detected") from error
+    try:
+        entries = list(os.scandir(parent_fd))
+    except OSError as error:
+        raise OciBuildError("residue_detected") from error
+    for entry in entries:
+        try:
+            candidate_fd, candidate_identity = _open_capacity_leaf(
+                parent_fd, entry.name
+            )
+        except OciBuildError:
+            continue
+        try:
+            if registry_present:
+                owned = (
+                    candidate_identity == expected_leaf
+                    and candidate_identity.mount_id == parent_identity.mount_id
+                )
+            else:
+                payload = _read_marker_fd(candidate_fd)
+                parent_ids, leaf_ids = _parse_marker_identities(payload, roots)
+                owned = (
+                    parent_identity == parent_ids[key]
+                    and candidate_identity == leaf_ids[key]
+                    and candidate_identity.mount_id == parent_identity.mount_id
+                )
+            if owned:
+                names.append(entry.name)
+        except OciBuildError:
+            pass
+        finally:
+            os.close(candidate_fd)
+    return tuple(names)
+
+
+def _capacity_leaf_is_owned(
+    parent_fd: int,
+    parent_identity: DirectoryIdentity,
+    key: str,
+    leaf_fd: int,
+    leaf_identity: DirectoryIdentity,
+    roots: CapacityRoots,
+) -> bool:
+    try:
+        registry = _read_capacity_registry(parent_fd, roots)
+    except OciBuildError:
+        try:
+            os.stat(
+                _capacity_registry_name(roots),
+                dir_fd=parent_fd,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            try:
+                marker = _read_marker_fd(leaf_fd)
+                parent_ids, leaf_ids = _parse_marker_identities(marker, roots)
+            except OciBuildError:
+                return False
+        except OSError:
+            return False
+        else:
+            return False
+    else:
+        try:
+            parent_ids, leaf_ids = _parse_marker_identities(registry, roots)
+        except OciBuildError:
+            return False
+    return (
+        parent_identity == parent_ids[key]
+        and leaf_identity == leaf_ids[key]
+        and leaf_identity.mount_id == parent_identity.mount_id
+    )
+
+
+def _capacity_registry_authenticates_leaf(
+    parent_fd: int,
+    parent_identity: DirectoryIdentity,
+    key: str,
+    leaf_identity: DirectoryIdentity,
+    roots: CapacityRoots,
+) -> bool:
+    try:
+        registry = _read_capacity_registry(parent_fd, roots)
+        parent_ids, leaf_ids = _parse_marker_identities(registry, roots)
+    except OciBuildError:
+        return False
+    return (
+        parent_ids[key] == parent_identity
+        and leaf_ids[key] == leaf_identity
+        and leaf_identity.mount_id == parent_identity.mount_id
+    )
+
+
+def _remove_stranded_capacity_leaf(
+    key: str, parent: Path, roots: CapacityRoots
+) -> bool:
+    """Recover exactly one renamed invocation-owned leaf, never ambiguity."""
+
+    try:
+        parent_fd, parent_identity = _open_bound_parent(parent)
+        _require_reviewed_parent_mount(parent, parent_identity, roots)
+    except (OSError, OciBuildError):
+        return False
+    try:
+        try:
+            names = _owned_capacity_leaf_names(
+                parent_fd, parent_identity, key, roots
+            )
+        except OciBuildError:
+            return False
+        if not names:
+            return True
+        if len(names) != 1:
+            return False
+        try:
+            leaf_fd, leaf_identity = _open_capacity_leaf(parent_fd, names[0])
+        except OciBuildError:
+            return False
+        try:
+            if not _capacity_leaf_is_owned(
+                parent_fd,
+                parent_identity,
+                key,
+                leaf_fd,
+                leaf_identity,
+                roots,
+            ):
+                return False
+            return _remove_open_capacity_leaf(
+                parent_fd,
+                leaf_fd,
+                leaf_identity,
+                roots,
+                require_marker=not _capacity_registry_authenticates_leaf(
+                    parent_fd,
+                    parent_identity,
+                    key,
+                    leaf_identity,
+                    roots,
+                ),
+            )
+        finally:
+            os.close(leaf_fd)
+    finally:
+        os.close(parent_fd)
+
+
+def _capacity_residue_names(parent: Path, roots: CapacityRoots) -> tuple[str, ...]:
+    parent_fd: int | None = None
+    try:
+        parent_fd, parent_identity = _open_bound_parent(parent)
+        _require_reviewed_parent_mount(parent, parent_identity, roots)
+        entries = list(os.scandir(parent_fd))
+        tombstone_prefix = f".{roots.leaf_name}.delete-"
+        key = next(
+            key for key, selected in _capacity_rows(roots) if selected == parent
+        )
+        owned_names = frozenset(
+            _owned_capacity_leaf_names(parent_fd, parent_identity, key, roots)
+        )
+        names: list[str] = []
+        for entry in entries:
+            if (
+                entry.name == roots.leaf_name
+                or entry.name.startswith(tombstone_prefix)
+                or entry.name == _capacity_registry_name(roots)
+                or entry.name in owned_names
+            ):
+                names.append(entry.name)
+        return tuple(names)
+    except (OSError, OciBuildError) as error:
+        raise OciBuildError("residue_detected") from error
+    finally:
+        if parent_fd is not None:
+            os.close(parent_fd)
+
+
+def remove_capacity_roots(roots: CapacityRoots) -> bool:
+    clean = True
+    for key, parent in _capacity_rows(roots):
+        leaf_clean = _remove_capacity_leaf(parent, roots)
+        stranded_clean = _remove_stranded_capacity_leaf(key, parent, roots)
+        if not leaf_clean:
+            clean = False
+        if not stranded_clean:
+            clean = False
+        if leaf_clean and stranded_clean:
+            try:
+                parent_fd, parent_identity = _open_bound_parent(parent)
+            except OciBuildError:
+                clean = False
+            else:
+                try:
+                    if not _remove_capacity_registry(
+                        parent_fd, parent_identity, key, roots
+                    ):
+                        clean = False
+                finally:
+                    os.close(parent_fd)
+        if _capacity_residue_names(parent, roots):
+            clean = False
+    return clean
+
+
+def state_root(
+    environment: Mapping[str, str],
+    *,
+    _capacity_roots: CapacityRoots | None = None,
+) -> Path:
+    return (_capacity_roots or build_capacity_roots(environment)).scratch_root
 
 
 def execute_command(
@@ -150,7 +1457,7 @@ def _validated_engine_operation(
 
 
 def execute_engine_command(
-    root: Path,
+    roots: CapacityRoots,
     argv: Sequence[str],
     *,
     cwd: Path | None = None,
@@ -164,13 +1471,13 @@ def execute_engine_command(
             cwd=cwd,
             capture=capture,
             env=env,
-            preexec_fn=_private_engine_preexec(root),
+            preexec_fn=_private_engine_preexec(roots),
         ),
     )
 
 
 def capture_engine_bytes(
-    root: Path,
+    roots: CapacityRoots,
     argv: Sequence[str],
     *,
     cwd: Path | None = None,
@@ -184,7 +1491,7 @@ def capture_engine_bytes(
             argv,
             cwd=cwd,
             env=env,
-            preexec_fn=_private_engine_preexec(root),
+            preexec_fn=_private_engine_preexec(roots),
         ),
     )
     if not isinstance(result.stdout, bytes):
@@ -193,7 +1500,7 @@ def capture_engine_bytes(
 
 
 def _private_engine_preexec(
-    root: Path,
+    roots: CapacityRoots,
     system_containers: Path = Path("/var/lib/containers"),
 ) -> Callable[[], None]:
     """Confine rootful containers/image implicit state to registered run state.
@@ -205,40 +1512,131 @@ def _private_engine_preexec(
     root is a bind mount of this run's registered state.
     """
 
-    if not root.is_absolute() or not system_containers.is_absolute():
+    if not system_containers.is_absolute():
         raise OciBuildError("engine_isolation_failed")
-    private_root = root / "implicit-containers"
+    _verify_capacity_markers(roots)
+
+    def open_child(parent_fd: int, name: str) -> tuple[int, DirectoryIdentity]:
+        descriptor = os.open(
+            name,
+            os.O_RDONLY
+            | getattr(os, "O_DIRECTORY", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+            dir_fd=parent_fd,
+        )
+        try:
+            identity = _directory_identity(descriptor)
+            pathname = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+            if not _same_inode(pathname, identity):
+                raise OSError(errno.EPERM, "capacity child identity changed")
+        except BaseException:
+            os.close(descriptor)
+            raise
+        return descriptor, identity
 
     def prepare() -> None:
         unshare = getattr(os, "unshare", None)
         clone_newns = getattr(os, "CLONE_NEWNS", None)
         if unshare is None or clone_newns is None or _MOUNT is None:
             raise OSError(errno.ENOSYS, "private mount namespaces unavailable")
-        private_info = os.lstat(private_root)
-        target_info = os.lstat(system_containers)
-        if (
-            stat.S_ISLNK(private_info.st_mode)
-            or not stat.S_ISDIR(private_info.st_mode)
-            or stat.S_ISLNK(target_info.st_mode)
-            or not stat.S_ISDIR(target_info.st_mode)
-        ):
-            raise OSError(errno.EPERM, "unsafe implicit containers root")
-        unshare(clone_newns)
-        if _MOUNT(None, b"/", None, _MOUNT_REC | _MOUNT_PRIVATE, None) != 0:
-            error = ctypes.get_errno()
-            raise OSError(error, os.strerror(error))
-        if (
-            _MOUNT(
-                os.fsencode(private_root),
-                os.fsencode(system_containers),
-                None,
-                _MOUNT_BIND | _MOUNT_REC,
-                None,
+        parent_fds: Mapping[str, int] = {}
+        leaf_fds: Mapping[str, int] = {}
+        opened: list[int] = []
+        try:
+            (
+                parent_fds,
+                parent_identities,
+                leaf_fds,
+                leaf_identities,
+            ) = _open_verified_capacity(roots)
+            private_fd, private_identity = open_child(
+                leaf_fds["scratch"], "implicit-containers"
             )
-            != 0
-        ):
-            error = ctypes.get_errno()
-            raise OSError(error, os.strerror(error))
+            opened.append(private_fd)
+            private_storage_fd, private_storage_identity = open_child(
+                private_fd, "storage"
+            )
+            opened.append(private_storage_fd)
+            if (
+                private_identity.mount_id
+                != leaf_identities["scratch"].mount_id
+                or private_storage_identity.mount_id
+                != leaf_identities["scratch"].mount_id
+            ):
+                raise OSError(errno.EPERM, "capacity child mount changed")
+            system_fd, system_identity = _open_bound_parent(system_containers)
+            opened.append(system_fd)
+            unshare(clone_newns)
+            if _MOUNT(None, b"/", None, _MOUNT_REC | _MOUNT_PRIVATE, None) != 0:
+                error = ctypes.get_errno()
+                raise OSError(error, os.strerror(error))
+            for descriptor, identity in (
+                *tuple(
+                    (parent_fds[key], parent_identities[key])
+                    for key, _ in _capacity_rows(roots)
+                ),
+                (leaf_fds["graph"], leaf_identities["graph"]),
+                (private_fd, private_identity),
+                (private_storage_fd, private_storage_identity),
+                (system_fd, system_identity),
+            ):
+                if _directory_identity(descriptor) != identity:
+                    raise OSError(errno.EPERM, "capacity identity changed")
+            if not _capacity_tree_mounts_confined(
+                leaf_fds["graph"], leaf_identities["graph"].mount_id
+            ) or not _capacity_tree_mounts_confined(
+                private_fd, leaf_identities["scratch"].mount_id
+            ):
+                raise OSError(errno.EPERM, "capacity descendant mount changed")
+            for key in ("scratch", "run"):
+                source = os.fsencode(f"/proc/self/fd/{leaf_fds[key]}")
+                target = os.fsencode(getattr(roots, f"{key}_root"))
+                if _MOUNT(source, target, None, _MOUNT_BIND, None) != 0:
+                    error = ctypes.get_errno()
+                    raise OSError(error, os.strerror(error))
+                # The bind pins the canonical engine-consumed pathname. A
+                # target swap before mount is harmlessly covered; a rename
+                # after mount is rejected by the kernel as a busy mountpoint.
+                if not _path_matches_directory(
+                    parent_fds[key], roots.leaf_name, leaf_identities[key]
+                ):
+                    raise OSError(errno.EPERM, "capacity pathname changed")
+            graph_source = os.fsencode(f"/proc/self/fd/{leaf_fds['graph']}")
+            storage_target = os.fsencode(f"/proc/self/fd/{private_storage_fd}")
+            private_source = os.fsencode(f"/proc/self/fd/{private_fd}")
+            system_target = os.fsencode(f"/proc/self/fd/{system_fd}")
+            if (
+                _MOUNT(
+                    graph_source,
+                    storage_target,
+                    None,
+                    _MOUNT_BIND | _MOUNT_REC,
+                    None,
+                )
+                != 0
+            ):
+                error = ctypes.get_errno()
+                raise OSError(error, os.strerror(error))
+            if (
+                _MOUNT(
+                    private_source,
+                    system_target,
+                    None,
+                    _MOUNT_BIND | _MOUNT_REC,
+                    None,
+                )
+                != 0
+            ):
+                error = ctypes.get_errno()
+                raise OSError(error, os.strerror(error))
+        finally:
+            for descriptor in reversed(opened):
+                os.close(descriptor)
+            for descriptor in reversed(tuple(leaf_fds.values())):
+                os.close(descriptor)
+            for descriptor in reversed(tuple(parent_fds.values())):
+                os.close(descriptor)
 
     return prepare
 
@@ -251,12 +1649,65 @@ def sha256_file(path: Path) -> str:
     return f"sha256:{digest.hexdigest()}"
 
 
-def state_root(environment: Mapping[str, str]) -> Path:
-    runner_temp = Path(environment.get("RUNNER_TEMP", ".ci-state")).resolve()
-    run_id = environment.get("GITHUB_RUN_ID", "local")
-    attempt = environment.get("GITHUB_RUN_ATTEMPT", "1")
-    token = hashlib.sha256(f"oci-build:{run_id}:{attempt}".encode()).hexdigest()[:16]
-    return runner_temp / f"ciw-oci-{token}"
+def _write_build_result_file(path: Path, result: OciBuildResult) -> None:
+    """Write private exact-build state without following a result symlink."""
+
+    payload = (
+        json.dumps(result.persisted_values(), sort_keys=True) + "\n"
+    ).encode("utf-8")
+    if len(payload) > 2 * 1024 * 1024:
+        raise OciBuildError("build_result_invalid")
+    directory_fd = -1
+    descriptor = -1
+    try:
+        directory_fd = os.open(
+            path.parent,
+            os.O_RDONLY
+            | getattr(os, "O_DIRECTORY", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+        )
+        descriptor = os.open(
+            path.name,
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_TRUNC
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+            dir_fd=directory_fd,
+        )
+        os.fchmod(descriptor, 0o600)
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+            raise OciBuildError("build_result_invalid")
+        offset = 0
+        while offset < len(payload):
+            written = os.write(descriptor, payload[offset:])
+            if written <= 0:
+                raise OSError(errno.EIO, "short build-result write")
+            offset += written
+        os.fsync(descriptor)
+        final = os.fstat(descriptor)
+        linked = os.stat(path.name, dir_fd=directory_fd, follow_symlinks=False)
+        if (
+            not stat.S_ISREG(final.st_mode)
+            or stat.S_IMODE(final.st_mode) != 0o600
+            or final.st_size != len(payload)
+            or final.st_nlink != 1
+            or (final.st_dev, final.st_ino) != (linked.st_dev, linked.st_ino)
+        ):
+            raise OciBuildError("build_result_invalid")
+        os.fsync(directory_fd)
+    except OciBuildError:
+        raise
+    except OSError as error:
+        raise OciBuildError("build_result_invalid") from error
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        if directory_fd >= 0:
+            os.close(directory_fd)
 
 
 def exact_git_head(source_root: Path) -> str:
@@ -540,6 +1991,7 @@ def inspect_layout(layout: Path, target: OciTarget, labels: Mapping[str, str]) -
         if (
             not isinstance(config, Mapping)
             or not isinstance(layers, list)
+            or not 1 <= len(layers) <= _MAXIMUM_LAYERS
         ):
             raise OciBuildError("oci_layout_malformed")
         config_blob, config_digest = _descriptor_blob(
@@ -637,10 +2089,10 @@ def verify_no_secret_leakage(layout: Path, secret_files: Mapping[str, Path]) -> 
                 raise OciBuildError("secret_leakage")
 
 
-def _buildah_base(root: Path, driver: str) -> list[str]:
+def _buildah_base(roots: CapacityRoots, driver: str) -> list[str]:
     return [
         "buildah", "--storage-driver", driver,
-        "--root", str(root / "storage"), "--runroot", str(root / "runroot"),
+        "--root", "/var/lib/containers/storage", "--runroot", str(roots.run_root),
     ]
 
 
@@ -678,6 +2130,43 @@ def _credential_free_authfile(root: Path, *, replace_existing: bool = False) -> 
     return path
 
 
+def _credential_free_cleanup_authfile(root: Path, root_fd: int) -> Path:
+    """Replace cleanup auth state relative to the verified scratch inode."""
+
+    try:
+        try:
+            os.stat("auth.json", dir_fd=root_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            os.unlink("auth.json", dir_fd=root_fd)
+        descriptor = os.open(
+            "auth.json",
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+            dir_fd=root_fd,
+        )
+        try:
+            payload = b'{"auths":{}}\n'
+            offset = 0
+            while offset < len(payload):
+                written = os.write(descriptor, payload[offset:])
+                if written <= 0:
+                    raise OSError(errno.EIO, "short cleanup auth write")
+                offset += written
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        os.fsync(root_fd)
+    except OSError as error:
+        raise OciBuildError("cleanup_failed") from error
+    return root / "auth.json"
+
+
 def credential_free_environment(
     authfile: Path,
     environment: Mapping[str, str] | None = None,
@@ -695,14 +2184,12 @@ def credential_free_environment(
     return result
 
 
-def _write_private_runtime_files(root: Path) -> tuple[Path, Path, Path]:
-    graphroot = root / "storage"
-    runroot = root / "runroot"
+def _write_private_runtime_files(roots: CapacityRoots) -> tuple[Path, Path, Path]:
+    root = roots.scratch_root
     for directory in (
-        graphroot,
-        runroot,
         root / "home",
         root / "implicit-containers",
+        root / "implicit-containers" / "storage",
         root / "xdg-data",
         root / "xdg-cache",
         root / "xdg-config",
@@ -716,8 +2203,8 @@ def _write_private_runtime_files(root: Path) -> tuple[Path, Path, Path]:
     storage.write_text(
         "[storage]\n"
         'driver="vfs"\n'
-        f'runroot="{runroot}"\n'
-        f'graphroot="{graphroot}"\n'
+        f'runroot="{roots.run_root}"\n'
+        'graphroot="/var/lib/containers/storage"\n'
         "[storage.options]\n"
         "additionalimagestores=[]\n"
         "[storage.options.pull_options]\n"
@@ -746,12 +2233,12 @@ def _write_private_runtime_files(root: Path) -> tuple[Path, Path, Path]:
     return storage, policy, registries
 
 
-def _ensure_cleanup_storage_config_unchecked(root: Path) -> Path:
+def _ensure_cleanup_storage_config_unchecked(roots: CapacityRoots) -> Path:
+    root = roots.scratch_root
     for directory in (
-        root / "storage",
-        root / "runroot",
         root / "home",
         root / "implicit-containers",
+        root / "implicit-containers" / "storage",
         root / "xdg-data",
         root / "xdg-cache",
         root / "xdg-config",
@@ -770,8 +2257,8 @@ def _ensure_cleanup_storage_config_unchecked(root: Path) -> Path:
         storage.write_text(
             "[storage]\n"
             'driver="vfs"\n'
-            f'runroot="{root / "runroot"}"\n'
-            f'graphroot="{root / "storage"}"\n'
+            f'runroot="{roots.run_root}"\n'
+            'graphroot="/var/lib/containers/storage"\n'
             "[storage.options]\n"
             "additionalimagestores=[]\n",
             encoding="utf-8",
@@ -782,13 +2269,141 @@ def _ensure_cleanup_storage_config_unchecked(root: Path) -> Path:
     return storage
 
 
-def _ensure_cleanup_storage_config(root: Path) -> Path:
+def _ensure_cleanup_storage_config(roots: CapacityRoots) -> Path:
     try:
-        return _ensure_cleanup_storage_config_unchecked(root)
+        return _ensure_cleanup_storage_config_unchecked(roots)
     except OciBuildError:
         raise
     except OSError as error:
         raise OciBuildError("cleanup_failed") from error
+
+
+def _ensure_cleanup_storage_config_at(
+    roots: CapacityRoots, root_fd: int
+) -> Path:
+    """Prepare cleanup runtime files beneath a verified scratch descriptor."""
+
+    scratch_mount_id = _directory_identity(root_fd).mount_id
+
+    def ensure_directory(parent_fd: int, name: str) -> int:
+        try:
+            os.mkdir(name, 0o700, dir_fd=parent_fd)
+        except FileExistsError:
+            pass
+        descriptor = os.open(
+            name,
+            os.O_RDONLY
+            | getattr(os, "O_DIRECTORY", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+            dir_fd=parent_fd,
+        )
+        identity = _directory_identity(descriptor)
+        if (
+            stat.S_IMODE(os.fstat(descriptor).st_mode) != 0o700
+            or identity.mount_id != scratch_mount_id
+        ):
+            os.close(descriptor)
+            raise OciBuildError("cleanup_failed")
+        return descriptor
+
+    try:
+        implicit_fd: int | None = None
+        for name in (
+            "home",
+            "implicit-containers",
+            "xdg-data",
+            "xdg-cache",
+            "xdg-config",
+            "xdg-runtime",
+            "tmp",
+        ):
+            descriptor = ensure_directory(root_fd, name)
+            if name == "implicit-containers":
+                implicit_fd = descriptor
+            else:
+                os.close(descriptor)
+        assert implicit_fd is not None
+        try:
+            os.close(ensure_directory(implicit_fd, "storage"))
+        finally:
+            os.close(implicit_fd)
+        try:
+            metadata = os.stat("storage.conf", dir_fd=root_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            descriptor = os.open(
+                "storage.conf",
+                os.O_WRONLY
+                | os.O_CREAT
+                | os.O_EXCL
+                | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_NOFOLLOW", 0),
+                0o600,
+                dir_fd=root_fd,
+            )
+            try:
+                payload = (
+                    "[storage]\n"
+                    'driver="vfs"\n'
+                    f'runroot="{roots.run_root}"\n'
+                    'graphroot="/var/lib/containers/storage"\n'
+                    "[storage.options]\n"
+                    "additionalimagestores=[]\n"
+                ).encode()
+                offset = 0
+                while offset < len(payload):
+                    written = os.write(descriptor, payload[offset:])
+                    if written <= 0:
+                        raise OSError(errno.EIO, "short storage config write")
+                    offset += written
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+            metadata = os.stat("storage.conf", dir_fd=root_fd, follow_symlinks=False)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise OciBuildError("cleanup_failed")
+        os.fsync(root_fd)
+    except OciBuildError:
+        raise
+    except OSError as error:
+        raise OciBuildError("cleanup_failed") from error
+    return roots.scratch_root / "storage.conf"
+
+
+def _read_cleanup_manifests(root_fd: int) -> tuple[list[str], bool]:
+    try:
+        descriptor = os.open(
+            "manifests.json",
+            os.O_RDONLY
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0),
+            dir_fd=root_fd,
+        )
+    except FileNotFoundError:
+        return [], True
+    except OSError:
+        return [], False
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > 1024 * 1024:
+            return [], False
+        payload = b""
+        while len(payload) <= 1024 * 1024:
+            chunk = os.read(descriptor, 1024 * 1024 + 1 - len(payload))
+            if not chunk:
+                break
+            payload += chunk
+        if len(payload) > 1024 * 1024:
+            return [], False
+        value = json.loads(payload)
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            return [], False
+        return value, True
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return [], False
+    finally:
+        os.close(descriptor)
 
 
 def _private_builder_environment(
@@ -914,7 +2529,7 @@ def _verify_materialized_external_inputs(
 def _import_base_platform(
     child_layout: Path,
     *,
-    root: Path,
+    roots: CapacityRoots,
     authfile: Path,
     policy_file: Path,
     builder_environment: Mapping[str, str],
@@ -924,6 +2539,7 @@ def _import_base_platform(
     manifest_digest: str,
     config_digest: str,
 ) -> str:
+    root = roots.scratch_root
     token = hashlib.sha256(
         f"{target.target_id}:{base_lock.stage_id}:{platform}:{manifest_digest}".encode()
     ).hexdigest()[:16]
@@ -931,10 +2547,12 @@ def _import_base_platform(
         f"localhost/ciw-input/{target.target_id}-{base_lock.stage_id}:"
         f"{platform.replace('/', '-')}-{token}"
     )
-    storage_transport = f"containers-storage:[vfs@{root / 'storage'}+{root / 'runroot'}]{alias}"
+    storage_transport = (
+        f"containers-storage:[vfs@/var/lib/containers/storage+{roots.run_root}]{alias}"
+    )
     prefix = ["skopeo", "--policy", str(policy_file)]
     execute_engine_command(
-        root,
+        roots,
         [
             *prefix,
             "--tmpdir",
@@ -956,12 +2574,12 @@ def _import_base_platform(
         env=builder_environment,
     )
     raw = capture_engine_bytes(
-        root,
+        roots,
         [*prefix, "inspect", "--raw", "--authfile", str(authfile), storage_transport],
         env=builder_environment,
     )
     config = capture_engine_bytes(
-        root,
+        roots,
         [
             *prefix,
             "inspect",
@@ -979,8 +2597,8 @@ def _import_base_platform(
     ):
         raise OciBuildError("base_import_failed")
     image_ids = execute_engine_command(
-        root,
-        [*_buildah_base(root, "vfs"), "images", "--no-trunc", "--quiet", alias],
+        roots,
+        [*_buildah_base(roots, "vfs"), "images", "--no-trunc", "--quiet", alias],
         capture=True,
         env=builder_environment,
     ).stdout.splitlines()
@@ -998,11 +2616,12 @@ def _materialize_target_inputs(
     plan: OciBuildPlan,
     target: OciTarget,
     staged_root: Path,
-    root: Path,
+    roots: CapacityRoots,
     authfile: Path,
     policy_file: Path,
     builder_environment: Mapping[str, str],
 ) -> MaterializedTargetInputs:
+    root = roots.scratch_root
     policy = plan.input_policies.get(target.input_policy_id)
     if policy is None:
         raise OciBuildError("input_policy_mismatch")
@@ -1098,7 +2717,7 @@ def _materialize_target_inputs(
             import_layout = child_layouts.get(identity.platform, root_layout)
             image_id = _import_base_platform(
                 import_layout,
-                root=root,
+                roots=roots,
                 authfile=authfile,
                 policy_file=policy_file,
                 builder_environment=builder_environment,
@@ -1191,7 +2810,7 @@ def _materialize_target_inputs(
     )
 
 
-def verify_builder_runtime(root: Path, environment: Mapping[str, str]) -> None:
+def verify_builder_runtime(roots: CapacityRoots, environment: Mapping[str, str]) -> None:
     for tool in ("buildah", "skopeo", "podman"):
         if shutil.which(tool) is None:
             raise OciBuildError("builder_unavailable")
@@ -1202,14 +2821,14 @@ def verify_builder_runtime(root: Path, environment: Mapping[str, str]) -> None:
         if socket.exists():
             raise OciBuildError("forbidden_socket_present")
     for tool in ("buildah", "skopeo", "podman"):
-        execute_engine_command(root, [tool, "--version"], capture=True, env=environment)
+        execute_engine_command(roots, [tool, "--version"], capture=True, env=environment)
 
 
 def build_target(
     plan: OciBuildPlan,
     target: OciTarget,
     staged_root: Path,
-    root: Path,
+    roots: CapacityRoots,
     labels: Mapping[str, str],
     epoch: int,
     secret_files: Mapping[str, Path],
@@ -1218,12 +2837,13 @@ def build_target(
     materialized_inputs: MaterializedTargetInputs,
     policy_file: Path | None = None,
 ) -> tuple[OciTargetResult, str]:
+    root = roots.scratch_root
     materialized = materialized_inputs
-    base = _buildah_base(root, plan.storage_driver)
+    base = _buildah_base(roots, plan.storage_driver)
     token = hashlib.sha256(f"{plan.admitted_sha}:{target.target_id}".encode()).hexdigest()[:16]
     manifest = f"ciw-{target.target_id}-{token}"
     execute_engine_command(
-        root, [*base, "manifest", "create", manifest], env=builder_environment
+        roots, [*base, "manifest", "create", manifest], env=builder_environment
     )
     state_file = root / "manifests.json"
     state_file.parent.mkdir(parents=True, exist_ok=True)
@@ -1270,13 +2890,13 @@ def build_target(
             argv.extend(["--secret", f"id={secret_id},src={path}"])
         argv.append(str(context))
         execute_engine_command(
-            root, argv, cwd=staged_root, env=builder_environment
+            roots, argv, cwd=staged_root, env=builder_environment
         )
     _verify_materialized_external_inputs(context, materialized)
     layout = root / "layouts" / target.target_id
     layout.parent.mkdir(parents=True, exist_ok=True)
     execute_engine_command(
-        root,
+        roots,
         [
             *base,
             "manifest",
@@ -1307,20 +2927,23 @@ def execute_plan(
     plan: OciBuildPlan,
     environment: Mapping[str, str],
     secret_files: Mapping[str, Path] | None = None,
+    *,
+    _capacity_roots: CapacityRoots | None = None,
 ) -> OciBuildResult:
     if plan.builder_id != "buildah-v1":
         raise OciBuildError("invalid_contract")
     assert_clean_source(source_root, plan.admitted_sha)
-    root = state_root(environment)
-    if root.exists() or root.is_symlink():
-        raise OciBuildError("residue_detected")
-    root.mkdir(parents=True, mode=0o700)
+    roots = _capacity_roots or build_capacity_roots(environment)
+    if roots.domain != "oci-build" or roots.prefix != "ciw-oci":
+        raise OciBuildError("capacity_identity_invalid")
+    prepare_capacity_roots(roots)
+    root = roots.scratch_root
     authfile = _credential_free_authfile(root)
-    storage_config, policy_file, registries_config = _write_private_runtime_files(root)
+    storage_config, policy_file, registries_config = _write_private_runtime_files(roots)
     builder_environment = _private_builder_environment(
         root, authfile, storage_config, environment, registries_config
     )
-    verify_builder_runtime(root, builder_environment)
+    verify_builder_runtime(roots, builder_environment)
     contract = load_contract(repository_root)
     epoch = source_date_epoch(source_root)
     secrets = dict(secret_files or {})
@@ -1336,7 +2959,7 @@ def execute_plan(
             plan,
             target,
             staged_targets[target.target_id],
-            root,
+            roots,
             authfile,
             policy_file,
             builder_environment,
@@ -1351,7 +2974,7 @@ def execute_plan(
             plan,
             target,
             staged,
-            root,
+            roots,
             labels,
             epoch,
             secrets,
@@ -1362,20 +2985,15 @@ def execute_plan(
         )
         results.append(result)
     assert_clean_source(source_root, plan.admitted_sha)
-    evidence_payload = {
-        "api": "oci.build",
-        "version": "1.0.0",
-        "source": plan.admitted_sha,
-        "product": plan.product_id,
-        "release_version": plan.release_version,
-        "targets": [row.to_dict() for row in results],
-        "flux": {
-            "canary_id": plan.canary_id,
-            "previous_known_good": plan.previous_known_good,
-            "rollback_id": plan.rollback_id,
-        },
-    }
-    evidence_id = hashlib.sha256(json.dumps(evidence_payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    evidence_id = oci_build_evidence_id(
+        plan.admitted_sha,
+        plan.product_id,
+        plan.release_version,
+        results,
+        plan.canary_id,
+        plan.previous_known_good,
+        plan.rollback_id,
+    )
     result = OciBuildResult(
         product_id=plan.product_id,
         admitted_sha=plan.admitted_sha,
@@ -1389,75 +3007,80 @@ def execute_plan(
         previous_known_good=plan.previous_known_good,
         rollback_id=plan.rollback_id,
     )
-    (root / "result.json").write_text(json.dumps(result.output_values(), sort_keys=True) + "\n")
+    _write_build_result_file(root / "result.json", result)
     return result
 
 
-def cleanup(environment: Mapping[str, str], storage_driver: str = "vfs") -> None:
-    root = state_root(environment)
-    try:
-        root_mode = root.lstat().st_mode
-    except FileNotFoundError:
+def cleanup(
+    environment: Mapping[str, str],
+    storage_driver: str = "vfs",
+    *,
+    _capacity_roots: CapacityRoots | None = None,
+) -> None:
+    roots = _capacity_roots or build_capacity_roots(environment)
+    _validate_capacity_parents(roots)
+    root = roots.scratch_root
+    if not any(
+        _capacity_residue_names(parent, roots)
+        for _key, parent in _capacity_rows(roots)
+    ):
         return
-    except OSError as error:
-        raise OciBuildError("cleanup_failed") from error
-
-    # A failed or cancelled build may leave an attacker-controlled alias at the
-    # deterministic state path.  Never inspect through that alias or hand it to
-    # Buildah; unlink the alias itself and leave its target untouched.
-    if stat.S_ISLNK(root_mode):
-        try:
-            root.unlink()
-        except OSError as error:
-            raise OciBuildError("cleanup_failed") from error
-        return
-    if not stat.S_ISDIR(root_mode):
-        try:
-            root.unlink()
-        except OSError as error:
-            raise OciBuildError("cleanup_failed") from error
-        raise OciBuildError("cleanup_failed")
-
     failures = False
+    cleanup_bound: tuple[
+        Mapping[str, int],
+        Mapping[str, DirectoryIdentity],
+        Mapping[str, int],
+        Mapping[str, DirectoryIdentity],
+    ] | None = None
     try:
-        cleanup_authfile = _credential_free_authfile(root, replace_existing=True)
-        storage_config = _ensure_cleanup_storage_config(root)
+        cleanup_bound = _open_verified_capacity(roots)
+        if not _path_matches_directory(
+            cleanup_bound[0]["scratch"],
+            roots.leaf_name,
+            cleanup_bound[3]["scratch"],
+        ):
+            raise OciBuildError("cleanup_failed")
+        scratch_fd = cleanup_bound[2]["scratch"]
+        cleanup_authfile = _credential_free_cleanup_authfile(root, scratch_fd)
+        storage_config = _ensure_cleanup_storage_config_at(roots, scratch_fd)
+        if not _path_matches_directory(
+            cleanup_bound[0]["scratch"],
+            roots.leaf_name,
+            cleanup_bound[3]["scratch"],
+        ):
+            raise OciBuildError("cleanup_failed")
         registries_config = root / "registries.conf"
-        if registries_config.is_symlink():
+        try:
+            registries_metadata = os.stat(
+                "registries.conf", dir_fd=scratch_fd, follow_symlinks=False
+            )
+        except FileNotFoundError:
+            registries_metadata = None
+        except OSError as error:
+            raise OciBuildError("cleanup_failed") from error
+        if registries_metadata is not None and not stat.S_ISREG(
+            registries_metadata.st_mode
+        ):
             raise OciBuildError("cleanup_failed")
         cleanup_environment = _private_builder_environment(
             root,
             cleanup_authfile,
             storage_config,
             os.environ,
-            registries_config if registries_config.is_file() else None,
+            registries_config if registries_metadata is not None else None,
         )
     except OciBuildError:
         cleanup_environment = None
         failures = True
-    state_file = root / "manifests.json"
     manifests: list[str] = []
-    try:
-        state_mode = state_file.lstat().st_mode
-    except FileNotFoundError:
-        state_mode = None
-    except OSError:
-        state_mode = None
-        failures = True
-    if state_mode is not None:
-        if not stat.S_ISREG(state_mode):
+    if cleanup_environment is not None and cleanup_bound is not None:
+        manifests, manifests_valid = _read_cleanup_manifests(
+            cleanup_bound[2]["scratch"]
+        )
+        if not manifests_valid:
             failures = True
-        else:
-            try:
-                value = json.loads(state_file.read_text(encoding="utf-8"))
-                if isinstance(value, list) and all(isinstance(item, str) for item in value):
-                    manifests = value
-                else:
-                    failures = True
-            except (OSError, json.JSONDecodeError):
-                failures = True
-    base = _buildah_base(root, storage_driver)
-    if shutil.which("buildah") and cleanup_environment is not None:
+    base = _buildah_base(roots, storage_driver)
+    if cleanup_environment is not None and shutil.which("buildah"):
         for manifest in reversed(manifests):
             try:
                 result = subprocess.run(
@@ -1465,7 +3088,7 @@ def cleanup(environment: Mapping[str, str], storage_driver: str = "vfs") -> None
                     text=True,
                     capture_output=True,
                     env=cleanup_environment,
-                    preexec_fn=_private_engine_preexec(root),
+                    preexec_fn=_private_engine_preexec(roots),
                 )
             except (OSError, subprocess.SubprocessError):
                 failures = True
@@ -1479,25 +3102,40 @@ def cleanup(environment: Mapping[str, str], storage_driver: str = "vfs") -> None
                     text=True,
                     capture_output=True,
                     env=cleanup_environment,
-                    preexec_fn=_private_engine_preexec(root),
+                    preexec_fn=_private_engine_preexec(roots),
                 )
             except (OSError, subprocess.SubprocessError):
                 failures = True
             else:
                 if result.returncode != 0 and "no such" not in result.stderr.lower():
                     failures = True
-    try:
-        if root.is_symlink():
-            root.unlink()
-        else:
-            shutil.rmtree(root)
-    except OSError:
+    if cleanup_bound is not None:
+        parent_fds, _parent_ids, leaf_fds, leaf_ids = cleanup_bound
+        for key in reversed(tuple(leaf_fds)):
+            if not _remove_open_capacity_leaf(
+                parent_fds[key], leaf_fds[key], leaf_ids[key], roots
+            ):
+                failures = True
+        for descriptor in reversed(tuple(leaf_fds.values())):
+            os.close(descriptor)
+        for descriptor in reversed(tuple(parent_fds.values())):
+            os.close(descriptor)
+        cleanup_bound = None
+    if not remove_capacity_roots(roots):
         failures = True
     if failures:
         raise OciBuildError("cleanup_failed")
 
 
-def residue(environment: Mapping[str, str]) -> None:
-    root = state_root(environment)
-    if root.exists() or root.is_symlink():
+def residue(
+    environment: Mapping[str, str],
+    *,
+    _capacity_roots: CapacityRoots | None = None,
+) -> None:
+    roots = _capacity_roots or build_capacity_roots(environment)
+    _validate_capacity_parents(roots)
+    if any(
+        _capacity_residue_names(parent, roots)
+        for _key, parent in _capacity_rows(roots)
+    ):
         raise OciBuildError("residue_detected")

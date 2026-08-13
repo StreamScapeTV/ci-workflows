@@ -1,9 +1,10 @@
 {
-  "contract_version": "1.1.0",
-  "mapping_sha256": "aab99b577d62a2689d13c4d9d876ed585dc85249fe21a11104a741f9fb5b880c",
+  "contract_version": "2.0.0",
+  "mapping_sha256": "1967c30cc8ca48a596d684ac0be554ecadd9a47ad0ca47781ec2229557edc349",
   "products": {
     "agent-state-image": {
       "builder_id": "buildah-v1",
+      "registry_write_policy_id": "agent-state-create-only-v1",
       "runner_profile": "buildah-small",
       "runs_on": [
         "linux",
@@ -26,6 +27,7 @@
     },
     "ciw-oci-input-smoke": {
       "builder_id": "buildah-v1",
+      "registry_write_policy_id": "ciw-input-smoke-create-only-v1",
       "runner_profile": "buildah-tiny",
       "runs_on": [
         "linux",
@@ -47,6 +49,7 @@
     },
     "ciw-oci-smoke": {
       "builder_id": "buildah-v1",
+      "registry_write_policy_id": "ciw-smoke-create-only-v1",
       "runner_profile": "buildah-tiny",
       "runs_on": [
         "linux",
@@ -68,6 +71,7 @@
     },
     "flux-runner-images": {
       "builder_id": "buildah-v1",
+      "registry_write_policy_id": "flux-runners-create-only-v1",
       "runner_profile": "buildah-high",
       "runs_on": [
         "linux",
@@ -97,6 +101,7 @@
     },
     "iptv-backend-image": {
       "builder_id": "buildah-v1",
+      "registry_write_policy_id": "iptv-backend-create-only-v1",
       "runner_profile": "buildah-medium",
       "runs_on": [
         "linux",

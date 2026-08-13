@@ -14,7 +14,10 @@ from .oci_types import (
     OciBuildPlan,
     OciBuildRequest,
     OciInputPolicy,
+    OciRegistryWritePolicy,
     OciTarget,
+    has_valid_oci_tag_length,
+    is_canonical_publication_repository,
 )
 
 CONTRACT_PATH = Path("contracts/oci-products.json")
@@ -27,10 +30,14 @@ _SEMVER = re.compile(
     r"(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
 )
 _PLATFORM = re.compile(r"^linux/(?:amd64|arm64/v8)$")
+_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+_REGISTRY_WRITE_ENFORCEMENT = "server-side-create-only-tags-v1"
+_REGISTRY_WRITE_AUTHORITY = "StreamScapeTV/flux"
 _FORBIDDEN = {
     "arguments", "artifact_upload", "buildah", "builder", "buildkit",
     "callback", "command", "deployment", "docker", "engine", "flux_target",
-    "podman", "publish", "registry", "registry_command", "runner",
+    "podman", "publish", "publication_repository", "registry",
+    "registry_command", "registry_repository", "runner",
     "runner_labels", "runs_on", "secret_name", "shell", "socket",
     "storage_driver",
 }
@@ -125,7 +132,7 @@ def _validate_target(value: Mapping[str, Any], platform_sets: Mapping[str, Any])
     require(
         set(value)
         == {
-            "target_id", "context_path", "dockerfile_path", "target_stage",
+            "target_id", "publication_repository", "context_path", "dockerfile_path", "target_stage",
             "platform_set", "smoke_script", "assertions", "fixed_build_args",
             "secret_mount_ids", "build_input_lock_path", "input_policy_id",
         },
@@ -133,6 +140,11 @@ def _validate_target(value: Mapping[str, Any], platform_sets: Mapping[str, Any])
     )
     target_id = value["target_id"]
     require(isinstance(target_id, str) and _PRODUCT.fullmatch(target_id) is not None, "invalid_contract")
+    publication_repository = value["publication_repository"]
+    require(
+        is_canonical_publication_repository(publication_repository),
+        "invalid_contract",
+    )
     platform_set = value["platform_set"]
     require(isinstance(platform_set, str) and platform_set in platform_sets, "invalid_platform_set")
     platforms = strings(platform_sets[platform_set], nonempty=True)
@@ -171,6 +183,7 @@ def _validate_target(value: Mapping[str, Any], platform_sets: Mapping[str, Any])
     )
     return OciTarget(
         target_id=target_id,
+        publication_repository=publication_repository,
         context_path=safe_relative(value["context_path"], allow_dot=True),
         dockerfile_path=safe_relative(value["dockerfile_path"]),
         target_stage=stage,
@@ -215,13 +228,14 @@ def load_contract(root: Path) -> Mapping[str, Any]:
             "platform_sets",
             "runner_profiles",
             "input_policies",
+            "registry_write_policies",
             "products",
             "publication_assertions",
         },
         "invalid_contract",
     )
     require(payload.get("schema_version") == 1, "invalid_contract")
-    require(payload.get("contract_version") == "1.1.0", "invalid_contract")
+    require(payload.get("contract_version") == "2.0.0", "invalid_contract")
     require(payload.get("organization") == "StreamScapeTV", "invalid_contract")
     require(payload.get("workflow_api") == "oci.build", "invalid_contract")
     require(payload.get("stable_check_name") == "CI / OCI build validation", "invalid_contract")
@@ -322,6 +336,66 @@ def load_contract(root: Path) -> Mapping[str, Any]:
             maximum_redirects=policy["maximum_redirects"],
             maximum_input_bytes=policy["maximum_input_bytes"],
         )
+    raw_write_policies = mapping(payload.get("registry_write_policies"))
+    require(bool(raw_write_policies), "invalid_contract")
+    write_policies: dict[str, OciRegistryWritePolicy] = {}
+    for policy_id, raw_policy in raw_write_policies.items():
+        require(
+            isinstance(policy_id, str)
+            and _PRODUCT.fullmatch(policy_id) is not None,
+            "invalid_contract",
+        )
+        policy = mapping(raw_policy)
+        require(
+            set(policy)
+            == {
+                "registry_host",
+                "required_enforcement",
+                "status",
+                "authority_repository",
+                "authority_source_sha",
+                "evidence_id",
+            },
+            "invalid_contract",
+        )
+        registry_host = policy["registry_host"]
+        status = policy["status"]
+        authority_source_sha = policy["authority_source_sha"]
+        evidence_id = policy["evidence_id"]
+        require(
+            isinstance(registry_host, str)
+            and registry_host == registry_host.lower()
+            and "/" not in registry_host
+            and ":" not in registry_host
+            and central_public_host(registry_host)
+            and policy["required_enforcement"]
+            == _REGISTRY_WRITE_ENFORCEMENT
+            and status in {"blocked", "verified"}
+            and policy["authority_repository"] == _REGISTRY_WRITE_AUTHORITY,
+            "invalid_contract",
+        )
+        if status == "blocked":
+            require(
+                authority_source_sha is None and evidence_id is None,
+                "invalid_contract",
+            )
+        else:
+            require(
+                isinstance(authority_source_sha, str)
+                and _FULL_SHA.fullmatch(authority_source_sha) is not None
+                and isinstance(evidence_id, str)
+                and _DIGEST.fullmatch(evidence_id) is not None,
+                "invalid_contract",
+            )
+        write_policies[policy_id] = OciRegistryWritePolicy(
+            policy_id=policy_id,
+            registry_host=registry_host,
+            required_enforcement=_REGISTRY_WRITE_ENFORCEMENT,
+            status=status,
+            authority_repository=_REGISTRY_WRITE_AUTHORITY,
+            authority_source_sha=authority_source_sha,
+            evidence_id=evidence_id,
+        )
     products = mapping(payload.get("products"))
     mapping(payload.get("publication_assertions"))
     require(set(products) >= {"iptv-backend-image", "agent-state-image", "flux-runner-images", "ciw-oci-smoke"}, "invalid_contract")
@@ -336,6 +410,7 @@ def load_contract(root: Path) -> Mapping[str, Any]:
                 "timeout_minutes", "measurement", "metadata", "targets",
                 "flux_asset", "canary_id", "previous_known_good", "rollback_id",
                 "independent_bootstrap", "adoption_ready",
+                "registry_write_policy_id",
             },
             "invalid_contract",
         )
@@ -366,6 +441,13 @@ def load_contract(root: Path) -> Mapping[str, Any]:
             "invalid_contract",
         )
         require(isinstance(product["adoption_ready"], bool), "invalid_contract")
+        registry_write_policy_id = product["registry_write_policy_id"]
+        require(
+            isinstance(registry_write_policy_id, str)
+            and registry_write_policy_id in write_policies,
+            "invalid_contract",
+        )
+        registry_write_policy = write_policies[registry_write_policy_id]
         measurement = mapping(product["measurement"])
         require(set(measurement) == {"peak_memory_bytes", "peak_storage_bytes", "headroom_percent"}, "invalid_contract")
         for key in ("peak_memory_bytes", "peak_storage_bytes"):
@@ -381,6 +463,24 @@ def load_contract(root: Path) -> Mapping[str, Any]:
         targets = tuple(_validate_target(mapping(item), platforms) for item in raw_targets)
         require(len({target.target_id for target in targets}) == len(targets), "invalid_contract")
         require(
+            len(
+                {
+                    target.publication_repository.split("/", 1)[0]
+                    for target in targets
+                }
+            )
+            == 1,
+            "invalid_contract",
+        )
+        require(
+            all(
+                target.publication_repository.split("/", 1)[0]
+                == registry_write_policy.registry_host
+                for target in targets
+            ),
+            "invalid_contract",
+        )
+        require(
             all(target.input_policy_id in input_policies for target in targets),
             "invalid_contract",
         )
@@ -392,11 +492,17 @@ def load_contract(root: Path) -> Mapping[str, Any]:
         else:
             require(product["independent_bootstrap"] is False, "invalid_contract")
             require(all(product[key] is None for key in ("canary_id", "previous_known_good", "rollback_id")), "invalid_contract")
-        normalized[product_id] = {**product, "targets": targets, "runs_on": labels}
+        normalized[product_id] = {
+            **product,
+            "targets": targets,
+            "runs_on": labels,
+            "registry_write_policy": registry_write_policy,
+        }
     return {
         **payload,
         "_products": normalized,
         "_input_policies": input_policies,
+        "_registry_write_policies": write_policies,
     }
 
 
@@ -425,7 +531,15 @@ def request_from_mapping(value: Mapping[str, Any], environment: Mapping[str, str
     require(isinstance(repository, str) and _REPOSITORY.fullmatch(repository), "invalid_request")
     require(isinstance(admitted_sha, str) and _FULL_SHA.fullmatch(admitted_sha), "invalid_request")
     require(isinstance(product_id, str) and _PRODUCT.fullmatch(product_id), "invalid_request")
-    require(version in {None, ""} or (isinstance(version, str) and _SEMVER.fullmatch(version)), "invalid_version")
+    require(
+        version in {None, ""}
+        or (
+            isinstance(version, str)
+            and _SEMVER.fullmatch(version)
+            and has_valid_oci_tag_length(version)
+        ),
+        "invalid_version",
+    )
     require(platform_set in {None, ""} or (isinstance(platform_set, str) and _PRODUCT.fullmatch(platform_set)), "invalid_platform_set")
     require(artifact in {None, ""}, "artifact_policy_failed")
     return OciBuildRequest(
@@ -450,6 +564,12 @@ def resolve_plan(root: Path, request: OciBuildRequest) -> OciBuildPlan:
         expected = tuple(contract["platform_sets"].get(request.platform_set, ()))
         require(expected, "invalid_platform_set")
         require(all(target.platforms == expected for target in product["targets"]), "platform_override_forbidden")
+    if request.release_version is not None:
+        require(
+            _SEMVER.fullmatch(request.release_version) is not None
+            and has_valid_oci_tag_length(request.release_version),
+            "invalid_version",
+        )
     version = request.release_version or f"0.0.0-ci-{request.admitted_sha[:12]}"
     return OciBuildPlan(
         repository=request.repository,
@@ -495,6 +615,7 @@ def render_engine_mapping(contract: Mapping[str, Any]) -> Mapping[str, Any]:
             "runner_profile": product["runner_profile"],
             "runs_on": list(product["runs_on"]),
             "storage_driver": contract["storage_driver"],
+            "registry_write_policy_id": product["registry_write_policy_id"],
             "targets": [
                 {
                     "target_id": target.target_id,

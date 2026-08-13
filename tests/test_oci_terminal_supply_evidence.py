@@ -30,6 +30,12 @@ def _kwargs() -> dict[str, object]:
         "toolchain_json": TOOLCHAIN,
         "publication_evidence_id": PUBLICATION_EVIDENCE,
         "foundation_evidence_id": FOUNDATION_EVIDENCE,
+        "registry_write_policy_id": "iptv-backend-create-only-v1",
+        "registry_write_policy_host": "git.faruqi.dev",
+        "registry_write_policy_enforcement": "server-side-create-only-tags-v1",
+        "registry_write_policy_authority_repository": "StreamScapeTV/flux",
+        "registry_write_policy_authority_source_sha": "1" * 40,
+        "registry_write_policy_evidence_id": "sha256:" + "2" * 64,
         "source_sha": "e" * 40,
         "product_id": "iptv-backend-image",
         "release_version": "1.2.3",
@@ -65,6 +71,18 @@ class OciTerminalSupplyEvidenceTests(unittest.TestCase):
             first.payload["toolchain"],
             {"buildah": "1.33.7", "podman": "4.9.3", "skopeo": "1.13.3"},
         )
+        self.assertEqual(
+            first.payload["registry_write_policy"],
+            {
+                "policy_id": "iptv-backend-create-only-v1",
+                "registry_host": "git.faruqi.dev",
+                "required_enforcement": "server-side-create-only-tags-v1",
+                "status": "verified",
+                "authority_repository": "StreamScapeTV/flux",
+                "authority_source_sha": "1" * 40,
+                "evidence_id": "sha256:" + "2" * 64,
+            },
+        )
         cleanup = first.payload["cleanup"]
         self.assertIsInstance(cleanup, dict)
         self.assertEqual(cleanup["terminal_result"], "success")
@@ -81,6 +99,17 @@ class OciTerminalSupplyEvidenceTests(unittest.TestCase):
         self.assertEqual(cleanup["terminal_result"], "failure")
         self.assertEqual(cleanup["workspace"], {"cleanup": "failure"})
 
+    def test_registry_write_policy_identity_changes_terminal_evidence(self) -> None:
+        baseline = build_supply_evidence(**_kwargs())
+        values = _kwargs()
+        values["registry_write_policy_authority_source_sha"] = "3" * 40
+        changed = build_supply_evidence(**values)
+        self.assertNotEqual(baseline.evidence_id, changed.evidence_id)
+        self.assertEqual(
+            "3" * 40,
+            changed.payload["registry_write_policy"]["authority_source_sha"],
+        )
+
     def test_toolchain_and_terminal_identities_fail_closed(self) -> None:
         mutations = {
             "central_workflow_sha": "main",
@@ -90,6 +119,12 @@ class OciTerminalSupplyEvidenceTests(unittest.TestCase):
             "execution_result": "passed",
             "workspace_cleanup_outcome": "cancelled",
             "toolchain_json": '{"buildah":"latest"}',
+            "registry_write_policy_id": "Latest",
+            "registry_write_policy_host": "https://git.faruqi.dev",
+            "registry_write_policy_enforcement": "client-preflight-v1",
+            "registry_write_policy_authority_repository": "caller/repo",
+            "registry_write_policy_authority_source_sha": "main",
+            "registry_write_policy_evidence_id": "unverified",
         }
         for name, value in mutations.items():
             with self.subTest(name=name):

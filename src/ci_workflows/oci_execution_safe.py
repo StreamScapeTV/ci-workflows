@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import subprocess
 import tarfile
 from dataclasses import replace
@@ -10,7 +9,17 @@ from pathlib import Path, PurePosixPath
 from typing import Mapping, Sequence
 
 from . import oci_execution as base
-from .oci_types import OciBuildError, OciBuildPlan, OciBuildResult, OciTarget, OciTargetResult
+from .oci_types import (
+    OciBuildError,
+    OciBuildPlan,
+    OciBuildResult,
+    OciTarget,
+    OciTargetResult,
+    oci_build_evidence_id,
+)
+
+_MAXIMUM_LAYER_BYTES = 1024 * 1024 * 1024
+_MAXIMUM_LAYER_TOTAL_BYTES = 4 * 1024 * 1024 * 1024
 
 
 def _layer_paths(layout: Path, layer_digests: Sequence[str]) -> set[str]:
@@ -107,6 +116,7 @@ def _manifest_layer_sets(layout: Path) -> tuple[tuple[str, ...], ...]:
         raise OciBuildError("oci_layout_malformed") from error
 
     sets: list[tuple[str, ...]] = []
+    layer_total_bytes = 0
     for descriptor in descriptors:
         manifest_blob, _ = base._descriptor_blob(
             layout,
@@ -123,6 +133,16 @@ def _manifest_layer_sets(layout: Path) -> tuple[tuple[str, ...], ...]:
             raise OciBuildError("oci_layout_malformed")
         digests: list[str] = []
         for layer in manifest["layers"]:
+            if not isinstance(layer, Mapping):
+                raise OciBuildError("oci_layout_malformed")
+            layer_size = layer.get("size")
+            if (
+                type(layer_size) is not int
+                or not 0 <= layer_size <= _MAXIMUM_LAYER_BYTES
+                or layer_total_bytes + layer_size > _MAXIMUM_LAYER_TOTAL_BYTES
+            ):
+                raise OciBuildError("oci_layout_malformed")
+            layer_total_bytes += layer_size
             _, digest = base._descriptor_blob(layout, layer, base._LAYER_MEDIA_TYPES)
             digests.append(digest)
         sets.append(tuple(digests))
@@ -144,18 +164,19 @@ def _assert_target_filesystem(layout: Path, target: OciTarget) -> None:
 
 
 def _run_isolated_smoke(
-    root: Path,
+    roots: base.CapacityRoots,
     plan: OciBuildPlan,
     target: OciTarget,
     script: Path,
 ) -> str:
+    root = roots.scratch_root
     if not script.is_file() or script.is_symlink():
         raise OciBuildError("invalid_path")
     token = hashlib.sha256(f"{plan.admitted_sha}:{target.target_id}".encode()).hexdigest()[:16]
     manifest = f"ciw-{target.target_id}-{token}"
     container = f"{manifest}-smoke"
-    command = base._buildah_base(root, plan.storage_driver)
-    storage_config = base._ensure_cleanup_storage_config(root)
+    command = base._buildah_base(roots, plan.storage_driver)
+    storage_config = base._ensure_cleanup_storage_config(roots)
     registries_config = root / "registries.conf"
     builder_environment = base._private_builder_environment(
         root,
@@ -167,18 +188,18 @@ def _run_isolated_smoke(
     created = False
     try:
         base.execute_engine_command(
-            root,
+            roots,
             [*command, "from", "--name", container, "--platform", "linux/amd64", manifest],
             env=builder_environment,
         )
         created = True
         base.execute_engine_command(
-            root,
+            roots,
             [*command, "copy", container, str(script), "/tmp/ciw-smoke.sh"],
             env=builder_environment,
         )
         base.execute_engine_command(
-            root,
+            roots,
             [
                 *command,
                 "run",
@@ -210,7 +231,7 @@ def _run_isolated_smoke(
                     text=True,
                     capture_output=True,
                     env=builder_environment,
-                    preexec_fn=base._private_engine_preexec(root),
+                    preexec_fn=base._private_engine_preexec(roots),
                 )
             except (OSError, subprocess.SubprocessError) as error:
                 raise OciBuildError("cleanup_failed") from error
@@ -223,25 +244,18 @@ def _rebuild_result(
     result: OciBuildResult,
     target_results: tuple[OciTargetResult, ...],
 ) -> OciBuildResult:
-    evidence = {
-        "api": "oci.build",
-        "version": "1.0.0",
-        "source": result.admitted_sha,
-        "product": result.product_id,
-        "release_version": result.release_version,
-        "targets": [row.to_dict() for row in target_results],
-        "flux": {
-            "canary_id": result.canary_id,
-            "previous_known_good": result.previous_known_good,
-            "rollback_id": result.rollback_id,
-        },
-    }
     return replace(
         result,
         targets=target_results,
-        evidence_id=hashlib.sha256(
-            json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest(),
+        evidence_id=oci_build_evidence_id(
+            result.admitted_sha,
+            result.product_id,
+            result.release_version,
+            target_results,
+            result.canary_id,
+            result.previous_known_good,
+            result.rollback_id,
+        ),
     )
 
 
@@ -251,6 +265,8 @@ def execute_plan(
     plan: OciBuildPlan,
     environment: Mapping[str, str],
     secret_files: Mapping[str, Path] | None = None,
+    *,
+    _capacity_roots: base.CapacityRoots | None = None,
 ) -> OciBuildResult:
     """Execute the base builder with host smoke disabled, then assert safely."""
 
@@ -258,14 +274,16 @@ def execute_plan(
         plan,
         targets=tuple(replace(target, smoke_script=None) for target in plan.targets),
     )
+    roots = _capacity_roots or base.build_capacity_roots(environment)
     result = base.execute_plan(
         repository_root,
         source_root,
         masked,
         environment,
         secret_files,
+        _capacity_roots=roots,
     )
-    root = base.state_root(environment)
+    root = roots.scratch_root
     secured: list[OciTargetResult] = []
     by_id = {row.target_id: row for row in result.targets}
     for target in plan.targets:
@@ -275,7 +293,7 @@ def execute_plan(
         if target.smoke_script and plan.source_trust == "trusted-exact":
             script = root / "staged" / target.target_id / target.smoke_script
             smoke = _run_isolated_smoke(
-                root,
+                roots,
                 plan,
                 target,
                 script,
@@ -284,10 +302,7 @@ def execute_plan(
             smoke = "inspection-passed-script-deferred"
         secured.append(replace(by_id[target.target_id], smoke_result=smoke))
     secured_result = _rebuild_result(result, tuple(secured))
-    (root / "result.json").write_text(
-        json.dumps(secured_result.output_values(), sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    base._write_build_result_file(root / "result.json", secured_result)  # noqa: SLF001
     return secured_result
 
 

@@ -25,6 +25,8 @@ from .oci_execution_safe import cleanup, residue
 from .oci_types import OciBuildError
 
 ROOT = Path(__file__).resolve().parents[2]
+_MAX_PUBLICATION_OUTPUT_LINE_BYTES = 384 * 1024
+_MAX_PUBLICATION_OUTPUT_TOTAL_BYTES = 448 * 1024
 
 
 def _request(environment: Mapping[str, str]) -> Mapping[str, object]:
@@ -78,6 +80,34 @@ def _publication_summary(values: Mapping[str, str]) -> str:
             "",
         )
     )
+
+
+def validate_publication_output_values(values: Mapping[str, str]) -> None:
+    """Bound one OCI publication command-file emission without truncation."""
+
+    total = 0
+    for name, value in values.items():
+        if (
+            not isinstance(name, str)
+            or not isinstance(value, str)
+            or "\n" in name
+            or "\r" in name
+            or "=" in name
+            or "\n" in value
+            or "\r" in value
+        ):
+            raise publication.OciPublishError("publication_output_invalid")
+        try:
+            size = len(f"{name}={value}\n".encode("utf-8"))
+        except UnicodeEncodeError as error:
+            raise publication.OciPublishError(
+                "publication_output_invalid"
+            ) from error
+        if size > _MAX_PUBLICATION_OUTPUT_LINE_BYTES:
+            raise publication.OciPublishError("publication_output_invalid")
+        total += size
+    if total > _MAX_PUBLICATION_OUTPUT_TOTAL_BYTES:
+        raise publication.OciPublishError("publication_output_invalid")
 
 
 def configure_oci_validate(parser: argparse.ArgumentParser) -> None:
@@ -210,6 +240,9 @@ def execute_oci_publish(
             build_plan = resolve_plan(context.root, build_request)
             if build_plan.runner_profile != plan.runner_profile:
                 raise publication.OciPublishError("terminal_contract_mismatch")
+            registry_write_policy = (
+                publication.registry_write_policy_evidence(plan)
+            )
             evidence = build_supply_evidence(
                 root=context.root,
                 central_workflow_sha=context.environment.get(
@@ -229,6 +262,20 @@ def execute_oci_publish(
                 foundation_evidence_id=context.environment.get(
                     "INPUT_FOUNDATION_EVIDENCE_ID", ""
                 ),
+                registry_write_policy_id=registry_write_policy["policy_id"],
+                registry_write_policy_host=registry_write_policy["registry_host"],
+                registry_write_policy_enforcement=registry_write_policy[
+                    "required_enforcement"
+                ],
+                registry_write_policy_authority_repository=registry_write_policy[
+                    "authority_repository"
+                ],
+                registry_write_policy_authority_source_sha=registry_write_policy[
+                    "authority_source_sha"
+                ],
+                registry_write_policy_evidence_id=registry_write_policy[
+                    "evidence_id"
+                ],
                 source_sha=plan.admitted_sha,
                 product_id=plan.product_id,
                 release_version=plan.release_version,
@@ -251,10 +298,12 @@ def execute_oci_publish(
                     "INPUT_WORKSPACE_CLEANUP_OUTCOME", ""
                 ),
             )
+            evidence_outputs = evidence.output_values()
+            validate_publication_output_values(evidence_outputs)
             return CIWResult(
                 "oci",
                 "publish",
-                outputs=evidence.output_values(),
+                outputs=evidence_outputs,
                 summary=evidence.summary,
             )
         elif args.phase == "authenticate":
@@ -270,6 +319,7 @@ def execute_oci_publish(
             outputs = oci.read_back(plan, context.environment)
         else:
             outputs = publication.verify(plan, context.environment)
+        validate_publication_output_values(outputs)
         return CIWResult(
             "oci",
             "publish",

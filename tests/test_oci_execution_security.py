@@ -6,6 +6,8 @@ import io
 import json
 import os
 from pathlib import Path
+import re
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -106,13 +108,19 @@ def materialized_scratch() -> execution.MaterializedTargetInputs:
     )
 
 
+def prepared_roots(base_path: Path) -> execution.CapacityRoots:
+    roots = execution._test_capacity_roots(base_path)
+    execution.prepare_capacity_roots(roots)
+    return roots
+
+
 class OciExecutionSecurityTests(unittest.TestCase):
     def test_private_engine_namespace_binds_only_registered_implicit_state(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp) / "state"
-            private = root / "implicit-containers"
+            roots = prepared_roots(Path(temp) / "capacity")
+            execution._write_private_runtime_files(roots)
+            private = roots.scratch_root / "implicit-containers"
             system = Path(temp) / "system-containers"
-            private.mkdir(parents=True)
             system.mkdir()
             mount = mock.Mock(return_value=0)
             unshare = mock.Mock()
@@ -121,7 +129,7 @@ class OciExecutionSecurityTests(unittest.TestCase):
             ), mock.patch.object(
                 execution.os, "CLONE_NEWNS", 0x20000, create=True
             ), mock.patch.object(execution, "_MOUNT", mount):
-                execution._private_engine_preexec(root, system)()
+                execution._private_engine_preexec(roots, system)()
             unshare.assert_called_once_with(0x20000)
             mount.assert_any_call(
                 None,
@@ -130,16 +138,187 @@ class OciExecutionSecurityTests(unittest.TestCase):
                 execution._MOUNT_REC | execution._MOUNT_PRIVATE,
                 None,
             )
-            mount.assert_any_call(
-                os.fsencode(private),
-                os.fsencode(system),
-                None,
-                execution._MOUNT_BIND | execution._MOUNT_REC,
-                None,
+            bind_calls = [
+                call.args
+                for call in mount.call_args_list
+                if call.args[3] == execution._MOUNT_BIND | execution._MOUNT_REC
+            ]
+            self.assertEqual(2, len(bind_calls))
+            for source, target, filesystem, _flags, data in bind_calls:
+                self.assertRegex(source, rb"^/proc/self/fd/[0-9]+$")
+                self.assertRegex(target, rb"^/proc/self/fd/[0-9]+$")
+                self.assertIsNone(filesystem)
+                self.assertIsNone(data)
+            flattened = b"\n".join(
+                value
+                for call in bind_calls
+                for value in call[:2]
+                if isinstance(value, bytes)
+            )
+            self.assertNotIn(os.fsencode(roots.graph_root), flattened)
+            self.assertNotIn(os.fsencode(private), flattened)
+            self.assertNotIn(os.fsencode(system), flattened)
+            anchor_calls = [
+                call.args
+                for call in mount.call_args_list
+                if call.args[3] == execution._MOUNT_BIND
+            ]
+            self.assertEqual(2, len(anchor_calls))
+            self.assertEqual(
+                {os.fsencode(roots.scratch_root), os.fsencode(roots.run_root)},
+                {call[1] for call in anchor_calls},
+            )
+            self.assertTrue(
+                all(
+                    re.fullmatch(rb"/proc/self/fd/[0-9]+", call[0])
+                    for call in anchor_calls
+                )
             )
 
+    def test_private_engine_revalidates_bound_identity_before_mount_use(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            roots = prepared_roots(Path(temp) / "capacity")
+            execution._write_private_runtime_files(roots)
+            system = Path(temp) / "system-containers"
+            system.mkdir()
+            graph_inode = roots.graph_root.stat().st_ino
+            namespace_entered = False
+            real_identity = execution._directory_identity
+
+            def unshare(_flags: int) -> None:
+                nonlocal namespace_entered
+                namespace_entered = True
+
+            def changed_after_unshare(
+                descriptor: int,
+            ) -> execution.DirectoryIdentity:
+                identity = real_identity(descriptor)
+                if namespace_entered and identity.inode == graph_inode:
+                    return execution.DirectoryIdentity(
+                        identity.device, identity.inode + 1, identity.mount_id
+                    )
+                return identity
+
+            mount = mock.Mock(return_value=0)
+            with mock.patch.object(
+                execution.os, "unshare", side_effect=unshare, create=True
+            ), mock.patch.object(
+                execution.os, "CLONE_NEWNS", 0x20000, create=True
+            ), mock.patch.object(execution, "_MOUNT", mount), mock.patch.object(
+                execution,
+                "_directory_identity",
+                side_effect=changed_after_unshare,
+            ):
+                with self.assertRaisesRegex(OSError, "capacity identity changed"):
+                    execution._private_engine_preexec(roots, system)()
+            self.assertFalse(
+                any(
+                    call.args[3]
+                    == execution._MOUNT_BIND | execution._MOUNT_REC
+                    for call in mount.call_args_list
+                )
+            )
+
+    def test_private_engine_refuses_nested_same_filesystem_mount(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            roots = prepared_roots(Path(temp) / "capacity")
+            execution._write_private_runtime_files(roots)
+            private = roots.scratch_root / "implicit-containers"
+            nested_inode = private.stat().st_ino
+            system = Path(temp) / "system-containers"
+            system.mkdir()
+            real_mount_id = execution._mount_id_for_fd
+
+            def nested_mount_id(descriptor: int) -> int:
+                if execution.os.fstat(descriptor).st_ino == nested_inode:
+                    return real_mount_id(descriptor) + 1
+                return real_mount_id(descriptor)
+
+            mount = mock.Mock(return_value=0)
+            with mock.patch.object(
+                execution.os, "unshare", mock.Mock(), create=True
+            ), mock.patch.object(
+                execution.os, "CLONE_NEWNS", 0x20000, create=True
+            ), mock.patch.object(execution, "_MOUNT", mount), mock.patch.object(
+                execution,
+                "_mount_id_for_fd",
+                side_effect=nested_mount_id,
+            ):
+                with self.assertRaisesRegex(OSError, "capacity child mount changed"):
+                    execution._private_engine_preexec(roots, system)()
+            mount.assert_not_called()
+
+    def test_private_engine_rejects_graph_descendant_mount_before_bind(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            roots = prepared_roots(Path(temp) / "capacity")
+            execution._write_private_runtime_files(roots)
+            descendant = roots.graph_root / "unexpected-bind"
+            descendant.mkdir()
+            descendant_inode = descendant.stat().st_ino
+            system = Path(temp) / "system-containers"
+            system.mkdir()
+            real_mount_id = execution._mount_id_for_fd
+
+            def descendant_mount_id(descriptor: int) -> int:
+                if execution.os.fstat(descriptor).st_ino == descendant_inode:
+                    return real_mount_id(descriptor) + 1
+                return real_mount_id(descriptor)
+
+            mount = mock.Mock(return_value=0)
+            with mock.patch.object(
+                execution.os, "unshare", mock.Mock(), create=True
+            ), mock.patch.object(
+                execution.os, "CLONE_NEWNS", 0x20000, create=True
+            ), mock.patch.object(execution, "_MOUNT", mount), mock.patch.object(
+                execution,
+                "_mount_id_for_fd",
+                side_effect=descendant_mount_id,
+            ):
+                with self.assertRaisesRegex(OSError, "descendant mount changed"):
+                    execution._private_engine_preexec(roots, system)()
+            self.assertFalse(
+                any(
+                    call.args[3] & execution._MOUNT_BIND
+                    for call in mount.call_args_list
+                )
+            )
+
+    def test_private_engine_rejects_canonical_path_swap_during_anchor(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            roots = prepared_roots(Path(temp) / "capacity")
+            execution._write_private_runtime_files(roots)
+            system = Path(temp) / "system-containers"
+            system.mkdir()
+            moved = roots.scratch_parent / "moved-owned"
+            replacement = roots.scratch_root
+            swapped = False
+
+            def mount(_source, target, _filesystem, _flags, _data):
+                nonlocal swapped
+                if target == os.fsencode(roots.scratch_root) and not swapped:
+                    swapped = True
+                    roots.scratch_root.rename(moved)
+                    replacement.mkdir(mode=0o700)
+                    (replacement / "sentinel").write_text(
+                        "keep\n", encoding="utf-8"
+                    )
+                return 0
+
+            with mock.patch.object(
+                execution.os, "unshare", mock.Mock(), create=True
+            ), mock.patch.object(
+                execution.os, "CLONE_NEWNS", 0x20000, create=True
+            ), mock.patch.object(execution, "_MOUNT", side_effect=mount):
+                with self.assertRaisesRegex(OSError, "capacity pathname changed"):
+                    execution._private_engine_preexec(roots, system)()
+            self.assertEqual(
+                "keep\n",
+                (replacement / "sentinel").read_text(encoding="utf-8"),
+            )
+            self.assertTrue((moved / execution._CAPACITY_MARKER).is_file())
+
     def test_every_engine_command_receives_private_namespace_preexec(self) -> None:
-        root = Path("/registered/state")
+        roots = mock.sentinel.capacity_roots
         prepared = mock.Mock()
         completed = subprocess.CompletedProcess([], 0, "", "")
         with mock.patch.object(
@@ -148,7 +327,7 @@ class OciExecutionSecurityTests(unittest.TestCase):
             execution, "execute_command", return_value=completed
         ) as command:
             result = execution.execute_engine_command(
-                root, ["skopeo", "--version"], capture=True, env={"PATH": "/bin"}
+                roots, ["skopeo", "--version"], capture=True, env={"PATH": "/bin"}
             )
         self.assertIs(completed, result)
         command.assert_called_once_with(
@@ -160,19 +339,18 @@ class OciExecutionSecurityTests(unittest.TestCase):
         )
 
     def test_engine_command_maps_private_namespace_setup_failure(self) -> None:
-        with mock.patch.object(
-            execution,
-            "execute_command",
-            side_effect=subprocess.SubprocessError("Exception occurred in preexec_fn."),
-        ):
-            with self.assertRaisesRegex(OciBuildError, "engine_isolation_failed"):
-                execution.execute_engine_command(
-                    Path("/registered/state"),
-                    ["buildah", "--version"],
-                )
+        with tempfile.TemporaryDirectory() as temp:
+            roots = prepared_roots(Path(temp) / "capacity")
+            with mock.patch.object(
+                execution,
+                "execute_command",
+                side_effect=subprocess.SubprocessError("Exception occurred in preexec_fn."),
+            ):
+                with self.assertRaisesRegex(OciBuildError, "engine_isolation_failed"):
+                    execution.execute_engine_command(roots, ["buildah", "--version"])
 
     def test_binary_engine_capture_preserves_exact_newline_bearing_bytes(self) -> None:
-        root = Path("/registered/state")
+        roots = mock.sentinel.capacity_roots
         prepared = mock.Mock()
         payload = b'{"schemaVersion":2}\n'
         completed = subprocess.CompletedProcess([], 0, payload, b"")
@@ -182,7 +360,7 @@ class OciExecutionSecurityTests(unittest.TestCase):
             execution, "execute_binary_command", return_value=completed
         ) as command:
             result = execution.capture_engine_bytes(
-                root,
+                roots,
                 ["skopeo", "inspect", "--raw", "oci:/verified/layout"],
                 env={"PATH": "/bin"},
             )
@@ -194,9 +372,12 @@ class OciExecutionSecurityTests(unittest.TestCase):
             preexec_fn=prepared,
         )
 
-    def test_private_engine_namespace_rejects_relative_registered_state(self) -> None:
-        with self.assertRaisesRegex(OciBuildError, "engine_isolation_failed"):
-            execution._private_engine_preexec(Path("relative-state"))
+    def test_capacity_roots_reject_relative_parents(self) -> None:
+        with self.assertRaisesRegex(OciBuildError, "capacity_root_invalid"):
+            execution.CapacityRoots(
+                "oci-build", "ciw-oci", "0" * 20,
+                Path("relative"), Path("/graph"), Path("/run"), False,
+            )
 
     def test_layer_inventory_accepts_busybox_and_container_root_symlinks(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -355,16 +536,15 @@ class OciExecutionSecurityTests(unittest.TestCase):
             publication_manifest_digest="sha256:" + "c" * 64,
         )
         with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
+            roots = prepared_roots(Path(temp) / "capacity")
+            root = roots.scratch_root
             staged = root / "staged"
-            state = root / "state"
             staged.mkdir()
-            state.mkdir()
             (staged / "Containerfile").write_text(
                 "FROM scratch\n", encoding="utf-8"
             )
             default_authfile = root / "missing-default-auth.json"
-            authfile = execution._credential_free_authfile(state)
+            authfile = execution._credential_free_authfile(root)
             with mock.patch.dict(
                 os.environ, {"REGISTRY_AUTH_FILE": str(default_authfile)}
             ), mock.patch.object(
@@ -376,7 +556,7 @@ class OciExecutionSecurityTests(unittest.TestCase):
                     plan(),
                     target(smoke=None),
                     staged,
-                    state,
+                    roots,
                     {"example": "value"},
                     1,
                     {},
@@ -401,40 +581,36 @@ class OciExecutionSecurityTests(unittest.TestCase):
                     self.assertIsInstance(environment, dict)
                     self.assertEqual(str(authfile), environment["REGISTRY_AUTH_FILE"])
 
-    def test_cleanup_unlinks_state_root_symlink_without_dereferencing(self) -> None:
+    def test_cleanup_unlinks_substituted_leaf_without_dereferencing_and_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
-            environment = {
-                "RUNNER_TEMP": temp,
-                "GITHUB_RUN_ID": "4",
-                "GITHUB_RUN_ATTEMPT": "1",
-            }
-            root = execution.state_root(environment)
+            roots = prepared_roots(Path(temp) / "capacity")
+            root = roots.scratch_root
             target_root = Path(temp) / "outside"
             target_root.mkdir()
             sentinel = target_root / "manifests.json"
             sentinel.write_text('["outside"]\n', encoding="utf-8")
+            shutil.rmtree(root)
             root.symlink_to(target_root, target_is_directory=True)
             with mock.patch.object(execution.shutil, "which") as builder:
-                execution.cleanup(environment)
+                with self.assertRaisesRegex(OciBuildError, "cleanup_failed"):
+                    execution.cleanup({}, _capacity_roots=roots)
             builder.assert_not_called()
             self.assertFalse(root.exists() or root.is_symlink())
             self.assertEqual('["outside"]\n', sentinel.read_text(encoding="utf-8"))
+            self.assertFalse(roots.graph_root.exists())
+            self.assertFalse(roots.run_root.exists())
 
     def test_cleanup_rejects_manifest_state_symlink_without_dereferencing(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
-            environment = {
-                "RUNNER_TEMP": temp,
-                "GITHUB_RUN_ID": "5",
-                "GITHUB_RUN_ATTEMPT": "1",
-            }
-            root = execution.state_root(environment)
-            root.mkdir()
+            roots = prepared_roots(Path(temp) / "capacity")
+            root = roots.scratch_root
+            execution._write_private_runtime_files(roots)
             target = Path(temp) / "outside-state.json"
             target.write_text('["outside"]\n', encoding="utf-8")
             (root / "manifests.json").symlink_to(target)
             with mock.patch.object(execution.shutil, "which", return_value=None) as builder:
                 with self.assertRaisesRegex(OciBuildError, "cleanup_failed"):
-                    execution.cleanup(environment)
+                    execution.cleanup({}, _capacity_roots=roots)
             builder.assert_called_once_with("buildah")
             self.assertFalse(root.exists())
             self.assertEqual('["outside"]\n', target.read_text(encoding="utf-8"))
@@ -447,19 +623,15 @@ class OciExecutionSecurityTests(unittest.TestCase):
             return subprocess.CompletedProcess(argv, 0, "", "")
 
         with tempfile.TemporaryDirectory() as temp:
-            environment = {
-                "RUNNER_TEMP": temp,
-                "GITHUB_RUN_ID": "6",
-                "GITHUB_RUN_ATTEMPT": "1",
-            }
-            root = execution.state_root(environment)
-            root.mkdir()
+            roots = prepared_roots(Path(temp) / "capacity")
+            root = roots.scratch_root
+            execution._write_private_runtime_files(roots)
             ambient = Path(temp) / "ambient-auth.json"
             ambient.write_text('{"auths":{"registry.invalid":{"auth":"secret"}}}\n', encoding="utf-8")
             with mock.patch.dict(os.environ, {"REGISTRY_AUTH_FILE": str(ambient)}), mock.patch.object(
                 execution.shutil, "which", return_value="buildah"
             ), mock.patch.object(execution.subprocess, "run", side_effect=fake_run):
-                execution.cleanup(environment)
+                execution.cleanup({}, _capacity_roots=roots)
             self.assertFalse(root.exists())
             self.assertTrue(calls)
             for kwargs in calls:
@@ -507,9 +679,10 @@ class OciExecutionSecurityTests(unittest.TestCase):
             "run",
             return_value=subprocess.CompletedProcess([], 0, "", ""),
         ):
+            roots = prepared_roots(Path(temp) / "capacity")
             script = Path(temp) / "verify.sh"
             script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-            result = safe._run_isolated_smoke(Path(temp), plan(), target(), script)
+            result = safe._run_isolated_smoke(roots, plan(), target(), script)
         self.assertEqual("isolated-script-passed", result)
         joined = "\n".join(" ".join(command) for command in commands)
         self.assertIn("run --network none --cap-drop all", joined)
@@ -518,34 +691,34 @@ class OciExecutionSecurityTests(unittest.TestCase):
         self.assertNotIn(f"/bin/bash {script}", joined)
         self.assertTrue(environments)
         for environment in environments:
-            self.assertEqual(str(Path(temp) / "home"), environment["HOME"])
+            self.assertEqual(str(roots.scratch_root / "home"), environment["HOME"])
             self.assertEqual(
-                str(Path(temp) / "xdg-cache"), environment["XDG_CACHE_HOME"]
+                str(roots.scratch_root / "xdg-cache"), environment["XDG_CACHE_HOME"]
             )
             self.assertEqual(
-                str(Path(temp) / "xdg-config"), environment["XDG_CONFIG_HOME"]
+                str(roots.scratch_root / "xdg-config"), environment["XDG_CONFIG_HOME"]
             )
             self.assertEqual(
-                str(Path(temp) / "xdg-data"), environment["XDG_DATA_HOME"]
+                str(roots.scratch_root / "xdg-data"), environment["XDG_DATA_HOME"]
             )
             self.assertEqual(
-                str(Path(temp) / "xdg-runtime"), environment["XDG_RUNTIME_DIR"]
+                str(roots.scratch_root / "xdg-runtime"), environment["XDG_RUNTIME_DIR"]
             )
-            self.assertEqual(str(Path(temp) / "tmp"), environment["TMPDIR"])
+            self.assertEqual(str(roots.scratch_root / "tmp"), environment["TMPDIR"])
             self.assertEqual(
-                str(Path(temp) / "storage.conf"),
+                str(roots.scratch_root / "storage.conf"),
                 environment["CONTAINERS_STORAGE_CONF"],
             )
 
     def test_isolated_smoke_rejects_a_symlinked_script(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            script = root / "verify.sh"
+            roots = execution._test_capacity_roots(Path(temp) / "capacity")
+            script = Path(temp) / "verify.sh"
             script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-            alias = root / "verify-link.sh"
+            alias = Path(temp) / "verify-link.sh"
             alias.symlink_to(script)
             with self.assertRaisesRegex(OciBuildError, "invalid_path"):
-                safe._run_isolated_smoke(root, plan(), target(), alias)
+                safe._run_isolated_smoke(roots, plan(), target(), alias)
 
     def test_isolated_smoke_maps_namespace_failure_during_removal(self) -> None:
         with tempfile.TemporaryDirectory() as temp, mock.patch.object(
@@ -557,11 +730,11 @@ class OciExecutionSecurityTests(unittest.TestCase):
             "run",
             side_effect=subprocess.SubprocessError("Exception occurred in preexec_fn."),
         ):
-            root = Path(temp)
-            script = root / "verify.sh"
+            roots = prepared_roots(Path(temp) / "capacity")
+            script = Path(temp) / "verify.sh"
             script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
             with self.assertRaisesRegex(OciBuildError, "cleanup_failed"):
-                safe._run_isolated_smoke(root, plan(), target(), script)
+                safe._run_isolated_smoke(roots, plan(), target(), script)
 
     def test_execute_masks_consumer_script_before_base_builder(self) -> None:
         captured: list[OciBuildPlan] = []
@@ -598,31 +771,35 @@ class OciExecutionSecurityTests(unittest.TestCase):
             targets=(replace(base_result.targets[0], build_input_evidence=input_evidence),),
         )
 
-        def fake_execute(repository_root, source_root, received, environment, secret_files):
+        roots: execution.CapacityRoots
+
+        def fake_execute(
+            repository_root, source_root, received, environment, secret_files, *,
+            _capacity_roots,
+        ):
             captured.append(received)
-            staged = safe.base.state_root(environment) / "staged" / "fixture" / "ci"
+            self.assertIs(roots, _capacity_roots)
+            staged = roots.scratch_root / "staged" / "fixture" / "ci"
             staged.mkdir(parents=True)
             (staged / "verify.sh").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
             return base_result
 
-        with tempfile.TemporaryDirectory() as temp, mock.patch.object(
-            safe.base, "execute_plan", side_effect=fake_execute
-        ), mock.patch.object(
+        with tempfile.TemporaryDirectory() as temp:
+            roots = prepared_roots(Path(temp) / "capacity")
+            with mock.patch.object(
+                safe.base, "execute_plan", side_effect=fake_execute
+            ), mock.patch.object(
             safe, "_assert_target_filesystem"
-        ), mock.patch.object(
-            safe, "_run_isolated_smoke", return_value="isolated-script-passed"
-        ) as isolated:
-            result = safe.execute_plan(
-                ROOT,
-                Path(temp),
-                original,
-                {"RUNNER_TEMP": temp, "GITHUB_RUN_ID": "1", "GITHUB_RUN_ATTEMPT": "1"},
-            )
+            ), mock.patch.object(
+                safe, "_run_isolated_smoke", return_value="isolated-script-passed"
+            ) as isolated:
+                result = safe.execute_plan(
+                    ROOT, Path(temp), original, {}, _capacity_roots=roots
+                )
         self.assertIsNone(captured[0].targets[0].smoke_script)
         isolated.assert_called_once()
         self.assertEqual(
-            safe.base.state_root({"RUNNER_TEMP": temp, "GITHUB_RUN_ID": "1", "GITHUB_RUN_ATTEMPT": "1"})
-            / "staged" / "fixture" / "ci" / "verify.sh",
+            roots.scratch_root / "staged" / "fixture" / "ci" / "verify.sh",
             isolated.call_args.args[3],
         )
         self.assertEqual("isolated-script-passed", result.targets[0].smoke_result)
@@ -651,23 +828,27 @@ class OciExecutionSecurityTests(unittest.TestCase):
             rollback_id=None,
         )
 
-        def fake_execute(repository_root, source_root, received, environment, secret_files):
-            safe.base.state_root(environment).mkdir(parents=True)
+        roots: execution.CapacityRoots
+
+        def fake_execute(
+            repository_root, source_root, received, environment, secret_files, *,
+            _capacity_roots,
+        ):
+            self.assertIs(roots, _capacity_roots)
             return base_result
 
-        with tempfile.TemporaryDirectory() as temp, mock.patch.object(
-            safe.base, "execute_plan", side_effect=fake_execute
-        ), mock.patch.object(
-            safe, "_assert_target_filesystem"
-        ) as asserted, mock.patch.object(
-            safe, "_run_isolated_smoke"
-        ) as isolated:
-            result = safe.execute_plan(
-                ROOT,
-                Path(temp),
-                original,
-                {"RUNNER_TEMP": temp, "GITHUB_RUN_ID": "2", "GITHUB_RUN_ATTEMPT": "1"},
-            )
+        with tempfile.TemporaryDirectory() as temp:
+            roots = prepared_roots(Path(temp) / "capacity")
+            with mock.patch.object(
+                safe.base, "execute_plan", side_effect=fake_execute
+            ), mock.patch.object(
+                safe, "_assert_target_filesystem"
+            ) as asserted, mock.patch.object(
+                safe, "_run_isolated_smoke"
+            ) as isolated:
+                result = safe.execute_plan(
+                    ROOT, Path(temp), original, {}, _capacity_roots=roots
+                )
         asserted.assert_called_once()
         isolated.assert_not_called()
         self.assertEqual("inspection-passed-script-deferred", result.targets[0].smoke_result)

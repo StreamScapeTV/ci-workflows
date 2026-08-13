@@ -513,6 +513,7 @@
     },
     "oci.publish": {
       "profiles": [
+        "buildah-tiny",
         "buildah-small",
         "buildah-medium",
         "buildah-high"

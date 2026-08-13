@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "contract_version": "1.1.0",
+  "contract_version": "2.0.0",
   "organization": "StreamScapeTV",
   "workflow_api": "oci.build",
   "stable_check_name": "CI / OCI build validation",
@@ -36,8 +36,10 @@
     "flux_target",
     "podman",
     "publish",
+    "publication_repository",
     "registry",
     "registry_command",
+    "registry_repository",
     "runner",
     "runner_labels",
     "runs_on",
@@ -52,7 +54,14 @@
     "base_acquisition_failed",
     "base_identity_mutable",
     "base_import_failed",
+    "build_evidence_mismatch",
+    "build_evidence_missing",
     "builder_unavailable",
+    "capacity_host_invalid",
+    "capacity_identity_invalid",
+    "capacity_marker_invalid",
+    "capacity_mount_invalid",
+    "capacity_root_invalid",
     "cleanup_failed",
     "dirty_context",
     "dirty_tree",
@@ -63,6 +72,7 @@
     "forbidden_input",
     "forbidden_socket_present",
     "generated_mapping_stale",
+    "immutable_reference_conflict",
     "input_base_mutable",
     "input_destination_unsafe",
     "input_digest_invalid",
@@ -80,9 +90,12 @@
     "invalid_contract",
     "invalid_path",
     "invalid_platform_set",
+    "invalid_product",
     "invalid_request",
+    "invalid_source",
     "invalid_version",
     "metadata_mismatch",
+    "mutable_tag_forbidden",
     "oci_child_digest_mismatch",
     "oci_child_layout_set_mismatch",
     "oci_config_invalid",
@@ -154,8 +167,26 @@
     "oci_size_mismatch",
     "platform_mismatch",
     "platform_override_forbidden",
+    "publication_dependency_missing",
     "publication_forbidden",
+    "publication_not_ready",
+    "publication_output_invalid",
+    "publication_ref_forbidden",
+    "publication_state_missing",
+    "publication_untrusted",
+    "registry_auth_failed",
+    "registry_auth_invalid",
+    "registry_auth_missing",
+    "registry_copy_failed",
     "registry_credentials_forbidden",
+    "registry_digest_mismatch",
+    "registry_inspection_failed",
+    "registry_readback_mismatch",
+    "registry_tool_unavailable",
+    "registry_write_policy_not_ready",
+    "release_authority_invalid",
+    "release_authority_mismatch",
+    "remote_reference_missing",
     "residue_detected",
     "secret_leakage",
     "secret_mount_missing",
@@ -163,6 +194,10 @@
     "smoke_failed",
     "source_mismatch",
     "symlink_path_forbidden",
+    "terminal_contract_mismatch",
+    "terminal_evidence_invalid",
+    "terminal_toolchain_invalid",
+    "terminal_toolchain_mismatch",
     "unsupported_consumer",
     "unsupported_product"
   ],
@@ -253,9 +288,52 @@
       "maximum_input_bytes": 0
     }
   },
+  "registry_write_policies": {
+    "agent-state-create-only-v1": {
+      "registry_host": "git.faruqi.dev",
+      "required_enforcement": "server-side-create-only-tags-v1",
+      "status": "blocked",
+      "authority_repository": "StreamScapeTV/flux",
+      "authority_source_sha": null,
+      "evidence_id": null
+    },
+    "ciw-input-smoke-create-only-v1": {
+      "registry_host": "git.faruqi.dev",
+      "required_enforcement": "server-side-create-only-tags-v1",
+      "status": "blocked",
+      "authority_repository": "StreamScapeTV/flux",
+      "authority_source_sha": null,
+      "evidence_id": null
+    },
+    "ciw-smoke-create-only-v1": {
+      "registry_host": "git.faruqi.dev",
+      "required_enforcement": "server-side-create-only-tags-v1",
+      "status": "blocked",
+      "authority_repository": "StreamScapeTV/flux",
+      "authority_source_sha": null,
+      "evidence_id": null
+    },
+    "flux-runners-create-only-v1": {
+      "registry_host": "git.faruqi.dev",
+      "required_enforcement": "server-side-create-only-tags-v1",
+      "status": "blocked",
+      "authority_repository": "StreamScapeTV/flux",
+      "authority_source_sha": null,
+      "evidence_id": null
+    },
+    "iptv-backend-create-only-v1": {
+      "registry_host": "git.faruqi.dev",
+      "required_enforcement": "server-side-create-only-tags-v1",
+      "status": "blocked",
+      "authority_repository": "StreamScapeTV/flux",
+      "authority_source_sha": null,
+      "evidence_id": null
+    }
+  },
   "products": {
     "agent-state-image": {
       "repository": "StreamScapeTV/agent-state",
+      "registry_write_policy_id": "agent-state-create-only-v1",
       "builder_id": "buildah-v1",
       "runner_profile": "buildah-small",
       "workspace_profile": "container",
@@ -273,6 +351,7 @@
       "targets": [
         {
           "target_id": "agent-state-api",
+          "publication_repository": "git.faruqi.dev/mimranfaruqi/agent-state",
           "context_path": "backend",
           "dockerfile_path": "backend/Dockerfile",
           "target_stage": null,
@@ -316,6 +395,7 @@
     },
     "ciw-oci-smoke": {
       "repository": "StreamScapeTV/ci-workflows",
+      "registry_write_policy_id": "ciw-smoke-create-only-v1",
       "builder_id": "buildah-v1",
       "runner_profile": "buildah-tiny",
       "workspace_profile": "minimal",
@@ -333,6 +413,7 @@
       "targets": [
         {
           "target_id": "contract-smoke",
+          "publication_repository": "git.faruqi.dev/mimranfaruqi/ciw-oci-smoke",
           "context_path": "tests/fixtures/oci-build/smoke",
           "dockerfile_path": "tests/fixtures/oci-build/smoke/Containerfile",
           "target_stage": null,
@@ -370,6 +451,7 @@
     },
     "ciw-oci-input-smoke": {
       "repository": "StreamScapeTV/ci-workflows",
+      "registry_write_policy_id": "ciw-input-smoke-create-only-v1",
       "builder_id": "buildah-v1",
       "runner_profile": "buildah-tiny",
       "workspace_profile": "minimal",
@@ -387,6 +469,7 @@
       "targets": [
         {
           "target_id": "immutable-input-smoke",
+          "publication_repository": "git.faruqi.dev/mimranfaruqi/ciw-oci-input-smoke",
           "context_path": "tests/fixtures/oci-build/input-smoke",
           "dockerfile_path": "tests/fixtures/oci-build/input-smoke/Containerfile",
           "target_stage": null,
@@ -426,6 +509,7 @@
     },
     "flux-runner-images": {
       "repository": "StreamScapeTV/flux",
+      "registry_write_policy_id": "flux-runners-create-only-v1",
       "builder_id": "buildah-v1",
       "runner_profile": "buildah-high",
       "workspace_profile": "container",
@@ -443,6 +527,7 @@
       "targets": [
         {
           "target_id": "runner-buildah",
+          "publication_repository": "git.faruqi.dev/mimranfaruqi/github-actions-runner-buildah",
           "context_path": "images/github-actions-runner-buildah",
           "dockerfile_path": "images/github-actions-runner-buildah/Dockerfile",
           "target_stage": null,
@@ -474,6 +559,7 @@
         },
         {
           "target_id": "runner-mobile",
+          "publication_repository": "git.faruqi.dev/mimranfaruqi/github-actions-runner-mobile",
           "context_path": "images/github-actions-runner-mobile",
           "dockerfile_path": "images/github-actions-runner-mobile/Dockerfile",
           "target_stage": null,
@@ -513,6 +599,7 @@
     },
     "iptv-backend-image": {
       "repository": "StreamScapeTV/iptv-backend",
+      "registry_write_policy_id": "iptv-backend-create-only-v1",
       "builder_id": "buildah-v1",
       "runner_profile": "buildah-medium",
       "workspace_profile": "container",
@@ -530,6 +617,7 @@
       "targets": [
         {
           "target_id": "iptv-backend",
+          "publication_repository": "git.faruqi.dev/mimranfaruqi/iptv-backend",
           "context_path": ".",
           "dockerfile_path": "Dockerfile",
           "target_stage": null,

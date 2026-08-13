@@ -116,12 +116,27 @@ SHA-256 strings are scanned out of configs, history, labels, and layer blobs.
 The initial public workflow exposes no build-secret input.
 
 Every daemonless engine subprocess runs inside a fresh private mount namespace
-inside the privileged Buildah capacity. The registered run's private implicit
-containers directory is bind-mounted over `/var/lib/containers`, so rootful
-containers/image blob-info caches remain inside cleanup ownership. HOME and all
-XDG data, cache, configuration, and runtime directories are also created below
-that registered per-run OCI state. Cleanup uses the same confinement and then
-removes the complete state root.
+inside the privileged Buildah capacity. Central code derives the run token from
+the complete GitHub repository/run/attempt/job identity and accepts no caller
+or environment path. It exclusively creates scratch below `/var/tmp/buildah`,
+physical graph storage below `/var/lib/containers/storage`, and physical run
+state below `/run/containers/storage`, always with a central
+`ciw-oci-<token>` leaf. `RUNNER_TEMP`, `TMPDIR`, and similarly named ambient
+variables have no path authority. These fixed parents must be separate,
+pre-provisioned exact mount points on the rootful Linux host; all three leaf
+types, modes, and marker identities are revalidated before engine execution.
+
+The namespace exposes the physical graph leaf only at Buildah's logical
+`/var/lib/containers/storage` path and confines rootful containers/image caches
+under scratch. HOME, all XDG directories, staged source, downloaded inputs,
+layouts, and temporary files also use scratch instead of the workflow work
+volume. The namespace's nested graph bind maps the physical graph leaf to the
+logical child `/var/lib/containers/storage`, while Buildah's physical runroot
+remains the run leaf. Cleanup revalidates marker ownership, runs engine cleanup
+in the same confinement, and no-follow attempts removal of all three leaves. A substituted link is
+unlinked without touching its target and still fails cleanup; a
+marker-mismatched directory is left untouched. Residue requires every leaf to
+be absent and never removes sibling runs.
 
 ## Outputs
 

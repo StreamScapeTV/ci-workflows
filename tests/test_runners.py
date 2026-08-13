@@ -207,6 +207,14 @@ class RunnerContractTests(unittest.TestCase):
                     expected,
                 )
 
+    def test_oci_publication_binding_offers_every_measured_buildah_tier(self) -> None:
+        binding = runners.workflow_binding_index(self.contract)["oci.publish"]
+        self.assertEqual(binding["strategy"], "product-contract-tier")
+        self.assertEqual(
+            binding["profiles"],
+            self.contract["buildah_escalation"]["order"],
+        )
+
     def test_buildah_capacity_excess_fails_closed(self) -> None:
         with self.assertRaisesRegex(runners.RunnerContractError, "buildah-capacity-exceeded"):
             runners.select_buildah_tier(

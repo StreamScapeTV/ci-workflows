@@ -106,6 +106,12 @@ def build_supply_evidence(
     toolchain_json: str,
     publication_evidence_id: str,
     foundation_evidence_id: str,
+    registry_write_policy_id: str,
+    registry_write_policy_host: str,
+    registry_write_policy_enforcement: str,
+    registry_write_policy_authority_repository: str,
+    registry_write_policy_authority_source_sha: str,
+    registry_write_policy_evidence_id: str,
     source_sha: str,
     product_id: str,
     release_version: str,
@@ -123,6 +129,31 @@ def build_supply_evidence(
     _require(_FULL_SHA.fullmatch(source_sha) is not None)
     _require(_SHA256.fullmatch(publication_evidence_id) is not None)
     _require(_FOUNDATION_EVIDENCE.fullmatch(foundation_evidence_id) is not None)
+    _require(
+        re.fullmatch(
+            r"[a-z0-9]+(?:[._-][a-z0-9]+)*", registry_write_policy_id
+        )
+        is not None
+    )
+    _require(
+        re.fullmatch(
+            r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+            r"(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+",
+            registry_write_policy_host,
+        )
+        is not None
+    )
+    _require(
+        registry_write_policy_enforcement
+        == "server-side-create-only-tags-v1"
+        and registry_write_policy_authority_repository == "StreamScapeTV/flux"
+        and _FULL_SHA.fullmatch(registry_write_policy_authority_source_sha)
+        is not None
+        and re.fullmatch(
+            r"sha256:[0-9a-f]{64}", registry_write_policy_evidence_id
+        )
+        is not None
+    )
     _require(re.fullmatch(r"[a-z][a-z0-9-]{1,63}", builder_id) is not None)
     _require(re.fullmatch(r"[a-z][a-z0-9-]{1,63}", runner_profile) is not None)
     _require(re.fullmatch(r"[a-z0-9]+(?:[._-][a-z0-9]+)*", product_id) is not None)
@@ -169,6 +200,15 @@ def build_supply_evidence(
             "publication_id": publication_evidence_id,
         },
         "execution": {"result": execution_result},
+        "registry_write_policy": {
+            "policy_id": registry_write_policy_id,
+            "registry_host": registry_write_policy_host,
+            "required_enforcement": registry_write_policy_enforcement,
+            "status": "verified",
+            "authority_repository": registry_write_policy_authority_repository,
+            "authority_source_sha": registry_write_policy_authority_source_sha,
+            "evidence_id": registry_write_policy_evidence_id,
+        },
         "release": {
             "product_id": product_id,
             "source_sha": source_sha,

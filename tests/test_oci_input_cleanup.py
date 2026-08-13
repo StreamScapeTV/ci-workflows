@@ -84,10 +84,11 @@ def plan() -> OciBuildPlan:
 class OciInputCleanupTests(unittest.TestCase):
     def _populate_residue(
         self,
-        root: Path,
+        roots: execution.CapacityRoots,
         staged: Path,
         outside: Path,
     ) -> None:
+        root = roots.scratch_root
         blob = (
             root
             / "input-layouts"
@@ -108,8 +109,7 @@ class OciInputCleanupTests(unittest.TestCase):
         (reserved / ".download.partial").write_bytes(b"partial-input")
         (reserved / "outside-link").symlink_to(outside, target_is_directory=True)
 
-        for directory in (root / "storage", root / "runroot"):
-            directory.mkdir(parents=True, exist_ok=True)
+        for directory in (roots.graph_root, roots.run_root):
             (directory / "partial-state").write_text("residue\n", encoding="utf-8")
         (root / "auth.json").write_text('{"auths":{"forbidden":"secret"}}\n', encoding="utf-8")
         (root / "metadata.json").write_text('{"partial":true}\n', encoding="utf-8")
@@ -135,12 +135,9 @@ class OciInputCleanupTests(unittest.TestCase):
             temporary = Path(directory)
             source_root = temporary / "source"
             source_root.mkdir()
-            environment = {
-                "RUNNER_TEMP": str(temporary / "runner"),
-                "GITHUB_RUN_ID": "150",
-                "GITHUB_RUN_ATTEMPT": "1",
-            }
-            root = execution.state_root(environment)
+            environment: dict[str, str] = {}
+            roots = execution._test_capacity_roots(temporary / "capacity")
+            root = roots.scratch_root
             outside = temporary / "outside"
             outside.mkdir()
             sentinel = outside / "sentinel.txt"
@@ -149,7 +146,7 @@ class OciInputCleanupTests(unittest.TestCase):
             def materialize(*args: object) -> execution.MaterializedTargetInputs:
                 staged = args[3]
                 self.assertIsInstance(staged, Path)
-                self._populate_residue(root, staged, outside)
+                self._populate_residue(roots, staged, outside)
                 if fail_during_materialization:
                     raise failure
                 return execution.MaterializedTargetInputs(
@@ -192,6 +189,7 @@ class OciInputCleanupTests(unittest.TestCase):
                             source_root,
                             plan(),
                             environment,
+                            _capacity_roots=roots,
                         )
                 finally:
                     with mock.patch.object(
@@ -199,13 +197,15 @@ class OciInputCleanupTests(unittest.TestCase):
                     ), mock.patch.object(
                         execution.subprocess, "run", side_effect=fake_cleanup_run
                     ):
-                        execution.cleanup(environment)
-                    execution.residue(environment)
+                        execution.cleanup(environment, _capacity_roots=roots)
+                    execution.residue(environment, _capacity_roots=roots)
 
             with self.assertRaises(type(failure)) as raised:
                 invoke()
             self.assertEqual(str(failure), str(raised.exception))
             self.assertFalse(root.exists() or root.is_symlink())
+            self.assertFalse(roots.graph_root.exists() or roots.graph_root.is_symlink())
+            self.assertFalse(roots.run_root.exists() or roots.run_root.is_symlink())
             self.assertEqual("outside-must-survive\n", sentinel.read_text(encoding="utf-8"))
 
             self.assertEqual(4, len(cleanup_calls))
@@ -214,9 +214,9 @@ class OciInputCleanupTests(unittest.TestCase):
                 "--storage-driver",
                 "vfs",
                 "--root",
-                str(root / "storage"),
+                "/var/lib/containers/storage",
                 "--runroot",
-                str(root / "runroot"),
+                str(roots.run_root),
             ]
             for command, options in cleanup_calls:
                 with self.subTest(command=command):

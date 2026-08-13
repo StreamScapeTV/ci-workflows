@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from dataclasses import replace
 from pathlib import Path
 import shutil
 import subprocess
@@ -24,6 +25,7 @@ from ci_workflows.oci_contract import (  # noqa: E402
 )
 from ci_workflows.oci_execution import (  # noqa: E402
     MaterializedTargetInputs,
+    _test_capacity_roots,
     execute_plan,
     inspect_layout,
     stage_context,
@@ -41,6 +43,8 @@ from ci_workflows.oci_types import (  # noqa: E402
 )
 
 SHA = "a" * 40
+MAX_OCI_TAG_VERSION = "1." + "1" * 124 + ".1"
+OVERSIZED_OCI_TAG_VERSION = "1." + "1" * 125 + ".1"
 
 
 def digest(data: bytes) -> str:
@@ -142,6 +146,48 @@ class OciBuildTests(unittest.TestCase):
             with self.assertRaisesRegex(OciBuildError, "invalid_contract"):
                 load_contract(root)
 
+    def test_publication_destinations_are_exact_lowercase_contract_data(self) -> None:
+        expected = {
+            "agent-state-image": {
+                "agent-state-api": "git.faruqi.dev/mimranfaruqi/agent-state",
+            },
+            "flux-runner-images": {
+                "runner-buildah": "git.faruqi.dev/mimranfaruqi/github-actions-runner-buildah",
+                "runner-mobile": "git.faruqi.dev/mimranfaruqi/github-actions-runner-mobile",
+            },
+            "iptv-backend-image": {
+                "iptv-backend": "git.faruqi.dev/mimranfaruqi/iptv-backend",
+            },
+        }
+        for product_id, targets in expected.items():
+            self.assertEqual(
+                targets,
+                {
+                    target.target_id: target.publication_repository
+                    for target in self.contract["_products"][product_id]["targets"]
+                },
+            )
+
+        invalid_repositories = (
+            "Git.faruqi.dev/mimranfaruqi/iptv-backend",
+            "git.faruqi.dev/mimranfaruqi/iptv-backend:1.2.3",
+            "git.faruqi.dev/mimranfaruqi/iptv-backend@sha256:" + "1" * 64,
+            "git.faruqi.dev/mimranfaruqi/latest",
+            "git.faruqi.dev/iptv-backend",
+        )
+        for repository in invalid_repositories:
+            with self.subTest(repository=repository), tempfile.TemporaryDirectory() as temp:
+                payload = json.loads((ROOT / "contracts/oci-products.json").read_text())
+                payload["products"]["iptv-backend-image"]["targets"][0][
+                    "publication_repository"
+                ] = repository
+                root = Path(temp)
+                contract_path = root / "contracts/oci-products.json"
+                contract_path.parent.mkdir()
+                contract_path.write_text(json.dumps(payload), encoding="utf-8")
+                with self.assertRaisesRegex(OciBuildError, "invalid_contract"):
+                    load_contract(root)
+
     def test_request_is_product_only_and_rejects_engine_runner_registry_and_callback(self) -> None:
         base = {
             "repository": "StreamScapeTV/ci-workflows",
@@ -159,14 +205,46 @@ class OciBuildTests(unittest.TestCase):
             "tests/fixtures/oci-build/smoke/inputs.lock.json",
             plan.targets[0].build_input_lock_path,
         )
+        self.assertEqual(
+            "git.faruqi.dev/mimranfaruqi/ciw-oci-smoke",
+            plan.targets[0].publication_repository,
+        )
         for field in (
             "engine", "builder", "docker", "buildah", "buildkit", "podman",
             "socket", "storage_driver", "registry_command", "runner",
             "runner_labels", "command", "arguments", "callback", "publish",
+            "publication_repository", "registry_repository",
         ):
             with self.subTest(field=field):
                 with self.assertRaisesRegex(OciBuildError, "forbidden_input"):
                     request_from_mapping({**base, field: "attacker"}, {"GITHUB_EVENT_NAME": "push"})
+
+    def test_build_release_tag_accepts_128_characters_and_rejects_129(self) -> None:
+        base = {
+            "repository": "StreamScapeTV/ci-workflows",
+            "admitted_sha": SHA,
+            "product_id": "ciw-oci-smoke",
+        }
+        self.assertEqual(len(MAX_OCI_TAG_VERSION), 128)
+        self.assertEqual(len(OVERSIZED_OCI_TAG_VERSION), 129)
+        request = request_from_mapping(
+            {**base, "release_version": MAX_OCI_TAG_VERSION},
+            {"GITHUB_EVENT_NAME": "push"},
+        )
+        self.assertEqual(
+            resolve_plan(ROOT, request).release_version,
+            MAX_OCI_TAG_VERSION,
+        )
+        with self.assertRaisesRegex(OciBuildError, "invalid_version"):
+            request_from_mapping(
+                {**base, "release_version": OVERSIZED_OCI_TAG_VERSION},
+                {"GITHUB_EVENT_NAME": "push"},
+            )
+        with self.assertRaisesRegex(OciBuildError, "invalid_version"):
+            resolve_plan(
+                ROOT,
+                replace(request, release_version=OVERSIZED_OCI_TAG_VERSION),
+            )
 
     def test_fork_source_cannot_reach_privileged_buildah_capacity(self) -> None:
         event = Path(self._testMethodName + "-event.json")
@@ -414,6 +492,7 @@ class OciBuildTests(unittest.TestCase):
                 "GITHUB_RUN_ID": "17",
                 "GITHUB_RUN_ATTEMPT": "1",
             }
+            capacity = _test_capacity_roots(temporary / "capacity")
             with mock.patch(
                 "ci_workflows.oci_execution.assert_clean_source"
             ), mock.patch(
@@ -431,14 +510,16 @@ class OciBuildTests(unittest.TestCase):
                 "ci_workflows.oci_execution.build_target",
                 return_value=(built, "manifest"),
             ):
-                result = execute_plan(ROOT, source, plan, environment)
+                result = execute_plan(
+                    ROOT, source, plan, environment, _capacity_roots=capacity
+                )
             self.assertEqual(result.targets[0].build_input_evidence, evidence)
             self.assertEqual(
                 result.targets[0].publication_manifest_digest,
                 "sha256:" + "4" * 64,
             )
             persisted = json.loads(
-                (temporary / "state" / next((temporary / "state").iterdir()).name / "result.json").read_text(
+                (capacity.scratch_root / "result.json").read_text(
                     encoding="utf-8"
                 )
             )

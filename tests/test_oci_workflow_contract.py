@@ -255,7 +255,7 @@ class OciWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("StreamScapeTV/iptv-apple", json.dumps(products))
 
     def test_input_policy_is_central_closed_and_never_caller_selected(self) -> None:
-        self.assertEqual("1.1.0", self.contract["contract_version"])
+        self.assertEqual("2.0.0", self.contract["contract_version"])
         self.assertEqual(
             {"oci-inputs-public-v1", "scratch-only-v1"},
             set(self.contract["input_policies"]),

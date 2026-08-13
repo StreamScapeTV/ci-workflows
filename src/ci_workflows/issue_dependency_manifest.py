@@ -94,6 +94,13 @@ def _validate_json_schema_node(
     if "const" in schema and instance != schema["const"]:
         _schema_failure(path, f"must equal {schema['const']!r}")
 
+    if "enum" in schema:
+        values = schema["enum"]
+        if not isinstance(values, list) or not values:
+            raise ManifestValidationError("invalid enum in trusted JSON Schema")
+        if instance not in values:
+            _schema_failure(path, "must equal one of the enumerated values")
+
     expected_type = schema.get("type")
     if expected_type is not None:
         if not isinstance(expected_type, str):
@@ -108,16 +115,25 @@ def _validate_json_schema_node(
         min_length = schema.get("minLength")
         if min_length is not None and len(instance) < int(min_length):
             _schema_failure(path, f"must contain at least {min_length} characters")
+        max_length = schema.get("maxLength")
+        if max_length is not None and len(instance) > int(max_length):
+            _schema_failure(path, f"must contain at most {max_length} characters")
 
     if isinstance(instance, int) and not isinstance(instance, bool):
         minimum = schema.get("minimum")
         if minimum is not None and instance < int(minimum):
             _schema_failure(path, f"must be >= {minimum}")
+        maximum = schema.get("maximum")
+        if maximum is not None and instance > int(maximum):
+            _schema_failure(path, f"must be <= {maximum}")
 
     if isinstance(instance, list):
         min_items = schema.get("minItems")
         if min_items is not None and len(instance) < int(min_items):
             _schema_failure(path, f"must contain at least {min_items} item(s)")
+        max_items = schema.get("maxItems")
+        if max_items is not None and len(instance) > int(max_items):
+            _schema_failure(path, f"must contain at most {max_items} item(s)")
         if schema.get("uniqueItems"):
             seen: set[str] = set()
             for item in instance:
@@ -138,6 +154,17 @@ def _validate_json_schema_node(
         for key in instance:
             if not isinstance(key, str):
                 _schema_failure(path, "object keys must be strings after normalization")
+
+        min_properties = schema.get("minProperties")
+        if min_properties is not None and len(instance) < int(min_properties):
+            _schema_failure(
+                path, f"must contain at least {min_properties} propert(ies)"
+            )
+        max_properties = schema.get("maxProperties")
+        if max_properties is not None and len(instance) > int(max_properties):
+            _schema_failure(
+                path, f"must contain at most {max_properties} propert(ies)"
+            )
 
         required = schema.get("required", [])
         if not isinstance(required, list):
