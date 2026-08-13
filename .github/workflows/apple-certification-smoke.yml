@@ -103,21 +103,50 @@ jobs:
           destination_profile: macos-unsigned
           source_trust: trusted-pr
 
-      - name: Require one semantic Apple runner selection
+      - name: Require exact same-SHA Release task set and Apple runner
         shell: bash
         env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+          IOS_SHA: ${{ steps.ios.outputs.source_sha }}
+          TVOS_SHA: ${{ steps.tvos.outputs.source_sha }}
+          MACOS_SHA: ${{ steps.macos.outputs.source_sha }}
+          IOS_TASK: ${{ steps.ios.outputs.task_profile }}
+          TVOS_TASK: ${{ steps.tvos.outputs.task_profile }}
+          MACOS_TASK: ${{ steps.macos.outputs.task_profile }}
           IOS_RUNS_ON: ${{ steps.ios.outputs.runs_on_json }}
           TVOS_RUNS_ON: ${{ steps.tvos.outputs.runs_on_json }}
           MACOS_RUNS_ON: ${{ steps.macos.outputs.runs_on_json }}
         run: |
           set -Eeuo pipefail
+          test "${IOS_SHA}" = "${EXPECTED_SHA}"
+          test "${TVOS_SHA}" = "${EXPECTED_SHA}"
+          test "${MACOS_SHA}" = "${EXPECTED_SHA}"
+          test "${IOS_TASK}" = iptv-ios-release || test "${IOS_TASK}" = ciw-ios-release-smoke
+          test "${TVOS_TASK}" = iptv-tvos-release || test "${TVOS_TASK}" = ciw-tvos-release-smoke
+          test "${MACOS_TASK}" = iptv-macos-release || test "${MACOS_TASK}" = ciw-macos-release-smoke
           test -n "${IOS_RUNS_ON}"
           test "${IOS_RUNS_ON}" = "${TVOS_RUNS_ON}"
           test "${IOS_RUNS_ON}" = "${MACOS_RUNS_ON}"
 
-  ios_release:
-    name: Real iOS Release compile
+  release:
+    name: Release / ${{ matrix.label }} compile
     needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: iOS simulator
+            validation_profile: ios-simulator
+            platform: ios
+            destination_profile: ios-simulator-default
+          - label: tvOS simulator
+            validation_profile: tvos-simulator
+            platform: tvos
+            destination_profile: tvos-simulator-default
+          - label: macOS
+            validation_profile: macos
+            platform: macos
+            destination_profile: macos-unsigned
     runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
     timeout-minutes: 120
     steps:
@@ -163,273 +192,68 @@ jobs:
           trust_mode: trusted-pr
 
       - id: execute
-        name: Execute exact iOS Release validation
+        name: Execute exact ${{ matrix.label }} Release validation
         uses: ./.ciw/actions/validate-apple
         with:
           phase: execute
           admitted_sha: ${{ github.event.pull_request.head.sha }}
-          validation_profile: ios-simulator
+          validation_profile: ${{ matrix.validation_profile }}
           working_directory: tests/fixtures/apple-validation/smoke-project
           command_profile: ciw-apple-release-smoke
-          platform: ios
+          platform: ${{ matrix.platform }}
           scheme: AppleValidationSmoke
-          destination_profile: ios-simulator-default
+          destination_profile: ${{ matrix.destination_profile }}
           source_trust: trusted-pr
 
-      - name: Remove Apple-specific iOS Release state
-        if: always()
-        uses: ./.ciw/actions/validate-apple
-        with:
-          phase: cleanup
-          admitted_sha: ${{ github.event.pull_request.head.sha }}
-          validation_profile: ios-simulator
-          working_directory: tests/fixtures/apple-validation/smoke-project
-          command_profile: ciw-apple-release-smoke
-          platform: ios
-          scheme: AppleValidationSmoke
-          destination_profile: ios-simulator-default
-          source_trust: trusted-pr
-
-      - name: Verify zero Apple-specific iOS Release residue
-        if: always()
-        uses: ./.ciw/actions/validate-apple
-        with:
-          phase: residue
-          admitted_sha: ${{ github.event.pull_request.head.sha }}
-          validation_profile: ios-simulator
-          working_directory: tests/fixtures/apple-validation/smoke-project
-          command_profile: ciw-apple-release-smoke
-          platform: ios
-          scheme: AppleValidationSmoke
-          destination_profile: ios-simulator-default
-          source_trust: trusted-pr
-
-      - name: Remove exact admitted iOS Release smoke source
-        if: always()
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          python3 .ciw/scripts/ci/apple_checkout_cleanup.py source
-
-      - name: Remove and verify registered iOS Release workflow state
-        if: always()
-        uses: ./.ciw/actions/cleanup-workspace
-
-      - name: Remove exact iOS Release implementation checkout
-        if: always()
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          python3 .ciw/scripts/ci/apple_checkout_cleanup.py central
-
-  tvos_release:
-    name: Real tvOS Release compile
-    needs: plan
-    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
-    timeout-minutes: 120
-    steps:
-      - name: Check out exact validation implementation
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          path: .ciw
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
-
-      - name: Clear fixed admitted source checkout root
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          python3 .ciw/scripts/ci/apple_checkout_cleanup.py source
-
-      - name: Check out exact admitted Release smoke source
-        uses: ./.ciw/actions/exact-checkout
-        with:
-          repository: ${{ github.repository }}
-          admitted_sha: ${{ github.event.pull_request.head.sha }}
-          path: source
-          fetch_depth: "1"
-
-      - name: Verify exact admitted Release smoke source
+      - name: Verify executed result is tied to the exact pull request SHA
         shell: bash
         env:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+          EXECUTED_SHA: ${{ steps.execute.outputs.source_sha }}
         run: |
           set -Eeuo pipefail
-          (cd source && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
-          (cd source && test -z "$(git status --porcelain=v1 --untracked-files=all)")
+          test "${EXECUTED_SHA}" = "${EXPECTED_SHA}"
 
-      - name: Prepare isolated Apple state
-        uses: ./.ciw/actions/prepare-workspace
-        with:
-          profile: ${{ needs.plan.outputs.workspace_profile }}
-          cache_mode: disabled
-          source_sha: ${{ github.event.pull_request.head.sha }}
-          trust_mode: trusted-pr
-
-      - id: execute
-        name: Execute exact tvOS Release validation
-        uses: ./.ciw/actions/validate-apple
-        with:
-          phase: execute
-          admitted_sha: ${{ github.event.pull_request.head.sha }}
-          validation_profile: tvos-simulator
-          working_directory: tests/fixtures/apple-validation/smoke-project
-          command_profile: ciw-apple-release-smoke
-          platform: tvos
-          scheme: AppleValidationSmoke
-          destination_profile: tvos-simulator-default
-          source_trust: trusted-pr
-
-      - name: Remove Apple-specific tvOS Release state
+      - name: Remove Apple-specific Release state
         if: always()
         uses: ./.ciw/actions/validate-apple
         with:
           phase: cleanup
           admitted_sha: ${{ github.event.pull_request.head.sha }}
-          validation_profile: tvos-simulator
+          validation_profile: ${{ matrix.validation_profile }}
           working_directory: tests/fixtures/apple-validation/smoke-project
           command_profile: ciw-apple-release-smoke
-          platform: tvos
+          platform: ${{ matrix.platform }}
           scheme: AppleValidationSmoke
-          destination_profile: tvos-simulator-default
+          destination_profile: ${{ matrix.destination_profile }}
           source_trust: trusted-pr
 
-      - name: Verify zero Apple-specific tvOS Release residue
+      - name: Verify zero Apple-specific Release residue
         if: always()
         uses: ./.ciw/actions/validate-apple
         with:
           phase: residue
           admitted_sha: ${{ github.event.pull_request.head.sha }}
-          validation_profile: tvos-simulator
+          validation_profile: ${{ matrix.validation_profile }}
           working_directory: tests/fixtures/apple-validation/smoke-project
           command_profile: ciw-apple-release-smoke
-          platform: tvos
+          platform: ${{ matrix.platform }}
           scheme: AppleValidationSmoke
-          destination_profile: tvos-simulator-default
+          destination_profile: ${{ matrix.destination_profile }}
           source_trust: trusted-pr
 
-      - name: Remove exact admitted tvOS Release smoke source
+      - name: Remove exact admitted Release smoke source
         if: always()
         shell: bash
         run: |
           set -Eeuo pipefail
           python3 .ciw/scripts/ci/apple_checkout_cleanup.py source
 
-      - name: Remove and verify registered tvOS Release workflow state
+      - name: Remove and verify registered Release workflow state
         if: always()
         uses: ./.ciw/actions/cleanup-workspace
 
-      - name: Remove exact tvOS Release implementation checkout
-        if: always()
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          python3 .ciw/scripts/ci/apple_checkout_cleanup.py central
-
-  macos_release:
-    name: Real unsigned macOS Release compile
-    needs: plan
-    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
-    timeout-minutes: 120
-    steps:
-      - name: Check out exact validation implementation
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          path: .ciw
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
-
-      - name: Clear fixed admitted source checkout root
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          python3 .ciw/scripts/ci/apple_checkout_cleanup.py source
-
-      - name: Check out exact admitted Release smoke source
-        uses: ./.ciw/actions/exact-checkout
-        with:
-          repository: ${{ github.repository }}
-          admitted_sha: ${{ github.event.pull_request.head.sha }}
-          path: source
-          fetch_depth: "1"
-
-      - name: Verify exact admitted Release smoke source
-        shell: bash
-        env:
-          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -Eeuo pipefail
-          (cd source && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
-          (cd source && test -z "$(git status --porcelain=v1 --untracked-files=all)")
-
-      - name: Prepare isolated Apple state
-        uses: ./.ciw/actions/prepare-workspace
-        with:
-          profile: ${{ needs.plan.outputs.workspace_profile }}
-          cache_mode: disabled
-          source_sha: ${{ github.event.pull_request.head.sha }}
-          trust_mode: trusted-pr
-
-      - id: execute
-        name: Execute exact unsigned macOS Release validation
-        uses: ./.ciw/actions/validate-apple
-        with:
-          phase: execute
-          admitted_sha: ${{ github.event.pull_request.head.sha }}
-          validation_profile: macos
-          working_directory: tests/fixtures/apple-validation/smoke-project
-          command_profile: ciw-apple-release-smoke
-          platform: macos
-          scheme: AppleValidationSmoke
-          destination_profile: macos-unsigned
-          source_trust: trusted-pr
-
-      - name: Remove Apple-specific macOS Release state
-        if: always()
-        uses: ./.ciw/actions/validate-apple
-        with:
-          phase: cleanup
-          admitted_sha: ${{ github.event.pull_request.head.sha }}
-          validation_profile: macos
-          working_directory: tests/fixtures/apple-validation/smoke-project
-          command_profile: ciw-apple-release-smoke
-          platform: macos
-          scheme: AppleValidationSmoke
-          destination_profile: macos-unsigned
-          source_trust: trusted-pr
-
-      - name: Verify zero Apple-specific macOS Release residue
-        if: always()
-        uses: ./.ciw/actions/validate-apple
-        with:
-          phase: residue
-          admitted_sha: ${{ github.event.pull_request.head.sha }}
-          validation_profile: macos
-          working_directory: tests/fixtures/apple-validation/smoke-project
-          command_profile: ciw-apple-release-smoke
-          platform: macos
-          scheme: AppleValidationSmoke
-          destination_profile: macos-unsigned
-          source_trust: trusted-pr
-
-      - name: Remove exact admitted macOS Release smoke source
-        if: always()
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          python3 .ciw/scripts/ci/apple_checkout_cleanup.py source
-
-      - name: Remove and verify registered macOS Release workflow state
-        if: always()
-        uses: ./.ciw/actions/cleanup-workspace
-
-      - name: Remove exact macOS Release implementation checkout
+      - name: Remove exact Release implementation checkout
         if: always()
         shell: bash
         run: |
@@ -438,7 +262,7 @@ jobs:
 
   zero_artifacts:
     name: Verify Apple Release smoke remains zero-artifact
-    needs: [plan, ios_release, tvos_release, macos_release]
+    needs: [plan, release]
     if: ${{ always() && !cancelled() }}
     runs-on: [linux, amd64, general]
     timeout-minutes: 10
@@ -446,17 +270,13 @@ jobs:
       - name: Require all Release platforms and zero Actions artifacts
         env:
           PLAN_RESULT: ${{ needs.plan.result }}
-          IOS_RESULT: ${{ needs.ios_release.result }}
-          TVOS_RESULT: ${{ needs.tvos_release.result }}
-          MACOS_RESULT: ${{ needs.macos_release.result }}
+          RELEASE_RESULT: ${{ needs.release.result }}
           GITHUB_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -Eeuo pipefail
           test "${PLAN_RESULT}" = success
-          test "${IOS_RESULT}" = success
-          test "${TVOS_RESULT}" = success
-          test "${MACOS_RESULT}" = success
+          test "${RELEASE_RESULT}" = success
           python3 - <<'PY_ARTIFACTS'
           import json
           import os
