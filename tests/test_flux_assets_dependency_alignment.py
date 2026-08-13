@@ -4,6 +4,9 @@ import json
 import unittest
 from pathlib import Path
 
+from ci_workflows.flux_assets import FluxAssetError
+from ci_workflows.flux_assets_source import validate_dependency_product_inventory
+
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = ROOT / "contracts/flux-infrastructure-products.json"
 SCHEMA = ROOT / "contracts/flux-infrastructure-products.schema.json"
@@ -26,6 +29,30 @@ class FluxHelmDependencyAlignmentTests(unittest.TestCase):
             self.assertEqual(
                 contract["dependency_interfaces"][api]["product_id"],
                 expected,
+            )
+
+    def test_dependency_products_must_be_current_in_merged_inventory(self) -> None:
+        contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
+        resolved = validate_dependency_product_inventory(
+            contract, products_path=PRODUCTS
+        )
+        self.assertEqual(
+            resolved,
+            {
+                "helm.publish": "flux-runner-chart-assets",
+                "helm.validate": "flux-runner-chart-assets",
+                "oci.build": "flux-runner-images",
+                "oci.publish": "flux-runner-images",
+            },
+        )
+
+        branch_private = json.loads(json.dumps(contract))
+        branch_private["dependency_interfaces"]["helm.publish"]["product_id"] = (
+            "flux-github-actions-runner-chart"
+        )
+        with self.assertRaisesRegex(FluxAssetError, "dependency_product_unregistered"):
+            validate_dependency_product_inventory(
+                branch_private, products_path=PRODUCTS
             )
 
     def test_arc_upstreams_use_apache_2_license_identity(self) -> None:
