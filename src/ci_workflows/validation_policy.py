@@ -257,7 +257,8 @@ def _validate_workflow(
                 path,
                 f"job {job_id!r} uses secrets: inherit",
             )
-        if "uses" in job:
+        is_reusable_call = "uses" in job
+        if is_reusable_call:
             if "runs-on" in job or "steps" in job:
                 _finding(
                     findings,
@@ -282,24 +283,24 @@ def _validate_workflow(
                     config,
                     findings,
                 )
-        timeout = job.get("timeout-minutes")
-        if not isinstance(timeout, int) or timeout <= 0:
-            _finding(
-                findings,
-                config,
-                "missing-timeout",
-                path,
-                f"job {job_id!r} requires a positive timeout-minutes",
-            )
-        elif timeout > config.max_timeout_minutes:
-            _finding(
-                findings,
-                config,
-                "excessive-timeout",
-                path,
-                f"job {job_id!r} timeout {timeout} exceeds "
-                f"{config.max_timeout_minutes}",
-            )
+            timeout = job.get("timeout-minutes")
+            if type(timeout) is not int or timeout <= 0:
+                _finding(
+                    findings,
+                    config,
+                    "missing-timeout",
+                    path,
+                    f"job {job_id!r} requires a positive timeout-minutes",
+                )
+            elif timeout > config.max_timeout_minutes:
+                _finding(
+                    findings,
+                    config,
+                    "excessive-timeout",
+                    path,
+                    f"job {job_id!r} timeout {timeout} exceeds "
+                    f"{config.max_timeout_minutes}",
+                )
         strategy = job.get("strategy", {})
         if isinstance(strategy, Mapping) and "matrix" in strategy:
             matrix = strategy.get("matrix")
