@@ -9,6 +9,7 @@ COPY --from=docker-cli --chmod=0755 /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker-cli --chmod=0755 /usr/local/libexec/docker/cli-plugins/docker-buildx /usr/local/lib/docker/cli-plugins/docker-buildx
 COPY --from=docker-cli --chmod=0755 /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/lib/docker/cli-plugins/docker-compose
 COPY --from=docker-cli --chmod=0755 /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/bin/docker-compose
+COPY --chmod=0755 smoke.sh /usr/local/bin/runner-image-smoke
 RUN docker --version | grep -F '29.7.2' && \
     docker buildx version | grep -F 'v0.36.1' && \
     docker compose version | grep -F 'v5.4.0' && \
