@@ -13,7 +13,6 @@ from . import oci_publish_assertions as _assertions
 OciPublishError = _runtime.OciPublishError
 PublishPlan = _runtime.PublishPlan
 PublishTarget = _runtime.PublishTarget
-authenticate = _runtime.authenticate
 cleanup = _runtime.cleanup
 publication_state_root = _runtime.publication_state_root
 replay_decision = _runtime.replay_decision
@@ -98,6 +97,18 @@ def _publication_allowed(plan: PublishPlan, environment: Mapping[str, str]) -> b
     if event == "workflow_dispatch":
         return False
     raise OciPublishError("publication_untrusted")
+
+
+def authenticate(
+    plan: PublishPlan,
+    environment: Mapping[str, str],
+    username: str,
+    token: str,
+) -> dict[str, str]:
+    """Create registry auth only after the caller event is publication-eligible."""
+
+    _publication_allowed(plan, environment)
+    return _runtime.authenticate(plan, environment, username, token)
 
 
 def publish(

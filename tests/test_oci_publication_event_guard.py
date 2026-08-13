@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from ci_workflows import oci_publish_guards as guards
 from ci_workflows.oci_publish import OciPublishError
@@ -35,10 +36,34 @@ class PublicationEventGuardTests(unittest.TestCase):
                 self.plan, {"GITHUB_EVENT_NAME": "workflow_dispatch"}
             )
         )
-        with self.assertRaisesRegex(OciPublishError, "publication_untrusted"):
-            guards._publication_allowed(  # type: ignore[arg-type]
-                self.plan, {"GITHUB_EVENT_NAME": "pull_request"}
-            )
+        for event_name in ("pull_request", "issue_comment", "workflow_run"):
+            with self.subTest(event_name=event_name):
+                with self.assertRaisesRegex(OciPublishError, "publication_untrusted"):
+                    guards._publication_allowed(  # type: ignore[arg-type]
+                        self.plan, {"GITHUB_EVENT_NAME": event_name}
+                    )
+
+    def test_authentication_rejects_non_release_events_before_registry_state(self) -> None:
+        for environment, expected in (
+            (
+                {
+                    "GITHUB_EVENT_NAME": "push",
+                    "GITHUB_REF_TYPE": "branch",
+                    "GITHUB_REF_NAME": "main",
+                    "GITHUB_REF": "refs/heads/main",
+                },
+                "publication_ref_forbidden",
+            ),
+            ({"GITHUB_EVENT_NAME": "issue_comment"}, "publication_untrusted"),
+        ):
+            with self.subTest(environment=environment), patch.object(
+                guards._runtime, "authenticate"
+            ) as authenticate:
+                with self.assertRaisesRegex(OciPublishError, expected):
+                    guards.authenticate(  # type: ignore[arg-type]
+                        self.plan, environment, "publisher", "secret"
+                    )
+                authenticate.assert_not_called()
 
 
 if __name__ == "__main__":

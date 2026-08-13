@@ -125,7 +125,14 @@ class GuardedPublicationFixture(unittest.TestCase):
                 return
             raise AssertionError((source, destination))
 
-        self.env["GITHUB_EVENT_NAME"] = "push"
+        self.env.update(
+            {
+                "GITHUB_EVENT_NAME": "push",
+                "GITHUB_REF_TYPE": "tag",
+                "GITHUB_REF_NAME": "1.2.3",
+                "GITHUB_REF": "refs/tags/1.2.3",
+            }
+        )
         with patch.object(guards, "_inspect_remote_digest", side_effect=inspect), patch.object(
             runtime, "_copy", side_effect=copy
         ) as copy_call:
@@ -168,6 +175,9 @@ class AuthenticationAndCleanupTests(unittest.TestCase):
                 "GITHUB_RUN_ID": "9002",
                 "GITHUB_RUN_ATTEMPT": "1",
                 "GITHUB_EVENT_NAME": "push",
+                "GITHUB_REF_TYPE": "tag",
+                "GITHUB_REF_NAME": "1.2.3",
+                "GITHUB_REF": "refs/tags/1.2.3",
             }
             Path(env["RUNNER_TEMP"]).mkdir()
             token = "bounded-secret-token"
