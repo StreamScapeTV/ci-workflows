@@ -1,0 +1,1 @@
+"""Apple contract fragment support."""
