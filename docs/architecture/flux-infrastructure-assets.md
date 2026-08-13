@@ -39,11 +39,21 @@ The typed planner/guard validates:
 7. runner selector and workspace profile come only from the product contract;
 8. dependency API list and expected outputs come only from the contract.
 
+The public and internal reusable workflows require `github.repository` to be
+exactly `StreamScapeTV/flux` before source checkout or composition. The thin
+runtime adds a second allowlist: plan/release may execute only from
+`StreamScapeTV/flux` or from `StreamScapeTV/ci-workflows` for repository-owned
+exact-head smoke. An unrelated repository cannot call the composite directly and
+spoof event/ref inputs.
+
 The public workflow's `github` context remains caller-associated, so it passes
-only event/ref/default-branch metadata into the typed guard. Central source is
-checked out by `job.workflow_repository` and `job.workflow_sha`, which identify
-the called reusable workflow itself. The planner emits no registry host,
-credentials, cluster identity, or mutable selection state.
+only actual event/ref/default-branch metadata into the typed guard. The internal
+leaf does the same: event name, ref type/name, and default branch are derived
+from `${{ github.* }}` and are not `workflow_call` inputs. A Flux PR therefore
+cannot directly call the leaf and claim to be a release tag push. Central source
+is checked out by `job.workflow_repository` and `job.workflow_sha`, which
+identify the called reusable workflow itself. The planner emits no registry
+host, credentials, cluster identity, or mutable selection state.
 
 ## Bootstrap and source boundary
 
@@ -52,14 +62,15 @@ requires a separate current-known-good builder identity. Both known-good builder
 and candidate must be digest-pinned and different. A candidate cannot validate
 itself simply because it built successfully.
 
-Every effective image `FROM` is resolved inside the admitted source and required
-to use an explicit digest reference. Chart publication receives the same
-fail-closed source boundary through `flux_assets_source`: the checked-in chart
-root and required `Chart.yaml`, `values.yaml`, and `values.schema.json` must
-resolve as ordinary files below the admitted source, and symlink/path escape is
-rejected before dependency publication can receive credentials. This exposes
-mutable or escaped current Flux source as an adoption blocker instead of hiding
-it behind central orchestration.
+Every effective image `FROM` is required to use an explicit digest reference.
+The strict source adapter resolves each exact runner Dockerfile as a normalized
+relative POSIX path, rejects a symlink source root or Dockerfile, requires the
+resolved ordinary file to stay below the admitted source, then parses pinned
+bases. Chart publication receives the same fail-closed boundary: the checked-in
+chart root and required `Chart.yaml`, `values.yaml`, and `values.schema.json`
+must resolve as ordinary non-symlink files below the admitted source. This
+exposes mutable or escaped current Flux source as an adoption blocker instead of
+hiding it behind central orchestration.
 
 ## Dependency composition
 
@@ -69,19 +80,29 @@ outputs registered for:
 - `oci.build` and `oci.publish` for the runner-image family;
 - `helm.validate` and `helm.publish` for runner chart assets.
 
-The dependency product identity follows the current **merged** central product
-inventory. At this checkpoint the Helm dependency remains
-`flux-runner-chart-assets`; a different branch-private #18 identity is not
-consumed before it actually merges.
+Every dependency `product_id` is checked against current merged
+`contracts/products.json` entries owned by `StreamScapeTV/flux`. API families
+are bound to product kinds: `oci.*` requires the current
+`oci-runner-image-family`, while `helm.*` requires the current
+`helm-oci-chart-assets` product. Thus a branch-private dependency identity or a
+current-but-wrong product kind fails before planning. At this checkpoint the
+Helm dependency remains `flux-runner-chart-assets`; the branch-private #18
+`flux-github-actions-runner-chart` identity is not consumed before it actually
+merges.
 
-Dependency evidence must match the operation's dependency set exactly. The
-composition layer checks required outputs, success state, immutable identities,
-and mutable references while preserving nested OCI per-platform evidence.
-`oci.publish` is additionally bound to the exact source SHA/version, two live
-runner targets, target digest/reference parity, and contract-owned
-canary/known-good/rollback identities. `helm.publish` is bound to the exact
-immutable chart version, remote chart digest, and normalized package SHA-256.
-Missing, extra, stale, or conflicting dependency evidence fails closed.
+The implemented `oci.build` interface receives an additional exact adapter based
+on merged `contracts/oci-products.json`. For the Flux runner family, target sets
+must be exactly the merged OCI target IDs and each target must return exactly its
+contract-owned platform set. `platform_digests_json` rows must use the merged
+shape `{platform, manifest_digest, config_digest, layer_digests}` with immutable
+SHA-256 identities; duplicate, missing, unexpected, or stale pre-integration
+nested platform evidence fails closed.
+
+Dependency evidence must otherwise match the operation's dependency set exactly.
+The composition layer checks required outputs, success state, immutable
+identities, and mutable references. Detailed `oci.publish` and Helm publication
+payload adapters remain dormant until those APIs actually merge; #33 does not
+promote branch-private synthetic fixtures into authoritative interfaces.
 
 `oci.publish`, `helm.validate`, and `helm.publish` remain planned/unmerged on the
 current central branch, so the issue-exclusive public workflow passes empty
@@ -110,10 +131,9 @@ The release manifest is canonical JSON hashed with SHA-256. Immutable references
 are accepted on replay only when the complete identity set and every digest are
 identical. A partial replay or conflicting immutable version fails.
 
-The guarded composer retains nested read-back evidence in the manifest instead
-of forcing `platform_digests_json` into a flat map. This is required because the
-OCI interfaces carry per-target/per-platform manifest, config, layer and label
-proof rather than only one digest string.
+The guarded composer retains nested read-back evidence in the manifest rather
+than collapsing dependency outputs to a single digest. Final publication output
+shape is reconciled only from merged dependency contracts.
 
 ## Handoff boundary
 
@@ -134,13 +154,13 @@ called-workflow identity and the admitted Flux source by exact SHA. The thin
 composite action invokes only the Python adapter.
 
 The registered `.github/workflows/internal-flux-assets.yml` leaf is a separate
-composition-only component on `[linux, amd64, general]`. It does not accept
-runner labels, does not call another reusable workflow, and owns no registry or
-cluster credential. It remains staged because GitHub reusable-call jobs do not
-accept `timeout-minutes`, while the current central validation policy still
-requires a positive timeout on every job. #33 does not work around that shared
-policy with GitHub-invalid YAML; the shared harness/call-site rule must be
-reconciled before the leaf can be nested.
+composition-only component on `[linux, amd64, general]`. It has no caller-supplied
+trust metadata, accepts no runner labels, calls no other reusable workflow, and
+owns no registry or cluster credential. It remains staged because GitHub
+reusable-call jobs do not accept `timeout-minutes`, while the current central
+validation policy still requires a positive timeout on every job. #33 does not
+work around that shared policy with GitHub-invalid YAML; the shared
+harness/call-site rule must be reconciled before the leaf can be nested.
 
 Transient state is issue-owned beneath `RUNNER_TEMP`; cleanup unlinks a symlink
 root rather than following it and residue verification fails if any state
