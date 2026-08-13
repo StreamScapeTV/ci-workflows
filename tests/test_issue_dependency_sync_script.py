@@ -144,10 +144,28 @@ class ScriptContractTests(unittest.TestCase):
             "/orgs/StreamScapeTV/repos?type=all&per_page=100&page=1",
         )
 
-    def test_read_file_allows_only_agents_and_manifest(self):
+    def test_read_file_allows_only_dependency_manifest_suffixes(self):
         gateway = sync_script.GitHubRestGateway("secret-token")
-        with self.assertRaises(sync_script.GitHubApiError):
-            gateway.read_file("StreamScapeTV/demo", "README.md", "main")
+        with mock.patch.object(gateway, "_request_json", return_value=None) as request:
+            self.assertIsNone(
+                gateway.read_file(
+                    "StreamScapeTV/demo",
+                    "ISSUE_DEPENDENCIES.yml",
+                    "main",
+                )
+            )
+            self.assertIsNone(
+                gateway.read_file(
+                    "StreamScapeTV/demo",
+                    "ISSUE_DEPENDENCIES.yaml",
+                    "main",
+                )
+            )
+        self.assertEqual(request.call_count, 2)
+        for path in ("AGENTS.md", "README.md"):
+            with self.subTest(path=path):
+                with self.assertRaises(sync_script.GitHubApiError):
+                    gateway.read_file("StreamScapeTV/demo", path, "main")
 
     def test_http_errors_are_sanitized(self):
         gateway = sync_script.GitHubRestGateway("top-secret")
