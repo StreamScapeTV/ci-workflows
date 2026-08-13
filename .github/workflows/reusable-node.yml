@@ -169,7 +169,7 @@ jobs:
       - id: dependency_cache_restore
         name: Restore exact npm dependency cache
         if: ${{ inputs.install_profile == 'npm-ci' }}
-        uses: StreamScapeTV/ci-workflows/actions/dependency-cache@bf23a523614c21552b4c2782533f41d6447c4dd3 # issue #149 immutable cache checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/dependency-cache@82e093dd5912a0f264b9939275657211b378e389 # issue #149 hardened immutable cache checkpoint
         with:
           phase: restore
           family: npm
@@ -213,7 +213,7 @@ jobs:
       - id: dependency_cache_save
         name: Save exact npm dependency cache after protected integration success
         if: ${{ inputs.install_profile == 'npm-ci' && steps.node.outcome == 'success' && github.event_name == 'push' && github.ref_protected && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-        uses: StreamScapeTV/ci-workflows/actions/dependency-cache@bf23a523614c21552b4c2782533f41d6447c4dd3 # issue #149 immutable cache checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/dependency-cache@82e093dd5912a0f264b9939275657211b378e389 # issue #149 hardened immutable cache checkpoint
         with:
           phase: save
           family: npm
