@@ -60,7 +60,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve contract-owned command and runner plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-python@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-python@fd9d32664635d17dfae6015eb9ff66c3532750b3 # issue #155 immutable private-action checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -114,7 +114,7 @@ jobs:
 
       - id: python
         name: Execute bounded Python validation
-        uses: StreamScapeTV/ci-workflows/actions/validate-python@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-python@fd9d32664635d17dfae6015eb9ff66c3532750b3 # issue #155 immutable private-action checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
