@@ -9,12 +9,14 @@ import yaml
 from ci_workflows.validation_model import ActionsLoader
 
 ROOT = Path(__file__).resolve().parents[1]
+SOURCE_SHA = "87a7454aaa59cb680db8f580d22551b749ac4193"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 APPLE_SHA = "88d179740145ccea00b6986d78ceb67ea365face"
 OCI_SHA = "29cb88e406a0490834bd556bb825d0e227c862ac"
 GITOPS_SHA = "8445e63dd9fa9468b60b6d0c61e543da9681b47b"
 
 FOUNDATION = "issue #116 immutable private-action checkpoint"
+ISSUE_132 = "issue #132 immutable mode-aware source checkpoint"
 ISSUE_104 = "issue #104 immutable private-action checkpoint"
 ISSUE_125 = "issue #125 immutable private-action checkpoint"
 ISSUE_131 = "issue #131 immutable Release-aware Apple checkpoint"
@@ -72,6 +74,8 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
 }
 
 ANDROID_WORKFLOW = ".github/workflows/reusable-android.yml"
+SOURCE_WORKFLOW = ".github/workflows/reusable-resolve-source.yml"
+SOURCE_HELPER = "StreamScapeTV/ci-workflows/actions/resolve-source"
 
 
 class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
@@ -133,7 +137,27 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
             job_outputs["resolved_inputs_json"],
         )
         self.assertEqual(4, source.count(f"actions/validate-oci@{OCI_SHA}"))
+    def test_source_reusable_uses_locked_mode_aware_helper_checkpoint(self) -> None:
+        source, workflow = self.load(SOURCE_WORKFLOW)
+        locked = self.locked_actions()
+        helper = next(
+            step
+            for job in workflow["jobs"].values()
+            for step in job.get("steps", [])
+            if str(step.get("uses", "")).startswith(f"{SOURCE_HELPER}@")
+        )
 
+        self.assertEqual(helper["uses"], f"{SOURCE_HELPER}@{SOURCE_SHA}")
+        self.assertNotIn("actions/checkout@", source)
+        self.assertNotIn("secrets: inherit", source)
+        self.assertEqual(locked[SOURCE_HELPER]["sha"], SOURCE_SHA)
+        self.assertEqual(locked[SOURCE_HELPER]["release"], ISSUE_132)
+        self.assertEqual(locked[SOURCE_HELPER]["runtime"], "composite")
+        self.assertEqual(
+            locked[SOURCE_HELPER]["source"],
+            f"https://github.com/StreamScapeTV/ci-workflows/tree/"
+            f"{SOURCE_SHA}/actions/resolve-source",
+        )
     def test_private_android_consumer_cannot_control_central_source_or_credential_scope(self) -> None:
         source, workflow = self.load(ANDROID_WORKFLOW)
         public = json.loads(

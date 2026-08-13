@@ -38,10 +38,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/resolve-source",
-      "sha": "90706a72aa68c81b7840c139965ae528d8ed6b25",
-      "release": "issue #7 immutable helper checkpoint",
+      "sha": "87a7454aaa59cb680db8f580d22551b749ac4193",
+      "release": "issue #132 immutable mode-aware source checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/90706a72aa68c81b7840c139965ae528d8ed6b25/actions/resolve-source"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/87a7454aaa59cb680db8f580d22551b749ac4193/actions/resolve-source"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-node",
