@@ -9,6 +9,9 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 from . import apple as apple_validation
+from .apple_contract_fragments import load_apple_contract
+
+apple_validation.load_apple_contract = load_apple_contract
 
 try:
     from . import runners
