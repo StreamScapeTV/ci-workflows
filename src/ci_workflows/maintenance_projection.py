@@ -7,10 +7,6 @@ from typing import Any, Mapping, Sequence
 from .maintenance_contract import MaintenanceContract, MaintenanceError
 from .maintenance_core import MaintenanceApi, OperationResult, _positive, _timestamp
 
-_STATUS_STATES = {"error", "failure", "pending", "success"}
-_CONTEXT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._:/-]{0,99}$")
-_MARKER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$")
-
 
 def _bounded_line(
     value: str,
@@ -31,26 +27,28 @@ def _bounded_line(
     return value
 
 
-def _bounded_body(value: str) -> str:
+def _bounded_body(value: str, maximum: int) -> str:
     if (
         not isinstance(value, str)
         or not value
-        or len(value.encode("utf-8")) > 16000
+        or len(value.encode("utf-8")) > maximum
         or "\x00" in value
     ):
         raise MaintenanceError("projection_body_invalid")
     return value
 
 
-def _labels(value: Sequence[str]) -> tuple[str, ...]:
-    if not isinstance(value, (list, tuple)) or len(value) > 20:
+def _labels(value: Sequence[str], policy: Mapping[str, Any]) -> tuple[str, ...]:
+    maximum_count = int(policy["label_max_count"])
+    maximum_bytes = int(policy["label_max_bytes"])
+    if not isinstance(value, (list, tuple)) or len(value) > maximum_count:
         raise MaintenanceError("projection_labels_invalid")
     result: list[str] = []
     for label in value:
         if (
             not isinstance(label, str)
             or not label
-            or len(label.encode("utf-8")) > 50
+            or len(label.encode("utf-8")) > maximum_bytes
             or any(ord(character) < 32 for character in label)
         ):
             raise MaintenanceError("projection_labels_invalid")
@@ -87,6 +85,7 @@ def _issue_snapshot(issue: Mapping[str, Any]) -> tuple[Any, ...]:
 def _status_snapshot(
     statuses: list[Mapping[str, Any]],
     context: str,
+    states: set[str],
 ) -> tuple[Any, ...] | None:
     if not isinstance(statuses, list):
         raise MaintenanceError("projection_status_invalid")
@@ -106,9 +105,11 @@ def _status_snapshot(
         status_description = status.get("description")
         if (
             not isinstance(status_state, str)
-            or status_state not in _STATUS_STATES
-            or status_description is not None
-            and not isinstance(status_description, str)
+            or status_state not in states
+            or (
+                status_description is not None
+                and not isinstance(status_description, str)
+            )
         ):
             raise MaintenanceError("projection_status_invalid")
         target_url = status.get("target_url")
@@ -147,16 +148,18 @@ def project_status(
     contract.validate_request_id(request_id)
     contract.validate_sha(expected_sha)
     project = contract.project(project_id)
+    policy = contract.projection
+    states = set(str(value) for value in policy["status_states"])
     if (
         not isinstance(state, str)
-        or state not in _STATUS_STATES
+        or state not in states
         or not isinstance(context, str)
-        or _CONTEXT.fullmatch(context) is None
+        or re.fullmatch(str(policy["status_context_pattern"]), context) is None
     ):
         raise MaintenanceError("projection_status_invalid")
     _bounded_line(
         description,
-        maximum=140,
+        maximum=int(policy["status_description_max_bytes"]),
         code="projection_status_invalid",
         allow_empty=True,
     )
@@ -166,7 +169,7 @@ def project_status(
         raise MaintenanceError("projection_source_changed")
 
     statuses = api.list_statuses(project.repository, expected_sha)
-    current = _status_snapshot(statuses, context)
+    current = _status_snapshot(statuses, context, states)
     desired = (state, context, description, "")
     if current is not None and current[1:5] == desired:
         return OperationResult(
@@ -187,7 +190,7 @@ def project_status(
     if (
         fresh_commit is None
         or fresh_commit.get("sha") != expected_sha
-        or _status_snapshot(fresh_statuses, context) != current
+        or _status_snapshot(fresh_statuses, context, states) != current
     ):
         raise MaintenanceError("projection_status_changed_before_update")
 
@@ -227,15 +230,22 @@ def project_comment(
     """Create or update one deterministic marked issue/PR comment."""
     contract.validate_request_id(request_id)
     project = contract.project(project_id)
+    policy = contract.projection
     number = _positive(issue_number, "projection_issue_invalid")
     _bounded_line(
         expected_updated_at,
         maximum=64,
         code="projection_issue_invalid",
     )
-    if not isinstance(marker, str) or _MARKER.fullmatch(marker) is None:
+    if (
+        not isinstance(marker, str)
+        or re.fullmatch(str(policy["comment_marker_pattern"]), marker) is None
+    ):
         raise MaintenanceError("projection_marker_invalid")
-    rendered = f"<!-- ci-workflows-projection:{marker} -->\n{_bounded_body(body)}"
+    rendered = (
+        f"<!-- ci-workflows-projection:{marker} -->\n"
+        f"{_bounded_body(body, int(policy['comment_body_max_bytes']))}"
+    )
     prefix = f"<!-- ci-workflows-projection:{marker} -->"
 
     issue = api.get_issue(project.repository, number)
@@ -330,14 +340,15 @@ def project_labels(
     """Replace the complete label set from an exact expected issue snapshot."""
     contract.validate_request_id(request_id)
     project = contract.project(project_id)
+    policy = contract.projection
     number = _positive(issue_number, "projection_issue_invalid")
     _bounded_line(
         expected_updated_at,
         maximum=64,
         code="projection_issue_invalid",
     )
-    expected = _labels(expected_labels)
-    desired = _labels(desired_labels)
+    expected = _labels(expected_labels, policy)
+    desired = _labels(desired_labels, policy)
 
     issue = api.get_issue(project.repository, number)
     if issue is None:
