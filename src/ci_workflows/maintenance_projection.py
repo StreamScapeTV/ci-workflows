@@ -5,7 +5,7 @@ import re
 from typing import Any, Mapping, Sequence
 
 from .maintenance_contract import MaintenanceContract, MaintenanceError
-from .maintenance_core import MaintenanceApi, OperationResult, _positive
+from .maintenance_core import MaintenanceApi, OperationResult, _positive, _timestamp
 
 _STATUS_STATES = {"error", "failure", "pending", "success"}
 _CONTEXT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._:/-]{0,99}$")
@@ -88,18 +88,32 @@ def _status_snapshot(
     statuses: list[Mapping[str, Any]],
     context: str,
 ) -> tuple[Any, ...] | None:
+    matches: list[tuple[Any, ...]] = []
     for status in statuses:
         if status.get("context") != context:
             continue
-        return (
+        status_id = _positive(
             status.get("id"),
-            status.get("state"),
-            status.get("context"),
-            status.get("description"),
-            status.get("target_url"),
-            status.get("updated_at"),
+            "projection_status_invalid",
         )
-    return None
+        updated_at = status.get("updated_at")
+        _timestamp(updated_at)
+        matches.append(
+            (
+                status_id,
+                status.get("state"),
+                status.get("context"),
+                status.get("description"),
+                status.get("target_url"),
+                updated_at,
+            )
+        )
+    if not matches:
+        return None
+    return max(
+        matches,
+        key=lambda value: (_timestamp(value[5]), value[0]),
+    )
 
 
 def project_status(
@@ -200,9 +214,7 @@ def project_comment(
     )
     if _MARKER.fullmatch(marker) is None:
         raise MaintenanceError("projection_marker_invalid")
-    rendered = (
-        f"<!-- ci-workflows-projection:{marker} -->\n{_bounded_body(body)}"
-    )
+    rendered = f"<!-- ci-workflows-projection:{marker} -->\n{_bounded_body(body)}"
     prefix = f"<!-- ci-workflows-projection:{marker} -->"
 
     issue = api.get_issue(project.repository, number)
