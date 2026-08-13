@@ -236,7 +236,7 @@ class MaintenanceProjectionTests(unittest.TestCase):
             api,
             project_id="ci-workflows",
             issue_number=7,
-            expected_updated_at="stale-but-replay-is-noop",
+            expected_updated_at="2026-08-13T08:00:00Z",
             marker="review-decision",
             body="Sanitized bounded decision.",
             request_id="comment-replay",
@@ -281,6 +281,51 @@ class MaintenanceProjectionTests(unittest.TestCase):
                 request_id="comment-duplicate",
             )
 
+        malformed = ProjectionApi()
+        malformed.comments = [
+            {
+                "id": 0,
+                "body": "<!-- ci-workflows-projection:bad -->\n"
+                "Sanitized bounded decision.",
+            }
+        ]
+        with self.assertRaisesRegex(MaintenanceError, "projection_comment_invalid"):
+            project_comment(
+                self.contract,
+                malformed,
+                project_id="ci-workflows",
+                issue_number=7,
+                expected_updated_at="2026-08-13T08:00:00Z",
+                marker="bad",
+                body="Sanitized bounded decision.",
+                request_id="comment-malformed",
+            )
+
+    def test_projection_rejects_non_timestamp_expected_issue_state(self) -> None:
+        api = ProjectionApi()
+        with self.assertRaisesRegex(MaintenanceError, "projection_issue_invalid"):
+            project_comment(
+                self.contract,
+                api,
+                project_id="ci-workflows",
+                issue_number=7,
+                expected_updated_at="not-a-timestamp",
+                marker="timestamp",
+                body="Sanitized bounded decision.",
+                request_id="comment-timestamp",
+            )
+        with self.assertRaisesRegex(MaintenanceError, "projection_issue_invalid"):
+            project_labels(
+                self.contract,
+                api,
+                project_id="ci-workflows",
+                issue_number=7,
+                expected_updated_at="not-a-timestamp",
+                expected_labels=["triage"],
+                desired_labels=["ready"],
+                request_id="labels-timestamp",
+            )
+
     def test_labels_projection_requires_exact_expected_state_and_replays(self) -> None:
         api = ProjectionApi()
         first = project_labels(
@@ -298,7 +343,7 @@ class MaintenanceProjectionTests(unittest.TestCase):
             api,
             project_id="ci-workflows",
             issue_number=7,
-            expected_updated_at="stale-but-replay-is-noop",
+            expected_updated_at="2026-08-13T08:00:00Z",
             expected_labels=["triage"],
             desired_labels=["ready", "triage"],
             request_id="labels-replay",
