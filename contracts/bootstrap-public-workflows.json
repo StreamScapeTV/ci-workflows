@@ -14,6 +14,12 @@
       "required_follow_up": []
     },
     {
+      "path": ".github/workflows/reusable-device.yml",
+      "issue": 14,
+      "status": "implemented-public-workflow",
+      "required_follow_up": []
+    },
+    {
       "path": ".github/workflows/reusable-flutter.yml",
       "issue": 12,
       "status": "implemented-public-workflow",
