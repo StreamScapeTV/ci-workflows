@@ -80,10 +80,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-android",
-      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
-      "release": "issue #104 immutable private-action checkpoint",
+      "sha": "5f503d419696e5bfae4ed5b11eca3b531dbdca0f",
+      "release": "issue #140 immutable integrated source-policy checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/validate-android"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/5f503d419696e5bfae4ed5b11eca3b531dbdca0f/actions/validate-android"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/checkout-private-dependency",
