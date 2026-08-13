@@ -5,5 +5,7 @@ FROM ghcr.io/actions/actions-runner:2.336.0@sha256:0cfdcc701ce933c6d243c6b0b2da7
 RUN sudo rm -f /usr/bin/docker /usr/local/lib/docker/cli-plugins/docker-buildx
 COPY --from=python-runtime /usr/local/ /usr/local/
 COPY --from=node-runtime /usr/local/ /usr/local/
+COPY .ciw-build-inputs/zstd-noble-amd64.pkg /tmp/zstd.pkg
+COPY .ciw-build-inputs/zip-noble-amd64.pkg /tmp/zip.pkg
 COPY --chmod=0755 .ciw-build-inputs/kubectl-1.36.3-linux-amd64 /usr/local/bin/kubectl
 USER runner
