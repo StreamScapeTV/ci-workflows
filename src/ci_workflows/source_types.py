@@ -111,11 +111,9 @@ class AdmissionResult:
     history_depth: int
     request_id: str
     evidence_id: str
-    expected_pr_merge_sha: str | None = None
 
     def output_values(self) -> dict[str, str]:
         raw = asdict(self)
-        raw.pop("expected_pr_merge_sha", None)
         values: dict[str, str] = {}
         for key, value in raw.items():
             if isinstance(value, Enum):
