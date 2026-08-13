@@ -1,6 +1,9 @@
 name: Agent 2 runner image diagnostics
 
 on:
+  pull_request:
+    paths:
+      - .github/workflows/agent2-runner-image-diagnostics.yml
   push:
     branches:
       - issue/143-general-runner-image
