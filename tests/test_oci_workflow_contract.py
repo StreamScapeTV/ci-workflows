@@ -7,7 +7,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-OCI_HELPER_SHA = "676aa6b1b4d5fb8d4c26531e1a181e37b33e3433"
+OCI_HELPER_SHA = "3b401078d1167d7048281e3c3269556ce586dada"
 
 
 class OciWorkflowContractTests(unittest.TestCase):

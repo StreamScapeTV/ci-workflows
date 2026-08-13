@@ -122,10 +122,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-oci",
-      "sha": "676aa6b1b4d5fb8d4c26531e1a181e37b33e3433",
+      "sha": "3b401078d1167d7048281e3c3269556ce586dada",
       "release": "issue #150 immutable OCI input checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/676aa6b1b4d5fb8d4c26531e1a181e37b33e3433/actions/validate-oci"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/3b401078d1167d7048281e3c3269556ce586dada/actions/validate-oci"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-gitops",

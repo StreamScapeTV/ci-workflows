@@ -17,7 +17,7 @@ or deployment behavior.
 Private same-organization consumers do not clone `StreamScapeTV/ci-workflows`
 with their caller-scoped token. The planner and build job invoke the reviewed
 `validate-oci` composite action through immutable central revision
-`676aa6b1b4d5fb8d4c26531e1a181e37b33e3433`; exact caller checkout, workspace
+`3b401078d1167d7048281e3c3269556ce586dada`; exact caller checkout, workspace
 preparation, deterministic evidence, and terminal workspace cleanup reuse the
 reviewed immutable foundation helpers.
 
