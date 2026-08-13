@@ -1,13 +1,24 @@
 from __future__ import annotations
 
+import argparse
+import io
 import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+import yaml
 
 from ci_workflows.ciw import command_specs, runtime_command_index, validate_runtime_contract
 from ci_workflows.ciw_docs import load_command_contract, validate_command_contract
-from ci_workflows.ciw_types import CIWError, CIWResult, project_error, write_command_file
+from ci_workflows.ciw_types import (
+    CIWContext,
+    CIWError,
+    CIWResult,
+    project_error,
+    write_command_file,
+)
 from ci_workflows.foundation_types import FoundationError
 from ci_workflows.gitops_types import GitOpsValidationError
 from ci_workflows.node_types import NodeValidationError
@@ -40,6 +51,56 @@ class CIWContractTests(unittest.TestCase):
         self.assertIn("oci validate", expected)
         self.assertEqual(len(command_specs()), len(expected))
         validate_runtime_contract(ROOT)
+
+    def test_oci_publish_handler_action_and_command_outputs_agree_exactly(self) -> None:
+        contract = load_command_contract(ROOT)
+        command = next(
+            item
+            for item in contract["commands"]
+            if item["domain"] == "oci" and item["operation"] == "publish"
+        )
+        expected = set(command["outputs"])
+        spec = runtime_command_index()["oci publish"]
+        self.assertEqual(command["handler"], spec.qualified_handler)
+
+        action = yaml.safe_load(
+            (ROOT / "actions/publish-oci/action.yml").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(expected, set(action["outputs"]))
+        self.assertIn("manifest_digests_json", expected)
+        self.assertNotIn("image_digest", expected)
+
+        projected = {name: "value" for name in expected}
+        delegated = CIWResult("oci", "publish", outputs=projected)
+        context = CIWContext(
+            root=ROOT,
+            environment={},
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+        with patch(
+            "ci_workflows.ciw.execute_oci_publish", return_value=delegated
+        ):
+            result = spec.handler(argparse.Namespace(), context)
+        self.assertEqual(projected, result.outputs)
+
+    def test_oci_validate_action_projects_internal_publication_digest(self) -> None:
+        contract = load_command_contract(ROOT)
+        command = next(
+            item
+            for item in contract["commands"]
+            if item["domain"] == "oci" and item["operation"] == "validate"
+        )
+        action = yaml.safe_load(
+            (ROOT / "actions/validate-oci/action.yml").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(set(command["outputs"]), set(action["outputs"]))
+        self.assertIn("manifest_digests_json", action["outputs"])
+        self.assertIn("publication_manifest_digests_json", action["outputs"])
 
     def test_contract_exposes_only_the_bounded_domain_tree(self) -> None:
         commands = set(validate_command_contract(

@@ -20,6 +20,7 @@ from .oci_types import (
     OciPlatformResult,
     OciTarget,
     OciTargetResult,
+    is_exact_base_reference,
 )
 
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -32,7 +33,6 @@ _LAYER_MEDIA_TYPES = frozenset(
     {
         "application/vnd.oci.image.layer.v1.tar",
         "application/vnd.oci.image.layer.v1.tar+gzip",
-        "application/vnd.oci.image.layer.v1.tar+zstd",
     }
 )
 
@@ -97,9 +97,22 @@ def source_date_epoch(source_root: Path) -> int:
 def validate_dockerfile_bases(path: Path) -> tuple[str, ...]:
     if not path.is_file() or path.is_symlink():
         raise OciBuildError("invalid_path")
+    source = path.read_text(encoding="utf-8")
+    if source.startswith("\ufeff"):
+        raise OciBuildError("base_identity_mutable")
     images: list[str] = []
     logical = ""
-    for raw in path.read_text(encoding="utf-8").splitlines():
+    for raw in source.splitlines():
+        if re.match(r"^\s*#\s*escape\s*=", raw, re.IGNORECASE):
+            # The bounded parser implements only Dockerfile's default
+            # backslash continuation.  Reject alternate escape directives so
+            # Buildah cannot recognize a FROM instruction that this evidence
+            # parser silently omits.
+            raise OciBuildError("base_identity_mutable")
+        if re.match(r"^\s*#", raw):
+            # Full-line comments never continue Dockerfile instructions even
+            # when their final byte is a backslash.
+            continue
         stripped = raw.rstrip()
         logical += stripped[:-1] + " " if stripped.endswith("\\") else stripped
         if stripped.endswith("\\"):
@@ -109,13 +122,11 @@ def validate_dockerfile_bases(path: Path) -> tuple[str, ...]:
         match = _FROM.fullmatch(line)
         if match:
             image = match.group(1)
-            if "$" in image or (image != "scratch" and "@sha256:" not in image):
+            if "$" in image or not is_exact_base_reference(image):
                 raise OciBuildError("base_identity_mutable")
-            if image != "scratch":
-                digest = image.rsplit("@", 1)[1]
-                if _DIGEST.fullmatch(digest) is None:
-                    raise OciBuildError("base_identity_mutable")
             images.append(image)
+        elif re.match(r"^\s*FROM(?:\s|$)", line, re.IGNORECASE):
+            raise OciBuildError("base_identity_mutable")
     if logical:
         raise OciBuildError("base_identity_mutable")
     if not images:
@@ -139,12 +150,16 @@ def _tracked_files(source_root: Path, context_path: str) -> tuple[Path, ...]:
     return files
 
 
-def stage_context(source_root: Path, target: OciTarget, destination: Path) -> Path:
+def _stage_context_with_bases(
+    source_root: Path,
+    target: OciTarget,
+    destination: Path,
+) -> tuple[Path, tuple[str, ...]]:
     context = bounded_path(source_root, target.context_path, allow_root=True)
     dockerfile = bounded_path(source_root, target.dockerfile_path)
     if context != source_root.resolve() and context not in dockerfile.parents:
         raise OciBuildError("invalid_path")
-    validate_dockerfile_bases(dockerfile)
+    resolved_base_references = validate_dockerfile_bases(dockerfile)
     if target.smoke_script:
         smoke = bounded_path(source_root, target.smoke_script)
         if not smoke.is_file() or smoke.is_symlink():
@@ -161,7 +176,13 @@ def stage_context(source_root: Path, target: OciTarget, destination: Path) -> Pa
     copied_dockerfile = destination / target.dockerfile_path
     if not copied_dockerfile.is_file():
         raise OciBuildError("invalid_path")
-    return destination
+    return destination, resolved_base_references
+
+
+def stage_context(source_root: Path, target: OciTarget, destination: Path) -> Path:
+    """Stage a clean context; execution retains the paired base evidence."""
+
+    return _stage_context_with_bases(source_root, target, destination)[0]
 
 
 def _read_json(path: Path) -> object:
@@ -292,6 +313,14 @@ def inspect_layout(layout: Path, target: OciTarget, labels: Mapping[str, str]) -
         raise OciBuildError("oci_layout_malformed")
     index_path = layout / "index.json"
     index = _read_json(index_path)
+    root_descriptors = _index_manifests(index)
+    if len(root_descriptors) != 1:
+        raise OciBuildError("oci_layout_malformed")
+    _, publication_manifest_digest = _descriptor_blob(
+        layout,
+        root_descriptors[0],
+        frozenset({_INDEX_MEDIA_TYPE, _MANIFEST_MEDIA_TYPE}),
+    )
     results: dict[str, OciPlatformResult] = {}
     for descriptor in _image_manifest_descriptors(layout, index):
         declared_platform = descriptor.get("platform")
@@ -342,13 +371,29 @@ def inspect_layout(layout: Path, target: OciTarget, labels: Mapping[str, str]) -
         actual_labels = runtime.get("Labels") or {}
         if not isinstance(actual_labels, dict) or actual_labels != dict(labels):
             raise OciBuildError("metadata_mismatch")
-        if target.required_user is not None and runtime.get("User", "") != target.required_user:
+        expected_user = "" if target.required_user is None else target.required_user
+        if runtime.get("User", "") != expected_user:
             raise OciBuildError("assertion_failed")
-        if target.required_entrypoint and tuple(runtime.get("Entrypoint") or ()) != target.required_entrypoint:
+        entrypoint = runtime.get("Entrypoint") or ()
+        command = runtime.get("Cmd") or ()
+        ports = runtime.get("ExposedPorts") or {}
+        if (
+            not isinstance(entrypoint, (list, tuple))
+            or not all(isinstance(item, str) for item in entrypoint)
+            or tuple(entrypoint) != target.required_entrypoint
+        ):
             raise OciBuildError("assertion_failed")
-        if target.required_command and tuple(runtime.get("Cmd") or ()) != target.required_command:
+        if (
+            not isinstance(command, (list, tuple))
+            or not all(isinstance(item, str) for item in command)
+            or tuple(command) != target.required_command
+        ):
             raise OciBuildError("assertion_failed")
-        if target.required_ports and tuple(sorted((runtime.get("ExposedPorts") or {}).keys())) != tuple(sorted(target.required_ports)):
+        if (
+            not isinstance(ports, Mapping)
+            or not all(isinstance(key, str) for key in ports)
+            or tuple(sorted(ports)) != tuple(sorted(target.required_ports))
+        ):
             raise OciBuildError("assertion_failed")
         rootfs = config_payload.get("rootfs")
         if (
@@ -372,6 +417,7 @@ def inspect_layout(layout: Path, target: OciTarget, labels: Mapping[str, str]) -
     return OciTargetResult(
         target_id=target.target_id,
         index_digest=sha256_file(index_path),
+        publication_manifest_digest=publication_manifest_digest,
         platform_results=tuple(results[name] for name in sorted(results)),
         labels=dict(sorted(labels.items())),
         smoke_result="not-run",
@@ -544,7 +590,11 @@ def execute_plan(
     secrets = dict(secret_files or {})
     results: list[OciTargetResult] = []
     for target in plan.targets:
-        staged = stage_context(source_root, target, root / "staged" / target.target_id)
+        staged, resolved_base_references = _stage_context_with_bases(
+            source_root,
+            target,
+            root / "staged" / target.target_id,
+        )
         labels = metadata_labels(contract, plan, target, epoch)
         result, _ = build_target(
             plan,
@@ -557,7 +607,12 @@ def execute_plan(
             authfile,
             builder_environment,
         )
-        results.append(result)
+        results.append(
+            replace(
+                result,
+                resolved_base_references=resolved_base_references,
+            )
+        )
     assert_clean_source(source_root, plan.admitted_sha)
     evidence_payload = {
         "api": "oci.build",

@@ -114,12 +114,21 @@ def verify(plan: PublishPlan, environment: Mapping[str, str]) -> dict[str, str]:
         versions = json.loads(values["version_references_json"])
         sources = json.loads(values["source_references_json"])
         manifests = json.loads(values["manifest_digests_json"])
+        base_references = json.loads(values.pop("resolved_base_references_json"))
+        assertion_evidence = json.loads(values.pop("assertion_evidence_json"))
     except (KeyError, TypeError, json.JSONDecodeError) as error:
         raise OciPublishError("publication_state_missing") from error
     target_ids = {target.target_id for target in plan.targets}
     if not all(
         isinstance(item, Mapping) and set(item) == target_ids
-        for item in (repositories, versions, sources, manifests)
+        for item in (
+            repositories,
+            versions,
+            sources,
+            manifests,
+            base_references,
+            assertion_evidence,
+        )
     ):
         raise OciPublishError("publication_state_missing")
     immutable: dict[str, Any] = {
@@ -127,8 +136,10 @@ def verify(plan: PublishPlan, environment: Mapping[str, str]) -> dict[str, str]:
             target.target_id: {
                 "repository": repositories[target.target_id],
                 "version": versions[target.target_id],
-                "source_sha": sources[target.target_id],
+                "source_reference": sources[target.target_id],
                 "manifest_digest": manifests[target.target_id],
+                "base_references": base_references[target.target_id],
+                "assertions": assertion_evidence[target.target_id],
             }
             for target in plan.targets
         },
@@ -143,7 +154,6 @@ def verify(plan: PublishPlan, environment: Mapping[str, str]) -> dict[str, str]:
             "previous_known_good": plan.previous_known_good,
             "rollback_id": plan.rollback_id,
         }
-    values["image_digest"] = values["manifest_digests_json"]
     values["immutable_references_json"] = json.dumps(
         immutable, sort_keys=True, separators=(",", ":")
     )

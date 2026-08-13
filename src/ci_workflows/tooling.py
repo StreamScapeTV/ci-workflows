@@ -127,21 +127,41 @@ def verify_tool(tool_id: str, *, contract_root: Path) -> ToolEvidence:
     executable = entry.get("executable")
     version_args = entry.get("version_args")
     version_pattern = entry.get("version_pattern")
-    minimum_version = entry.get("minimum_version")
+    version_policy = entry.get("version_policy")
     require(
         isinstance(executable, str)
         and isinstance(version_args, list)
         and all(isinstance(value, str) for value in version_args)
         and isinstance(version_pattern, str)
-        and isinstance(minimum_version, str)
-        and entry.get("version_policy") == "minimum",
+        and isinstance(version_policy, str)
+        and version_policy in {"minimum", "exact"},
         "tool_contract_invalid",
     )
     output = _run_version(executable, version_args)
     match = re.search(version_pattern, output)
     require(match is not None and match.lastindex == 1, "tool_version_unrecognized")
     version = match.group(1)
-    require(_version_tuple(version) >= _version_tuple(minimum_version), "tool_version_too_old")
+    if version_policy == "minimum":
+        minimum_version = entry.get("minimum_version")
+        require(
+            isinstance(minimum_version, str)
+            and "required_version" not in entry,
+            "tool_contract_invalid",
+        )
+        require(
+            _version_tuple(version) >= _version_tuple(minimum_version),
+            "tool_version_too_old",
+        )
+    else:
+        required_version = entry.get("required_version")
+        require(
+            isinstance(required_version, str)
+            and "minimum_version" not in entry,
+            "tool_contract_invalid",
+        )
+        _version_tuple(version)
+        _version_tuple(required_version)
+        require(version == required_version, "tool_version_mismatch")
     return ToolEvidence(tool_id=tool_id, executable=executable, version=version)
 
 

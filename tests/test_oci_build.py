@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 import sys
@@ -22,12 +23,18 @@ from ci_workflows.oci_contract import (  # noqa: E402
     validate_generated_mapping,
 )
 from ci_workflows.oci_execution import (  # noqa: E402
+    execute_plan,
     inspect_layout,
     stage_context,
     validate_dockerfile_bases,
     verify_no_secret_leakage,
 )
-from ci_workflows.oci_types import OciBuildError, OciTarget  # noqa: E402
+from ci_workflows.oci_types import (  # noqa: E402
+    OciBuildError,
+    OciBuildPlan,
+    OciTarget,
+    OciTargetResult,
+)
 
 SHA = "a" * 40
 
@@ -258,7 +265,15 @@ class OciBuildTests(unittest.TestCase):
             pinned = root / "pinned"
             pinned.write_text("FROM example.invalid/base@sha256:" + "b" * 64 + "\n", encoding="utf-8")
             self.assertEqual(1, len(validate_dockerfile_bases(pinned)))
-            for source in ("FROM python:3.12\n", "ARG BASE\nFROM $BASE\n", "FROM example.invalid/base@sha256:bad\n"):
+            for source in (
+                "FROM python:3.12\n",
+                "ARG BASE\nFROM $BASE\n",
+                "FROM example.invalid/base@sha256:bad\n",
+                "# escape=`\nFROM python:3.12-slim `\n AS build\nFROM scratch\n",
+                "# comment ending in slash \\\nFROM python:3.12-slim\nFROM scratch\n",
+                "\ufeffFROM python:3.12-slim\nFROM scratch\n",
+                "FROM scratch unexpected tokens\n",
+            ):
                 bad = root / hashlib.sha256(source.encode()).hexdigest()
                 bad.write_text(source, encoding="utf-8")
                 with self.assertRaisesRegex(OciBuildError, "base_identity_mutable"):
@@ -293,6 +308,83 @@ class OciBuildTests(unittest.TestCase):
             with self.assertRaisesRegex(OciBuildError, "dirty_context"):
                 stage_context(root, target, Path(temp) / "stage2")
 
+    def test_execute_retains_ordered_exact_base_evidence_in_build_state(self) -> None:
+        if shutil.which("git") is None:
+            self.skipTest("git is unavailable")
+        first = "example.invalid/build@sha256:" + "1" * 64
+        second = "example.invalid/runtime@sha256:" + "2" * 64
+        with tempfile.TemporaryDirectory() as temp:
+            temporary = Path(temp)
+            source = temporary / "source"
+            source.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.invalid"],
+                cwd=source,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Test"],
+                cwd=source,
+                check=True,
+            )
+            (source / "Containerfile").write_text(
+                f"FROM {first} AS build\nFROM {second}\n", encoding="utf-8"
+            )
+            subprocess.run(["git", "add", "."], cwd=source, check=True)
+            subprocess.run(["git", "commit", "-qm", "fixture"], cwd=source, check=True)
+            target = OciTarget(
+                "fixture", ".", "Containerfile", None, ("linux/amd64",), None,
+                None, (), (), (), (), (), (), {}, (),
+            )
+            plan = OciBuildPlan(
+                "StreamScapeTV/example", SHA, "fixture", "1.2.3",
+                "trusted-exact", "buildah-tiny", ("linux", "amd64", "buildah", "tiny"),
+                "container", 30, "buildah-v1", "vfs", (target,), False,
+                None, None, None, True,
+            )
+            built = OciTargetResult(
+                "fixture",
+                "sha256:" + "3" * 64,
+                "sha256:" + "4" * 64,
+                (),
+                {},
+                "skipped",
+            )
+            environment = {
+                "RUNNER_TEMP": str(temporary / "state"),
+                "GITHUB_RUN_ID": "17",
+                "GITHUB_RUN_ATTEMPT": "1",
+            }
+            with mock.patch(
+                "ci_workflows.oci_execution.assert_clean_source"
+            ), mock.patch(
+                "ci_workflows.oci_execution.verify_builder_runtime"
+            ), mock.patch(
+                "ci_workflows.oci_execution.load_contract", return_value={}
+            ), mock.patch(
+                "ci_workflows.oci_execution.source_date_epoch", return_value=1
+            ), mock.patch(
+                "ci_workflows.oci_execution.metadata_labels", return_value={}
+            ), mock.patch(
+                "ci_workflows.oci_execution.build_target",
+                return_value=(built, "manifest"),
+            ):
+                result = execute_plan(ROOT, source, plan, environment)
+
+            self.assertEqual(
+                result.targets[0].resolved_base_references, (first, second)
+            )
+            persisted = json.loads(
+                (temporary / "state" / next((temporary / "state").iterdir()).name / "result.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(
+                json.loads(persisted["resolved_base_references_json"]),
+                {"fixture": [first, second]},
+            )
+
     def test_layout_inspection_binds_platform_config_layers_and_labels(self) -> None:
         request = request_from_mapping(
             {"repository": "StreamScapeTV/ci-workflows", "admitted_sha": SHA, "product_id": "ciw-oci-smoke"},
@@ -315,6 +407,11 @@ class OciBuildTests(unittest.TestCase):
             self.assertEqual("contract-smoke", result.target_id)
             self.assertEqual("linux/amd64", result.platform_results[0].platform)
             self.assertRegex(result.index_digest, r"^sha256:[0-9a-f]{64}$")
+            self.assertNotEqual(result.index_digest, result.publication_manifest_digest)
+            self.assertEqual(
+                result.publication_manifest_digest,
+                result.platform_results[0].manifest_digest,
+            )
             config_blob = layout / "blobs" / "sha256" / result.platform_results[0].config_digest.removeprefix("sha256:")
             config_blob.write_bytes(config_blob.read_bytes() + b"drift")
             with self.assertRaisesRegex(OciBuildError, "oci_digest_mismatch"):

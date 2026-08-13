@@ -217,6 +217,13 @@ class OciMediaTypeTests(unittest.TestCase):
             with self.assertRaisesRegex(OciBuildError, "oci_layout_malformed"):
                 inspect_layout(layout, self.target, self.labels)
 
+            layout = make_layout(root / "zstd-layer", self.labels)
+            manifest = read_manifest(layout)
+            manifest["layers"][0]["mediaType"] = "application/vnd.oci.image.layer.v1.tar+zstd"
+            replace_manifest(layout, manifest)
+            with self.assertRaisesRegex(OciBuildError, "oci_layout_malformed"):
+                inspect_layout(layout, self.target, self.labels)
+
             layout = make_layout(root / "rootfs", self.labels)
             manifest = read_manifest(layout)
             config_digest = manifest["config"]["digest"].removeprefix("sha256:")

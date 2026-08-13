@@ -7,6 +7,26 @@ from dataclasses import dataclass
 from typing import Mapping
 
 _SAFE_CODE = re.compile(r"^[a-z][a-z0-9_]{2,95}$")
+_BASE_NAME = re.compile(r"^[a-z0-9](?:[a-z0-9._:/-]{0,253}[a-z0-9])?$")
+_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+
+
+def is_exact_base_reference(value: object) -> bool:
+    """Return whether value is a bounded canonical scratch/digest base identity."""
+
+    if value == "scratch":
+        return True
+    if not isinstance(value, str) or len(value) > 327:
+        return False
+    name, separator, digest = value.rpartition("@")
+    if (
+        separator != "@"
+        or _BASE_NAME.fullmatch(name) is None
+        or _DIGEST.fullmatch(digest) is None
+        or any(part in {"", ".", ".."} for part in name.split("/"))
+    ):
+        return False
+    return True
 
 
 class OciBuildError(RuntimeError):
@@ -113,17 +133,21 @@ class OciPlatformResult:
 class OciTargetResult:
     target_id: str
     index_digest: str
+    publication_manifest_digest: str
     platform_results: tuple[OciPlatformResult, ...]
     labels: Mapping[str, str]
     smoke_result: str
+    resolved_base_references: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         return {
             "target_id": self.target_id,
             "index_digest": self.index_digest,
+            "publication_manifest_digest": self.publication_manifest_digest,
             "platform_results": [row.to_dict() for row in self.platform_results],
             "labels": dict(sorted(self.labels.items())),
             "smoke_result": self.smoke_result,
+            "resolved_base_references": list(self.resolved_base_references),
         }
 
 
@@ -143,6 +167,9 @@ class OciBuildResult:
 
     def output_values(self) -> dict[str, str]:
         manifests = {row.target_id: row.index_digest for row in self.targets}
+        publication_manifests = {
+            row.target_id: row.publication_manifest_digest for row in self.targets
+        }
         platforms = {
             row.target_id: [item.to_dict() for item in row.platform_results]
             for row in self.targets
@@ -155,8 +182,19 @@ class OciBuildResult:
             "manifest_digests_json": json.dumps(
                 manifests, sort_keys=True, separators=(",", ":")
             ),
+            "publication_manifest_digests_json": json.dumps(
+                publication_manifests, sort_keys=True, separators=(",", ":")
+            ),
             "platform_results_json": json.dumps(
                 platforms, sort_keys=True, separators=(",", ":")
+            ),
+            "resolved_base_references_json": json.dumps(
+                {
+                    row.target_id: list(row.resolved_base_references)
+                    for row in self.targets
+                },
+                sort_keys=True,
+                separators=(",", ":"),
             ),
             "clean_tree": str(self.clean_tree).lower(),
             "cleanup_result": self.cleanup_result,

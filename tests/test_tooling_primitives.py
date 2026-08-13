@@ -52,6 +52,38 @@ class ToolingPrimitiveTests(unittest.TestCase):
         self.assertTrue(evidence.evidence_id.startswith("toolchain-"))
         self.assertEqual(evidence.output_values()["verified"], "true")
 
+    def test_oci_builder_tool_set_requires_exact_host_versions(self) -> None:
+        outputs = {
+            "buildah": "buildah version 1.33.7 (image-spec 1.1.0, runtime-spec 1.2.0)",
+            "skopeo": "skopeo version 1.13.3",
+            "podman": "podman version 4.9.3",
+        }
+        with mock.patch(
+            "ci_workflows.tooling._run_version",
+            side_effect=lambda executable, _arguments: outputs[executable],
+        ):
+            evidence = verify_tool_set("oci-builder", contract_root=ROOT)
+        self.assertEqual(
+            evidence.output_values()["toolchain_json"],
+            '{"buildah":"1.33.7","podman":"4.9.3","skopeo":"1.13.3"}',
+        )
+
+    def test_exact_tool_version_drift_fails_closed(self) -> None:
+        outputs = {
+            "buildah": "buildah version 1.34.0",
+            "skopeo": "skopeo version 1.13.3",
+            "podman": "podman version 4.9.3",
+        }
+        with (
+            mock.patch(
+                "ci_workflows.tooling._run_version",
+                side_effect=lambda executable, _arguments: outputs[executable],
+            ),
+            self.assertRaises(FoundationError) as caught,
+        ):
+            verify_tool_set("oci-builder", contract_root=ROOT)
+        self.assertEqual(caught.exception.instruction, "tool_version_mismatch")
+
     def test_runtime_capability_is_semantic_and_host_identity_free(self) -> None:
         with (
             mock.patch("ci_workflows.tooling.platform.system", return_value="Linux"),

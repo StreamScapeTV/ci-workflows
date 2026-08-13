@@ -9,6 +9,7 @@ from typing import Mapping, Sequence
 
 from . import oci
 from . import oci_publish_contract as publication
+from .oci_supply_evidence import build_supply_evidence
 from .ciw_types import CIWContext, CIWResult, write_command_file
 from .oci_contract import (
     MAPPING_PATH,
@@ -49,6 +50,36 @@ def _write_outputs(values: Mapping[str, str], environment: Mapping[str, str]) ->
             stream.write(f"{key}={value}\n")
 
 
+def _publication_summary(values: Mapping[str, str]) -> str:
+    """Render bounded redacted immutable/assertion proof for the run record."""
+
+    evidence_id = values.get("evidence_id", "")
+    immutable = values.get("immutable_references_json", "")
+    if not evidence_id or not immutable:
+        raise publication.OciPublishError("publication_state_missing")
+    try:
+        payload = json.loads(immutable)
+    except json.JSONDecodeError as error:
+        raise publication.OciPublishError("publication_state_missing") from error
+    if not isinstance(payload, Mapping):
+        raise publication.OciPublishError("publication_state_missing")
+    canonical = json.dumps(payload, sort_keys=True, indent=2)
+    return "\n".join(
+        (
+            "## Trusted OCI publication evidence",
+            "",
+            f"- Evidence ID: `{evidence_id}`",
+            "- Assertion result: `passed` on local publication and independent read-back",
+            "- Redaction: runtime and healthcheck vectors are represented by count and SHA-256 identity",
+            "",
+            "```json",
+            canonical,
+            "```",
+            "",
+        )
+    )
+
+
 def configure_oci_validate(parser: argparse.ArgumentParser) -> None:
     """Configure the bounded ``ciw oci validate`` command."""
 
@@ -65,7 +96,16 @@ def configure_oci_publish(parser: argparse.ArgumentParser) -> None:
 
     parser.add_argument(
         "--phase",
-        choices=("plan", "authenticate", "publish", "readback", "verify", "cleanup", "residue"),
+        choices=(
+            "plan",
+            "authenticate",
+            "publish",
+            "readback",
+            "verify",
+            "cleanup",
+            "residue",
+            "final-evidence",
+        ),
         default="plan",
     )
 
@@ -163,6 +203,60 @@ def execute_oci_publish(
         plan = publication.resolve_plan(context.root, request)
         if args.phase == "plan":
             outputs = plan.planning_outputs()
+        elif args.phase == "final-evidence":
+            build_request = request_from_mapping(
+                _request(context.environment), context.environment
+            )
+            build_plan = resolve_plan(context.root, build_request)
+            if build_plan.runner_profile != plan.runner_profile:
+                raise publication.OciPublishError("terminal_contract_mismatch")
+            evidence = build_supply_evidence(
+                root=context.root,
+                central_workflow_sha=context.environment.get(
+                    "INPUT_CENTRAL_WORKFLOW_SHA", ""
+                ),
+                publication_helper_sha=context.environment.get(
+                    "INPUT_PUBLICATION_HELPER_SHA", ""
+                ),
+                builder_id=build_plan.builder_id,
+                runner_profile=build_plan.runner_profile,
+                toolchain_json=context.environment.get(
+                    "INPUT_VERIFIED_TOOLCHAIN_JSON", ""
+                ),
+                publication_evidence_id=context.environment.get(
+                    "INPUT_PUBLICATION_EVIDENCE_ID", ""
+                ),
+                foundation_evidence_id=context.environment.get(
+                    "INPUT_FOUNDATION_EVIDENCE_ID", ""
+                ),
+                source_sha=plan.admitted_sha,
+                product_id=plan.product_id,
+                release_version=plan.release_version,
+                execution_result=context.environment.get(
+                    "INPUT_EXECUTION_RESULT", ""
+                ),
+                build_cleanup_outcome=context.environment.get(
+                    "INPUT_BUILD_CLEANUP_OUTCOME", ""
+                ),
+                build_residue_outcome=context.environment.get(
+                    "INPUT_BUILD_RESIDUE_OUTCOME", ""
+                ),
+                publication_cleanup_outcome=context.environment.get(
+                    "INPUT_PUBLICATION_CLEANUP_OUTCOME", ""
+                ),
+                publication_residue_outcome=context.environment.get(
+                    "INPUT_PUBLICATION_RESIDUE_OUTCOME", ""
+                ),
+                workspace_cleanup_outcome=context.environment.get(
+                    "INPUT_WORKSPACE_CLEANUP_OUTCOME", ""
+                ),
+            )
+            return CIWResult(
+                "oci",
+                "publish",
+                outputs=evidence.output_values(),
+                summary=evidence.summary,
+            )
         elif args.phase == "authenticate":
             outputs = publication.authenticate(
                 plan,
@@ -176,7 +270,16 @@ def execute_oci_publish(
             outputs = oci.read_back(plan, context.environment)
         else:
             outputs = publication.verify(plan, context.environment)
-        return CIWResult("oci", "publish", outputs=outputs)
+        return CIWResult(
+            "oci",
+            "publish",
+            outputs=outputs,
+            summary=(
+                _publication_summary(outputs)
+                if args.phase == "verify"
+                else None
+            ),
+        )
     except publication.OciPublishError as error:
         _failure_outputs(context, error)
         raise

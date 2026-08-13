@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from unittest import mock
@@ -68,6 +71,83 @@ def plan(source_trust: str = "trusted-exact") -> OciBuildPlan:
 
 
 class OciExecutionSecurityTests(unittest.TestCase):
+    def test_layer_inventory_accepts_container_root_absolute_symlinks(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            layout = Path(temp)
+            buffer = io.BytesIO()
+            with tarfile.open(fileobj=buffer, mode="w") as archive:
+                for name, linkname in (
+                    ("var/run", "/run"),
+                    ("etc/localtime", "/usr/share/zoneinfo/Etc/UTC"),
+                    ("etc/os-release", "../usr/lib/os-release"),
+                ):
+                    member = tarfile.TarInfo(name)
+                    member.type = tarfile.SYMTYPE
+                    member.linkname = linkname
+                    archive.addfile(member)
+            payload = buffer.getvalue()
+            digest = "sha256:" + hashlib.sha256(payload).hexdigest()
+            blob = layout / "blobs" / "sha256" / digest.removeprefix("sha256:")
+            blob.parent.mkdir(parents=True)
+            blob.write_bytes(payload)
+            self.assertEqual(
+                {"/var/run", "/etc/localtime", "/etc/os-release"},
+                safe._layer_paths(layout, (digest,)),
+            )
+
+    def test_layer_inventory_still_rejects_symlink_traversal(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            layout = Path(temp)
+            buffer = io.BytesIO()
+            with tarfile.open(fileobj=buffer, mode="w") as archive:
+                member = tarfile.TarInfo("safe/link")
+                member.type = tarfile.SYMTYPE
+                member.linkname = "../../outside"
+                archive.addfile(member)
+            payload = buffer.getvalue()
+            digest = "sha256:" + hashlib.sha256(payload).hexdigest()
+            blob = layout / "blobs" / "sha256" / digest.removeprefix("sha256:")
+            blob.parent.mkdir(parents=True)
+            blob.write_bytes(payload)
+            with self.assertRaisesRegex(OciBuildError, "oci_layout_malformed"):
+                safe._layer_paths(layout, (digest,))
+
+    def test_layer_inventory_streams_verified_blobs_without_read_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            layout = Path(temp)
+            buffer = io.BytesIO()
+            with tarfile.open(fileobj=buffer, mode="w") as archive:
+                member = tarfile.TarInfo("usr/bin/tool")
+                member.mode = 0o755
+                member.size = 1
+                archive.addfile(member, io.BytesIO(b"x"))
+            payload = buffer.getvalue()
+            digest = "sha256:" + hashlib.sha256(payload).hexdigest()
+            blob = layout / "blobs" / "sha256" / digest.removeprefix("sha256:")
+            blob.parent.mkdir(parents=True)
+            blob.write_bytes(payload)
+            with mock.patch.object(Path, "read_bytes", side_effect=AssertionError):
+                self.assertEqual({"/usr/bin/tool"}, safe._layer_paths(layout, (digest,)))
+
+    def test_later_non_directory_ancestor_removes_lower_children(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            layout = Path(temp)
+            digests: list[str] = []
+            for entries in (("usr/bin/tool",), ("usr",)):
+                buffer = io.BytesIO()
+                with tarfile.open(fileobj=buffer, mode="w") as archive:
+                    for name in entries:
+                        member = tarfile.TarInfo(name)
+                        member.size = 1
+                        archive.addfile(member, io.BytesIO(b"x"))
+                payload = buffer.getvalue()
+                digest = "sha256:" + hashlib.sha256(payload).hexdigest()
+                blob = layout / "blobs" / "sha256" / digest.removeprefix("sha256:")
+                blob.parent.mkdir(parents=True, exist_ok=True)
+                blob.write_bytes(payload)
+                digests.append(digest)
+            self.assertEqual({"/usr"}, safe._layer_paths(layout, tuple(digests)))
+
     def test_build_engine_disables_network_during_context_execution(self) -> None:
         commands: list[tuple[list[str], dict[str, object]]] = []
 
@@ -76,7 +156,12 @@ class OciExecutionSecurityTests(unittest.TestCase):
             return subprocess.CompletedProcess(argv, 0, "", "")
 
         expected = OciTargetResult(
-            "fixture", "sha256:" + "b" * 64, (), {}, "not-run"
+            "fixture",
+            "sha256:" + "b" * 64,
+            "sha256:" + "c" * 64,
+            (),
+            {},
+            "not-run",
         )
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -235,7 +320,14 @@ class OciExecutionSecurityTests(unittest.TestCase):
             admitted_sha=SHA,
             release_version="1.0.0",
             source_date_epoch=1,
-            targets=(OciTargetResult("fixture", "sha256:" + "b" * 64, (), {}, "not-run"),),
+            targets=(OciTargetResult(
+                "fixture",
+                "sha256:" + "b" * 64,
+                "sha256:" + "c" * 64,
+                (),
+                {},
+                "not-run",
+            ),),
             clean_tree=True,
             cleanup_result="not-run",
             evidence_id="c" * 64,
@@ -280,7 +372,14 @@ class OciExecutionSecurityTests(unittest.TestCase):
             admitted_sha=SHA,
             release_version="1.0.0",
             source_date_epoch=1,
-            targets=(OciTargetResult("fixture", "sha256:" + "d" * 64, (), {}, "not-run"),),
+            targets=(OciTargetResult(
+                "fixture",
+                "sha256:" + "d" * 64,
+                "sha256:" + "f" * 64,
+                (),
+                {},
+                "not-run",
+            ),),
             clean_tree=True,
             cleanup_result="not-run",
             evidence_id="e" * 64,

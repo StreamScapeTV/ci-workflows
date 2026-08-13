@@ -18,13 +18,110 @@
       "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"
     },
     "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "containerPath": {
+      "type": "string",
+      "pattern": "^/(?!/)(?!.*\\s$)(?!\\.{1,2}(?:/|$))[^/\\u0000\\r\\n]+(?:/(?!\\.{1,2}(?:/|$))[^/\\u0000\\r\\n]+)*$",
+      "maxLength": 4096
+    },
+    "assertionVector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["count", "digest"],
+      "properties": {
+        "count": {"type": "integer", "minimum": 0},
+        "digest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "assertionEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result", "verified_platforms", "contract_digest", "runtime", "filesystem", "healthcheck"],
+      "properties": {
+        "result": {"const": "passed"},
+        "verified_platforms": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^linux/(?:amd64|arm64/v8)$"}
+        },
+        "contract_digest": {"$ref": "#/$defs/digest"},
+        "runtime": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["user", "entrypoint", "command", "ports"],
+          "properties": {
+            "user": {
+              "oneOf": [
+                {"type": "string", "maxLength": 256},
+                {"type": "null"}
+              ]
+            },
+            "entrypoint": {"$ref": "#/$defs/assertionVector"},
+            "command": {"$ref": "#/$defs/assertionVector"},
+            "ports": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {"type": "string", "pattern": "^[0-9]{1,5}/(?:tcp|udp)$"}
+            }
+          }
+        },
+        "filesystem": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["required_files", "required_tools", "required_executables", "forbidden_tools", "forbidden_paths"],
+          "properties": {
+            "required_files": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/containerPath"}},
+            "required_tools": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Za-z0-9._+-]+$"}},
+            "required_executables": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/containerPath"}},
+            "forbidden_tools": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Za-z0-9._+-]+$"}},
+            "forbidden_paths": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/containerPath"}}
+          }
+        },
+        "healthcheck": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["mode"],
+              "properties": {"mode": {"const": "absent"}}
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["mode", "test_mode", "test", "interval_nanoseconds", "timeout_nanoseconds", "start_period_nanoseconds", "start_interval_nanoseconds", "retries"],
+              "properties": {
+                "mode": {"const": "exact"},
+                "test_mode": {"enum": ["CMD", "CMD-SHELL", "NONE"]},
+                "test": {"$ref": "#/$defs/assertionVector"},
+                "interval_nanoseconds": {"type": "integer", "minimum": 0},
+                "timeout_nanoseconds": {"type": "integer", "minimum": 0},
+                "start_period_nanoseconds": {"type": "integer", "minimum": 0},
+                "start_interval_nanoseconds": {"type": "integer", "minimum": 0},
+                "retries": {"type": "integer", "minimum": 0}
+              }
+            }
+          ]
+        }
+      }
+    },
+    "baseReference": {
+      "oneOf": [
+        {"const": "scratch"},
+        {
+          "type": "string",
+          "minLength": 73,
+          "maxLength": 327,
+          "pattern": "^(?![a-z0-9._:/-]*//)(?![a-z0-9._:/-]*/\\.{1,2}/)[a-z0-9](?:[a-z0-9._:/-]*[a-z0-9])?@sha256:[0-9a-f]{64}$"
+        }
+      ]
+    },
     "repository": {
       "type": "string",
-      "pattern": "^ghcr\\.io/streamscapetv/[a-z0-9._/-]+$"
+      "pattern": "^ghcr\\.io/streamscapetv/(?!\\.{1,2}$)[a-z0-9._-]+$"
     },
     "immutableTagReference": {
       "type": "string",
-      "pattern": "^ghcr\\.io/streamscapetv/[a-z0-9._/-]+:(?:[0-9]+\\.[0-9]+\\.[0-9]+|sha-[0-9a-f]{40})$"
+      "pattern": "^ghcr\\.io/streamscapetv/(?!\\.{1,2}:)[a-z0-9._-]+:(?:(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)|sha-[0-9a-f]{40})$"
     },
     "platformEvidence": {
       "type": "object",
@@ -66,12 +163,18 @@
     "targetReference": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["repository", "version", "source_sha", "manifest_digest"],
+      "required": ["repository", "version", "source_reference", "manifest_digest", "base_references", "assertions"],
       "properties": {
         "repository": {"$ref": "#/$defs/repository"},
         "version": {"$ref": "#/$defs/immutableTagReference"},
-        "source_sha": {"$ref": "#/$defs/immutableTagReference"},
-        "manifest_digest": {"$ref": "#/$defs/digest"}
+        "source_reference": {"$ref": "#/$defs/immutableTagReference"},
+        "manifest_digest": {"$ref": "#/$defs/digest"},
+        "base_references": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/baseReference"}
+        },
+        "assertions": {"$ref": "#/$defs/assertionEvidence"}
       }
     },
     "fluxSelection": {
@@ -87,18 +190,26 @@
     "result": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["result", "image_digest", "platform_digests", "immutable_references"],
+      "required": ["result", "manifest_digests", "platform_digests", "immutable_references"],
       "properties": {
         "result": {"const": "success"},
-        "image_digest": {
+        "manifest_digests": {
           "type": "object",
           "minProperties": 1,
-          "additionalProperties": {"$ref": "#/$defs/digest"}
+          "propertyNames": {"$ref": "#/$defs/productId"},
+          "additionalProperties": false,
+          "patternProperties": {
+            "^[a-z0-9]+(?:[._-][a-z0-9]+)*$": {"$ref": "#/$defs/digest"}
+          }
         },
         "platform_digests": {
           "type": "object",
           "minProperties": 1,
-          "additionalProperties": {"$ref": "#/$defs/platformEvidence"}
+          "propertyNames": {"$ref": "#/$defs/productId"},
+          "additionalProperties": false,
+          "patternProperties": {
+            "^[a-z0-9]+(?:[._-][a-z0-9]+)*$": {"$ref": "#/$defs/platformEvidence"}
+          }
         },
         "immutable_references": {
           "type": "object",
@@ -108,7 +219,11 @@
             "targets": {
               "type": "object",
               "minProperties": 1,
-              "additionalProperties": {"$ref": "#/$defs/targetReference"}
+              "propertyNames": {"$ref": "#/$defs/productId"},
+              "additionalProperties": false,
+              "patternProperties": {
+                "^[a-z0-9]+(?:[._-][a-z0-9]+)*$": {"$ref": "#/$defs/targetReference"}
+              }
             },
             "release": {
               "type": "object",

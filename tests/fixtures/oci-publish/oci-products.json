@@ -18,11 +18,32 @@
       "labels": ["linux", "amd64", "buildah", "high"]
     }
   },
+  "publication_assertions": {
+    "backend-image": {
+      "backend": {
+        "required_executables": [],
+        "forbidden_paths": [],
+        "healthcheck": null
+      }
+    },
+    "runner-images": {
+      "runner-buildah": {
+        "required_executables": [],
+        "forbidden_paths": [],
+        "healthcheck": null
+      },
+      "runner-mobile": {
+        "required_executables": [],
+        "forbidden_paths": [],
+        "healthcheck": null
+      }
+    }
+  },
   "products": {
     "backend-image": {
       "repository": "StreamScapeTV/backend",
       "runner_profile": "buildah-small",
-      "workspace_profile": "standard",
+      "workspace_profile": "container",
       "timeout_minutes": 90,
       "metadata": {
         "title": "Backend",
@@ -54,12 +75,13 @@
       "canary_id": null,
       "previous_known_good": null,
       "rollback_id": null,
+      "independent_bootstrap": false,
       "adoption_ready": true
     },
     "runner-images": {
       "repository": "StreamScapeTV/flux",
       "runner_profile": "buildah-high",
-      "workspace_profile": "large",
+      "workspace_profile": "container",
       "timeout_minutes": 180,
       "metadata": {
         "title": "Runner Images",
@@ -110,6 +132,7 @@
       "canary_id": "runner-images-canary",
       "previous_known_good": "flux-policy:runner-images/current-known-good",
       "rollback_id": "runner-images-rollback",
+      "independent_bootstrap": true,
       "adoption_ready": true
     }
   }

@@ -55,6 +55,7 @@ jobs:
           set -Eeuo pipefail
           python3 -m unittest -v \
             tests.test_oci_publication \
+            tests.test_oci_publication_assertion_evidence \
             tests.test_oci_publication_contract_alignment \
             tests.test_oci_publication_event_guard \
             tests.test_oci_publication_facade \
@@ -75,6 +76,7 @@ jobs:
             src/ci_workflows/oci_publish_contract.py \
             src/ci_workflows/oci_publish_guards.py \
             tests/test_oci_publication.py \
+            tests/test_oci_publication_assertion_evidence.py \
             tests/test_oci_publication_contract_alignment.py \
             tests/test_oci_publication_event_guard.py \
             tests/test_oci_publication_facade.py \

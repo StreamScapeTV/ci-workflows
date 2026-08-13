@@ -131,12 +131,96 @@
       "storage_limit_bytes": 6442450944
     }
   },
+  "publication_assertions": {
+    "agent-state-image": {
+      "agent-state-api": {
+        "required_executables": [
+          "/usr/local/bin/uvicorn"
+        ],
+        "forbidden_paths": [],
+        "healthcheck": null
+      }
+    },
+    "ciw-oci-smoke": {
+      "contract-smoke": {
+        "required_executables": [],
+        "forbidden_paths": [],
+        "healthcheck": null
+      }
+    },
+    "flux-runner-images": {
+      "runner-buildah": {
+        "required_executables": [
+          "/bin/bash",
+          "/usr/bin/buildah",
+          "/usr/bin/podman",
+          "/usr/bin/skopeo"
+        ],
+        "forbidden_paths": [
+          "/home/runner/.config/containers/auth.json",
+          "/home/runner/.docker",
+          "/root/.config/containers/auth.json",
+          "/root/.docker",
+          "/run/containers/0/auth.json",
+          "/run/docker.sock",
+          "/usr/bin/docker",
+          "/usr/bin/docker-proxy",
+          "/usr/bin/dockerd",
+          "/usr/libexec/docker",
+          "/usr/local/bin/docker",
+          "/usr/local/bin/docker-proxy",
+          "/usr/local/bin/dockerd",
+          "/usr/local/lib/docker",
+          "/var/lib/docker",
+          "/var/run/docker.sock"
+        ],
+        "healthcheck": null
+      },
+      "runner-mobile": {
+        "required_executables": [
+          "/bin/bash",
+          "/opt/flutter/bin/flutter",
+          "/opt/java/openjdk/bin/java",
+          "/usr/local/bin/node"
+        ],
+        "forbidden_paths": [
+          "/home/runner/.config/containers/auth.json",
+          "/home/runner/.docker",
+          "/root/.config/containers/auth.json",
+          "/root/.docker",
+          "/run/containers/0/auth.json",
+          "/run/docker.sock",
+          "/usr/bin/docker",
+          "/usr/bin/docker-proxy",
+          "/usr/bin/dockerd",
+          "/usr/libexec/docker",
+          "/usr/local/bin/docker",
+          "/usr/local/bin/docker-proxy",
+          "/usr/local/bin/dockerd",
+          "/usr/local/lib/docker",
+          "/var/lib/docker",
+          "/var/run/docker.sock"
+        ],
+        "healthcheck": null
+      }
+    },
+    "iptv-backend-image": {
+      "iptv-backend": {
+        "required_executables": [
+          "/app/docker/start.sh",
+          "/usr/local/bin/python3"
+        ],
+        "forbidden_paths": [],
+        "healthcheck": null
+      }
+    }
+  },
   "products": {
     "agent-state-image": {
       "repository": "StreamScapeTV/agent-state",
       "builder_id": "buildah-v1",
       "runner_profile": "buildah-small",
-      "workspace_profile": "standard",
+      "workspace_profile": "container",
       "timeout_minutes": 90,
       "measurement": {
         "peak_memory_bytes": 1200000000,
@@ -159,10 +243,21 @@
           "assertions": {
             "user": null,
             "entrypoint": [],
-            "command": [],
-            "ports": [],
+            "command": [
+              "uvicorn",
+              "app.main:app",
+              "--host",
+              "0.0.0.0",
+              "--port",
+              "7878"
+            ],
+            "ports": [
+              "7878/tcp"
+            ],
             "required_files": [],
-            "required_tools": [],
+            "required_tools": [
+              "uvicorn"
+            ],
             "forbidden_tools": [
               "docker",
               "dockerd"
@@ -235,7 +330,7 @@
       "repository": "StreamScapeTV/flux",
       "builder_id": "buildah-v1",
       "runner_profile": "buildah-high",
-      "workspace_profile": "large",
+      "workspace_profile": "container",
       "timeout_minutes": 180,
       "measurement": {
         "peak_memory_bytes": 5900000000,
@@ -256,9 +351,11 @@
           "platform_set": "linux-amd64",
           "smoke_script": null,
           "assertions": {
-            "user": null,
+            "user": "runner",
             "entrypoint": [],
-            "command": [],
+            "command": [
+              "/bin/bash"
+            ],
             "ports": [],
             "required_files": [],
             "required_tools": [
@@ -283,9 +380,11 @@
           "platform_set": "linux-amd64",
           "smoke_script": null,
           "assertions": {
-            "user": null,
+            "user": "runner",
             "entrypoint": [],
-            "command": [],
+            "command": [
+              "/bin/bash"
+            ],
             "ports": [],
             "required_files": [],
             "required_tools": [
@@ -314,7 +413,7 @@
       "repository": "StreamScapeTV/iptv-backend",
       "builder_id": "buildah-v1",
       "runner_profile": "buildah-medium",
-      "workspace_profile": "large",
+      "workspace_profile": "container",
       "timeout_minutes": 150,
       "measurement": {
         "peak_memory_bytes": 3000000000,

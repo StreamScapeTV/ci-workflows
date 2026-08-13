@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .oci_types import is_exact_base_reference
+
 _FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 _STABLE_SEMVER = re.compile(r"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$")
 _PRODUCT = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
@@ -25,7 +27,6 @@ _CONFIG_MEDIA_TYPE = "application/vnd.oci.image.config.v1+json"
 _LAYER_MEDIA_TYPES = {
     "application/vnd.oci.image.layer.v1.tar",
     "application/vnd.oci.image.layer.v1.tar+gzip",
-    "application/vnd.oci.image.layer.v1.tar+zstd",
 }
 _BUILD_RUNNERS = {
     "buildah-tiny": ("linux", "amd64", "buildah", "tiny"),
@@ -33,6 +34,24 @@ _BUILD_RUNNERS = {
     "buildah-medium": ("linux", "amd64", "buildah", "medium"),
     "buildah-high": ("linux", "amd64", "buildah", "high"),
 }
+_SUBPROCESS_ENVIRONMENT = (
+    "HOME",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "LANG",
+    "LC_ALL",
+    "NO_PROXY",
+    "PATH",
+    "SSL_CERT_DIR",
+    "SSL_CERT_FILE",
+    "TMPDIR",
+    "XDG_CACHE_HOME",
+    "XDG_CONFIG_HOME",
+    "XDG_RUNTIME_DIR",
+    "http_proxy",
+    "https_proxy",
+    "no_proxy",
+)
 _REQUIRED_LABELS = {
     "dev.streamscape.product",
     "org.opencontainers.image.created",
@@ -261,12 +280,16 @@ def resolve_plan(repository_root: Path, request: PublishRequest) -> PublishPlan:
     _require(len({target.target_id for target in targets}) == len(targets), "invalid_contract")
     flux_asset = product.get("flux_asset")
     _require(isinstance(flux_asset, bool), "invalid_contract")
+    independent_bootstrap = product.get("independent_bootstrap")
+    _require(isinstance(independent_bootstrap, bool), "invalid_contract")
     canary = product.get("canary_id")
     known_good = product.get("previous_known_good")
     rollback = product.get("rollback_id")
     if flux_asset:
+        _require(independent_bootstrap is True, "invalid_contract")
         _require(all(isinstance(item, str) and item for item in (canary, known_good, rollback)), "invalid_contract")
     else:
+        _require(independent_bootstrap is False, "invalid_contract")
         _require(all(item is None for item in (canary, known_good, rollback)), "invalid_contract")
     return PublishPlan(
         repository=request.repository,
@@ -311,11 +334,17 @@ def _run(
     capture: bool = True,
     check: bool = True,
 ) -> subprocess.CompletedProcess[bytes]:
+    child_environment = {
+        key: value
+        for key in _SUBPROCESS_ENVIRONMENT
+        if (value := os.environ.get(key))
+    }
     return subprocess.run(
         list(argv),
         input=input_bytes,
         capture_output=capture,
         check=check,
+        env=child_environment,
     )
 
 
@@ -330,8 +359,38 @@ def _secure_existing_authfile(root: Path) -> Path:
     except OSError as error:
         raise OciPublishError("registry_auth_missing") from error
     _require(stat.S_ISREG(mode) and not stat.S_ISLNK(mode), "registry_auth_invalid")
-    _require(mode & 0o077 == 0, "registry_auth_invalid")
+    _require(stat.S_IMODE(mode) == 0o600, "registry_auth_invalid")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise OciPublishError("registry_auth_invalid") from error
+    _require(isinstance(payload, Mapping), "registry_auth_invalid")
     return path
+
+
+def _create_empty_authfile(root: Path) -> Path:
+    path = _authfile(root)
+    no_follow = getattr(os, "O_NOFOLLOW", None)
+    _require(no_follow is not None, "registry_auth_invalid")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | no_follow
+    try:
+        descriptor = os.open(path, flags, 0o600)
+    except OSError as error:
+        raise OciPublishError("registry_auth_invalid") from error
+    try:
+        with os.fdopen(descriptor, "wb", closefd=True) as handle:
+            _require(stat.S_ISREG(os.fstat(handle.fileno()).st_mode), "registry_auth_invalid")
+            os.fchmod(handle.fileno(), 0o600)
+            handle.write(b"{}\n")
+    except OSError as error:
+        raise OciPublishError("registry_auth_invalid") from error
+    authfile = _secure_existing_authfile(root)
+    try:
+        contents = authfile.read_bytes()
+    except OSError as error:
+        raise OciPublishError("registry_auth_invalid") from error
+    _require(contents == b"{}\n", "registry_auth_invalid")
+    return authfile
 
 
 def authenticate(
@@ -346,7 +405,7 @@ def authenticate(
     root = publication_state_root(environment)
     _require(not root.exists() and not root.is_symlink(), "residue_detected")
     root.mkdir(parents=True, mode=0o700)
-    authfile = _authfile(root)
+    authfile = _create_empty_authfile(root)
     try:
         _run(
             [
@@ -363,10 +422,6 @@ def authenticate(
         )
     except (OSError, subprocess.CalledProcessError) as error:
         raise OciPublishError("registry_auth_failed") from error
-    try:
-        authfile.chmod(0o600)
-    except OSError as error:
-        raise OciPublishError("registry_auth_invalid") from error
     _secure_existing_authfile(root)
     state = {
         "api": "oci.publish",
@@ -385,7 +440,11 @@ def _blob_path(layout: Path, digest: str) -> Path:
     _require(_DIGEST.fullmatch(digest) is not None, "oci_layout_malformed")
     path = layout / "blobs" / "sha256" / digest.removeprefix("sha256:")
     _require(path.is_file() and not path.is_symlink(), "oci_layout_malformed")
-    actual = "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+    blob_hash = hashlib.sha256()
+    with path.open("rb") as stream:
+        while chunk := stream.read(1024 * 1024):
+            blob_hash.update(chunk)
+    actual = "sha256:" + blob_hash.hexdigest()
     _require(actual == digest, "oci_digest_mismatch")
     return path
 
@@ -405,13 +464,29 @@ def _json_blob(layout: Path, descriptor: Mapping[str, Any], allowed_media: set[s
 
 
 def _root_descriptor(layout: Path, ref_name: str) -> Mapping[str, Any]:
+    marker = layout / "oci-layout"
+    index_path = layout / "index.json"
     try:
-        root = json.loads((layout / "index.json").read_text(encoding="utf-8"))
+        _require(
+            marker.is_file()
+            and not marker.is_symlink()
+            and json.loads(marker.read_text(encoding="utf-8"))
+            == {"imageLayoutVersion": "1.0.0"},
+            "oci_layout_malformed",
+        )
+        _require(index_path.is_file() and not index_path.is_symlink(), "oci_layout_malformed")
+        root = json.loads(index_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise OciPublishError("oci_layout_malformed") from error
     root = _mapping(root, "oci_layout_malformed")
     manifests = root.get("manifests")
-    _require(root.get("schemaVersion") == 2 and isinstance(manifests, list) and manifests, "oci_layout_malformed")
+    _require(
+        root.get("schemaVersion") == 2
+        and root.get("mediaType") in {None, _INDEX_MEDIA_TYPE}
+        and isinstance(manifests, list)
+        and manifests,
+        "oci_layout_malformed",
+    )
     matches: list[Mapping[str, Any]] = []
     for item in manifests:
         descriptor = _mapping(item, "oci_layout_malformed")
@@ -454,16 +529,22 @@ def _validate_runtime(target: PublishTarget, config: Mapping[str, Any], labels: 
     created = labels.get("org.opencontainers.image.created")
     _require(isinstance(created, str) and created.endswith("Z") and "T" in created, "metadata_mismatch")
     runtime = _mapping(config.get("config") or {}, "oci_layout_malformed")
-    if target.required_user is not None:
-        _require(runtime.get("User", "") == target.required_user, "assertion_failed")
-    if target.required_entrypoint:
-        _require(tuple(runtime.get("Entrypoint") or ()) == target.required_entrypoint, "assertion_failed")
-    if target.required_command:
-        _require(tuple(runtime.get("Cmd") or ()) == target.required_command, "assertion_failed")
-    if target.required_ports:
-        ports = runtime.get("ExposedPorts") or {}
-        _require(isinstance(ports, Mapping), "assertion_failed")
-        _require(tuple(sorted(ports)) == tuple(sorted(target.required_ports)), "assertion_failed")
+    expected_user = "" if target.required_user is None else target.required_user
+    _require(runtime.get("User", "") == expected_user, "assertion_failed")
+    _require(
+        tuple(runtime.get("Entrypoint") or ()) == target.required_entrypoint,
+        "assertion_failed",
+    )
+    _require(
+        tuple(runtime.get("Cmd") or ()) == target.required_command,
+        "assertion_failed",
+    )
+    ports = runtime.get("ExposedPorts") or {}
+    _require(isinstance(ports, Mapping), "assertion_failed")
+    _require(
+        tuple(sorted(ports)) == tuple(sorted(target.required_ports)),
+        "assertion_failed",
+    )
 
 
 def inspect_layout(layout: Path, target: PublishTarget, ref_name: str) -> Mapping[str, Any]:
@@ -474,7 +555,13 @@ def inspect_layout(layout: Path, target: PublishTarget, ref_name: str) -> Mappin
     if media == _INDEX_MEDIA_TYPE:
         index = _json_blob(layout, descriptor, {_INDEX_MEDIA_TYPE})
         manifests = index.get("manifests")
-        _require(index.get("schemaVersion") == 2 and isinstance(manifests, list), "oci_layout_malformed")
+        _require(
+            index.get("schemaVersion") == 2
+            and index.get("mediaType") in {None, _INDEX_MEDIA_TYPE}
+            and isinstance(manifests, list)
+            and manifests,
+            "oci_layout_malformed",
+        )
         manifest_descriptors = tuple(_mapping(item, "oci_layout_malformed") for item in manifests)
     elif media == _MANIFEST_MEDIA_TYPE:
         manifest_descriptors = (descriptor,)
@@ -483,16 +570,40 @@ def inspect_layout(layout: Path, target: PublishTarget, ref_name: str) -> Mappin
     rows: dict[str, Any] = {}
     for manifest_descriptor in manifest_descriptors:
         manifest = _json_blob(layout, manifest_descriptor, {_MANIFEST_MEDIA_TYPE})
-        _require(manifest.get("schemaVersion") == 2, "oci_layout_malformed")
+        _require(
+            manifest.get("schemaVersion") == 2
+            and manifest.get("mediaType") in {None, _MANIFEST_MEDIA_TYPE},
+            "oci_layout_malformed",
+        )
         config_descriptor = _mapping(manifest.get("config"), "oci_layout_malformed")
         config = _json_blob(layout, config_descriptor, {_CONFIG_MEDIA_TYPE})
         platform = _platform_name(config)
+        declared_platform = manifest_descriptor.get("platform")
+        if declared_platform is not None:
+            _require(
+                _platform_name(_mapping(declared_platform, "oci_layout_malformed"))
+                == platform,
+                "oci_layout_malformed",
+            )
         _require(platform not in rows, "oci_layout_malformed")
         runtime = _mapping(config.get("config") or {}, "oci_layout_malformed")
         labels = _mapping(runtime.get("Labels") or {}, "metadata_mismatch")
         _validate_runtime(target, config, labels)
         layers = manifest.get("layers")
-        _require(isinstance(layers, list), "oci_layout_malformed")
+        rootfs = config.get("rootfs")
+        _require(
+            isinstance(layers, list)
+            and bool(layers)
+            and isinstance(rootfs, Mapping)
+            and rootfs.get("type") == "layers"
+            and isinstance(rootfs.get("diff_ids"), list)
+            and len(rootfs["diff_ids"]) == len(layers)
+            and all(
+                isinstance(diff_id, str) and _DIGEST.fullmatch(diff_id) is not None
+                for diff_id in rootfs["diff_ids"]
+            ),
+            "oci_layout_malformed",
+        )
         layer_digests: list[str] = []
         for raw_layer in layers:
             layer = _mapping(raw_layer, "oci_layout_malformed")
@@ -546,7 +657,18 @@ def _inspect_remote_digest(reference: str, authfile: Path) -> str | None:
 
 def _copy(source: str, destination: str, authfile: Path) -> None:
     try:
-        _run(["skopeo", "copy", "--all", "--authfile", str(authfile), source, destination])
+        _run(
+            [
+                "skopeo",
+                "copy",
+                "--all",
+                "--preserve-digests",
+                "--authfile",
+                str(authfile),
+                source,
+                destination,
+            ]
+        )
     except (OSError, subprocess.CalledProcessError) as error:
         raise OciPublishError("registry_copy_failed") from error
 
@@ -643,12 +765,23 @@ def verify(plan: PublishPlan, environment: Mapping[str, str]) -> dict[str, str]:
     except (OSError, json.JSONDecodeError) as error:
         raise OciPublishError("publication_state_missing") from error
     rows = _mapping(readback.get("targets"), "publication_state_missing")
+    build = _mapping(readback.get("build"), "publication_state_missing")
+    _require(
+        build.get("source_sha") == plan.admitted_sha
+        and build.get("product_id") == plan.product_id
+        and build.get("release_version") == plan.release_version
+        and isinstance(build.get("evidence_id"), str)
+        and re.fullmatch(r"[0-9a-f]{64}", build["evidence_id"]) is not None,
+        "publication_state_missing",
+    )
     _require(set(rows) == {target.target_id for target in plan.targets}, "publication_state_missing")
     repositories: dict[str, str] = {}
     versions: dict[str, str] = {}
     sources: dict[str, str] = {}
     manifests: dict[str, str] = {}
     platforms: dict[str, Any] = {}
+    base_references: dict[str, list[str]] = {}
+    assertion_evidence: dict[str, Mapping[str, Any]] = {}
     replayed = False
     for target in plan.targets:
         row = _mapping(rows[target.target_id], "publication_state_missing")
@@ -662,6 +795,34 @@ def verify(plan: PublishPlan, environment: Mapping[str, str]) -> dict[str, str]:
         sources[target.target_id] = target.source_reference
         manifests[target.target_id] = digest
         platforms[target.target_id] = row.get("platforms")
+        bases = row.get("resolved_base_references")
+        _require(
+            isinstance(bases, list)
+            and bool(bases)
+            and all(is_exact_base_reference(item) for item in bases),
+            "registry_readback_mismatch",
+        )
+        base_references[target.target_id] = list(bases)
+        assertions = _mapping(
+            row.get("assertions"), "publication_state_missing"
+        )
+        _require(
+            set(assertions)
+            == {
+                "result",
+                "verified_platforms",
+                "contract_digest",
+                "runtime",
+                "filesystem",
+                "healthcheck",
+            }
+            and assertions.get("result") == "passed"
+            and assertions.get("verified_platforms") == list(target.platforms)
+            and isinstance(assertions.get("contract_digest"), str)
+            and _DIGEST.fullmatch(assertions["contract_digest"]) is not None,
+            "registry_readback_mismatch",
+        )
+        assertion_evidence[target.target_id] = assertions
         replayed = replayed or bool(row.get("replayed"))
     evidence = {
         "api": "oci.publish",
@@ -671,6 +832,9 @@ def verify(plan: PublishPlan, environment: Mapping[str, str]) -> dict[str, str]:
         "release_version": plan.release_version,
         "manifests": manifests,
         "platforms": platforms,
+        "base_references": base_references,
+        "assertions": assertion_evidence,
+        "build_evidence_id": build["evidence_id"],
     }
     evidence_id = hashlib.sha256(json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     return {
@@ -683,6 +847,12 @@ def verify(plan: PublishPlan, environment: Mapping[str, str]) -> dict[str, str]:
         "source_references_json": json.dumps(sources, sort_keys=True, separators=(",", ":")),
         "manifest_digests_json": json.dumps(manifests, sort_keys=True, separators=(",", ":")),
         "platform_digests_json": json.dumps(platforms, sort_keys=True, separators=(",", ":")),
+        "resolved_base_references_json": json.dumps(
+            base_references, sort_keys=True, separators=(",", ":")
+        ),
+        "assertion_evidence_json": json.dumps(
+            assertion_evidence, sort_keys=True, separators=(",", ":")
+        ),
         "replayed": str(replayed).lower(),
         "evidence_id": evidence_id,
         "canary_id": plan.canary_id or "",
@@ -700,10 +870,12 @@ def cleanup(environment: Mapping[str, str]) -> None:
         return
     except OSError as error:
         raise OciPublishError("cleanup_failed") from error
-    if stat.S_ISLNK(mode):
-        root.unlink()
+    if not stat.S_ISDIR(mode) or stat.S_ISLNK(mode):
+        try:
+            root.unlink()
+        except OSError as error:
+            raise OciPublishError("cleanup_failed") from error
         raise OciPublishError("cleanup_failed")
-    _require(stat.S_ISDIR(mode), "cleanup_failed")
     try:
         shutil.rmtree(root)
     except OSError as error:

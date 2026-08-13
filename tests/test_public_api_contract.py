@@ -168,6 +168,26 @@ class PublicApiContractTests(unittest.TestCase):
             },
         )
 
+    def test_oci_publish_uses_a_json_manifest_map_without_retyping_image_digest(self) -> None:
+        output_catalog = self.data.types["output_catalog"]
+        self.assertEqual(
+            output_catalog["manifest_digests_json"]["type"], "json-object"
+        )
+        self.assertEqual(output_catalog["image_digest"]["type"], "string")
+
+        publish_outputs = set(self.workflows["oci.publish"]["outputs"])
+        self.assertIn("manifest_digests_json", publish_outputs)
+        self.assertNotIn("image_digest", publish_outputs)
+
+        build_outputs = set(self.workflows["oci.build"]["outputs"])
+        bootstrap_outputs = set(
+            self.workflows["release.tag-image-chart-bootstrap"]["outputs"]
+        )
+        self.assertIn("image_digest", build_outputs)
+        self.assertIn("image_digest", bootstrap_outputs)
+        self.assertNotIn("manifest_digests_json", build_outputs)
+        self.assertNotIn("manifest_digests_json", bootstrap_outputs)
+
     def test_existing_bootstrap_workflow_matches_its_versioned_api_record(self) -> None:
         row = self.workflows["release.tag-image-chart-bootstrap"]
         self.assertEqual("1.2.0", row["api_version"])

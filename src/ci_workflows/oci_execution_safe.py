@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import hashlib
-import io
 import json
 import subprocess
 import tarfile
@@ -17,19 +16,44 @@ from .oci_types import OciBuildError, OciBuildPlan, OciBuildResult, OciTarget, O
 def _layer_paths(layout: Path, layer_digests: Sequence[str]) -> set[str]:
     paths: set[str] = set()
     for digest in layer_digests:
-        blob = base._blob(layout, digest).read_bytes()
         try:
-            archive = tarfile.open(fileobj=io.BytesIO(blob), mode="r:*")
-        except tarfile.TarError as error:
+            archive = tarfile.open(name=base._blob(layout, digest), mode="r:*")
+        except (OSError, tarfile.TarError) as error:
             raise OciBuildError("oci_layout_malformed") from error
+        additions: dict[str, bool] = {}
+        opaque_prefixes: set[str] = set()
+        removed_paths: set[str] = set()
         with archive:
-            for member in archive.getmembers():
+            for member in archive:
                 pure = PurePosixPath(member.name)
                 if pure.is_absolute() or ".." in pure.parts:
                     raise OciBuildError("oci_layout_malformed")
                 if member.issym() or member.islnk():
                     link = PurePosixPath(member.linkname)
-                    if link.is_absolute() or ".." in link.parts:
+                    # Absolute links are ordinary container-root identities
+                    # (for example Debian's /var/run -> /run).  This scanner
+                    # inventories tar metadata without extracting or following
+                    # links. Relative links may use ``..`` within the image
+                    # root (for example /etc/os-release -> ../usr/lib/...);
+                    # reject only those that normalize above that root.
+                    if link.is_absolute():
+                        link_parts = link.parts[1:]
+                        depth = 0
+                    else:
+                        link_parts = link.parts
+                        depth = len(pure.parent.parts)
+                    escaped = False
+                    for part in link_parts:
+                        if part in {"", ".", "/"}:
+                            continue
+                        if part == "..":
+                            if depth == 0:
+                                escaped = True
+                                break
+                            depth -= 1
+                        else:
+                            depth += 1
+                    if escaped:
                         raise OciBuildError("oci_layout_malformed")
                 name = pure.as_posix().lstrip("./")
                 if not name:
@@ -38,16 +62,27 @@ def _layer_paths(layout: Path, layer_digests: Sequence[str]) -> set[str]:
                 parent = PurePosixPath(name).parent.as_posix()
                 prefix = "/" + ("" if parent == "." else parent.rstrip("/") + "/")
                 if basename == ".wh..wh..opq":
-                    paths = {path for path in paths if not path.startswith(prefix)}
+                    opaque_prefixes.add(prefix)
                     continue
                 if basename.startswith(".wh."):
                     removed = prefix + basename.removeprefix(".wh.")
-                    paths = {
-                        path for path in paths
-                        if path != removed and not path.startswith(removed.rstrip("/") + "/")
-                    }
+                    removed_paths.add(removed)
                     continue
-                paths.add("/" + name.rstrip("/"))
+                additions["/" + name.rstrip("/")] = member.isdir()
+        for prefix in opaque_prefixes:
+            paths = {path for path in paths if not path.startswith(prefix)}
+        for removed in removed_paths:
+            removed_prefix = removed.rstrip("/") + "/"
+            paths = {
+                path
+                for path in paths
+                if path != removed and not path.startswith(removed_prefix)
+            }
+        for added, is_directory in additions.items():
+            if not is_directory:
+                added_prefix = added.rstrip("/") + "/"
+                paths = {path for path in paths if not path.startswith(added_prefix)}
+            paths.add(added)
     return paths
 
 

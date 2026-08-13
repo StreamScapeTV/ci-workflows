@@ -1,0 +1,34 @@
+name: Verify exact OCI builder toolchain
+description: Verify the fixed Buildah, Skopeo, and Podman publication tool set
+
+outputs:
+  tool_set:
+    value: ${{ steps.verify.outputs.tool_set }}
+  toolchain_json:
+    value: ${{ steps.verify.outputs.toolchain_json }}
+  toolchain_id:
+    value: ${{ steps.verify.outputs.toolchain_id }}
+  capability_profile:
+    value: ${{ steps.verify.outputs.capability_profile }}
+  platform:
+    value: ${{ steps.verify.outputs.platform }}
+  capability_id:
+    value: ${{ steps.verify.outputs.capability_id }}
+  capability_verified:
+    value: ${{ steps.verify.outputs.capability_verified }}
+  verified:
+    value: ${{ steps.verify.outputs.verified }}
+
+runs:
+  using: composite
+  steps:
+    - id: verify
+      name: Verify contract-selected OCI tools
+      shell: bash
+      env:
+        PYTHONDONTWRITEBYTECODE: "1"
+        INPUT_TOOL_SET: oci-builder
+        INPUT_CAPABILITY_PROFILE: linux
+      run: |
+        set -Eeuo pipefail
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" tooling verify

@@ -27,18 +27,29 @@ class OciPublicationWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("registry_repository:", text)
         self.assertIn("registry_username:", text)
         self.assertIn("registry_token:", text)
+        for forbidden in ("kubeconfig", "sops", "kubectl", "service_account", "namespace"):
+            self.assertNotIn(forbidden, text.lower())
         self.assertIn("platform_set:", text)
         self.assertIn("name: Release / OCI publication", text)
+        self.assertNotIn("concurrency:", text)
         for stage in (
             "Resolve exact caller release authority",
             "Verify authority matches the public release request",
             "Resolve contract-owned product, destination, and runner",
+            "Verify exact OCI builder host toolchain",
             "Rebuild and inspect exact source through OCI build contract",
+            "Revalidate exact release authority before registry authentication",
+            "Verify pre-authentication release authority stayed exact",
             "Authenticate with workflow-scoped named registry credentials",
+            "Revalidate exact release authority immediately before publication",
+            "Verify pre-publication release authority stayed exact",
             "Publish or verify immutable version and source identities",
+            "Remove built images and local layouts before independent read-back",
+            "Verify zero OCI build residue before independent read-back",
             "Read back registry manifests through independent Skopeo inspection",
             "Verify exact manifest, platform, metadata, and assertion parity",
             "Remove registry auth, read-back layouts, and publication state",
+            "Render deterministic redacted publication evidence after OCI cleanup",
         ):
             self.assertIn(stage, text)
 
@@ -53,15 +64,21 @@ class OciPublicationWorkflowContractTests(unittest.TestCase):
             "path: .ciw",
             "./.ciw/actions/",
             "actions/checkout@",
-            "github.workflow_sha",
             "GITHUB_WORKFLOW_SHA",
         ):
             self.assertNotIn(forbidden, text)
+        self.assertNotIn("github.workflow_sha", text)
+        self.assertEqual(1, text.count("job.workflow_sha"))
+        self.assertIn(
+            "central_workflow_sha: ${{ job.workflow_sha }}",
+            text,
+        )
         expected = {
             "StreamScapeTV/ci-workflows/actions/resolve-release-tag": RELEASE_TAG_SHA,
             "StreamScapeTV/ci-workflows/actions/publish-oci": PUBLISH_SHA,
             "StreamScapeTV/ci-workflows/actions/exact-checkout": FOUNDATION_SHA,
             "StreamScapeTV/ci-workflows/actions/prepare-workspace": FOUNDATION_SHA,
+            "StreamScapeTV/ci-workflows/actions/verify-toolchain": FOUNDATION_SHA,
             "StreamScapeTV/ci-workflows/actions/render-evidence": FOUNDATION_SHA,
             "StreamScapeTV/ci-workflows/actions/cleanup-workspace": FOUNDATION_SHA,
             "StreamScapeTV/ci-workflows/actions/validate-oci": OCI_SHA,
@@ -72,15 +89,92 @@ class OciPublicationWorkflowContractTests(unittest.TestCase):
         self.assertIn("'existing-tag' || 'tag-push'", text)
         self.assertIn("release_mode: ${{ needs.plan.outputs.release_mode }}", text)
         self.assertIn("Verify revalidated release authority stayed exact", text)
+        self.assertIn("tool_set: oci-builder", text)
+        self.assertIn("capability_profile: linux", text)
+        self.assertLess(
+            text.index("Prepare isolated publication workspace"),
+            text.index("Verify exact OCI builder host toolchain"),
+        )
+        self.assertLess(
+            text.index("Verify exact OCI builder host toolchain"),
+            text.index("Rebuild and inspect exact source through OCI build contract"),
+        )
+        self.assertLess(
+            text.index("Rebuild and inspect exact source through OCI build contract"),
+            text.index(
+                "Revalidate exact release authority before registry authentication"
+            ),
+        )
+        self.assertLess(
+            text.index(
+                "Revalidate exact release authority before registry authentication"
+            ),
+            text.index("Authenticate with workflow-scoped named registry credentials"),
+        )
+        self.assertLess(
+            text.index("Authenticate with workflow-scoped named registry credentials"),
+            text.index(
+                "Revalidate exact release authority immediately before publication"
+            ),
+        )
+        self.assertIn(
+            "release_authority_sha: ${{ steps.credential_authority.outputs.release_source_sha }}",
+            text,
+        )
+        self.assertIn(
+            "release_authority_sha: ${{ steps.publication_authority.outputs.release_source_sha }}",
+            text,
+        )
 
     def test_composite_action_is_thin_and_has_no_caller_destination_or_command(self) -> None:
         text = (ROOT / "actions/publish-oci/action.yml").read_text(encoding="utf-8")
-        self.assertIn("scripts/ci/oci_publish.py", text)
+        outputs = text.split("runs:", 1)[0]
+        self.assertIn("  manifest_digests_json:\n", outputs)
+        self.assertNotIn("  image_digest:\n", outputs)
+        self.assertIn("scripts/ci/ciw.py", text)
+        self.assertIn("oci publish --phase", text)
+        self.assertIn("INPUT_PHASE: ${{ inputs.phase }}", text)
+        self.assertIn('--phase "${INPUT_PHASE}"', text)
+        self.assertIn("INPUT_CENTRAL_WORKFLOW_SHA", text)
+        self.assertIn("INPUT_PUBLICATION_HELPER_SHA", text)
+        self.assertIn("INPUT_WORKSPACE_CLEANUP_OUTCOME", text)
+        self.assertIn("  supply_evidence_id:\n", outputs)
+        self.assertNotIn('--phase "${{ inputs.phase }}"', text)
         self.assertNotIn("registry_repository:", text)
         self.assertNotIn("registry_host:", text)
         self.assertNotIn("command:", text)
         self.assertNotIn("runner_labels:", text)
         self.assertNotIn("secrets: inherit", text)
+
+    def test_oci_toolchain_action_has_no_caller_control_surface(self) -> None:
+        text = (ROOT / "actions/verify-oci-toolchain/action.yml").read_text(
+            encoding="utf-8"
+        )
+        header = text.split("outputs:", 1)[0]
+        self.assertNotIn("inputs:", header)
+        self.assertEqual(1, text.count("    - id: verify"))
+        self.assertIn("INPUT_TOOL_SET: oci-builder", text)
+        self.assertIn("INPUT_CAPABILITY_PROFILE: linux", text)
+        self.assertIn('scripts/ci/ciw.py" tooling verify', text)
+        for forbidden in ("${{ inputs.", "curl ", "sudo ", "docker ", "eval "):
+            self.assertNotIn(forbidden, text)
+
+    def test_documented_callers_serialize_every_product_publication(self) -> None:
+        text = (ROOT / "docs/workflows/oci-publish.md").read_text(encoding="utf-8")
+        for product in (
+            "iptv-backend-image",
+            "agent-state-image",
+            "flux-runner-images",
+        ):
+            self.assertIn(
+                f"group: oci-publish-${{{{ github.repository }}}}-{product}",
+                text,
+            )
+        self.assertEqual(3, text.count("cancel-in-progress: false"))
+        self.assertNotIn(
+            "group: oci-publish-${{ github.repository }}-${{ github.ref }}",
+            text,
+        )
 
     def test_mock_smoke_has_no_registry_credentials_and_proves_zero_artifacts(self) -> None:
         text = (ROOT / ".github/workflows/oci-publish-smoke.yml").read_text(
@@ -111,9 +205,23 @@ class OciPublicationWorkflowContractTests(unittest.TestCase):
         )
         result = schema["$defs"]["result"]
         self.assertFalse(result["additionalProperties"])
+        self.assertIn("manifest_digests", result["required"])
+        self.assertNotIn("image_digest", result["properties"])
         immutable = result["properties"]["immutable_references"]
         self.assertFalse(immutable["additionalProperties"])
         self.assertFalse(schema["$defs"]["targetReference"]["additionalProperties"])
+        target_reference = schema["$defs"]["targetReference"]
+        self.assertIn("source_reference", target_reference["required"])
+        self.assertIn("base_references", target_reference["required"])
+        self.assertIn("assertions", target_reference["required"])
+        self.assertNotIn("source_sha", target_reference["properties"])
+        assertions = schema["$defs"]["assertionEvidence"]
+        self.assertFalse(assertions["additionalProperties"])
+        self.assertEqual(assertions["properties"]["result"]["const"], "passed")
+        self.assertIn("contract_digest", assertions["required"])
+        self.assertIn("verified_platforms", assertions["required"])
+        release = result["properties"]["immutable_references"]["properties"]["release"]
+        self.assertIn("source_sha", release["required"])
         self.assertFalse(schema["$defs"]["platformEvidence"]["additionalProperties"])
         self.assertFalse(schema["$defs"]["fluxSelection"]["additionalProperties"])
 
@@ -124,11 +232,89 @@ class OciPublicationWorkflowContractTests(unittest.TestCase):
         call_section = text.split("permissions:", 1)[0]
         for name in (
             "result",
-            "image_digest",
+            "manifest_digests_json",
             "platform_digests_json",
             "immutable_references_json",
         ):
             self.assertIn(f"      {name}:\n", call_section)
+        self.assertNotIn("      image_digest:\n", call_section)
+        self.assertIn("result: ${{ steps.terminal.outputs.result }}", text)
+        self.assertIn(
+            "manifest_digests_json: ${{ steps.terminal.outputs.manifest_digests_json }}",
+            text,
+        )
+        self.assertLess(
+            text.index("Remove registry auth, read-back layouts, and publication state"),
+            text.index("Project terminal trusted publication status"),
+        )
+        self.assertLess(
+            text.index("Render deterministic redacted publication evidence after OCI cleanup"),
+            text.index("Remove and verify registered workspace state"),
+        )
+        self.assertLess(
+            text.index("Remove and verify registered workspace state"),
+            text.index(
+                "Append canonical terminal OCI supply evidence after workspace cleanup"
+            ),
+        )
+        self.assertLess(
+            text.index(
+                "Append canonical terminal OCI supply evidence after workspace cleanup"
+            ),
+            text.index("Project terminal trusted publication status"),
+        )
+        self.assertIn("EVIDENCE_OUTCOME: ${{ steps.evidence.outcome }}", text)
+        self.assertIn(
+            "EVIDENCE_SUMMARY_OUTCOME: ${{ steps.evidence_summary.outcome }}",
+            text,
+        )
+        self.assertIn(
+            "Persist redacted toolchain and cleanup evidence in the run summary",
+            text,
+        )
+        self.assertIn(
+            "EVIDENCE_JSON: ${{ steps.evidence.outputs.evidence_json }}",
+            text,
+        )
+        self.assertIn('>> "${GITHUB_STEP_SUMMARY}"', text)
+        self.assertLess(
+            text.index("Persist redacted toolchain and cleanup evidence in the run summary"),
+            text.index("Remove and verify registered workspace state"),
+        )
+        self.assertIn("SOURCE_CLEAN_OUTCOME: ${{ steps.source_clean.outcome }}", text)
+        self.assertIn(
+            "toolchain_json: ${{ steps.tools.outputs.toolchain_json }}", text
+        )
+        self.assertNotIn(
+            '{"buildah":"1.33.7","skopeo":"1.13.3","publication":"immutable"}',
+            text,
+        )
+        self.assertIn("TOOLS_OUTCOME: ${{ steps.tools.outcome }}", text)
+        self.assertIn('test "${TOOLS_OUTCOME}" = success', text)
+        self.assertIn(
+            "FINAL_SUPPLY_EVIDENCE_OUTCOME: ${{ steps.final_supply_evidence.outcome }}",
+            text,
+        )
+        self.assertIn(
+            'test "${FINAL_SUPPLY_EVIDENCE_OUTCOME}" = success', text
+        )
+        self.assertIn(
+            "publication_evidence_id: ${{ steps.verify.outputs.evidence_id }}",
+            text,
+        )
+        self.assertIn(
+            "foundation_evidence_id: ${{ steps.evidence.outputs.evidence_id }}",
+            text,
+        )
+        self.assertIn(
+            "publication_helper_sha: " + PUBLISH_SHA,
+            text,
+        )
+        self.assertLess(
+            text.index("Remove built images and local layouts before independent read-back"),
+            text.index("Read back registry manifests through independent Skopeo inspection"),
+        )
+        self.assertNotIn("cleanup_state: not-run", text)
         for old in (
             "repositories_json",
             "version_references_json",

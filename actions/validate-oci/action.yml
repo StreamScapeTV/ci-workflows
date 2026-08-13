@@ -33,6 +33,8 @@ outputs:
     value: ${{ steps.oci.outputs.release_version }}
   manifest_digests_json:
     value: ${{ steps.oci.outputs.manifest_digests_json }}
+  publication_manifest_digests_json:
+    value: ${{ steps.oci.outputs.publication_manifest_digests_json }}
   platform_results_json:
     value: ${{ steps.oci.outputs.platform_results_json }}
   clean_tree:

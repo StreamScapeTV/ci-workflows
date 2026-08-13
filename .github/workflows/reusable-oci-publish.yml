@@ -30,9 +30,9 @@ on:
       result:
         description: Success only after exact build, immutable publication/read-back, and cleanup
         value: ${{ jobs.publish.outputs.result }}
-      image_digest:
+      manifest_digests_json:
         description: Deterministic JSON map of independently read-back registry manifest digests
-        value: ${{ jobs.publish.outputs.image_digest }}
+        value: ${{ jobs.publish.outputs.manifest_digests_json }}
       platform_digests_json:
         description: Exact read-back platform manifest, config, layer, and assertion identities
         value: ${{ jobs.publish.outputs.platform_digests_json }}
@@ -94,10 +94,10 @@ jobs:
     runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
     timeout-minutes: 180
     outputs:
-      result: ${{ steps.verify.outputs.result }}
-      image_digest: ${{ steps.verify.outputs.image_digest }}
-      platform_digests_json: ${{ steps.verify.outputs.platform_digests_json }}
-      immutable_references_json: ${{ steps.verify.outputs.immutable_references_json }}
+      result: ${{ steps.terminal.outputs.result }}
+      manifest_digests_json: ${{ steps.terminal.outputs.manifest_digests_json }}
+      platform_digests_json: ${{ steps.terminal.outputs.platform_digests_json }}
+      immutable_references_json: ${{ steps.terminal.outputs.immutable_references_json }}
     steps:
       - name: Check out exact admitted caller source
         uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
@@ -115,6 +115,14 @@ jobs:
           cache_mode: disabled
           source_sha: ${{ inputs.admitted_sha }}
           trust_mode: trusted-exact
+
+      - id: tools
+        name: Verify exact OCI builder host toolchain
+        uses: StreamScapeTV/ci-workflows/actions/verify-toolchain@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
+        with:
+          operation: verify-set
+          tool_set: oci-builder
+          capability_profile: linux
 
       - id: revalidate
         name: Revalidate exact release authority immediately before privileged work
@@ -150,43 +158,115 @@ jobs:
           release_version: ${{ inputs.release_version }}
           platform_set: ${{ inputs.platform_set }}
 
+      - id: credential_authority
+        name: Revalidate exact release authority before registry authentication
+        if: ${{ steps.build.outcome == 'success' }}
+        uses: StreamScapeTV/ci-workflows/actions/resolve-release-tag@2b0443fdad002d47625386a959ebe68545cfe022 # issue #59 immutable helper checkpoint
+        with:
+          phase: revalidate
+          release_mode: ${{ needs.plan.outputs.release_mode }}
+          release_version: ${{ inputs.release_version }}
+          release_source_sha: ${{ inputs.admitted_sha }}
+          expected_tag_object_sha: ${{ needs.plan.outputs.tag_object_sha }}
+          expected_tag_commit_sha: ${{ needs.plan.outputs.tag_commit_sha }}
+
+      - name: Verify pre-authentication release authority stayed exact
+        if: ${{ steps.build.outcome == 'success' }}
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.admitted_sha }}
+          EXPECTED_VERSION: ${{ inputs.release_version }}
+          ACTUAL_SHA: ${{ steps.credential_authority.outputs.release_source_sha }}
+          ACTUAL_VERSION: ${{ steps.credential_authority.outputs.release_version }}
+        run: |
+          set -Eeuo pipefail
+          test "${ACTUAL_SHA}" = "${EXPECTED_SHA}"
+          test "${ACTUAL_VERSION}" = "${EXPECTED_VERSION}"
+
       - id: authenticate
         name: Authenticate with workflow-scoped named registry credentials
-        if: ${{ steps.build.outcome == 'success' }}
+        if: ${{ steps.build.outcome == 'success' && steps.credential_authority.outcome == 'success' }}
         continue-on-error: true
         uses: StreamScapeTV/ci-workflows/actions/publish-oci@1661da705cac03206ba7f41598457bb7726c0dc9 # issue #17 immutable publication helper checkpoint
         with:
           phase: authenticate
           admitted_sha: ${{ inputs.admitted_sha }}
-          release_authority_sha: ${{ steps.revalidate.outputs.release_source_sha }}
+          release_authority_sha: ${{ steps.credential_authority.outputs.release_source_sha }}
           product_id: ${{ inputs.product_id }}
           release_version: ${{ inputs.release_version }}
           platform_set: ${{ inputs.platform_set }}
           registry_username: ${{ secrets.registry_username }}
           registry_token: ${{ secrets.registry_token }}
 
+      - id: publication_authority
+        name: Revalidate exact release authority immediately before publication
+        if: ${{ steps.authenticate.outcome == 'success' }}
+        uses: StreamScapeTV/ci-workflows/actions/resolve-release-tag@2b0443fdad002d47625386a959ebe68545cfe022 # issue #59 immutable helper checkpoint
+        with:
+          phase: revalidate
+          release_mode: ${{ needs.plan.outputs.release_mode }}
+          release_version: ${{ inputs.release_version }}
+          release_source_sha: ${{ inputs.admitted_sha }}
+          expected_tag_object_sha: ${{ needs.plan.outputs.tag_object_sha }}
+          expected_tag_commit_sha: ${{ needs.plan.outputs.tag_commit_sha }}
+
+      - name: Verify pre-publication release authority stayed exact
+        if: ${{ steps.authenticate.outcome == 'success' }}
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.admitted_sha }}
+          EXPECTED_VERSION: ${{ inputs.release_version }}
+          ACTUAL_SHA: ${{ steps.publication_authority.outputs.release_source_sha }}
+          ACTUAL_VERSION: ${{ steps.publication_authority.outputs.release_version }}
+        run: |
+          set -Eeuo pipefail
+          test "${ACTUAL_SHA}" = "${EXPECTED_SHA}"
+          test "${ACTUAL_VERSION}" = "${EXPECTED_VERSION}"
+
       - id: publish
         name: Publish or verify immutable version and source identities
-        if: ${{ steps.authenticate.outcome == 'success' }}
+        if: ${{ steps.authenticate.outcome == 'success' && steps.publication_authority.outcome == 'success' }}
         continue-on-error: true
         uses: StreamScapeTV/ci-workflows/actions/publish-oci@1661da705cac03206ba7f41598457bb7726c0dc9 # issue #17 immutable publication helper checkpoint
         with:
           phase: publish
           admitted_sha: ${{ inputs.admitted_sha }}
-          release_authority_sha: ${{ steps.revalidate.outputs.release_source_sha }}
+          release_authority_sha: ${{ steps.publication_authority.outputs.release_source_sha }}
+          product_id: ${{ inputs.product_id }}
+          release_version: ${{ inputs.release_version }}
+          platform_set: ${{ inputs.platform_set }}
+
+      - id: build_cleanup
+        name: Remove built images and local layouts before independent read-back
+        if: always()
+        uses: StreamScapeTV/ci-workflows/actions/validate-oci@29cb88e406a0490834bd556bb825d0e227c862ac # issue #125 immutable private-action checkpoint
+        with:
+          phase: cleanup
+          admitted_sha: ${{ inputs.admitted_sha }}
+          product_id: ${{ inputs.product_id }}
+          release_version: ${{ inputs.release_version }}
+          platform_set: ${{ inputs.platform_set }}
+
+      - id: build_residue
+        name: Verify zero OCI build residue before independent read-back
+        if: always()
+        uses: StreamScapeTV/ci-workflows/actions/validate-oci@29cb88e406a0490834bd556bb825d0e227c862ac # issue #125 immutable private-action checkpoint
+        with:
+          phase: residue
+          admitted_sha: ${{ inputs.admitted_sha }}
           product_id: ${{ inputs.product_id }}
           release_version: ${{ inputs.release_version }}
           platform_set: ${{ inputs.platform_set }}
 
       - id: readback
         name: Read back registry manifests through independent Skopeo inspection
-        if: ${{ steps.publish.outcome == 'success' }}
+        if: ${{ steps.publish.outcome == 'success' && steps.build_cleanup.outcome == 'success' && steps.build_residue.outcome == 'success' }}
         continue-on-error: true
         uses: StreamScapeTV/ci-workflows/actions/publish-oci@1661da705cac03206ba7f41598457bb7726c0dc9 # issue #17 immutable publication helper checkpoint
         with:
           phase: readback
           admitted_sha: ${{ inputs.admitted_sha }}
-          release_authority_sha: ${{ steps.revalidate.outputs.release_source_sha }}
+          release_authority_sha: ${{ steps.publication_authority.outputs.release_source_sha }}
           product_id: ${{ inputs.product_id }}
           release_version: ${{ inputs.release_version }}
           platform_set: ${{ inputs.platform_set }}
@@ -199,24 +279,10 @@ jobs:
         with:
           phase: verify
           admitted_sha: ${{ inputs.admitted_sha }}
-          release_authority_sha: ${{ steps.revalidate.outputs.release_source_sha }}
+          release_authority_sha: ${{ steps.publication_authority.outputs.release_source_sha }}
           product_id: ${{ inputs.product_id }}
           release_version: ${{ inputs.release_version }}
           platform_set: ${{ inputs.platform_set }}
-
-      - name: Render deterministic redacted publication evidence
-        if: ${{ always() && !cancelled() }}
-        uses: StreamScapeTV/ci-workflows/actions/render-evidence@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
-        with:
-          source_sha: ${{ inputs.admitted_sha }}
-          workflow_release: oci-publish-1.0.0
-          runner_profile: ${{ needs.plan.outputs.runner_profile }}
-          toolchain_json: >-
-            {"buildah":"1.33.7","skopeo":"1.13.3","publication":"immutable"}
-          command_profile: ${{ inputs.product_id }}
-          result: ${{ steps.verify.outcome == 'success' && 'success' || 'failure' }}
-          cleanup_state: not-run
-          cleanup_removed_paths: "0"
 
       - id: publication_cleanup
         name: Remove registry auth, read-back layouts, and publication state
@@ -242,35 +308,43 @@ jobs:
           release_version: ${{ inputs.release_version }}
           platform_set: ${{ inputs.platform_set }}
 
-      - id: build_cleanup
-        name: Remove images, manifests, builders, local layouts, and caches
-        if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-oci@29cb88e406a0490834bd556bb825d0e227c862ac # issue #125 immutable private-action checkpoint
-        with:
-          phase: cleanup
-          admitted_sha: ${{ inputs.admitted_sha }}
-          product_id: ${{ inputs.product_id }}
-          release_version: ${{ inputs.release_version }}
-          platform_set: ${{ inputs.platform_set }}
-
-      - id: build_residue
-        name: Verify zero OCI build residue
-        if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-oci@29cb88e406a0490834bd556bb825d0e227c862ac # issue #125 immutable private-action checkpoint
-        with:
-          phase: residue
-          admitted_sha: ${{ inputs.admitted_sha }}
-          product_id: ${{ inputs.product_id }}
-          release_version: ${{ inputs.release_version }}
-          platform_set: ${{ inputs.platform_set }}
-
-      - id: workspace_cleanup
-        name: Remove and verify registered workspace state
-        if: always()
-        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
-
-      - name: Verify exact caller source remained clean
+      - id: evidence
+        name: Render deterministic redacted publication evidence after OCI cleanup
         if: ${{ always() && !cancelled() }}
+        continue-on-error: true
+        uses: StreamScapeTV/ci-workflows/actions/render-evidence@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        with:
+          source_sha: ${{ inputs.admitted_sha }}
+          workflow_release: oci-publish-1.0.0
+          runner_profile: ${{ needs.plan.outputs.runner_profile }}
+          toolchain_json: ${{ steps.tools.outputs.toolchain_json }}
+          command_profile: ${{ inputs.product_id }}
+          result: ${{ steps.verify.outcome == 'success' && 'success' || 'failure' }}
+          cleanup_state: ${{ steps.publication_cleanup.outcome == 'success' && steps.publication_residue.outcome == 'success' && steps.build_cleanup.outcome == 'success' && steps.build_residue.outcome == 'success' && 'success' || 'failure' }}
+          cleanup_removed_paths: "0"
+
+      - id: evidence_summary
+        name: Persist redacted toolchain and cleanup evidence in the run summary
+        if: ${{ always() && !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        env:
+          EVIDENCE_JSON: ${{ steps.evidence.outputs.evidence_json }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${EVIDENCE_JSON}"
+          {
+            echo "## OCI publication execution evidence"
+            echo
+            echo '```json'
+            printf '%s\n' "${EVIDENCE_JSON}"
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - id: source_clean
+        name: Verify exact caller source remained clean
+        if: ${{ always() && !cancelled() }}
+        continue-on-error: true
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -280,11 +354,42 @@ jobs:
             test -z "$(git status --porcelain --untracked-files=all)"
           )
 
-      - name: Project terminal trusted publication status
+      - id: workspace_cleanup
+        name: Remove and verify registered workspace state
+        if: always()
+        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+
+      - id: final_supply_evidence
+        name: Append canonical terminal OCI supply evidence after workspace cleanup
+        if: ${{ always() && !cancelled() }}
+        continue-on-error: true
+        uses: StreamScapeTV/ci-workflows/actions/publish-oci@1661da705cac03206ba7f41598457bb7726c0dc9 # issue #17 immutable publication helper checkpoint
+        with:
+          phase: final-evidence
+          admitted_sha: ${{ inputs.admitted_sha }}
+          release_authority_sha: ${{ inputs.admitted_sha }}
+          product_id: ${{ inputs.product_id }}
+          release_version: ${{ inputs.release_version }}
+          platform_set: ${{ inputs.platform_set }}
+          central_workflow_sha: ${{ job.workflow_sha }}
+          publication_helper_sha: 1661da705cac03206ba7f41598457bb7726c0dc9
+          verified_toolchain_json: ${{ steps.tools.outputs.toolchain_json }}
+          publication_evidence_id: ${{ steps.verify.outputs.evidence_id }}
+          foundation_evidence_id: ${{ steps.evidence.outputs.evidence_id }}
+          execution_result: ${{ steps.verify.outcome == 'success' && steps.verify.outputs.result == 'success' && 'success' || 'failure' }}
+          build_cleanup_outcome: ${{ steps.build_cleanup.outcome }}
+          build_residue_outcome: ${{ steps.build_residue.outcome }}
+          publication_cleanup_outcome: ${{ steps.publication_cleanup.outcome }}
+          publication_residue_outcome: ${{ steps.publication_residue.outcome }}
+          workspace_cleanup_outcome: ${{ steps.workspace_cleanup.outcome }}
+
+      - id: terminal
+        name: Project terminal trusted publication status
         if: ${{ always() && !cancelled() }}
         shell: bash
         env:
           BUILD_OUTCOME: ${{ steps.build.outcome }}
+          TOOLS_OUTCOME: ${{ steps.tools.outcome }}
           AUTH_OUTCOME: ${{ steps.authenticate.outcome }}
           PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
           READBACK_OUTCOME: ${{ steps.readback.outcome }}
@@ -294,9 +399,18 @@ jobs:
           BUILD_CLEANUP_OUTCOME: ${{ steps.build_cleanup.outcome }}
           BUILD_RESIDUE_OUTCOME: ${{ steps.build_residue.outcome }}
           WORKSPACE_CLEANUP_OUTCOME: ${{ steps.workspace_cleanup.outcome }}
+          EVIDENCE_OUTCOME: ${{ steps.evidence.outcome }}
+          EVIDENCE_SUMMARY_OUTCOME: ${{ steps.evidence_summary.outcome }}
+          FINAL_SUPPLY_EVIDENCE_OUTCOME: ${{ steps.final_supply_evidence.outcome }}
+          SOURCE_CLEAN_OUTCOME: ${{ steps.source_clean.outcome }}
+          RESULT: ${{ steps.verify.outputs.result }}
+          MANIFEST_DIGESTS_JSON: ${{ steps.verify.outputs.manifest_digests_json }}
+          PLATFORM_DIGESTS_JSON: ${{ steps.verify.outputs.platform_digests_json }}
+          IMMUTABLE_REFERENCES_JSON: ${{ steps.verify.outputs.immutable_references_json }}
         run: |
           set -Eeuo pipefail
           test "${BUILD_OUTCOME}" = success
+          test "${TOOLS_OUTCOME}" = success
           test "${AUTH_OUTCOME}" = success
           test "${PUBLISH_OUTCOME}" = success
           test "${READBACK_OUTCOME}" = success
@@ -306,3 +420,14 @@ jobs:
           test "${BUILD_CLEANUP_OUTCOME}" = success
           test "${BUILD_RESIDUE_OUTCOME}" = success
           test "${WORKSPACE_CLEANUP_OUTCOME}" = success
+          test "${EVIDENCE_OUTCOME}" = success
+          test "${EVIDENCE_SUMMARY_OUTCOME}" = success
+          test "${FINAL_SUPPLY_EVIDENCE_OUTCOME}" = success
+          test "${SOURCE_CLEAN_OUTCOME}" = success
+          test "${RESULT}" = success
+          {
+            printf 'result=%s\n' "${RESULT}"
+            printf 'manifest_digests_json=%s\n' "${MANIFEST_DIGESTS_JSON}"
+            printf 'platform_digests_json=%s\n' "${PLATFORM_DIGESTS_JSON}"
+            printf 'immutable_references_json=%s\n' "${IMMUTABLE_REFERENCES_JSON}"
+          } >> "${GITHUB_OUTPUT}"

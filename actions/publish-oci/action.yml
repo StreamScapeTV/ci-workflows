@@ -27,6 +27,39 @@ inputs:
   registry_token:
     description: Named registry credential token; used only by authenticate
     required: false
+  central_workflow_sha:
+    description: Exact central reusable-workflow SHA; used only by final-evidence
+    required: false
+  publication_helper_sha:
+    description: Exact immutable publication-helper SHA; used only by final-evidence
+    required: false
+  verified_toolchain_json:
+    description: Exact verified contract-owned OCI toolchain; used only by final-evidence
+    required: false
+  publication_evidence_id:
+    description: Exact verified publication evidence identity; used only by final-evidence
+    required: false
+  foundation_evidence_id:
+    description: Exact redacted foundation evidence identity; used only by final-evidence
+    required: false
+  execution_result:
+    description: Bounded publication execution result; used only by final-evidence
+    required: false
+  build_cleanup_outcome:
+    description: Bounded OCI build cleanup outcome; used only by final-evidence
+    required: false
+  build_residue_outcome:
+    description: Bounded OCI build residue outcome; used only by final-evidence
+    required: false
+  publication_cleanup_outcome:
+    description: Bounded publication cleanup outcome; used only by final-evidence
+    required: false
+  publication_residue_outcome:
+    description: Bounded publication residue outcome; used only by final-evidence
+    required: false
+  workspace_cleanup_outcome:
+    description: Bounded workspace cleanup outcome; used only by final-evidence
+    required: false
 
 outputs:
   result:
@@ -55,8 +88,6 @@ outputs:
     value: ${{ steps.publish.outputs.source_references_json }}
   manifest_digests_json:
     value: ${{ steps.publish.outputs.manifest_digests_json }}
-  image_digest:
-    value: ${{ steps.publish.outputs.image_digest }}
   immutable_references_json:
     value: ${{ steps.publish.outputs.immutable_references_json }}
   platform_digests_json:
@@ -75,6 +106,8 @@ outputs:
     value: ${{ steps.publish.outputs.cleanup_result }}
   failure_code:
     value: ${{ steps.publish.outputs.failure_code }}
+  supply_evidence_id:
+    value: ${{ steps.publish.outputs.supply_evidence_id }}
 
 runs:
   using: composite
@@ -84,6 +117,7 @@ runs:
       shell: bash
       env:
         PYTHONDONTWRITEBYTECODE: "1"
+        INPUT_PHASE: ${{ inputs.phase }}
         INPUT_ADMITTED_SHA: ${{ inputs.admitted_sha }}
         INPUT_RELEASE_AUTHORITY_SHA: ${{ inputs.release_authority_sha }}
         INPUT_PRODUCT_ID: ${{ inputs.product_id }}
@@ -91,7 +125,18 @@ runs:
         INPUT_PLATFORM_SET: ${{ inputs.platform_set }}
         INPUT_REGISTRY_USERNAME: ${{ inputs.registry_username }}
         INPUT_REGISTRY_TOKEN: ${{ inputs.registry_token }}
+        INPUT_CENTRAL_WORKFLOW_SHA: ${{ inputs.central_workflow_sha }}
+        INPUT_PUBLICATION_HELPER_SHA: ${{ inputs.publication_helper_sha }}
+        INPUT_VERIFIED_TOOLCHAIN_JSON: ${{ inputs.verified_toolchain_json }}
+        INPUT_PUBLICATION_EVIDENCE_ID: ${{ inputs.publication_evidence_id }}
+        INPUT_FOUNDATION_EVIDENCE_ID: ${{ inputs.foundation_evidence_id }}
+        INPUT_EXECUTION_RESULT: ${{ inputs.execution_result }}
+        INPUT_BUILD_CLEANUP_OUTCOME: ${{ inputs.build_cleanup_outcome }}
+        INPUT_BUILD_RESIDUE_OUTCOME: ${{ inputs.build_residue_outcome }}
+        INPUT_PUBLICATION_CLEANUP_OUTCOME: ${{ inputs.publication_cleanup_outcome }}
+        INPUT_PUBLICATION_RESIDUE_OUTCOME: ${{ inputs.publication_residue_outcome }}
+        INPUT_WORKSPACE_CLEANUP_OUTCOME: ${{ inputs.workspace_cleanup_outcome }}
       run: |
         set -Eeuo pipefail
         python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
-          oci publish --phase "${{ inputs.phase }}"
+          oci publish --phase "${INPUT_PHASE}"

@@ -44,6 +44,13 @@
       "source": "https://github.com/StreamScapeTV/ci-workflows/tree/90706a72aa68c81b7840c139965ae528d8ed6b25/actions/resolve-source"
     },
     {
+      "uses": "StreamScapeTV/ci-workflows/actions/publish-oci",
+      "sha": "1661da705cac03206ba7f41598457bb7726c0dc9",
+      "release": "issue #17 immutable publication helper checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/1661da705cac03206ba7f41598457bb7726c0dc9/actions/publish-oci"
+    },
+    {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-node",
       "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
       "release": "issue #116 immutable private-action checkpoint",

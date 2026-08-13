@@ -45,10 +45,10 @@ def _make_layout(root: Path, target: PublishTarget, ref_name: str = "validation"
         "org.opencontainers.image.created": "2026-08-12T00:00:00Z",
         "org.opencontainers.image.description": target.metadata["description"],
         "org.opencontainers.image.licenses": target.metadata["licenses"],
-        "org.opencontainers.image.revision": SHA,
-        "org.opencontainers.image.source": "https://github.com/StreamScapeTV/backend",
+        "org.opencontainers.image.revision": target.source_reference.rsplit("sha-", 1)[1],
+        "org.opencontainers.image.source": f"https://github.com/{target.source_repository}",
         "org.opencontainers.image.title": target.metadata["title"],
-        "org.opencontainers.image.version": "1.2.3",
+        "org.opencontainers.image.version": target.version_reference.rsplit(":", 1)[1],
     }
     manifests = []
     for platform in target.platforms:
@@ -59,6 +59,7 @@ def _make_layout(root: Path, target: PublishTarget, ref_name: str = "validation"
             "os": os_name,
             "architecture": arch,
             "variant": variant[0] if variant else None,
+            "rootfs": {"type": "layers", "diff_ids": [layer["digest"]]},
             "config": {
                 "User": target.required_user or "",
                 "Entrypoint": list(target.required_entrypoint),
@@ -145,6 +146,25 @@ class PublishPlanTests(unittest.TestCase):
         self.assertEqual(plan.canary_id, "runner-images-canary")
         self.assertEqual(plan.rollback_id, "runner-images-rollback")
 
+    def test_flux_publication_requires_independent_bootstrap(self) -> None:
+        with self._root() as temp:
+            contract_path = Path(temp) / "contracts/oci-products.json"
+            contract = json.loads(contract_path.read_text(encoding="utf-8"))
+            contract["products"]["runner-images"]["independent_bootstrap"] = False
+            contract_path.write_text(json.dumps(contract), encoding="utf-8")
+            with self.assertRaisesRegex(OciPublishError, "invalid_contract"):
+                resolve_plan(
+                    Path(temp),
+                    PublishRequest(
+                        "StreamScapeTV/flux",
+                        SHA,
+                        SHA,
+                        "runner-images",
+                        "2.0.0",
+                        "trusted-exact",
+                    ),
+                )
+
     def test_request_rejects_pr_source_and_authority_mismatch(self) -> None:
         base = {
             "GITHUB_REPOSITORY": "StreamScapeTV/backend",
@@ -207,6 +227,117 @@ class LayoutReadbackTests(unittest.TestCase):
             with self.assertRaisesRegex(OciPublishError, "metadata_mismatch"):
                 inspect_layout(layout, bad, "validation")
 
+    def test_unexpected_runtime_fields_are_rejected_when_contract_is_empty(self) -> None:
+        target = PublishTarget(
+            **{
+                **self._target().__dict__,
+                "required_user": None,
+                "required_entrypoint": (),
+                "required_command": (),
+                "required_ports": (),
+            }
+        )
+        for field, value in (
+            ("User", "attacker"),
+            ("Entrypoint", ["/unexpected"]),
+            ("Cmd", ["/unexpected"]),
+            ("ExposedPorts", {"9999/tcp": {}}),
+        ):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as temp:
+                layout = _make_layout(Path(temp), target)
+                root = json.loads((layout / "index.json").read_text(encoding="utf-8"))
+                index_descriptor = root["manifests"][0]
+                index_path = layout / "blobs" / "sha256" / index_descriptor["digest"].removeprefix("sha256:")
+                index = json.loads(index_path.read_text(encoding="utf-8"))
+                manifest_descriptor = index["manifests"][0]
+                manifest_path = layout / "blobs" / "sha256" / manifest_descriptor["digest"].removeprefix("sha256:")
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                config_descriptor = manifest["config"]
+                config_path = layout / "blobs" / "sha256" / config_descriptor["digest"].removeprefix("sha256:")
+                config = json.loads(config_path.read_text(encoding="utf-8"))
+                config["config"][field] = value
+                config_descriptor.update(
+                    _write_blob(
+                        layout,
+                        json.dumps(config, sort_keys=True, separators=(",", ":")).encode(),
+                    )
+                )
+                manifest_descriptor.update(
+                    _write_blob(
+                        layout,
+                        json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode(),
+                    )
+                )
+                index_descriptor.update(
+                    _write_blob(
+                        layout,
+                        json.dumps(index, sort_keys=True, separators=(",", ":")).encode(),
+                    )
+                )
+                (layout / "index.json").write_text(
+                    json.dumps(root, sort_keys=True, separators=(",", ":")) + "\n",
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(OciPublishError, "assertion_failed"):
+                    inspect_layout(layout, target, "validation")
+
+    def test_incomplete_or_inconsistent_manifest_is_rejected(self) -> None:
+        target = self._target()
+        mutations = (
+            "missing-rootfs",
+            "diff-id-count",
+            "empty-layers",
+            "platform-mismatch",
+            "unsupported-zstd-layer",
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temp:
+                layout = _make_layout(Path(temp), target)
+                root = json.loads((layout / "index.json").read_text(encoding="utf-8"))
+                index_descriptor = root["manifests"][0]
+                index_path = layout / "blobs" / "sha256" / index_descriptor["digest"].removeprefix("sha256:")
+                index = json.loads(index_path.read_text(encoding="utf-8"))
+                manifest_descriptor = index["manifests"][0]
+                manifest_path = layout / "blobs" / "sha256" / manifest_descriptor["digest"].removeprefix("sha256:")
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                if mutation == "empty-layers":
+                    manifest["layers"] = []
+                elif mutation == "unsupported-zstd-layer":
+                    manifest["layers"][0]["mediaType"] = (
+                        "application/vnd.oci.image.layer.v1.tar+zstd"
+                    )
+                elif mutation == "platform-mismatch":
+                    manifest_descriptor["platform"]["architecture"] = "arm64"
+                    index_bytes = json.dumps(index, sort_keys=True, separators=(",", ":")).encode()
+                    index_descriptor.update(_write_blob(layout, index_bytes))
+                    (layout / "index.json").write_text(
+                        json.dumps(root, sort_keys=True, separators=(",", ":")) + "\n",
+                        encoding="utf-8",
+                    )
+                    with self.assertRaisesRegex(OciPublishError, "oci_layout_malformed"):
+                        inspect_layout(layout, target, "validation")
+                    continue
+                elif mutation not in {"empty-layers", "unsupported-zstd-layer"}:
+                    config_descriptor = manifest["config"]
+                    config_path = layout / "blobs" / "sha256" / config_descriptor["digest"].removeprefix("sha256:")
+                    config = json.loads(config_path.read_text(encoding="utf-8"))
+                    if mutation == "missing-rootfs":
+                        config.pop("rootfs")
+                    else:
+                        config["rootfs"]["diff_ids"] = []
+                    config_bytes = json.dumps(config, sort_keys=True, separators=(",", ":")).encode()
+                    config_descriptor.update(_write_blob(layout, config_bytes))
+                manifest_bytes = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+                manifest_descriptor.update(_write_blob(layout, manifest_bytes))
+                index_bytes = json.dumps(index, sort_keys=True, separators=(",", ":")).encode()
+                index_descriptor.update(_write_blob(layout, index_bytes))
+                (layout / "index.json").write_text(
+                    json.dumps(root, sort_keys=True, separators=(",", ":")) + "\n",
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(OciPublishError, "oci_layout_malformed"):
+                    inspect_layout(layout, target, "validation")
+
 
 class CleanupTests(unittest.TestCase):
     def test_symlink_state_is_unlinked_without_deleting_target(self) -> None:
@@ -221,6 +352,15 @@ class CleanupTests(unittest.TestCase):
                 cleanup(env)
             self.assertFalse(root.exists())
             self.assertTrue((target / "keep").is_file())
+
+    def test_regular_file_state_is_removed_while_reporting_tampering(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            env = {"RUNNER_TEMP": temp, "GITHUB_RUN_ID": "13", "GITHUB_RUN_ATTEMPT": "1"}
+            root = publication_state_root(env)
+            root.write_text("tampered", encoding="utf-8")
+            with self.assertRaisesRegex(OciPublishError, "cleanup_failed"):
+                cleanup(env)
+            self.assertFalse(root.exists())
 
 
 if __name__ == "__main__":
