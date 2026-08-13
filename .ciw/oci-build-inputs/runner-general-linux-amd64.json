@@ -14,13 +14,7 @@
       "declared_reference": "docker.io/library/python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2",
       "dockerfile_platform": null,
       "platforms": ["linux/amd64"],
-      "platform_identities": [
-        {
-          "platform": "linux/amd64",
-          "manifest_digest": "sha256:6e13e65c55e33adf203d77ee371cf8bf5d81bd4902ef07565721f46bf44917af",
-          "config_digest": "sha256:64d91f7b885eed272bba87909446b12ff408d4aaa5f1a0e9ca787bbea1a020b9"
-        }
-      ]
+      "platform_identities": [{"platform":"linux/amd64","manifest_digest":"sha256:6e13e65c55e33adf203d77ee371cf8bf5d81bd4902ef07565721f46bf44917af","config_digest":"sha256:64d91f7b885eed272bba87909446b12ff408d4aaa5f1a0e9ca787bbea1a020b9"}]
     },
     {
       "stage_id": "node-runtime",
@@ -30,13 +24,7 @@
       "declared_reference": "docker.io/library/node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d",
       "dockerfile_platform": null,
       "platforms": ["linux/amd64"],
-      "platform_identities": [
-        {
-          "platform": "linux/amd64",
-          "manifest_digest": "sha256:fc75682c0d5eb1cb254610dafede9c97371d89bb5c6591a9e1f8773b059f3f67",
-          "config_digest": "sha256:caf64f520f232a66f04c44d659f78941c792ab8f5ae2268386c2c827df6d1317"
-        }
-      ]
+      "platform_identities": [{"platform":"linux/amd64","manifest_digest":"sha256:fc75682c0d5eb1cb254610dafede9c97371d89bb5c6591a9e1f8773b059f3f67","config_digest":"sha256:caf64f520f232a66f04c44d659f78941c792ab8f5ae2268386c2c827df6d1317"}]
     },
     {
       "stage_id": "actions-runner",
@@ -46,57 +34,15 @@
       "declared_reference": "ghcr.io/actions/actions-runner:2.336.0@sha256:0cfdcc701ce933c6d243c6b0b2da767366dc9f2e99961d4c3754b0b78084cdda",
       "dockerfile_platform": null,
       "platforms": ["linux/amd64"],
-      "platform_identities": [
-        {
-          "platform": "linux/amd64",
-          "manifest_digest": "sha256:a1919047b038c38871d667c58cfdc7a878452711ab1212fb6036188f27a7ab16",
-          "config_digest": "sha256:bd6fe162bb4ab4821daa8d694e20d779865618825d30c94342a0228b89947305"
-        }
-      ]
+      "platform_identities": [{"platform":"linux/amd64","manifest_digest":"sha256:a1919047b038c38871d667c58cfdc7a878452711ab1212fb6036188f27a7ab16","config_digest":"sha256:bd6fe162bb4ab4821daa8d694e20d779865618825d30c94342a0228b89947305"}]
     }
   ],
   "external_inputs": [
-    {
-      "input_id": "zstd-noble-amd64",
-      "url": "https://archive.ubuntu.com/ubuntu/pool/main/libz/libzstd/zstd_1.5.5%2Bdfsg2-2build1.1_amd64.deb",
-      "sha256": "d7667f83e3a2caeaaecaca464d542ee6ccf537259a479622796c84afc96d6032",
-      "maximum_bytes": 1048576,
-      "destination": ".ciw-build-inputs/zstd-noble-amd64.pkg"
-    },
-    {
-      "input_id": "zip-noble-amd64",
-      "url": "https://archive.ubuntu.com/ubuntu/pool/main/z/zip/zip_3.0-13ubuntu0.2_amd64.deb",
-      "sha256": "30b325b542ef8e9a22a5e1e1cfce8c4f4b75db73e339e76bf405b635861f1f76",
-      "maximum_bytes": 1048576,
-      "destination": ".ciw-build-inputs/zip-noble-amd64.pkg"
-    },
-    {
-      "input_id": "yq-linux-amd64",
-      "url": "https://github.com/mikefarah/yq/releases/download/v4.53.3/yq_linux_amd64",
-      "sha256": "fa52a4e758c63d38299163fbdd1edfb4c4963247918bf9c1c5d31d84789eded4",
-      "maximum_bytes": 20971520,
-      "destination": ".ciw-build-inputs/yq-4.53.3-linux-amd64"
-    },
-    {
-      "input_id": "kubectl-linux-amd64",
-      "url": "https://dl.k8s.io/release/v1.36.3/bin/linux/amd64/kubectl",
-      "sha256": "ebbd151fb91dea5e81ea6300b33ead0a48334afe02ebf951d51681c20cdfc73c",
-      "maximum_bytes": 67108864,
-      "destination": ".ciw-build-inputs/kubectl-1.36.3-linux-amd64"
-    },
-    {
-      "input_id": "helm-linux-amd64",
-      "url": "https://get.helm.sh/helm-v4.2.4-linux-amd64.tar.gz",
-      "sha256": "c306b46f719b0a4da32d0f78ee21bf90ce8d602f15b22ab753f0674d1670a7f3",
-      "maximum_bytes": 67108864,
-      "destination": ".ciw-build-inputs/helm-4.2.4-linux-amd64.tar.gz"
-    },
-    {
-      "input_id": "kustomize-linux-amd64",
-      "url": "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/v5.8.1/kustomize_v5.8.1_linux_amd64.tar.gz",
-      "sha256": "029a60ae0268436e928245021349f19151612737506951614af1f11ca18970aa",
-      "maximum_bytes": 16777216,
-      "destination": ".ciw-build-inputs/kustomize-5.8.1-linux-amd64.tar.gz"
-    }
+    {"input_id":"zstd-noble-amd64","url":"https://archive.ubuntu.com/ubuntu/pool/main/libz/libzstd/zstd_1.5.5%2Bdfsg2-2build1.1_amd64.deb","sha256":"d7667f83e3a2caeaaecaca464d542ee6ccf537259a479622796c84afc96d6032","maximum_bytes":1048576,"destination":".ciw-build-inputs/zstd-noble-amd64.pkg"},
+    {"input_id":"zip-noble-amd64","url":"https://archive.ubuntu.com/ubuntu/pool/main/z/zip/zip_3.0-13ubuntu0.2_amd64.deb","sha256":"30b325b542ef8e9a22a5e1e1cfce8c4f4b75db73e339e76bf405b635861f1f76","maximum_bytes":1048576,"destination":".ciw-build-inputs/zip-noble-amd64.pkg"},
+    {"input_id":"yq-linux-amd64","url":"https://github.com/mikefarah/yq/releases/download/v4.53.3/yq_linux_amd64","sha256":"fa52a4e758c63d38299163fbdd1edfb4c4963247918bf9c1c5d31d84789eded4","maximum_bytes":20971520,"destination":".ciw-build-inputs/yq-4.53.3-linux-amd64"},
+    {"input_id":"kubectl-linux-amd64","url":"https://dl.k8s.io/release/v1.36.3/bin/linux/amd64/kubectl","sha256":"ebbd151fb91dea5e81ea6300b33ead0a48334afe02ebf951d51681c20cdfc73c","maximum_bytes":67108864,"destination":".ciw-build-inputs/kubectl-1.36.3-linux-amd64"},
+    {"input_id":"helm-linux-amd64","url":"https://get.helm.sh/helm-v4.2.4-linux-amd64.tar.gz","sha256":"c306b46f719b0a4da32d0f78ee21bf90ce8d602f15b22ab753f0674d1670a7f3","maximum_bytes":67108864,"destination":".ciw-build-inputs/helm-4.2.4-linux-amd64.tar.gz"},
+    {"input_id":"kustomize-linux-amd64","url":"https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/v5.8.1/kustomize_v5.8.1_linux_amd64.tar.gz","sha256":"029a7f0f4e1932c52a0476cf02a0fd855c0bb85694b82c338fc648dcb53a819d","maximum_bytes":16777216,"destination":".ciw-build-inputs/kustomize-5.8.1-linux-amd64.tar.gz"}
   ]
 }
