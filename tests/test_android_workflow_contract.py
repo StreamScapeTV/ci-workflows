@@ -23,7 +23,7 @@ DOC = ROOT / "docs/workflows/android.md"
 ARCH = ROOT / "docs/architecture/android-validation.md"
 CASES = ROOT / "tests/fixtures/android-validation/cases.json"
 SOURCE_POLICY = ROOT / "contracts/android-source-policy.json"
-VALIDATE_ANDROID_SHA = "f2c477c72c015d37e2c62ca87d8efc8e6034919e"
+VALIDATE_ANDROID_SHA = "5f503d419696e5bfae4ed5b11eca3b531dbdca0f"
 PRIVATE_HELPER_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 PRIVATE_HELPERS = {
     "validate-android",
