@@ -18,6 +18,7 @@ from ci_workflows.oci_input_contract import (
 )
 from ci_workflows.oci_types import (
     OciBuildInputEvidence,
+    OciBuildError,
     OciBuildPlan,
     OciInputPolicy,
     OciResolvedBase,
@@ -114,8 +115,8 @@ def scratch_lock(target_id: str = "first") -> OciTargetInputLock:
 class OciInputMaterializationTests(unittest.TestCase):
     def test_local_base_import_uses_the_single_verified_oci_descriptor(self) -> None:
         commands: list[list[str]] = []
-        manifest = b'{"schemaVersion":2}'
-        config = b'{}'
+        manifest = b'{"schemaVersion":2}\n'
+        config = b'{}\n'
         manifest_digest = "sha256:" + hashlib.sha256(manifest).hexdigest()
         config_digest = "sha256:" + hashlib.sha256(config).hexdigest()
 
@@ -123,14 +124,17 @@ class OciInputMaterializationTests(unittest.TestCase):
             command = list(argv)
             commands.append(command)
             if "images" in command:
-                stdout = config_digest.removeprefix("sha256:") + "\n"
-            elif "inspect" in command and "--config" in command:
-                stdout = config.decode()
-            elif "inspect" in command:
-                stdout = manifest.decode()
+                # Buildah 1.33.7 deliberately prefixes the full ID when
+                # --no-trunc is selected, including under --quiet.
+                stdout = config_digest + "\n"
             else:
                 stdout = ""
             return subprocess.CompletedProcess(command, 0, stdout, "")
+
+        def capture(_root, argv, **_kwargs):
+            command = list(argv)
+            commands.append(command)
+            return config if "--config" in command else manifest
 
         base = OciBaseLock(
             stage_id="stage-1",
@@ -148,6 +152,8 @@ class OciInputMaterializationTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as directory, mock.patch.object(
             execution, "execute_engine_command", side_effect=run
+        ), mock.patch.object(
+            execution, "capture_engine_bytes", side_effect=capture
         ):
             root = Path(directory)
             child_layout = root / "verified-child"
@@ -191,6 +197,139 @@ class OciInputMaterializationTests(unittest.TestCase):
             ],
             copy,
         )
+        raw = next(
+            command
+            for command in commands
+            if "inspect" in command and "--config" not in command
+        )
+        self.assertEqual(
+            [
+                "skopeo",
+                "--policy",
+                str(root / "policy.json"),
+                "inspect",
+                "--raw",
+                "--authfile",
+                str(root / "auth.json"),
+                copy[-1],
+            ],
+            raw,
+        )
+        raw_config = next(
+            command
+            for command in commands
+            if "inspect" in command and "--config" in command
+        )
+        self.assertEqual(
+            [
+                "skopeo",
+                "--policy",
+                str(root / "policy.json"),
+                "inspect",
+                "--raw",
+                "--config",
+                "--authfile",
+                str(root / "auth.json"),
+                copy[-1],
+            ],
+            raw_config,
+        )
+        images = next(command for command in commands if "images" in command)
+        self.assertEqual(
+            [
+                "buildah",
+                "--storage-driver",
+                "vfs",
+                "--root",
+                str(root / "storage"),
+                "--runroot",
+                str(root / "runroot"),
+                "images",
+                "--no-trunc",
+                "--quiet",
+                alias,
+            ],
+            images,
+        )
+
+    def test_local_base_import_rejects_each_post_copy_identity_mismatch(self) -> None:
+        manifest = b'{"schemaVersion":2}\n'
+        config = b'{}\n'
+        manifest_digest = "sha256:" + hashlib.sha256(manifest).hexdigest()
+        config_digest = "sha256:" + hashlib.sha256(config).hexdigest()
+        base = OciBaseLock(
+            stage_id="stage-1",
+            from_ordinal=1,
+            stage_marker="final",
+            kind="external",
+            declared_reference="docker.io/library/busybox@sha256:" + "a" * 64,
+            dockerfile_platform=None,
+            platforms=("linux/amd64",),
+            platform_identities=(
+                OciBasePlatformIdentity(
+                    "linux/amd64", manifest_digest, config_digest
+                ),
+            ),
+        )
+
+        for corrupted in (
+            "manifest",
+            "config",
+            "trimmed-manifest",
+            "trimmed-config",
+            "image-id",
+            "bare-image-id",
+            "double-prefixed-image-id",
+            "malformed-image-id",
+        ):
+            with self.subTest(corrupted=corrupted), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+
+                def run(_root, argv, **_kwargs):
+                    command = list(argv)
+                    if "images" in command:
+                        image_ids = {
+                            "image-id": "sha256:" + "d" * 64,
+                            "bare-image-id": config_digest.removeprefix("sha256:"),
+                            "double-prefixed-image-id": "sha256:" + config_digest,
+                            "malformed-image-id": "sha256:not-a-digest",
+                        }
+                        stdout = image_ids.get(corrupted, config_digest) + "\n"
+                    else:
+                        stdout = ""
+                    return subprocess.CompletedProcess(command, 0, stdout, "")
+
+                def capture(_root, argv, **_kwargs):
+                    command = list(argv)
+                    if "--config" in command:
+                        if corrupted == "config":
+                            return b'{"corrupt":true}\n'
+                        if corrupted == "trimmed-config":
+                            return config.rstrip(b"\n")
+                        return config
+                    if corrupted == "manifest":
+                        return b'{"corrupt":true}\n'
+                    if corrupted == "trimmed-manifest":
+                        return manifest.rstrip(b"\n")
+                    return manifest
+
+                with mock.patch.object(
+                    execution, "execute_engine_command", side_effect=run
+                ), mock.patch.object(
+                    execution, "capture_engine_bytes", side_effect=capture
+                ), self.assertRaisesRegex(OciBuildError, "base_import_failed"):
+                    execution._import_base_platform(
+                        root / "verified-child",
+                        root=root,
+                        authfile=root / "auth.json",
+                        policy_file=root / "policy.json",
+                        builder_environment={},
+                        target=target("first"),
+                        base_lock=base,
+                        platform="linux/amd64",
+                        manifest_digest=manifest_digest,
+                        config_digest=config_digest,
+                    )
 
     def test_all_targets_are_staged_and_materialized_before_first_bud(self) -> None:
         events: list[str] = []

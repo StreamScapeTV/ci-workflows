@@ -171,6 +171,29 @@ class OciExecutionSecurityTests(unittest.TestCase):
                     ["buildah", "--version"],
                 )
 
+    def test_binary_engine_capture_preserves_exact_newline_bearing_bytes(self) -> None:
+        root = Path("/registered/state")
+        prepared = mock.Mock()
+        payload = b'{"schemaVersion":2}\n'
+        completed = subprocess.CompletedProcess([], 0, payload, b"")
+        with mock.patch.object(
+            execution, "_private_engine_preexec", return_value=prepared
+        ), mock.patch.object(
+            execution, "execute_binary_command", return_value=completed
+        ) as command:
+            result = execution.capture_engine_bytes(
+                root,
+                ["skopeo", "inspect", "--raw", "oci:/verified/layout"],
+                env={"PATH": "/bin"},
+            )
+        self.assertEqual(payload, result)
+        command.assert_called_once_with(
+            ["skopeo", "inspect", "--raw", "oci:/verified/layout"],
+            cwd=None,
+            env={"PATH": "/bin"},
+            preexec_fn=prepared,
+        )
+
     def test_private_engine_namespace_rejects_relative_registered_state(self) -> None:
         with self.assertRaisesRegex(OciBuildError, "engine_isolation_failed"):
             execution._private_engine_preexec(Path("relative-state"))

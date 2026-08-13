@@ -13,8 +13,7 @@ import subprocess
 from dataclasses import replace
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Mapping, Sequence
-from typing import Callable
+from typing import Callable, Mapping, Sequence, TypeVar
 from urllib.parse import urlsplit
 
 from .oci_contract import bounded_path, load_contract, metadata_labels
@@ -62,7 +61,7 @@ _LAYER_MEDIA_TYPES = frozenset(
         "application/vnd.oci.image.layer.v1.tar+gzip",
     }
 )
-_SAFE_IMAGE_ID = re.compile(r"^[0-9a-f]{64}$")
+_SAFE_IMAGE_ID = re.compile(r"^sha256:[0-9a-f]{64}$")
 _SENSITIVE_ENVIRONMENT = re.compile(
     r"(?:AUTH|TOKEN|PASSWORD|PASSWD|SECRET|CREDENTIAL|COOKIE|PROXY|DOCKER)",
     re.IGNORECASE,
@@ -112,24 +111,34 @@ def execute_command(
     )
 
 
-def execute_engine_command(
-    root: Path,
+def execute_binary_command(
     argv: Sequence[str],
     *,
     cwd: Path | None = None,
-    capture: bool = False,
     env: Mapping[str, str] | None = None,
-) -> subprocess.CompletedProcess[str]:
+    preexec_fn: Callable[[], None] | None = None,
+) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(
+        list(argv),
+        cwd=cwd,
+        env=None if env is None else dict(env),
+        check=True,
+        text=False,
+        capture_output=True,
+        preexec_fn=preexec_fn,
+    )
+
+
+_EngineResult = TypeVar("_EngineResult")
+
+
+def _validated_engine_operation(
+    argv: Sequence[str], operation: Callable[[], _EngineResult]
+) -> _EngineResult:
     if not argv or Path(argv[0]).name not in {"buildah", "skopeo", "podman"}:
         raise OciBuildError("builder_unavailable")
     try:
-        return execute_command(
-            argv,
-            cwd=cwd,
-            capture=capture,
-            env=env,
-            preexec_fn=_private_engine_preexec(root),
-        )
+        return operation()
     except subprocess.CalledProcessError:
         raise
     except (OSError, subprocess.SubprocessError) as error:
@@ -138,6 +147,49 @@ def execute_engine_command(
         # process creation is unavailable instead of leaking an untyped
         # traceback past the CIW adapter.
         raise OciBuildError("engine_isolation_failed") from error
+
+
+def execute_engine_command(
+    root: Path,
+    argv: Sequence[str],
+    *,
+    cwd: Path | None = None,
+    capture: bool = False,
+    env: Mapping[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    return _validated_engine_operation(
+        argv,
+        lambda: execute_command(
+            argv,
+            cwd=cwd,
+            capture=capture,
+            env=env,
+            preexec_fn=_private_engine_preexec(root),
+        ),
+    )
+
+
+def capture_engine_bytes(
+    root: Path,
+    argv: Sequence[str],
+    *,
+    cwd: Path | None = None,
+    env: Mapping[str, str] | None = None,
+) -> bytes:
+    """Capture an OCI engine's stdout without text or newline conversion."""
+
+    result = _validated_engine_operation(
+        argv,
+        lambda: execute_binary_command(
+            argv,
+            cwd=cwd,
+            env=env,
+            preexec_fn=_private_engine_preexec(root),
+        ),
+    )
+    if not isinstance(result.stdout, bytes):
+        raise OciBuildError("engine_isolation_failed")
+    return result.stdout
 
 
 def _private_engine_preexec(
@@ -865,13 +917,12 @@ def _import_base_platform(
         ],
         env=builder_environment,
     )
-    raw = execute_engine_command(
+    raw = capture_engine_bytes(
         root,
         [*prefix, "inspect", "--raw", "--authfile", str(authfile), storage_transport],
-        capture=True,
         env=builder_environment,
-    ).stdout.strip().encode()
-    config = execute_engine_command(
+    )
+    config = capture_engine_bytes(
         root,
         [
             *prefix,
@@ -882,9 +933,8 @@ def _import_base_platform(
             str(authfile),
             storage_transport,
         ],
-        capture=True,
         env=builder_environment,
-    ).stdout.strip().encode()
+    )
     if (
         "sha256:" + hashlib.sha256(raw).hexdigest() != manifest_digest
         or "sha256:" + hashlib.sha256(config).hexdigest() != config_digest
@@ -899,10 +949,10 @@ def _import_base_platform(
     if (
         len(image_ids) != 1
         or _SAFE_IMAGE_ID.fullmatch(image_ids[0]) is None
-        or f"sha256:{image_ids[0]}" != config_digest
+        or image_ids[0] != config_digest
     ):
         raise OciBuildError("base_import_failed")
-    return f"sha256:{image_ids[0]}"
+    return image_ids[0]
 
 
 def _materialize_target_inputs(
