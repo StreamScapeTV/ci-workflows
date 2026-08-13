@@ -8,6 +8,8 @@ The production backend is `posix-shared-root-v1`. Runner/device infrastructure p
 
 Every runner execution context that can reach the same physical device must see the same backend root. This is an infrastructure invariant. A consumer repository, workflow input, issue, runner label, device presence, or GitHub concurrency group cannot choose or replace the backend.
 
+The provisioned filesystem is production-capable only when infrastructure guarantees coherent advisory `flock` across every relevant execution context, atomic same-directory `rename`/replace, durable file and directory `fsync`, and consistent ownership/mode semantics. A path that does not provide those primitives is not a valid `posix-shared-root-v1` backend and must fail closed or remain unprovisioned.
+
 Synthetic contract tests may provision an isolated temporary `CIW_DEVICE_LOCK_ROOT`; that proves only the lock implementation and is never physical-device evidence.
 
 ## Resource identity
@@ -35,7 +37,7 @@ Raw serials and UDIDs never enter the lock receipt or persistent state. The exac
 
 An unexpired lease held by another exact owner/request fails as `lock_held`. An exact retry by the same owner/request is idempotent and returns the existing fence rather than creating a second token. After expiry, a new valid acquisition replaces the active lease with a new random fence. The former receipt is then stale and cannot verify or release the newer holder.
 
-The lease duration is bounded to 60–18,000 seconds. The validation plan must choose a lease that covers the bounded product test plus restoration/cleanup headroom. A mutation step revalidates the current receipt immediately before physical mutation and may demand additional minimum remaining lifetime.
+The lease duration is bounded to 60–18,000 seconds. The validation plan must choose a lease that covers the bounded product test plus restoration/cleanup headroom. A mutation step revalidates the current receipt immediately before physical mutation and may demand additional minimum remaining lifetime. Receipt expiry remains authoritative even if a retry supplies a different nominal lease duration.
 
 ## Verification and stale-holder prevention
 
@@ -47,7 +49,9 @@ The receipt is not a bearer credential for another request. It is valid only whi
 
 ## Expected-state release and cleanup evidence
 
-Release verifies the exact current receipt before removing the active lease. A holder cannot release another current owner or a newer fencing token. The backend writes one bounded release marker per resource containing only hashed identities and deterministic evidence, then removes the active lease. Repeating release for the exact same receipt is idempotent; replaying an older receipt after a newer holder exists or has released fails closed.
+Release verifies the exact current receipt before removing the active lease. A holder cannot release another current owner or a newer fencing token. Under the backend transaction lock, release removes the exact active lease first and then writes one bounded release marker containing only hashed identities and deterministic evidence. This ordering revokes mutation authority before cleanup evidence is published. If a process is lost between those two operations, the lock is no longer active but the missing marker makes cleanup evidence fail closed; a run cannot falsely claim successful release.
+
+Repeating release is idempotent only when the active lease is absent and the exact expected release marker already exists. Replaying an older receipt after a newer holder exists or after a newer receipt has released fails closed.
 
 Release evidence is deterministic from the exact receipt ID. Cleanup evidence is deterministically derived from that release evidence. `residue` verification requires no active lease and the exact expected release marker.
 
@@ -69,13 +73,13 @@ The device-lock layer does not:
 
 GitHub concurrency may remain as supplemental repository/job serialization. Production mutation authority comes from the separately reviewed authorization boundary plus the current exact device-lock receipt and the guarded `physical-device` runner contract.
 
-## Action boundary
+## Action and CIW boundary
 
-`actions/device-lock` is a thin composite around `scripts/ci/device_lock.py` and the typed implementation in `src/ci_workflows/device_lock.py`. Its phases are:
+`actions/device-lock` is a thin composite that invokes the stable central dispatcher as `scripts/ci/ciw.py device lock --phase <phase>`. The registered handler is implemented in `src/ci_workflows/ciw_device_lock.py`; non-trivial locking remains in `src/ci_workflows/device_lock.py`. Its phases are:
 
 - `acquire` — create or idempotently recover the exact current receipt;
 - `verify` — revalidate the current fence before mutation;
 - `release` — expected-state release and deterministic cleanup evidence;
 - `residue` — verify the exact receipt has no active lock residue.
 
-The backend root is never an action input. The composite reads only the runner-infrastructure environment and returns bounded opaque/hash evidence suitable for internal `validation.device` orchestration.
+The backend root is never an action or CIW argument. The composite reads only the runner-infrastructure environment and returns bounded opaque/hash evidence suitable for internal `validation.device` orchestration.
