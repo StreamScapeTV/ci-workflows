@@ -1,9 +1,0 @@
-{
-  "schema_version": 1,
-  "repository": "StreamScapeTV/iptv-backend",
-  "validation_profile": "host",
-  "command_profile": "locked-test",
-  "source_trust": "trusted-pr",
-  "expected_runner": "portable",
-  "expected_runtime": "host-cpython-3.12.13"
-}
