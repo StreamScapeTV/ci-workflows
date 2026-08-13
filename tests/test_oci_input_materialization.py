@@ -112,6 +112,86 @@ def scratch_lock(target_id: str = "first") -> OciTargetInputLock:
 
 
 class OciInputMaterializationTests(unittest.TestCase):
+    def test_local_base_import_uses_the_single_verified_oci_descriptor(self) -> None:
+        commands: list[list[str]] = []
+        manifest = b'{"schemaVersion":2}'
+        config = b'{}'
+        manifest_digest = "sha256:" + hashlib.sha256(manifest).hexdigest()
+        config_digest = "sha256:" + hashlib.sha256(config).hexdigest()
+
+        def run(_root, argv, **_kwargs):
+            command = list(argv)
+            commands.append(command)
+            if "images" in command:
+                stdout = config_digest.removeprefix("sha256:") + "\n"
+            elif "inspect" in command and "--config" in command:
+                stdout = config.decode()
+            elif "inspect" in command:
+                stdout = manifest.decode()
+            else:
+                stdout = ""
+            return subprocess.CompletedProcess(command, 0, stdout, "")
+
+        base = OciBaseLock(
+            stage_id="stage-1",
+            from_ordinal=1,
+            stage_marker="final",
+            kind="external",
+            declared_reference="docker.io/library/busybox@sha256:" + "a" * 64,
+            dockerfile_platform=None,
+            platforms=("linux/amd64",),
+            platform_identities=(
+                OciBasePlatformIdentity(
+                    "linux/amd64", manifest_digest, config_digest
+                ),
+            ),
+        )
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+            execution, "execute_engine_command", side_effect=run
+        ):
+            root = Path(directory)
+            child_layout = root / "verified-child"
+            image_id = execution._import_base_platform(
+                child_layout,
+                root=root,
+                authfile=root / "auth.json",
+                policy_file=root / "policy.json",
+                builder_environment={},
+                target=target("first"),
+                base_lock=base,
+                platform="linux/amd64",
+                manifest_digest=manifest_digest,
+                config_digest=config_digest,
+            )
+
+        self.assertEqual(config_digest, image_id)
+        copy = next(command for command in commands if "copy" in command)
+        token = hashlib.sha256(
+            f"first:stage-1:linux/amd64:{manifest_digest}".encode()
+        ).hexdigest()[:16]
+        alias = f"localhost/ciw-input/first-stage-1:linux-amd64-{token}"
+        self.assertEqual(
+            [
+                "skopeo",
+                "--policy",
+                str(root / "policy.json"),
+                "--tmpdir",
+                str(root / "tmp"),
+                "copy",
+                "--src-authfile",
+                str(root / "auth.json"),
+                "--dest-authfile",
+                str(root / "auth.json"),
+                "--preserve-digests",
+                f"oci:{child_layout}",
+                (
+                    "containers-storage:"
+                    f"[vfs@{root / 'storage'}+{root / 'runroot'}]{alias}"
+                ),
+            ],
+            copy,
+        )
+
     def test_all_targets_are_staged_and_materialized_before_first_bud(self) -> None:
         events: list[str] = []
 

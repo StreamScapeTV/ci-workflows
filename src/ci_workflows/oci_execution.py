@@ -855,7 +855,12 @@ def _import_base_platform(
             "--dest-authfile",
             str(authfile),
             "--preserve-digests",
-            f"oci:{child_layout}:locked",
+            # The verified acquisition layout has exactly one root descriptor
+            # and intentionally carries no mutable ref-name annotation.  An
+            # empty OCI transport selector therefore chooses that sole
+            # descriptor; spelling ``:locked`` would instead require an
+            # org.opencontainers.image.ref.name annotation that is absent.
+            f"oci:{child_layout}",
             storage_transport,
         ],
         env=builder_environment,
