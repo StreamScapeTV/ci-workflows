@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
@@ -14,6 +15,11 @@ _API_PRODUCT_KIND = {
     "helm.publish": "helm-oci-chart-assets",
 }
 _RUNTIME_REPOSITORIES = {"StreamScapeTV/ci-workflows", "StreamScapeTV/flux"}
+_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+_PLATFORM = re.compile(
+    r"^[a-z0-9][a-z0-9._-]{0,63}/[a-z0-9][a-z0-9._-]{0,63}"
+    r"(?:/[a-z0-9][a-z0-9._-]{0,63})?$"
+)
 
 
 def validate_runtime_repository(repository: str) -> str:
@@ -25,6 +31,172 @@ def validate_runtime_repository(repository: str) -> str:
             "Flux infrastructure asset runtime requires central self-test or Flux caller",
         )
     return repository
+
+
+def _load_json_mapping(value: Any, *, code: str, name: str) -> dict[str, Any]:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError as error:
+            raise FluxAssetError(code, f"{name} is not valid JSON") from error
+    if not isinstance(value, Mapping):
+        raise FluxAssetError(code, f"{name} must be a JSON object")
+    return dict(value)
+
+
+def validate_oci_build_dependency_evidence(
+    dependency_outputs: Mapping[str, Any], *, oci_products_path: Path
+) -> dict[str, Any] | None:
+    """Validate the exact merged oci.build platform result shape when present."""
+
+    raw = dependency_outputs.get("oci.build")
+    if raw is None:
+        return None
+    if not isinstance(raw, Mapping):
+        raise FluxAssetError(
+            "oci_build_evidence_invalid", "oci.build evidence must be an object"
+        )
+
+    try:
+        inventory = json.loads(oci_products_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise FluxAssetError(
+            "invalid_oci_product_inventory", "merged OCI product inventory is unavailable"
+        ) from error
+    if not isinstance(inventory, Mapping) or inventory.get("schema_version") != 1:
+        raise FluxAssetError(
+            "invalid_oci_product_inventory", "merged OCI product inventory is invalid"
+        )
+    products = inventory.get("products")
+    platform_sets = inventory.get("platform_sets")
+    if not isinstance(products, Mapping) or not isinstance(platform_sets, Mapping):
+        raise FluxAssetError(
+            "invalid_oci_product_inventory", "merged OCI product inventory is incomplete"
+        )
+    product = products.get("flux-runner-images")
+    if (
+        not isinstance(product, Mapping)
+        or product.get("repository") != "StreamScapeTV/flux"
+    ):
+        raise FluxAssetError(
+            "invalid_oci_product_inventory", "merged Flux OCI product is invalid"
+        )
+    targets = product.get("targets")
+    if not isinstance(targets, list) or not targets:
+        raise FluxAssetError(
+            "invalid_oci_product_inventory", "merged Flux OCI targets are invalid"
+        )
+
+    expected_platforms: dict[str, tuple[str, ...]] = {}
+    for target in targets:
+        if not isinstance(target, Mapping):
+            raise FluxAssetError(
+                "invalid_oci_product_inventory", "merged Flux OCI target is invalid"
+            )
+        target_id = target.get("target_id")
+        platform_set = target.get("platform_set")
+        platforms = platform_sets.get(platform_set) if isinstance(platform_set, str) else None
+        if (
+            not isinstance(target_id, str)
+            or not target_id
+            or not isinstance(platforms, list)
+            or not platforms
+            or not all(
+                isinstance(platform, str) and _PLATFORM.fullmatch(platform) is not None
+                for platform in platforms
+            )
+        ):
+            raise FluxAssetError(
+                "invalid_oci_product_inventory", "merged Flux OCI platform set is invalid"
+            )
+        expected_platforms[target_id] = tuple(platforms)
+
+    digests = _load_json_mapping(
+        raw.get("image_digest"),
+        code="oci_build_evidence_invalid",
+        name="oci.build.image_digest",
+    )
+    platform_rows = _load_json_mapping(
+        raw.get("platform_digests_json"),
+        code="oci_build_evidence_invalid",
+        name="oci.build.platform_digests_json",
+    )
+    if set(digests) != set(expected_platforms) or set(platform_rows) != set(
+        expected_platforms
+    ):
+        raise FluxAssetError(
+            "oci_build_evidence_invalid",
+            "oci.build target set differs from merged Flux OCI inventory",
+        )
+
+    normalized_platforms: dict[str, list[dict[str, Any]]] = {}
+    for target_id in sorted(expected_platforms):
+        digest = digests[target_id]
+        if not isinstance(digest, str) or _DIGEST.fullmatch(digest) is None:
+            raise FluxAssetError(
+                "oci_build_evidence_invalid", "oci.build image digest is invalid"
+            )
+        rows = platform_rows[target_id]
+        if not isinstance(rows, list) or not rows or len(rows) > 16:
+            raise FluxAssetError(
+                "oci_build_evidence_invalid", "oci.build platform rows are invalid"
+            )
+        normalized_rows: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for row in rows:
+            if not isinstance(row, Mapping) or set(row) != {
+                "platform",
+                "manifest_digest",
+                "config_digest",
+                "layer_digests",
+            }:
+                raise FluxAssetError(
+                    "oci_build_evidence_invalid", "oci.build platform row shape is invalid"
+                )
+            platform = row.get("platform")
+            manifest_digest = row.get("manifest_digest")
+            config_digest = row.get("config_digest")
+            layers = row.get("layer_digests")
+            if (
+                not isinstance(platform, str)
+                or platform not in expected_platforms[target_id]
+                or platform in seen
+                or not isinstance(manifest_digest, str)
+                or _DIGEST.fullmatch(manifest_digest) is None
+                or not isinstance(config_digest, str)
+                or _DIGEST.fullmatch(config_digest) is None
+                or not isinstance(layers, list)
+                or len(layers) > 128
+                or not all(
+                    isinstance(layer, str) and _DIGEST.fullmatch(layer) is not None
+                    for layer in layers
+                )
+            ):
+                raise FluxAssetError(
+                    "oci_build_evidence_invalid", "oci.build platform identity is invalid"
+                )
+            seen.add(platform)
+            normalized_rows.append(
+                {
+                    "platform": platform,
+                    "manifest_digest": manifest_digest,
+                    "config_digest": config_digest,
+                    "layer_digests": list(layers),
+                }
+            )
+        if seen != set(expected_platforms[target_id]):
+            raise FluxAssetError(
+                "oci_build_evidence_invalid",
+                "oci.build platform set differs from merged Flux OCI inventory",
+            )
+        normalized_platforms[target_id] = sorted(
+            normalized_rows, key=lambda item: str(item["platform"])
+        )
+
+    return {
+        "image_digest": {key: str(digests[key]) for key in sorted(digests)},
+        "platform_digests_json": normalized_platforms,
+    }
 
 
 def validate_dependency_product_inventory(
