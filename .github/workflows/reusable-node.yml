@@ -223,6 +223,7 @@ jobs:
           profile: ${{ inputs.validation_profile }}
           validation_succeeded: "true"
           restored_cache_hit: ${{ steps.dependency_cache_restore.outputs.cache_hit }}
+          expected_cache_key: ${{ steps.dependency_cache_restore.outputs.cache_key }}
 
       - id: cleanup
         name: Remove and verify all registered Node state
