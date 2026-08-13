@@ -15,8 +15,5 @@ RUN docker --version | grep -F '29.7.2' && \
     docker compose version | grep -F 'v5.4.0' && \
     docker-compose version | grep -F 'v5.4.0' && \
     test ! -e /usr/bin/dockerd && \
-    test ! -e /usr/local/bin/dockerd && \
-    ! command -v buildah && \
-    ! command -v podman && \
-    ! command -v skopeo
+    test ! -e /usr/local/bin/dockerd
 USER runner
