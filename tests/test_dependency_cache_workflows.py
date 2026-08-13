@@ -8,7 +8,7 @@ import yaml
 from ci_workflows.validation_model import ActionsLoader
 
 ROOT = Path(__file__).resolve().parents[1]
-CACHE_SHA = "bf23a523614c21552b4c2782533f41d6447c4dd3"
+CACHE_SHA = "82e093dd5912a0f264b9939275657211b378e389"
 CACHE_ACTION = f"StreamScapeTV/ci-workflows/actions/dependency-cache@{CACHE_SHA}"
 
 
@@ -36,6 +36,7 @@ class DependencyCacheWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(save["with"]["phase"], "save")
         self.assertEqual(restore["with"]["family"], "npm")
         self.assertEqual(save["with"]["family"], "npm")
+        self.assertEqual(save["with"]["expected_cache_key"], "${{ steps.dependency_cache_restore.outputs.cache_key }}")
         self.assertIn("install_profile == 'npm-ci'", restore["if"])
         self.assertIn("steps.node.outcome == 'success'", save["if"])
         self.assertIn("github.ref_protected", save["if"])
@@ -59,6 +60,7 @@ class DependencyCacheWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(save["uses"], CACHE_ACTION)
         self.assertEqual(restore["with"]["family"], "gradle")
         self.assertEqual(save["with"]["family"], "gradle")
+        self.assertEqual(save["with"]["expected_cache_key"], "${{ steps.dependency_cache_restore.outputs.cache_key }}")
         for profile in ("toolchain-smoke", "consumer-script", "device-handoff"):
             self.assertIn(profile, restore["if"])
             self.assertIn(profile, save["if"])
