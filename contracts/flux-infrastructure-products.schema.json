@@ -225,7 +225,7 @@
         "id": {"enum": ["gha-runner-scale-set-controller", "gha-runner-scale-set"]},
         "upstream_repository": {"type": "string", "pattern": "^oci://ghcr.io/actions/actions-runner-controller-charts/"},
         "version": {"const": "0.14.2"},
-        "license": {"const": "MIT"},
+        "license": {"const": "Apache-2.0"},
         "digest_required": {"const": true},
         "flux_source_file": {"type": "string", "pattern": "^clusters/devops/flux-system-common/helm-repository/"}
       }
