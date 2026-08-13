@@ -45,6 +45,13 @@ branch ref, and the caller repository's exact default branch name. It consumes
 immutable publication/read-back outputs but authorizes no publication repair,
 new live selection, desired-state mutation, Kubernetes access, or SOPS access.
 
+The public and internal reusable workflows fail before source checkout or
+composition unless `github.repository` is exactly `StreamScapeTV/flux`. The
+thin action/CLI adds a second backstop: its plan/release runtime is accepted only
+from `StreamScapeTV/flux` or `StreamScapeTV/ci-workflows`, where the latter is
+reserved for repository-owned exact-head smoke. An unrelated repository cannot
+call the composite directly and spoof release event/ref inputs.
+
 The reusable workflow checks out its own central implementation by the called
 workflow identity (`job.workflow_repository` and `job.workflow_sha`), not by the
 caller-associated `github.workflow` identity. Caller event/ref/default-branch
@@ -100,10 +107,26 @@ invented by this repository.
 
 ## Immutable identity, replay, and read-back
 
+Every dependency product ID is checked against the **current merged**
+`contracts/products.json` entry for `StreamScapeTV/flux`, including its product
+kind. Thus an `oci.*` dependency cannot be redirected to a current chart product
+and a branch-private #18 product ID cannot enter planning before it actually
+merges.
+
+The already-implemented `oci.build` adapter is additionally validated against
+merged `contracts/oci-products.json`. For `flux-runner-images`, the image digest
+and platform-result target sets must be exactly `runner-buildah` and
+`runner-mobile`; each target must contain the exact contract platform set and
+rows shaped as `platform`, `manifest_digest`, `config_digest`, and
+`layer_digests`, with every digest immutable. The stale pre-integration nested
+mapping fixture shape is rejected. Publication payload details for the still
+unmerged `oci.publish` API are intentionally not treated as authority yet.
+
 Image and chart publication dependencies return only their registered outputs.
 `flux.assets` validates the exact dependency set for the selected operation,
 success state, digest shape, immutable reference payload, and absence of
-`latest`. For OCI publication it also requires:
+`latest`. For OCI publication it also requires, once the authoritative output
+shape is merged:
 
 - the exact admitted source SHA and release version;
 - exactly the two live runner-image targets;
