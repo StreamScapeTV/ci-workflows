@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from ci_workflows.flux_assets_source import (
     validate_dependency_product_inventory,
     validate_oci_build_dependency_evidence,
     validate_runtime_repository,
+    validate_source_contract_strict,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -145,6 +147,32 @@ class FluxHelmDependencyAlignmentTests(unittest.TestCase):
             validate_oci_build_dependency_evidence(
                 old_synthetic, oci_products_path=OCI_PRODUCTS
             )
+
+    def test_runner_dockerfiles_are_no_follow_inside_admitted_source(self) -> None:
+        contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as temporary, tempfile.TemporaryDirectory() as external:
+            root = Path(temporary)
+            outside = Path(external) / "Dockerfile"
+            outside.write_text(f"FROM registry.invalid/base@{D1}\n", encoding="utf-8")
+            members = contract["products"]["flux-runner-images"]["members"]
+            for member in members:
+                dockerfile = root / member["dockerfile_path"]
+                dockerfile.parent.mkdir(parents=True, exist_ok=True)
+                dockerfile.write_text(
+                    f"FROM registry.invalid/base@{D1}\n", encoding="utf-8"
+                )
+            result = validate_source_contract_strict(
+                contract, product_id="flux-runner-images", source_root=root
+            )
+            self.assertEqual(result["kind"], "runner-image-family")
+
+            escaped = root / members[0]["dockerfile_path"]
+            escaped.unlink()
+            escaped.symlink_to(outside)
+            with self.assertRaisesRegex(FluxAssetError, "source_path_escape"):
+                validate_source_contract_strict(
+                    contract, product_id="flux-runner-images", source_root=root
+                )
 
     def test_arc_upstreams_use_apache_2_license_identity(self) -> None:
         contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
