@@ -20,12 +20,14 @@ from ci_workflows.flux_assets import (  # noqa: E402
     canonical_json,
     cleanup_state,
     load_contract,
-    validate_source_contract,
     verify_residue_absent,
 )
 from ci_workflows.flux_assets_guards import (  # noqa: E402
     compose_guarded_release,
     validate_operation_context,
+)
+from ci_workflows.flux_assets_source import (  # noqa: E402
+    validate_source_contract_strict,
 )
 
 DEFAULT_CONTRACT = ROOT / "contracts/flux-infrastructure-products.json"
@@ -153,7 +155,7 @@ def _release(args: argparse.Namespace) -> Mapping[str, Any]:
     _validate_context(args)
     source_root = Path(args.source_root) if args.source_root else None
     if source_root is not None and args.operation != "verify-only":
-        validate_source_contract(
+        validate_source_contract_strict(
             contract,
             product_id=args.product_id,
             source_root=source_root,
