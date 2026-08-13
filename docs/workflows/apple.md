@@ -48,12 +48,37 @@ contract-owned and macOS remains unsigned. Every execution still forces
 archive/export, notarization, store, physical-device, registry, or deployment
 authority.
 
+## Streamscape Media native dependency profiles
+
+`streamscape-media-apple` remains the routine Media consumer contract. Its
+`native-dependency-preparation` profile still selects the existing
+`media-native-dependency` task and invokes
+`scripts/ci/run-validation-scope.sh apple-mpv-native`; that MPV preparation path
+is not redefined as VLC evidence.
+
+`streamscape-media-vlc-tvos-apple` is the separate reviewed consumer contract for
+one disposable private VLC tvOS candidate. It exposes only
+`native-dependency-preparation` and selects the fixed
+`media-vlc-tvos-native-dependency` task. That task executes the Media-owned
+`scripts/ci/build-private-tvos-vlc-candidate.sh` directly from the exact admitted
+Media source with no caller-supplied command or argument override. The protected
+contract paths include the VLC source lock, tvOS build-support inventory, source
+fetch/build/inspection/package scripts, and the candidate entry point.
+
+The Media-owned script remains responsible for product assertions: exact locked
+VLCKit/VLC identities, tvOS arm64 output, minimum-OS and Mach-O identity,
+non-system dependency checks, private-package separation, redacted identity
+evidence, and removal of runner-local source/build/binary state. Central
+validation remains responsible for exact source admission, semantic Apple runner
+placement, reviewed toolchain identity, bounded execution, registered cleanup
+and residue enforcement, and the zero-default Actions artifact policy.
+
 ## Immutable private helper reuse
 
 Private same-organization consumers do not clone the private central repository
 with their caller-scoped token. The planner and Apple execution job invoke the
-reviewed `validate-apple` composite action through the immutable Release-aware
-checkpoint `88d179740145ccea00b6986d78ceb67ea365face`. Exact caller checkout,
+reviewed `validate-apple` composite action through the immutable Media VLC tvOS
+checkpoint `5c1a9a060650159f180a308063ce5c4a055bdca4`. Exact caller checkout,
 workspace preparation, and registered-state cleanup use the already reviewed
 immutable foundation helpers.
 
@@ -106,8 +131,12 @@ resolved files and passes both automatic-resolution rejection flags. Any lock or
 source mutation fails. Checked-in Python or shell scripts must be regular,
 repository-tracked files and receive only fixed contract arguments. Consumer
 specific environment names, schemes, commands, media preparation, and recovery
-rules remain in `contracts/apple-validation.json` or consumer-owned scripts;
-the shared Python implementation contains no product-name branch.
+rules remain in `contracts/apple-validation.json`, additive reviewed
+`contracts/apple-validation-*.json` fragments, or consumer-owned scripts; the
+shared Python implementation contains no product-name branch. Fragments may add
+only new task and consumer-contract identifiers; collisions with the base
+contract fail closed and every added task is validated by the same Apple task
+schema before it can be selected.
 
 ## Outputs and artifacts
 
