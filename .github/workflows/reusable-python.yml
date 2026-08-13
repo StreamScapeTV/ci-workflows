@@ -60,7 +60,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve contract-owned command and runner plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-python@3a9c5ddc7308cecea21923251def328b817693f4 # issue #155 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-python@3a927429488b4df7b88b6b254b325d044125dacf # issue #155 immutable private-action checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -90,7 +90,7 @@ jobs:
       - name: Check out exact admitted caller source
         uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
-          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_repo.full_name || github.repository }}
           admitted_sha: ${{ inputs.admitted_sha }}
           path: source
           fetch_depth: "1"
@@ -114,7 +114,7 @@ jobs:
 
       - id: python
         name: Execute bounded Python validation
-        uses: StreamScapeTV/ci-workflows/actions/validate-python@3a9c5ddc7308cecea21923251def328b817693f4 # issue #155 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-python@3a927429488b4df7b88b6b254b325d044125dacf # issue #155 immutable private-action checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -151,5 +151,5 @@ jobs:
           (
             cd source
             test "$(git rev-parse HEAD)" = "${{ inputs.admitted_sha }}"
-            test -z "$(git status --porcelain --untracked-files=all)"
+            test -zx "$(git status --porcelain --untracked-files=all)"
           )
