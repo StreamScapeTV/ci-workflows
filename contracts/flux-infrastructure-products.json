@@ -27,7 +27,7 @@
       ]
     },
     "helm.validate": {
-      "product_id": "flux-github-actions-runner-chart",
+      "product_id": "flux-runner-chart-assets",
       "required_outputs": [
         "result",
         "chart_digest",
@@ -35,7 +35,7 @@
       ]
     },
     "helm.publish": {
-      "product_id": "flux-github-actions-runner-chart",
+      "product_id": "flux-runner-chart-assets",
       "required_outputs": [
         "result",
         "chart_digest",
