@@ -5,7 +5,6 @@ from typing import Any, Callable, Mapping, Sequence
 
 from .issue_dependency_manifest import load_manifest
 from .issue_dependency_types import (
-    AGENTS_PATH,
     MANIFEST_PATH,
     ConvergenceError,
     DependencyPlan,
@@ -19,10 +18,10 @@ from .issue_dependency_types import (
     RepositoryRecord,
     SyncSummary,
     _REPOSITORY_RE,
-    parse_protected_integration_branch,
 )
 
 _MAX_STALE_BLOCKERS_PER_WARNING = 5
+_MANIFEST_PATHS = (MANIFEST_PATH, "ISSUE_DEPENDENCIES.yaml")
 
 
 def discover_manifests(
@@ -36,25 +35,33 @@ def discover_manifests(
             continue
         if not repository.default_branch:
             continue
-        agents = gateway.read_file(
-            repository.full_name, AGENTS_PATH, repository.default_branch
-        )
-        if agents is None:
+
+        found: list[tuple[str, str]] = []
+        for manifest_path in _MANIFEST_PATHS:
+            manifest_text = gateway.read_file(
+                repository.full_name,
+                manifest_path,
+                repository.default_branch,
+            )
+            if manifest_text is not None:
+                found.append((manifest_path, manifest_text))
+
+        if not found:
             continue
-        integration_branch = parse_protected_integration_branch(agents)
-        if integration_branch is None:
-            continue
-        manifest_text = gateway.read_file(
-            repository.full_name, MANIFEST_PATH, integration_branch
-        )
-        if manifest_text is None:
-            continue
+        if len(found) > 1:
+            paths = ", ".join(path for path, _ in found)
+            raise ManifestValidationError(
+                f"{repository.full_name}: multiple issue dependency manifests found "
+                f"on default branch {repository.default_branch!r}: {paths}"
+            )
+
+        _, manifest_text = found[0]
         manifests.append(
             load_manifest(
                 manifest_text,
                 schema,
                 expected_repository=repository.full_name,
-                integration_branch=integration_branch,
+                integration_branch=repository.default_branch,
             )
         )
     return repositories, tuple(manifests)
