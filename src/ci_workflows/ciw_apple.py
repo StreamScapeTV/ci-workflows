@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 from . import apple as apple_validation
-from .apple_contract import build_plan
 
 try:
     from . import runners
@@ -111,7 +110,7 @@ def standalone_main(argv: Sequence[str] | None = None) -> int:
     try:
         contract = apple_validation.load_apple_contract(root)
         request = apple_validation.request_from_environment(os.environ, contract)
-        plan = build_plan(contract, request)
+        plan = apple_validation.resolve_plan(contract, request)
         source = _source_path(root, args.source_root, os.environ)
         state = None if args.command == "plan" else _resolved_state_root(root, os.environ)
         if args.command == "cleanup":
@@ -161,7 +160,7 @@ def execute_apple_validate(
         context.environment,
         contract,
     )
-    plan = build_plan(contract, request)
+    plan = apple_validation.resolve_plan(contract, request)
     source = _source_path(context.root, args.source_root, context.environment)
     state = (
         None
