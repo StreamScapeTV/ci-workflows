@@ -239,28 +239,37 @@ class DependencyIdentityTests(unittest.TestCase):
 
 
 class RuntimeProbeStrictnessTests(unittest.TestCase):
-    def test_buildah_probe_requires_labels_subids_and_storage_driver(self) -> None:
+    def test_buildah_probe_requires_exact_labels_subids_and_storage_driver(self) -> None:
         member = CONTRACT["products"]["flux-runner-images"]["members"][0]
-        expected = member["runtime_assertions"]
         probe = {
-            "os": expected["os"],
-            "architecture": expected["architecture"],
-            "tools": dict(expected["required_tools"]),
+            "os": member["platform"]["os"],
+            "architecture": member["platform"]["architecture"],
+            "tools": dict(member["required_tools"]),
             "forbidden_tools_present": [],
             "forbidden_sockets_present": [],
             "credential_paths_present": [],
             "service_account_token_present": False,
             "kubeconfig_present": False,
-            "labels": {label: "present" for label in expected["required_labels"]},
-            "subordinate_id": expected["subordinate_id"],
-            "storage_driver": expected["storage_driver"],
+            "labels": dict(member["required_labels"]),
+            "subordinate_id": member["subordinate_id"],
+            "storage_driver": member["storage_driver"],
         }
-        result = validate_runtime_probe_strict(expected, probe)
+        result = validate_runtime_probe_strict(member, probe)
         self.assertEqual(result["storage_driver"], "vfs")
+        self.assertEqual(result["labels"], member["required_labels"])
+
         broken = dict(probe)
-        broken["labels"] = {}
+        broken_labels = dict(member["required_labels"])
+        label = next(iter(broken_labels))
+        broken_labels[label] = "wrong-but-present"
+        broken["labels"] = broken_labels
         with self.assertRaisesRegex(FluxAssetError, "runtime_capability_mismatch"):
-            validate_runtime_probe_strict(expected, broken)
+            validate_runtime_probe_strict(member, broken)
+
+        forbidden = dict(probe)
+        forbidden["tools"] = {**probe["tools"], member["forbidden_tools"][0]: "1"}
+        with self.assertRaisesRegex(FluxAssetError, "forbidden_tool_present"):
+            validate_runtime_probe_strict(member, forbidden)
 
 
 class WorkflowRecoveryTests(unittest.TestCase):
