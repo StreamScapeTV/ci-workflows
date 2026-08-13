@@ -156,7 +156,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. D
 - Maximum reusable-workflow depth: `1`
 - Inputs: `admitted_sha` (required), `product_id` (required), `release_version` (required), `platform_set`
 - Secrets: `registry_username`, `registry_token`
-- Outputs: `result`, `manifest_digests_json`, `platform_digests_json`, `immutable_references_json`
+- Outputs: `result`, `image_digest`, `platform_digests_json`, `immutable_references_json`
 - Repository-owned hooks: none
 - Implementation components: `ci_workflows.oci.publish`, `ci_workflows.oci.read_back`
 
