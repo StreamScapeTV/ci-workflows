@@ -79,7 +79,7 @@ jobs:
 
       - id: plan
         name: Resolve contract-owned product, destination, and runner
-        uses: StreamScapeTV/ci-workflows/actions/publish-oci@1661da705cac03206ba7f41598457bb7726c0dc9 # issue #17 immutable publication helper checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/publish-oci@be0ec9505800bb5678083fc7ce912be83a90f139 # issue #17 immutable publication helper checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -118,11 +118,7 @@ jobs:
 
       - id: tools
         name: Verify exact OCI builder host toolchain
-        uses: StreamScapeTV/ci-workflows/actions/verify-toolchain@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
-        with:
-          operation: verify-set
-          tool_set: oci-builder
-          capability_profile: linux
+        uses: StreamScapeTV/ci-workflows/actions/verify-oci-toolchain@be0ec9505800bb5678083fc7ce912be83a90f139 # issue #17 immutable publication helper checkpoint
 
       - id: revalidate
         name: Revalidate exact release authority immediately before privileged work
@@ -150,7 +146,7 @@ jobs:
       - id: build
         name: Rebuild and inspect exact source through OCI build contract
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/validate-oci@29cb88e406a0490834bd556bb825d0e227c862ac # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-oci@be0ec9505800bb5678083fc7ce912be83a90f139 # issue #17 immutable publication helper checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -187,7 +183,7 @@ jobs:
         name: Authenticate with workflow-scoped named registry credentials
         if: ${{ steps.build.outcome == 'success' && steps.credential_authority.outcome == 'success' }}
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/publish-oci@1661da705cac03206ba7f41598457bb7726c0dc9 # issue #17 immutable publication helper checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/publish-oci@be0ec9505800bb5678083fc7ce912be83a90f139 # issue #17 immutable publication helper checkpoint
         with:
           phase: authenticate
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -227,7 +223,7 @@ jobs:
         name: Publish or verify immutable version and source identities
         if: ${{ steps.authenticate.outcome == 'success' && steps.publication_authority.outcome == 'success' }}
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/publish-oci@1661da705cac03206ba7f41598457bb7726c0dc9 # issue #17 immutable publication helper checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/publish-oci@be0ec9505800bb5678083fc7ce912be83a90f139 # issue #17 immutable publication helper checkpoint
         with:
           phase: publish
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -239,7 +235,7 @@ jobs:
       - id: build_cleanup
         name: Remove built images and local layouts before independent read-back
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-oci@29cb88e406a0490834bd556bb825d0e227c862ac # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-oci@be0ec9505800bb5678083fc7ce912be83a90f139 # issue #17 immutable publication helper checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -250,7 +246,7 @@ jobs:
       - id: build_residue
         name: Verify zero OCI build residue before independent read-back
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-oci@29cb88e406a0490834bd556bb825d0e227c862ac # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-oci@be0ec9505800bb5678083fc7ce912be83a90f139 # issue #17 immutable publication helper checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -262,7 +258,7 @@ jobs:
         name: Read back registry manifests through independent Skopeo inspection
         if: ${{ steps.publish.outcome == 'success' && steps.build_cleanup.outcome == 'success' && steps.build_residue.outcome == 'success' }}
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/publish-oci@1661da705cac03206ba7f41598457bb7726c0dc9 # issue #17 immutable publication helper checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/publish-oci@be0ec9505800bb5678083fc7ce912be83a90f139 # issue #17 immutable publication helper checkpoint
         with:
           phase: readback
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -275,7 +271,7 @@ jobs:
         name: Verify exact manifest, platform, metadata, and assertion parity
         if: ${{ steps.readback.outcome == 'success' }}
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/publish-oci@1661da705cac03206ba7f41598457bb7726c0dc9 # issue #17 immutable publication helper checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/publish-oci@be0ec9505800bb5678083fc7ce912be83a90f139 # issue #17 immutable publication helper checkpoint
         with:
           phase: verify
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -287,7 +283,7 @@ jobs:
       - id: publication_cleanup
         name: Remove registry auth, read-back layouts, and publication state
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/publish-oci@1661da705cac03206ba7f41598457bb7726c0dc9 # issue #17 immutable publication helper checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/publish-oci@be0ec9505800bb5678083fc7ce912be83a90f139 # issue #17 immutable publication helper checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -299,7 +295,7 @@ jobs:
       - id: publication_residue
         name: Verify zero publication credential or layout residue
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/publish-oci@1661da705cac03206ba7f41598457bb7726c0dc9 # issue #17 immutable publication helper checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/publish-oci@be0ec9505800bb5678083fc7ce912be83a90f139 # issue #17 immutable publication helper checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -315,7 +311,7 @@ jobs:
         uses: StreamScapeTV/ci-workflows/actions/render-evidence@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           source_sha: ${{ inputs.admitted_sha }}
-          workflow_release: oci-publish-1.0.0
+          workflow_release: oci-publish-be0ec9505800bb5678083fc7ce912be83a90f139
           runner_profile: ${{ needs.plan.outputs.runner_profile }}
           toolchain_json: ${{ steps.tools.outputs.toolchain_json }}
           command_profile: ${{ inputs.product_id }}
@@ -363,7 +359,7 @@ jobs:
         name: Append canonical terminal OCI supply evidence after workspace cleanup
         if: ${{ always() && !cancelled() }}
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/publish-oci@1661da705cac03206ba7f41598457bb7726c0dc9 # issue #17 immutable publication helper checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/publish-oci@be0ec9505800bb5678083fc7ce912be83a90f139 # issue #17 immutable publication helper checkpoint
         with:
           phase: final-evidence
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -372,7 +368,7 @@ jobs:
           release_version: ${{ inputs.release_version }}
           platform_set: ${{ inputs.platform_set }}
           central_workflow_sha: ${{ job.workflow_sha }}
-          publication_helper_sha: 1661da705cac03206ba7f41598457bb7726c0dc9
+          publication_helper_sha: be0ec9505800bb5678083fc7ce912be83a90f139
           verified_toolchain_json: ${{ steps.tools.outputs.toolchain_json }}
           publication_evidence_id: ${{ steps.verify.outputs.evidence_id }}
           foundation_evidence_id: ${{ steps.evidence.outputs.evidence_id }}

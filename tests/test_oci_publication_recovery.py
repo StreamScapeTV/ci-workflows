@@ -22,7 +22,7 @@ from tests.test_oci_publication import SHA, _make_layout
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests/fixtures/oci-publish/oci-products.json"
-PUBLISH_SHA = "1661da705cac03206ba7f41598457bb7726c0dc9"
+PUBLISH_SHA = "be0ec9505800bb5678083fc7ce912be83a90f139"
 
 
 def _write_build_result(

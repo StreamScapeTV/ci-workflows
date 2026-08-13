@@ -46,6 +46,27 @@ jobs:
           set -Eeuo pipefail
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
 
+      - id: immutable_checkpoint
+        name: Exercise the immutable publication checkpoint residue guard
+        uses: StreamScapeTV/ci-workflows/actions/publish-oci@be0ec9505800bb5678083fc7ce912be83a90f139 # issue #17 immutable publication helper checkpoint
+        with:
+          phase: residue
+          admitted_sha: ${{ github.event.pull_request.head.sha }}
+          release_authority_sha: ${{ github.event.pull_request.head.sha }}
+          product_id: ciw-oci-publish-smoke
+          release_version: 1.2.3
+          platform_set: linux-amd64
+
+      - name: Verify the immutable checkpoint returned a clean result
+        shell: bash
+        env:
+          CHECKPOINT_RESULT: ${{ steps.immutable_checkpoint.outputs.result }}
+          CHECKPOINT_CLEANUP: ${{ steps.immutable_checkpoint.outputs.cleanup_result }}
+        run: |
+          set -Eeuo pipefail
+          test "${CHECKPOINT_RESULT}" = success
+          test "${CHECKPOINT_CLEANUP}" = success
+
       - name: Run focused trusted-publication and recovery tests
         shell: bash
         env:

@@ -7,8 +7,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 RELEASE_TAG_SHA = "2b0443fdad002d47625386a959ebe68545cfe022"
-OCI_SHA = "29cb88e406a0490834bd556bb825d0e227c862ac"
-PUBLISH_SHA = "1661da705cac03206ba7f41598457bb7726c0dc9"
+OCI_SHA = "be0ec9505800bb5678083fc7ce912be83a90f139"
+PUBLISH_SHA = "be0ec9505800bb5678083fc7ce912be83a90f139"
 
 
 class OciPublicationWorkflowContractTests(unittest.TestCase):
@@ -78,7 +78,7 @@ class OciPublicationWorkflowContractTests(unittest.TestCase):
             "StreamScapeTV/ci-workflows/actions/publish-oci": PUBLISH_SHA,
             "StreamScapeTV/ci-workflows/actions/exact-checkout": FOUNDATION_SHA,
             "StreamScapeTV/ci-workflows/actions/prepare-workspace": FOUNDATION_SHA,
-            "StreamScapeTV/ci-workflows/actions/verify-toolchain": FOUNDATION_SHA,
+            "StreamScapeTV/ci-workflows/actions/verify-oci-toolchain": PUBLISH_SHA,
             "StreamScapeTV/ci-workflows/actions/render-evidence": FOUNDATION_SHA,
             "StreamScapeTV/ci-workflows/actions/cleanup-workspace": FOUNDATION_SHA,
             "StreamScapeTV/ci-workflows/actions/validate-oci": OCI_SHA,
@@ -89,8 +89,8 @@ class OciPublicationWorkflowContractTests(unittest.TestCase):
         self.assertIn("'existing-tag' || 'tag-push'", text)
         self.assertIn("release_mode: ${{ needs.plan.outputs.release_mode }}", text)
         self.assertIn("Verify revalidated release authority stayed exact", text)
-        self.assertIn("tool_set: oci-builder", text)
-        self.assertIn("capability_profile: linux", text)
+        self.assertNotIn("tool_set: oci-builder", text)
+        self.assertNotIn("capability_profile: linux", text)
         self.assertLess(
             text.index("Prepare isolated publication workspace"),
             text.index("Verify exact OCI builder host toolchain"),
@@ -189,6 +189,12 @@ class OciPublicationWorkflowContractTests(unittest.TestCase):
         self.assertIn("actions: read", text)
         self.assertIn("tests.test_oci_publication_recovery", text)
         self.assertIn("tests.test_oci_publication_filesystem", text)
+        self.assertIn(
+            f"uses: StreamScapeTV/ci-workflows/actions/publish-oci@{PUBLISH_SHA}",
+            text,
+        )
+        self.assertIn("phase: residue", text)
+        self.assertIn("CHECKPOINT_RESULT", text)
         self.assertIn("/artifacts?per_page=100", text)
 
     def test_publication_schema_excludes_destination_and_closes_nested_results(self) -> None:

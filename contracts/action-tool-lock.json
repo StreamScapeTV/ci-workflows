@@ -45,10 +45,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/publish-oci",
-      "sha": "1661da705cac03206ba7f41598457bb7726c0dc9",
+      "sha": "be0ec9505800bb5678083fc7ce912be83a90f139",
       "release": "issue #17 immutable publication helper checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/1661da705cac03206ba7f41598457bb7726c0dc9/actions/publish-oci"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/be0ec9505800bb5678083fc7ce912be83a90f139/actions/publish-oci"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-node",
@@ -114,6 +114,13 @@
       "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/verify-toolchain"
     },
     {
+      "uses": "StreamScapeTV/ci-workflows/actions/verify-oci-toolchain",
+      "sha": "be0ec9505800bb5678083fc7ce912be83a90f139",
+      "release": "issue #17 immutable publication helper checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/be0ec9505800bb5678083fc7ce912be83a90f139/actions/verify-oci-toolchain"
+    },
+    {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-flutter",
       "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
       "release": "issue #125 immutable private-action checkpoint",
@@ -129,10 +136,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-oci",
-      "sha": "29cb88e406a0490834bd556bb825d0e227c862ac",
-      "release": "issue #125 immutable private-action checkpoint",
+      "sha": "be0ec9505800bb5678083fc7ce912be83a90f139",
+      "release": "issue #17 immutable publication helper checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/29cb88e406a0490834bd556bb825d0e227c862ac/actions/validate-oci"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/be0ec9505800bb5678083fc7ce912be83a90f139/actions/validate-oci"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-gitops",
