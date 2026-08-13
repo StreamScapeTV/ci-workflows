@@ -32,13 +32,22 @@
       "targets": [
         {
           "target_id": "backend",
+          "context_path": ".",
+          "dockerfile_path": "Dockerfile",
+          "target_stage": null,
           "platform_set": "linux-multi-arch",
+          "smoke_script": null,
           "assertions": {
             "user": "appuser",
             "entrypoint": [],
             "command": ["/app/start"],
-            "ports": ["8080/tcp"]
-          }
+            "ports": ["8080/tcp"],
+            "required_files": [],
+            "required_tools": [],
+            "forbidden_tools": []
+          },
+          "fixed_build_args": {},
+          "secret_mount_ids": []
         }
       ],
       "flux_asset": false,
@@ -60,23 +69,41 @@
       "targets": [
         {
           "target_id": "runner-buildah",
+          "context_path": "images/buildah",
+          "dockerfile_path": "images/buildah/Dockerfile",
+          "target_stage": null,
           "platform_set": "linux-amd64",
+          "smoke_script": null,
           "assertions": {
             "user": null,
             "entrypoint": [],
             "command": [],
-            "ports": []
-          }
+            "ports": [],
+            "required_files": [],
+            "required_tools": [],
+            "forbidden_tools": []
+          },
+          "fixed_build_args": {},
+          "secret_mount_ids": []
         },
         {
           "target_id": "runner-mobile",
+          "context_path": "images/mobile",
+          "dockerfile_path": "images/mobile/Dockerfile",
+          "target_stage": null,
           "platform_set": "linux-amd64",
+          "smoke_script": null,
           "assertions": {
             "user": null,
             "entrypoint": [],
             "command": [],
-            "ports": []
-          }
+            "ports": [],
+            "required_files": [],
+            "required_tools": [],
+            "forbidden_tools": []
+          },
+          "fixed_build_args": {},
+          "secret_mount_ids": []
         }
       ],
       "flux_asset": true,

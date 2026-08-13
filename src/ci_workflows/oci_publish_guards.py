@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from . import oci_publish as _runtime
+from . import oci_publish_assertions as _assertions
 
 OciPublishError = _runtime.OciPublishError
 PublishPlan = _runtime.PublishPlan
@@ -18,6 +19,7 @@ publication_state_root = _runtime.publication_state_root
 replay_decision = _runtime.replay_decision
 residue = _runtime.residue
 
+ROOT = Path(__file__).resolve().parents[2]
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _ABSENCE_MARKERS = (b"manifest unknown", b"manifest_unknown", b"name unknown")
 
@@ -103,12 +105,14 @@ def publish(
     environment: Mapping[str, str],
     *,
     allow_publish: bool | None = None,
+    repository_root: Path | None = None,
 ) -> dict[str, str]:
     """Publish missing immutable refs or verify an existing pair without writes."""
 
     if allow_publish is None:
         allow_publish = _publication_allowed(plan, environment)
     _require(isinstance(allow_publish, bool), "invalid_request")
+    contract_root = ROOT if repository_root is None else repository_root
     root = publication_state_root(environment)
     authfile = _runtime._secure_existing_authfile(root)  # noqa: SLF001
     build_root = _runtime.build_state_root(environment)
@@ -118,6 +122,7 @@ def publish(
     for target in plan.targets:
         layout = build_root / "layouts" / target.target_id
         local = inspect_layout(layout, target, "validation")
+        _assertions.assert_filesystem_contract(contract_root, plan, target, layout)
         local_digest = str(local["manifest_digest"])
         _require(_DIGEST.fullmatch(local_digest) is not None, "oci_digest_mismatch")
         version_digest = _inspect_remote_digest(target.version_reference, authfile)
@@ -168,9 +173,15 @@ def publish(
     }
 
 
-def read_back(plan: PublishPlan, environment: Mapping[str, str]) -> dict[str, str]:
+def read_back(
+    plan: PublishPlan,
+    environment: Mapping[str, str],
+    *,
+    repository_root: Path | None = None,
+) -> dict[str, str]:
     """Independently copy exact registry bytes into fresh marker-checked layouts."""
 
+    contract_root = ROOT if repository_root is None else repository_root
     root = publication_state_root(environment)
     authfile = _runtime._secure_existing_authfile(root)  # noqa: SLF001
     try:
@@ -197,6 +208,9 @@ def read_back(plan: PublishPlan, environment: Mapping[str, str]) -> dict[str, st
             authfile,
         )
         remote = inspect_layout(destination, target, "readback")
+        _assertions.assert_filesystem_contract(
+            contract_root, plan, target, destination
+        )
         local = _mapping(row.get("local"), "publication_state_missing")
         _require(remote == local, "registry_readback_mismatch")
         source_digest = _inspect_remote_digest(target.source_reference, authfile)

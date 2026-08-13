@@ -82,7 +82,12 @@ class GuardedPublicationFixture(unittest.TestCase):
         with patch.object(guards, "_inspect_remote_digest", return_value=digest), patch.object(
             runtime, "_copy"
         ) as copy:
-            result = guards.publish(self.plan, self.env, allow_publish=False)
+            result = guards.publish(
+                self.plan,
+                self.env,
+                allow_publish=False,
+                repository_root=self.root,
+            )
         self.assertEqual(result["result"], "replayed")
         copy.assert_not_called()
         self.assertTrue((guards.publication_state_root(self.env) / "publication.json").is_file())
@@ -92,7 +97,12 @@ class GuardedPublicationFixture(unittest.TestCase):
             runtime, "_copy"
         ) as copy:
             with self.assertRaisesRegex(OciPublishError, "remote_reference_missing"):
-                guards.publish(self.plan, self.env, allow_publish=False)
+                guards.publish(
+                    self.plan,
+                    self.env,
+                    allow_publish=False,
+                    repository_root=self.root,
+                )
         copy.assert_not_called()
 
     def test_tag_publication_repairs_only_missing_refs_then_reads_back(self) -> None:
@@ -118,10 +128,14 @@ class GuardedPublicationFixture(unittest.TestCase):
         with patch.object(guards, "_inspect_remote_digest", side_effect=inspect), patch.object(
             runtime, "_copy", side_effect=copy
         ) as copy_call:
-            published = guards.publish(self.plan, self.env)
+            published = guards.publish(
+                self.plan, self.env, repository_root=self.root
+            )
             self.assertEqual(published["result"], "published")
             self.assertEqual(copy_call.call_count, 2)
-            readback = guards.read_back(self.plan, self.env)
+            readback = guards.read_back(
+                self.plan, self.env, repository_root=self.root
+            )
         self.assertEqual(readback["result"], "read-back")
         self.assertEqual(json.loads(readback["manifest_digests_json"])["backend"], digest)
         verified = public.verify(self.plan, self.env)
