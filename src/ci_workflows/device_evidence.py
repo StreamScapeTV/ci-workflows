@@ -12,9 +12,11 @@ from .device_types import DevicePlan, LockReceipt, LockReleaseReceipt, SelectedD
 EVIDENCE_NAME = re.compile(r"^[a-z][a-z0-9._-]{1,95}$")
 MEDIA_TYPE = re.compile(r"^(?:application/json|text/plain)$")
 
+
 def _timestamp(value: int) -> str:
     require(isinstance(value, int) and value >= 0, "evidence_policy_failed")
     return f"epoch:{value}"
+
 
 def _artifact_inventory(retained: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
     result: list[dict[str, object]] = []
@@ -35,6 +37,46 @@ def _artifact_inventory(retained: Sequence[Mapping[str, object]]) -> list[dict[s
         result.append(dict(item))
     return sorted(result, key=lambda item: str(item["name"]))
 
+
+def _scope_map(
+    evidence_contract: Mapping[str, object],
+    *,
+    synthetic: bool,
+) -> Mapping[str, object]:
+    key = (
+        "synthetic_certification_scope_by_family"
+        if synthetic
+        else "certification_scope_by_family"
+    )
+    scopes = evidence_contract.get(key)
+    require(isinstance(scopes, Mapping), "evidence_policy_failed")
+    return scopes
+
+
+def _limitations(
+    evidence_contract: Mapping[str, object],
+    *,
+    synthetic: bool,
+) -> list[str]:
+    required = evidence_contract.get("required_limitations")
+    require(
+        isinstance(required, list)
+        and all(isinstance(item, str) and item for item in required),
+        "evidence_policy_failed",
+    )
+    result = list(required)
+    if synthetic:
+        synthetic_required = evidence_contract.get("synthetic_required_limitations")
+        require(
+            isinstance(synthetic_required, list)
+            and synthetic_required
+            and all(isinstance(item, str) and item for item in synthetic_required),
+            "evidence_policy_failed",
+        )
+        result.extend(item for item in synthetic_required if item not in result)
+    return result
+
+
 def build_evidence_packet(
     *,
     plan: DevicePlan,
@@ -51,11 +93,11 @@ def build_evidence_packet(
     cleanup: str,
     retained_evidence: Sequence[Mapping[str, object]] = (),
     certification_scope: str | None = None,
+    synthetic: bool = False,
 ) -> dict[str, object]:
     require(result in {"success", "failure"}, "evidence_policy_failed")
     require(ended_at >= started_at, "evidence_policy_failed")
-    scopes = evidence_contract["certification_scope_by_family"]
-    require(isinstance(scopes, Mapping), "evidence_policy_failed")
+    scopes = _scope_map(evidence_contract, synthetic=synthetic)
     expected_scope = str(scopes[selected.family.value])
     actual_scope = certification_scope or expected_scope
     require(actual_scope == expected_scope, "evidence_overclaim")
@@ -106,10 +148,11 @@ def build_evidence_packet(
         "artifact_exception_id": plan.request.evidence_exception_id or "",
         "retained_evidence": _artifact_inventory(retained_evidence),
         "certification_scope": actual_scope,
-        "limitations": list(evidence_contract["required_limitations"]),
+        "limitations": _limitations(evidence_contract, synthetic=synthetic),
     }
     validate_evidence_packet(packet, evidence_contract, raw_identifier=selected._raw_identifier)
     return packet
+
 
 def _walk_keys(value: object) -> Sequence[str]:
     keys: list[str] = []
@@ -121,6 +164,7 @@ def _walk_keys(value: object) -> Sequence[str]:
         for nested in value:
             keys.extend(_walk_keys(nested))
     return keys
+
 
 def validate_evidence_packet(
     packet: Mapping[str, object],
@@ -151,6 +195,31 @@ def validate_evidence_packet(
         "evidence_policy_failed",
     )
     require(isinstance(packet["retained_evidence"], list) and len(packet["retained_evidence"]) <= int(evidence_contract["maximum_retained_files"]), "evidence_policy_failed")
+
+    family = str(packet["device_family"])
+    physical_scopes = _scope_map(evidence_contract, synthetic=False)
+    synthetic_scopes = _scope_map(evidence_contract, synthetic=True)
+    physical_scope = str(physical_scopes[family])
+    synthetic_scope = str(synthetic_scopes[family])
+    scope = str(packet["certification_scope"])
+    require(scope in {physical_scope, synthetic_scope}, "evidence_overclaim")
+
+    limitations = packet["limitations"]
+    required_limitations = evidence_contract["required_limitations"]
+    require(
+        isinstance(limitations, list)
+        and all(isinstance(item, str) and item for item in limitations)
+        and isinstance(required_limitations, list)
+        and set(required_limitations) <= set(limitations),
+        "evidence_policy_failed",
+    )
+    synthetic_required = evidence_contract["synthetic_required_limitations"]
+    require(isinstance(synthetic_required, list), "evidence_policy_failed")
+    if scope == synthetic_scope:
+        require(set(synthetic_required) <= set(limitations), "evidence_overclaim")
+    else:
+        require(not (set(synthetic_required) & set(limitations)), "evidence_overclaim")
+
 
 def evidence_id(packet: Mapping[str, object]) -> str:
     return hashlib.sha256(canonical_json(packet).encode()).hexdigest()
