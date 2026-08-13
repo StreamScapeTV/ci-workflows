@@ -100,7 +100,7 @@ paths, and registry implementation details.
 The reusable planner and build job do not clone the private central repository
 with a caller-scoped token. They compose the reviewed `validate-oci` private
 action at immutable central revision
-`29cb88e406a0490834bd556bb825d0e227c862ac` and the immutable shared foundation
+`28bed1f62de4755d223c4aa81fbdb214805916ef` and the immutable shared foundation
 actions for exact checkout, workspace state, evidence, and cleanup.
 
 Each private action archive resolves central scripts and typed Python libraries

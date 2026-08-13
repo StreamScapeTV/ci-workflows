@@ -12,13 +12,14 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_SHA = "87a7454aaa59cb680db8f580d22551b749ac4193"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 APPLE_SHA = "88d179740145ccea00b6986d78ceb67ea365face"
-OCI_SHA = "29cb88e406a0490834bd556bb825d0e227c862ac"
+OCI_SHA = "28bed1f62de4755d223c4aa81fbdb214805916ef"
 GITOPS_SHA = "8445e63dd9fa9468b60b6d0c61e543da9681b47b"
 
 FOUNDATION = "issue #116 immutable private-action checkpoint"
 ISSUE_132 = "issue #132 immutable mode-aware source checkpoint"
 ISSUE_104 = "issue #104 immutable private-action checkpoint"
 ISSUE_125 = "issue #125 immutable private-action checkpoint"
+ISSUE_150 = "issue #150 immutable OCI input checkpoint"
 ISSUE_131 = "issue #131 immutable Release-aware Apple checkpoint"
 
 PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
@@ -58,7 +59,7 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
     },
     ".github/workflows/reusable-oci-build.yml": {
-        "StreamScapeTV/ci-workflows/actions/validate-oci": (OCI_SHA, ISSUE_125),
+        "StreamScapeTV/ci-workflows/actions/validate-oci": (OCI_SHA, ISSUE_150),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/render-evidence": (FOUNDATION_SHA, FOUNDATION),

@@ -122,10 +122,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-oci",
-      "sha": "29cb88e406a0490834bd556bb825d0e227c862ac",
-      "release": "issue #125 immutable private-action checkpoint",
+      "sha": "28bed1f62de4755d223c4aa81fbdb214805916ef",
+      "release": "issue #150 immutable OCI input checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/29cb88e406a0490834bd556bb825d0e227c862ac/actions/validate-oci"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/28bed1f62de4755d223c4aa81fbdb214805916ef/actions/validate-oci"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-gitops",

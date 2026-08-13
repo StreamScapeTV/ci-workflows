@@ -57,7 +57,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve contract-owned OCI product and runner
-        uses: StreamScapeTV/ci-workflows/actions/validate-oci@29cb88e406a0490834bd556bb825d0e227c862ac # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-oci@28bed1f62de4755d223c4aa81fbdb214805916ef # issue #150 immutable OCI input checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -98,7 +98,7 @@ jobs:
       - id: execute
         name: Build and inspect exact source without publication
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/validate-oci@29cb88e406a0490834bd556bb825d0e227c862ac # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-oci@28bed1f62de4755d223c4aa81fbdb214805916ef # issue #150 immutable OCI input checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -124,7 +124,7 @@ jobs:
       - id: oci_cleanup
         name: Remove images, manifests, containers, layouts, caches, and temporary state
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-oci@29cb88e406a0490834bd556bb825d0e227c862ac # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-oci@28bed1f62de4755d223c4aa81fbdb214805916ef # issue #150 immutable OCI input checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -135,7 +135,7 @@ jobs:
       - id: residue
         name: Verify zero OCI-specific residue
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-oci@29cb88e406a0490834bd556bb825d0e227c862ac # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-oci@28bed1f62de4755d223c4aa81fbdb214805916ef # issue #150 immutable OCI input checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
