@@ -11,6 +11,7 @@ from ci_workflows.device_execution import *  # noqa: F401,F403
 from ci_workflows.device_types import DeviceFamily, DeviceRecord, DeviceValidationError
 from device_test_support import FIX, ROOT, SHA, real_environment, synthetic_environment
 
+
 class InventoryAndEvidenceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.contract = load_device_contract(ROOT)
@@ -21,6 +22,25 @@ class InventoryAndEvidenceTests(unittest.TestCase):
             self.contract,
             request_from_environment(synthetic_environment(family), self.contract),
         )
+
+    def synthetic_result(self, family: str = "android"):
+        plan = self.plan(family)
+        if family == "android":
+            records = parse_android_inventory((FIX / "android.txt").read_text())
+        else:
+            records = parse_apple_inventory(
+                (FIX / f"{family}.json").read_text(),
+                DeviceFamily(family),
+            )
+        return execute_device_plan(
+            plan=plan,
+            records=records,
+            lock_adapter=InMemoryDeviceLockAdapter(),
+            runtime=SyntheticDeviceRuntime(),
+            evidence_contract=self.evidence,
+            now=iter((1000, 1001, 1002)).__next__,
+            synthetic_authorized=True,
+        ), records
 
     def test_positive_inventory_for_all_families(self) -> None:
         android = parse_android_inventory((FIX / "android.txt").read_text())
@@ -86,6 +106,37 @@ class InventoryAndEvidenceTests(unittest.TestCase):
             self.assertNotIn(record.raw_identifier, serialized)
         self.assertFalse(result.evidence_packet["serialization"]["cross_run_fencing_claimed"])
         self.assertEqual("in-memory-tests-only", result.evidence_packet["lock"]["adapter"])
+        self.assertEqual(
+            "synthetic-contract/android",
+            result.evidence_packet["certification_scope"],
+        )
+        self.assertIn(
+            "synthetic-contract-evidence-is-not-physical-device-proof",
+            result.evidence_packet["limitations"],
+        )
+        self.assertIn(
+            "synthetic-family-contract-verified",
+            result.evidence_packet["assertions"],
+        )
+        self.assertNotIn(
+            "physical-family-verified",
+            result.evidence_packet["assertions"],
+        )
+        self.assertNotIn(
+            "authorization-validated",
+            result.evidence_packet["assertions"],
+        )
+
+    def test_synthetic_evidence_cannot_be_relabelled_as_physical(self) -> None:
+        result, records = self.synthetic_result()
+        packet = dict(result.evidence_packet)
+        packet["certification_scope"] = "physical-device/android"
+        with self.assertRaisesRegex(DeviceValidationError, "evidence_overclaim"):
+            validate_evidence_packet(
+                packet,
+                self.evidence,
+                raw_identifier=records[0].raw_identifier,
+            )
 
     def test_real_physical_execution_is_explicitly_disabled(self) -> None:
         plan = self.plan()
@@ -129,17 +180,7 @@ class InventoryAndEvidenceTests(unittest.TestCase):
         self.assertEqual("none-in-source-package", self.contract["lock_contract"]["production_adapter"])
 
     def test_evidence_rejects_unreviewed_assertions_that_could_leak_identifiers(self) -> None:
-        plan = self.plan()
-        records = parse_android_inventory((FIX / "android.txt").read_text())
-        result = execute_device_plan(
-            plan=plan,
-            records=records,
-            lock_adapter=InMemoryDeviceLockAdapter(),
-            runtime=SyntheticDeviceRuntime(),
-            evidence_contract=self.evidence,
-            now=iter((1000, 1001, 1002)).__next__,
-            synthetic_authorized=True,
-        )
+        result, records = self.synthetic_result()
         packet = dict(result.evidence_packet)
         packet["assertions"] = [records[0].raw_identifier]
         with self.assertRaisesRegex(DeviceValidationError, "evidence_policy_failed"):
@@ -148,3 +189,7 @@ class InventoryAndEvidenceTests(unittest.TestCase):
                 self.evidence,
                 raw_identifier="different-opaque-identifier",
             )
+
+
+if __name__ == "__main__":
+    unittest.main()
