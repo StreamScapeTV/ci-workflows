@@ -88,4 +88,5 @@ runs:
       run: |
         set -Eeuo pipefail
         PYTHONDONTWRITEBYTECODE=1 \
-          python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/device_lock.py" "${CIW_LOCK_PHASE}"
+          python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
+            device lock --phase "${CIW_LOCK_PHASE}"
