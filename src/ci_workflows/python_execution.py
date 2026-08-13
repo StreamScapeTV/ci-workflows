@@ -256,14 +256,15 @@ def execute_host_plan(
 
 
 def podman_command(state_root: Path) -> list[str]:
+    # Podman 4.9 rejects runroot paths longer than 50 characters. Buildah
+    # semantic runners already provide a job-isolated default runroot, so only
+    # graph storage needs to be redirected into the registered workflow state.
     return [
         "podman",
         "--storage-driver",
         "vfs",
         "--root",
         str(state_root / "python-validation" / "podman-storage"),
-        "--runroot",
-        str(state_root / "python-validation" / "podman-runroot"),
     ]
 
 
@@ -543,7 +544,6 @@ def execute_podman_plan(
     podman_root = state_root / "python-validation"
     for path in (
         podman_root / "podman-storage",
-        podman_root / "podman-runroot",
         podman_root / "work",
     ):
         path.mkdir(parents=True, exist_ok=True)
