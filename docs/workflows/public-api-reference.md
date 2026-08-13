@@ -144,7 +144,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. D
 - Maximum reusable-workflow depth: `1`
 - Inputs: `admitted_sha` (required), `product_id` (required), `release_version`, `platform_set`, `artifact_exception_id`
 - Secrets: none
-- Outputs: `result`, `image_digest`, `platform_digests_json`, `artifact_exception_used`
+- Outputs: `result`, `image_digest`, `platform_digests_json`, `resolved_inputs_json`, `artifact_exception_used`
 - Repository-owned hooks: none
 - Implementation components: `ci_workflows.oci.build`, `ci_workflows.oci.inspect`
 

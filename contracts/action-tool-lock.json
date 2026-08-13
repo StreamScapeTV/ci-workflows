@@ -38,10 +38,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/resolve-source",
-      "sha": "90706a72aa68c81b7840c139965ae528d8ed6b25",
-      "release": "issue #7 immutable helper checkpoint",
+      "sha": "87a7454aaa59cb680db8f580d22551b749ac4193",
+      "release": "issue #132 immutable mode-aware source checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/90706a72aa68c81b7840c139965ae528d8ed6b25/actions/resolve-source"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/87a7454aaa59cb680db8f580d22551b749ac4193/actions/resolve-source"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-node",
@@ -115,17 +115,17 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-apple",
-      "sha": "3175577052ac22b838789709f7082dfee372cfa7",
-      "release": "issue #125 immutable private-action checkpoint",
+      "sha": "88d179740145ccea00b6986d78ceb67ea365face",
+      "release": "issue #131 immutable Release-aware Apple checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/3175577052ac22b838789709f7082dfee372cfa7/actions/validate-apple"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/88d179740145ccea00b6986d78ceb67ea365face/actions/validate-apple"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-oci",
-      "sha": "29cb88e406a0490834bd556bb825d0e227c862ac",
-      "release": "issue #125 immutable private-action checkpoint",
+      "sha": "3b401078d1167d7048281e3c3269556ce586dada",
+      "release": "issue #150 immutable OCI input checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/29cb88e406a0490834bd556bb825d0e227c862ac/actions/validate-oci"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/3b401078d1167d7048281e3c3269556ce586dada/actions/validate-oci"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-gitops",

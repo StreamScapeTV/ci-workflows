@@ -7,7 +7,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/reusable-oci-build.yml"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-OCI_SHA = "29cb88e406a0490834bd556bb825d0e227c862ac"
+OCI_SHA = "3b401078d1167d7048281e3c3269556ce586dada"
 
 
 class OciReusableSourceIdentityTests(unittest.TestCase):
@@ -55,6 +55,18 @@ class OciReusableSourceIdentityTests(unittest.TestCase):
             source,
         )
         self.assertIn("git status --porcelain --untracked-files=all", source)
+
+    def test_reusable_oci_projects_redacted_input_evidence(self) -> None:
+        source = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(
+            "value: ${{ jobs.build.outputs.resolved_inputs_json }}",
+            source,
+        )
+        self.assertIn(
+            "resolved_inputs_json: ${{ steps.execute.outputs.resolved_inputs_json }}",
+            source,
+        )
+        self.assertEqual(2, source.count("resolved_inputs_json:"))
 
 
 if __name__ == "__main__":

@@ -130,8 +130,8 @@
       "handler": "ci_workflows.ciw.handle_oci_validate",
       "inputs": ["phase", "source_root", "admitted_sha", "product_id", "release_version", "platform_set", "artifact_exception_id", "GitHub event identity"],
       "operation": "validate",
-      "outputs": ["result", "source_sha", "product_id", "release_version", "manifest_digests_json", "platform_results_json", "clean_tree", "cleanup_result", "artifact_exception_used", "evidence_id", "canary_id", "previous_known_good", "rollback_id", "runner_profile", "runs_on_json", "workspace_profile", "timeout_minutes", "source_trust", "failure_code"],
-      "side_effects": ["resolves one contract-owned OCI build plan", "executes daemonless Buildah VFS builds without publication", "strictly inspects local OCI manifests, configs, layers, metadata, and filesystem assertions", "enforces exact source, zero routine artifacts, cleanup, and residue policy"],
+      "outputs": ["result", "source_sha", "product_id", "release_version", "manifest_digests_json", "platform_results_json", "resolved_inputs_json", "clean_tree", "cleanup_result", "artifact_exception_used", "evidence_id", "canary_id", "previous_known_good", "rollback_id", "runner_profile", "runs_on_json", "workspace_profile", "timeout_minutes", "source_trust", "failure_code"],
+      "side_effects": ["resolves one contract-owned OCI build plan and consumer-source input lock", "materializes only centrally allowlisted digest-locked bases and bounded external inputs before the build", "executes daemonless Buildah VFS builds without publication or build-instruction network access", "strictly inspects resolved base descriptors, local OCI manifests, configs, layers, metadata, and filesystem assertions", "enforces exact source, redacted evidence, zero routine artifacts, cleanup, and residue policy"],
       "trust_class": "read-only-validation"
     },
     {

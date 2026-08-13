@@ -166,6 +166,8 @@ class OciMediaTypeTests(unittest.TestCase):
             (),
             {},
             (),
+            "inputs.lock.json",
+            "scratch-only-v1",
         )
 
     def test_omitted_redundant_top_level_media_types_are_accepted(self) -> None:
@@ -213,6 +215,13 @@ class OciMediaTypeTests(unittest.TestCase):
             layout = make_layout(root / "layer", self.labels)
             manifest = read_manifest(layout)
             manifest["layers"][0]["mediaType"] = "application/vnd.oci.image.layer.v1.tar+attacker"
+            replace_manifest(layout, manifest)
+            with self.assertRaisesRegex(OciBuildError, "oci_layout_malformed"):
+                inspect_layout(layout, self.target, self.labels)
+
+            layout = make_layout(root / "zstd-layer", self.labels)
+            manifest = read_manifest(layout)
+            manifest["layers"][0]["mediaType"] = "application/vnd.oci.image.layer.v1.tar+zstd"
             replace_manifest(layout, manifest)
             with self.assertRaisesRegex(OciBuildError, "oci_layout_malformed"):
                 inspect_layout(layout, self.target, self.labels)
