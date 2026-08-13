@@ -148,16 +148,19 @@ def resolve_plan(
     contract: Mapping[str, object],
     request: AppleValidationRequest,
 ) -> AppleValidationPlan:
-    """Resolve one Apple plan with repository-scoped simulator identity."""
+    """Resolve one Apple plan with a collision-safe simulator identity."""
 
     plan = build_plan(contract, request)
     simulator = plan.simulator
     if simulator is None:
         return plan
-    repository_scope = hashlib.sha256(
-        request.repository.encode("utf-8")
+    identity_material = "\n".join(
+        (request.repository, plan.task_profile, request.admitted_sha)
+    )
+    simulator_scope = hashlib.sha256(
+        identity_material.encode("utf-8")
     ).hexdigest()[:12]
-    scoped_prefix = f"{simulator.device_name_prefix} {repository_scope}"
+    scoped_prefix = f"{simulator.device_name_prefix} {simulator_scope}"
     if len(scoped_prefix) > 128:
         raise AppleValidationError("simulator_contract_invalid")
     scoped_simulator = replace(
