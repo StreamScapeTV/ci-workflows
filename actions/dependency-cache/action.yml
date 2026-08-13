@@ -1,0 +1,126 @@
+name: Manage bounded dependency cache
+description: Restore exact-lock dependency downloads or save them after trusted integration success
+
+inputs:
+  phase:
+    description: restore or save
+    required: true
+  family:
+    description: Contract-owned dependency family
+    required: true
+  source_root:
+    description: Exact admitted checkout root
+    required: false
+    default: source
+  working_directory:
+    description: Contract-matched relative source directory
+    required: false
+    default: .
+  source_trust:
+    description: Central source-trust classification
+    required: true
+  profile:
+    description: Contract-owned validation profile used in the cache key
+    required: true
+  validation_succeeded:
+    description: Internal terminal validation result; required for save eligibility
+    required: false
+    default: "false"
+  restored_cache_hit:
+    description: Internal restore result used to suppress an unnecessary save
+    required: false
+    default: "false"
+
+outputs:
+  cache_key:
+    value: ${{ steps.plan.outputs.cache_key }}
+  lock_digest:
+    value: ${{ steps.plan.outputs.lock_digest }}
+  identity_file_count:
+    value: ${{ steps.plan.outputs.identity_file_count }}
+  cache_hit:
+    value: ${{ steps.measure.outputs.cache_hit }}
+  duration_ms:
+    value: ${{ steps.measure.outputs.duration_ms }}
+  save_allowed:
+    value: ${{ steps.plan.outputs.save_allowed }}
+  save_performed:
+    value: ${{ steps.measure.outputs.save_performed }}
+
+runs:
+  using: composite
+  steps:
+    - id: plan
+      name: Resolve exact-lock cache identity and marker-bound paths
+      shell: bash
+      env:
+        PYTHONDONTWRITEBYTECODE: "1"
+        INPUT_FAMILY: ${{ inputs.family }}
+        INPUT_SOURCE_ROOT: ${{ inputs.source_root }}
+        INPUT_WORKING_DIRECTORY: ${{ inputs.working_directory }}
+        INPUT_SOURCE_TRUST: ${{ inputs.source_trust }}
+        INPUT_PROFILE: ${{ inputs.profile }}
+        INPUT_VALIDATION_SUCCEEDED: ${{ inputs.validation_succeeded }}
+      run: |
+        set -Eeuo pipefail
+        PYTHONPATH="${GITHUB_ACTION_PATH}/../../src" \
+          python3 -m ci_workflows.dependency_cache
+
+    - id: timer
+      name: Start bounded cache timing sample
+      shell: bash
+      run: |
+        set -Eeuo pipefail
+        python3 - <<'PY'
+        import os
+        import time
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+            handle.write(f"started_ms={time.time_ns() // 1_000_000}\n")
+        PY
+
+    - id: restore
+      name: Restore exact dependency cache
+      if: ${{ inputs.phase == 'restore' }}
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.plan.outputs.cache_paths }}
+        key: ${{ steps.plan.outputs.cache_key }}
+        fail-on-cache-miss: false
+        lookup-only: false
+
+    - id: save
+      name: Save exact dependency cache after trusted integration success
+      if: ${{ inputs.phase == 'save' && steps.plan.outputs.save_allowed == 'true' && inputs.restored_cache_hit != 'true' }}
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.plan.outputs.cache_paths }}
+        key: ${{ steps.plan.outputs.cache_key }}
+
+    - id: measure
+      name: Record redacted cache timing and hit sample
+      if: always()
+      shell: bash
+      env:
+        CACHE_FAMILY: ${{ inputs.family }}
+        CACHE_PHASE: ${{ inputs.phase }}
+        RESTORE_HIT: ${{ inputs.phase == 'restore' && steps.restore.outputs.cache-hit || inputs.restored_cache_hit }}
+        SAVE_OUTCOME: ${{ steps.save.outcome }}
+        STARTED_MS: ${{ steps.timer.outputs.started_ms }}
+      run: |
+        set -Eeuo pipefail
+        python3 - <<'PY'
+        import os
+        import time
+        started = int(os.environ["STARTED_MS"])
+        duration = max(0, time.time_ns() // 1_000_000 - started)
+        cache_hit = "true" if os.environ.get("RESTORE_HIT") == "true" else "false"
+        save_performed = "true" if os.environ.get("CACHE_PHASE") == "save" and os.environ.get("SAVE_OUTCOME") == "success" else "false"
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+            handle.write(f"cache_hit={cache_hit}\n")
+            handle.write(f"duration_ms={duration}\n")
+            handle.write(f"save_performed={save_performed}\n")
+        summary = os.environ.get("GITHUB_STEP_SUMMARY")
+        if summary:
+            with open(summary, "a", encoding="utf-8") as handle:
+                handle.write(f"Dependency cache sample: family={os.environ['CACHE_FAMILY']}, phase={os.environ['CACHE_PHASE']}, hit={cache_hit}, duration_ms={duration}.\n")
+        PY

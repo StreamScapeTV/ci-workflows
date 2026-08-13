@@ -7,11 +7,35 @@
     "read-write": {"restore": true, "save": true}
   },
   "allowed_trust_modes": {
-    "restore-only": ["untrusted-validation", "trusted-validation", "tag-release"],
-    "read-write": ["trusted-validation", "tag-release"]
+    "restore-only": ["untrusted-validation", "trusted-validation", "tag-release", "untrusted-fork", "trusted-pr", "trusted-exact"],
+    "read-write": ["trusted-validation", "tag-release", "trusted-exact"]
   },
   "required_key_material": ["repository", "source_sha", "lock_digest", "platform", "profile"],
   "max_key_length": 200,
-  "eviction_days": 7,
-  "poisoning_protection": "exact-source-lock-platform-profile"
+  "retention_policy": "github-native",
+  "custom_eviction_workflow": false,
+  "poisoning_protection": "trusted-save-exact-lock-platform-profile",
+  "native_dependency_cache": {
+    "provider": "github-actions-cache",
+    "action": "actions/cache",
+    "action_release": "v6.1.0",
+    "action_sha": "55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+    "key_version": "v1",
+    "exact_key_only": true,
+    "save_policy": "successful-protected-default-branch-push-only",
+    "restore_policy": "pull-request-and-trusted-validation",
+    "key_material": ["repository", "family", "lock_digest", "runner_os", "runner_arch", "profile"],
+    "max_identity_files": 512,
+    "max_identity_bytes": 4194304,
+    "max_paths": 8,
+    "metrics": ["cache_hit", "restore_duration_ms", "save_duration_ms"],
+    "families": {
+      "npm": {"identity_globs": ["package-lock.json"], "paths": [{"base_env": "HOME", "relative": ".npm"}]},
+      "gradle": {"identity_globs": ["gradle/wrapper/gradle-wrapper.properties", "gradle/libs.versions.toml", "gradle.lockfile", "settings.gradle", "settings.gradle.kts", "build.gradle", "build.gradle.kts", "**/gradle.lockfile", "**/build.gradle", "**/build.gradle.kts"], "paths": [{"base_env": "GRADLE_USER_HOME", "relative": "caches/modules-2"}, {"base_env": "GRADLE_USER_HOME", "relative": "wrapper/dists"}]},
+      "maven": {"identity_globs": ["pom.xml", "**/pom.xml", ".mvn/wrapper/maven-wrapper.properties"], "paths": [{"base_env": "HOME", "relative": ".m2/repository"}]},
+      "pip": {"identity_globs": ["requirements.txt", "requirements-*.txt", "**/requirements.txt", "**/requirements-*.txt", "pyproject.toml", "poetry.lock", "uv.lock", "Pipfile.lock"], "paths": [{"base_env": "XDG_CACHE_HOME", "relative": "pip"}]},
+      "pub": {"identity_globs": ["pubspec.lock", "pubspec.yaml"], "paths": [{"base_env": "PUB_CACHE", "relative": "."}]},
+      "helm": {"identity_globs": ["Chart.lock", "Chart.yaml"], "paths": [{"base_env": "HELM_CACHE_HOME", "relative": "repository"}]}
+    }
+  }
 }
