@@ -24,7 +24,7 @@ on:
         description: Least-privilege username for the fixed checked-in registry destination
         required: true
       registry_token:
-        description: Least-privilege write token for tag publication; verify-only never writes
+        description: Least-privilege registry token; verify-only never writes
         required: true
     outputs:
       result:
@@ -34,7 +34,7 @@ on:
         description: Deterministic JSON map of independently read-back registry manifest digests
         value: ${{ jobs.publish.outputs.image_digest }}
       platform_digests_json:
-        description: Exact read-back platform manifest, config, and layer identities
+        description: Exact read-back platform manifest, config, layer, and assertion identities
         value: ${{ jobs.publish.outputs.platform_digests_json }}
       immutable_references_json:
         description: Canonical repositories, immutable version/source identities, and Flux handoff identities
@@ -57,33 +57,9 @@ jobs:
       tag_object_sha: ${{ steps.authority.outputs.tag_object_sha }}
       tag_commit_sha: ${{ steps.authority.outputs.tag_commit_sha }}
     steps:
-      - name: Check out exact central workflow source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          path: .ciw
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
-
-      - name: Verify exact central workflow source
-        shell: bash
-        env:
-          EXPECTED_REPOSITORY: ${{ job.workflow_repository }}
-          EXPECTED_SHA: ${{ job.workflow_sha }}
-        run: |
-          set -Eeuo pipefail
-          test "${EXPECTED_REPOSITORY}" = "StreamScapeTV/ci-workflows"
-          (
-            cd .ciw
-            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
-          )
-
       - id: authority
         name: Resolve exact caller release authority
-        uses: ./.ciw/actions/resolve-release-tag
+        uses: StreamScapeTV/ci-workflows/actions/resolve-release-tag@2b0443fdad002d47625386a959ebe68545cfe022 # issue #59 immutable helper checkpoint
         with:
           release_mode: ${{ github.event_name == 'workflow_dispatch' && 'existing-tag' || 'tag-push' }}
           release_version: ${{ github.event_name == 'workflow_dispatch' && inputs.release_version || '' }}
@@ -103,7 +79,7 @@ jobs:
 
       - id: plan
         name: Resolve contract-owned product, destination, and runner
-        uses: ./.ciw/actions/publish-oci
+        uses: StreamScapeTV/ci-workflows/actions/publish-oci@1661da705cac03206ba7f41598457bb7726c0dc9 # issue #17 immutable publication helper checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -123,32 +99,8 @@ jobs:
       platform_digests_json: ${{ steps.verify.outputs.platform_digests_json }}
       immutable_references_json: ${{ steps.verify.outputs.immutable_references_json }}
     steps:
-      - name: Check out exact central workflow source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          path: .ciw
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
-
-      - name: Verify exact central workflow source
-        shell: bash
-        env:
-          EXPECTED_REPOSITORY: ${{ job.workflow_repository }}
-          EXPECTED_SHA: ${{ job.workflow_sha }}
-        run: |
-          set -Eeuo pipefail
-          test "${EXPECTED_REPOSITORY}" = "StreamScapeTV/ci-workflows"
-          (
-            cd .ciw
-            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
-          )
-
       - name: Check out exact admitted caller source
-        uses: ./.ciw/actions/exact-checkout
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           repository: ${{ github.repository }}
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -157,7 +109,7 @@ jobs:
 
       - id: workspace
         name: Prepare isolated publication workspace
-        uses: ./.ciw/actions/prepare-workspace
+        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           profile: ${{ needs.plan.outputs.workspace_profile }}
           cache_mode: disabled
@@ -166,7 +118,7 @@ jobs:
 
       - id: revalidate
         name: Revalidate exact release authority immediately before privileged work
-        uses: ./.ciw/actions/resolve-release-tag
+        uses: StreamScapeTV/ci-workflows/actions/resolve-release-tag@2b0443fdad002d47625386a959ebe68545cfe022 # issue #59 immutable helper checkpoint
         with:
           phase: revalidate
           release_mode: ${{ needs.plan.outputs.release_mode }}
@@ -190,7 +142,7 @@ jobs:
       - id: build
         name: Rebuild and inspect exact source through OCI build contract
         continue-on-error: true
-        uses: ./.ciw/actions/validate-oci
+        uses: StreamScapeTV/ci-workflows/actions/validate-oci@29cb88e406a0490834bd556bb825d0e227c862ac # issue #125 immutable private-action checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -202,7 +154,7 @@ jobs:
         name: Authenticate with workflow-scoped named registry credentials
         if: ${{ steps.build.outcome == 'success' }}
         continue-on-error: true
-        uses: ./.ciw/actions/publish-oci
+        uses: StreamScapeTV/ci-workflows/actions/publish-oci@1661da705cac03206ba7f41598457bb7726c0dc9 # issue #17 immutable publication helper checkpoint
         with:
           phase: authenticate
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -217,7 +169,7 @@ jobs:
         name: Publish or verify immutable version and source identities
         if: ${{ steps.authenticate.outcome == 'success' }}
         continue-on-error: true
-        uses: ./.ciw/actions/publish-oci
+        uses: StreamScapeTV/ci-workflows/actions/publish-oci@1661da705cac03206ba7f41598457bb7726c0dc9 # issue #17 immutable publication helper checkpoint
         with:
           phase: publish
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -230,7 +182,7 @@ jobs:
         name: Read back registry manifests through independent Skopeo inspection
         if: ${{ steps.publish.outcome == 'success' }}
         continue-on-error: true
-        uses: ./.ciw/actions/publish-oci
+        uses: StreamScapeTV/ci-workflows/actions/publish-oci@1661da705cac03206ba7f41598457bb7726c0dc9 # issue #17 immutable publication helper checkpoint
         with:
           phase: readback
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -243,7 +195,7 @@ jobs:
         name: Verify exact manifest, platform, metadata, and assertion parity
         if: ${{ steps.readback.outcome == 'success' }}
         continue-on-error: true
-        uses: ./.ciw/actions/publish-oci
+        uses: StreamScapeTV/ci-workflows/actions/publish-oci@1661da705cac03206ba7f41598457bb7726c0dc9 # issue #17 immutable publication helper checkpoint
         with:
           phase: verify
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -254,7 +206,7 @@ jobs:
 
       - name: Render deterministic redacted publication evidence
         if: ${{ always() && !cancelled() }}
-        uses: ./.ciw/actions/render-evidence
+        uses: StreamScapeTV/ci-workflows/actions/render-evidence@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           source_sha: ${{ inputs.admitted_sha }}
           workflow_release: oci-publish-1.0.0
@@ -269,7 +221,7 @@ jobs:
       - id: publication_cleanup
         name: Remove registry auth, read-back layouts, and publication state
         if: always()
-        uses: ./.ciw/actions/publish-oci
+        uses: StreamScapeTV/ci-workflows/actions/publish-oci@1661da705cac03206ba7f41598457bb7726c0dc9 # issue #17 immutable publication helper checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -281,7 +233,7 @@ jobs:
       - id: publication_residue
         name: Verify zero publication credential or layout residue
         if: always()
-        uses: ./.ciw/actions/publish-oci
+        uses: StreamScapeTV/ci-workflows/actions/publish-oci@1661da705cac03206ba7f41598457bb7726c0dc9 # issue #17 immutable publication helper checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -293,7 +245,7 @@ jobs:
       - id: build_cleanup
         name: Remove images, manifests, builders, local layouts, and caches
         if: always()
-        uses: ./.ciw/actions/validate-oci
+        uses: StreamScapeTV/ci-workflows/actions/validate-oci@29cb88e406a0490834bd556bb825d0e227c862ac # issue #125 immutable private-action checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -304,7 +256,7 @@ jobs:
       - id: build_residue
         name: Verify zero OCI build residue
         if: always()
-        uses: ./.ciw/actions/validate-oci
+        uses: StreamScapeTV/ci-workflows/actions/validate-oci@29cb88e406a0490834bd556bb825d0e227c862ac # issue #125 immutable private-action checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -315,7 +267,7 @@ jobs:
       - id: workspace_cleanup
         name: Remove and verify registered workspace state
         if: always()
-        uses: ./.ciw/actions/cleanup-workspace
+        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
 
       - name: Verify exact caller source remained clean
         if: ${{ always() && !cancelled() }}

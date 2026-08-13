@@ -17,6 +17,7 @@ from tests.test_oci_publication import SHA, _make_layout
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests/fixtures/oci-publish/oci-products.json"
+PUBLISH_SHA = "1661da705cac03206ba7f41598457bb7726c0dc9"
 
 
 class GuardedPublicationFixture(unittest.TestCase):
@@ -198,13 +199,18 @@ class AuthenticationAndCleanupTests(unittest.TestCase):
 
 
 class WorkflowTrustRecoveryTests(unittest.TestCase):
-    def test_reusable_workflow_uses_called_identity_and_event_derived_authority(self) -> None:
+    def test_reusable_workflow_uses_immutable_private_helpers_and_event_authority(self) -> None:
         text = (
             ROOT / ".github/workflows/reusable-oci-publish.yml"
         ).read_text(encoding="utf-8")
-        self.assertIn("repository: ${{ job.workflow_repository }}", text)
-        self.assertIn("ref: ${{ job.workflow_sha }}", text)
-        self.assertNotIn("ref: ${{ github.workflow_sha }}", text)
+        self.assertNotIn("repository: ${{ job.workflow_repository }}", text)
+        self.assertNotIn("ref: ${{ job.workflow_sha }}", text)
+        self.assertNotIn("path: .ciw", text)
+        self.assertNotIn("./.ciw/actions/", text)
+        self.assertIn(
+            f"uses: StreamScapeTV/ci-workflows/actions/publish-oci@{PUBLISH_SHA}",
+            text,
+        )
         self.assertIn("github.event_name == 'workflow_dispatch'", text)
         self.assertIn("'existing-tag' || 'tag-push'", text)
         self.assertIn("Verify authority matches the public release request", text)

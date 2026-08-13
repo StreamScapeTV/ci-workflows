@@ -5,6 +5,10 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
+RELEASE_TAG_SHA = "2b0443fdad002d47625386a959ebe68545cfe022"
+OCI_SHA = "29cb88e406a0490834bd556bb825d0e227c862ac"
+PUBLISH_SHA = "1661da705cac03206ba7f41598457bb7726c0dc9"
 
 
 class OciPublicationWorkflowContractTests(unittest.TestCase):
@@ -38,13 +42,32 @@ class OciPublicationWorkflowContractTests(unittest.TestCase):
         ):
             self.assertIn(stage, text)
 
-    def test_called_workflow_source_and_authority_modes_are_exact(self) -> None:
+    def test_private_helpers_are_immutable_and_no_central_clone_remains(self) -> None:
         text = (ROOT / ".github/workflows/reusable-oci-publish.yml").read_text(
             encoding="utf-8"
         )
-        self.assertIn("repository: ${{ job.workflow_repository }}", text)
-        self.assertIn("ref: ${{ job.workflow_sha }}", text)
-        self.assertNotIn("ref: ${{ github.workflow_sha }}", text)
+        for forbidden in (
+            "repository: ${{ job.workflow_repository }}",
+            "ref: ${{ job.workflow_sha }}",
+            "repository: StreamScapeTV/ci-workflows",
+            "path: .ciw",
+            "./.ciw/actions/",
+            "actions/checkout@",
+            "github.workflow_sha",
+            "GITHUB_WORKFLOW_SHA",
+        ):
+            self.assertNotIn(forbidden, text)
+        expected = {
+            "StreamScapeTV/ci-workflows/actions/resolve-release-tag": RELEASE_TAG_SHA,
+            "StreamScapeTV/ci-workflows/actions/publish-oci": PUBLISH_SHA,
+            "StreamScapeTV/ci-workflows/actions/exact-checkout": FOUNDATION_SHA,
+            "StreamScapeTV/ci-workflows/actions/prepare-workspace": FOUNDATION_SHA,
+            "StreamScapeTV/ci-workflows/actions/render-evidence": FOUNDATION_SHA,
+            "StreamScapeTV/ci-workflows/actions/cleanup-workspace": FOUNDATION_SHA,
+            "StreamScapeTV/ci-workflows/actions/validate-oci": OCI_SHA,
+        }
+        for helper, sha in expected.items():
+            self.assertIn(f"uses: {helper}@{sha}", text)
         self.assertIn("github.event_name == 'workflow_dispatch'", text)
         self.assertIn("'existing-tag' || 'tag-push'", text)
         self.assertIn("release_mode: ${{ needs.plan.outputs.release_mode }}", text)
@@ -71,6 +94,7 @@ class OciPublicationWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("packages: write", text)
         self.assertIn("actions: read", text)
         self.assertIn("tests.test_oci_publication_recovery", text)
+        self.assertIn("tests.test_oci_publication_filesystem", text)
         self.assertIn("/artifacts?per_page=100", text)
 
     def test_publication_schema_excludes_destination_and_closes_nested_results(self) -> None:
