@@ -103,10 +103,6 @@ jobs:
           operation: ${{ inputs.operation }}
           policy_path: ${{ inputs.policy_path }}
           request_id: ${{ inputs.request_id }}
-          source_event_name: ${{ github.event_name }}
-          source_ref_type: ${{ github.ref_type }}
-          source_ref_name: ${{ github.ref_name }}
-          source_default_branch: ${{ github.event.repository.default_branch }}
 
   release_assets:
     name: Release / Flux infrastructure assets
@@ -160,10 +156,6 @@ jobs:
           operation: ${{ inputs.operation }}
           policy_path: ${{ inputs.policy_path }}
           request_id: ${{ inputs.request_id }}
-          source_event_name: ${{ github.event_name }}
-          source_ref_type: ${{ github.ref_type }}
-          source_ref_name: ${{ github.ref_name }}
-          source_default_branch: ${{ github.event.repository.default_branch }}
           source_root: source
           dependency_evidence_json: "{}"
 
