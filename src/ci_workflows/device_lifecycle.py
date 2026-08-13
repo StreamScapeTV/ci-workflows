@@ -9,7 +9,15 @@ from .device_contract_common import require
 from .device_evidence import build_evidence_packet, evidence_id
 from .device_inventory import select_device
 from .device_test_lock import DeviceLockAdapter
-from .device_types import DevicePlan, DeviceRecord, DeviceResult, DeviceValidationError, SelectedDevice
+from .device_types import (
+    DevicePlan,
+    DeviceRecord,
+    DeviceResult,
+    DeviceValidationError,
+    LockReleaseReceipt,
+    SelectedDevice,
+)
+
 
 class DeviceRuntime(Protocol):
     def snapshot(self, selected: SelectedDevice) -> Mapping[str, object]: ...
@@ -20,6 +28,7 @@ class DeviceRuntime(Protocol):
     def restore(self, selected: SelectedDevice, snapshot: Mapping[str, object]) -> None: ...
     def cleanup(self, plan: DevicePlan, selected: SelectedDevice) -> None: ...
     def residue(self, plan: DevicePlan, selected: SelectedDevice) -> Sequence[str]: ...
+
 
 class SyntheticDeviceRuntime:
     fail_stage: str | None = None
@@ -60,6 +69,22 @@ class SyntheticDeviceRuntime:
     def residue(self, plan: DevicePlan, selected: SelectedDevice) -> Sequence[str]:
         return ("owned-residue",) if self.fail_stage == "residue" else ()
 
+
+def _initial_assertions(*, synthetic: bool) -> list[str]:
+    if synthetic:
+        return [
+            "exact-source-verified",
+            "synthetic-family-contract-verified",
+            "synthetic-process-lock-acquired",
+        ]
+    return [
+        "authorization-validated",
+        "exact-source-verified",
+        "physical-family-verified",
+        "resource-lock-acquired",
+    ]
+
+
 def execute_device_plan(
     *,
     plan: DevicePlan,
@@ -89,11 +114,21 @@ def execute_device_plan(
             assertions=("exact-source-verified",),
             restoration="not-started",
             cleanup="not-started",
+            synthetic=synthetic_authorized,
         )
-        return DeviceResult(plan.request.request_id, evidence_id(packet), "failure", "lock_collision", "not-started", False, selected.identity_hash, packet)
+        return DeviceResult(
+            plan.request.request_id,
+            evidence_id(packet),
+            "failure",
+            "lock_collision",
+            "not-started",
+            False,
+            selected.identity_hash,
+            packet,
+        )
 
     snapshot: Mapping[str, object] = {}
-    assertions = ["authorization-validated", "exact-source-verified", "physical-family-verified", "synthetic-process-lock-acquired"]
+    assertions = _initial_assertions(synthetic=synthetic_authorized)
     primary_failure = ""
     cleanup_failures: list[str] = []
     restoration = "not-started"
@@ -133,7 +168,11 @@ def execute_device_plan(
                 primary_failure = "cleanup_failed"
         try:
             release_receipt = lock_adapter.release(receipt, now=now())
-            assertions.append("synthetic-process-lock-released")
+            assertions.append(
+                "synthetic-process-lock-released"
+                if synthetic_authorized
+                else "resource-lock-released"
+            )
         except Exception:
             cleanup_failures.append("lock-release")
             if not primary_failure:
@@ -155,5 +194,15 @@ def execute_device_plan(
         assertions=assertions,
         restoration=restoration,
         cleanup=cleanup,
+        synthetic=synthetic_authorized,
     )
-    return DeviceResult(plan.request.request_id, evidence_id(packet), result, primary_failure, cleanup, False, selected.identity_hash, packet)
+    return DeviceResult(
+        plan.request.request_id,
+        evidence_id(packet),
+        result,
+        primary_failure,
+        cleanup,
+        False,
+        selected.identity_hash,
+        packet,
+    )
