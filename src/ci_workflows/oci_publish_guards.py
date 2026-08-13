@@ -11,7 +11,6 @@ from typing import Any, Mapping
 
 from . import oci_publish as _runtime
 from . import oci_publish_assertions as _assertions
-from .oci_types import is_exact_base_reference
 
 OciPublishError = _runtime.OciPublishError
 PublishPlan = _runtime.PublishPlan
@@ -42,7 +41,7 @@ class _PublishPreflight:
 @dataclass(frozen=True)
 class _BuildEvidence:
     identity: Mapping[str, str]
-    resolved_base_references: Mapping[str, tuple[str, ...]]
+    resolved_inputs: Mapping[str, Mapping[str, Any]]
 
 
 def _require(condition: bool, code: str) -> None:
@@ -77,22 +76,12 @@ def _build_identity(value: Any, plan: PublishPlan) -> Mapping[str, str]:
     return {key: str(identity[key]) for key in sorted(identity)}
 
 
-def _base_references(value: Any) -> tuple[str, ...]:
-    _require(
-        isinstance(value, list)
-        and bool(value)
-        and all(is_exact_base_reference(item) for item in value),
-        "build_evidence_mismatch",
-    )
-    return tuple(value)
-
-
 def _load_build_evidence(
     build_root: Path,
     plan: PublishPlan,
     preflight: tuple[_PublishPreflight, ...],
 ) -> _BuildEvidence:
-    """Bind exact source/base evidence to every inspected local manifest."""
+    """Bind exact source/input evidence to every inspected local manifest."""
 
     path = build_root / "result.json"
     try:
@@ -123,22 +112,24 @@ def _load_build_evidence(
         payload.get("publication_manifest_digests_json"),
         "build_evidence_mismatch",
     )
-    bases = _encoded_mapping(
-        payload.get("resolved_base_references_json"), "build_evidence_mismatch"
+    inputs = _encoded_mapping(
+        payload.get("resolved_inputs_json"), "build_evidence_mismatch"
     )
     expected_targets = {item.target.target_id for item in preflight}
     _require(
-        set(manifests) == expected_targets and set(bases) == expected_targets,
+        set(manifests) == expected_targets and set(inputs) == expected_targets,
         "build_evidence_mismatch",
     )
-    resolved: dict[str, tuple[str, ...]] = {}
+    resolved: dict[str, Mapping[str, Any]] = {}
     for item in preflight:
         target_id = item.target.target_id
         _require(
             manifests.get(target_id) == item.local_digest,
             "build_evidence_mismatch",
         )
-        resolved[target_id] = _base_references(bases[target_id])
+        resolved[target_id] = _runtime._validate_resolved_input_evidence(  # noqa: SLF001
+            inputs[target_id], item.target, "build_evidence_mismatch"
+        )
     return _BuildEvidence(
         identity={
             "source_sha": plan.admitted_sha,
@@ -146,7 +137,7 @@ def _load_build_evidence(
             "release_version": plan.release_version,
             "evidence_id": evidence_id,
         },
-        resolved_base_references=resolved,
+        resolved_inputs=resolved,
     )
 
 
@@ -334,9 +325,7 @@ def publish(
             "version_reference": target.version_reference,
             "source_reference": target.source_reference,
             "manifest_digest": item.local_digest,
-            "resolved_base_references": list(
-                build_evidence.resolved_base_references[target.target_id]
-            ),
+            "resolved_inputs": build_evidence.resolved_inputs[target.target_id],
             "assertions": item.assertions,
             "local": item.local,
             "replayed": item.replayed,
@@ -380,11 +369,15 @@ def read_back(
         set(rows) == {target.target_id for target in plan.targets},
         "publication_state_missing",
     )
-    preserved_bases: dict[str, tuple[str, ...]] = {}
+    preserved_inputs: dict[str, Mapping[str, Any]] = {}
     for target in plan.targets:
         row = _mapping(rows.get(target.target_id), "publication_state_missing")
-        preserved_bases[target.target_id] = _base_references(
-            row.get("resolved_base_references")
+        preserved_inputs[target.target_id] = (
+            _runtime._validate_resolved_input_evidence(  # noqa: SLF001
+                row.get("resolved_inputs"),
+                target,
+                "publication_state_missing",
+            )
         )
     readback_root = root / "readback"
     _require(
@@ -425,9 +418,7 @@ def read_back(
             "source_reference": target.source_reference,
             "manifest_digest": remote["manifest_digest"],
             "platforms": remote["platforms"],
-            "resolved_base_references": list(
-                preserved_bases[target.target_id]
-            ),
+            "resolved_inputs": preserved_inputs[target.target_id],
             "assertions": remote_assertions,
             "replayed": bool(row.get("replayed")),
         }

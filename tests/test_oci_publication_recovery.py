@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import hashlib
 import json
 import os
 import shutil
@@ -17,7 +18,13 @@ from ci_workflows import oci_publish_contract as public
 from ci_workflows import oci_publish_guards as guards
 from ci_workflows import oci_execution as build_execution
 from ci_workflows.oci_publish import OciPublishError, PublishRequest
-from ci_workflows.oci_types import OciBuildResult, OciTarget
+from ci_workflows.oci_types import (
+    OciBuildInputEvidence,
+    OciBuildResult,
+    OciResolvedBase,
+    OciResolvedBasePlatform,
+    OciTarget,
+)
 from tests.test_oci_publication import SHA, _make_layout
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,11 +32,40 @@ FIXTURE = ROOT / "tests/fixtures/oci-publish/oci-products.json"
 PUBLISH_SHA = "be0ec9505800bb5678083fc7ce912be83a90f139"
 
 
+def _resolved_inputs(platforms: tuple[str, ...]) -> dict[str, object]:
+    payload = {
+        "lock_digest": "sha256:" + "d" * 64,
+        "input_policy_id": "oci-inputs-public-v1",
+        "bases": [
+            {
+                "stage_id": "stage-1",
+                "declared_reference": (
+                    "example.invalid/runtime@sha256:" + "4" * 64
+                ),
+                "root_digest": "sha256:" + "4" * 64,
+                "platforms": [
+                    {
+                        "platform": platform,
+                        "manifest_digest": "sha256:" + "6" * 64,
+                        "config_digest": "sha256:" + "7" * 64,
+                    }
+                    for platform in platforms
+                ],
+            }
+        ],
+        "external_inputs": [],
+    }
+    evidence_id = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    return {**payload, "evidence_id": evidence_id}
+
+
 def _write_build_result(
     environment: dict[str, str],
     plan,
     manifest_digests: dict[str, str],
-    base_references: dict[str, list[str]] | None = None,
+    resolved_inputs: dict[str, dict[str, object]] | None = None,
 ) -> None:
     root = runtime.build_state_root(environment)
     payload = {
@@ -43,9 +79,12 @@ def _write_build_result(
         "publication_manifest_digests_json": json.dumps(
             manifest_digests, sort_keys=True, separators=(",", ":")
         ),
-        "resolved_base_references_json": json.dumps(
-            base_references
-            or {target.target_id: ["scratch"] for target in plan.targets},
+        "resolved_inputs_json": json.dumps(
+            resolved_inputs
+            or {
+                target.target_id: _resolved_inputs(target.platforms)
+                for target in plan.targets
+            },
             sort_keys=True,
             separators=(",", ":"),
         ),
@@ -136,6 +175,8 @@ class GuardedPublicationFixture(unittest.TestCase):
             forbidden_tools=(),
             fixed_build_args={},
             secret_mount_ids=(),
+            build_input_lock_path=".ciw/oci-build-inputs/backend.json",
+            input_policy_id="oci-inputs-public-v1",
         )
         labels = next(iter(self.local["platforms"].values()))["labels"]
         built = replace(
@@ -144,7 +185,31 @@ class GuardedPublicationFixture(unittest.TestCase):
                 build_target,
                 labels,
             ),
-            resolved_base_references=("scratch",),
+            build_input_evidence=OciBuildInputEvidence(
+                lock_digest="sha256:" + "d" * 64,
+                acquisition_policy_id="oci-inputs-public-v1",
+                resolved_bases=(
+                    OciResolvedBase(
+                        stage_id="stage-1",
+                        declared_reference=(
+                            "example.invalid/runtime@sha256:" + "4" * 64
+                        ),
+                        root_digest="sha256:" + "4" * 64,
+                        platforms=tuple(
+                            OciResolvedBasePlatform(
+                                platform,
+                                "sha256:" + "6" * 64,
+                                "sha256:" + "7" * 64,
+                            )
+                            for platform in publish_target.platforms
+                        ),
+                    ),
+                ),
+                resolved_external_inputs=(),
+                evidence_id=str(
+                    _resolved_inputs(publish_target.platforms)["evidence_id"]
+                ),
+            ),
         )
         self.assertNotEqual(built.index_digest, built.publication_manifest_digest)
         self.assertEqual(
@@ -283,10 +348,11 @@ class GuardedPublicationFixture(unittest.TestCase):
         )
         self.assertNotIn("source_sha", immutable["targets"]["backend"])
         self.assertEqual(
-            immutable["targets"]["backend"]["base_references"], ["scratch"]
+            immutable["targets"]["backend"]["resolved_inputs"],
+            _resolved_inputs(self.plan.targets[0].platforms),
         )
 
-    def test_publication_rejects_missing_or_mismatched_build_base_evidence(self) -> None:
+    def test_publication_rejects_missing_or_mismatched_build_input_evidence(self) -> None:
         digest = str(self.local["manifest_digest"])
         result_path = runtime.build_state_root(self.env) / "result.json"
         result_path.unlink()
@@ -303,6 +369,118 @@ class GuardedPublicationFixture(unittest.TestCase):
             self.env,
             self.plan,
             {"backend": "sha256:" + "f" * 64},
+        )
+        with patch.object(guards, "_inspect_remote_digest", return_value=digest):
+            with self.assertRaisesRegex(OciPublishError, "build_evidence_mismatch"):
+                guards.publish(
+                    self.plan,
+                    self.env,
+                    allow_publish=False,
+                    repository_root=self.root,
+                )
+
+        opened = _resolved_inputs(self.plan.targets[0].platforms)
+        opened["source_url"] = "https://secret.example/private-input"
+        _write_build_result(
+            self.env,
+            self.plan,
+            {"backend": digest},
+            {"backend": opened},
+        )
+        with patch.object(guards, "_inspect_remote_digest", return_value=digest):
+            with self.assertRaisesRegex(OciPublishError, "build_evidence_mismatch"):
+                guards.publish(
+                    self.plan,
+                    self.env,
+                    allow_publish=False,
+                    repository_root=self.root,
+                )
+
+        wrong_policy = _resolved_inputs(self.plan.targets[0].platforms)
+        wrong_policy["input_policy_id"] = "another-policy"
+        wrong_policy_payload = {
+            key: wrong_policy[key]
+            for key in (
+                "lock_digest",
+                "input_policy_id",
+                "bases",
+                "external_inputs",
+            )
+        }
+        wrong_policy["evidence_id"] = hashlib.sha256(
+            json.dumps(
+                wrong_policy_payload, sort_keys=True, separators=(",", ":")
+            ).encode()
+        ).hexdigest()
+        _write_build_result(
+            self.env,
+            self.plan,
+            {"backend": digest},
+            {"backend": wrong_policy},
+        )
+        with patch.object(guards, "_inspect_remote_digest", return_value=digest):
+            with self.assertRaisesRegex(OciPublishError, "build_evidence_mismatch"):
+                guards.publish(
+                    self.plan,
+                    self.env,
+                    allow_publish=False,
+                    repository_root=self.root,
+                )
+
+        incomplete_platforms = _resolved_inputs(self.plan.targets[0].platforms)
+        incomplete_platforms["bases"][0]["platforms"] = incomplete_platforms[
+            "bases"
+        ][0]["platforms"][:1]
+        incomplete_payload = {
+            key: incomplete_platforms[key]
+            for key in (
+                "lock_digest",
+                "input_policy_id",
+                "bases",
+                "external_inputs",
+            )
+        }
+        incomplete_platforms["evidence_id"] = hashlib.sha256(
+            json.dumps(
+                incomplete_payload, sort_keys=True, separators=(",", ":")
+            ).encode()
+        ).hexdigest()
+        _write_build_result(
+            self.env,
+            self.plan,
+            {"backend": digest},
+            {"backend": incomplete_platforms},
+        )
+        with patch.object(guards, "_inspect_remote_digest", return_value=digest):
+            with self.assertRaisesRegex(OciPublishError, "build_evidence_mismatch"):
+                guards.publish(
+                    self.plan,
+                    self.env,
+                    allow_publish=False,
+                    repository_root=self.root,
+                )
+
+        wrong_root = _resolved_inputs(self.plan.targets[0].platforms)
+        wrong_root["bases"][0]["root_digest"] = "sha256:" + "8" * 64
+        wrong_root_payload = {
+            key: wrong_root[key]
+            for key in (
+                "lock_digest",
+                "input_policy_id",
+                "bases",
+                "external_inputs",
+            )
+        }
+        wrong_root["evidence_id"] = hashlib.sha256(
+            json.dumps(
+                wrong_root_payload, sort_keys=True, separators=(",", ":")
+            ).encode()
+        ).hexdigest()
+        _write_build_result(
+            self.env,
+            self.plan,
+            {"backend": digest},
+            {"backend": wrong_root},
         )
         with patch.object(guards, "_inspect_remote_digest", return_value=digest):
             with self.assertRaisesRegex(OciPublishError, "build_evidence_mismatch"):

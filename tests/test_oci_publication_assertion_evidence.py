@@ -8,7 +8,12 @@ from pathlib import Path
 from ci_workflows.oci_publish import PublishRequest, resolve_plan
 from ci_workflows.oci_publish_assertions import assert_filesystem_contract
 from ci_workflows.ciw_oci import _publication_summary
-from tests.test_oci_publication_filesystem import ROOT, SHA, _layout
+from tests.test_oci_publication_filesystem import (
+    ROOT,
+    SHA,
+    _layout,
+    _publication_ready_contract_root,
+)
 
 
 class PublicationAssertionEvidenceTests(unittest.TestCase):
@@ -41,26 +46,34 @@ class PublicationAssertionEvidenceTests(unittest.TestCase):
         self.assertNotIn("app.main:app", summary)
 
     def test_real_runtime_evidence_is_deterministic_and_redacts_commands(self) -> None:
-        plan = resolve_plan(
-            ROOT,
-            PublishRequest(
-                repository="StreamScapeTV/agent-state",
-                admitted_sha=SHA,
-                release_authority_sha=SHA,
-                product_id="agent-state-image",
-                release_version="1.2.3",
-                source_trust="trusted-exact",
-            ),
-        )
-        target = plan.targets[0]
         with tempfile.TemporaryDirectory() as directory:
+            temporary = Path(directory)
+            contract_root = _publication_ready_contract_root(
+                temporary / "contract", "agent-state-image"
+            )
+            plan = resolve_plan(
+                contract_root,
+                PublishRequest(
+                    repository="StreamScapeTV/agent-state",
+                    admitted_sha=SHA,
+                    release_authority_sha=SHA,
+                    product_id="agent-state-image",
+                    release_version="1.2.3",
+                    source_trust="trusted-exact",
+                ),
+            )
+            target = plan.targets[0]
             layout = _layout(
-                Path(directory),
+                temporary / "layout",
                 ("/usr/local/bin/uvicorn",),
                 target=target,
             )
-            first = assert_filesystem_contract(ROOT, plan, target, layout)
-            second = assert_filesystem_contract(ROOT, plan, target, layout)
+            first = assert_filesystem_contract(
+                contract_root, plan, target, layout
+            )
+            second = assert_filesystem_contract(
+                contract_root, plan, target, layout
+            )
 
         self.assertEqual(first, second)
         self.assertEqual(first["result"], "passed")
@@ -78,9 +91,6 @@ class PublicationAssertionEvidenceTests(unittest.TestCase):
         self.assertEqual(first["healthcheck"], {"mode": "absent"})
 
     def test_exact_healthcheck_evidence_hashes_the_test_vector(self) -> None:
-        raw = json.loads(
-            (ROOT / "contracts/oci-products.json").read_text(encoding="utf-8")
-        )
         declared = {
             "test": ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health"],
             "interval_nanoseconds": 30_000_000_000,
@@ -89,34 +99,37 @@ class PublicationAssertionEvidenceTests(unittest.TestCase):
             "start_interval_nanoseconds": 1_000_000_000,
             "retries": 3,
         }
-        raw["publication_assertions"]["iptv-backend-image"]["iptv-backend"][
-            "healthcheck"
-        ] = declared
-        plan = resolve_plan(
-            ROOT,
-            PublishRequest(
-                repository="StreamScapeTV/iptv-backend",
-                admitted_sha=SHA,
-                release_authority_sha=SHA,
-                product_id="iptv-backend-image",
-                release_version="1.2.3",
-                source_trust="trusted-exact",
-            ),
-        )
-        target = plan.targets[0]
-        image_healthcheck = {
-            "Test": declared["test"],
-            "Interval": declared["interval_nanoseconds"],
-            "Timeout": declared["timeout_nanoseconds"],
-            "StartPeriod": declared["start_period_nanoseconds"],
-            "StartInterval": declared["start_interval_nanoseconds"],
-            "Retries": declared["retries"],
-        }
         with tempfile.TemporaryDirectory() as directory:
             temporary = Path(directory)
-            contract_path = temporary / "contracts/oci-products.json"
-            contract_path.parent.mkdir()
+            contract_root = _publication_ready_contract_root(
+                temporary / "contract", "iptv-backend-image"
+            )
+            contract_path = contract_root / "contracts/oci-products.json"
+            raw = json.loads(contract_path.read_text(encoding="utf-8"))
+            raw["publication_assertions"]["iptv-backend-image"]["iptv-backend"][
+                "healthcheck"
+            ] = declared
             contract_path.write_text(json.dumps(raw), encoding="utf-8")
+            plan = resolve_plan(
+                contract_root,
+                PublishRequest(
+                    repository="StreamScapeTV/iptv-backend",
+                    admitted_sha=SHA,
+                    release_authority_sha=SHA,
+                    product_id="iptv-backend-image",
+                    release_version="1.2.3",
+                    source_trust="trusted-exact",
+                ),
+            )
+            target = plan.targets[0]
+            image_healthcheck = {
+                "Test": declared["test"],
+                "Interval": declared["interval_nanoseconds"],
+                "Timeout": declared["timeout_nanoseconds"],
+                "StartPeriod": declared["start_period_nanoseconds"],
+                "StartInterval": declared["start_interval_nanoseconds"],
+                "Retries": declared["retries"],
+            }
             layout = _layout(
                 temporary / "image",
                 (
@@ -129,7 +142,7 @@ class PublicationAssertionEvidenceTests(unittest.TestCase):
                 target=target,
             )
             evidence = assert_filesystem_contract(
-                temporary, plan, target, layout
+                contract_root, plan, target, layout
             )
 
         self.assertEqual(evidence["healthcheck"]["mode"], "exact")

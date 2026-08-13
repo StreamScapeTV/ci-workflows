@@ -166,6 +166,8 @@ class OciMediaTypeTests(unittest.TestCase):
             (),
             {},
             (),
+            "inputs.lock.json",
+            "scratch-only-v1",
         )
 
     def test_omitted_redundant_top_level_media_types_are_accepted(self) -> None:

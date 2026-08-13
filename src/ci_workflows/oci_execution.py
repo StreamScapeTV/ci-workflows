@@ -1,6 +1,8 @@
 """Engine-neutral execution with one reviewed daemonless Buildah adapter."""
 from __future__ import annotations
 
+import ctypes
+import errno
 import hashlib
 import json
 import os
@@ -9,22 +11,46 @@ import shutil
 import stat
 import subprocess
 from dataclasses import replace
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Mapping, Sequence
+from typing import Callable, Mapping, Sequence, TypeVar
+from urllib.parse import urlsplit
 
 from .oci_contract import bounded_path, load_contract, metadata_labels
+from . import oci_base_inspection
+from .foundation_types import FoundationError
+from .oci_input_contract import (
+    OciBaseLock,
+    OciTargetInputLock,
+    load_input_lock_contract,
+    validate_target_dockerfile_lock,
+)
+from .oci_input_download import OciInputDownloadRequest, download_oci_input
+from .oci_registry_download import (
+    OciRegistryAcquisitionError,
+    OciRegistryAcquisitionRequest,
+    acquire_oci_base,
+)
 from .oci_types import (
+    OciBuildInputEvidence,
     OciBuildError,
     OciBuildPlan,
     OciBuildResult,
+    OciInputPolicy,
     OciPlatformResult,
+    OciResolvedBase,
+    OciResolvedBasePlatform,
+    OciResolvedExternalInput,
     OciTarget,
     OciTargetResult,
-    is_exact_base_reference,
 )
 
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
-_FROM = re.compile(r"^\s*FROM(?:\s+--platform=[^\s]+)?\s+([^\s]+)(?:\s+AS\s+[^\s]+)?\s*$", re.I)
+_FROM = re.compile(
+    r"^\s*FROM(?:\s+--platform=[^\s]+)?\s+([^\s]+)"
+    r"(?:\s+AS\s+([^\s]+))?\s*$",
+    re.I,
+)
 _PLATFORM = re.compile(r"^linux/(?:amd64|arm64/v8)$")
 _INDEX_MEDIA_TYPE = "application/vnd.oci.image.index.v1+json"
 _MANIFEST_MEDIA_TYPE = "application/vnd.oci.image.manifest.v1+json"
@@ -35,6 +61,35 @@ _LAYER_MEDIA_TYPES = frozenset(
         "application/vnd.oci.image.layer.v1.tar+gzip",
     }
 )
+_SAFE_IMAGE_ID = re.compile(r"^sha256:[0-9a-f]{64}$")
+_SENSITIVE_ENVIRONMENT = re.compile(
+    r"(?:AUTH|TOKEN|PASSWORD|PASSWD|SECRET|CREDENTIAL|COOKIE|PROXY|DOCKER)",
+    re.IGNORECASE,
+)
+_SAFE_RUNTIME_ENVIRONMENT = frozenset(
+    {"PATH", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "SSL_CERT_FILE", "SSL_CERT_DIR"}
+)
+_LIBC = ctypes.CDLL(None, use_errno=True)
+_MOUNT = getattr(_LIBC, "mount", None)
+if _MOUNT is not None:
+    _MOUNT.argtypes = (
+        ctypes.c_char_p,
+        ctypes.c_char_p,
+        ctypes.c_char_p,
+        ctypes.c_ulong,
+        ctypes.c_void_p,
+    )
+    _MOUNT.restype = ctypes.c_int
+_MOUNT_BIND = 4096
+_MOUNT_REC = 16384
+_MOUNT_PRIVATE = 1 << 18
+
+
+@dataclass(frozen=True)
+class MaterializedTargetInputs:
+    lock: OciTargetInputLock
+    evidence: OciBuildInputEvidence
+    image_ids_by_platform: Mapping[str, Mapping[str, str]]
 
 
 def execute_command(
@@ -43,6 +98,7 @@ def execute_command(
     cwd: Path | None = None,
     capture: bool = False,
     env: Mapping[str, str] | None = None,
+    preexec_fn: Callable[[], None] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         list(argv),
@@ -51,7 +107,140 @@ def execute_command(
         check=True,
         text=True,
         capture_output=capture,
+        preexec_fn=preexec_fn,
     )
+
+
+def execute_binary_command(
+    argv: Sequence[str],
+    *,
+    cwd: Path | None = None,
+    env: Mapping[str, str] | None = None,
+    preexec_fn: Callable[[], None] | None = None,
+) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(
+        list(argv),
+        cwd=cwd,
+        env=None if env is None else dict(env),
+        check=True,
+        text=False,
+        capture_output=True,
+        preexec_fn=preexec_fn,
+    )
+
+
+_EngineResult = TypeVar("_EngineResult")
+
+
+def _validated_engine_operation(
+    argv: Sequence[str], operation: Callable[[], _EngineResult]
+) -> _EngineResult:
+    if not argv or Path(argv[0]).name not in {"buildah", "skopeo", "podman"}:
+        raise OciBuildError("builder_unavailable")
+    try:
+        return operation()
+    except subprocess.CalledProcessError:
+        raise
+    except (OSError, subprocess.SubprocessError) as error:
+        # subprocess intentionally hides the concrete exception raised by a
+        # pre-exec hook. Preserve a closed failure code when namespace setup or
+        # process creation is unavailable instead of leaking an untyped
+        # traceback past the CIW adapter.
+        raise OciBuildError("engine_isolation_failed") from error
+
+
+def execute_engine_command(
+    root: Path,
+    argv: Sequence[str],
+    *,
+    cwd: Path | None = None,
+    capture: bool = False,
+    env: Mapping[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    return _validated_engine_operation(
+        argv,
+        lambda: execute_command(
+            argv,
+            cwd=cwd,
+            capture=capture,
+            env=env,
+            preexec_fn=_private_engine_preexec(root),
+        ),
+    )
+
+
+def capture_engine_bytes(
+    root: Path,
+    argv: Sequence[str],
+    *,
+    cwd: Path | None = None,
+    env: Mapping[str, str] | None = None,
+) -> bytes:
+    """Capture an OCI engine's stdout without text or newline conversion."""
+
+    result = _validated_engine_operation(
+        argv,
+        lambda: execute_binary_command(
+            argv,
+            cwd=cwd,
+            env=env,
+            preexec_fn=_private_engine_preexec(root),
+        ),
+    )
+    if not isinstance(result.stdout, bytes):
+        raise OciBuildError("engine_isolation_failed")
+    return result.stdout
+
+
+def _private_engine_preexec(
+    root: Path,
+    system_containers: Path = Path("/var/lib/containers"),
+) -> Callable[[], None]:
+    """Confine rootful containers/image implicit state to registered run state.
+
+    Containers/image 5.26.2, used by the pinned Skopeo 1.13.3, otherwise
+    hard-codes its rootful blob-info cache below ``/var/lib/containers`` and
+    exposes no CLI cache-path override.  Every engine subprocess therefore
+    receives a fresh private mount namespace whose complete implicit containers
+    root is a bind mount of this run's registered state.
+    """
+
+    if not root.is_absolute() or not system_containers.is_absolute():
+        raise OciBuildError("engine_isolation_failed")
+    private_root = root / "implicit-containers"
+
+    def prepare() -> None:
+        unshare = getattr(os, "unshare", None)
+        clone_newns = getattr(os, "CLONE_NEWNS", None)
+        if unshare is None or clone_newns is None or _MOUNT is None:
+            raise OSError(errno.ENOSYS, "private mount namespaces unavailable")
+        private_info = os.lstat(private_root)
+        target_info = os.lstat(system_containers)
+        if (
+            stat.S_ISLNK(private_info.st_mode)
+            or not stat.S_ISDIR(private_info.st_mode)
+            or stat.S_ISLNK(target_info.st_mode)
+            or not stat.S_ISDIR(target_info.st_mode)
+        ):
+            raise OSError(errno.EPERM, "unsafe implicit containers root")
+        unshare(clone_newns)
+        if _MOUNT(None, b"/", None, _MOUNT_REC | _MOUNT_PRIVATE, None) != 0:
+            error = ctypes.get_errno()
+            raise OSError(error, os.strerror(error))
+        if (
+            _MOUNT(
+                os.fsencode(private_root),
+                os.fsencode(system_containers),
+                None,
+                _MOUNT_BIND | _MOUNT_REC,
+                None,
+            )
+            != 0
+        ):
+            error = ctypes.get_errno()
+            raise OSError(error, os.strerror(error))
+
+    return prepare
 
 
 def sha256_file(path: Path) -> str:
@@ -63,7 +252,7 @@ def sha256_file(path: Path) -> str:
 
 
 def state_root(environment: Mapping[str, str]) -> Path:
-    runner_temp = Path(environment.get("RUNNER_TEMP", ".ci-state"))
+    runner_temp = Path(environment.get("RUNNER_TEMP", ".ci-state")).resolve()
     run_id = environment.get("GITHUB_RUN_ID", "local")
     attempt = environment.get("GITHUB_RUN_ATTEMPT", "1")
     token = hashlib.sha256(f"oci-build:{run_id}:{attempt}".encode()).hexdigest()[:16]
@@ -101,6 +290,7 @@ def validate_dockerfile_bases(path: Path) -> tuple[str, ...]:
     if source.startswith("\ufeff"):
         raise OciBuildError("base_identity_mutable")
     images: list[str] = []
+    stage_aliases: set[str] = set()
     logical = ""
     for raw in source.splitlines():
         if re.match(r"^\s*#\s*escape\s*=", raw, re.IGNORECASE):
@@ -122,11 +312,27 @@ def validate_dockerfile_bases(path: Path) -> tuple[str, ...]:
         match = _FROM.fullmatch(line)
         if match:
             image = match.group(1)
-            if "$" in image or not is_exact_base_reference(image):
+            alias = match.group(2)
+            normalized_image = image.lower()
+            if (
+                "$" in image
+                or (
+                    image != "scratch"
+                    and normalized_image not in stage_aliases
+                    and "@sha256:" not in image
+                )
+            ):
                 raise OciBuildError("base_identity_mutable")
+            if image != "scratch" and normalized_image not in stage_aliases:
+                digest = image.rsplit("@", 1)[1]
+                if _DIGEST.fullmatch(digest) is None:
+                    raise OciBuildError("base_identity_mutable")
             images.append(image)
-        elif re.match(r"^\s*FROM(?:\s|$)", line, re.IGNORECASE):
-            raise OciBuildError("base_identity_mutable")
+            if alias:
+                normalized_alias = alias.lower()
+                if normalized_alias in stage_aliases:
+                    raise OciBuildError("base_identity_mutable")
+                stage_aliases.add(normalized_alias)
     if logical:
         raise OciBuildError("base_identity_mutable")
     if not images:
@@ -150,16 +356,12 @@ def _tracked_files(source_root: Path, context_path: str) -> tuple[Path, ...]:
     return files
 
 
-def _stage_context_with_bases(
-    source_root: Path,
-    target: OciTarget,
-    destination: Path,
-) -> tuple[Path, tuple[str, ...]]:
+def stage_context(source_root: Path, target: OciTarget, destination: Path) -> Path:
     context = bounded_path(source_root, target.context_path, allow_root=True)
     dockerfile = bounded_path(source_root, target.dockerfile_path)
     if context != source_root.resolve() and context not in dockerfile.parents:
         raise OciBuildError("invalid_path")
-    resolved_base_references = validate_dockerfile_bases(dockerfile)
+    validate_dockerfile_bases(dockerfile)
     if target.smoke_script:
         smoke = bounded_path(source_root, target.smoke_script)
         if not smoke.is_file() or smoke.is_symlink():
@@ -176,13 +378,7 @@ def _stage_context_with_bases(
     copied_dockerfile = destination / target.dockerfile_path
     if not copied_dockerfile.is_file():
         raise OciBuildError("invalid_path")
-    return destination, resolved_base_references
-
-
-def stage_context(source_root: Path, target: OciTarget, destination: Path) -> Path:
-    """Stage a clean context; execution retains the paired base evidence."""
-
-    return _stage_context_with_bases(source_root, target, destination)[0]
+    return destination
 
 
 def _read_json(path: Path) -> object:
@@ -463,9 +659,20 @@ def _credential_free_authfile(root: Path, *, replace_existing: bool = False) -> 
             path.unlink()
         except OSError as error:
             raise OciBuildError("cleanup_failed") from error
+    flags = (
+        os.O_WRONLY
+        | os.O_CREAT
+        | os.O_EXCL
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
     try:
-        path.write_text('{"auths":{}}\n', encoding="utf-8")
-        path.chmod(0o600)
+        descriptor = os.open(path, flags, 0o600)
+        try:
+            os.write(descriptor, b'{"auths":{}}\n')
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
     except OSError as error:
         raise OciBuildError("cleanup_failed") from error
     return path
@@ -477,12 +684,514 @@ def credential_free_environment(
 ) -> dict[str, str]:
     """Pin every Buildah operation to the per-run empty auth file."""
 
-    result = dict(os.environ if environment is None else environment)
+    source = os.environ if environment is None else environment
+    result = {
+        key: value
+        for key, value in source.items()
+        if key in _SAFE_RUNTIME_ENVIRONMENT
+        and _SENSITIVE_ENVIRONMENT.search(key) is None
+    }
     result["REGISTRY_AUTH_FILE"] = str(authfile)
     return result
 
 
-def verify_builder_runtime() -> None:
+def _write_private_runtime_files(root: Path) -> tuple[Path, Path, Path]:
+    graphroot = root / "storage"
+    runroot = root / "runroot"
+    for directory in (
+        graphroot,
+        runroot,
+        root / "home",
+        root / "implicit-containers",
+        root / "xdg-data",
+        root / "xdg-cache",
+        root / "xdg-config",
+        root / "xdg-runtime",
+        root / "tmp",
+    ):
+        directory.mkdir(parents=True, mode=0o700, exist_ok=False)
+    storage = root / "storage.conf"
+    policy = root / "policy.json"
+    registries = root / "registries.conf"
+    storage.write_text(
+        "[storage]\n"
+        'driver="vfs"\n'
+        f'runroot="{runroot}"\n'
+        f'graphroot="{graphroot}"\n'
+        "[storage.options]\n"
+        "additionalimagestores=[]\n"
+        "[storage.options.pull_options]\n"
+        'enable_partial_images="false"\n'
+        'use_hard_links="false"\n',
+        encoding="utf-8",
+    )
+    # The acquisition policy admits no mutable name: every remote source is a
+    # central-host-allowed sha256 reference and the complete descriptor graph
+    # is independently hashed before import.  Skopeo still requires a signature
+    # policy file, so this per-run file accepts transport bytes only inside that
+    # stronger content-identity boundary.
+    policy.write_text(
+        json.dumps({"default": [{"type": "insecureAcceptAnything"}]}, sort_keys=True)
+        + "\n",
+        encoding="utf-8",
+    )
+    registries.write_text(
+        "unqualified-search-registries = []\n"
+        "short-name-mode = \"disabled\"\n",
+        encoding="utf-8",
+    )
+    storage.chmod(0o600)
+    policy.chmod(0o600)
+    registries.chmod(0o600)
+    return storage, policy, registries
+
+
+def _ensure_cleanup_storage_config_unchecked(root: Path) -> Path:
+    for directory in (
+        root / "storage",
+        root / "runroot",
+        root / "home",
+        root / "implicit-containers",
+        root / "xdg-data",
+        root / "xdg-cache",
+        root / "xdg-config",
+        root / "xdg-runtime",
+        root / "tmp",
+    ):
+        if directory.is_symlink():
+            raise OciBuildError("cleanup_failed")
+        directory.mkdir(parents=False, mode=0o700, exist_ok=True)
+        if not directory.is_dir():
+            raise OciBuildError("cleanup_failed")
+    storage = root / "storage.conf"
+    if storage.is_symlink():
+        raise OciBuildError("cleanup_failed")
+    if not storage.exists():
+        storage.write_text(
+            "[storage]\n"
+            'driver="vfs"\n'
+            f'runroot="{root / "runroot"}"\n'
+            f'graphroot="{root / "storage"}"\n'
+            "[storage.options]\n"
+            "additionalimagestores=[]\n",
+            encoding="utf-8",
+        )
+        storage.chmod(0o600)
+    if not storage.is_file():
+        raise OciBuildError("cleanup_failed")
+    return storage
+
+
+def _ensure_cleanup_storage_config(root: Path) -> Path:
+    try:
+        return _ensure_cleanup_storage_config_unchecked(root)
+    except OciBuildError:
+        raise
+    except OSError as error:
+        raise OciBuildError("cleanup_failed") from error
+
+
+def _private_builder_environment(
+    root: Path,
+    authfile: Path,
+    storage_config: Path,
+    environment: Mapping[str, str],
+    registries_config: Path | None = None,
+) -> dict[str, str]:
+    result = credential_free_environment(authfile, environment)
+    result.update(
+        {
+            "CONTAINERS_STORAGE_CONF": str(storage_config),
+            "HOME": str(root / "home"),
+            "XDG_CACHE_HOME": str(root / "xdg-cache"),
+            "XDG_CONFIG_HOME": str(root / "xdg-config"),
+            "XDG_DATA_HOME": str(root / "xdg-data"),
+            "XDG_RUNTIME_DIR": str(root / "xdg-runtime"),
+            "TMPDIR": str(root / "tmp"),
+        }
+    )
+    if registries_config is not None:
+        result["CONTAINERS_REGISTRIES_CONF"] = str(registries_config)
+    return result
+
+
+def _reference_host(reference: str) -> str:
+    return reference.split("/", 1)[0]
+
+
+def _record_base_image_id(
+    image_ids: dict[str, dict[str, str]],
+    build_platforms: Sequence[str],
+    reference: str,
+    image_id: str,
+) -> None:
+    for build_platform in build_platforms:
+        existing_image_id = image_ids[build_platform].get(reference)
+        if existing_image_id is not None and existing_image_id != image_id:
+            raise OciBuildError("input_lock_mismatch")
+        image_ids[build_platform][reference] = image_id
+
+
+def _verify_materialized_external_inputs(
+    context: Path,
+    materialized: MaterializedTargetInputs,
+) -> None:
+    """Re-prove immutable input bytes after every Dockerfile instruction ran."""
+
+    no_follow = getattr(os, "O_NOFOLLOW", 0)
+    directory = getattr(os, "O_DIRECTORY", 0)
+    close_on_exec = getattr(os, "O_CLOEXEC", 0)
+    if no_follow == 0 or directory == 0:
+        raise OciBuildError("input_materialization_failed")
+    evidence_by_id = {
+        item.input_id: item
+        for item in materialized.evidence.resolved_external_inputs
+    }
+    if set(evidence_by_id) != {
+        item.input_id for item in materialized.lock.external_inputs
+    }:
+        raise OciBuildError("input_materialization_failed")
+    descriptors: list[int] = []
+    try:
+        context_descriptor = os.open(
+            context,
+            os.O_RDONLY | directory | no_follow | close_on_exec,
+        )
+        descriptors.append(context_descriptor)
+        for locked in materialized.lock.external_inputs:
+            parts = PurePosixPath(locked.destination).parts
+            if not parts:
+                raise OciBuildError("input_materialization_failed")
+            parent_descriptor = context_descriptor
+            opened_parents: list[int] = []
+            try:
+                for part in parts[:-1]:
+                    parent_descriptor = os.open(
+                        part,
+                        os.O_RDONLY | directory | no_follow | close_on_exec,
+                        dir_fd=parent_descriptor,
+                    )
+                    opened_parents.append(parent_descriptor)
+                file_descriptor = os.open(
+                    parts[-1],
+                    os.O_RDONLY | no_follow | close_on_exec,
+                    dir_fd=parent_descriptor,
+                )
+                try:
+                    metadata = os.fstat(file_descriptor)
+                    expected = evidence_by_id[locked.input_id]
+                    if (
+                        not stat.S_ISREG(metadata.st_mode)
+                        or metadata.st_nlink != 1
+                        or stat.S_IMODE(metadata.st_mode) & 0o222
+                        or metadata.st_size != expected.size_bytes
+                        or metadata.st_size > locked.maximum_bytes
+                        or expected.digest != f"sha256:{locked.sha256}"
+                    ):
+                        raise OciBuildError("input_materialization_failed")
+                    digest = hashlib.sha256()
+                    while True:
+                        block = os.read(file_descriptor, 1024 * 1024)
+                        if not block:
+                            break
+                        digest.update(block)
+                    if digest.hexdigest() != locked.sha256:
+                        raise OciBuildError("input_materialization_failed")
+                finally:
+                    os.close(file_descriptor)
+            finally:
+                for descriptor in reversed(opened_parents):
+                    os.close(descriptor)
+    except OciBuildError:
+        raise
+    except OSError as error:
+        raise OciBuildError("input_materialization_failed") from error
+    finally:
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
+
+
+def _import_base_platform(
+    child_layout: Path,
+    *,
+    root: Path,
+    authfile: Path,
+    policy_file: Path,
+    builder_environment: Mapping[str, str],
+    target: OciTarget,
+    base_lock: OciBaseLock,
+    platform: str,
+    manifest_digest: str,
+    config_digest: str,
+) -> str:
+    token = hashlib.sha256(
+        f"{target.target_id}:{base_lock.stage_id}:{platform}:{manifest_digest}".encode()
+    ).hexdigest()[:16]
+    alias = (
+        f"localhost/ciw-input/{target.target_id}-{base_lock.stage_id}:"
+        f"{platform.replace('/', '-')}-{token}"
+    )
+    storage_transport = f"containers-storage:[vfs@{root / 'storage'}+{root / 'runroot'}]{alias}"
+    prefix = ["skopeo", "--policy", str(policy_file)]
+    execute_engine_command(
+        root,
+        [
+            *prefix,
+            "--tmpdir",
+            str(root / "tmp"),
+            "copy",
+            "--src-authfile",
+            str(authfile),
+            "--dest-authfile",
+            str(authfile),
+            "--preserve-digests",
+            # The verified acquisition layout has exactly one root descriptor
+            # and intentionally carries no mutable ref-name annotation.  An
+            # empty OCI transport selector therefore chooses that sole
+            # descriptor; spelling ``:locked`` would instead require an
+            # org.opencontainers.image.ref.name annotation that is absent.
+            f"oci:{child_layout}",
+            storage_transport,
+        ],
+        env=builder_environment,
+    )
+    raw = capture_engine_bytes(
+        root,
+        [*prefix, "inspect", "--raw", "--authfile", str(authfile), storage_transport],
+        env=builder_environment,
+    )
+    config = capture_engine_bytes(
+        root,
+        [
+            *prefix,
+            "inspect",
+            "--raw",
+            "--config",
+            "--authfile",
+            str(authfile),
+            storage_transport,
+        ],
+        env=builder_environment,
+    )
+    if (
+        "sha256:" + hashlib.sha256(raw).hexdigest() != manifest_digest
+        or "sha256:" + hashlib.sha256(config).hexdigest() != config_digest
+    ):
+        raise OciBuildError("base_import_failed")
+    image_ids = execute_engine_command(
+        root,
+        [*_buildah_base(root, "vfs"), "images", "--no-trunc", "--quiet", alias],
+        capture=True,
+        env=builder_environment,
+    ).stdout.splitlines()
+    if (
+        len(image_ids) != 1
+        or _SAFE_IMAGE_ID.fullmatch(image_ids[0]) is None
+        or image_ids[0] != config_digest
+    ):
+        raise OciBuildError("base_import_failed")
+    return image_ids[0]
+
+
+def _materialize_target_inputs(
+    source_root: Path,
+    plan: OciBuildPlan,
+    target: OciTarget,
+    staged_root: Path,
+    root: Path,
+    authfile: Path,
+    policy_file: Path,
+    builder_environment: Mapping[str, str],
+) -> MaterializedTargetInputs:
+    policy = plan.input_policies.get(target.input_policy_id)
+    if policy is None:
+        raise OciBuildError("input_policy_mismatch")
+    if not target.build_input_lock_path:
+        raise OciBuildError("input_lock_incomplete")
+    try:
+        tracked_lock = execute_command(
+            [
+                "git",
+                "ls-files",
+                "--error-unmatch",
+                "--",
+                target.build_input_lock_path,
+            ],
+            cwd=source_root,
+            capture=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise OciBuildError("input_lock_path_invalid") from error
+    if tracked_lock != target.build_input_lock_path:
+        raise OciBuildError("input_lock_path_invalid")
+    lock = load_input_lock_contract(
+        source_root,
+        target.build_input_lock_path,
+        product_id=plan.product_id,
+        target_id=target.target_id,
+        input_policy_id=target.input_policy_id,
+        expected_platforms=target.platforms,
+    )
+    validate_target_dockerfile_lock(
+        staged_root / target.dockerfile_path, lock, target.platforms
+    )
+    image_ids: dict[str, dict[str, str]] = {
+        platform: {} for platform in target.platforms
+    }
+    resolved_bases: list[OciResolvedBase] = []
+    for base_lock in lock.bases:
+        reference = base_lock.declared_reference
+        if base_lock.kind != "external":
+            continue
+        if _reference_host(reference) not in policy.allowed_registry_hosts:
+            raise OciBuildError("input_host_forbidden")
+        locked_platforms = {
+            identity.platform: identity for identity in base_lock.platform_identities
+        }
+        if set(locked_platforms) != set(base_lock.platforms):
+            raise OciBuildError("input_lock_mismatch")
+        if len(policy.allowed_registry_api_hosts) != 1:
+            raise OciBuildError("input_policy_mismatch")
+        acquisition_parent = root / "input-layouts" / target.target_id
+        acquisition_parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+        acquisition = acquisition_parent / base_lock.stage_id
+        try:
+            acquired = acquire_oci_base(
+                OciRegistryAcquisitionRequest(
+                    reference=reference,
+                    platform_manifest_digests=tuple(
+                        (identity.platform, identity.manifest_digest)
+                        for identity in base_lock.platform_identities
+                    ),
+                    registry_api_host=policy.allowed_registry_api_hosts[0],
+                    allowed_reference_hosts=policy.allowed_registry_hosts,
+                    allowed_registry_api_hosts=policy.allowed_registry_api_hosts,
+                    allowed_token_hosts=policy.allowed_registry_token_hosts,
+                    allowed_blob_hosts=policy.allowed_registry_blob_hosts,
+                    maximum_redirects=policy.maximum_redirects,
+                ),
+                registered_state=acquisition.resolve(strict=False),
+            )
+        except OciRegistryAcquisitionError as error:
+            raise OciBuildError(error.code) from error
+        root_layout = acquired.root_layout
+        child_layouts = acquired.child_layouts
+        try:
+            inspection = oci_base_inspection.inspect_oci_base_layout(
+                root_layout,
+                reference,
+                base_lock.platforms,
+                child_layouts,
+            )
+        except oci_base_inspection.OciBaseInspectionError as error:
+            raise OciBuildError("base_acquisition_failed") from error
+        if any(
+            identity.manifest_digest
+            != locked_platforms[identity.platform].manifest_digest
+            or identity.config_digest
+            != locked_platforms[identity.platform].config_digest
+            for identity in inspection.platforms
+        ):
+            raise OciBuildError("input_lock_mismatch")
+        platform_evidence: list[OciResolvedBasePlatform] = []
+        for identity in inspection.platforms:
+            import_layout = child_layouts.get(identity.platform, root_layout)
+            image_id = _import_base_platform(
+                import_layout,
+                root=root,
+                authfile=authfile,
+                policy_file=policy_file,
+                builder_environment=builder_environment,
+                target=target,
+                base_lock=base_lock,
+                platform=identity.platform,
+                manifest_digest=identity.manifest_digest,
+                config_digest=identity.config_digest,
+            )
+            build_platforms = (
+                target.platforms
+                if base_lock.dockerfile_platform is not None
+                else (identity.platform,)
+            )
+            _record_base_image_id(
+                image_ids, build_platforms, reference, image_id
+            )
+            platform_evidence.append(
+                OciResolvedBasePlatform(
+                    platform=identity.platform,
+                    manifest_digest=identity.manifest_digest,
+                    config_digest=identity.config_digest,
+                )
+            )
+        resolved_bases.append(
+            OciResolvedBase(
+                stage_id=base_lock.stage_id,
+                declared_reference=reference,
+                root_digest=inspection.root_digest,
+                platforms=tuple(platform_evidence),
+            )
+        )
+    context = staged_root if target.context_path == "." else staged_root / target.context_path
+    reserved_input_root = context / ".ciw-build-inputs"
+    if reserved_input_root.exists() or reserved_input_root.is_symlink():
+        raise OciBuildError("input_materialization_failed")
+    resolved_inputs: list[OciResolvedExternalInput] = []
+    for external in lock.external_inputs:
+        parsed_host = urlsplit(external.url).hostname
+        if (
+            parsed_host not in policy.allowed_download_hosts
+            or external.maximum_bytes > policy.maximum_input_bytes
+        ):
+            raise OciBuildError("input_policy_mismatch")
+        try:
+            verified = download_oci_input(
+                OciInputDownloadRequest(
+                    input_id=external.input_id,
+                    source_url=external.url,
+                    sha256=external.sha256,
+                    maximum_bytes=external.maximum_bytes,
+                    destination=external.destination,
+                    allowed_hosts=policy.allowed_download_hosts,
+                    maximum_redirects=policy.maximum_redirects,
+                ),
+                registered_state=context,
+            )
+        except FoundationError as error:
+            raise OciBuildError(error.instruction) from error
+        except Exception as error:
+            if isinstance(error, (KeyboardInterrupt, SystemExit)):
+                raise
+            raise OciBuildError("external_input_failed") from error
+        resolved_inputs.append(
+            OciResolvedExternalInput(
+                input_id=verified.input_id,
+                digest=f"sha256:{verified.sha256}",
+                size_bytes=verified.size_bytes,
+            )
+        )
+    payload = {
+        "lock_digest": lock.lock_digest,
+        "input_policy_id": policy.policy_id,
+        "bases": [item.to_dict() for item in resolved_bases],
+        "external_inputs": [item.to_dict() for item in resolved_inputs],
+    }
+    evidence_id = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    return MaterializedTargetInputs(
+        lock=lock,
+        evidence=OciBuildInputEvidence(
+            lock_digest=lock.lock_digest,
+            acquisition_policy_id=policy.policy_id,
+            resolved_bases=tuple(resolved_bases),
+            resolved_external_inputs=tuple(resolved_inputs),
+            evidence_id=evidence_id,
+        ),
+        image_ids_by_platform=image_ids,
+    )
+
+
+def verify_builder_runtime(root: Path, environment: Mapping[str, str]) -> None:
     for tool in ("buildah", "skopeo", "podman"):
         if shutil.which(tool) is None:
             raise OciBuildError("builder_unavailable")
@@ -493,7 +1202,7 @@ def verify_builder_runtime() -> None:
         if socket.exists():
             raise OciBuildError("forbidden_socket_present")
     for tool in ("buildah", "skopeo", "podman"):
-        execute_command([tool, "--version"], capture=True)
+        execute_engine_command(root, [tool, "--version"], capture=True, env=environment)
 
 
 def build_target(
@@ -506,11 +1215,16 @@ def build_target(
     secret_files: Mapping[str, Path],
     authfile: Path,
     builder_environment: Mapping[str, str],
+    materialized_inputs: MaterializedTargetInputs,
+    policy_file: Path | None = None,
 ) -> tuple[OciTargetResult, str]:
+    materialized = materialized_inputs
     base = _buildah_base(root, plan.storage_driver)
     token = hashlib.sha256(f"{plan.admitted_sha}:{target.target_id}".encode()).hexdigest()[:16]
     manifest = f"ciw-{target.target_id}-{token}"
-    execute_command([*base, "manifest", "create", manifest], env=builder_environment)
+    execute_engine_command(
+        root, [*base, "manifest", "create", manifest], env=builder_environment
+    )
     state_file = root / "manifests.json"
     state_file.parent.mkdir(parents=True, exist_ok=True)
     current = [] if not state_file.exists() else json.loads(state_file.read_text())
@@ -523,9 +1237,11 @@ def build_target(
             *base,
             "bud",
             "--authfile", str(authfile),
+            *([] if policy_file is None else ["--signature-policy", str(policy_file)]),
             "--pull=never",
             "--network",
             "none",
+            "--http-proxy=false",
             "--layers=false",
             "--no-cache",
             "--identity-label=false",
@@ -538,16 +1254,29 @@ def build_target(
             argv.extend(["--build-arg", f"{key}={value}"])
         for key, value in sorted(labels.items()):
             argv.extend(["--label", f"{key}={value}"])
+        for declared_reference, image_id in sorted(
+            materialized.image_ids_by_platform.get(platform, {}).items()
+        ):
+            argv.extend(
+                [
+                    "--build-context",
+                    f"{declared_reference}=container-image://{image_id}",
+                ]
+            )
         for secret_id in target.secret_mount_ids:
             path = secret_files.get(secret_id)
             if path is None:
                 raise OciBuildError("secret_mount_missing")
             argv.extend(["--secret", f"id={secret_id},src={path}"])
         argv.append(str(context))
-        execute_command(argv, cwd=staged_root, env=builder_environment)
+        execute_engine_command(
+            root, argv, cwd=staged_root, env=builder_environment
+        )
+    _verify_materialized_external_inputs(context, materialized)
     layout = root / "layouts" / target.target_id
     layout.parent.mkdir(parents=True, exist_ok=True)
-    execute_command(
+    execute_engine_command(
+        root,
         [
             *base,
             "manifest",
@@ -565,7 +1294,11 @@ def build_target(
     # Consumer smoke is performed only by oci_execution_safe in a networkless,
     # capability-dropped container.  The base builder must never execute caller
     # scripts on the privileged Buildah host.
-    return replace(result, smoke_result="skipped"), manifest
+    return replace(
+        result,
+        smoke_result="skipped",
+        build_input_evidence=materialized.evidence,
+    ), manifest
 
 
 def execute_plan(
@@ -578,23 +1311,41 @@ def execute_plan(
     if plan.builder_id != "buildah-v1":
         raise OciBuildError("invalid_contract")
     assert_clean_source(source_root, plan.admitted_sha)
-    verify_builder_runtime()
     root = state_root(environment)
     if root.exists() or root.is_symlink():
         raise OciBuildError("residue_detected")
     root.mkdir(parents=True, mode=0o700)
     authfile = _credential_free_authfile(root)
-    builder_environment = credential_free_environment(authfile, environment)
+    storage_config, policy_file, registries_config = _write_private_runtime_files(root)
+    builder_environment = _private_builder_environment(
+        root, authfile, storage_config, environment, registries_config
+    )
+    verify_builder_runtime(root, builder_environment)
     contract = load_contract(repository_root)
     epoch = source_date_epoch(source_root)
     secrets = dict(secret_files or {})
     results: list[OciTargetResult] = []
+    staged_targets: dict[str, Path] = {}
     for target in plan.targets:
-        staged, resolved_base_references = _stage_context_with_bases(
+        staged = stage_context(source_root, target, root / "staged" / target.target_id)
+        staged_targets[target.target_id] = staged
+    materialized_targets: dict[str, MaterializedTargetInputs] = {}
+    for target in plan.targets:
+        materialized_targets[target.target_id] = _materialize_target_inputs(
             source_root,
+            plan,
             target,
-            root / "staged" / target.target_id,
+            staged_targets[target.target_id],
+            root,
+            authfile,
+            policy_file,
+            builder_environment,
         )
+    # The loops above form the hard input barrier: every source lock, base
+    # descriptor graph, local import and external blob is verified before the
+    # first consumer Dockerfile instruction can execute below.
+    for target in plan.targets:
+        staged = staged_targets[target.target_id]
         labels = metadata_labels(contract, plan, target, epoch)
         result, _ = build_target(
             plan,
@@ -606,13 +1357,10 @@ def execute_plan(
             secrets,
             authfile,
             builder_environment,
+            materialized_targets[target.target_id],
+            policy_file,
         )
-        results.append(
-            replace(
-                result,
-                resolved_base_references=resolved_base_references,
-            )
-        )
+        results.append(result)
     assert_clean_source(source_root, plan.admitted_sha)
     evidence_payload = {
         "api": "oci.build",
@@ -673,7 +1421,17 @@ def cleanup(environment: Mapping[str, str], storage_driver: str = "vfs") -> None
     failures = False
     try:
         cleanup_authfile = _credential_free_authfile(root, replace_existing=True)
-        cleanup_environment = credential_free_environment(cleanup_authfile)
+        storage_config = _ensure_cleanup_storage_config(root)
+        registries_config = root / "registries.conf"
+        if registries_config.is_symlink():
+            raise OciBuildError("cleanup_failed")
+        cleanup_environment = _private_builder_environment(
+            root,
+            cleanup_authfile,
+            storage_config,
+            os.environ,
+            registries_config if registries_config.is_file() else None,
+        )
     except OciBuildError:
         cleanup_environment = None
         failures = True
@@ -701,23 +1459,33 @@ def cleanup(environment: Mapping[str, str], storage_driver: str = "vfs") -> None
     base = _buildah_base(root, storage_driver)
     if shutil.which("buildah") and cleanup_environment is not None:
         for manifest in reversed(manifests):
-            result = subprocess.run(
-                [*base, "manifest", "rm", manifest],
-                text=True,
-                capture_output=True,
-                env=cleanup_environment,
-            )
-            if result.returncode != 0 and "no such" not in result.stderr.lower():
+            try:
+                result = subprocess.run(
+                    [*base, "manifest", "rm", manifest],
+                    text=True,
+                    capture_output=True,
+                    env=cleanup_environment,
+                    preexec_fn=_private_engine_preexec(root),
+                )
+            except (OSError, subprocess.SubprocessError):
                 failures = True
+            else:
+                if result.returncode != 0 and "no such" not in result.stderr.lower():
+                    failures = True
         for command in ([*base, "rm", "--all"], [*base, "rmi", "--all", "--force"]):
-            result = subprocess.run(
-                command,
-                text=True,
-                capture_output=True,
-                env=cleanup_environment,
-            )
-            if result.returncode != 0 and "no such" not in result.stderr.lower():
+            try:
+                result = subprocess.run(
+                    command,
+                    text=True,
+                    capture_output=True,
+                    env=cleanup_environment,
+                    preexec_fn=_private_engine_preexec(root),
+                )
+            except (OSError, subprocess.SubprocessError):
                 failures = True
+            else:
+                if result.returncode != 0 and "no such" not in result.stderr.lower():
+                    failures = True
     try:
         if root.is_symlink():
             root.unlink()

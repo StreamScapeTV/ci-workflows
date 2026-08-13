@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import io
 import json
-from pathlib import Path
+import shutil
 import tempfile
 import unittest
+from pathlib import Path
 
 from ci_workflows import ciw
 from ci_workflows.oci_publish import OciPublishError
 from ci_workflows.oci_supply_evidence import build_supply_evidence
+from tests.test_oci_publication_filesystem import _publication_ready_contract_root
 
 ROOT = Path(__file__).resolve().parents[1]
 SHA = "a" * 40
@@ -98,8 +100,20 @@ class OciTerminalSupplyEvidenceTests(unittest.TestCase):
 
     def test_registered_final_phase_appends_summary_from_contract_owned_plan(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory) / "output"
-            summary = Path(directory) / "summary"
+            temporary = Path(directory)
+            contract_root = _publication_ready_contract_root(
+                temporary / "contract", "iptv-backend-image"
+            )
+            shutil.copyfile(
+                ROOT / "contracts/tool-lock.json",
+                contract_root / "contracts/tool-lock.json",
+            )
+            shutil.copyfile(
+                ROOT / "contracts/ciw-commands.json",
+                contract_root / "contracts/ciw-commands.json",
+            )
+            output = temporary / "output"
+            summary = temporary / "summary"
             errors = io.StringIO()
             environment = {
                 "GITHUB_OUTPUT": str(output),
@@ -124,7 +138,14 @@ class OciTerminalSupplyEvidenceTests(unittest.TestCase):
                 "INPUT_WORKSPACE_CLEANUP_OUTCOME": "success",
             }
             code = ciw.main(
-                ["--root", str(ROOT), "oci", "publish", "--phase", "final-evidence"],
+                [
+                    "--root",
+                    str(contract_root),
+                    "oci",
+                    "publish",
+                    "--phase",
+                    "final-evidence",
+                ],
                 environment=environment,
                 stdout=io.StringIO(),
                 stderr=errors,

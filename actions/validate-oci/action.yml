@@ -37,6 +37,8 @@ outputs:
     value: ${{ steps.oci.outputs.publication_manifest_digests_json }}
   platform_results_json:
     value: ${{ steps.oci.outputs.platform_results_json }}
+  resolved_inputs_json:
+    value: ${{ steps.oci.outputs.resolved_inputs_json }}
   clean_tree:
     value: ${{ steps.oci.outputs.clean_tree }}
   cleanup_result:

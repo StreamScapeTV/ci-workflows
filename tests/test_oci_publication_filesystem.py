@@ -29,6 +29,65 @@ CONFIG_MEDIA = "application/vnd.oci.image.config.v1+json"
 LAYER_MEDIA = "application/vnd.oci.image.layer.v1.tar"
 
 
+def _publication_ready_contract_root(
+    temporary_root: Path,
+    *product_ids: str,
+) -> Path:
+    """Copy the product contract and enable only the requested test products."""
+
+    payload = json.loads(
+        (ROOT / "contracts/oci-products.json").read_text(encoding="utf-8")
+    )
+    products = payload["products"]
+    if not product_ids or any(product_id not in products for product_id in product_ids):
+        raise AssertionError("test requested an unknown publication product")
+    publication_products = set(payload["publication_assertions"])
+    payload["products"] = {
+        product_id: product
+        for product_id, product in products.items()
+        if product_id in publication_products
+    }
+    products = payload["products"]
+    ready = set(product_ids)
+    for product_id, product in products.items():
+        product["adoption_ready"] = product_id in ready
+    contract_path = temporary_root / "contracts/oci-products.json"
+    contract_path.parent.mkdir(parents=True, exist_ok=True)
+    contract_path.write_text(json.dumps(payload), encoding="utf-8")
+    return temporary_root
+
+
+def _resolved_input_evidence(target: PublishTarget) -> dict[str, object]:
+    """Build closed canonical input evidence for a synthetic publication target."""
+
+    payload: dict[str, object] = {
+        "lock_digest": "sha256:" + "d" * 64,
+        "input_policy_id": target.input_policy_id,
+        "bases": [
+            {
+                "stage_id": "runtime",
+                "declared_reference": (
+                    "example.invalid/runtime@sha256:" + "4" * 64
+                ),
+                "root_digest": "sha256:" + "4" * 64,
+                "platforms": [
+                    {
+                        "platform": platform,
+                        "manifest_digest": "sha256:" + "6" * 64,
+                        "config_digest": "sha256:" + "7" * 64,
+                    }
+                    for platform in target.platforms
+                ],
+            }
+        ],
+        "external_inputs": [],
+    }
+    evidence_id = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    return {**payload, "evidence_id": evidence_id}
+
+
 def _blob(layout: Path, payload: bytes) -> dict[str, object]:
     digest = "sha256:" + hashlib.sha256(payload).hexdigest()
     path = layout / "blobs" / "sha256" / digest.removeprefix("sha256:")
@@ -155,8 +214,13 @@ class PublicationFilesystemAssertionTests(unittest.TestCase):
     _PYTHON_BACKING = "/usr/local/bin/python3.12"
 
     def setUp(self) -> None:
+        self.contract_directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.contract_directory.cleanup)
+        self.contract_root = _publication_ready_contract_root(
+            Path(self.contract_directory.name), "iptv-backend-image"
+        )
         self.plan = resolve_plan(
-            ROOT,
+            self.contract_root,
             PublishRequest(
                 repository="StreamScapeTV/iptv-backend",
                 admitted_sha=SHA,
@@ -179,7 +243,9 @@ class PublicationFilesystemAssertionTests(unittest.TestCase):
                 ),
                 symlinks={self._PYTHON: "python3.12"},
             )
-            assert_filesystem_contract(ROOT, self.plan, self.target, layout)
+            assert_filesystem_contract(
+                self.contract_root, self.plan, self.target, layout
+            )
 
     def test_real_backend_forbidden_tool_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -194,7 +260,9 @@ class PublicationFilesystemAssertionTests(unittest.TestCase):
                 symlinks={self._PYTHON: "python3.12"},
             )
             with self.assertRaisesRegex(OciPublishError, "assertion_failed"):
-                assert_filesystem_contract(ROOT, self.plan, self.target, layout)
+                assert_filesystem_contract(
+                    self.contract_root, self.plan, self.target, layout
+                )
 
     def test_real_backend_missing_required_file_or_tool_fails_closed(self) -> None:
         for paths, symlinks in (
@@ -208,13 +276,20 @@ class PublicationFilesystemAssertionTests(unittest.TestCase):
             with self.subTest(paths=paths), tempfile.TemporaryDirectory() as directory:
                 layout = _layout(Path(directory), paths, symlinks=symlinks)
                 with self.assertRaisesRegex(OciPublishError, "assertion_failed"):
-                    assert_filesystem_contract(ROOT, self.plan, self.target, layout)
+                    assert_filesystem_contract(
+                        self.contract_root, self.plan, self.target, layout
+                    )
 
 
 class FluxPublicationAssertionTests(unittest.TestCase):
     def setUp(self) -> None:
+        self.contract_directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.contract_directory.cleanup)
+        self.contract_root = _publication_ready_contract_root(
+            Path(self.contract_directory.name), "flux-runner-images"
+        )
         self.plan = resolve_plan(
-            ROOT,
+            self.contract_root,
             PublishRequest(
                 repository="StreamScapeTV/flux",
                 admitted_sha=SHA,
@@ -249,27 +324,32 @@ class FluxPublicationAssertionTests(unittest.TestCase):
         healthcheck: Mapping[str, object],
         temporary_root: Path,
     ) -> Path:
+        contract_root = _publication_ready_contract_root(
+            temporary_root, "flux-runner-images"
+        )
         payload = json.loads(
-            (ROOT / "contracts/oci-products.json").read_text(encoding="utf-8")
+            (contract_root / "contracts/oci-products.json").read_text(
+                encoding="utf-8"
+            )
         )
         payload["publication_assertions"]["flux-runner-images"][target_id][
             "healthcheck"
         ] = dict(healthcheck)
         contract_path = temporary_root / "contracts/oci-products.json"
-        contract_path.parent.mkdir(parents=True)
+        contract_path.parent.mkdir(parents=True, exist_ok=True)
         contract_path.write_text(json.dumps(payload), encoding="utf-8")
-        return temporary_root
+        return contract_root
 
     def test_real_flux_targets_require_their_checked_in_capability_sets(self) -> None:
         for target in self.plan.targets:
             required = self._required_tool_paths(target.target_id)
             with self.subTest(target=target.target_id), tempfile.TemporaryDirectory() as directory:
                 layout = _layout(Path(directory), required)
-                assert_filesystem_contract(ROOT, self.plan, target, layout)
+                assert_filesystem_contract(self.contract_root, self.plan, target, layout)
 
                 missing = _layout(Path(directory) / "missing", required[:-1])
                 with self.assertRaisesRegex(OciPublishError, "assertion_failed"):
-                    assert_filesystem_contract(ROOT, self.plan, target, missing)
+                    assert_filesystem_contract(self.contract_root, self.plan, target, missing)
 
     def test_real_flux_targets_reject_engine_socket_and_credential_residue(self) -> None:
         forbidden = (
@@ -286,7 +366,7 @@ class FluxPublicationAssertionTests(unittest.TestCase):
                 ):
                     layout = _layout(Path(directory), (*required, residue))
                     with self.assertRaisesRegex(OciPublishError, "assertion_failed"):
-                        assert_filesystem_contract(ROOT, self.plan, target, layout)
+                        assert_filesystem_contract(self.contract_root, self.plan, target, layout)
 
     def test_flux_capabilities_require_exact_regular_executable_paths(self) -> None:
         target = next(
@@ -312,7 +392,7 @@ class FluxPublicationAssertionTests(unittest.TestCase):
             with self.subTest(case=name), tempfile.TemporaryDirectory() as directory:
                 layout = _layout(Path(directory), paths, modes=modes)
                 with self.assertRaisesRegex(OciPublishError, "assertion_failed"):
-                    assert_filesystem_contract(ROOT, self.plan, target, layout)
+                    assert_filesystem_contract(self.contract_root, self.plan, target, layout)
 
     def test_exact_capability_symlink_to_executable_is_accepted(self) -> None:
         target = next(
@@ -329,7 +409,7 @@ class FluxPublicationAssertionTests(unittest.TestCase):
                 paths,
                 symlinks={"/usr/bin/buildah": backing},
             )
-            assert_filesystem_contract(ROOT, self.plan, target, layout)
+            assert_filesystem_contract(self.contract_root, self.plan, target, layout)
 
     def test_required_executable_resolves_parent_symlink_components(self) -> None:
         target = next(
@@ -350,7 +430,7 @@ class FluxPublicationAssertionTests(unittest.TestCase):
                 (*redirected, "/usr"),
                 symlinks={"/usr": "/safe/usr"},
             )
-            assert_filesystem_contract(ROOT, self.plan, target, layout)
+            assert_filesystem_contract(self.contract_root, self.plan, target, layout)
 
     def test_runtime_command_executable_must_exist_and_be_executable(self) -> None:
         for target in self.plan.targets:
@@ -370,7 +450,7 @@ class FluxPublicationAssertionTests(unittest.TestCase):
                 ):
                     layout = _layout(Path(directory), paths, modes=modes)
                     with self.assertRaisesRegex(OciPublishError, "assertion_failed"):
-                        assert_filesystem_contract(ROOT, self.plan, target, layout)
+                        assert_filesystem_contract(self.contract_root, self.plan, target, layout)
 
     def test_forbidden_credential_path_resolves_parent_symlink_alias(self) -> None:
         target = next(
@@ -386,7 +466,7 @@ class FluxPublicationAssertionTests(unittest.TestCase):
                 symlinks={"/root": "/safe"},
             )
             with self.assertRaisesRegex(OciPublishError, "assertion_failed"):
-                assert_filesystem_contract(ROOT, self.plan, target, layout)
+                assert_filesystem_contract(self.contract_root, self.plan, target, layout)
 
     def test_forbidden_path_symlink_cycle_fails_closed(self) -> None:
         target = next(
@@ -402,7 +482,7 @@ class FluxPublicationAssertionTests(unittest.TestCase):
                 symlinks={"/root": "/safe", "/safe": "/root"},
             )
             with self.assertRaisesRegex(OciPublishError, "assertion_failed"):
-                assert_filesystem_contract(ROOT, self.plan, target, layout)
+                assert_filesystem_contract(self.contract_root, self.plan, target, layout)
 
     def test_noncanonical_symlink_target_fails_closed(self) -> None:
         target = next(
@@ -418,7 +498,7 @@ class FluxPublicationAssertionTests(unittest.TestCase):
                 symlinks={"/root": "//safe"},
             )
             with self.assertRaisesRegex(OciPublishError, "oci_layout_malformed"):
-                assert_filesystem_contract(ROOT, self.plan, target, layout)
+                assert_filesystem_contract(self.contract_root, self.plan, target, layout)
 
     def test_root_whiteouts_remove_lower_layer_capabilities(self) -> None:
         target = next(
@@ -438,7 +518,7 @@ class FluxPublicationAssertionTests(unittest.TestCase):
                     additional_layers=((whiteout,),),
                 )
                 with self.assertRaisesRegex(OciPublishError, "assertion_failed"):
-                    assert_filesystem_contract(ROOT, self.plan, target, layout)
+                    assert_filesystem_contract(self.contract_root, self.plan, target, layout)
 
     def test_whiteout_does_not_remove_same_layer_executable_replacement(self) -> None:
         target = next(
@@ -453,7 +533,7 @@ class FluxPublicationAssertionTests(unittest.TestCase):
                 required,
                 additional_layers=((".wh.usr", *required),),
             )
-            assert_filesystem_contract(ROOT, self.plan, target, layout)
+            assert_filesystem_contract(self.contract_root, self.plan, target, layout)
 
     def test_later_non_directory_ancestor_shadows_lower_capabilities(self) -> None:
         target = next(
@@ -469,7 +549,7 @@ class FluxPublicationAssertionTests(unittest.TestCase):
                 additional_layers=(("usr",),),
             )
             with self.assertRaisesRegex(OciPublishError, "assertion_failed"):
-                assert_filesystem_contract(ROOT, self.plan, target, layout)
+                assert_filesystem_contract(self.contract_root, self.plan, target, layout)
 
     def test_lower_non_directory_ancestor_blocks_later_capabilities(self) -> None:
         target = next(
@@ -485,7 +565,7 @@ class FluxPublicationAssertionTests(unittest.TestCase):
                 additional_layers=(required,),
             )
             with self.assertRaisesRegex(OciPublishError, "oci_layout_malformed"):
-                assert_filesystem_contract(ROOT, self.plan, target, layout)
+                assert_filesystem_contract(self.contract_root, self.plan, target, layout)
 
     def test_flux_layer_inventory_streams_verified_blobs(self) -> None:
         target = self.plan.targets[0]
@@ -497,7 +577,7 @@ class FluxPublicationAssertionTests(unittest.TestCase):
                 "read_bytes",
                 side_effect=AssertionError("layer blobs must be streamed"),
             ):
-                assert_filesystem_contract(ROOT, self.plan, target, layout)
+                assert_filesystem_contract(self.contract_root, self.plan, target, layout)
 
     def test_null_healthcheck_requires_exact_absence_for_real_products(self) -> None:
         products = (
@@ -507,44 +587,56 @@ class FluxPublicationAssertionTests(unittest.TestCase):
         )
         unexpected = {"Test": ["NONE"]}
         for repository, product_id in products:
-            plan = resolve_plan(
-                ROOT,
-                PublishRequest(
-                    repository=repository,
-                    admitted_sha=SHA,
-                    release_authority_sha=SHA,
-                    product_id=product_id,
-                    release_version="1.2.3",
-                    source_trust="trusted-exact",
-                ),
-            )
-            raw_targets = {
-                row["target_id"]: row
-                for row in self.contract["products"][product_id]["targets"]
-            }
-            publication = self.contract["publication_assertions"][product_id]
-            for target in plan.targets:
-                raw = raw_targets[target.target_id]
-                exact = tuple(
-                    publication[target.target_id]["required_executables"]
+            with tempfile.TemporaryDirectory() as contract_directory:
+                contract_root = _publication_ready_contract_root(
+                    Path(contract_directory), product_id
                 )
-                generic = tuple(
-                    f"/usr/bin/{tool}"
-                    for tool in raw["assertions"]["required_tools"]
-                    if not exact
+                plan = resolve_plan(
+                    contract_root,
+                    PublishRequest(
+                        repository=repository,
+                        admitted_sha=SHA,
+                        release_authority_sha=SHA,
+                        product_id=product_id,
+                        release_version="1.2.3",
+                        source_trust="trusted-exact",
+                    ),
                 )
-                paths = tuple(raw["assertions"]["required_files"]) + exact + generic
-                with (
-                    self.subTest(product=product_id, target=target.target_id),
-                    tempfile.TemporaryDirectory() as directory,
-                ):
-                    layout = _layout(
-                        Path(directory),
-                        paths,
-                        healthcheck=unexpected,
+                raw_targets = {
+                    row["target_id"]: row
+                    for row in self.contract["products"][product_id]["targets"]
+                }
+                publication = self.contract["publication_assertions"][product_id]
+                for target in plan.targets:
+                    raw = raw_targets[target.target_id]
+                    exact = tuple(
+                        publication[target.target_id]["required_executables"]
                     )
-                    with self.assertRaisesRegex(OciPublishError, "assertion_failed"):
-                        assert_filesystem_contract(ROOT, plan, target, layout)
+                    generic = tuple(
+                        f"/usr/bin/{tool}"
+                        for tool in raw["assertions"]["required_tools"]
+                        if not exact
+                    )
+                    paths = (
+                        tuple(raw["assertions"]["required_files"])
+                        + exact
+                        + generic
+                    )
+                    with (
+                        self.subTest(product=product_id, target=target.target_id),
+                        tempfile.TemporaryDirectory() as directory,
+                    ):
+                        layout = _layout(
+                            Path(directory),
+                            paths,
+                            healthcheck=unexpected,
+                        )
+                        with self.assertRaisesRegex(
+                            OciPublishError, "assertion_failed"
+                        ):
+                            assert_filesystem_contract(
+                                contract_root, plan, target, layout
+                            )
 
     def test_real_flux_target_enforces_declared_exact_healthcheck(self) -> None:
         target = next(
@@ -674,7 +766,7 @@ class FluxPublicationAssertionTests(unittest.TestCase):
         for name, residue, healthcheck_contract, remote_healthcheck in cases:
             with self.subTest(case=name), tempfile.TemporaryDirectory() as directory:
                 temporary = Path(directory)
-                contract_root = ROOT
+                contract_root = self.contract_root
                 if healthcheck_contract is not None:
                     contract_root = self._mutated_contract_root(
                         target.target_id,
@@ -700,6 +792,9 @@ class FluxPublicationAssertionTests(unittest.TestCase):
                 )
                 local_summary = guards.inspect_layout(
                     local_layout, target, "validation"
+                )
+                local_assertions = assert_filesystem_contract(
+                    contract_root, self.plan, target, local_layout
                 )
                 remote_summary = guards.inspect_layout(
                     remote_layout, target, "readback"
@@ -727,7 +822,10 @@ class FluxPublicationAssertionTests(unittest.TestCase):
                             "targets": {
                                 target.target_id: {
                                     "local": local_summary,
-                                    "resolved_base_references": ["scratch"],
+                                    "assertions": local_assertions,
+                                    "resolved_inputs": _resolved_input_evidence(
+                                        target
+                                    ),
                                     "replayed": False,
                                 }
                             }

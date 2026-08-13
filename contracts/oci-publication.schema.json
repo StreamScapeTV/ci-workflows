@@ -104,16 +104,78 @@
         }
       }
     },
-    "baseReference": {
-      "oneOf": [
-        {"const": "scratch"},
-        {
+    "safeInputId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,63}$"
+    },
+    "resolvedInputPlatform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform", "manifest_digest", "config_digest"],
+      "properties": {
+        "platform": {"type": "string", "pattern": "^linux/(?:amd64|arm64/v8)$"},
+        "manifest_digest": {"$ref": "#/$defs/digest"},
+        "config_digest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "resolvedInputBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stage_id", "declared_reference", "root_digest", "platforms"],
+      "properties": {
+        "stage_id": {"$ref": "#/$defs/safeInputId"},
+        "declared_reference": {
           "type": "string",
-          "minLength": 73,
-          "maxLength": 327,
-          "pattern": "^(?![a-z0-9._:/-]*//)(?![a-z0-9._:/-]*/\\.{1,2}/)[a-z0-9](?:[a-z0-9._:/-]*[a-z0-9])?@sha256:[0-9a-f]{64}$"
+          "maxLength": 512,
+          "pattern": "^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?/[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9._-]{0,127})?@sha256:[0-9a-f]{64}$"
+        },
+        "root_digest": {"$ref": "#/$defs/digest"},
+        "platforms": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "items": {"$ref": "#/$defs/resolvedInputPlatform"}
         }
-      ]
+      }
+    },
+    "resolvedExternalInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_id", "digest", "size_bytes"],
+      "properties": {
+        "input_id": {"$ref": "#/$defs/safeInputId"},
+        "digest": {"$ref": "#/$defs/digest"},
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1073741824
+        }
+      }
+    },
+    "resolvedInputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lock_digest", "input_policy_id", "bases", "external_inputs", "evidence_id"],
+      "properties": {
+        "lock_digest": {
+          "oneOf": [
+            {"const": "none"},
+            {"$ref": "#/$defs/digest"}
+          ]
+        },
+        "input_policy_id": {"$ref": "#/$defs/safeInputId"},
+        "bases": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {"$ref": "#/$defs/resolvedInputBase"}
+        },
+        "external_inputs": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {"$ref": "#/$defs/resolvedExternalInput"}
+        },
+        "evidence_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
     },
     "repository": {
       "type": "string",
@@ -163,17 +225,13 @@
     "targetReference": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["repository", "version", "source_reference", "manifest_digest", "base_references", "assertions"],
+      "required": ["repository", "version", "source_reference", "manifest_digest", "resolved_inputs", "assertions"],
       "properties": {
         "repository": {"$ref": "#/$defs/repository"},
         "version": {"$ref": "#/$defs/immutableTagReference"},
         "source_reference": {"$ref": "#/$defs/immutableTagReference"},
         "manifest_digest": {"$ref": "#/$defs/digest"},
-        "base_references": {
-          "type": "array",
-          "minItems": 1,
-          "items": {"$ref": "#/$defs/baseReference"}
-        },
+        "resolved_inputs": {"$ref": "#/$defs/resolvedInputs"},
         "assertions": {"$ref": "#/$defs/assertionEvidence"}
       }
     },

@@ -57,6 +57,8 @@
           "dockerfile_path": "Dockerfile",
           "target_stage": null,
           "platform_set": "linux-multi-arch",
+          "build_input_lock_path": ".ciw/oci-build-inputs/backend.json",
+          "input_policy_id": "oci-inputs-public-v1",
           "smoke_script": null,
           "assertions": {
             "user": "appuser",
@@ -95,6 +97,8 @@
           "dockerfile_path": "images/buildah/Dockerfile",
           "target_stage": null,
           "platform_set": "linux-amd64",
+          "build_input_lock_path": ".ciw/oci-build-inputs/runner-buildah.json",
+          "input_policy_id": "oci-inputs-public-v1",
           "smoke_script": null,
           "assertions": {
             "user": null,
@@ -114,6 +118,8 @@
           "dockerfile_path": "images/mobile/Dockerfile",
           "target_stage": null,
           "platform_set": "linux-amd64",
+          "build_input_lock_path": ".ciw/oci-build-inputs/runner-mobile.json",
+          "input_policy_id": "oci-inputs-public-v1",
           "smoke_script": null,
           "assertions": {
             "user": null,

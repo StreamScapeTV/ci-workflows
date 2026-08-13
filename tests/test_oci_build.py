@@ -23,6 +23,7 @@ from ci_workflows.oci_contract import (  # noqa: E402
     validate_generated_mapping,
 )
 from ci_workflows.oci_execution import (  # noqa: E402
+    MaterializedTargetInputs,
     execute_plan,
     inspect_layout,
     stage_context,
@@ -30,8 +31,11 @@ from ci_workflows.oci_execution import (  # noqa: E402
     verify_no_secret_leakage,
 )
 from ci_workflows.oci_types import (  # noqa: E402
+    OciBuildInputEvidence,
     OciBuildError,
     OciBuildPlan,
+    OciResolvedBase,
+    OciResolvedBasePlatform,
     OciTarget,
     OciTargetResult,
 )
@@ -151,6 +155,10 @@ class OciBuildTests(unittest.TestCase):
         plan = resolve_plan(ROOT, request)
         self.assertEqual("buildah-v1", plan.builder_id)
         self.assertEqual(("linux", "amd64", "buildah", "tiny"), plan.runs_on)
+        self.assertEqual(
+            "tests/fixtures/oci-build/smoke/inputs.lock.json",
+            plan.targets[0].build_input_lock_path,
+        )
         for field in (
             "engine", "builder", "docker", "buildah", "buildkit", "podman",
             "socket", "storage_driver", "registry_command", "runner",
@@ -265,6 +273,17 @@ class OciBuildTests(unittest.TestCase):
             pinned = root / "pinned"
             pinned.write_text("FROM example.invalid/base@sha256:" + "b" * 64 + "\n", encoding="utf-8")
             self.assertEqual(1, len(validate_dockerfile_bases(pinned)))
+            multi_stage = root / "multi-stage"
+            multi_stage.write_text(
+                "FROM example.invalid/base@sha256:"
+                + "b" * 64
+                + " AS build\nFROM build AS final\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                ("example.invalid/base@sha256:" + "b" * 64, "build"),
+                validate_dockerfile_bases(multi_stage),
+            )
             for source in (
                 "FROM python:3.12\n",
                 "ARG BASE\nFROM $BASE\n",
@@ -296,7 +315,7 @@ class OciBuildTests(unittest.TestCase):
             subprocess.run(["git", "commit", "-qm", "fixture"], cwd=root, check=True)
             target = OciTarget(
                 "fixture", ".", "Containerfile", None, ("linux/amd64",), "verify.sh",
-                None, (), (), (), (), (), (), {}, (),
+                None, (), (), (), (), (), (), {}, (), "inputs.lock.json", "scratch-only-v1",
             )
             staged = stage_context(root, target, Path(temp) / "stage")
             self.assertEqual("payload\n", (staged / "payload").read_text())
@@ -308,7 +327,7 @@ class OciBuildTests(unittest.TestCase):
             with self.assertRaisesRegex(OciBuildError, "dirty_context"):
                 stage_context(root, target, Path(temp) / "stage2")
 
-    def test_execute_retains_ordered_exact_base_evidence_in_build_state(self) -> None:
+    def test_execute_retains_resolved_inputs_and_publication_digest_in_build_state(self) -> None:
         if shutil.which("git") is None:
             self.skipTest("git is unavailable")
         first = "example.invalid/build@sha256:" + "1" * 64
@@ -329,13 +348,14 @@ class OciBuildTests(unittest.TestCase):
                 check=True,
             )
             (source / "Containerfile").write_text(
-                f"FROM {first} AS build\nFROM {second}\n", encoding="utf-8"
+                "FROM scratch\n", encoding="utf-8"
             )
             subprocess.run(["git", "add", "."], cwd=source, check=True)
             subprocess.run(["git", "commit", "-qm", "fixture"], cwd=source, check=True)
             target = OciTarget(
                 "fixture", ".", "Containerfile", None, ("linux/amd64",), None,
-                None, (), (), (), (), (), (), {}, (),
+                None, (), (), (), (), (), (), {}, (), "inputs.lock.json",
+                "oci-inputs-public-v1",
             )
             plan = OciBuildPlan(
                 "StreamScapeTV/example", SHA, "fixture", "1.2.3",
@@ -343,13 +363,51 @@ class OciBuildTests(unittest.TestCase):
                 "container", 30, "buildah-v1", "vfs", (target,), False,
                 None, None, None, True,
             )
+            evidence = OciBuildInputEvidence(
+                lock_digest="sha256:" + "5" * 64,
+                acquisition_policy_id="oci-inputs-public-v1",
+                resolved_bases=(
+                    OciResolvedBase(
+                        stage_id="stage-1",
+                        declared_reference=first,
+                        root_digest="sha256:" + "1" * 64,
+                        platforms=(
+                            OciResolvedBasePlatform(
+                                platform="linux/amd64",
+                                manifest_digest="sha256:" + "6" * 64,
+                                config_digest="sha256:" + "7" * 64,
+                            ),
+                        ),
+                    ),
+                    OciResolvedBase(
+                        stage_id="stage-2",
+                        declared_reference=second,
+                        root_digest="sha256:" + "2" * 64,
+                        platforms=(
+                            OciResolvedBasePlatform(
+                                platform="linux/amd64",
+                                manifest_digest="sha256:" + "8" * 64,
+                                config_digest="sha256:" + "9" * 64,
+                            ),
+                        ),
+                    ),
+                ),
+                resolved_external_inputs=(),
+                evidence_id="a" * 64,
+            )
+            materialized = MaterializedTargetInputs(
+                lock=mock.Mock(),
+                evidence=evidence,
+                image_ids_by_platform={"linux/amd64": {}},
+            )
             built = OciTargetResult(
                 "fixture",
                 "sha256:" + "3" * 64,
-                "sha256:" + "4" * 64,
                 (),
                 {},
                 "skipped",
+                publication_manifest_digest="sha256:" + "4" * 64,
+                build_input_evidence=evidence,
             )
             environment = {
                 "RUNNER_TEMP": str(temporary / "state"),
@@ -367,13 +425,17 @@ class OciBuildTests(unittest.TestCase):
             ), mock.patch(
                 "ci_workflows.oci_execution.metadata_labels", return_value={}
             ), mock.patch(
+                "ci_workflows.oci_execution._materialize_target_inputs",
+                return_value=materialized,
+            ), mock.patch(
                 "ci_workflows.oci_execution.build_target",
                 return_value=(built, "manifest"),
             ):
                 result = execute_plan(ROOT, source, plan, environment)
-
+            self.assertEqual(result.targets[0].build_input_evidence, evidence)
             self.assertEqual(
-                result.targets[0].resolved_base_references, (first, second)
+                result.targets[0].publication_manifest_digest,
+                "sha256:" + "4" * 64,
             )
             persisted = json.loads(
                 (temporary / "state" / next((temporary / "state").iterdir()).name / "result.json").read_text(
@@ -381,8 +443,12 @@ class OciBuildTests(unittest.TestCase):
                 )
             )
             self.assertEqual(
-                json.loads(persisted["resolved_base_references_json"]),
-                {"fixture": [first, second]},
+                json.loads(persisted["resolved_inputs_json"]),
+                {"fixture": evidence.to_dict()},
+            )
+            self.assertEqual(
+                json.loads(persisted["publication_manifest_digests_json"]),
+                {"fixture": "sha256:" + "4" * 64},
             )
 
     def test_layout_inspection_binds_platform_config_layers_and_labels(self) -> None:

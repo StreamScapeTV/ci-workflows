@@ -12,12 +12,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from .oci_types import is_exact_base_reference
-
 _FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 _STABLE_SEMVER = re.compile(r"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$")
 _PRODUCT = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+_RAW_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_SAFE_INPUT_ID = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
+_EXACT_INPUT_REFERENCE = re.compile(
+    r"^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?/"
+    r"[a-z0-9]+(?:[._-][a-z0-9]+)*"
+    r"(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*"
+    r"(?::[A-Za-z0-9_][A-Za-z0-9._-]{0,127})?"
+    r"@sha256:[0-9a-f]{64}$"
+)
 _PLATFORM = re.compile(r"^linux/(?:amd64|arm64/v8)$")
 _SAFE_CODE = re.compile(r"^[a-z][a-z0-9_]{2,95}$")
 _REGISTRY_HOST = "ghcr.io"
@@ -91,6 +98,160 @@ def _strings(value: Any, code: str = "invalid_contract") -> tuple[str, ...]:
     return tuple(value)
 
 
+def _validate_resolved_input_evidence(
+    value: Any,
+    target: PublishTarget,
+    code: str,
+) -> dict[str, Any]:
+    """Validate and normalize one closed, redacted #150 input-evidence row."""
+
+    evidence = _mapping(value, code)
+    _require(
+        set(evidence)
+        == {
+            "lock_digest",
+            "input_policy_id",
+            "bases",
+            "external_inputs",
+            "evidence_id",
+        },
+        code,
+    )
+    lock_digest = evidence.get("lock_digest")
+    policy_id = evidence.get("input_policy_id")
+    bases = evidence.get("bases")
+    external_inputs = evidence.get("external_inputs")
+    evidence_id = evidence.get("evidence_id")
+    _require(
+        (
+            lock_digest == "none"
+            or isinstance(lock_digest, str)
+            and _DIGEST.fullmatch(lock_digest) is not None
+        )
+        and policy_id == target.input_policy_id
+        and isinstance(bases, list)
+        and len(bases) <= 64
+        and isinstance(external_inputs, list)
+        and len(external_inputs) <= 64
+        and isinstance(evidence_id, str)
+        and _RAW_SHA256.fullmatch(evidence_id) is not None,
+        code,
+    )
+    normalized_bases: list[dict[str, Any]] = []
+    stage_ids: set[str] = set()
+    for raw in bases:
+        base = _mapping(raw, code)
+        _require(
+            set(base)
+            == {"stage_id", "declared_reference", "root_digest", "platforms"},
+            code,
+        )
+        stage_id = base.get("stage_id")
+        declared = base.get("declared_reference")
+        root_digest = base.get("root_digest")
+        platforms = base.get("platforms")
+        _require(
+            isinstance(stage_id, str)
+            and _SAFE_INPUT_ID.fullmatch(stage_id) is not None
+            and stage_id not in stage_ids
+            and isinstance(declared, str)
+            and len(declared) <= 512
+            and _EXACT_INPUT_REFERENCE.fullmatch(declared) is not None
+            and isinstance(root_digest, str)
+            and _DIGEST.fullmatch(root_digest) is not None
+            and declared.rsplit("@", 1)[1] == root_digest
+            and isinstance(platforms, list)
+            and 1 <= len(platforms) <= 2,
+            code,
+        )
+        stage_ids.add(stage_id)
+        normalized_platforms: list[dict[str, str]] = []
+        platform_names: set[str] = set()
+        for raw_platform in platforms:
+            platform = _mapping(raw_platform, code)
+            _require(
+                set(platform) == {"platform", "manifest_digest", "config_digest"},
+                code,
+            )
+            platform_name = platform.get("platform")
+            manifest_digest = platform.get("manifest_digest")
+            config_digest = platform.get("config_digest")
+            _require(
+                isinstance(platform_name, str)
+                and platform_name in target.platforms
+                and platform_name not in platform_names
+                and isinstance(manifest_digest, str)
+                and _DIGEST.fullmatch(manifest_digest) is not None
+                and isinstance(config_digest, str)
+                and _DIGEST.fullmatch(config_digest) is not None,
+                code,
+            )
+            platform_names.add(platform_name)
+            normalized_platforms.append(
+                {
+                    "platform": platform_name,
+                    "manifest_digest": manifest_digest,
+                    "config_digest": config_digest,
+                }
+            )
+        _require(
+            [item["platform"] for item in normalized_platforms]
+            == sorted(platform_names),
+            code,
+        )
+        _require(platform_names == set(target.platforms), code)
+        normalized_bases.append(
+            {
+                "stage_id": stage_id,
+                "declared_reference": declared,
+                "root_digest": root_digest,
+                "platforms": normalized_platforms,
+            }
+        )
+    normalized_external_inputs: list[dict[str, Any]] = []
+    input_ids: set[str] = set()
+    for raw in external_inputs:
+        external = _mapping(raw, code)
+        _require(set(external) == {"input_id", "digest", "size_bytes"}, code)
+        input_id = external.get("input_id")
+        digest = external.get("digest")
+        size_bytes = external.get("size_bytes")
+        _require(
+            isinstance(input_id, str)
+            and _SAFE_INPUT_ID.fullmatch(input_id) is not None
+            and input_id not in input_ids
+            and isinstance(digest, str)
+            and _DIGEST.fullmatch(digest) is not None
+            and type(size_bytes) is int
+            and 0 <= size_bytes <= 1_073_741_824,
+            code,
+        )
+        input_ids.add(input_id)
+        normalized_external_inputs.append(
+            {"input_id": input_id, "digest": digest, "size_bytes": size_bytes}
+        )
+    _require(
+        lock_digest != "none"
+        or (
+            policy_id == "scratch-only-v1"
+            and not normalized_bases
+            and not normalized_external_inputs
+        ),
+        code,
+    )
+    payload = {
+        "lock_digest": lock_digest,
+        "input_policy_id": policy_id,
+        "bases": normalized_bases,
+        "external_inputs": normalized_external_inputs,
+    }
+    expected_id = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    _require(evidence_id == expected_id, code)
+    return {**payload, "evidence_id": evidence_id}
+
+
 @dataclass(frozen=True)
 class PublishRequest:
     repository: str
@@ -114,6 +275,7 @@ class PublishTarget:
     required_entrypoint: tuple[str, ...]
     required_command: tuple[str, ...]
     required_ports: tuple[str, ...]
+    input_policy_id: str = "scratch-only-v1"
 
 
 @dataclass(frozen=True)
@@ -256,6 +418,12 @@ def resolve_plan(repository_root: Path, request: PublishRequest) -> PublishPlan:
         platforms = _strings(platform_sets[platform_set])
         _require(platforms and all(_PLATFORM.fullmatch(item) for item in platforms), "invalid_contract")
         assertions = _mapping(target.get("assertions"))
+        input_policy_id = target.get("input_policy_id", "scratch-only-v1")
+        _require(
+            isinstance(input_policy_id, str)
+            and _SAFE_INPUT_ID.fullmatch(input_policy_id) is not None,
+            "invalid_contract",
+        )
         required_user = assertions.get("user")
         _require(required_user is None or isinstance(required_user, str), "invalid_contract")
         repository = canonical_registry_repository(request.repository, target_id, count)
@@ -275,6 +443,7 @@ def resolve_plan(repository_root: Path, request: PublishRequest) -> PublishPlan:
                 required_entrypoint=_strings(assertions.get("entrypoint")),
                 required_command=_strings(assertions.get("command")),
                 required_ports=_strings(assertions.get("ports")),
+                input_policy_id=input_policy_id,
             )
         )
     _require(len({target.target_id for target in targets}) == len(targets), "invalid_contract")
@@ -780,7 +949,7 @@ def verify(plan: PublishPlan, environment: Mapping[str, str]) -> dict[str, str]:
     sources: dict[str, str] = {}
     manifests: dict[str, str] = {}
     platforms: dict[str, Any] = {}
-    base_references: dict[str, list[str]] = {}
+    resolved_inputs: dict[str, Mapping[str, Any]] = {}
     assertion_evidence: dict[str, Mapping[str, Any]] = {}
     replayed = False
     for target in plan.targets:
@@ -795,14 +964,11 @@ def verify(plan: PublishPlan, environment: Mapping[str, str]) -> dict[str, str]:
         sources[target.target_id] = target.source_reference
         manifests[target.target_id] = digest
         platforms[target.target_id] = row.get("platforms")
-        bases = row.get("resolved_base_references")
-        _require(
-            isinstance(bases, list)
-            and bool(bases)
-            and all(is_exact_base_reference(item) for item in bases),
+        resolved_inputs[target.target_id] = _validate_resolved_input_evidence(
+            row.get("resolved_inputs"),
+            target,
             "registry_readback_mismatch",
         )
-        base_references[target.target_id] = list(bases)
         assertions = _mapping(
             row.get("assertions"), "publication_state_missing"
         )
@@ -832,7 +998,7 @@ def verify(plan: PublishPlan, environment: Mapping[str, str]) -> dict[str, str]:
         "release_version": plan.release_version,
         "manifests": manifests,
         "platforms": platforms,
-        "base_references": base_references,
+        "resolved_inputs": resolved_inputs,
         "assertions": assertion_evidence,
         "build_evidence_id": build["evidence_id"],
     }
@@ -847,8 +1013,8 @@ def verify(plan: PublishPlan, environment: Mapping[str, str]) -> dict[str, str]:
         "source_references_json": json.dumps(sources, sort_keys=True, separators=(",", ":")),
         "manifest_digests_json": json.dumps(manifests, sort_keys=True, separators=(",", ":")),
         "platform_digests_json": json.dumps(platforms, sort_keys=True, separators=(",", ":")),
-        "resolved_base_references_json": json.dumps(
-            base_references, sort_keys=True, separators=(",", ":")
+        "resolved_inputs_json": json.dumps(
+            resolved_inputs, sort_keys=True, separators=(",", ":")
         ),
         "assertion_evidence_json": json.dumps(
             assertion_evidence, sort_keys=True, separators=(",", ":")

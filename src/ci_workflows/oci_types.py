@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Mapping
 
 _SAFE_CODE = re.compile(r"^[a-z][a-z0-9_]{2,95}$")
@@ -51,6 +52,21 @@ class OciBuildRequest:
 
 
 @dataclass(frozen=True)
+class OciInputPolicy:
+    policy_id: str
+    allowed_registry_hosts: tuple[str, ...]
+    allowed_registry_api_hosts: tuple[str, ...]
+    allowed_registry_token_hosts: tuple[str, ...]
+    allowed_registry_blob_hosts: tuple[str, ...]
+    allowed_download_hosts: tuple[str, ...]
+    https_only: bool
+    ambient_auth: bool
+    redirect_policy: str
+    maximum_redirects: int
+    maximum_input_bytes: int
+
+
+@dataclass(frozen=True)
 class OciTarget:
     target_id: str
     context_path: str
@@ -67,6 +83,8 @@ class OciTarget:
     forbidden_tools: tuple[str, ...]
     fixed_build_args: Mapping[str, str]
     secret_mount_ids: tuple[str, ...]
+    build_input_lock_path: str
+    input_policy_id: str
 
 
 @dataclass(frozen=True)
@@ -88,6 +106,7 @@ class OciBuildPlan:
     previous_known_good: str | None
     rollback_id: str | None
     adoption_ready: bool
+    input_policies: Mapping[str, OciInputPolicy] = field(default_factory=dict)
 
     def planning_outputs(self) -> dict[str, str]:
         return {
@@ -130,14 +149,97 @@ class OciPlatformResult:
 
 
 @dataclass(frozen=True)
+class OciResolvedBasePlatform:
+    platform: str
+    manifest_digest: str
+    config_digest: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "platform": self.platform,
+            "manifest_digest": self.manifest_digest,
+            "config_digest": self.config_digest,
+        }
+
+
+@dataclass(frozen=True)
+class OciResolvedBase:
+    stage_id: str
+    declared_reference: str
+    root_digest: str
+    platforms: tuple[OciResolvedBasePlatform, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "stage_id": self.stage_id,
+            "declared_reference": self.declared_reference,
+            "root_digest": self.root_digest,
+            "platforms": [item.to_dict() for item in self.platforms],
+        }
+
+
+@dataclass(frozen=True)
+class OciResolvedExternalInput:
+    input_id: str
+    digest: str
+    size_bytes: int
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "input_id": self.input_id,
+            "digest": self.digest,
+            "size_bytes": self.size_bytes,
+        }
+
+
+@dataclass(frozen=True)
+class OciBuildInputEvidence:
+    lock_digest: str
+    acquisition_policy_id: str
+    resolved_bases: tuple[OciResolvedBase, ...]
+    resolved_external_inputs: tuple[OciResolvedExternalInput, ...]
+    evidence_id: str
+
+    @classmethod
+    def empty(cls) -> OciBuildInputEvidence:
+        payload = {
+            "lock_digest": "none",
+            "input_policy_id": "scratch-only-v1",
+            "bases": [],
+            "external_inputs": [],
+        }
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        return cls(
+            lock_digest="none",
+            acquisition_policy_id="scratch-only-v1",
+            resolved_bases=(),
+            resolved_external_inputs=(),
+            evidence_id=hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "lock_digest": self.lock_digest,
+            "input_policy_id": self.acquisition_policy_id,
+            "bases": [item.to_dict() for item in self.resolved_bases],
+            "external_inputs": [
+                item.to_dict() for item in self.resolved_external_inputs
+            ],
+            "evidence_id": self.evidence_id,
+        }
+
+
+@dataclass(frozen=True)
 class OciTargetResult:
     target_id: str
     index_digest: str
-    publication_manifest_digest: str
     platform_results: tuple[OciPlatformResult, ...]
     labels: Mapping[str, str]
     smoke_result: str
-    resolved_base_references: tuple[str, ...] = ()
+    publication_manifest_digest: str = ""
+    build_input_evidence: OciBuildInputEvidence = field(
+        default_factory=OciBuildInputEvidence.empty
+    )
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -147,7 +249,7 @@ class OciTargetResult:
             "platform_results": [row.to_dict() for row in self.platform_results],
             "labels": dict(sorted(self.labels.items())),
             "smoke_result": self.smoke_result,
-            "resolved_base_references": list(self.resolved_base_references),
+            "build_input_evidence": self.build_input_evidence.to_dict(),
         }
 
 
@@ -174,6 +276,10 @@ class OciBuildResult:
             row.target_id: [item.to_dict() for item in row.platform_results]
             for row in self.targets
         }
+        build_inputs = {
+            row.target_id: row.build_input_evidence.to_dict()
+            for row in self.targets
+        }
         return {
             "result": "success",
             "source_sha": self.admitted_sha,
@@ -188,13 +294,8 @@ class OciBuildResult:
             "platform_results_json": json.dumps(
                 platforms, sort_keys=True, separators=(",", ":")
             ),
-            "resolved_base_references_json": json.dumps(
-                {
-                    row.target_id: list(row.resolved_base_references)
-                    for row in self.targets
-                },
-                sort_keys=True,
-                separators=(",", ":"),
+            "resolved_inputs_json": json.dumps(
+                build_inputs, sort_keys=True, separators=(",", ":")
             ),
             "clean_tree": str(self.clean_tree).lower(),
             "cleanup_result": self.cleanup_result,

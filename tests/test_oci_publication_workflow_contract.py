@@ -218,7 +218,8 @@ class OciPublicationWorkflowContractTests(unittest.TestCase):
         self.assertFalse(schema["$defs"]["targetReference"]["additionalProperties"])
         target_reference = schema["$defs"]["targetReference"]
         self.assertIn("source_reference", target_reference["required"])
-        self.assertIn("base_references", target_reference["required"])
+        self.assertIn("resolved_inputs", target_reference["required"])
+        self.assertNotIn("base_references", target_reference["properties"])
         self.assertIn("assertions", target_reference["required"])
         self.assertNotIn("source_sha", target_reference["properties"])
         assertions = schema["$defs"]["assertionEvidence"]

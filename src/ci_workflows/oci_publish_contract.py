@@ -114,7 +114,7 @@ def verify(plan: PublishPlan, environment: Mapping[str, str]) -> dict[str, str]:
         versions = json.loads(values["version_references_json"])
         sources = json.loads(values["source_references_json"])
         manifests = json.loads(values["manifest_digests_json"])
-        base_references = json.loads(values.pop("resolved_base_references_json"))
+        resolved_inputs = json.loads(values.pop("resolved_inputs_json"))
         assertion_evidence = json.loads(values.pop("assertion_evidence_json"))
     except (KeyError, TypeError, json.JSONDecodeError) as error:
         raise OciPublishError("publication_state_missing") from error
@@ -126,11 +126,19 @@ def verify(plan: PublishPlan, environment: Mapping[str, str]) -> dict[str, str]:
             versions,
             sources,
             manifests,
-            base_references,
+            resolved_inputs,
             assertion_evidence,
         )
     ):
         raise OciPublishError("publication_state_missing")
+    resolved_inputs = {
+        target.target_id: _runtime._validate_resolved_input_evidence(  # noqa: SLF001
+            resolved_inputs[target.target_id],
+            target,
+            "publication_state_missing",
+        )
+        for target in plan.targets
+    }
     immutable: dict[str, Any] = {
         "targets": {
             target.target_id: {
@@ -138,7 +146,7 @@ def verify(plan: PublishPlan, environment: Mapping[str, str]) -> dict[str, str]:
                 "version": versions[target.target_id],
                 "source_reference": sources[target.target_id],
                 "manifest_digest": manifests[target.target_id],
-                "base_references": base_references[target.target_id],
+                "resolved_inputs": resolved_inputs[target.target_id],
                 "assertions": assertion_evidence[target.target_id],
             }
             for target in plan.targets

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import tempfile
@@ -14,6 +15,8 @@ from ci_workflows.oci_publish_contract import (
     resolve_plan,
     verify,
 )
+from ci_workflows import oci_publish as publication_runtime
+from ci_workflows.oci_types import OciBuildInputEvidence
 from ci_workflows.issue_dependency_manifest import (
     ManifestValidationError,
     validate_json_schema,
@@ -23,6 +26,40 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests/fixtures/oci-publish/oci-products.json"
 SHA = "a" * 40
 DIGEST = "sha256:" + "1" * 64
+
+
+def _resolved_inputs() -> dict[str, object]:
+    payload = {
+        "lock_digest": "sha256:" + "8" * 64,
+        "input_policy_id": "oci-inputs-public-v1",
+        "bases": [
+            {
+                "stage_id": "stage-1",
+                "declared_reference": (
+                    "example.invalid/base@sha256:" + "4" * 64
+                ),
+                "root_digest": "sha256:" + "4" * 64,
+                "platforms": [
+                    {
+                        "platform": "linux/amd64",
+                        "manifest_digest": "sha256:" + "a" * 64,
+                        "config_digest": "sha256:" + "b" * 64,
+                    }
+                ],
+            }
+        ],
+        "external_inputs": [
+            {
+                "input_id": "runtime-config",
+                "digest": "sha256:" + "c" * 64,
+                "size_bytes": 4096,
+            }
+        ],
+    }
+    evidence_id = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    return {**payload, "evidence_id": evidence_id}
 
 
 def _assertion_evidence() -> dict[str, object]:
@@ -54,7 +91,7 @@ def _target_reference() -> dict[str, object]:
         "version": repository + ":1.2.3",
         "source_reference": repository + ":sha-" + SHA,
         "manifest_digest": DIGEST,
-        "base_references": ["example.invalid/base@sha256:" + "4" * 64],
+        "resolved_inputs": _resolved_inputs(),
         "assertions": _assertion_evidence(),
     }
 
@@ -97,21 +134,22 @@ class PublicSchemaParityTests(unittest.TestCase):
             with self.subTest(value=value):
                 self._assert_rejected(value, schema)
 
-    def test_base_and_registry_references_reject_noncanonical_segments(self) -> None:
-        base_schema = self._definition_schema("baseReference")
+    def test_resolved_inputs_and_registry_references_reject_open_or_noncanonical_values(self) -> None:
+        input_schema = self._definition_schema("resolvedInputs")
         repository_schema = self._definition_schema("repository")
         tag_schema = self._definition_schema("immutableTagReference")
-        digest = "sha256:" + "9" * 64
-
-        for value in ("scratch", f"registry.example/team/image@{digest}"):
-            validate_json_schema(value, base_schema)
-        for value in (
-            f"registry.example//image@{digest}",
-            f"registry.example/./image@{digest}",
-            f"registry.example/../image@{digest}",
+        validate_json_schema(_resolved_inputs(), input_schema)
+        for key, value in (
+            ("url", "https://secret.example/input"),
+            ("destination", "/runner/work/private"),
+            ("token", "secret"),
         ):
-            with self.subTest(base=value):
-                self._assert_rejected(value, base_schema)
+            opened = {**_resolved_inputs(), key: value}
+            with self.subTest(key=key):
+                self._assert_rejected(opened, input_schema)
+        mutable = _resolved_inputs()
+        mutable["bases"][0]["declared_reference"] = "example.invalid/base:latest"
+        self._assert_rejected(mutable, input_schema)
 
         repository = "ghcr.io/streamscapetv/flux-runner-buildah"
         validate_json_schema(repository, repository_schema)
@@ -133,6 +171,20 @@ class PublicSchemaParityTests(unittest.TestCase):
         ):
             with self.subTest(reference=value):
                 self._assert_rejected(value, tag_schema)
+
+    def test_scratch_only_empty_input_evidence_remains_valid(self) -> None:
+        target = SimpleNamespace(
+            platforms=("linux/amd64",),
+            input_policy_id="scratch-only-v1",
+        )
+        self.assertEqual(
+            publication_runtime._validate_resolved_input_evidence(  # noqa: SLF001
+                OciBuildInputEvidence.empty().to_dict(),
+                target,
+                "build_evidence_mismatch",
+            ),
+            OciBuildInputEvidence.empty().to_dict(),
+        )
 
     def test_result_maps_require_product_id_property_names(self) -> None:
         result = self.schema["$defs"]["result"]
@@ -207,7 +259,11 @@ class PlatformConfirmationTests(unittest.TestCase):
 
 class PublicProjectionTests(unittest.TestCase):
     def test_verify_projects_registered_outputs_and_flux_handoff(self) -> None:
-        target = SimpleNamespace(target_id="runner-buildah")
+        target = SimpleNamespace(
+            target_id="runner-buildah",
+            platforms=("linux/amd64",),
+            input_policy_id="oci-inputs-public-v1",
+        )
         plan = SimpleNamespace(
             targets=(target,),
             admitted_sha=SHA,
@@ -245,12 +301,8 @@ class PublicProjectionTests(unittest.TestCase):
             "version_references_json": '{"runner-buildah":"ghcr.io/streamscapetv/flux-runner-buildah:1.2.3"}',
             "source_references_json": '{"runner-buildah":"ghcr.io/streamscapetv/flux-runner-buildah:sha-' + SHA + '"}',
             "manifest_digests_json": '{"runner-buildah":"' + manifest + '"}',
-            "resolved_base_references_json": json.dumps(
-                {
-                    "runner-buildah": [
-                        "example.invalid/base@sha256:" + "4" * 64
-                    ]
-                },
+            "resolved_inputs_json": json.dumps(
+                {"runner-buildah": _resolved_inputs()},
                 sort_keys=True,
                 separators=(",", ":"),
             ),
@@ -304,8 +356,8 @@ class PublicProjectionTests(unittest.TestCase):
         self.assertEqual(immutable_references["release"]["source_sha"], SHA)
         self.assertEqual(target_reference["manifest_digest"], manifest)
         self.assertEqual(
-            target_reference["base_references"],
-            ["example.invalid/base@sha256:" + "4" * 64],
+            target_reference["resolved_inputs"],
+            _resolved_inputs(),
         )
         self.assertEqual(target_reference["assertions"], assertion_evidence)
 
