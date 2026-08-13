@@ -7,6 +7,7 @@ from pathlib import Path
 from ci_workflows.flux_assets import FluxAssetError
 from ci_workflows.flux_assets_source import (
     validate_dependency_product_inventory,
+    validate_oci_build_dependency_evidence,
     validate_runtime_repository,
 )
 
@@ -14,7 +15,45 @@ ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = ROOT / "contracts/flux-infrastructure-products.json"
 SCHEMA = ROOT / "contracts/flux-infrastructure-products.schema.json"
 PRODUCTS = ROOT / "contracts/products.json"
+OCI_PRODUCTS = ROOT / "contracts/oci-products.json"
 FIXTURE = ROOT / "tests/fixtures/flux-infrastructure-assets/dependency-evidence.json"
+D1 = "sha256:" + "1" * 64
+D2 = "sha256:" + "2" * 64
+D3 = "sha256:" + "3" * 64
+D4 = "sha256:" + "4" * 64
+
+
+def _merged_oci_build_evidence() -> dict[str, object]:
+    return {
+        "oci.build": {
+            "result": "success",
+            "image_digest": json.dumps(
+                {"runner-buildah": D1, "runner-mobile": D2}, sort_keys=True
+            ),
+            "platform_digests_json": json.dumps(
+                {
+                    "runner-buildah": [
+                        {
+                            "platform": "linux/amd64",
+                            "manifest_digest": D1,
+                            "config_digest": D3,
+                            "layer_digests": [D4],
+                        }
+                    ],
+                    "runner-mobile": [
+                        {
+                            "platform": "linux/amd64",
+                            "manifest_digest": D2,
+                            "config_digest": D3,
+                            "layer_digests": [D4],
+                        }
+                    ],
+                },
+                sort_keys=True,
+            ),
+            "artifact_exception_used": "false",
+        }
+    }
 
 
 class FluxHelmDependencyAlignmentTests(unittest.TestCase):
@@ -79,6 +118,32 @@ class FluxHelmDependencyAlignmentTests(unittest.TestCase):
         with self.assertRaisesRegex(FluxAssetError, "dependency_product_kind_mismatch"):
             validate_dependency_product_inventory(
                 wrong_kind, products_path=PRODUCTS
+            )
+
+    def test_oci_build_evidence_matches_merged_public_shape(self) -> None:
+        normalized = validate_oci_build_dependency_evidence(
+            _merged_oci_build_evidence(), oci_products_path=OCI_PRODUCTS
+        )
+        assert normalized is not None
+        self.assertEqual(
+            set(normalized["image_digest"]), {"runner-buildah", "runner-mobile"}
+        )
+        self.assertEqual(
+            normalized["platform_digests_json"]["runner-buildah"][0]["platform"],
+            "linux/amd64",
+        )
+
+        old_synthetic = _merged_oci_build_evidence()
+        old_synthetic["oci.build"]["platform_digests_json"] = json.dumps(
+            {
+                "runner-buildah": {"linux/amd64": {"manifest_digest": D1}},
+                "runner-mobile": {"linux/amd64": {"manifest_digest": D2}},
+            },
+            sort_keys=True,
+        )
+        with self.assertRaisesRegex(FluxAssetError, "oci_build_evidence_invalid"):
+            validate_oci_build_dependency_evidence(
+                old_synthetic, oci_products_path=OCI_PRODUCTS
             )
 
     def test_arc_upstreams_use_apache_2_license_identity(self) -> None:
