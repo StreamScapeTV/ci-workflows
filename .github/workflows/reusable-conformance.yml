@@ -32,7 +32,7 @@ jobs:
     steps:
       - name: Run bounded organization conformance
         id: report
-        uses: StreamScapeTV/ci-workflows/actions/maintenance-conformance@60881e6c2e673f1a80c1c78101f4610f9e05210c
+        uses: StreamScapeTV/ci-workflows/actions/maintenance-conformance@60881e6c2e673f1a80c1c78101f4610f9e05210c # issue #20 immutable maintenance action checkpoint
         with:
           repository_scope: ${{ inputs.repository_scope }}
           dry_run: ${{ inputs.dry_run }}

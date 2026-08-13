@@ -32,7 +32,7 @@ jobs:
       request_id: ${{ steps.reconcile.outputs.request_id }}
     steps:
       - name: Check out exact trusted Flux policy source
-        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           repository: StreamScapeTV/flux
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -40,7 +40,7 @@ jobs:
           fetch_depth: '1'
       - name: Resolve and run trusted Flux reconciliation
         id: reconcile
-        uses: StreamScapeTV/ci-workflows/actions/flux-reconcile@60881e6c2e673f1a80c1c78101f4610f9e05210c
+        uses: StreamScapeTV/ci-workflows/actions/flux-reconcile@60881e6c2e673f1a80c1c78101f4610f9e05210c # issue #20 immutable maintenance action checkpoint
         with:
           admitted_sha: ${{ inputs.admitted_sha }}
           target_id: ${{ inputs.target_id }}
