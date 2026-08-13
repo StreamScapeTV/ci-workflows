@@ -4,6 +4,7 @@ on:
   workflow_call:
     inputs:
       repository_scope: {description: Optional checked-in project identifier; empty means every allowlisted project, required: false, type: string}
+      shared_reference_target_sha: {description: Optional exact ci-workflows SHA used only to report reviewable shared-workflow repin proposals, required: false, type: string}
       dry_run: {description: Return findings without creating or updating the report issue, required: false, default: true, type: boolean}
       request_id: {description: Bounded request identifier, required: true, type: string}
     secrets:
@@ -33,18 +34,20 @@ jobs:
       - name: Run read-only organization conformance
         id: report_read
         if: ${{ inputs.dry_run }}
-        uses: StreamScapeTV/ci-workflows/actions/maintenance-conformance@60881e6c2e673f1a80c1c78101f4610f9e05210c # issue #20 immutable maintenance action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/maintenance-conformance@d8d02c46c7abf7134786baa90c53f50db898d683 # issue #20 immutable maintenance action checkpoint
         with:
           repository_scope: ${{ inputs.repository_scope }}
+          shared_reference_target_sha: ${{ inputs.shared_reference_target_sha }}
           dry_run: true
           request_id: ${{ inputs.request_id }}
           token: ${{ secrets.organization_read_token }}
       - name: Update organization conformance report
         id: report_update
         if: ${{ !inputs.dry_run }}
-        uses: StreamScapeTV/ci-workflows/actions/maintenance-conformance@60881e6c2e673f1a80c1c78101f4610f9e05210c # issue #20 immutable maintenance action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/maintenance-conformance@d8d02c46c7abf7134786baa90c53f50db898d683 # issue #20 immutable maintenance action checkpoint
         with:
           repository_scope: ${{ inputs.repository_scope }}
+          shared_reference_target_sha: ${{ inputs.shared_reference_target_sha }}
           dry_run: false
           request_id: ${{ inputs.request_id }}
           token: ${{ secrets.organization_update_token }}
