@@ -135,6 +135,17 @@
       "trust_class": "read-only-validation"
     },
     {
+      "cleanup": "OCI publication and workspace cleanup under if: always()",
+      "domain": "oci",
+      "failure": "OciPublishError.code",
+      "handler": "ci_workflows.ciw.handle_oci_publish",
+      "inputs": ["phase", "admitted_sha", "release_authority_sha", "product_id", "release_version", "platform_set", "registry_username", "registry_token", "GitHub event identity"],
+      "operation": "publish",
+      "outputs": ["result", "source_sha", "product_id", "release_version", "source_trust", "runner_profile", "runs_on_json", "workspace_profile", "timeout_minutes", "repositories_json", "version_references_json", "source_references_json", "manifest_digests_json", "image_digest", "immutable_references_json", "platform_digests_json", "replayed", "evidence_id", "canary_id", "previous_known_good", "rollback_id", "cleanup_result", "failure_code"],
+      "side_effects": ["resolves one inventory-approved immutable OCI publication plan", "uses workflow-scoped registry authentication from named credentials", "publishes only missing exact immutable references on an exact version-tag push", "treats workflow_dispatch as read-only existing-tag verification and never repairs missing refs", "independently copies remote registry bytes into fresh OCI layouts and verifies exact parity", "enforces terminal auth/build/workspace cleanup, residue checks, and zero-artifact policy"],
+      "trust_class": "trusted-publication"
+    },
+    {
       "cleanup": "expected-state release and residue verification under if: always()",
       "domain": "device",
       "failure": "DeviceLockError.code",
@@ -298,6 +309,7 @@
     {"commands": ["node validate"], "path": "scripts/ci/node.py"},
     {"commands": ["gitops validate"], "path": "scripts/ci/gitops.py"},
     {"commands": ["oci validate"], "path": "scripts/ci/oci.py"},
+    {"commands": ["oci publish"], "path": "scripts/ci/oci_publish.py"},
     {"commands": ["android validate"], "path": "scripts/ci/android.py"},
     {"commands": ["apple validate"], "path": "scripts/ci/apple.py"}
   ],
