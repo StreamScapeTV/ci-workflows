@@ -16,23 +16,31 @@ class AppleSimulatorRepositoryScopeTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.contract = apple.load_apple_contract(ROOT)
 
-    def plan(self, repository: str, consumer: str) -> apple.AppleValidationPlan:
+    def plan(
+        self,
+        repository: str,
+        consumer: str,
+        admitted_sha: str = "a" * 40,
+    ) -> apple.AppleValidationPlan:
         request = apple.AppleValidationRequest(
             repository=repository,
-            admitted_sha="a" * 40,
+            admitted_sha=admitted_sha,
             consumer_contract=consumer,
             validation_profile=AppleProfile.IOS_SIMULATOR,
             source_trust="trusted-pr",
         )
         return apple.resolve_plan(self.contract, request)
 
-    def test_same_repository_scope_is_stable(self) -> None:
+    def test_same_validation_lane_is_stable_across_ephemeral_state_roots(self) -> None:
         plan = self.plan("StreamScapeTV/ci-workflows", "ciw-apple-smoke")
         self.assertEqual(
             _simulator_device_name(plan, Path("/tmp/run-a")),
             _simulator_device_name(plan, Path("/tmp/run-b")),
         )
-        scope = hashlib.sha256(b"StreamScapeTV/ci-workflows").hexdigest()[:12]
+        material = "\n".join(
+            ("StreamScapeTV/ci-workflows", plan.task_profile, "a" * 40)
+        )
+        scope = hashlib.sha256(material.encode("utf-8")).hexdigest()[:12]
         self.assertIn(scope, _simulator_device_name(plan))
 
     def test_different_repositories_have_distinct_names(self) -> None:
@@ -50,10 +58,17 @@ class AppleSimulatorRepositoryScopeTests(unittest.TestCase):
             central.simulator.device_type_identifier,
             product.simulator.device_type_identifier,
         )
-        self.assertNotEqual(
-            _simulator_device_name(central),
-            _simulator_device_name(product),
-        )
+        self.assertNotEqual(_simulator_device_name(central), _simulator_device_name(product))
+
+    def test_same_repository_release_and_debug_lanes_are_distinct(self) -> None:
+        debug = self.plan("StreamScapeTV/ci-workflows", "ciw-apple-smoke")
+        release = self.plan("StreamScapeTV/ci-workflows", "ciw-apple-release-smoke")
+        self.assertNotEqual(_simulator_device_name(debug), _simulator_device_name(release))
+
+    def test_same_task_on_different_exact_heads_is_distinct(self) -> None:
+        first = self.plan("StreamScapeTV/ci-workflows", "ciw-apple-smoke", "a" * 40)
+        second = self.plan("StreamScapeTV/ci-workflows", "ciw-apple-smoke", "b" * 40)
+        self.assertNotEqual(_simulator_device_name(first), _simulator_device_name(second))
 
 
 if __name__ == "__main__":
