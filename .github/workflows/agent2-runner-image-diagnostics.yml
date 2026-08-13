@@ -4,32 +4,53 @@ on:
   pull_request:
     paths:
       - .github/workflows/agent2-runner-image-diagnostics.yml
-  push:
-    branches:
-      - issue/143-general-runner-image
-    paths:
-      - .github/workflows/agent2-runner-image-diagnostics.yml
 
 permissions:
   contents: read
 
 jobs:
-  inspect-runner-base:
-    name: Inspect actions runner OCI identity
+  inspect-runner-bases:
+    name: Inspect general runner OCI identities
     runs-on: [linux, amd64, buildah, tiny]
     timeout-minutes: 10
     steps:
-      - name: Resolve immutable linux/amd64 identity without credentials
+      - name: Resolve runner base
         shell: bash
         run: |
           set -Eeuo pipefail
-          reference='ghcr.io/actions/actions-runner:2.336.0'
-          root_digest="$(skopeo inspect --format '{{.Digest}}' "docker://${reference}")"
-          skopeo inspect --raw "docker://${reference}" > "${RUNNER_TEMP}/runner-index.json"
-          child_digest="$(jq -er '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest' "${RUNNER_TEMP}/runner-index.json")"
-          skopeo inspect --raw "docker://ghcr.io/actions/actions-runner@${child_digest}" > "${RUNNER_TEMP}/runner-manifest.json"
-          config_digest="$(jq -er '.config.digest' "${RUNNER_TEMP}/runner-manifest.json")"
-          printf 'RUNNER_ROOT_DIGEST=%s\n' "${root_digest}"
-          printf 'RUNNER_AMD64_MANIFEST_DIGEST=%s\n' "${child_digest}"
-          printf 'RUNNER_AMD64_CONFIG_DIGEST=%s\n' "${config_digest}"
-          rm -f "${RUNNER_TEMP}/runner-index.json" "${RUNNER_TEMP}/runner-manifest.json"
+          skopeo inspect --raw docker://ghcr.io/actions/actions-runner:2.336.0 > "${RUNNER_TEMP}/index.json"
+          root="$(skopeo inspect --format '{{.Digest}}' docker://ghcr.io/actions/actions-runner:2.336.0)"
+          child="$(jq -er '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest' "${RUNNER_TEMP}/index.json")"
+          skopeo inspect --raw "docker://ghcr.io/actions/actions-runner@${child}" > "${RUNNER_TEMP}/manifest.json"
+          config="$(jq -er '.config.digest' "${RUNNER_TEMP}/manifest.json")"
+          printf 'RUNNER_ROOT_DIGEST=%s\nRUNNER_AMD64_MANIFEST_DIGEST=%s\nRUNNER_AMD64_CONFIG_DIGEST=%s\n' "${root}" "${child}" "${config}"
+      - name: Resolve Node base
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          skopeo inspect --raw docker://docker.io/library/node:24.18.0-bookworm-slim > "${RUNNER_TEMP}/index.json"
+          root="$(skopeo inspect --format '{{.Digest}}' docker://docker.io/library/node:24.18.0-bookworm-slim)"
+          child="$(jq -er '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest' "${RUNNER_TEMP}/index.json")"
+          skopeo inspect --raw "docker://docker.io/library/node@${child}" > "${RUNNER_TEMP}/manifest.json"
+          config="$(jq -er '.config.digest' "${RUNNER_TEMP}/manifest.json")"
+          printf 'NODE_ROOT_DIGEST=%s\nNODE_AMD64_MANIFEST_DIGEST=%s\nNODE_AMD64_CONFIG_DIGEST=%s\n' "${root}" "${child}" "${config}"
+      - name: Resolve Python base
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          skopeo inspect --raw docker://docker.io/library/python:3.14.7-slim-bookworm > "${RUNNER_TEMP}/index.json"
+          root="$(skopeo inspect --format '{{.Digest}}' docker://docker.io/library/python:3.14.7-slim-bookworm)"
+          child="$(jq -er '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest' "${RUNNER_TEMP}/index.json")"
+          skopeo inspect --raw "docker://docker.io/library/python@${child}" > "${RUNNER_TEMP}/manifest.json"
+          config="$(jq -er '.config.digest' "${RUNNER_TEMP}/manifest.json")"
+          printf 'PYTHON_ROOT_DIGEST=%s\nPYTHON_AMD64_MANIFEST_DIGEST=%s\nPYTHON_AMD64_CONFIG_DIGEST=%s\n' "${root}" "${child}" "${config}"
+      - name: Resolve GCC base
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          skopeo inspect --raw docker://docker.io/library/gcc:13.4.0-bookworm > "${RUNNER_TEMP}/index.json"
+          root="$(skopeo inspect --format '{{.Digest}}' docker://docker.io/library/gcc:13.4.0-bookworm)"
+          child="$(jq -er '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest' "${RUNNER_TEMP}/index.json")"
+          skopeo inspect --raw "docker://docker.io/library/gcc@${child}" > "${RUNNER_TEMP}/manifest.json"
+          config="$(jq -er '.config.digest' "${RUNNER_TEMP}/manifest.json")"
+          printf 'GCC_ROOT_DIGEST=%s\nGCC_AMD64_MANIFEST_DIGEST=%s\nGCC_AMD64_CONFIG_DIGEST=%s\n' "${root}" "${child}" "${config}"
