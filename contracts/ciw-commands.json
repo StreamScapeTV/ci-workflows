@@ -157,6 +157,17 @@
       "trust_class": "read-only-validation"
     },
     {
+      "cleanup": "device state cleanup and residue verification under if: always()",
+      "domain": "device",
+      "failure": "DeviceValidationError.code",
+      "handler": "ci_workflows.ciw.handle_device_validate",
+      "inputs": ["phase", "source_root", "inventory_fixture", "admitted_sha", "device_family", "device_capability", "device_alias", "command_profile", "script_path", "max_duration_minutes", "evidence_exception_id", "request_id", "validated_plan", "validated_plan_sha256", "GitHub event identity"],
+      "operation": "validate",
+      "outputs": ["result", "admitted_sha", "request_id", "device_evidence_id", "artifact_exception_used", "selected_device_hash", "runner_profile", "base_runner_profile", "runs_on_json", "workspace_profile", "timeout_minutes", "derived_source_trust", "execution_authorized", "authorization_failure", "concurrency_group", "cancel_in_progress", "validated_plan", "validated_plan_sha256", "test_summary", "cleanup_result", "failure_code"],
+      "side_effects": ["derives one contract-owned physical-device plan from exact GitHub source identity", "executes synthetic Android, iOS, and tvOS inventory fixtures only in explicit synthetic mode", "fails closed before physical execution when an accepted authorization and fencing receipt is absent", "cleans registered device and checkout state without following links"],
+      "trust_class": "physical-device-validation"
+    },
+    {
       "cleanup": "ciw workspace cleanup under if: always()",
       "domain": "flutter",
       "failure": "FlutterValidationError.code",
@@ -288,11 +299,12 @@
     {"commands": ["gitops validate"], "path": "scripts/ci/gitops.py"},
     {"commands": ["oci validate"], "path": "scripts/ci/oci.py"},
     {"commands": ["android validate"], "path": "scripts/ci/android.py"},
-    {"commands": ["apple validate"], "path": "scripts/ci/apple.py"}
+    {"commands": ["apple validate"], "path": "scripts/ci/apple.py"},
+    {"commands": ["device validate"], "path": "scripts/ci/device.py"}
   ],
   "entry_point": "scripts/ci/ciw.py",
   "forbidden_dispatch_inputs": ["arbitrary_command", "shell", "callback", "callback_url", "handler", "function_name", "module_name", "runner", "runs_on", "runner_labels", "container_engine", "secret_name", "deletion_path", "workspace_root"],
-  "future_namespaces": ["helm", "release", "device", "github"],
+  "future_namespaces": ["helm", "release", "github"],
   "program": "ciw",
   "schema_version": 1
 }
