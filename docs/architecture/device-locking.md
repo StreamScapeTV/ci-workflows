@@ -17,8 +17,9 @@ Synthetic contract tests may provision an isolated temporary `CIW_DEVICE_LOCK_RO
 One resource key is the SHA-256 digest of:
 
 1. exact device family;
-2. reviewed device capability;
-3. deterministic SHA-256 discovered-device identity.
+2. deterministic SHA-256 discovered-device identity.
+
+The reviewed device capability is bound into every receipt and exact-request comparison, but it does **not** partition the lock. Two workflows requesting different capabilities for the same physical device therefore contend on the same resource and cannot mutate it concurrently.
 
 Raw serials and UDIDs never enter the lock receipt or persistent state. The exact GitHub repository/run/attempt owner is also stored only as a SHA-256 identity. The owner-authorization receipt is one-way hashed before persistence. Exact tested source SHA and bounded request ID remain explicit because they are required replay/fencing facts.
 
@@ -37,13 +38,13 @@ Raw serials and UDIDs never enter the lock receipt or persistent state. The exac
 
 An unexpired lease held by another exact owner/request fails as `lock_held`. An exact retry by the same owner/request is idempotent and returns the existing fence rather than creating a second token. After expiry, a new valid acquisition replaces the active lease with a new random fence. The former receipt is then stale and cannot verify or release the newer holder.
 
-The lease duration is bounded to 60–18,000 seconds. The validation plan must choose a lease that covers the bounded product test plus restoration/cleanup headroom. A mutation step revalidates the current receipt immediately before physical mutation and may demand additional minimum remaining lifetime. Receipt expiry remains authoritative even if a retry supplies a different nominal lease duration.
+The lease duration is bounded to 60–18,000 seconds and is part of the exact request match. The validation plan must choose a lease that covers the bounded product test plus restoration/cleanup headroom. A mutation step revalidates the current receipt immediately before physical mutation and may demand additional minimum remaining lifetime. A retry that changes the lease duration is not treated as the same idempotent request.
 
 ## Verification and stale-holder prevention
 
 Verification reconstructs the expected request from reviewed workflow inputs and runner-owned GitHub repository/run/attempt identity. It then compares the opaque receipt with the current active backend state under the transaction lock.
 
-Verification fails closed for malformed/fabricated receipts, wrong family/capability/device/source/authorization/owner/request, released state, expired leases, insufficient remaining lease, or a superseding fencing token. A previous holder cannot regain mutation authority after a newer acquisition simply by replaying its old receipt.
+Verification fails closed for malformed/fabricated receipts, wrong family/capability/device/source/authorization/owner/request/lease, released state, expired leases, insufficient remaining lease, or a superseding fencing token. A previous holder cannot regain mutation authority after a newer acquisition simply by replaying its old receipt.
 
 The receipt is not a bearer credential for another request. It is valid only while all bound request facts match the current active state.
 
