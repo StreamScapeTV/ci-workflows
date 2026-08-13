@@ -4,7 +4,7 @@ description: Acquire, verify, release, or residue-check one production physical-
 
 inputs:
   phase:
-    description: Bounded lock operation: acquire, verify, release, or residue.
+    description: "Bounded lock operation: acquire, verify, release, or residue."
     required: true
   device_family:
     description: Exact reviewed physical-device family.
