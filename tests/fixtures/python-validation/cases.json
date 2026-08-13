@@ -20,6 +20,12 @@
       "command_profile": "postgres-test"
     },
     {
+      "id": "backend-host-pr",
+      "repository": "StreamScapeTV/iptv-backend",
+      "validation_profile": "host",
+      "command_profile": "locked-test"
+    },
+    {
       "id": "backend-full-isolation",
       "repository": "StreamScapeTV/iptv-backend",
       "validation_profile": "podman",
