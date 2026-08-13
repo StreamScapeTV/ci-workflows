@@ -279,6 +279,8 @@ def artifacts(
         action = "would_delete" if dry_run else "delete"
         if not dry_run:
             api.delete_artifact(repository, artifact_id)
+            if api.get_artifact(repository, artifact_id) is not None:
+                raise MaintenanceError("artifact_delete_verification_failed")
             result.mutation_count += 1
         result.decisions.append(
             {
