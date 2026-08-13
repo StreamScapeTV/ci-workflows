@@ -98,13 +98,16 @@ def _status_snapshot(
         )
         updated_at = status.get("updated_at")
         _timestamp(updated_at)
+        target_url = status.get("target_url")
+        if target_url is not None and not isinstance(target_url, str):
+            raise MaintenanceError("projection_status_invalid")
         matches.append(
             (
                 status_id,
                 status.get("state"),
                 status.get("context"),
                 status.get("description"),
-                status.get("target_url"),
+                target_url or "",
                 updated_at,
             )
         )
