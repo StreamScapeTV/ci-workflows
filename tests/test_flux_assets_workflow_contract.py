@@ -5,6 +5,10 @@ import re
 import unittest
 from pathlib import Path
 
+import yaml
+
+from ci_workflows.validation_model import ActionsLoader
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/reusable-flux-infrastructure-assets.yml"
 INTERNAL = ROOT / ".github/workflows/internal-flux-assets.yml"
@@ -79,12 +83,40 @@ class FluxAssetsWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("reusable-helm-validate.yml", text)
         self.assertNotIn("reusable-helm-publish.yml", text)
 
-    def test_internal_leaf_is_flux_only_and_not_nested(self) -> None:
+    def test_internal_leaf_derives_trust_from_github_context(self) -> None:
         source = INTERNAL.read_text(encoding="utf-8")
+        workflow = yaml.load(source, Loader=ActionsLoader)
+        inputs = set(workflow["on"]["workflow_call"]["inputs"])
+        self.assertEqual(
+            inputs,
+            {
+                "admitted_sha",
+                "product_id",
+                "release_version",
+                "operation",
+                "policy_path",
+                "request_id",
+                "dependency_evidence_json",
+            },
+        )
+        for forbidden_input in (
+            "source_event_name",
+            "source_ref_type",
+            "source_ref_name",
+            "source_default_branch",
+        ):
+            self.assertNotIn(forbidden_input, inputs)
         self.assertIn("workflow_call:", source)
         self.assertIn("runs-on: [linux, amd64, general]", source)
         self.assertIn("timeout-minutes: 30", source)
         self.assertIn('test "${CALLER_REPOSITORY}" = "StreamScapeTV/flux"', source)
+        self.assertIn("source_event_name: ${{ github.event_name }}", source)
+        self.assertIn("source_ref_type: ${{ github.ref_type }}", source)
+        self.assertIn("source_ref_name: ${{ github.ref_name }}", source)
+        self.assertIn(
+            "source_default_branch: ${{ github.event.repository.default_branch }}",
+            source,
+        )
         self.assertNotIn("runs_on_json", source)
         self.assertNotIn("uses: ./.github/workflows/", source)
         self.assertNotIn("KUBECONFIG", source)
