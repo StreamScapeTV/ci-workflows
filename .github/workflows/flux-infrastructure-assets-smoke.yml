@@ -83,6 +83,7 @@ jobs:
             scripts/ci/flux_assets.py \
             src/ci_workflows/flux_assets.py \
             src/ci_workflows/flux_assets_guards.py \
+            src/ci_workflows/flux_assets_source.py \
             tests/test_flux_assets.py \
             tests/test_flux_assets_dependency_alignment.py \
             tests/test_flux_assets_guards.py \
