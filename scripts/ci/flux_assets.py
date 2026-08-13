@@ -28,6 +28,7 @@ from ci_workflows.flux_assets_guards import (  # noqa: E402
 )
 from ci_workflows.flux_assets_source import (  # noqa: E402
     validate_dependency_product_inventory,
+    validate_runtime_repository,
     validate_source_contract_strict,
 )
 
@@ -140,6 +141,7 @@ def _emit(path: Path | None, payload: Mapping[str, Any]) -> None:
 
 
 def _load_current_contract(path: Path) -> dict[str, Any]:
+    validate_runtime_repository(os.environ.get("GITHUB_REPOSITORY", ""))
     contract = load_contract(path)
     validate_dependency_product_inventory(
         contract, products_path=PRODUCTS_INVENTORY
