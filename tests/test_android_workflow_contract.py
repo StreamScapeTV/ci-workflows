@@ -22,6 +22,8 @@ ACTION = ROOT / "actions/validate-android/action.yml"
 DOC = ROOT / "docs/workflows/android.md"
 ARCH = ROOT / "docs/architecture/android-validation.md"
 CASES = ROOT / "tests/fixtures/android-validation/cases.json"
+SOURCE_POLICY = ROOT / "contracts/android-source-policy.json"
+VALIDATE_ANDROID_SHA = "f2c477c72c015d37e2c62ca87d8efc8e6034919e"
 PRIVATE_HELPER_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 PRIVATE_HELPERS = {
     "validate-android",
@@ -38,6 +40,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.contract = android_contract.load_android_contract(ROOT)
         cls.cases = json.loads(CASES.read_text(encoding="utf-8"))
+        cls.source_policy = json.loads(SOURCE_POLICY.read_text(encoding="utf-8"))
         cls.reusable = REUSABLE.read_text(encoding="utf-8")
         cls.smoke = SMOKE.read_text(encoding="utf-8")
         cls.action = ACTION.read_text(encoding="utf-8")
@@ -91,8 +94,11 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("actions/checkout@", self.reusable)
         self.assertNotIn("./.ciw/actions/", self.reusable)
         for helper in PRIVATE_HELPERS:
+            expected_sha = (
+                VALIDATE_ANDROID_SHA if helper == "validate-android" else PRIVATE_HELPER_SHA
+            )
             self.assertIn(
-                f"StreamScapeTV/ci-workflows/actions/{helper}@{PRIVATE_HELPER_SHA}",
+                f"StreamScapeTV/ci-workflows/actions/{helper}@{expected_sha}",
                 self.reusable,
             )
         self.assertNotIn("self-hosted", self.reusable)
@@ -132,7 +138,16 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             },
             set(remote_helpers),
         )
-        self.assertEqual({PRIVATE_HELPER_SHA}, set(remote_helpers.values()))
+        validate_path = "StreamScapeTV/ci-workflows/actions/validate-android"
+        self.assertEqual(remote_helpers[validate_path], VALIDATE_ANDROID_SHA)
+        self.assertEqual(
+            {PRIVATE_HELPER_SHA},
+            {
+                sha
+                for path, sha in remote_helpers.items()
+                if path != validate_path
+            },
+        )
         self.assertEqual(
             set(reusable[True]["workflow_call"].get("secrets", {})),
             {"private_dependency_token"},
@@ -145,6 +160,35 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         for step in steps:
             if step is not dependency:
                 self.assertNotIn("private_dependency_token", json.dumps(step))
+
+    def test_validate_android_checkpoint_carries_media_policy_exception(self) -> None:
+        exception = next(
+            item
+            for item in self.source_policy["tracked_secret_exceptions"]
+            if item["id"] == "streamscape_media_playback_lab_redaction_sentinels_v1"
+        )
+        self.assertEqual(exception["repository"], "StreamScapeTV/streamscape-media")
+        self.assertEqual(
+            exception["validation_profiles"],
+            ["compile", "unit-full", "consumer-script"],
+        )
+        self.assertEqual(
+            exception["paths"],
+            [{
+                "path": "apple/Tests/StreamscapePlaybackLabSupportTests/PlaybackLabBootstrapEvidenceTests.swift",
+                "git_blob_sha1": "1770311f5b3998b5dbf3f8ee191acd419aa52a56",
+            }],
+        )
+        self.assertIn(
+            'python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py"',
+            self.action,
+        )
+        self.assertEqual(
+            self.reusable.count(
+                f"StreamScapeTV/ci-workflows/actions/validate-android@{VALIDATE_ANDROID_SHA}"
+            ),
+            4,
+        )
 
     def test_smoke_is_direct_mobile_plan_execute_not_nested_reuse(self) -> None:
         self.assertNotIn("./.github/workflows/reusable-android.yml", self.smoke)
