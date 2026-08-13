@@ -10,13 +10,14 @@ from ci_workflows.validation_model import ActionsLoader
 
 ROOT = Path(__file__).resolve().parents[1]
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-APPLE_SHA = "3175577052ac22b838789709f7082dfee372cfa7"
+APPLE_SHA = "88d179740145ccea00b6986d78ceb67ea365face"
 OCI_SHA = "29cb88e406a0490834bd556bb825d0e227c862ac"
 GITOPS_SHA = "8445e63dd9fa9468b60b6d0c61e543da9681b47b"
 
 FOUNDATION = "issue #116 immutable private-action checkpoint"
 ISSUE_104 = "issue #104 immutable private-action checkpoint"
 ISSUE_125 = "issue #125 immutable private-action checkpoint"
+ISSUE_131 = "issue #131 immutable Release-aware Apple checkpoint"
 
 PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
     ".github/workflows/reusable-node.yml": {
@@ -49,7 +50,7 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
     },
     ".github/workflows/reusable-apple.yml": {
-        "StreamScapeTV/ci-workflows/actions/validate-apple": (APPLE_SHA, ISSUE_125),
+        "StreamScapeTV/ci-workflows/actions/validate-apple": (APPLE_SHA, ISSUE_131),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
