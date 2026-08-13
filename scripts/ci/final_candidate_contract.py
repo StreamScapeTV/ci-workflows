@@ -63,8 +63,16 @@ def render(contract: dict) -> str:
         "| Event family | Required behavior |",
         "|---|---|",
     ]
-    for event_family, behavior in contract["prefix_contract"].items():
-        lines.append(f"| `{event_family}` | `{behavior}` |")
+    report_order = (
+        "ordinary_unprotected_feature_push",
+        "pull_request",
+        "protected_integration_release",
+        "manual_publication_deployment_device_live",
+    )
+    for event_family in report_order:
+        lines.append(
+            f"| `{event_family}` | `{contract['prefix_contract'][event_family]}` |"
+        )
 
     for repo in contract["repositories"]:
         lines.extend(
