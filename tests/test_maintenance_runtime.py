@@ -100,6 +100,9 @@ class FakeApi:
         issue = {
             "number": 77,
             "title": title,
+            "body": body,
+            "state": "open",
+            "updated_at": "2026-08-13T09:00:00Z",
             "html_url": "https://example.invalid/77",
         }
         self.open_issues = [issue]
@@ -113,11 +116,16 @@ class FakeApi:
         body: str,
     ):
         self.updated_issues.append(number)
-        return {
+        updated = {
             "number": number,
             "title": title,
+            "body": body,
+            "state": "open",
+            "updated_at": "2026-08-13T09:01:00Z",
             "html_url": f"https://example.invalid/{number}",
         }
+        self.open_issues = [updated]
+        return updated
 
     def list_attempt_jobs(self, repository: str, run_id: int, attempt: int):
         return list(self.jobs)
@@ -208,7 +216,10 @@ class MaintenanceRuntimeTests(unittest.TestCase):
         self.assertEqual(api.deleted_artifacts, [(repo, 11)])
         decisions = {row["artifact_id"]: row for row in result.decisions}
         self.assertEqual(decisions[10]["reason"], "retained_artifact_exception")
-        self.assertEqual(decisions[11]["reason"], "artifact_exception_limit_exceeded")
+        self.assertEqual(
+            decisions[11]["reason"],
+            "artifact_exception_limit_exceeded",
+        )
 
     def test_artifact_exception_byte_budget_is_independently_enforced(self) -> None:
         api = FakeApi()
@@ -267,7 +278,10 @@ class MaintenanceRuntimeTests(unittest.TestCase):
         self.assertEqual(api.deleted_artifacts, [(repo, 21)])
         decisions = {row["artifact_id"]: row for row in result.decisions}
         self.assertEqual(decisions[20]["reason"], "retained_artifact_exception")
-        self.assertEqual(decisions[21]["reason"], "artifact_exception_limit_exceeded")
+        self.assertEqual(
+            decisions[21]["reason"],
+            "artifact_exception_limit_exceeded",
+        )
 
     def test_active_run_artifacts_are_preserved_outside_exception_budget(self) -> None:
         api = FakeApi()
