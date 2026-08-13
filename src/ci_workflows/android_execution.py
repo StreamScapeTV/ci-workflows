@@ -39,6 +39,9 @@ def run_command(
     state_root: Path | None = None,
     stage: str = "command",
     check: bool = True,
+    timeout_failure_code: str | None = None,
+    launch_failure_code: str | None = None,
+    nonzero_failure_code: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     require(bool(argv) and all(isinstance(x, str) and x for x in argv), "invalid_input")
     try:
@@ -52,8 +55,10 @@ def run_command(
             timeout=timeout_seconds,
             check=False,
         )
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise AndroidValidationError(failure_code) from error
+    except subprocess.TimeoutExpired as error:
+        raise AndroidValidationError(timeout_failure_code or failure_code) from error
+    except OSError as error:
+        raise AndroidValidationError(launch_failure_code or failure_code) from error
     output = sanitize(
         (result.stdout or "") + (result.stderr or ""),
         (cwd, state_root) if state_root else (cwd,),
@@ -64,7 +69,7 @@ def run_command(
         require(re.fullmatch(r'[a-z][a-z0-9-]{1,63}', stage) is not None, "invalid_input")
         (logs / f"{stage}.log").write_text(output, encoding="utf-8")
     if check and result.returncode:
-        raise AndroidValidationError(failure_code)
+        raise AndroidValidationError(nonzero_failure_code or failure_code)
     return result
 
 
@@ -347,6 +352,8 @@ def verify_wrapper(
             git_blob_sha1(jar) == plan.wrapper.jar_blob_sha1,
             "wrapper_invalid",
         )
+    if plan.wrapper.mode == "standard-wrapper":
+        return plan.wrapper.version
     result = run_command(
         [str(wrapper), *plan.fixed_gradle_arguments, "--version"],
         cwd=working,
@@ -355,6 +362,9 @@ def verify_wrapper(
         failure_code="wrapper_invalid",
         state_root=state,
         stage="gradle-version",
+        timeout_failure_code="wrapper_probe_timeout",
+        launch_failure_code="wrapper_probe_launch_failed",
+        nonzero_failure_code="wrapper_probe_nonzero",
     )
     match = _GRADLE.search(result.stdout + result.stderr)
     require(
