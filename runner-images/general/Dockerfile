@@ -3,13 +3,8 @@ FROM docker.io/library/python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74
 FROM docker.io/library/node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS node-runtime
 FROM ghcr.io/actions/actions-runner:2.336.0@sha256:0cfdcc701ce933c6d243c6b0b2da767366dc9f2e99961d4c3754b0b78084cdda AS actions-runner
 
-RUN sudo rm -f \
-    /usr/bin/docker \
-    /usr/local/bin/docker \
-    /usr/bin/dockerd \
-    /usr/local/bin/dockerd \
-    /usr/local/lib/docker/cli-plugins/docker-buildx \
-    /usr/local/lib/docker/cli-plugins/docker-compose
+RUN sudo rm -f /usr/bin/containerd /usr/bin/containerd-shim-runc-v2 /usr/bin/ctr /usr/bin/docker-init /usr/bin/docker-proxy /usr/bin/runc
+RUN sudo rm -f /usr/bin/docker /usr/local/bin/docker /usr/bin/dockerd /usr/local/bin/dockerd /usr/local/lib/docker/cli-plugins/docker-buildx /usr/local/lib/docker/cli-plugins/docker-compose
 COPY --from=python-runtime /usr/local/ /usr/local/
 COPY --from=node-runtime /usr/local/ /usr/local/
 
@@ -35,11 +30,8 @@ COPY --chmod=0755 smoke.sh /usr/local/bin/runner-image-smoke
 RUN python3 --version | grep -F 'Python 3.12.13' && \
     node --version | grep -F 'v24.18.0' && \
     command -v npm corepack git bash curl jq yq tar zstd gzip unzip zip helm kustomize kubectl >/dev/null && \
-    ! command -v docker && \
-    ! command -v dockerd && \
-    ! command -v buildah && \
-    ! command -v podman && \
-    ! command -v skopeo
+    ! command -v docker && ! command -v dockerd && \
+    ! command -v buildah && ! command -v podman && ! command -v skopeo
 
 USER runner
 RUN /usr/local/bin/runner-image-smoke
