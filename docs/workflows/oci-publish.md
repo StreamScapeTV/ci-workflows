@@ -25,9 +25,11 @@ Both modes revalidate the exact tag object/commit immediately before registry
 work. Pull-request, `pull_request_target`, and `workflow_run` source cannot reach
 publication authority.
 
-The called workflow checks out its own central implementation with
-`job.workflow_repository` and `job.workflow_sha`; caller repository/source comes
-only from the caller-associated GitHub context and the exact admitted SHA.
+The reusable workflow does not clone the private central repository with the
+caller token. It invokes reviewed immutable private composite-action SHAs for
+release-tag authority, exact checkout, workspace state, OCI build validation,
+publication/read-back, evidence, and cleanup. Caller repository/source still
+comes only from the caller-associated GitHub context and the exact admitted SHA.
 
 ## Execution stages
 
@@ -86,9 +88,12 @@ the bounded image-index shape. Read-back proves:
 - configured user, entrypoint, command, and exposed ports;
 - source-SHA identity resolving to the same top-level manifest digest.
 
-The byte-identical remote layout preserves the merged `oci.build` assertions for
-required files/tools and forbidden runtime content without executing product
-scripts in the publication verifier.
+The publication guard also reuses the merged `oci.build` target parser and layer
+filesystem assertion logic on both the rebuilt layout and the independently
+pulled layout. Contract-owned required files/tools must be present and forbidden
+tools must be absent. #17 does not invent runtime-version or subordinate-ID
+policy that is not encoded in `contracts/oci-products.json`; stronger Flux-owned
+runtime assertions remain in the higher-level `flux.assets` contract.
 
 ## Registry credentials and cleanup
 
@@ -140,7 +145,8 @@ reconcile a scale set, or receive Kubernetes/SOPS authority.
 
 Hermetic tests cover event trust, explicit absence handling, immutable replay and
 conflict behavior, no-write verify-only, missing-reference repair on tag
-publication, independent layout read-back, token-stdin/auth-file permissions,
-and cleanup. A live private-registry proof is claimed only when the exact final
-candidate runs with authorized least-privilege credentials; unit/mock evidence
-never substitutes for that proof.
+publication, independent layout read-back, real #16 required/forbidden
+filesystem assertions, token-stdin/auth-file permissions, private-helper
+immutability, and cleanup. A live private-registry proof is claimed only when the
+exact final candidate runs with authorized least-privilege credentials;
+unit/mock evidence never substitutes for that proof.
