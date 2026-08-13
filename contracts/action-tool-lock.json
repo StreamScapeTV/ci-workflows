@@ -94,10 +94,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-python",
-      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
-      "release": "issue #125 immutable private-action checkpoint",
+      "sha": "3a927429488b4df7b88b6b254b325d044125dacf",
+      "release": "issue #155 immutable private-action checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/validate-python"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/3a927429488b4df7b88b6b254b325d044125dacf/actions/validate-python"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/verify-toolchain",
