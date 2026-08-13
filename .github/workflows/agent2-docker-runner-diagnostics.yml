@@ -1,0 +1,30 @@
+name: Agent 2 docker runner diagnostics
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/agent2-docker-runner-diagnostics.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-docker-cli:
+    name: Inspect official Docker CLI OCI identity
+    runs-on: [linux, amd64, buildah, tiny]
+    timeout-minutes: 10
+    steps:
+      - name: Resolve immutable linux amd64 identity
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          reference='docker.io/library/docker:29.7.2-cli'
+          root_digest="$(skopeo inspect --format '{{.Digest}}' "docker://${reference}")"
+          skopeo inspect --raw "docker://${reference}" > "${RUNNER_TEMP}/docker-index.json"
+          child_digest="$(jq -er '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest' "${RUNNER_TEMP}/docker-index.json")"
+          skopeo inspect --raw "docker://docker.io/library/docker@${child_digest}" > "${RUNNER_TEMP}/docker-manifest.json"
+          config_digest="$(jq -er '.config.digest' "${RUNNER_TEMP}/docker-manifest.json")"
+          printf 'DOCKER_ROOT_DIGEST=%s\n' "${root_digest}"
+          printf 'DOCKER_AMD64_MANIFEST_DIGEST=%s\n' "${child_digest}"
+          printf 'DOCKER_AMD64_CONFIG_DIGEST=%s\n' "${config_digest}"
+          rm -f "${RUNNER_TEMP}/docker-index.json" "${RUNNER_TEMP}/docker-manifest.json"
