@@ -9,7 +9,13 @@ import yaml
 from ci_workflows.validation_model import ActionsLoader
 
 ROOT = Path(__file__).resolve().parents[1]
-CHECKOUT = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+HELPER_SHA = "60881e6c2e673f1a80c1c78101f4610f9e05210c"
+HELPERS = {
+    "maintenance.artifacts": "maintenance-artifacts",
+    "maintenance.branches": "maintenance-branches",
+    "maintenance.conformance": "maintenance-conformance",
+    "maintenance.runner-retry": "maintenance-runner-retry",
+}
 
 
 class MaintenanceWorkflowContractTests(unittest.TestCase):
@@ -21,13 +27,7 @@ class MaintenanceWorkflowContractTests(unittest.TestCase):
         cls.permissions = {row["id"]: row for row in permissions["profiles"]}
 
     def test_four_maintenance_workflows_match_reviewed_public_api_without_new_control_surface(self) -> None:
-        apis = (
-            "maintenance.artifacts",
-            "maintenance.branches",
-            "maintenance.conformance",
-            "maintenance.runner-retry",
-        )
-        for api in apis:
+        for api, helper in HELPERS.items():
             with self.subTest(api=api):
                 record = self.records[api]
                 path = ROOT / record["file"]
@@ -43,26 +43,27 @@ class MaintenanceWorkflowContractTests(unittest.TestCase):
                 job = next(iter(workflow["jobs"].values()))
                 self.assertEqual(job["runs-on"], ["linux", "amd64", "general"])
                 self.assertLessEqual(job["timeout-minutes"], record["timeout_minutes"])
-                self.assertEqual(text.count(CHECKOUT), 1)
-                self.assertIn("persist-credentials: false", text)
+                self.assertIn(
+                    f"uses: StreamScapeTV/ci-workflows/actions/{helper}@{HELPER_SHA}",
+                    text,
+                )
+                self.assertNotIn("actions/checkout@", text)
+                self.assertNotIn("job.workflow_", text)
+                self.assertNotIn("path: .ciw", text)
+                self.assertNotIn("./.ciw/actions/", text)
                 self.assertNotIn("secrets: inherit", text)
                 self.assertNotIn("self-hosted", text)
                 for forbidden in ("arbitrary_command", "callback_url", "runner_labels", "force-push"):
                     self.assertNotIn(forbidden, text)
 
     def test_dry_run_remains_default_for_every_mutating_maintenance_api(self) -> None:
-        for api in (
-            "maintenance.artifacts",
-            "maintenance.branches",
-            "maintenance.conformance",
-            "maintenance.runner-retry",
-        ):
+        for api in HELPERS:
             record = self.records[api]
             workflow = yaml.load((ROOT / record["file"]).read_text(encoding="utf-8"), Loader=ActionsLoader)
             self.assertIs(workflow["on"]["workflow_call"]["inputs"]["dry_run"]["default"], True)
 
     def test_composite_actions_are_thin_and_do_not_select_repositories_or_runners(self) -> None:
-        for name in ("maintenance-artifacts", "maintenance-branches", "maintenance-conformance", "maintenance-runner-retry"):
+        for name in HELPERS.values():
             path = ROOT / f"actions/{name}/action.yml"
             action = yaml.load(path.read_text(encoding="utf-8"), Loader=ActionsLoader)
             self.assertEqual(action["runs"]["using"], "composite")

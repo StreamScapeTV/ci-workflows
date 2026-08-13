@@ -9,7 +9,8 @@ import yaml
 from ci_workflows.validation_model import ActionsLoader
 
 ROOT = Path(__file__).resolve().parents[1]
-CHECKOUT = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+HELPER_SHA = "60881e6c2e673f1a80c1c78101f4610f9e05210c"
+EXACT_CHECKOUT_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 
 
 class FluxReconcileWorkflowContractTests(unittest.TestCase):
@@ -36,13 +37,26 @@ class FluxReconcileWorkflowContractTests(unittest.TestCase):
         self.assertIs(call["inputs"]["dry_run"]["default"], True)
 
     def test_flux_workflow_executes_only_exact_flux_owned_policy_source(self) -> None:
-        self.assertEqual(self.text.count(CHECKOUT), 1)
+        self.assertIn(
+            f"uses: StreamScapeTV/ci-workflows/actions/exact-checkout@{EXACT_CHECKOUT_SHA}",
+            self.text,
+        )
+        self.assertIn(
+            f"uses: StreamScapeTV/ci-workflows/actions/flux-reconcile@{HELPER_SHA}",
+            self.text,
+        )
+        self.assertNotIn("actions/checkout@", self.text)
+        self.assertNotIn("job.workflow_", self.text)
+        self.assertNotIn("path: .ciw", self.text)
+        self.assertNotIn("./.ciw/actions/", self.text)
         self.assertIn("repository: StreamScapeTV/flux", self.text)
         self.assertIn("admitted_sha: ${{ inputs.admitted_sha }}", self.text)
-        self.assertIn("persist-credentials: false", self.text)
         self.assertIn("cd source", self.text)
         self.assertIn('test "$(git rev-parse HEAD)" = "${{ inputs.admitted_sha }}"', self.text)
         self.assertIn("git status --porcelain --untracked-files=all", self.text)
+        self.assertIn("rm -rf source", self.text)
+        self.assertIn("! -e source", self.text)
+        self.assertIn("! -L source", self.text)
         for forbidden in ("pull_request_target", "issue_comment", "workflow_run", "secrets: inherit", "runs-on: self-hosted", "kubectl apply", "helm upgrade"):
             self.assertNotIn(forbidden, self.text)
 
