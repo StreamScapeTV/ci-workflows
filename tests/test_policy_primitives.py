@@ -111,6 +111,35 @@ class PolicyPrimitiveTests(unittest.TestCase):
             )
         self.assertEqual(caught.exception.instruction, "tracked_secret_detected")
 
+    def test_bearer_placeholder_passes_but_credential_shaped_value_fails(self) -> None:
+        self.commit(
+            "README.md",
+            'curl -H "Authorization: Bearer TOKEN" https://example.test\n',
+        )
+        self.assertEqual(
+            scan_tracked_repository(
+                self.repo,
+                repository="StreamScapeTV/example",
+                contract_root=ROOT,
+            ),
+            (1, 1),
+        )
+
+        path = self.repo / "README.md"
+        path.write_text(
+            'curl -H "Authorization: Bearer ' + "A" * 32 + '" https://example.test\n',
+            encoding="utf-8",
+        )
+        subprocess.run(["git", "-C", str(self.repo), "add", "README.md"], check=True)
+        subprocess.run(["git", "-C", str(self.repo), "commit", "-qm", "credential"], check=True)
+        with self.assertRaises(FoundationError) as caught:
+            scan_tracked_repository(
+                self.repo,
+                repository="StreamScapeTV/example",
+                contract_root=ROOT,
+            )
+        self.assertEqual(caught.exception.instruction, "tracked_secret_detected")
+
     def test_tracked_symlink_escape_is_rejected(self) -> None:
         outside = Path(self.temp.name) / "outside.txt"
         outside.write_text("outside\n", encoding="utf-8")
