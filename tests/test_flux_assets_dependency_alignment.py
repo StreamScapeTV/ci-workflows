@@ -55,6 +55,17 @@ class FluxHelmDependencyAlignmentTests(unittest.TestCase):
                 branch_private, products_path=PRODUCTS
             )
 
+    def test_dependency_api_cannot_select_current_product_of_wrong_kind(self) -> None:
+        contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
+        wrong_kind = json.loads(json.dumps(contract))
+        wrong_kind["dependency_interfaces"]["oci.publish"]["product_id"] = (
+            "flux-runner-chart-assets"
+        )
+        with self.assertRaisesRegex(FluxAssetError, "dependency_product_kind_mismatch"):
+            validate_dependency_product_inventory(
+                wrong_kind, products_path=PRODUCTS
+            )
+
     def test_arc_upstreams_use_apache_2_license_identity(self) -> None:
         contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
         product = contract["products"]["flux-runner-chart-assets"]
