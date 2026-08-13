@@ -96,18 +96,6 @@ def admit_source(
             repository,
             provider.pull_request(repository, event_pr.number),
         )
-        _require(event_pr.head_sha == current_pr.head_sha, "stale_pr_head")
-        _require(event_pr.base_sha == current_pr.base_sha, "stale_pr_base")
-        if event_pr.merge_sha is not None:
-            _require(
-                event_pr.merge_sha == current_pr.merge_sha,
-                "stale_pr_merge",
-            )
-        _expected_pr_freshness(inputs, current_pr)
-        _require(
-            current_pr.base_branch == integration_branch,
-            "unexpected_pr_base_branch",
-        )
         if mode == SourceMode.WORKFLOW_CALL:
             if inputs.requested_sha == current_pr.head_sha:
                 selected_mode = SourceMode.PR_HEAD
@@ -121,14 +109,27 @@ def admit_source(
                 if mode == SourceMode.AUTO
                 else mode
             )
+        _require(event_pr.head_sha == current_pr.head_sha, "stale_pr_head")
+        _require(event_pr.base_sha == current_pr.base_sha, "stale_pr_base")
         if selected_mode == SourceMode.PR_MERGE:
             _require(
                 current_pr.merge_sha is not None,
                 "pull_request_merge_sha_unavailable",
             )
-            source_sha = current_pr.merge_sha
-        else:
-            source_sha = current_pr.head_sha
+            _require(
+                event_pr.merge_sha == current_pr.merge_sha,
+                "stale_pr_merge",
+            )
+        _expected_pr_freshness(inputs, current_pr)
+        _require(
+            current_pr.base_branch == integration_branch,
+            "unexpected_pr_base_branch",
+        )
+        source_sha = (
+            current_pr.merge_sha
+            if selected_mode == SourceMode.PR_MERGE
+            else current_pr.head_sha
+        )
         if inputs.requested_sha is not None:
             _require(
                 inputs.requested_sha == source_sha,
@@ -396,7 +397,8 @@ def revalidate_admission(
         )
         _require(current.head_sha == result.pr_head_sha, "stale_pr_head")
         _require(current.base_sha == result.pr_base_sha, "stale_pr_base")
-        _require(current.merge_sha == result.pr_merge_sha, "stale_pr_merge")
+        if result.pr_merge_sha is not None and result.source_sha == result.pr_merge_sha:
+            _require(current.merge_sha == result.pr_merge_sha, "stale_pr_merge")
         return
     if result.trust_mode == TrustMode.TRUSTED_MAINTENANCE:
         current = provider.branch_sha(
