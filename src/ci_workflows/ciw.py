@@ -531,11 +531,13 @@ def handle_workspace_prepare(
             _foundation_environment(
                 context,
                 "GITHUB_RUN_ATTEMPT",
+                default="1",
             ),
             minimum=1,
-            maximum=1000,
+            maximum=1_000_000,
             instruction="invalid_run_attempt",
         ),
+        job=_foundation_environment(context, "GITHUB_JOB"),
         runner_os=_foundation_environment(context, "RUNNER_OS"),
     )
     state = prepare_workspace(
