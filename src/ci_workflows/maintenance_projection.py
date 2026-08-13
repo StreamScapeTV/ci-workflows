@@ -43,7 +43,7 @@ def _bounded_body(value: str) -> str:
 
 
 def _labels(value: Sequence[str]) -> tuple[str, ...]:
-    if isinstance(value, (str, bytes)) or len(value) > 20:
+    if not isinstance(value, (list, tuple)) or len(value) > 20:
         raise MaintenanceError("projection_labels_invalid")
     result: list[str] = []
     for label in value:
@@ -88,8 +88,12 @@ def _status_snapshot(
     statuses: list[Mapping[str, Any]],
     context: str,
 ) -> tuple[Any, ...] | None:
+    if not isinstance(statuses, list):
+        raise MaintenanceError("projection_status_invalid")
     matches: list[tuple[Any, ...]] = []
     for status in statuses:
+        if not isinstance(status, Mapping):
+            raise MaintenanceError("projection_status_invalid")
         if status.get("context") != context:
             continue
         status_id = _positive(
@@ -98,15 +102,24 @@ def _status_snapshot(
         )
         updated_at = status.get("updated_at")
         _timestamp(updated_at)
+        status_state = status.get("state")
+        status_description = status.get("description")
+        if (
+            not isinstance(status_state, str)
+            or status_state not in _STATUS_STATES
+            or status_description is not None
+            and not isinstance(status_description, str)
+        ):
+            raise MaintenanceError("projection_status_invalid")
         target_url = status.get("target_url")
         if target_url is not None and not isinstance(target_url, str):
             raise MaintenanceError("projection_status_invalid")
         matches.append(
             (
                 status_id,
-                status.get("state"),
-                status.get("context"),
-                status.get("description"),
+                status_state,
+                context,
+                status_description or "",
                 target_url or "",
                 updated_at,
             )
@@ -134,7 +147,12 @@ def project_status(
     contract.validate_request_id(request_id)
     contract.validate_sha(expected_sha)
     project = contract.project(project_id)
-    if state not in _STATUS_STATES or _CONTEXT.fullmatch(context) is None:
+    if (
+        not isinstance(state, str)
+        or state not in _STATUS_STATES
+        or not isinstance(context, str)
+        or _CONTEXT.fullmatch(context) is None
+    ):
         raise MaintenanceError("projection_status_invalid")
     _bounded_line(
         description,
@@ -215,7 +233,7 @@ def project_comment(
         maximum=64,
         code="projection_issue_invalid",
     )
-    if _MARKER.fullmatch(marker) is None:
+    if not isinstance(marker, str) or _MARKER.fullmatch(marker) is None:
         raise MaintenanceError("projection_marker_invalid")
     rendered = f"<!-- ci-workflows-projection:{marker} -->\n{_bounded_body(body)}"
     prefix = f"<!-- ci-workflows-projection:{marker} -->"
@@ -224,6 +242,10 @@ def project_comment(
     if issue is None:
         raise MaintenanceError("projection_issue_missing")
     comments = api.list_issue_comments(project.repository, number)
+    if not isinstance(comments, list) or any(
+        not isinstance(comment, Mapping) for comment in comments
+    ):
+        raise MaintenanceError("projection_comment_invalid")
     matches = [
         comment
         for comment in comments
@@ -249,6 +271,10 @@ def project_comment(
 
     fresh_issue = api.get_issue(project.repository, number)
     fresh_comments = api.list_issue_comments(project.repository, number)
+    if not isinstance(fresh_comments, list) or any(
+        not isinstance(comment, Mapping) for comment in fresh_comments
+    ):
+        raise MaintenanceError("projection_comment_invalid")
     fresh_matches = [
         comment
         for comment in fresh_comments
