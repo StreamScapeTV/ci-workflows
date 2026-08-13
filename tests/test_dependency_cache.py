@@ -19,11 +19,12 @@ class DependencyCacheTests(unittest.TestCase):
         self.source = self.base / "source"
         self.state = self.base / "state"
         self.home = self.state / "home"
+        self.npm = self.state / "npm/cache"
         self.xdg = self.state / "xdg-cache"
         self.gradle = self.state / "gradle"
         self.pub = self.state / "pub"
         self.helm = self.state / "helm-cache"
-        for path in (self.source, self.state, self.home, self.xdg, self.gradle, self.pub, self.helm):
+        for path in (self.source, self.state, self.home, self.npm, self.xdg, self.gradle, self.pub, self.helm):
             path.mkdir(parents=True, exist_ok=True)
         self.event = self.base / "event.json"
         self.event.write_text(
@@ -45,6 +46,7 @@ class DependencyCacheTests(unittest.TestCase):
             "RUNNER_ARCH": "X64",
             "CI_WORKFLOW_ROOT": str(self.state),
             "HOME": str(self.home),
+            "npm_config_cache": str(self.npm),
             "XDG_CACHE_HOME": str(self.xdg),
             "GRADLE_USER_HOME": str(self.gradle),
             "PUB_CACHE": str(self.pub),
@@ -103,7 +105,7 @@ class DependencyCacheTests(unittest.TestCase):
     def test_cache_paths_are_marker_bound_dependency_state_not_source(self) -> None:
         (self.source / "package-lock.json").write_text("{}\n", encoding="utf-8")
         plan = self.plan(family="npm")
-        self.assertEqual(plan.cache_paths, (str(self.home / ".npm"),))
+        self.assertEqual(plan.cache_paths, (str(self.npm),))
         for path in plan.cache_paths:
             self.assertTrue(str(path).startswith(str(self.state)))
             self.assertFalse(str(path).startswith(str(self.source)))
@@ -150,7 +152,7 @@ class DependencyCacheTests(unittest.TestCase):
     def test_cache_path_outside_workflow_state_fails_closed(self) -> None:
         (self.source / "package-lock.json").write_text("{}\n", encoding="utf-8")
         environment = self.environment()
-        environment["HOME"] = str(self.base / "persistent-home")
+        environment["npm_config_cache"] = str(self.base / "outside-npm-cache")
         with self.assertRaisesRegex(DependencyCacheError, "cache_path_outside_workflow_state"):
             self.plan(family="npm", environment=environment)
 
