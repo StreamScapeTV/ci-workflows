@@ -131,6 +131,11 @@ class InventoryAndEvidenceTests(unittest.TestCase):
         result, records = self.synthetic_result()
         packet = dict(result.evidence_packet)
         packet["certification_scope"] = "physical-device/android"
+        packet["limitations"] = [
+            limitation
+            for limitation in packet["limitations"]
+            if limitation != "synthetic-contract-evidence-is-not-physical-device-proof"
+        ]
         with self.assertRaisesRegex(DeviceValidationError, "evidence_overclaim"):
             validate_evidence_packet(
                 packet,
