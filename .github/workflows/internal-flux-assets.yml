@@ -21,18 +21,6 @@ on:
       request_id:
         required: true
         type: string
-      source_event_name:
-        required: true
-        type: string
-      source_ref_type:
-        required: true
-        type: string
-      source_ref_name:
-        required: true
-        type: string
-      source_default_branch:
-        required: true
-        type: string
       dependency_evidence_json:
         required: true
         type: string
@@ -110,10 +98,10 @@ jobs:
           operation: ${{ inputs.operation }}
           policy_path: ${{ inputs.policy_path }}
           request_id: ${{ inputs.request_id }}
-          source_event_name: ${{ inputs.source_event_name }}
-          source_ref_type: ${{ inputs.source_ref_type }}
-          source_ref_name: ${{ inputs.source_ref_name }}
-          source_default_branch: ${{ inputs.source_default_branch }}
+          source_event_name: ${{ github.event_name }}
+          source_ref_type: ${{ github.ref_type }}
+          source_ref_name: ${{ github.ref_name }}
+          source_default_branch: ${{ github.event.repository.default_branch }}
           source_root: source
           dependency_evidence_json: ${{ inputs.dependency_evidence_json }}
 
