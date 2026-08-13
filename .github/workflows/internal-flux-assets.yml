@@ -61,6 +61,14 @@ jobs:
       release_manifest_sha256: ${{ steps.compose.outputs.release_manifest_sha256 }}
       request_id: ${{ steps.compose.outputs.request_id }}
     steps:
+      - name: Admit authoritative Flux product repository caller
+        shell: bash
+        env:
+          CALLER_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -Eeuo pipefail
+          test "${CALLER_REPOSITORY}" = "StreamScapeTV/flux"
+
       - name: Check out exact internal workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
