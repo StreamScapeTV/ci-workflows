@@ -13,9 +13,16 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/reusable-flux-infrastructure-assets.yml"
 INTERNAL = ROOT / ".github/workflows/internal-flux-assets.yml"
 ACTION = ROOT / "actions/flux-assets/action.yml"
+SCRIPT = ROOT / "scripts/ci/flux_assets.py"
 CONTRACT = ROOT / "contracts/flux-infrastructure-products.json"
 SCHEMA = ROOT / "contracts/flux-infrastructure-products.schema.json"
 PUBLIC = ROOT / "contracts/public-workflows/products.json"
+TRUST_FIELDS = {
+    "source_event_name",
+    "source_ref_type",
+    "source_ref_name",
+    "source_default_branch",
+}
 
 
 class FluxAssetsWorkflowContractTests(unittest.TestCase):
@@ -83,7 +90,7 @@ class FluxAssetsWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("reusable-helm-validate.yml", text)
         self.assertNotIn("reusable-helm-publish.yml", text)
 
-    def test_internal_leaf_derives_trust_from_github_context(self) -> None:
+    def test_internal_leaf_has_no_spoofable_trust_inputs(self) -> None:
         source = INTERNAL.read_text(encoding="utf-8")
         workflow = yaml.load(source, Loader=ActionsLoader)
         inputs = set(workflow["on"]["workflow_call"]["inputs"])
@@ -99,33 +106,32 @@ class FluxAssetsWorkflowContractTests(unittest.TestCase):
                 "dependency_evidence_json",
             },
         )
-        for forbidden_input in (
-            "source_event_name",
-            "source_ref_type",
-            "source_ref_name",
-            "source_default_branch",
-        ):
-            self.assertNotIn(forbidden_input, inputs)
+        self.assertTrue(TRUST_FIELDS.isdisjoint(inputs))
+        for trust_field in TRUST_FIELDS:
+            self.assertNotIn(f"{trust_field}:", source)
         self.assertIn("workflow_call:", source)
         self.assertIn("runs-on: [linux, amd64, general]", source)
         self.assertIn("timeout-minutes: 30", source)
         self.assertIn('test "${CALLER_REPOSITORY}" = "StreamScapeTV/flux"', source)
-        self.assertIn("source_event_name: ${{ github.event_name }}", source)
-        self.assertIn("source_ref_type: ${{ github.ref_type }}", source)
-        self.assertIn("source_ref_name: ${{ github.ref_name }}", source)
-        self.assertIn(
-            "source_default_branch: ${{ github.event.repository.default_branch }}",
-            source,
-        )
         self.assertNotIn("runs_on_json", source)
         self.assertNotIn("uses: ./.github/workflows/", source)
         self.assertNotIn("KUBECONFIG", source)
         self.assertNotIn("sops", source.casefold())
         self.assertIn("Confirm zero Actions artifacts", source)
 
-    def test_composite_action_is_thin_and_has_no_infrastructure_authority(self) -> None:
+    def test_composite_action_exposes_no_trust_metadata_surface(self) -> None:
         text = ACTION.read_text(encoding="utf-8")
+        action = yaml.load(text, Loader=ActionsLoader)
+        inputs = set(action["inputs"])
+        self.assertTrue(TRUST_FIELDS.isdisjoint(inputs))
         self.assertIn("scripts/ci/flux_assets.py", text)
+        for flag in (
+            "--source-event-name",
+            "--source-ref-type",
+            "--source-ref-name",
+            "--source-default-branch",
+        ):
+            self.assertNotIn(flag, text)
         self.assertNotIn("registry_username", text)
         self.assertNotIn("registry_token", text)
         self.assertNotIn("kubectl", text)
@@ -134,6 +140,20 @@ class FluxAssetsWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("helm push", text.lower())
         run_blocks = re.findall(r"(?ms)^      run: \|\n(.*?)(?=\n\S|\Z)", text)
         self.assertLessEqual(sum(block.count("\n") for block in run_blocks), 16)
+
+    def test_cli_derives_trust_from_github_runtime(self) -> None:
+        source = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('os.environ.get("GITHUB_EVENT_NAME", "")', source)
+        self.assertIn('os.environ.get("GITHUB_REF_TYPE", "")', source)
+        self.assertIn('os.environ.get("GITHUB_REF_NAME", "")', source)
+        self.assertIn('os.environ.get("GITHUB_EVENT_PATH", "")', source)
+        for flag in (
+            "--source-event-name",
+            "--source-ref-type",
+            "--source-ref-name",
+            "--source-default-branch",
+        ):
+            self.assertNotIn(flag, source)
 
     def test_inventory_schema_and_contract_are_json_and_forbid_cluster_authority(self) -> None:
         contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
