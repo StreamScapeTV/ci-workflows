@@ -169,6 +169,7 @@
     "repository_scope": {"type": "json-array", "max_items": 100, "nullable": true},
     "run_id": {"type": "integer", "minimum": 1, "nullable": true},
     "expected_head_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$", "nullable": true},
+    "shared_reference_target_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$", "nullable": true},
     "image_name": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$", "nullable": true},
     "chart_name": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$", "nullable": true},
     "chart_path": {"type": "path", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$", "nullable": true},
