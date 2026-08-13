@@ -38,11 +38,42 @@ def _report_matches(
     issues: list[Mapping[str, Any]],
     title: str,
 ) -> list[Mapping[str, Any]]:
+    if not isinstance(issues, list) or any(
+        not isinstance(issue, Mapping) for issue in issues
+    ):
+        raise MaintenanceError("conformance_report_invalid")
     return [
         issue
         for issue in issues
         if issue.get("title") == title and "pull_request" not in issue
     ]
+
+
+def _verify_report_response(
+    value: Mapping[str, Any],
+    *,
+    title: str,
+    body: str,
+    expected_number: int | None = None,
+) -> tuple[int, str]:
+    if not isinstance(value, Mapping):
+        raise MaintenanceError("conformance_report_verification_failed")
+    number = _positive(
+        value.get("number"),
+        "conformance_report_verification_failed",
+    )
+    url = value.get("html_url")
+    if (
+        (expected_number is not None and number != expected_number)
+        or value.get("title") != title
+        or value.get("body") != body
+        or not isinstance(url, str)
+        or not url.startswith("https://")
+        or "\r" in url
+        or "\n" in url
+    ):
+        raise MaintenanceError("conformance_report_verification_failed")
+    return number, url
 
 
 def _reference_findings(
@@ -117,7 +148,8 @@ def _validate_reference_target(
         return target
     comparison = api.compare_commits(central.repository, target, head_sha)
     if (
-        comparison.get("status") != "ahead"
+        not isinstance(comparison, Mapping)
+        or comparison.get("status") != "ahead"
         or _nested(comparison, "base_commit", "sha") != target
         or _nested(comparison, "merge_base_commit", "sha") != target
     ):
@@ -265,13 +297,24 @@ def conformance(
             title,
             body,
         )
+        _, verified_url = _verify_report_response(
+            updated,
+            title=title,
+            body=body,
+            expected_number=issue_number,
+        )
         result.mutation_count = 1
-        url = updated.get("html_url")
-    else:
-        if _report_matches(api.list_open_issues(report_repository), title):
-            raise MaintenanceError("conformance_report_changed_before_create")
-        created = api.create_issue(report_repository, title, body)
-        result.mutation_count = 1
-        url = created.get("html_url")
-    result.report_issue_url = url if isinstance(url, str) else ""
+        result.report_issue_url = verified_url
+        return result
+
+    if _report_matches(api.list_open_issues(report_repository), title):
+        raise MaintenanceError("conformance_report_changed_before_create")
+    created = api.create_issue(report_repository, title, body)
+    _, verified_url = _verify_report_response(
+        created,
+        title=title,
+        body=body,
+    )
+    result.mutation_count = 1
+    result.report_issue_url = verified_url
     return result
