@@ -22,7 +22,8 @@ exact `owner/repository` identity.
 
 ## Data flow
 
-1. The workflow checks out its exact central source at `github.workflow_sha`.
+1. The workflow invokes an immutable reviewed private Apple action identity for
+   planning and execution.
 2. The `portable` planning job parses the checked-in contract, binds the caller
    repository/profile to one task, rejects forbidden inputs, and resolves the
    semantic `apple` runner mapping.
@@ -49,8 +50,7 @@ exact `owner/repository` identity.
   lifecycle, constructs `xcodebuild`/Swift/script invocations, detects mutation,
   and performs no-follow cleanup.
 - `apple.py` is the public Python facade and GitHub input boundary.
-- `ciw_apple.py` adapts the facade to `ciw apple validate` after shared command
-  registration is integrated.
+- `ciw_apple.py` adapts the facade to `ciw apple validate`.
 - `actions/validate-apple/action.yml` and `scripts/ci/apple.py` remain thin
   adapters.
 
@@ -96,6 +96,36 @@ Checked-in script commands are admitted only as tracked regular files with fixed
 arguments. No command path uses `shell=True`, `eval`, a callback, a pipe, or a
 caller-provided executable.
 
+## Bounded Release certification profiles
+
+Release configuration is selected only through checked-in consumer contracts;
+it is not a public string input. Existing `command_profile: iptv-apple` remains
+the compatible Debug contract. `command_profile: iptv-apple-release` is a
+separate reviewed contract for `StreamScapeTV/iptv-apple` that maps exactly the
+existing `ios-simulator`, `tvos-simulator`, and `macos` validation profiles to
+`iptv-ios-release`, `iptv-tvos-release`, and `iptv-macos-release`.
+
+Those three tasks use the same `streamscapetv.xcworkspace` and `streamscapetv`
+scheme as the Debug tasks, but their contract-owned configuration is exactly
+`Release` and their fixed action is compile-only `build`. The iOS and tvOS
+variants retain the centrally selected simulator contracts; macOS remains
+exactly `platform=macOS`. The normal execution builder still injects
+`CODE_SIGNING_ALLOWED=NO`, `CODE_SIGNING_REQUIRED=NO`, and an empty
+`CODE_SIGN_IDENTITY`, so Release validation gains no archive, signing,
+provisioning, notarization, store, physical-device, deployment, or publication
+authority.
+
+A Release certification caller therefore makes three independent Apple calls
+with the same admitted SHA and the same `iptv-apple-release` command profile,
+changing only the bounded validation profile/platform/destination tuple. Each
+plan/result projects the exact admitted `source_sha`, making same-SHA evidence
+explicit. Supplying `INPUT_CONFIGURATION` remains forbidden, and a direct
+request that conflicts with the selected task's `Release` value fails closed.
+
+`ciw-apple-release-smoke` mirrors the same three-task shape against the checked-in
+Apple smoke fixture. It exists only for exact-head central runtime evidence;
+normal `ciw-apple-smoke` Debug tasks remain unchanged.
+
 ## Mutation and cleanup invariants
 
 Protected files and package-resolution files are hashed before execution and
@@ -115,15 +145,7 @@ The smoke caller executes the exact checked-out Apple action and contract
 directly instead of nesting the public reusable workflow. This is deliberate:
 the repository permits public reusable depth one, so a nested smoke caller would
 create rejected depth two. The direct smoke uses the same plan/execute/cleanup
-modules and exact source, and separately proves iOS, tvOS, macOS, residue, and
-zero-artifact behavior.
-
-## Deferred shared integration
-
-The Apple-exclusive checkpoint intentionally does not edit action/tool locks,
-public-workflow registries, the CIW dispatcher, runner profiles, generated
-references, or shared registration tests. After Flutter issue #12 merges, the
-same branch must merge protected `main` normally, preserve all prior
-registrations, add only the minimum `validation.apple` and `ciw apple validate`
-registrations, regenerate deterministic references, and validate one unchanged
-final head.
+modules and exact source. Existing Debug jobs continue to prove iOS, tvOS,
+macOS, residue, and zero-artifact behavior; the Release matrix adds independent
+iOS, tvOS, and macOS jobs against the same pull-request SHA and retains the same
+cleanup and zero-artifact gate.
