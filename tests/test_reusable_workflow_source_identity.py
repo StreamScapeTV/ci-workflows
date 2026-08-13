@@ -11,7 +11,7 @@ from ci_workflows.validation_model import ActionsLoader
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_SHA = "87a7454aaa59cb680db8f580d22551b749ac4193"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-APPLE_SHA = "88d179740145ccea00b6986d78ceb67ea365face"
+APPLE_SHA = "5c1a9a060650159f180a308063ce5c4a055bdca4"
 OCI_SHA = "3b401078d1167d7048281e3c3269556ce586dada"
 GITOPS_SHA = "8445e63dd9fa9468b60b6d0c61e543da9681b47b"
 
@@ -20,7 +20,7 @@ ISSUE_132 = "issue #132 immutable mode-aware source checkpoint"
 ISSUE_104 = "issue #104 immutable private-action checkpoint"
 ISSUE_125 = "issue #125 immutable private-action checkpoint"
 ISSUE_150 = "issue #150 immutable OCI input checkpoint"
-ISSUE_131 = "issue #131 immutable Release-aware Apple checkpoint"
+ISSUE_164 = "issue #164 immutable Media VLC tvOS checkpoint"
 
 PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
     ".github/workflows/reusable-node.yml": {
@@ -53,7 +53,7 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
     },
     ".github/workflows/reusable-apple.yml": {
-        "StreamScapeTV/ci-workflows/actions/validate-apple": (APPLE_SHA, ISSUE_131),
+        "StreamScapeTV/ci-workflows/actions/validate-apple": (APPLE_SHA, ISSUE_164),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
@@ -138,6 +138,7 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
             job_outputs["resolved_inputs_json"],
         )
         self.assertEqual(4, source.count(f"actions/validate-oci@{OCI_SHA}"))
+
     def test_source_reusable_uses_locked_mode_aware_helper_checkpoint(self) -> None:
         source, workflow = self.load(SOURCE_WORKFLOW)
         locked = self.locked_actions()
@@ -159,6 +160,7 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
             f"https://github.com/StreamScapeTV/ci-workflows/tree/"
             f"{SOURCE_SHA}/actions/resolve-source",
         )
+
     def test_private_android_consumer_cannot_control_central_source_or_credential_scope(self) -> None:
         source, workflow = self.load(ANDROID_WORKFLOW)
         public = json.loads(
