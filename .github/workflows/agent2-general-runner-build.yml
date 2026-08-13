@@ -9,6 +9,4 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - run: python3 runner-images/general/prepare_inputs.py
-      - run: buildah bud --pull=always -f runner-images/general/Dockerfile -t general-proof runner-images/general
-      - run: podman run --rm --entrypoint /usr/local/bin/runner-image-smoke general-proof
+      - run: python3 runner-images/general/trace_inputs.py
