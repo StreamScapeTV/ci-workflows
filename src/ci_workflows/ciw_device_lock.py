@@ -7,16 +7,25 @@ import sys
 from pathlib import Path
 from typing import Mapping, Sequence, TextIO
 
+from .ciw_types import CIWContext, CIWError, CIWResult
 from .device_lock import (
     DeviceLockError,
     PosixDeviceLockBackend,
     request_from_environment,
 )
 
+PHASES = ("acquire", "verify", "release", "residue")
+
+
+def configure_device_lock(parser: argparse.ArgumentParser) -> None:
+    """Register the one bounded device-lock phase selector."""
+
+    parser.add_argument("--phase", choices=PHASES, required=True)
+
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="device-lock")
-    parser.add_argument("phase", choices=("acquire", "verify", "release", "residue"))
+    parser.add_argument("phase", choices=PHASES)
     return parser
 
 
@@ -119,6 +128,20 @@ def execute_phase(
         }
 
     raise DeviceLockError("invalid_input")
+
+
+def execute_device_lock(args: argparse.Namespace, context: CIWContext) -> CIWResult:
+    """Execute one registered ``ciw device lock`` phase."""
+
+    try:
+        values = execute_phase(
+            args.phase,
+            contract_root=context.root,
+            environment=context.environment,
+        )
+    except DeviceLockError as error:
+        raise CIWError("device", error.code) from None
+    return CIWResult("device", "lock", outputs=values)
 
 
 def main(
