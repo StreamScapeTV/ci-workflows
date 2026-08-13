@@ -31,7 +31,7 @@ inputs:
     required: false
     default: "false"
   expected_cache_key:
-    description: Internal exact restore key that the save phase must reproduce
+    description: Optional internal exact restore key that the save phase must reproduce
     required: false
     default: ""
 
@@ -71,6 +71,47 @@ runs:
         PYTHONPATH="${GITHUB_ACTION_PATH}/../../src" \
           python3 -m ci_workflows.dependency_cache
 
+    - name: Bind exact cache identity across restore and save phases
+      shell: bash
+      env:
+        CACHE_PHASE: ${{ inputs.phase }}
+        CACHE_FAMILY: ${{ inputs.family }}
+        CACHE_PROFILE: ${{ inputs.profile }}
+        CURRENT_CACHE_KEY: ${{ steps.plan.outputs.cache_key }}
+        EXPECTED_CACHE_KEY: ${{ inputs.expected_cache_key }}
+      run: |
+        set -Eeuo pipefail
+        python3 - <<'PY'
+        import hashlib
+        import os
+        from pathlib import Path
+
+        root = Path(os.environ["CI_WORKFLOW_ROOT"]).resolve()
+        marker_root = (root / "tmp" / "dependency-cache").resolve()
+        if root not in marker_root.parents:
+            raise SystemExit("dependency-cache:cache_identity_state_invalid")
+        marker_root.mkdir(parents=True, exist_ok=True)
+        marker_name = hashlib.sha256(
+            f"{os.environ['CACHE_FAMILY']}\0{os.environ['CACHE_PROFILE']}".encode("utf-8")
+        ).hexdigest() + ".key"
+        marker = marker_root / marker_name
+        phase = os.environ["CACHE_PHASE"]
+        current = os.environ["CURRENT_CACHE_KEY"]
+        expected = os.environ.get("EXPECTED_CACHE_KEY", "")
+        if phase == "restore":
+            marker.write_text(current + "\n", encoding="utf-8")
+            marker.chmod(0o600)
+        elif phase == "save":
+            try:
+                restored = marker.read_text(encoding="utf-8").strip()
+            except OSError:
+                raise SystemExit("dependency-cache:cache_identity_missing")
+            if restored != current or (expected and expected != current):
+                raise SystemExit("dependency-cache:cache_identity_changed")
+        else:
+            raise SystemExit("dependency-cache:cache_phase_unsupported")
+        PY
+
     - id: timer
       name: Start bounded cache timing sample
       shell: bash
@@ -92,19 +133,6 @@ runs:
         key: ${{ steps.plan.outputs.cache_key }}
         fail-on-cache-miss: false
         lookup-only: false
-
-    - name: Require save identity to match the exact restore identity
-      if: ${{ inputs.phase == 'save' }}
-      shell: bash
-      env:
-        EXPECTED_CACHE_KEY: ${{ inputs.expected_cache_key }}
-        CURRENT_CACHE_KEY: ${{ steps.plan.outputs.cache_key }}
-      run: |
-        set -Eeuo pipefail
-        if test -z "${EXPECTED_CACHE_KEY}" || test "${CURRENT_CACHE_KEY}" != "${EXPECTED_CACHE_KEY}"; then
-          echo "dependency-cache:cache_identity_changed" >&2
-          exit 2
-        fi
 
     - id: save
       name: Save exact dependency cache after trusted integration success
