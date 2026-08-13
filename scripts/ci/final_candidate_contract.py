@@ -98,15 +98,9 @@ def render(contract: dict) -> str:
     lines.extend(
         [
             "",
-            "## Native skip markers",
+            "## Native skip policy",
             "",
-            "The following GitHub-native skip markers are forbidden for organization checkpoints because they can suppress the pull-request workflow itself:",
-            "",
-        ]
-    )
-    lines.extend(f"- `{marker}`" for marker in contract["native_skip_markers"])
-    lines.extend(
-        [
+            "GitHub-native workflow-skip markers are forbidden for organization checkpoints because they can suppress the pull-request workflow itself. The exact machine-validated marker catalog lives in `contracts/final-candidate-lifecycle.json` and its fixtures.",
             "",
             "## Enforcement",
             "",
