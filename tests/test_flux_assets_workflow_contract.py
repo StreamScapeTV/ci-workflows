@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/reusable-flux-infrastructure-assets.yml"
+INTERNAL = ROOT / ".github/workflows/internal-flux-assets.yml"
 ACTION = ROOT / "actions/flux-assets/action.yml"
 CONTRACT = ROOT / "contracts/flux-infrastructure-products.json"
 SCHEMA = ROOT / "contracts/flux-infrastructure-products.schema.json"
@@ -51,6 +52,7 @@ class FluxAssetsWorkflowContractTests(unittest.TestCase):
         self.assertIn("name: Release / Flux infrastructure assets", text)
         self.assertIn("runs-on: [linux, amd64, general]", text)
         self.assertIn("runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}", text)
+        self.assertIn('test "${CALLER_REPOSITORY}" = "StreamScapeTV/flux"', text)
         self.assertNotIn("secrets: inherit", text)
         self.assertNotIn("pull_request_target", text)
         self.assertNotIn("issue_comment", text)
@@ -76,6 +78,18 @@ class FluxAssetsWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("reusable-oci-publish.yml", text)
         self.assertNotIn("reusable-helm-validate.yml", text)
         self.assertNotIn("reusable-helm-publish.yml", text)
+
+    def test_internal_leaf_is_flux_only_and_not_nested(self) -> None:
+        source = INTERNAL.read_text(encoding="utf-8")
+        self.assertIn("workflow_call:", source)
+        self.assertIn("runs-on: [linux, amd64, general]", source)
+        self.assertIn("timeout-minutes: 30", source)
+        self.assertIn('test "${CALLER_REPOSITORY}" = "StreamScapeTV/flux"', source)
+        self.assertNotIn("runs_on_json", source)
+        self.assertNotIn("uses: ./.github/workflows/", source)
+        self.assertNotIn("KUBECONFIG", source)
+        self.assertNotIn("sops", source.casefold())
+        self.assertIn("Confirm zero Actions artifacts", source)
 
     def test_composite_action_is_thin_and_has_no_infrastructure_authority(self) -> None:
         text = ACTION.read_text(encoding="utf-8")
