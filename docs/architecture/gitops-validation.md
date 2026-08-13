@@ -16,11 +16,12 @@ portable validation into a privileged path.
 
 ## Execution layers
 
-1. A protected planning job validates the exact request against
-   `contracts/gitops-validation.json` and resolves semantic `portable` through
-   the central runner contract.
-2. The execution job checks out exact central source and the exact admitted
-   caller SHA without persistent credentials.
+1. A protected planning job invokes the immutable private `validate-gitops`
+   action, validates the exact request against `contracts/gitops-validation.json`,
+   and resolves semantic `portable` through the central runner contract.
+2. The execution job checks out only the exact admitted caller SHA through the
+   immutable exact-checkout foundation action with bounded history depth `1000`.
+   It does not clone the private central repository into `.ciw`.
 3. A marker-bound workspace provides isolated HOME, cache, temporary, download,
    installation, render, log, and evidence roots.
 4. The named Python engine downloads fixed tools, verifies digest and identity,
@@ -34,8 +35,29 @@ portable validation into a privileged path.
 
 Workflow YAML remains ordered orchestration. Algorithms and error handling live
 under `src/ci_workflows/gitops_*.py`; the composite action and `scripts/ci`
-adapter are thin entry points. Final shared CIW and public API registration is
-serialized behind the completed platform-validation handoff.
+adapter are thin entry points.
+
+## Immutable private central identity
+
+Private callers receive central implementation through exact full-SHA private
+action references rather than a caller-token checkout of
+`StreamScapeTV/ci-workflows`. `validate-gitops` is pinned to reviewed immutable
+central revision `8445e63dd9fa9468b60b6d0c61e543da9681b47b`; the common exact
+checkout, workspace, evidence, and cleanup actions reuse the immutable #116
+foundation checkpoint. These identities are registered in
+`contracts/action-tool-lock.json`.
+
+Each action resolves its own scripts and typed libraries through
+`GITHUB_ACTION_PATH`. The reusable workflow therefore needs no `.ciw` clone,
+central PAT, secret inheritance, mutable helper reference, or caller-selected
+central source. This changes only central helper distribution: exact product
+source, semantic runner selection, public permissions, cleanup, and zero-artifact
+policy remain unchanged.
+
+The exact-checkout foundation allows history depth only from 1 through 1000.
+GitOps changed-tree validation therefore requests the maximum bounded depth
+`1000`; unlimited depth `0` is outside the source-admission contract and is
+rejected rather than silently treated as another checkout mode.
 
 ## Determinism and ownership
 
@@ -59,7 +81,8 @@ exact `base...head` Git comparison and can select only registered target roots.
   and executable generators.
 - Helm rejects mutable versions and unlocked or non-vendored dependencies.
 - The workflow exposes no secret, registry, cluster, deployment, decryption, or
-  publication input and grants read-only GitHub permissions.
+  publication input and grants read-only source plus bounded Actions-read
+  permission for zero-artifact verification.
 - General Linux `portable` capacity is the only runner profile. The retired
   emergency Mac exception is not restored.
 - Cleanup is registered-root-only, no-follow, fail-closed, and preserves both a

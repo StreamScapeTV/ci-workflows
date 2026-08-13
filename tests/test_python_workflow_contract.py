@@ -12,6 +12,15 @@ from ci_workflows.validation_model import ActionsLoader
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/reusable-python.yml"
 ACTION_PATH = ROOT / "actions/validate-python/action.yml"
+PRIVATE_HELPER_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
+PRIVATE_HELPERS = (
+    "validate-python",
+    "exact-checkout",
+    "prepare-workspace",
+    "verify-toolchain",
+    "render-evidence",
+    "cleanup-workspace",
+)
 
 
 class PythonWorkflowContractTests(unittest.TestCase):
@@ -83,38 +92,53 @@ class PythonWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("runs-on: portable", self.workflow_text)
         self.assertNotIn("docker-capable", self.workflow_text)
 
-    def test_exact_central_and_caller_source_are_verified(self) -> None:
-        self.assertEqual(self.workflow_text.count("repository: ${{ job.workflow_repository }}"), 2)
-        self.assertEqual(self.workflow_text.count("ref: ${{ job.workflow_sha }}"), 2)
-        self.assertEqual(self.workflow_text.count("EXPECTED_REPOSITORY: ${{ job.workflow_repository }}"), 2)
-        self.assertEqual(self.workflow_text.count("EXPECTED_SHA: ${{ job.workflow_sha }}"), 2)
-        self.assertEqual(self.workflow_text.count("persist-credentials: false"), 2)
-        self.assertEqual(self.workflow_text.count("set-safe-directory: false"), 2)
-        self.assertEqual(self.workflow_text.count('test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"'), 2)
-        self.assertNotIn("github.workflow_sha", self.workflow_text)
-        self.assertNotIn("GITHUB_WORKFLOW_SHA", self.workflow_text)
-        self.assertIn("uses: ./.ciw/actions/exact-checkout", self.workflow_text)
+    def test_private_central_helpers_are_immutable_without_central_clone(self) -> None:
+        self.assertNotIn("actions/checkout@", self.workflow_text)
+        self.assertNotIn("repository: ${{ job.workflow_repository }}", self.workflow_text)
+        self.assertNotIn("ref: ${{ job.workflow_sha }}", self.workflow_text)
+        self.assertNotIn("path: .ciw", self.workflow_text)
+        self.assertNotIn("./.ciw/actions/", self.workflow_text)
+        self.assertNotIn("secrets: inherit", self.workflow_text)
+        self.assertNotIn("private_dependency_token", self.workflow_text)
+        for helper in PRIVATE_HELPERS:
+            self.assertIn(
+                f"StreamScapeTV/ci-workflows/actions/{helper}@{PRIVATE_HELPER_SHA}",
+                self.workflow_text,
+            )
+
+    def test_exact_caller_source_is_still_verified_and_clean(self) -> None:
+        self.assertIn(
+            f"uses: StreamScapeTV/ci-workflows/actions/exact-checkout@{PRIVATE_HELPER_SHA}",
+            self.workflow_text,
+        )
         self.assertIn("admitted_sha: ${{ inputs.admitted_sha }}", self.workflow_text)
-        self.assertIn('test "$(git rev-parse HEAD)" = "${{ inputs.admitted_sha }}"', self.workflow_text)
+        self.assertIn(
+            'test "$(git rev-parse HEAD)" = "${{ inputs.admitted_sha }}"',
+            self.workflow_text,
+        )
         self.assertIn("git status --porcelain --untracked-files=all", self.workflow_text)
 
     def test_shared_foundation_sequence_is_marker_bound_and_cleanup_is_unconditional(self) -> None:
         source = self.workflow_text
         validate_job = source.index("\n  validate:\n")
-        planner_action = source.index("uses: ./.ciw/actions/validate-python")
+        planner_action = source.index(
+            f"uses: StreamScapeTV/ci-workflows/actions/validate-python@{PRIVATE_HELPER_SHA}"
+        )
         self.assertLess(planner_action, validate_job)
         self.assertEqual(
-            source.count("uses: ./.ciw/actions/validate-python"),
+            source.count(
+                f"uses: StreamScapeTV/ci-workflows/actions/validate-python@{PRIVATE_HELPER_SHA}"
+            ),
             2,
         )
         validation_source = source[validate_job:]
         sequence = [
-            "uses: ./.ciw/actions/exact-checkout",
-            "uses: ./.ciw/actions/prepare-workspace",
-            "uses: ./.ciw/actions/verify-toolchain",
-            "uses: ./.ciw/actions/validate-python",
-            "uses: ./.ciw/actions/render-evidence",
-            "uses: ./.ciw/actions/cleanup-workspace",
+            f"uses: StreamScapeTV/ci-workflows/actions/exact-checkout@{PRIVATE_HELPER_SHA}",
+            f"uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@{PRIVATE_HELPER_SHA}",
+            f"uses: StreamScapeTV/ci-workflows/actions/verify-toolchain@{PRIVATE_HELPER_SHA}",
+            f"uses: StreamScapeTV/ci-workflows/actions/validate-python@{PRIVATE_HELPER_SHA}",
+            f"uses: StreamScapeTV/ci-workflows/actions/render-evidence@{PRIVATE_HELPER_SHA}",
+            f"uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@{PRIVATE_HELPER_SHA}",
         ]
         positions = [validation_source.index(value) for value in sequence]
         self.assertEqual(positions, sorted(positions))
