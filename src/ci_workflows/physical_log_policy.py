@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .foundation_types import (
+    FoundationError,
     bounded_int,
     canonical_json,
     full_sha,
@@ -43,7 +44,7 @@ def _validate_durable_text(text: str, stable: Mapping[str, Any]) -> None:
         try:
             matched = re.search(pattern, text) is not None
         except re.error as error:
-            raise RuntimeError("physical log policy contains invalid regex") from error
+            raise FoundationError("physical_log_policy_invalid") from error
         require(not matched, "physical_evidence_private_metadata")
 
 
@@ -79,8 +80,12 @@ def validate_stable_evidence(
         )
 
     normalized: dict[str, Any] = {}
-    normalized["repository"] = repository_name(payload["repository"])
-    normalized["source_sha"] = full_sha(payload["source_sha"])
+    normalized["repository"] = repository_name(
+        payload["repository"], "physical_evidence_invalid"
+    )
+    normalized["source_sha"] = full_sha(
+        payload["source_sha"], "physical_evidence_invalid"
+    )
     normalized["workflow_run_id"] = bounded_int(
         payload["workflow_run_id"],
         minimum=1,
