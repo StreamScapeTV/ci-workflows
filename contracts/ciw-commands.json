@@ -135,6 +135,17 @@
       "trust_class": "read-only-validation"
     },
     {
+      "cleanup": "expected-state release and residue verification under if: always()",
+      "domain": "device",
+      "failure": "DeviceLockError.code",
+      "handler": "ci_workflows.ciw.handle_device_lock",
+      "inputs": ["phase", "device_family", "device_capability", "device_identity_hash", "tested_source_sha", "authorization_receipt", "request_id", "lease_seconds", "resource_lock_receipt", "minimum_remaining_seconds", "runner-owned GitHub owner identity", "runner-owned device lock backend"],
+      "operation": "lock",
+      "outputs": ["result", "resource_lock_receipt", "receipt_id", "resource_key_hash", "owner_identity_hash", "expires_at_epoch", "release_evidence", "cleanup_evidence", "idempotent", "failure_code"],
+      "side_effects": ["acquires, verifies, expected-state releases, or residue-checks one exact-device lease in the runner-infrastructure-owned shared backend", "never accepts a caller-selected backend, raw device identity, runner identity, endpoint, or credential"],
+      "trust_class": "physical-device-fencing"
+    },
+    {
       "cleanup": "ciw workspace cleanup under if: always()",
       "domain": "android",
       "failure": "AndroidValidationError.code",
@@ -292,7 +303,7 @@
   ],
   "entry_point": "scripts/ci/ciw.py",
   "forbidden_dispatch_inputs": ["arbitrary_command", "shell", "callback", "callback_url", "handler", "function_name", "module_name", "runner", "runs_on", "runner_labels", "container_engine", "secret_name", "deletion_path", "workspace_root"],
-  "future_namespaces": ["helm", "release", "device", "github"],
+  "future_namespaces": ["helm", "release", "github"],
   "program": "ciw",
   "schema_version": 1
 }

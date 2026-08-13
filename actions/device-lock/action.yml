@@ -1,0 +1,92 @@
+name: Device resource lock
+
+description: Acquire, verify, release, or residue-check one production physical-device fencing receipt.
+
+inputs:
+  phase:
+    description: "Bounded lock operation: acquire, verify, release, or residue."
+    required: true
+  device_family:
+    description: Exact reviewed physical-device family.
+    required: true
+  device_capability:
+    description: Exact reviewed capability bound into the lock resource.
+    required: true
+  device_identity_hash:
+    description: Deterministic SHA-256 identity of the discovered device; never a raw serial or UDID.
+    required: true
+  tested_source_sha:
+    description: Exact lowercase admitted source SHA.
+    required: true
+  authorization_receipt:
+    description: Opaque owner-authorization receipt bound into the lock as a one-way hash.
+    required: true
+  request_id:
+    description: Exact bounded request identity owned by the device validation contract.
+    required: true
+  lease_seconds:
+    description: Bounded lease duration selected by the reviewed validation plan.
+    required: true
+  resource_lock_receipt:
+    description: Opaque receipt returned by acquire and consumed by verify/release/residue.
+    required: false
+    default: ""
+  minimum_remaining_seconds:
+    description: Minimum lease lifetime required immediately before physical mutation.
+    required: false
+    default: "1"
+
+outputs:
+  result:
+    description: acquired, verified, released, clean, or failure.
+    value: ${{ steps.lock.outputs.result }}
+  resource_lock_receipt:
+    description: Opaque current fencing receipt. Present only for acquire/verify.
+    value: ${{ steps.lock.outputs.resource_lock_receipt }}
+  receipt_id:
+    description: SHA-256 identity of the opaque receipt.
+    value: ${{ steps.lock.outputs.receipt_id }}
+  resource_key_hash:
+    description: SHA-256 identity of the exact family/capability/discovered-device lock key.
+    value: ${{ steps.lock.outputs.resource_key_hash }}
+  owner_identity_hash:
+    description: SHA-256 identity of the exact GitHub repository/run/attempt owner.
+    value: ${{ steps.lock.outputs.owner_identity_hash }}
+  expires_at_epoch:
+    description: Receipt lease expiry epoch seconds for acquire/verify.
+    value: ${{ steps.lock.outputs.expires_at_epoch }}
+  release_evidence:
+    description: Deterministic expected-state release evidence.
+    value: ${{ steps.lock.outputs.release_evidence }}
+  cleanup_evidence:
+    description: Deterministic cleanup evidence derived from the exact released receipt.
+    value: ${{ steps.lock.outputs.cleanup_evidence }}
+  idempotent:
+    description: Whether a release/residue result is an idempotent replay of the same released receipt.
+    value: ${{ steps.lock.outputs.idempotent }}
+  failure_code:
+    description: Stable non-sensitive failure code.
+    value: ${{ steps.lock.outputs.failure_code }}
+
+runs:
+  using: composite
+  steps:
+    - id: lock
+      name: Execute bounded device lock operation
+      shell: bash
+      env:
+        CIW_LOCK_PHASE: ${{ inputs.phase }}
+        CIW_LOCK_DEVICE_FAMILY: ${{ inputs.device_family }}
+        CIW_LOCK_DEVICE_CAPABILITY: ${{ inputs.device_capability }}
+        CIW_LOCK_DEVICE_IDENTITY_HASH: ${{ inputs.device_identity_hash }}
+        CIW_LOCK_TESTED_SOURCE_SHA: ${{ inputs.tested_source_sha }}
+        CIW_LOCK_AUTHORIZATION_RECEIPT: ${{ inputs.authorization_receipt }}
+        CIW_LOCK_REQUEST_ID: ${{ inputs.request_id }}
+        CIW_LOCK_LEASE_SECONDS: ${{ inputs.lease_seconds }}
+        CIW_LOCK_RESOURCE_RECEIPT: ${{ inputs.resource_lock_receipt }}
+        CIW_LOCK_MINIMUM_REMAINING_SECONDS: ${{ inputs.minimum_remaining_seconds }}
+      run: |
+        set -Eeuo pipefail
+        PYTHONDONTWRITEBYTECODE=1 \
+          python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
+            device lock --phase "${CIW_LOCK_PHASE}"
