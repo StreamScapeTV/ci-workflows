@@ -9,25 +9,44 @@ import yaml
 from ci_workflows.validation_model import ActionsLoader
 
 ROOT = Path(__file__).resolve().parents[1]
-HELPER_SHA = "60881e6c2e673f1a80c1c78101f4610f9e05210c"
 HELPERS = {
-    "maintenance.artifacts": "maintenance-artifacts",
-    "maintenance.branches": "maintenance-branches",
-    "maintenance.conformance": "maintenance-conformance",
-    "maintenance.runner-retry": "maintenance-runner-retry",
+    "maintenance.artifacts": (
+        "maintenance-artifacts",
+        "60881e6c2e673f1a80c1c78101f4610f9e05210c",
+    ),
+    "maintenance.branches": (
+        "maintenance-branches",
+        "60881e6c2e673f1a80c1c78101f4610f9e05210c",
+    ),
+    "maintenance.conformance": (
+        "maintenance-conformance",
+        "d8d02c46c7abf7134786baa90c53f50db898d683",
+    ),
+    "maintenance.runner-retry": (
+        "maintenance-runner-retry",
+        "60881e6c2e673f1a80c1c78101f4610f9e05210c",
+    ),
 }
 
 
 class MaintenanceWorkflowContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        operations = json.loads((ROOT / "contracts/public-workflows/operations.json").read_text(encoding="utf-8"))
+        operations = json.loads(
+            (ROOT / "contracts/public-workflows/operations.json").read_text(
+                encoding="utf-8"
+            )
+        )
         cls.records = {row["api_name"]: row for row in operations["workflows"]}
-        permissions = json.loads((ROOT / "contracts/permission-profiles.json").read_text(encoding="utf-8"))
+        permissions = json.loads(
+            (ROOT / "contracts/permission-profiles.json").read_text(
+                encoding="utf-8"
+            )
+        )
         cls.permissions = {row["id"]: row for row in permissions["profiles"]}
 
     def test_four_maintenance_workflows_match_reviewed_public_api_without_new_control_surface(self) -> None:
-        for api, helper in HELPERS.items():
+        for api, (helper, helper_sha) in HELPERS.items():
             with self.subTest(api=api):
                 record = self.records[api]
                 path = ROOT / record["file"]
@@ -35,16 +54,31 @@ class MaintenanceWorkflowContractTests(unittest.TestCase):
                 workflow = yaml.load(text, Loader=ActionsLoader)
                 self.assertEqual(set(workflow["on"]), {"workflow_call"})
                 call = workflow["on"]["workflow_call"]
-                self.assertEqual(set(call["inputs"]), {row["name"] for row in record["inputs"]})
-                self.assertEqual(set(call.get("secrets", {})), set(record["secrets"]))
+                self.assertEqual(
+                    set(call["inputs"]),
+                    {row["name"] for row in record["inputs"]},
+                )
+                self.assertEqual(
+                    set(call.get("secrets", {})),
+                    set(record["secrets"]),
+                )
                 self.assertEqual(set(call["outputs"]), set(record["outputs"]))
-                self.assertEqual(workflow["permissions"], self.permissions[record["permission_profile"]]["workflow_permissions"])
+                self.assertEqual(
+                    workflow["permissions"],
+                    self.permissions[record["permission_profile"]][
+                        "workflow_permissions"
+                    ],
+                )
                 self.assertEqual(len(workflow["jobs"]), 1)
                 job = next(iter(workflow["jobs"].values()))
                 self.assertEqual(job["runs-on"], ["linux", "amd64", "general"])
-                self.assertLessEqual(job["timeout-minutes"], record["timeout_minutes"])
+                self.assertLessEqual(
+                    job["timeout-minutes"],
+                    record["timeout_minutes"],
+                )
                 self.assertIn(
-                    f"uses: StreamScapeTV/ci-workflows/actions/{helper}@{HELPER_SHA}",
+                    "uses: StreamScapeTV/ci-workflows/actions/"
+                    f"{helper}@{helper_sha}",
                     text,
                 )
                 self.assertNotIn("actions/checkout@", text)
@@ -53,19 +87,52 @@ class MaintenanceWorkflowContractTests(unittest.TestCase):
                 self.assertNotIn("./.ciw/actions/", text)
                 self.assertNotIn("secrets: inherit", text)
                 self.assertNotIn("self-hosted", text)
-                for forbidden in ("arbitrary_command", "callback_url", "runner_labels", "force-push"):
+                for forbidden in (
+                    "arbitrary_command",
+                    "callback_url",
+                    "runner_labels",
+                    "force-push",
+                ):
                     self.assertNotIn(forbidden, text)
+
+    def test_conformance_repin_target_is_review_only_and_bounded_to_exact_sha_transport(self) -> None:
+        record = self.records["maintenance.conformance"]
+        inputs = {row["name"]: row for row in record["inputs"]}
+        self.assertIn("shared_reference_target_sha", inputs)
+        self.assertFalse(inputs["shared_reference_target_sha"]["required"])
+        text = (ROOT / record["file"]).read_text(encoding="utf-8")
+        self.assertIn("shared_reference_target_sha:", text)
+        self.assertEqual(
+            text.count(
+                "shared_reference_target_sha: ${{ inputs.shared_reference_target_sha }}"
+            ),
+            2,
+        )
+        self.assertNotIn("consumer_repository", text)
+        self.assertNotIn("consumer_path", text)
+        self.assertNotIn("replacement_text", text)
 
     def test_dry_run_remains_default_for_every_mutating_maintenance_api(self) -> None:
         for api in HELPERS:
             record = self.records[api]
-            workflow = yaml.load((ROOT / record["file"]).read_text(encoding="utf-8"), Loader=ActionsLoader)
-            self.assertIs(workflow["on"]["workflow_call"]["inputs"]["dry_run"]["default"], True)
+            workflow = yaml.load(
+                (ROOT / record["file"]).read_text(encoding="utf-8"),
+                Loader=ActionsLoader,
+            )
+            self.assertIs(
+                workflow["on"]["workflow_call"]["inputs"]["dry_run"][
+                    "default"
+                ],
+                True,
+            )
 
     def test_composite_actions_are_thin_and_do_not_select_repositories_or_runners(self) -> None:
-        for name in HELPERS.values():
+        for name, _ in HELPERS.values():
             path = ROOT / f"actions/{name}/action.yml"
-            action = yaml.load(path.read_text(encoding="utf-8"), Loader=ActionsLoader)
+            action = yaml.load(
+                path.read_text(encoding="utf-8"),
+                Loader=ActionsLoader,
+            )
             self.assertEqual(action["runs"]["using"], "composite")
             self.assertEqual(len(action["runs"]["steps"]), 1)
             text = path.read_text(encoding="utf-8")
@@ -79,7 +146,10 @@ class MaintenanceWorkflowContractTests(unittest.TestCase):
         text = path.read_text(encoding="utf-8")
         workflow = yaml.load(text, Loader=ActionsLoader)
         self.assertEqual(set(workflow["on"]), {"pull_request"})
-        self.assertEqual(workflow["permissions"], {"actions": "read", "contents": "read"})
+        self.assertEqual(
+            workflow["permissions"],
+            {"actions": "read", "contents": "read"},
+        )
         job = workflow["jobs"]["focused"]
         self.assertEqual(job["runs-on"], ["linux", "amd64", "general"])
         self.assertIn("github.event.pull_request.head.sha", text)
