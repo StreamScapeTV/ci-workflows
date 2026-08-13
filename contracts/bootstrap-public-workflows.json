@@ -38,6 +38,12 @@
       "required_follow_up": []
     },
     {
+      "path": ".github/workflows/reusable-oci-publish.yml",
+      "issue": 17,
+      "status": "implemented-public-workflow",
+      "required_follow_up": []
+    },
+    {
       "path": ".github/workflows/reusable-python.yml",
       "issue": 9,
       "status": "implemented-public-workflow",
