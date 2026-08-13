@@ -84,6 +84,22 @@ class GitHubApi(GitHubTransport):
         )
         return payload if isinstance(payload, Mapping) else None
 
+    def compare_commits(
+        self,
+        repository: str,
+        base_sha: str,
+        head_sha: str,
+    ):
+        payload, _ = self.request(
+            "GET",
+            f"/repos/{self._repo(repository)}/compare/"
+            f"{urllib.parse.quote(base_sha, safe='')}..."
+            f"{urllib.parse.quote(head_sha, safe='')}",
+        )
+        if not isinstance(payload, Mapping):
+            raise MaintenanceError("github_response_invalid")
+        return payload
+
     def list_statuses(self, repository: str, sha: str):
         return self.paginate(
             f"/repos/{self._repo(repository)}/commits/"
