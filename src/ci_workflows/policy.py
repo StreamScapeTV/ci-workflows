@@ -142,6 +142,12 @@ def _split_marker_matches(content: str, marker: Mapping[str, Any]) -> bool:
         isinstance(minimum_suffix_length, int) and 1 <= minimum_suffix_length <= 4096,
         "repository_policy_invalid",
     )
+    allowed_suffix_patterns = marker.get("allowed_suffix_patterns", [])
+    require(
+        isinstance(allowed_suffix_patterns, list)
+        and all(isinstance(value, str) and value for value in allowed_suffix_patterns),
+        "repository_policy_invalid",
+    )
     start = 0
     while True:
         index = content.find(literal, start)
@@ -149,8 +155,15 @@ def _split_marker_matches(content: str, marker: Mapping[str, Any]) -> bool:
             return False
         value_start = index + len(literal)
         candidate = re.match(r"[A-Za-z0-9_+=./~-]+", content[value_start:])
-        if candidate and len(candidate.group(0)) >= minimum_suffix_length:
-            return True
+        if candidate:
+            value = candidate.group(0)
+            if not any(
+                fnmatch.fnmatchcase(value, pattern)
+                for pattern in allowed_suffix_patterns
+            ) and len(value) >= minimum_suffix_length:
+                return True
+            start = value_start + len(value)
+            continue
         start = value_start
 
 
