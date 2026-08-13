@@ -112,6 +112,19 @@ class MaintenanceWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("consumer_path", text)
         self.assertNotIn("replacement_text", text)
 
+    def test_optional_branch_pr_number_zero_is_treated_as_omitted(self) -> None:
+        text = (
+            ROOT / "actions/maintenance-branches/action.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn('pr_number="${{ inputs.pr_number }}"', text)
+        self.assertIn('"${pr_number}" != "0"', text)
+        self.assertIn('[[ "${pr_number}" =~ ^[1-9][0-9]*$ ]]', text)
+        self.assertIn('args+=(--pr-number "${pr_number}")', text)
+        self.assertNotIn(
+            '--pr-number "${{ inputs.pr_number }}"',
+            text,
+        )
+
     def test_dry_run_remains_default_for_every_mutating_maintenance_api(self) -> None:
         for api in HELPERS:
             record = self.records[api]
