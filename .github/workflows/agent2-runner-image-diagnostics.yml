@@ -9,14 +9,22 @@ permissions:
   contents: read
 
 jobs:
-  inspect-kubectl-input:
-    name: Inspect kubectl input checksum
+  inspect-python-runtime:
+    name: Inspect Python 3.12 runtime OCI identity
     runs-on: [linux, amd64, buildah, tiny]
     timeout-minutes: 10
     steps:
-      - name: Read published kubectl v1.36.3 SHA-256
+      - name: Resolve immutable linux amd64 identity
         shell: bash
         run: |
           set -Eeuo pipefail
-          checksum="$(curl --fail --silent --show-error --location https://dl.k8s.io/release/v1.36.3/bin/linux/amd64/kubectl.sha256)"
-          printf 'KUBECTL_SHA256=%s\n' "${checksum}"
+          reference='docker.io/library/python:3.12.13-slim-bookworm'
+          root_digest="$(skopeo inspect --format '{{.Digest}}' "docker://${reference}")"
+          skopeo inspect --raw "docker://${reference}" > "${RUNNER_TEMP}/python-index.json"
+          child_digest="$(jq -er '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest' "${RUNNER_TEMP}/python-index.json")"
+          skopeo inspect --raw "docker://docker.io/library/python@${child_digest}" > "${RUNNER_TEMP}/python-manifest.json"
+          config_digest="$(jq -er '.config.digest' "${RUNNER_TEMP}/python-manifest.json")"
+          printf 'PYTHON_ROOT_DIGEST=%s\n' "${root_digest}"
+          printf 'PYTHON_AMD64_MANIFEST_DIGEST=%s\n' "${child_digest}"
+          printf 'PYTHON_AMD64_CONFIG_DIGEST=%s\n' "${config_digest}"
+          rm -f "${RUNNER_TEMP}/python-index.json" "${RUNNER_TEMP}/python-manifest.json"
