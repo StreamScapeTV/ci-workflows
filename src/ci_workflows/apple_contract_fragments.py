@@ -18,6 +18,8 @@ _FRAGMENT_PATTERN = "apple-validation-*.json"
 
 
 def _mapping(path: Path) -> dict[str, object]:
+    if path.is_symlink() or not path.is_file():
+        raise AppleValidationError("contract_invalid")
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
