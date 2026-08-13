@@ -25,19 +25,29 @@ jobs:
     runs-on: [linux, amd64, general]
     timeout-minutes: 90
     outputs:
-      result: ${{ steps.report.outputs.result }}
-      mutation_count: ${{ steps.report.outputs.mutation_count }}
-      report_issue_url: ${{ steps.report.outputs.report_issue_url }}
-      request_id: ${{ steps.report.outputs.request_id }}
+      result: ${{ steps.report_read.outputs.result || steps.report_update.outputs.result }}
+      mutation_count: ${{ steps.report_read.outputs.mutation_count || steps.report_update.outputs.mutation_count }}
+      report_issue_url: ${{ steps.report_read.outputs.report_issue_url || steps.report_update.outputs.report_issue_url }}
+      request_id: ${{ steps.report_read.outputs.request_id || steps.report_update.outputs.request_id }}
     steps:
-      - name: Run bounded organization conformance
-        id: report
+      - name: Run read-only organization conformance
+        id: report_read
+        if: ${{ inputs.dry_run }}
         uses: StreamScapeTV/ci-workflows/actions/maintenance-conformance@60881e6c2e673f1a80c1c78101f4610f9e05210c # issue #20 immutable maintenance action checkpoint
         with:
           repository_scope: ${{ inputs.repository_scope }}
-          dry_run: ${{ inputs.dry_run }}
+          dry_run: true
           request_id: ${{ inputs.request_id }}
-          token: ${{ inputs.dry_run && secrets.organization_read_token || secrets.organization_update_token }}
+          token: ${{ secrets.organization_read_token }}
+      - name: Update organization conformance report
+        id: report_update
+        if: ${{ !inputs.dry_run }}
+        uses: StreamScapeTV/ci-workflows/actions/maintenance-conformance@60881e6c2e673f1a80c1c78101f4610f9e05210c # issue #20 immutable maintenance action checkpoint
+        with:
+          repository_scope: ${{ inputs.repository_scope }}
+          dry_run: false
+          request_id: ${{ inputs.request_id }}
+          token: ${{ secrets.organization_update_token }}
       - name: Cleanup maintenance workflow state
         if: always()
         shell: bash
