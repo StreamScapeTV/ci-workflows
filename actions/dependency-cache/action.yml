@@ -30,6 +30,10 @@ inputs:
     description: Internal restore result used to suppress an unnecessary save
     required: false
     default: "false"
+  expected_cache_key:
+    description: Internal exact restore key that the save phase must reproduce
+    required: false
+    default: ""
 
 outputs:
   cache_key:
@@ -88,6 +92,19 @@ runs:
         key: ${{ steps.plan.outputs.cache_key }}
         fail-on-cache-miss: false
         lookup-only: false
+
+    - name: Require save identity to match the exact restore identity
+      if: ${{ inputs.phase == 'save' }}
+      shell: bash
+      env:
+        EXPECTED_CACHE_KEY: ${{ inputs.expected_cache_key }}
+        CURRENT_CACHE_KEY: ${{ steps.plan.outputs.cache_key }}
+      run: |
+        set -Eeuo pipefail
+        if test -z "${EXPECTED_CACHE_KEY}" || test "${CURRENT_CACHE_KEY}" != "${EXPECTED_CACHE_KEY}"; then
+          echo "dependency-cache:cache_identity_changed" >&2
+          exit 2
+        fi
 
     - id: save
       name: Save exact dependency cache after trusted integration success
