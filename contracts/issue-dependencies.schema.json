@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/StreamScapeTV/ci-workflows/contracts/issue-dependencies.schema.json",
+  "title": "StreamScapeTV repository issue dependency manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "repository",
+    "issues"
+  ],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
+    "repository": {
+      "type": "string",
+      "pattern": "^StreamScapeTV/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$"
+    },
+    "issues": {
+      "type": "object",
+      "patternProperties": {
+        "^[1-9][0-9]*$": {
+          "$ref": "#/$defs/managedIssue"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "managedIssue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "blocked_by"
+      ],
+      "properties": {
+        "blocked_by": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "string",
+                "pattern": "^https://github\\.com/StreamScapeTV/[A-Za-z0-9][A-Za-z0-9._-]{0,99}/issues/[1-9][0-9]*$"
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

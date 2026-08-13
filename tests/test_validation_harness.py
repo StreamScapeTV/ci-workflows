@@ -21,6 +21,9 @@ from ci_workflows.validation_harness import (
 )
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
 class ValidationHarnessTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -202,6 +205,53 @@ class ValidationHarnessTest(unittest.TestCase):
         self.assertIn("missing-implementation-component", rules)
         self.assertIn("public-api-doc-drift", rules)
 
+    def test_bootstrap_chart_digest_uses_exact_verified_remote_manifest_bytes(self) -> None:
+        source = (
+            ROOT / ".github/workflows/reusable-tag-image-chart.yml"
+        ).read_text(encoding="utf-8")
+        manifest_fetch = source.index(
+            'chart_manifest="${STATE_ROOT}/chart-remote-manifest.json"'
+        )
+        semantic_validation = source.index(
+            'raise SystemExit("remote chart content layer digest differs")',
+            manifest_fetch,
+        )
+        digest_line = source.index(
+            'chart_digest="sha256:$(sha256sum "${chart_manifest}" | awk \'{print $1}\')"',
+            semantic_validation,
+        )
+        output_line = source.index(
+            "printf 'digest=%s\\n' \"${chart_digest}\"",
+            digest_line,
+        )
+        self.assertLess(manifest_fetch, semantic_validation)
+        self.assertLess(semantic_validation, digest_line)
+        self.assertLess(digest_line, output_line)
+        self.assertIn(
+            '[[ "${chart_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]',
+            source,
+        )
+        self.assertIn(
+            "value: ${{ jobs.publish.outputs.chart_digest }}",
+            source,
+        )
+        self.assertIn(
+            "chart_digest: ${{ steps.chart.outputs.digest }}",
+            source,
+        )
+        self.assertIn(
+            "printf 'package_sha256=%s\\n' \"${local_sha}\"",
+            source,
+        )
+        self.assertIn(
+            "CHART_DIGEST: ${{ steps.chart.outputs.digest }}",
+            source,
+        )
+        self.assertIn(
+            'echo "- Chart OCI digest: \\`${CHART_DIGEST}\\`"',
+            source,
+        )
+
     def test_reusable_workflow_call_graph_rejects_missing_cycle_depth_and_internal_nesting(self) -> None:
         first = self.root / ".github/workflows/reusable-sample.yml"
         first.write_text(
@@ -301,6 +351,28 @@ jobs:
             {"services": {"github": {"scenarios": [{"name": "positive"}]}}},
         )
         self.assertIn("missing-service-scenario", self.rules())
+
+    def test_private_reusable_validators_use_immutable_actions_without_central_clone(self) -> None:
+        workflows = (
+            ".github/workflows/reusable-node.yml",
+            ".github/workflows/reusable-android.yml",
+            ".github/workflows/reusable-python.yml",
+            ".github/workflows/reusable-flutter.yml",
+            ".github/workflows/reusable-apple.yml",
+            ".github/workflows/reusable-oci-build.yml",
+        )
+        for relative in workflows:
+            with self.subTest(workflow=relative):
+                source = (ROOT / relative).read_text(encoding="utf-8")
+                self.assertNotIn("repository: ${{ job.workflow_repository }}", source)
+                self.assertNotIn("ref: ${{ job.workflow_sha }}", source)
+                self.assertNotIn("path: .ciw", source)
+                self.assertNotIn("./.ciw/actions/", source)
+                self.assertNotIn("secrets: inherit", source)
+                self.assertRegex(
+                    source,
+                    r"uses:\s*StreamScapeTV/ci-workflows/actions/[A-Za-z0-9._-]+@[0-9a-f]{40}",
+                )
 
     def test_tool_lock_drift_is_rejected(self) -> None:
         (self.root / "requirements/validation.lock").write_text("PyYAML>=6\n")
