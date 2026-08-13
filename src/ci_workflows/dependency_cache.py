@@ -13,6 +13,7 @@ from typing import Any, Mapping
 CONTRACT_PATH = Path("contracts/cache-policy.json")
 _FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 _SAFE_TOKEN = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+_PHASES = {"restore", "save"}
 
 
 class DependencyCacheError(RuntimeError):
@@ -25,6 +26,7 @@ class DependencyCacheError(RuntimeError):
 
 @dataclass(frozen=True)
 class DependencyCachePlan:
+    phase: str
     family: str
     cache_key: str
     lock_digest: str
@@ -34,6 +36,7 @@ class DependencyCachePlan:
 
     def outputs(self) -> dict[str, str]:
         return {
+            "phase": self.phase,
             "family": self.family,
             "cache_key": self.cache_key,
             "lock_digest": self.lock_digest,
@@ -219,6 +222,7 @@ def plan_dependency_cache(
     contract_root: Path,
     source_root: Path,
     working_directory: str,
+    phase: str,
     family: str,
     source_trust: str,
     profile: str,
@@ -230,10 +234,14 @@ def plan_dependency_cache(
     contract = _load_contract(contract_root)
     native = contract["native_dependency_cache"]
     families = native["families"]
+    _require(phase in _PHASES, "cache_phase_unsupported")
     _require(family in families, "cache_family_unsupported")
     _require(isinstance(profile, str) and _SAFE_TOKEN.fullmatch(profile) is not None, "cache_profile_invalid")
     allowed_restore = contract.get("allowed_trust_modes", {}).get("restore-only", [])
     _require(source_trust in allowed_restore, "cache_trust_forbidden")
+    if phase == "save":
+        allowed_save = contract.get("allowed_trust_modes", {}).get("read-write", [])
+        _require(source_trust in allowed_save, "cache_save_trust_forbidden")
     repository = environment.get("GITHUB_REPOSITORY", "")
     _require(bool(repository) and "/" in repository, "cache_repository_invalid")
     runner_os = environment.get("RUNNER_OS", "")
@@ -276,12 +284,13 @@ def plan_dependency_cache(
         ]
     )
     _require(len(key) <= int(contract.get("max_key_length", 0)), "cache_key_too_long")
-    save_allowed = _save_allowed(
+    save_allowed = phase == "save" and _save_allowed(
         source_trust=source_trust,
         validation_succeeded=validation_succeeded,
         environment=environment,
     )
     return DependencyCachePlan(
+        phase=phase,
         family=family,
         cache_key=key,
         lock_digest=lock_digest,
@@ -308,6 +317,7 @@ def main() -> int:
             contract_root=contract_root,
             source_root=Path(os.environ.get("INPUT_SOURCE_ROOT", "source")),
             working_directory=os.environ.get("INPUT_WORKING_DIRECTORY", "."),
+            phase=os.environ.get("INPUT_PHASE", ""),
             family=os.environ.get("INPUT_FAMILY", ""),
             source_trust=os.environ.get("INPUT_SOURCE_TRUST", ""),
             profile=os.environ.get("INPUT_PROFILE", ""),

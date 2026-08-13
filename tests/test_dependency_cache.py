@@ -51,11 +51,12 @@ class DependencyCacheTests(unittest.TestCase):
             "HELM_CACHE_HOME": str(self.helm),
         }
 
-    def plan(self, *, family: str, trust: str = "trusted-pr", profile: str = "quality", succeeded: bool = False, environment: dict[str, str] | None = None):
+    def plan(self, *, phase: str = "restore", family: str, trust: str = "trusted-pr", profile: str = "quality", succeeded: bool = False, environment: dict[str, str] | None = None):
         return plan_dependency_cache(
             contract_root=ROOT,
             source_root=self.source,
             working_directory=".",
+            phase=phase,
             family=family,
             source_trust=trust,
             profile=profile,
@@ -87,11 +88,17 @@ class DependencyCacheTests(unittest.TestCase):
     def test_only_successful_protected_default_branch_push_may_save(self) -> None:
         (self.source / "package-lock.json").write_text("{}\n", encoding="utf-8")
         integration = self.environment(event_name="push", ref="refs/heads/main", protected="true")
-        self.assertTrue(self.plan(family="npm", trust="trusted-exact", succeeded=True, environment=integration).save_allowed)
-        self.assertFalse(self.plan(family="npm", trust="trusted-exact", succeeded=False, environment=integration).save_allowed)
-        self.assertFalse(self.plan(family="npm", trust="trusted-pr", succeeded=True, environment=self.environment()).save_allowed)
+        self.assertTrue(self.plan(phase="save", family="npm", trust="trusted-exact", succeeded=True, environment=integration).save_allowed)
+        self.assertFalse(self.plan(phase="save", family="npm", trust="trusted-exact", succeeded=False, environment=integration).save_allowed)
         unprotected = self.environment(event_name="push", ref="refs/heads/main", protected="false")
-        self.assertFalse(self.plan(family="npm", trust="trusted-exact", succeeded=True, environment=unprotected).save_allowed)
+        self.assertFalse(self.plan(phase="save", family="npm", trust="trusted-exact", succeeded=True, environment=unprotected).save_allowed)
+
+    def test_save_rejects_pr_trust_and_unknown_phase(self) -> None:
+        (self.source / "package-lock.json").write_text("{}\n", encoding="utf-8")
+        with self.assertRaisesRegex(DependencyCacheError, "cache_save_trust_forbidden"):
+            self.plan(phase="save", family="npm", trust="trusted-pr", succeeded=True)
+        with self.assertRaisesRegex(DependencyCacheError, "cache_phase_unsupported"):
+            self.plan(phase="noop", family="npm")
 
     def test_cache_paths_are_marker_bound_dependency_state_not_source(self) -> None:
         (self.source / "package-lock.json").write_text("{}\n", encoding="utf-8")
@@ -152,8 +159,10 @@ class DependencyCacheTests(unittest.TestCase):
         sha = "55cc8345863c7cc4c66a329aec7e433d2d1c52a9"
         self.assertIn(f"actions/cache/restore@{sha}", source)
         self.assertIn(f"actions/cache/save@{sha}", source)
+        self.assertIn("INPUT_PHASE", source)
         self.assertIn("validation_succeeded", source)
         self.assertIn("restored_cache_hit", source)
+        self.assertIn("steps.plan.outcome == 'success'", source)
         self.assertIn("GITHUB_STEP_SUMMARY", source)
         self.assertNotIn("upload-artifact", source)
 

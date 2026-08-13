@@ -55,6 +55,7 @@ runs:
       shell: bash
       env:
         PYTHONDONTWRITEBYTECODE: "1"
+        INPUT_PHASE: ${{ inputs.phase }}
         INPUT_FAMILY: ${{ inputs.family }}
         INPUT_SOURCE_ROOT: ${{ inputs.source_root }}
         INPUT_WORKING_DIRECTORY: ${{ inputs.working_directory }}
@@ -98,11 +99,11 @@ runs:
 
     - id: measure
       name: Record redacted cache timing and hit sample
-      if: always()
+      if: ${{ always() && steps.plan.outcome == 'success' && steps.timer.outcome == 'success' }}
       shell: bash
       env:
-        CACHE_FAMILY: ${{ inputs.family }}
-        CACHE_PHASE: ${{ inputs.phase }}
+        CACHE_FAMILY: ${{ steps.plan.outputs.family }}
+        CACHE_PHASE: ${{ steps.plan.outputs.phase }}
         RESTORE_HIT: ${{ inputs.phase == 'restore' && steps.restore.outputs.cache-hit || inputs.restored_cache_hit }}
         SAVE_OUTCOME: ${{ steps.save.outcome }}
         STARTED_MS: ${{ steps.timer.outputs.started_ms }}
