@@ -8,6 +8,7 @@ on:
       - .ciw/oci-build-inputs/runner-general-linux-amd64.json
       - contracts/oci-products.json
       - generated/oci-engine-mapping.json
+      - tests/test_runner_image_general.py
 
 permissions:
   contents: read
@@ -24,12 +25,12 @@ jobs:
       INPUT_RELEASE_VERSION: 0.1.0
       INPUT_ARTIFACT_EXCEPTION_ID: ""
       PYTHONDONTWRITEBYTECODE: "1"
-      PYTHONPATH: src
     steps:
       - name: Check out exact PR head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+          path: source
           fetch-depth: 1
           clean: true
           persist-credentials: false
@@ -39,32 +40,36 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          test "$(git rev-parse HEAD)" = "${INPUT_ADMITTED_SHA}"
-          test -z "$(git status --porcelain --untracked-files=all)"
+          test "$(git -C source rev-parse HEAD)" = "${INPUT_ADMITTED_SHA}"
+          test -z "$(git -C source status --porcelain --untracked-files=all)"
 
       - name: Validate product plan and generated mapping
         shell: bash
-        run: python3 scripts/ci/ciw.py oci validate --phase plan --source-root .
+        run: python3 source/scripts/ci/ciw.py oci validate --phase plan --source-root source
+
+      - name: Run runner-image boundary tests
+        shell: bash
+        run: python3 -m pytest -q source/tests/test_runner_image_general.py
 
       - id: execute
         name: Build and inspect exact source without publication
         continue-on-error: true
         shell: bash
-        run: python3 scripts/ci/ciw.py oci validate --phase execute --source-root .
+        run: python3 source/scripts/ci/ciw.py oci validate --phase execute --source-root source
 
       - id: cleanup
         name: Remove OCI build state
         if: always()
         continue-on-error: true
         shell: bash
-        run: python3 scripts/ci/ciw.py oci validate --phase cleanup --source-root .
+        run: python3 source/scripts/ci/ciw.py oci validate --phase cleanup --source-root source
 
       - id: residue
         name: Verify zero OCI residue
         if: always()
         continue-on-error: true
         shell: bash
-        run: python3 scripts/ci/ciw.py oci validate --phase residue --source-root .
+        run: python3 source/scripts/ci/ciw.py oci validate --phase residue --source-root source
 
       - name: Project terminal validation status
         if: always()
