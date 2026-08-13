@@ -30,7 +30,7 @@
     "max_paths": 8,
     "metrics": ["cache_hit", "restore_duration_ms", "save_duration_ms"],
     "families": {
-      "npm": {"identity_globs": ["package-lock.json"], "paths": [{"base_env": "HOME", "relative": ".npm"}]},
+      "npm": {"identity_globs": ["package-lock.json"], "paths": [{"base_env": "npm_config_cache", "relative": "."}]},
       "gradle": {"identity_globs": ["gradle/wrapper/gradle-wrapper.properties", "gradle/libs.versions.toml", "gradle.lockfile", "settings.gradle", "settings.gradle.kts", "build.gradle", "build.gradle.kts", "**/gradle.lockfile", "**/build.gradle", "**/build.gradle.kts"], "paths": [{"base_env": "GRADLE_USER_HOME", "relative": "caches/modules-2"}, {"base_env": "GRADLE_USER_HOME", "relative": "wrapper/dists"}]},
       "maven": {"identity_globs": ["pom.xml", "**/pom.xml", ".mvn/wrapper/maven-wrapper.properties"], "paths": [{"base_env": "HOME", "relative": ".m2/repository"}]},
       "pip": {"identity_globs": ["requirements.txt", "requirements-*.txt", "**/requirements.txt", "**/requirements-*.txt", "pyproject.toml", "poetry.lock", "uv.lock", "Pipfile.lock"], "paths": [{"base_env": "XDG_CACHE_HOME", "relative": "pip"}]},
