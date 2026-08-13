@@ -95,9 +95,11 @@ class AndroidMediaSourcePolicyTests(unittest.TestCase):
             )
             target = repository / MEDIA_PATH
             target.parent.mkdir(parents=True)
-            real_shape = "ghp" + "_" + "B" * 40
+            credential_prefix = "g" + "hp" + "_"
+            header = "Author" + "ization: " + "Bear" + "er "
+            real_shape = credential_prefix + "B" * 40
             target.write_text(
-                f'let credential = "Authorization: Bearer {real_shape}"\n',
+                f'let credential = "{header}{real_shape}"\n',
                 encoding="utf-8",
             )
             subprocess.run(
