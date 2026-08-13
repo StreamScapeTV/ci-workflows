@@ -73,6 +73,8 @@ jobs:
               tests.test_maintenance_operations_fragment \
               tests.test_maintenance_runtime \
               tests.test_maintenance_security \
+              tests.test_maintenance_conformance_race \
+              tests.test_maintenance_credential_separation \
               tests.test_flux_component_facade \
               tests.test_flux_reconcile_contract \
               tests.test_flux_reconcile_security \
