@@ -219,6 +219,15 @@ def validate_evidence_packet(
         require(set(synthetic_required) <= set(limitations), "evidence_overclaim")
     else:
         require(not (set(synthetic_required) & set(limitations)), "evidence_overclaim")
+        lock = packet["lock"]
+        serialization = packet["serialization"]
+        require(
+            isinstance(lock, Mapping)
+            and lock.get("adapter") != "in-memory-tests-only"
+            and isinstance(serialization, Mapping)
+            and serialization.get("cross_run_fencing_claimed") is True,
+            "evidence_overclaim",
+        )
 
 
 def evidence_id(packet: Mapping[str, object]) -> str:
