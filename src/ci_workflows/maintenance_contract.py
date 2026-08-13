@@ -10,6 +10,17 @@ from typing import Any, Mapping
 CONTRACT_PATH = Path("contracts/organization-maintenance.json")
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 _PROJECT = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+_PROJECTION_POLICY = {
+    "repository_authority": "projects",
+    "expected_state_required": True,
+    "status_states": ["error", "failure", "pending", "success"],
+    "status_context_pattern": r"^[A-Za-z0-9][A-Za-z0-9 ._:/-]{0,99}$",
+    "status_description_max_bytes": 140,
+    "comment_marker_pattern": r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$",
+    "comment_body_max_bytes": 16000,
+    "label_max_count": 20,
+    "label_max_bytes": 50,
+}
 
 
 class MaintenanceError(RuntimeError):
@@ -33,6 +44,7 @@ class MaintenanceContract:
     request_id_pattern: str
     projects: tuple[ProjectPolicy, ...]
     operations: Mapping[str, Mapping[str, Any]]
+    projection: Mapping[str, Any]
     workflow_inventory_path: str
     artifact_exceptions_path: str
     maintenance_runner_selector: tuple[str, ...]
@@ -55,13 +67,16 @@ class MaintenanceContract:
         return value
 
     def validate_request_id(self, request_id: str) -> str:
-        if re.fullmatch(self.request_id_pattern, request_id) is None:
+        if (
+            not isinstance(request_id, str)
+            or re.fullmatch(self.request_id_pattern, request_id) is None
+        ):
             raise MaintenanceError("invalid_request_id")
         return request_id
 
     @staticmethod
     def validate_sha(value: str) -> str:
-        if _SHA.fullmatch(value) is None:
+        if not isinstance(value, str) or _SHA.fullmatch(value) is None:
             raise MaintenanceError("invalid_expected_head_sha")
         return value
 
@@ -143,7 +158,9 @@ def _operation_metadata(operations: Mapping[str, Mapping[str, Any]]) -> None:
             "recommended_cron": None,
             "policy_authority": "exact-flux-admitted-sha",
             "supporting_contracts": set(),
-            "credentials": {"credentials": ("flux_kubeconfig", "flux_sops_age_key")},
+            "credentials": {
+                "credentials": ("flux_kubeconfig", "flux_sops_age_key")
+            },
         },
     }
 
@@ -174,7 +191,8 @@ def _operation_metadata(operations: Mapping[str, Mapping[str, Any]]) -> None:
         supporting = {
             _relative(relative)
             for relative in _strings(
-                policy_source.get("supporting_contracts"), nonempty=False
+                policy_source.get("supporting_contracts"),
+                nonempty=False,
             )
         }
         if supporting != required["supporting_contracts"]:
@@ -186,6 +204,17 @@ def _operation_metadata(operations: Mapping[str, Mapping[str, Any]]) -> None:
                     raise MaintenanceError("invalid_contract")
             elif operation.get(field) != expected_value:
                 raise MaintenanceError("invalid_contract")
+
+
+def _projection_policy(value: Any) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping) or dict(value) != _PROJECTION_POLICY:
+        raise MaintenanceError("invalid_contract")
+    for field in ("status_context_pattern", "comment_marker_pattern"):
+        try:
+            re.compile(str(value[field]))
+        except re.error as error:
+            raise MaintenanceError("invalid_contract") from error
+    return value
 
 
 def load_contract(root: Path) -> MaintenanceContract:
@@ -245,7 +274,13 @@ def load_contract(root: Path) -> MaintenanceContract:
     if (
         not isinstance(operations, Mapping)
         or set(operations)
-        != {"artifacts", "branches", "conformance", "runner_retry", "flux_reconcile"}
+        != {
+            "artifacts",
+            "branches",
+            "conformance",
+            "runner_retry",
+            "flux_reconcile",
+        }
     ):
         raise MaintenanceError("invalid_contract")
     if any(
@@ -290,6 +325,8 @@ def load_contract(root: Path) -> MaintenanceContract:
     for field in ("policy_path", "allowlist_path", "executor_path"):
         _relative(flux.get(field))
 
+    projection = _projection_policy(raw.get("projection"))
+
     retired = raw.get("retired_boundaries")
     if not isinstance(retired, Mapping):
         raise MaintenanceError("invalid_contract")
@@ -308,6 +345,7 @@ def load_contract(root: Path) -> MaintenanceContract:
         request_pattern,
         tuple(projects),
         operations,
+        projection,
         _relative(raw.get("workflow_inventory_path")),
         _relative(raw.get("artifact_exceptions_path")),
         _strings(raw.get("maintenance_runner_selector")),
