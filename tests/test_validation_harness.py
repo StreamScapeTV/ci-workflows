@@ -21,6 +21,9 @@ from ci_workflows.validation_harness import (
 )
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
 class ValidationHarnessTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -116,6 +119,115 @@ class ValidationHarnessTest(unittest.TestCase):
         self.assertIn("missing-timeout", rules)
         self.assertIn("opaque-matrix", rules)
 
+    def test_runner_timeout_values_remain_positive_integers_and_bounded(self) -> None:
+        path = self.root / ".github/workflows/reusable-sample.yml"
+        original = path.read_text()
+        cases = (
+            ("zero", "0", "missing-timeout"),
+            ("negative", "-1", "missing-timeout"),
+            ("string", '"20"', "missing-timeout"),
+            ("boolean", "true", "missing-timeout"),
+            ("excessive", "241", "excessive-timeout"),
+        )
+        for case, value, expected_rule in cases:
+            with self.subTest(case=case):
+                path.write_text(
+                    original.replace(
+                        "timeout-minutes: 20",
+                        f"timeout-minutes: {value}",
+                        1,
+                    )
+                )
+                self.assertIn(expected_rule, self.rules())
+        path.write_text(original)
+
+    def test_reusable_call_job_does_not_require_timeout_and_rejects_execution_mix(self) -> None:
+        public = self.root / ".github/workflows/reusable-sample.yml"
+        internal = self.root / ".github/workflows/internal-flux-assets.yml"
+        public_text = """name: Sample reusable validation
+on:
+  workflow_call:
+    inputs:
+      admitted_sha:
+        required: true
+        type: string
+    outputs:
+      result:
+        description: Validation result
+        value: ${{ jobs.call_assets.outputs.result }}
+permissions:
+  contents: read
+jobs:
+  call_assets:
+    name: CI / Sample
+    uses: ./.github/workflows/internal-flux-assets.yml
+    with:
+      admitted_sha: ${{ inputs.admitted_sha }}
+"""
+        internal_text = f"""name: Internal Flux assets fixture
+on:
+  workflow_call:
+    inputs:
+      admitted_sha:
+        required: true
+        type: string
+    outputs:
+      result:
+        description: Internal fixture result
+        value: ${{{{ jobs.validate.outputs.result }}}}
+permissions:
+  contents: read
+jobs:
+  validate:
+    name: Execute internal Flux assets fixture
+    runs-on: [linux, amd64, general]
+    timeout-minutes: 20
+    outputs:
+      result: ${{{{ steps.execute.outputs.result }}}}
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@{CHECKOUT_SHA} # v7.0.1
+        with:
+          ref: ${{{{ inputs.admitted_sha }}}}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+      - id: execute
+        name: Validate exact head
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "${{{{ inputs.admitted_sha }}}}"
+          echo "result=success" >> "${{{{ GITHUB_OUTPUT }}}}"
+"""
+        write_text(public, public_text)
+        write_text(internal, internal_text)
+
+        rules = self.rules()
+        self.assertNotIn("missing-timeout", rules)
+        self.assertNotIn("invalid-reusable-job", rules)
+
+        invalid_execution_keys = (
+            ("runs-on", "    runs-on: [linux, amd64, general]\n"),
+            (
+                "steps",
+                "    steps:\n"
+                "      - name: Invalid mixed execution step\n"
+                "        run: echo invalid\n",
+            ),
+        )
+        for case, extra in invalid_execution_keys:
+            with self.subTest(case=case):
+                public.write_text(
+                    public_text.replace(
+                        "    with:\n",
+                        extra + "    with:\n",
+                        1,
+                    )
+                )
+                self.assertIn("invalid-reusable-job", self.rules())
+        public.write_text(public_text)
+
     def test_permissions_secrets_and_high_risk_checkout_rules(self) -> None:
         path = self.root / ".github/workflows/reusable-sample.yml"
         text = path.read_text()
@@ -202,6 +314,53 @@ class ValidationHarnessTest(unittest.TestCase):
         self.assertIn("missing-implementation-component", rules)
         self.assertIn("public-api-doc-drift", rules)
 
+    def test_bootstrap_chart_digest_uses_exact_verified_remote_manifest_bytes(self) -> None:
+        source = (
+            ROOT / ".github/workflows/reusable-tag-image-chart.yml"
+        ).read_text(encoding="utf-8")
+        manifest_fetch = source.index(
+            'chart_manifest="${STATE_ROOT}/chart-remote-manifest.json"'
+        )
+        semantic_validation = source.index(
+            'raise SystemExit("remote chart content layer digest differs")',
+            manifest_fetch,
+        )
+        digest_line = source.index(
+            'chart_digest="sha256:$(sha256sum "${chart_manifest}" | awk \'{print $1}\')"',
+            semantic_validation,
+        )
+        output_line = source.index(
+            "printf 'digest=%s\\n' \"${chart_digest}\"",
+            digest_line,
+        )
+        self.assertLess(manifest_fetch, semantic_validation)
+        self.assertLess(semantic_validation, digest_line)
+        self.assertLess(digest_line, output_line)
+        self.assertIn(
+            '[[ "${chart_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]',
+            source,
+        )
+        self.assertIn(
+            "value: ${{ jobs.publish.outputs.chart_digest }}",
+            source,
+        )
+        self.assertIn(
+            "chart_digest: ${{ steps.chart.outputs.digest }}",
+            source,
+        )
+        self.assertIn(
+            "printf 'package_sha256=%s\\n' \"${local_sha}\"",
+            source,
+        )
+        self.assertIn(
+            "CHART_DIGEST: ${{ steps.chart.outputs.digest }}",
+            source,
+        )
+        self.assertIn(
+            'echo "- Chart OCI digest: \\`${CHART_DIGEST}\\`"',
+            source,
+        )
+
     def test_reusable_workflow_call_graph_rejects_missing_cycle_depth_and_internal_nesting(self) -> None:
         first = self.root / ".github/workflows/reusable-sample.yml"
         first.write_text(
@@ -222,7 +381,6 @@ jobs:
   call_leaf:
     name: CI / Sample
     uses: ./.github/workflows/internal-leaf.yml
-    timeout-minutes: 20
 """
         )
         write_text(
@@ -236,7 +394,6 @@ jobs:
   call_back:
     name: Call back
     uses: ./.github/workflows/reusable-sample.yml
-    timeout-minutes: 10
 """,
         )
         rules = self.rules()
@@ -301,6 +458,28 @@ jobs:
             {"services": {"github": {"scenarios": [{"name": "positive"}]}}},
         )
         self.assertIn("missing-service-scenario", self.rules())
+
+    def test_private_reusable_validators_use_immutable_actions_without_central_clone(self) -> None:
+        workflows = (
+            ".github/workflows/reusable-node.yml",
+            ".github/workflows/reusable-android.yml",
+            ".github/workflows/reusable-python.yml",
+            ".github/workflows/reusable-flutter.yml",
+            ".github/workflows/reusable-apple.yml",
+            ".github/workflows/reusable-oci-build.yml",
+        )
+        for relative in workflows:
+            with self.subTest(workflow=relative):
+                source = (ROOT / relative).read_text(encoding="utf-8")
+                self.assertNotIn("repository: ${{ job.workflow_repository }}", source)
+                self.assertNotIn("ref: ${{ job.workflow_sha }}", source)
+                self.assertNotIn("path: .ciw", source)
+                self.assertNotIn("./.ciw/actions/", source)
+                self.assertNotIn("secrets: inherit", source)
+                self.assertRegex(
+                    source,
+                    r"uses:\s*StreamScapeTV/ci-workflows/actions/[A-Za-z0-9._-]+@[0-9a-f]{40}",
+                )
 
     def test_tool_lock_drift_is_rejected(self) -> None:
         (self.root / "requirements/validation.lock").write_text("PyYAML>=6\n")

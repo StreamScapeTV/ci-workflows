@@ -31,6 +31,45 @@ A protected `portable` planner validates the contract and resolves the semantic
 runner mapping. All source execution occurs on semantic `apple`; the caller
 never supplies a concrete label.
 
+## Bounded iptv-apple Release certification
+
+The existing `iptv-apple` consumer contract remains the Debug validation
+mapping. `iptv-apple-release` is a separate checked-in consumer contract for
+exact-SHA certification and exposes only the existing `ios-simulator`,
+`tvos-simulator`, and `macos` profiles. Those three mappings select fixed tasks
+with `configuration: Release` and compile-only `xcodebuild build` actions.
+
+Release configuration is not a workflow input. The caller selects the reviewed
+consumer contract and bounded platform profile; a supplied configuration field
+or other unregistered input fails closed. iOS/tvOS simulator destinations remain
+contract-owned and macOS remains unsigned. Every execution still forces
+`CODE_SIGNING_ALLOWED=NO`, `CODE_SIGNING_REQUIRED=NO`, and an empty
+`CODE_SIGN_IDENTITY`; Release certification adds no signing, provisioning,
+archive/export, notarization, store, physical-device, registry, or deployment
+authority.
+
+## Immutable private helper reuse
+
+Private same-organization consumers do not clone the private central repository
+with their caller-scoped token. The planner and Apple execution job invoke the
+reviewed `validate-apple` composite action through the immutable Release-aware
+checkpoint `88d179740145ccea00b6986d78ceb67ea365face`. Exact caller checkout,
+workspace preparation, and registered-state cleanup use the already reviewed
+immutable foundation helpers.
+
+The private action archive supplies Apple scripts and Python modules relative to
+`GITHUB_ACTION_PATH`; no `.ciw` action checkout, central PAT input,
+`secrets: inherit`, mutable helper ref, or caller-selected helper version is
+required. Product source authority remains separate and exact.
+
+Persistent macOS cleanup remains fail closed. The reusable workflow removes any
+stale fixed `.ciw` root and the fixed `source` checkout through inline
+`lstat`-based no-follow removal before or after execution as appropriate. This
+preserves the old fixed-root safety boundary without depending on a checked-out
+central script. Apple-specific state, simulator ownership, registered workspace
+state, source checkout, and stale central-checkout residue all remain part of
+the terminal failure projection.
+
 ## Exact toolchain
 
 The contract verifies the full reviewed Xcode version and build, Swift version,
@@ -87,16 +126,23 @@ logs, reports, native output, caches, generated source output, and job-created
 simulators. Cleanup uses lexical contract paths and `lstat`-based no-follow
 removal. A symlink is unlinked rather than traversed, caller deletion paths are
 not accepted, outside sentinels are preserved, and residue is a terminal
-failure.
+failure. Fixed source and stale central-checkout roots are also removed without
+following links and participate in the combined cleanup outcome.
 
-## Smoke workflow
+## Smoke workflows
 
 `.github/workflows/apple-validation-smoke.yml` checks out the exact
 pull-request implementation and executes the same planner, composite action,
 contract, workspace isolation, and cleanup path directly for a product-neutral
-fixture on iOS simulator, tvOS simulator, and unsigned macOS. The direct caller
-preserves the repository's maximum reusable depth of one while proving the
-implementation used by `.github/workflows/reusable-apple.yml`. It accepts
-same-repository pull requests only and independently verifies that the run
-retained zero Actions artifacts.
-Simulator smoke is not physical-device, signing, release, or store proof.
+Debug fixture on iOS simulator, tvOS simulator, and unsigned macOS.
+
+`.github/workflows/apple-certification-smoke.yml` independently proves the
+Release path. Its fixed three-row, non-fail-fast matrix resolves
+`ciw-apple-release-smoke`, runs iOS simulator, tvOS simulator, and macOS Release
+compile jobs on the exact same pull-request SHA, verifies Apple-specific and
+workspace cleanup/residue, and requires zero routine Actions artifacts.
+
+Both smoke workflows are direct repository-owned callers rather than nested
+calls to `reusable-apple.yml`; this preserves the repository's maximum reusable
+depth of one. Simulator smoke is not physical-device, signing, release
+publication, or store proof.

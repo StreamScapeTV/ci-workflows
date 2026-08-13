@@ -22,6 +22,15 @@ ACTION = ROOT / "actions/validate-android/action.yml"
 DOC = ROOT / "docs/workflows/android.md"
 ARCH = ROOT / "docs/architecture/android-validation.md"
 CASES = ROOT / "tests/fixtures/android-validation/cases.json"
+PRIVATE_HELPER_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
+PRIVATE_HELPERS = {
+    "validate-android",
+    "exact-checkout",
+    "prepare-workspace",
+    "checkout-private-dependency",
+    "render-evidence",
+    "cleanup-workspace",
+}
 
 
 class AndroidWorkflowContractTests(unittest.TestCase):
@@ -79,24 +88,63 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("runs-on: portable", self.reusable)
         self.assertNotIn("runs-on: portable", self.smoke)
         self.assertIn("fromJSON(needs.plan.outputs.runs_on_json)", self.reusable)
-        self.assertIn("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", self.reusable)
-        self.assertIn("./.ciw/actions/exact-checkout", self.reusable)
-        self.assertIn("./.ciw/actions/checkout-private-dependency", self.reusable)
+        self.assertNotIn("actions/checkout@", self.reusable)
+        self.assertNotIn("./.ciw/actions/", self.reusable)
+        for helper in PRIVATE_HELPERS:
+            self.assertIn(
+                f"StreamScapeTV/ci-workflows/actions/{helper}@{PRIVATE_HELPER_SHA}",
+                self.reusable,
+            )
         self.assertNotIn("self-hosted", self.reusable)
         self.assertNotIn("runs-on: mobile", self.reusable)
         for forbidden in ("macos-latest", "ubuntu-latest", "buildah", "apple-", "docker"):
             self.assertNotIn(forbidden, self.reusable.casefold())
 
-    def test_central_source_uses_called_workflow_identity(self) -> None:
-        self.assertEqual(
-            self.reusable.count("repository: ${{ job.workflow_repository }}"),
-            2,
+    def test_central_source_uses_immutable_private_action_identity(self) -> None:
+        reusable = yaml.safe_load(self.reusable)
+        steps = [
+            step
+            for job in reusable["jobs"].values()
+            for step in job.get("steps", [])
+        ]
+        self.assertFalse(
+            any(step.get("name") == "Check out exact central workflow source" for step in steps)
         )
-        self.assertEqual(self.reusable.count("ref: ${{ job.workflow_sha }}"), 2)
-        self.assertEqual(self.reusable.count("EXPECTED_REPOSITORY: ${{ job.workflow_repository }}"), 2)
-        self.assertEqual(self.reusable.count("EXPECTED_SHA: ${{ job.workflow_sha }}"), 2)
+        self.assertFalse(
+            any(step.get("name") == "Verify exact central workflow source" for step in steps)
+        )
+        self.assertNotIn("job.workflow_repository", self.reusable)
+        self.assertNotIn("job.workflow_sha", self.reusable)
+        self.assertNotIn("path: .ciw", self.reusable)
         self.assertNotIn("github.workflow_sha", self.reusable)
         self.assertNotIn("GITHUB_WORKFLOW_SHA", self.reusable)
+        remote_helpers = {
+            str(step["uses"]).split("@", 1)[0]: str(step["uses"]).split("@", 1)[1]
+            for step in steps
+            if str(step.get("uses", "")).startswith(
+                "StreamScapeTV/ci-workflows/actions/"
+            )
+        }
+        self.assertEqual(
+            {
+                f"StreamScapeTV/ci-workflows/actions/{helper}"
+                for helper in PRIVATE_HELPERS
+            },
+            set(remote_helpers),
+        )
+        self.assertEqual({PRIVATE_HELPER_SHA}, set(remote_helpers.values()))
+        self.assertEqual(
+            set(reusable[True]["workflow_call"].get("secrets", {})),
+            {"private_dependency_token"},
+        )
+        dependency = next(step for step in steps if step.get("id") == "dependency")
+        self.assertEqual(
+            dependency["with"]["token"],
+            "${{ secrets.private_dependency_token }}",
+        )
+        for step in steps:
+            if step is not dependency:
+                self.assertNotIn("private_dependency_token", json.dumps(step))
 
     def test_smoke_is_direct_mobile_plan_execute_not_nested_reuse(self) -> None:
         self.assertNotIn("./.github/workflows/reusable-android.yml", self.smoke)

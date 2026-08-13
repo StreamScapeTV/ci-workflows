@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "lock_version": "1.0.0",
+  "product_id": "ciw-oci-smoke",
+  "target_id": "contract-smoke",
+  "input_policy_id": "scratch-only-v1",
+  "platforms": [
+    "linux/amd64"
+  ],
+  "bases": [
+    {
+      "stage_id": "stage-1",
+      "from_ordinal": 1,
+      "stage_marker": "final",
+      "kind": "scratch",
+      "declared_reference": "scratch",
+      "dockerfile_platform": null,
+      "platforms": [
+        "linux/amd64"
+      ],
+      "platform_identities": []
+    }
+  ],
+  "external_inputs": []
+}

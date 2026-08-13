@@ -6,6 +6,8 @@ import re
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
+OCI_HELPER_SHA = "3b401078d1167d7048281e3c3269556ce586dada"
 
 
 class OciWorkflowContractTests(unittest.TestCase):
@@ -49,10 +51,30 @@ class OciWorkflowContractTests(unittest.TestCase):
             self.assertNotIn(f"runs-on: {deprecated_label}", self.workflow)
         self.assertIn("Resolve contract-owned OCI product and runner", self.workflow)
 
+    def test_private_central_helpers_are_immutable_without_central_clone(self) -> None:
+        self.assertNotIn("actions/checkout@", self.workflow)
+        self.assertNotIn("repository: ${{ job.workflow_repository }}", self.workflow)
+        self.assertNotIn("ref: ${{ job.workflow_sha }}", self.workflow)
+        self.assertNotIn("path: .ciw", self.workflow)
+        self.assertNotIn("./.ciw/actions/", self.workflow)
+        self.assertNotIn("secrets: inherit", self.workflow)
+        self.assertNotIn("private_dependency_token", self.workflow)
+        self.assertEqual(
+            4,
+            self.workflow.count(
+                f"uses: StreamScapeTV/ci-workflows/actions/validate-oci@{OCI_HELPER_SHA}"
+            ),
+        )
+        for helper in ("exact-checkout", "prepare-workspace", "render-evidence", "cleanup-workspace"):
+            self.assertIn(
+                f"StreamScapeTV/ci-workflows/actions/{helper}@{FOUNDATION_SHA}",
+                self.workflow,
+            )
+
     def test_exact_source_cleanup_residue_and_terminal_projection_are_unconditional(self) -> None:
         required = (
             "Check out exact admitted caller source",
-            "persist-credentials: false",
+            f"uses: StreamScapeTV/ci-workflows/actions/exact-checkout@{FOUNDATION_SHA}",
             "Build and inspect exact source without publication",
             "continue-on-error: true",
             "if: always()",
@@ -102,6 +124,7 @@ class OciWorkflowContractTests(unittest.TestCase):
                 "result",
                 "image_digest",
                 "platform_digests_json",
+                "resolved_inputs_json",
                 "artifact_exception_used",
             },
             set(re.findall(r"(?m)^      ([a-z_]+):$", public_block)),
@@ -126,8 +149,41 @@ class OciWorkflowContractTests(unittest.TestCase):
         self.assertIn("timeout-minutes: 180", self.smoke)
         self.assertIn("uses: ./.ciw/actions/validate-oci", self.smoke)
         self.assertIn("phase: execute", self.smoke)
-        self.assertIn("product_id: ciw-oci-smoke", self.smoke)
+        self.assertIn("product_id: ciw-oci-input-smoke", self.smoke)
         self.assertIn("platform_set: linux-amd64", self.smoke)
+        self.assertIn("steps.execute.outputs.resolved_inputs_json", self.smoke)
+        self.assertIn(
+            "Verify exact resolved OCI input evidence is nonempty and redacted",
+            self.smoke,
+        )
+        self.assertIn("INPUT_EVIDENCE_OUTCOME", self.smoke)
+        self.assertIn("test \"${INPUT_EVIDENCE_OUTCOME}\" = \"success\"", self.smoke)
+        self.assertIn(
+            "Require no runner-global containers/image cache at entry", self.smoke
+        )
+        self.assertIn(
+            "Verify engine isolation left no runner-global cache", self.smoke
+        )
+        self.assertEqual(
+            4,
+            self.smoke.count("test ! -e /var/lib/containers/cache")
+            + self.smoke.count("test ! -L /var/lib/containers/cache"),
+        )
+        self.assertIn("IMPLICIT_CACHE_BASELINE_OUTCOME", self.smoke)
+        self.assertIn("IMPLICIT_CACHE_RESIDUE_OUTCOME", self.smoke)
+        fixture = (
+            ROOT / "tests/fixtures/oci-build/input-smoke/Containerfile"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "FROM docker.io/library/busybox@sha256:"
+            "73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662",
+            fixture,
+        )
+        self.assertIn(
+            "COPY --chmod=0444 .ciw-build-inputs/README.md /ciw-input/README.md",
+            fixture,
+        )
+        self.assertNotRegex(fixture, r"(?m)^RUN\s")
         self.assertIn("Check out exact admitted smoke source", self.smoke)
         self.assertIn("Verify exact smoke source remained clean", self.smoke)
         self.assertIn("Run focused OCI contract, security, and media tests", self.smoke)
@@ -160,7 +216,13 @@ class OciWorkflowContractTests(unittest.TestCase):
     def test_product_contract_covers_backend_agent_state_flux_and_rejects_application_mobile(self) -> None:
         products = self.contract["products"]
         self.assertEqual(
-            {"iptv-backend-image", "agent-state-image", "flux-runner-images", "ciw-oci-smoke"},
+            {
+                "iptv-backend-image",
+                "agent-state-image",
+                "flux-runner-images",
+                "ciw-oci-smoke",
+                "ciw-oci-input-smoke",
+            },
             set(products),
         )
         flux = products["flux-runner-images"]
@@ -169,9 +231,67 @@ class OciWorkflowContractTests(unittest.TestCase):
         self.assertEqual("buildah-high", flux["runner_profile"])
         smoke = products["ciw-oci-smoke"]["targets"][0]
         self.assertIsNone(smoke["smoke_script"])
+        self.assertEqual(
+            "tests/fixtures/oci-build/smoke/inputs.lock.json",
+            smoke["build_input_lock_path"],
+        )
+        self.assertEqual("scratch-only-v1", smoke["input_policy_id"])
+        input_smoke = products["ciw-oci-input-smoke"]
+        self.assertTrue(input_smoke["adoption_ready"])
+        input_target = input_smoke["targets"][0]
+        self.assertEqual(
+            "tests/fixtures/oci-build/input-smoke/inputs.lock.json",
+            input_target["build_input_lock_path"],
+        )
+        self.assertEqual("oci-inputs-public-v1", input_target["input_policy_id"])
+        for product_id in (
+            "iptv-backend-image",
+            "agent-state-image",
+            "flux-runner-images",
+        ):
+            self.assertFalse(products[product_id]["adoption_ready"])
         self.assertNotIn("StreamScapeTV/StreamScapeWeb", json.dumps(products))
         self.assertNotIn("StreamScapeTV/iptv-android", json.dumps(products))
         self.assertNotIn("StreamScapeTV/iptv-apple", json.dumps(products))
+
+    def test_input_policy_is_central_closed_and_never_caller_selected(self) -> None:
+        self.assertEqual("1.1.0", self.contract["contract_version"])
+        self.assertEqual(
+            {"oci-inputs-public-v1", "scratch-only-v1"},
+            set(self.contract["input_policies"]),
+        )
+        policy = self.contract["input_policies"]["oci-inputs-public-v1"]
+        self.assertEqual(["docker.io"], policy["allowed_registry_hosts"])
+        self.assertEqual(
+            ["registry-1.docker.io"], policy["allowed_registry_api_hosts"]
+        )
+        self.assertEqual(
+            ["auth.docker.io"], policy["allowed_registry_token_hosts"]
+        )
+        self.assertEqual(
+            ["production.cloudfront.docker.com"],
+            policy["allowed_registry_blob_hosts"],
+        )
+        self.assertEqual(
+            ["raw.githubusercontent.com"], policy["allowed_download_hosts"]
+        )
+        self.assertTrue(policy["https_only"])
+        self.assertFalse(policy["ambient_auth"])
+        self.assertEqual("same-profile-hosts", policy["redirect_policy"])
+        self.assertEqual(5, policy["maximum_redirects"])
+        self.assertGreaterEqual(policy["maximum_input_bytes"], 4096)
+        public_schema = json.dumps(self.schema, sort_keys=True)
+        for forbidden in (
+            "input_policy_id",
+            "build_input_lock_path",
+            "allowed_registry_hosts",
+            "allowed_registry_api_hosts",
+            "allowed_registry_token_hosts",
+            "allowed_registry_blob_hosts",
+            "allowed_download_hosts",
+            "source_url",
+        ):
+            self.assertNotIn(forbidden, public_schema)
 
 
 if __name__ == "__main__":

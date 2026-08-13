@@ -71,31 +71,9 @@ jobs:
       jdk_distribution: ${{ steps.plan.outputs.jdk_distribution }}
       jdk_version: ${{ steps.plan.outputs.jdk_version }}
     steps:
-      - name: Check out exact central workflow source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          path: .ciw
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
-      - name: Verify exact central workflow source
-        shell: bash
-        env:
-          EXPECTED_REPOSITORY: ${{ job.workflow_repository }}
-          EXPECTED_SHA: ${{ job.workflow_sha }}
-        run: |
-          set -Eeuo pipefail
-          (
-            cd .ciw
-            test "${EXPECTED_REPOSITORY}" = "StreamScapeTV/ci-workflows"
-            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
-          )
       - id: plan
         name: Resolve contract-owned Flutter Dart Gradle and JDK tuple
-        uses: ./.ciw/actions/validate-flutter
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -118,30 +96,8 @@ jobs:
       test_summary: ${{ steps.execute.outputs.test_summary }}
       artifact_exception_used: ${{ steps.execute.outputs.artifact_exception_used }}
     steps:
-      - name: Check out exact central workflow source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          path: .ciw
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
-      - name: Verify exact central workflow source
-        shell: bash
-        env:
-          EXPECTED_REPOSITORY: ${{ job.workflow_repository }}
-          EXPECTED_SHA: ${{ job.workflow_sha }}
-        run: |
-          set -Eeuo pipefail
-          (
-            cd .ciw
-            test "${EXPECTED_REPOSITORY}" = "StreamScapeTV/ci-workflows"
-            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
-          )
       - name: Check out exact admitted caller source
-        uses: ./.ciw/actions/exact-checkout
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -156,7 +112,7 @@ jobs:
           (cd source && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
       - id: workspace
         name: Prepare isolated Flutter state
-        uses: ./.ciw/actions/prepare-workspace
+        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           profile: ${{ needs.plan.outputs.workspace_profile }}
           cache_mode: disabled
@@ -164,7 +120,7 @@ jobs:
           trust_mode: ${{ needs.plan.outputs.source_trust }}
       - id: execute
         name: Execute bounded Flutter validation
-        uses: ./.ciw/actions/validate-flutter
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -179,7 +135,7 @@ jobs:
       - id: flutter_cleanup
         name: Remove Flutter-specific state and preserve primary failure
         if: always()
-        uses: ./.ciw/actions/validate-flutter
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -190,7 +146,7 @@ jobs:
       - id: flutter_residue
         name: Verify zero Flutter-specific residue
         if: always()
-        uses: ./.ciw/actions/validate-flutter
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -200,7 +156,7 @@ jobs:
       - id: workspace_cleanup
         name: Remove and verify all registered workflow state
         if: always()
-        uses: ./.ciw/actions/cleanup-workspace
+        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
 
   mobile:
     name: Execute mobile Flutter quality or Android validation
@@ -213,30 +169,8 @@ jobs:
       test_summary: ${{ steps.execute.outputs.test_summary }}
       artifact_exception_used: ${{ steps.execute.outputs.artifact_exception_used }}
     steps:
-      - name: Check out exact central workflow source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          path: .ciw
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
-      - name: Verify exact central workflow source
-        shell: bash
-        env:
-          EXPECTED_REPOSITORY: ${{ job.workflow_repository }}
-          EXPECTED_SHA: ${{ job.workflow_sha }}
-        run: |
-          set -Eeuo pipefail
-          (
-            cd .ciw
-            test "${EXPECTED_REPOSITORY}" = "StreamScapeTV/ci-workflows"
-            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
-          )
       - name: Check out exact admitted caller source
-        uses: ./.ciw/actions/exact-checkout
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -251,7 +185,7 @@ jobs:
           (cd source && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
       - id: workspace
         name: Prepare isolated Flutter state
-        uses: ./.ciw/actions/prepare-workspace
+        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           profile: ${{ needs.plan.outputs.workspace_profile }}
           cache_mode: disabled
@@ -259,7 +193,7 @@ jobs:
           trust_mode: ${{ needs.plan.outputs.source_trust }}
       - id: persistent_cache_snapshot
         name: Snapshot persistent host pub cache before Flutter setup
-        uses: ./.ciw/actions/validate-flutter
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
         with:
           phase: persistent-cache-snapshot
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -280,7 +214,7 @@ jobs:
           pub-cache-path: ${{ format('{0}/tmp/flutter-validation/pub-cache', env.CI_WORKFLOW_ROOT) }}
       - id: pub_cache_bind
         name: Force Flutter pub cache beneath registered workflow state
-        uses: ./.ciw/actions/validate-flutter
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
         with:
           phase: pub-cache-bind
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -289,7 +223,7 @@ jobs:
           source_trust: ${{ needs.plan.outputs.source_trust }}
       - id: toolchain
         name: Verify exact Java Javac Flutter and Dart identities
-        uses: ./.ciw/actions/validate-flutter
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
         with:
           phase: verify-toolchain
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -299,7 +233,7 @@ jobs:
           source_trust: ${{ needs.plan.outputs.source_trust }}
       - id: execute
         name: Execute bounded Flutter validation
-        uses: ./.ciw/actions/validate-flutter
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -314,7 +248,7 @@ jobs:
       - id: persistent_cache_verify
         name: Prove persistent host pub cache is unchanged
         if: always()
-        uses: ./.ciw/actions/validate-flutter
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
         with:
           phase: persistent-cache-verify
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -324,7 +258,7 @@ jobs:
       - id: flutter_cleanup
         name: Remove registered Flutter and pub state and preserve primary failure
         if: always()
-        uses: ./.ciw/actions/validate-flutter
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -335,7 +269,7 @@ jobs:
       - id: flutter_residue
         name: Verify zero Flutter-specific and pub-cache residue
         if: always()
-        uses: ./.ciw/actions/validate-flutter
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -345,7 +279,7 @@ jobs:
       - id: workspace_cleanup
         name: Remove and verify all registered workflow state
         if: always()
-        uses: ./.ciw/actions/cleanup-workspace
+        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
 
   apple:
     name: Execute Apple Flutter iOS simulator validation
@@ -358,30 +292,8 @@ jobs:
       test_summary: ${{ steps.execute.outputs.test_summary }}
       artifact_exception_used: ${{ steps.execute.outputs.artifact_exception_used }}
     steps:
-      - name: Check out exact central workflow source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          path: .ciw
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
-      - name: Verify exact central workflow source
-        shell: bash
-        env:
-          EXPECTED_REPOSITORY: ${{ job.workflow_repository }}
-          EXPECTED_SHA: ${{ job.workflow_sha }}
-        run: |
-          set -Eeuo pipefail
-          (
-            cd .ciw
-            test "${EXPECTED_REPOSITORY}" = "StreamScapeTV/ci-workflows"
-            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
-          )
       - name: Check out exact admitted caller source
-        uses: ./.ciw/actions/exact-checkout
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -396,7 +308,7 @@ jobs:
           (cd source && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
       - id: workspace
         name: Prepare isolated Flutter state
-        uses: ./.ciw/actions/prepare-workspace
+        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           profile: ${{ needs.plan.outputs.workspace_profile }}
           cache_mode: disabled
@@ -404,7 +316,7 @@ jobs:
           trust_mode: ${{ needs.plan.outputs.source_trust }}
       - id: persistent_cache_snapshot
         name: Snapshot persistent host pub cache before Flutter setup
-        uses: ./.ciw/actions/validate-flutter
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
         with:
           phase: persistent-cache-snapshot
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -420,7 +332,7 @@ jobs:
           pub-cache-path: ${{ format('{0}/tmp/flutter-validation/pub-cache', env.CI_WORKFLOW_ROOT) }}
       - id: pub_cache_bind
         name: Force Flutter pub cache beneath registered workflow state
-        uses: ./.ciw/actions/validate-flutter
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
         with:
           phase: pub-cache-bind
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -429,7 +341,7 @@ jobs:
           source_trust: ${{ needs.plan.outputs.source_trust }}
       - id: toolchain
         name: Verify exact Flutter and Dart identities
-        uses: ./.ciw/actions/validate-flutter
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
         with:
           phase: verify-toolchain
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -439,7 +351,7 @@ jobs:
           source_trust: ${{ needs.plan.outputs.source_trust }}
       - id: execute
         name: Execute bounded Flutter validation
-        uses: ./.ciw/actions/validate-flutter
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -454,7 +366,7 @@ jobs:
       - id: persistent_cache_verify
         name: Prove persistent host pub cache is unchanged
         if: always()
-        uses: ./.ciw/actions/validate-flutter
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
         with:
           phase: persistent-cache-verify
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -464,7 +376,7 @@ jobs:
       - id: flutter_cleanup
         name: Remove registered Flutter and pub state and preserve primary failure
         if: always()
-        uses: ./.ciw/actions/validate-flutter
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -475,7 +387,7 @@ jobs:
       - id: flutter_residue
         name: Verify zero Flutter-specific and pub-cache residue
         if: always()
-        uses: ./.ciw/actions/validate-flutter
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -485,7 +397,7 @@ jobs:
       - id: workspace_cleanup
         name: Remove and verify all registered workflow state
         if: always()
-        uses: ./.ciw/actions/cleanup-workspace
+        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
 
   validate:
     name: CI / Flutter validation

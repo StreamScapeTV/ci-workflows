@@ -38,10 +38,101 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/resolve-source",
-      "sha": "90706a72aa68c81b7840c139965ae528d8ed6b25",
-      "release": "issue #7 immutable helper checkpoint",
+      "sha": "87a7454aaa59cb680db8f580d22551b749ac4193",
+      "release": "issue #132 immutable mode-aware source checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/90706a72aa68c81b7840c139965ae528d8ed6b25/actions/resolve-source"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/87a7454aaa59cb680db8f580d22551b749ac4193/actions/resolve-source"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/validate-node",
+      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
+      "release": "issue #116 immutable private-action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/validate-node"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/exact-checkout",
+      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
+      "release": "issue #116 immutable private-action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/exact-checkout"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/prepare-workspace",
+      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
+      "release": "issue #116 immutable private-action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/prepare-workspace"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/render-evidence",
+      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
+      "release": "issue #116 immutable private-action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/render-evidence"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/cleanup-workspace",
+      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
+      "release": "issue #116 immutable private-action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/cleanup-workspace"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/validate-android",
+      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
+      "release": "issue #104 immutable private-action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/validate-android"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/checkout-private-dependency",
+      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
+      "release": "issue #104 immutable private-action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/checkout-private-dependency"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/validate-python",
+      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
+      "release": "issue #125 immutable private-action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/validate-python"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/verify-toolchain",
+      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
+      "release": "issue #125 immutable private-action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/verify-toolchain"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/validate-flutter",
+      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
+      "release": "issue #125 immutable private-action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/validate-flutter"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/validate-apple",
+      "sha": "88d179740145ccea00b6986d78ceb67ea365face",
+      "release": "issue #131 immutable Release-aware Apple checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/88d179740145ccea00b6986d78ceb67ea365face/actions/validate-apple"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/validate-oci",
+      "sha": "3b401078d1167d7048281e3c3269556ce586dada",
+      "release": "issue #150 immutable OCI input checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/3b401078d1167d7048281e3c3269556ce586dada/actions/validate-oci"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/validate-gitops",
+      "sha": "8445e63dd9fa9468b60b6d0c61e543da9681b47b",
+      "release": "issue #125 immutable private-action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/8445e63dd9fa9468b60b6d0c61e543da9681b47b/actions/validate-gitops"
     }
   ],
   "approved_internal_actions": [

@@ -10,8 +10,8 @@ Trust is derived from the current GitHub event and current repository metadata. 
 
 | Event and admitted transition | Resulting trust | Exact source | Required current evidence |
 |---|---|---|---|
-| `pull_request` with `pr-head` | `untrusted-validation` | current PR head commit, including a fork repository | event head/base/merge agree with the current PR API response; PR base is the asserted integration branch |
-| `pull_request` with `pr-merge` | `untrusted-validation` | current GitHub merge commit | same PR freshness checks and a non-null current merge SHA |
+| `pull_request` with `pr-head` | `untrusted-validation` | current PR head commit, including a fork repository | event head/base agree with the current PR API response; PR base is the asserted integration branch; an explicitly asserted merge SHA must still match, but an unselected synthetic merge ref may be regenerated independently |
+| `pull_request` with `pr-merge` | `untrusted-validation` | current GitHub merge commit | event head/base/merge agree with the current PR API response; PR base is the asserted integration branch and the current merge SHA is non-null |
 | protected branch `push` | `trusted-validation` | exact pushed commit | pushed branch is the asserted integration branch and its current tip still equals `github.sha` |
 | `workflow_dispatch` | `trusted-validation` | exact requested full SHA, or the exact dispatch SHA | triggering actor has write, maintain, or admin permission and the commit exists |
 | reusable call with `workflow-call` | event-derived validation trust | exact caller-provided full SHA | the original triggering event is still validated; a PR remains untrusted, a branch push remains branch-bound, and a tag remains tag-bound |
@@ -56,7 +56,8 @@ Admission is evidence, not permission to publish, merge, comment, set a privileg
 
 Revalidation checks:
 
-- current PR head, base, and merge SHA;
+- current PR head and base for every admitted PR source;
+- current PR merge SHA when the merge candidate was selected, when a caller explicitly asserted the merge SHA, or when trusted maintenance depends on PR evidence;
 - current integration-branch tip for protected pushes;
 - current default-branch helper SHA for trusted maintenance.
 
@@ -69,6 +70,16 @@ The reusable workflow executes the resolver through a full-SHA reference to `act
 After admission, a separate job or step may invoke `actions/exact-checkout` with `source_repository` and `source_sha`. Privileged metadata workflows must not invoke that checkout for untrusted PR source at all.
 
 Downloaded workflow artifacts remain untrusted data. This contract has no artifact input and does not promote an artifact into trusted source. A future signed evidence transport requires a separate reviewed contract.
+
+## Immutable private reusable-helper distribution
+
+A reusable validator invoked from another private StreamScapeTV repository must not clone `StreamScapeTV/ci-workflows` with the caller-scoped `github.token` merely to reach central actions, scripts, or libraries. That token is scoped to the calling repository and a private central clone can fail before product validation begins.
+
+Reusable validators instead compose reviewed central composite actions through exact full-SHA references. The immutable private action archive supplies its central scripts and Python modules relative to `GITHUB_ACTION_PATH`; the workflow therefore does not need a `.ciw` checkout, a central-repository PAT, `secrets: inherit`, a mutable helper ref, or a caller-selected helper version. Every remotely composed central action identity is recorded in `contracts/action-tool-lock.json` before the final candidate is eligible to merge.
+
+This distribution rule does not weaken source authority. Product source remains separately admitted by `source.resolve`, checked out only through the exact-checkout contract, and reverified after cleanup where the validator requires it. Runner intent, public inputs and outputs, permissions, stable checks, cleanup, and zero-artifact policy remain owned by the reusable workflow and its checked-in contracts.
+
+New reusable validators should use this immutable private-action model by default. A different mechanism requires a reviewed product-neutral reason and must still avoid caller-token central clones, generic credential inputs, mutable helper selection, and a second compatibility transport.
 
 ## Consumer patterns
 
