@@ -46,6 +46,19 @@
       "endpoint",
       "address"
     ],
+    "forbidden_identifier_fragments": [
+      "runner",
+      "machine",
+      "hostname",
+      "host-name",
+      "host_name",
+      "serial",
+      "udid",
+      "device-id",
+      "device_id",
+      "homelab",
+      "provider"
+    ],
     "forbidden_value_patterns": [
       "(?i)(?:^|[\\s=])/(?:Users|home|private|Volumes|var/folders|tmp)/",
       "(?i)(?:^|[\\s=])[A-Za-z]:\\\\(?:Users|Temp|Windows)\\\\",
