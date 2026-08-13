@@ -29,22 +29,6 @@ inputs:
     description: Bounded release request identity
     required: false
     default: ""
-  source_event_name:
-    description: Caller event used to separate tag publication from manual verification
-    required: false
-    default: ""
-  source_ref_type:
-    description: Caller GitHub ref type
-    required: false
-    default: ""
-  source_ref_name:
-    description: Caller GitHub ref name
-    required: false
-    default: ""
-  source_default_branch:
-    description: Caller repository default branch for verify-only admission
-    required: false
-    default: ""
   source_root:
     description: Exact admitted Flux source checkout root
     required: false
@@ -91,10 +75,6 @@ runs:
         OPERATION: ${{ inputs.operation }}
         POLICY_PATH: ${{ inputs.policy_path }}
         REQUEST_ID: ${{ inputs.request_id }}
-        SOURCE_EVENT_NAME: ${{ inputs.source_event_name }}
-        SOURCE_REF_TYPE: ${{ inputs.source_ref_type }}
-        SOURCE_REF_NAME: ${{ inputs.source_ref_name }}
-        SOURCE_DEFAULT_BRANCH: ${{ inputs.source_default_branch }}
         SOURCE_ROOT: ${{ inputs.source_root }}
         DEPENDENCY_EVIDENCE_JSON: ${{ inputs.dependency_evidence_json }}
       run: |
@@ -104,8 +84,5 @@ runs:
           --admitted-sha "${ADMITTED_SHA}" --product-id "${PRODUCT_ID}" \
           --release-version "${RELEASE_VERSION}" --operation "${OPERATION}" \
           --policy-path "${POLICY_PATH}" --request-id "${REQUEST_ID}" \
-          --source-event-name "${SOURCE_EVENT_NAME}" \
-          --source-ref-type "${SOURCE_REF_TYPE}" --source-ref-name "${SOURCE_REF_NAME}" \
-          --source-default-branch "${SOURCE_DEFAULT_BRANCH}" \
           --source-root "${SOURCE_ROOT}" --dependency-evidence-json "${DEPENDENCY_EVIDENCE_JSON}" \
           --state-root "${state_root}" --github-output "${GITHUB_OUTPUT}"
