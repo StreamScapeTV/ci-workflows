@@ -1,12 +1,24 @@
-name: Agent 2 general image proof
+name: Agent 2 general image input trace
 on: pull_request
 permissions:
   contents: read
 jobs:
-  validate:
-    runs-on: [linux, amd64, buildah, medium]
+  trace-inputs:
+    name: Trace locked general runner inputs
+    runs-on: [linux, amd64, portable]
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Check out PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          clean: true
           persist-credentials: false
-      - run: python3 runner-images/general/trace_inputs.py
+      - name: Verify checkout
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+      - name: Trace inputs
+        run: python3 runner-images/general/trace_inputs.py
+      - name: Cleanup
+        if: always()
+        run: rm -rf runner-images/general/.ciw-build-inputs
