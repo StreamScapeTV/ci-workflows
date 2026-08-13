@@ -91,7 +91,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve contract-owned Android plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@5f503d419696e5bfae4ed5b11eca3b531dbdca0f
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@5f503d419696e5bfae4ed5b11eca3b531dbdca0f # issue #140 immutable integrated source-policy checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -132,7 +132,7 @@ jobs:
       evidence_id: ${{ steps.android.outputs.evidence_id }}
     steps:
       - name: Check out exact admitted caller source
-        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -141,7 +141,7 @@ jobs:
 
       - id: workspace
         name: Prepare isolated marker-bound Android state
-        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf
+        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           profile: ${{ needs.plan.outputs.workspace_profile }}
           cache_mode: disabled
@@ -151,7 +151,7 @@ jobs:
       - id: dependency
         name: Check out exact reviewed private dependency
         if: needs.plan.outputs.private_dependency_used == 'true'
-        uses: StreamScapeTV/ci-workflows/actions/checkout-private-dependency@70e08d4ddf8930046632a7135950e924b82e22bf
+        uses: StreamScapeTV/ci-workflows/actions/checkout-private-dependency@70e08d4ddf8930046632a7135950e924b82e22bf # issue #104 immutable private-action checkpoint
         with:
           repository: ${{ needs.plan.outputs.private_dependency_repository }}
           admitted_sha: ${{ needs.plan.outputs.private_dependency_sha }}
@@ -163,7 +163,7 @@ jobs:
       - id: dependency_cache_restore
         name: Restore exact Gradle dependency cache
         if: ${{ inputs.validation_profile != 'toolchain-smoke' && inputs.validation_profile != 'consumer-script' && inputs.validation_profile != 'device-handoff' }}
-        uses: StreamScapeTV/ci-workflows/actions/dependency-cache@bf23a523614c21552b4c2782533f41d6447c4dd3
+        uses: StreamScapeTV/ci-workflows/actions/dependency-cache@bf23a523614c21552b4c2782533f41d6447c4dd3 # issue #149 immutable cache checkpoint
         with:
           phase: restore
           family: gradle
@@ -175,7 +175,7 @@ jobs:
       - id: android
         name: Execute bounded Android validation
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@5f503d419696e5bfae4ed5b11eca3b531dbdca0f
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@5f503d419696e5bfae4ed5b11eca3b531dbdca0f # issue #140 immutable integrated source-policy checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -197,7 +197,7 @@ jobs:
 
       - name: Render deterministic redacted Android evidence
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/render-evidence@70e08d4ddf8930046632a7135950e924b82e22bf
+        uses: StreamScapeTV/ci-workflows/actions/render-evidence@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           source_sha: ${{ inputs.admitted_sha }}
           workflow_release: validation-android-1.0.0
@@ -212,7 +212,7 @@ jobs:
       - id: dependency_cache_save
         name: Save exact Gradle dependency cache after protected integration success
         if: ${{ inputs.validation_profile != 'toolchain-smoke' && inputs.validation_profile != 'consumer-script' && inputs.validation_profile != 'device-handoff' && steps.android.outcome == 'success' && github.event_name == 'push' && github.ref_protected && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-        uses: StreamScapeTV/ci-workflows/actions/dependency-cache@bf23a523614c21552b4c2782533f41d6447c4dd3
+        uses: StreamScapeTV/ci-workflows/actions/dependency-cache@bf23a523614c21552b4c2782533f41d6447c4dd3 # issue #149 immutable cache checkpoint
         with:
           phase: save
           family: gradle
@@ -226,7 +226,7 @@ jobs:
       - id: android_cleanup
         name: Remove Android-specific source, output, and state
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@5f503d419696e5bfae4ed5b11eca3b531dbdca0f
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@5f503d419696e5bfae4ed5b11eca3b531dbdca0f # issue #140 immutable integrated source-policy checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -238,7 +238,7 @@ jobs:
       - id: residue
         name: Verify zero Android-specific residue
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@5f503d419696e5bfae4ed5b11eca3b531dbdca0f
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@5f503d419696e5bfae4ed5b11eca3b531dbdca0f # issue #140 immutable integrated source-policy checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -250,7 +250,7 @@ jobs:
       - id: workspace_cleanup
         name: Remove and verify all registered Android workspace state
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf
+        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
 
       - name: Verify exact caller source remained clean
         if: always()
