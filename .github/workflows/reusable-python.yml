@@ -90,7 +90,7 @@ jobs:
       - name: Check out exact admitted caller source
         uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
-          repository: ${{ github.event_name == 'pull_request' && github.event.pull_repo.full_name || github.repository }}
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
           admitted_sha: ${{ inputs.admitted_sha }}
           path: source
           fetch_depth: "1"
@@ -151,5 +151,5 @@ jobs:
           (
             cd source
             test "$(git rev-parse HEAD)" = "${{ inputs.admitted_sha }}"
-            test -zx "$(git status --porcelain --untracked-files=all)"
+            test -z "$(git status --porcelain --untracked-files=all)"
           )
