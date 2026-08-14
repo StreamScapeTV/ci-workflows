@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "product_id": "runner-mobile",
+  "platform": "linux/amd64",
+  "toolchain": {
+    "actions_runner": "2.336.0",
+    "java": "25.0.3+9",
+    "node": "24.18.0",
+    "flutter": "3.44.8",
+    "dart": "3.12.2",
+    "android_command_line_tools": "15859902",
+    "android_platforms": ["36", "37.0"],
+    "android_build_tools": ["36.0.0", "37.0.0"],
+    "android_ndk": "28.2.13676358"
+  },
+  "checksums": {
+    "flutter_linux_x64": "672089e001571a9fbb209a495c583580c0c6c73ef98999264ba07fa93ace332d",
+    "android_command_line_tools_linux": "4e4c464f145a7512b57d088ac6c278c03c9eea610886b35a5e0804e74eedf583"
+  },
+  "oci_stages": {
+    "java": {
+      "reference": "docker.io/library/eclipse-temurin:25-jdk-noble",
+      "root_digest": "sha256:3eb81ed94d8c1a34422f19f8188548bdf02cae69c91d0328afdbb7abed90f617",
+      "linux_amd64_manifest_digest": "sha256:76dfe92b7a1af973928c04cf9be0d682120d88ece81a830755e093d062222309",
+      "linux_amd64_config_digest": "sha256:ce6b1352bd258fd773252f8ea62799629c12e32d70124fe8b3b665dc0104b0d1"
+    },
+    "node": {
+      "reference": "docker.io/library/node:24.18.0-bookworm-slim",
+      "root_digest": "sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d",
+      "linux_amd64_manifest_digest": "sha256:fc75682c0d5eb1cb254610dafede9c97371d89bb5c6591a9e1f8773b059f3f67",
+      "linux_amd64_config_digest": "sha256:caf64f520f232a66f04c44d659f78941c792ab8f5ae2268386c2c827df6d1317"
+    },
+    "actions_runner": {
+      "reference": "ghcr.io/actions/actions-runner:2.336.0",
+      "root_digest": "sha256:0cfdcc701ce933c6d243c6b0b2da767366dc9f2e99961d4c3754b0b78084cdda",
+      "linux_amd64_manifest_digest": "sha256:a1919047b038c38871d667c58cfdc7a878452711ab1212fb6036188f27a7ab16",
+      "linux_amd64_config_digest": "sha256:bd6fe162bb4ab4821daa8d694e20d779865618825d30c94342a0228b89947305"
+    }
+  }
+}
