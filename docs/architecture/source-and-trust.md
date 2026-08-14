@@ -89,10 +89,12 @@ Product commands, status/comment formats, registry publication, cluster selectio
 
 ## Thin caller example
 
+During the active-development/bootstrap phase, the public reusable workflow follows protected `@main` so reviewed central fixes propagate without a consumer repin. The separately composed private helper remains an immutable action reference.
+
 ```yaml
 jobs:
   source:
-    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-resolve-source.yml@<immutable-reference>
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-resolve-source.yml@main
     permissions:
       contents: read
       pull-requests: read
@@ -104,10 +106,10 @@ jobs:
     needs: source
     runs-on: <centrally-selected-semantic-profile>
     steps:
-      - uses: StreamScapeTV/ci-workflows/actions/exact-checkout@<immutable-reference>
+      - uses: StreamScapeTV/ci-workflows/actions/exact-checkout@<immutable-helper-sha>
         with:
           repository: ${{ needs.source.outputs.source_repository }}
           admitted_sha: ${{ needs.source.outputs.source_sha }}
 ```
 
-During the owner-approved bootstrap channel, callers may reference protected `@main`; privileged production consumers should prefer an immutable full SHA or released tag. Exact product-source admission remains mandatory regardless of the central workflow reference.
+Full commit SHAs and stable `ci-workflows` tags remain supported fixed/rollback channels and may become the organization default after a later explicit stable-release cutover. Until that decision, they are not preferred or required over `@main` for privileged consumers. Exact product-source admission remains mandatory regardless of the central workflow reference.
