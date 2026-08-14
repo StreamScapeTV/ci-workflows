@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_SHA = "87a7454aaa59cb680db8f580d22551b749ac4193"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 ANDROID_SHA = "5f503d419696e5bfae4ed5b11eca3b531dbdca0f"
-APPLE_SHA = "88d179740145ccea00b6986d78ceb67ea365face"
+APPLE_SHA = "293dee450e3464032d67f702b768f493abf65d7b"
 OCI_SHA = "3b401078d1167d7048281e3c3269556ce586dada"
 GITOPS_SHA = "8445e63dd9fa9468b60b6d0c61e543da9681b47b"
 
@@ -22,7 +22,7 @@ ISSUE_104 = "issue #104 immutable private-action checkpoint"
 ISSUE_140 = "issue #140 immutable integrated source-policy checkpoint"
 ISSUE_125 = "issue #125 immutable private-action checkpoint"
 ISSUE_150 = "issue #150 immutable OCI input checkpoint"
-ISSUE_131 = "issue #131 immutable Release-aware Apple checkpoint"
+ISSUE_164 = "issue #164 immutable Media VLC tvOS checkpoint"
 
 PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
     ".github/workflows/reusable-node.yml": {
@@ -55,7 +55,7 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
     },
     ".github/workflows/reusable-apple.yml": {
-        "StreamScapeTV/ci-workflows/actions/validate-apple": (APPLE_SHA, ISSUE_131),
+        "StreamScapeTV/ci-workflows/actions/validate-apple": (APPLE_SHA, ISSUE_164),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
@@ -89,13 +89,8 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
 
     @staticmethod
     def locked_actions() -> dict[str, dict[str, str]]:
-        action_lock = json.loads(
-            (ROOT / "contracts/action-tool-lock.json").read_text(encoding="utf-8")
-        )
-        return {
-            item["uses"]: item
-            for item in action_lock["third_party_actions"]
-        }
+        action_lock = json.loads((ROOT / "contracts/action-tool-lock.json").read_text(encoding="utf-8"))
+        return {item["uses"]: item for item in action_lock["third_party_actions"]}
 
     def test_private_reusable_validators_use_only_locked_immutable_central_actions(self) -> None:
         locked = self.locked_actions()
@@ -110,14 +105,11 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
                 self.assertNotIn("path: .ciw", source)
                 self.assertNotIn("./.ciw/actions/", source)
                 self.assertNotIn("secrets: inherit", source)
-
                 remote_helpers = {
                     str(step["uses"]).split("@", 1)[0]: str(step["uses"]).split("@", 1)[1]
                     for job in workflow["jobs"].values()
                     for step in job.get("steps", [])
-                    if str(step.get("uses", "")).startswith(
-                        "StreamScapeTV/ci-workflows/actions/"
-                    )
+                    if str(step.get("uses", "")).startswith("StreamScapeTV/ci-workflows/actions/")
                 }
                 self.assertEqual(set(expected), set(remote_helpers))
                 for helper, (sha, release) in expected.items():
@@ -131,69 +123,34 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
         source, workflow = self.load(".github/workflows/reusable-oci-build.yml")
         public_outputs = workflow["on"]["workflow_call"]["outputs"]
         job_outputs = workflow["jobs"]["build"]["outputs"]
-        self.assertEqual(
-            "${{ jobs.build.outputs.resolved_inputs_json }}",
-            public_outputs["resolved_inputs_json"]["value"],
-        )
-        self.assertEqual(
-            "${{ steps.execute.outputs.resolved_inputs_json }}",
-            job_outputs["resolved_inputs_json"],
-        )
+        self.assertEqual("${{ jobs.build.outputs.resolved_inputs_json }}", public_outputs["resolved_inputs_json"]["value"])
+        self.assertEqual("${{ steps.execute.outputs.resolved_inputs_json }}", job_outputs["resolved_inputs_json"])
         self.assertEqual(4, source.count(f"actions/validate-oci@{OCI_SHA}"))
 
     def test_source_reusable_uses_locked_mode_aware_helper_checkpoint(self) -> None:
         source, workflow = self.load(SOURCE_WORKFLOW)
         locked = self.locked_actions()
-        helper = next(
-            step
-            for job in workflow["jobs"].values()
-            for step in job.get("steps", [])
-            if str(step.get("uses", "")).startswith(f"{SOURCE_HELPER}@")
-        )
-
+        helper = next(step for job in workflow["jobs"].values() for step in job.get("steps", []) if str(step.get("uses", "")).startswith(f"{SOURCE_HELPER}@"))
         self.assertEqual(helper["uses"], f"{SOURCE_HELPER}@{SOURCE_SHA}")
         self.assertNotIn("actions/checkout@", source)
         self.assertNotIn("secrets: inherit", source)
         self.assertEqual(locked[SOURCE_HELPER]["sha"], SOURCE_SHA)
         self.assertEqual(locked[SOURCE_HELPER]["release"], ISSUE_132)
         self.assertEqual(locked[SOURCE_HELPER]["runtime"], "composite")
-        self.assertEqual(
-            locked[SOURCE_HELPER]["source"],
-            f"https://github.com/StreamScapeTV/ci-workflows/tree/"
-            f"{SOURCE_SHA}/actions/resolve-source",
-        )
+        self.assertEqual(locked[SOURCE_HELPER]["source"], f"https://github.com/StreamScapeTV/ci-workflows/tree/{SOURCE_SHA}/actions/resolve-source")
 
     def test_private_android_consumer_cannot_control_central_source_or_credential_scope(self) -> None:
         source, workflow = self.load(ANDROID_WORKFLOW)
-        public = json.loads(
-            (ROOT / "contracts/public-workflows/validation.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        android = next(
-            item
-            for item in public["workflows"]
-            if item["api_name"] == "validation.android"
-        )
+        public = json.loads((ROOT / "contracts/public-workflows/validation.json").read_text(encoding="utf-8"))
+        android = next(item for item in public["workflows"] if item["api_name"] == "validation.android")
         self.assertIn("StreamScapeTV/streamscape-media", android["supported_consumers"])
-        self.assertEqual(
-            set(workflow["on"]["workflow_call"].get("secrets", {})),
-            {"private_dependency_token"},
-        )
+        self.assertEqual(set(workflow["on"]["workflow_call"].get("secrets", {})), {"private_dependency_token"})
         self.assertNotIn("central_source", source)
         self.assertNotIn("secrets: inherit", source)
         self.assertNotIn("workflow_ref", source)
         self.assertNotIn("github.workflow", source)
-        dependency = next(
-            step
-            for job in workflow["jobs"].values()
-            for step in job.get("steps", [])
-            if step.get("id") == "dependency"
-        )
-        self.assertEqual(
-            dependency["with"]["token"],
-            "${{ secrets.private_dependency_token }}",
-        )
+        dependency = next(step for job in workflow["jobs"].values() for step in job.get("steps", []) if step.get("id") == "dependency")
+        self.assertEqual(dependency["with"]["token"], "${{ secrets.private_dependency_token }}")
         for job in workflow["jobs"].values():
             for step in job.get("steps", []):
                 if step is dependency:
