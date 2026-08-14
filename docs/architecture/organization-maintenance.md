@@ -7,13 +7,16 @@ The maintenance architecture separates shared orchestration from durable authori
 ```text
 thin trusted caller
   -> workflow_call with bounded intent + named credential
-  -> exact ci-workflows source
+  -> immutable ci-workflows composite action
+  -> canonical scripts/ci/ciw.py command registry
   -> checked-in organization-maintenance contract
-  -> typed Python operation
+  -> named typed maintenance/Flux implementation
   -> GitHub/Flux expected-state revalidation
   -> bounded mutation or dry-run report
   -> terminal cleanup / zero routine artifacts
 ```
+
+The canonical CIW registry is the only executable dispatch boundary for issue #20. The five composite actions call `scripts/ci/ciw.py` directly, and the retained `scripts/ci/maintenance.py` / `scripts/ci/flux_reconcile.py` files are compatibility adapters that delegate into the same registry rather than implementing a second execution path. The Flux compatibility adapter accepts only the fixed `source` checkout of `StreamScapeTV/flux`; it cannot make repository or source-location selection caller-controlled.
 
 No operation accepts an arbitrary repository URL, branch name, runner label, shell body, callback, secret name, cluster, namespace, service account, kubeconfig path, or unrestricted matrix. Project IDs resolve through `contracts/organization-maintenance.json` to reviewed repository and integration-branch tuples.
 
@@ -104,5 +107,7 @@ Those high-collision surfaces must be sequenced through Agent State resource own
 ## Testing without live mutation
 
 Unit/integration tests use synthetic GitHub responses and a temporary local Git repository containing a synthetic Flux adapter/executor. They prove pagination/backoff, redirect credential safety, artifact/run expected-state failures, exact merged-branch behavior, conformance replay safety, immutable repin proposal generation, projection replay/stale-state rejection, infrastructure-only retry, structured Flux planning, source-mutation rejection, no-follow state/credential behavior, executor hash revalidation, private secret-file modes, and terminal cleanup.
+
+The focused maintenance smoke also exercises the checked-in CIW registry contract and the issue #20 typed adapter tests so a direct-script regression cannot hide behind the compatibility wrappers.
 
 No issue-#20 test calls the live GitHub mutation API or Kubernetes cluster. Real organization maintenance, projection, consumer cutover, or Flux reconciliation requires separately authorized thin-caller/domain execution after integration and adoption.
