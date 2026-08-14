@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ci_workflows import ciw_helm, helm
+from ci_workflows import helm
 from ci_workflows.helm_contract import load_helm_contract, request_from_environment
 from ci_workflows.helm_dependency_policy import (
     load_dependency_policy,
@@ -131,7 +131,7 @@ class HelmDependencyPolicyTests(unittest.TestCase):
             manifest.write_text(json.dumps(payload), encoding="utf-8")
             with self.assertRaisesRegex(
                 HelmValidationError,
-                "dependency_policy_mismatch",
+                "product_layout_mismatch",
             ):
                 resolve_validation_plan(
                     source,
@@ -180,8 +180,14 @@ class HelmDependencyPolicyTests(unittest.TestCase):
                 load_dependency_policy(root)
 
     def test_public_planners_use_central_dependency_policy_wrapper(self) -> None:
-        self.assertIs(ciw_helm.resolve_validation_plan, resolve_validation_plan)
         self.assertIs(helm.resolve_validation_plan, resolve_validation_plan)
+        ciw_source = (ROOT / "src/ci_workflows/ciw_helm.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "from .helm_dependency_policy import resolve_validation_plan",
+            ciw_source,
+        )
         release_script = (ROOT / "scripts/ci/helm_release.py").read_text(
             encoding="utf-8"
         )
