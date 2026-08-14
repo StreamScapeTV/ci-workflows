@@ -29,7 +29,7 @@ jobs:
     steps:
       - name: Run exact merged-branch hygiene
         id: hygiene
-        uses: StreamScapeTV/ci-workflows/actions/maintenance-branches@60881e6c2e673f1a80c1c78101f4610f9e05210c # issue #20 immutable maintenance action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/maintenance-branches@3de0f365eed5ff69cf18b1af26aa42f7928fd8ef # issue #20 immutable maintenance action checkpoint
         with:
           project_id: ${{ inputs.project_id }}
           pr_number: ${{ inputs.pr_number }}
