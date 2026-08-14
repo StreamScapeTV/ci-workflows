@@ -27,7 +27,7 @@ runs:
         CIW_REQUEST_ID: ${{ inputs.request_id }}
       run: |
         set -Eeuo pipefail
-        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/maintenance.py" conformance \
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" maintenance conformance \
           --repository-scope "${CIW_REPOSITORY_SCOPE}" \
           --shared-reference-target-sha "${CIW_SHARED_REFERENCE_TARGET_SHA}" \
           --dry-run "${CIW_DRY_RUN}" \
