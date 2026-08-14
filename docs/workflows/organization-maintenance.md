@@ -66,6 +66,6 @@ Workflow state must be a real private directory, never a symlink. Kubeconfig and
 
 `maintenance-contract-smoke.yml` is pull-request-only, unprivileged, exact-head, and receives no maintenance/cluster secrets. It runs maintenance/Flux contract, runtime, proposal, projection, workflow, and security suites, removes Python state, verifies the source tree remains clean, and confirms zero Actions artifacts.
 
-No issue-#20 implementation test or this Agent 6 delivery runs live GitHub projection, maintenance deletion/retry, or Flux/Kubernetes mutation. Required final CI validates synthetic and contract behavior; real privileged execution remains separately authorized.
+No issue-#20 implementation test or this recovered Agent 4 delivery runs live GitHub projection, maintenance deletion/retry, or Flux/Kubernetes mutation. Required final CI validates synthetic and contract behavior; real privileged execution remains separately authorized.
 
-Before final merge, shared public/component/CIW/runner registrations must agree with these workflows and the full canonical repository suite must pass on the unchanged final candidate.
+Before final merge, shared public/action/bootstrap/source-identity/lifecycle registrations must agree with these workflows and the full canonical repository suite must pass on the unchanged final candidate.
