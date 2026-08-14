@@ -68,7 +68,7 @@ jobs:
           elif [[ -e source || -L source ]]; then
             rm -f source || cleanup_failed=1
           fi
-          state="${RUNNER_TEMP}/flux-reconcile-${GITHUB_RUN_ID}-${{ inputs.request_id }}"
+          state="${RUNNER_TEMP}/flux-reconcile-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           rm -rf "${state}" || cleanup_failed=1
           [[ ! -e source && ! -L source ]] || cleanup_failed=1
           [[ ! -e "${state}" && ! -L "${state}" ]] || cleanup_failed=1
