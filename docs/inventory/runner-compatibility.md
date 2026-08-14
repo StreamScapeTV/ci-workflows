@@ -13,10 +13,10 @@ Every one of the **87** inventoried workflow/job families across **11** reposito
 | `StreamScapeTV/agent-state` | `.github/workflows/organization-artifact-cleanup.yml` | `artifact-cleanup` | `portable` |
 | `StreamScapeTV/agent-state` | `.github/workflows/organization-runner-infrastructure-retry.yml` | `infra-retry` | `portable` |
 | `StreamScapeTV/agent-state` | `.github/workflows/recover-release-1-0-65.yml` | `retire` | Exception: `retired-temporary-or-recovery-workflow` |
-| `StreamScapeTV/agent-state` | `.github/workflows/release.yml` | `release` | `portable`, `buildah-small`, `buildah-medium`, `buildah-high` |
+| `StreamScapeTV/agent-state` | `.github/workflows/release.yml` | `release` | `portable`, `buildah-tiny`, `buildah-small`, `buildah-medium`, `buildah-high` |
 | `StreamScapeTV/agent-state` | `.github/workflows/runner-infrastructure-retry-fixture.yml` | `retire` | Exception: `retired-temporary-or-recovery-workflow` |
 | `StreamScapeTV/agent-state` | `.github/workflows/test.yml` | `python` | `portable`, `buildah-medium`, `buildah-high` |
-| `StreamScapeTV/ci-workflows` | `.github/workflows/reusable-tag-image-chart.yml` | `release` | `portable`, `buildah-small`, `buildah-medium`, `buildah-high` |
+| `StreamScapeTV/ci-workflows` | `.github/workflows/reusable-tag-image-chart.yml` | `release` | `portable`, `buildah-tiny`, `buildah-small`, `buildah-medium`, `buildah-high` |
 | `StreamScapeTV/ci-workflows` | `.github/workflows/self-check.yml` | `conformance` | `portable` |
 | `StreamScapeTV/directus-front` | `.github/workflows/agent-state-claim.yml` | `retire` | Exception: `retired-temporary-or-recovery-workflow` |
 | `StreamScapeTV/directus-front` | `.github/workflows/agent-state-ownership.yml` | `retire` | Exception: `retired-temporary-or-recovery-workflow` |
@@ -69,7 +69,7 @@ Every one of the **87** inventoried workflow/job families across **11** reposito
 | `StreamScapeTV/iptv-backend` | `.github/workflows/agent-state-ownership.yml` | `retire` | Exception: `retired-temporary-or-recovery-workflow` |
 | `StreamScapeTV/iptv-backend` | `.github/workflows/backend-ci.yml` | `python` | `portable`, `buildah-medium`, `buildah-high` |
 | `StreamScapeTV/iptv-backend` | `.github/workflows/issue121-dispatch-final-validation.yml` | `retire` | Exception: `retired-temporary-or-recovery-workflow` |
-| `StreamScapeTV/iptv-backend` | `.github/workflows/release.yml` | `release` | `portable`, `buildah-small`, `buildah-medium`, `buildah-high` |
+| `StreamScapeTV/iptv-backend` | `.github/workflows/release.yml` | `release` | `portable`, `buildah-tiny`, `buildah-small`, `buildah-medium`, `buildah-high` |
 | `StreamScapeTV/iptv-backend` | `.github/workflows/workflow-policy.yml` | `conformance` | `portable` |
 | `StreamScapeTV/streamscape-media` | `.github/workflows/agent-ci.yml` | `retire` | Exception: `retired-temporary-or-recovery-workflow` |
 | `StreamScapeTV/streamscape-media` | `.github/workflows/agent-state-claim.yml` | `retire` | Exception: `retired-temporary-or-recovery-workflow` |
