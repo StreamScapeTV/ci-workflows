@@ -66,15 +66,15 @@ class PythonValidationContractTests(unittest.TestCase):
         self.assertEqual(
             set(runtimes),
             {
-                "host-cpython-3.12.13",
+                "host-cpython-3.12.3",
                 "python-3.12.8-slim-amd64",
                 "python-3.12.13-slim-amd64",
                 "postgres-16.11-alpine-amd64",
             },
         )
         self.assertEqual(
-            "3.12.13",
-            runtimes["host-cpython-3.12.13"]["python_version"],
+            "3.12.3",
+            runtimes["host-cpython-3.12.3"]["python_version"],
         )
         container_runtimes = {
             identifier: runtime
