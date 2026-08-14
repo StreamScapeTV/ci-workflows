@@ -162,7 +162,7 @@ def _validate_runtime_contract(payload: Mapping[str, Any]) -> None:
     runtimes = payload.get("runtimes")
     require(isinstance(runtimes, Mapping), "toolchain_mismatch")
     expected = {
-        "host-cpython-3.12.13",
+        "host-cpython-3.12.3",
         "python-3.12.8-slim-amd64",
         "python-3.12.13-slim-amd64",
         "postgres-16.11-alpine-amd64",
