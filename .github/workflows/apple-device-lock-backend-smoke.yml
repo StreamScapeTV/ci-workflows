@@ -1,8 +1,7 @@
 name: Apple physical device lock backend smoke
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+  push:
     branches: [main]
     paths:
       - ".github/workflows/apple-device-lock-backend-smoke.yml"
@@ -14,8 +13,8 @@ on:
       - "tests/test_apple_device_lock_backend_smoke.py"
 
 concurrency:
-  group: apple-device-lock-backend-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  group: apple-device-lock-backend-main
+  cancel-in-progress: false
 
 permissions:
   actions: read
@@ -24,24 +23,23 @@ permissions:
 jobs:
   backend_smoke:
     name: Verify Apple physical lock backend
-    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: [macOS, ARM64, ios]
     timeout-minutes: 20
     steps:
-      - name: Check out exact pull-request source
+      - name: Check out exact protected-main source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.sha }}
           path: .ciw
           fetch-depth: 1
           clean: true
           persist-credentials: false
           set-safe-directory: false
 
-      - name: Verify exact source and runner-owned backend contract
+      - name: Verify exact protected source and runner-owned backend contract
         shell: bash
         env:
-          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_SHA: ${{ github.sha }}
         run: |
           set -Eeuo pipefail
           (
@@ -74,25 +72,6 @@ jobs:
           print("Runner-owned device-lock backend contract verified.")
           PY_BACKEND
 
-      - id: identity
-        name: Derive one run-scoped synthetic device identity hash
-        shell: bash
-        env:
-          RUN_ID: ${{ github.run_id }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
-        run: |
-          set -Eeuo pipefail
-          python3 - <<'PY_IDENTITY'
-          import hashlib
-          import os
-
-          value = hashlib.sha256(
-              f"issue-208-apple-backend-smoke:{os.environ['RUN_ID']}:{os.environ['RUN_ATTEMPT']}".encode("utf-8")
-          ).hexdigest()
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              output.write(f"device_identity_hash={value}\n")
-          PY_IDENTITY
-
       - id: acquire
         name: Acquire synthetic tvOS backend receipt
         continue-on-error: true
@@ -101,8 +80,8 @@ jobs:
           phase: acquire
           device_family: tvos
           device_capability: backend-smoke
-          device_identity_hash: ${{ steps.identity.outputs.device_identity_hash }}
-          tested_source_sha: ${{ github.event.pull_request.head.sha }}
+          device_identity_hash: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          tested_source_sha: ${{ github.sha }}
           authorization_receipt: issue-208-runner-backend-smoke
           request_id: issue-208-${{ github.run_id }}-${{ github.run_attempt }}
           lease_seconds: "300"
@@ -116,8 +95,8 @@ jobs:
           phase: verify
           device_family: tvos
           device_capability: backend-smoke
-          device_identity_hash: ${{ steps.identity.outputs.device_identity_hash }}
-          tested_source_sha: ${{ github.event.pull_request.head.sha }}
+          device_identity_hash: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          tested_source_sha: ${{ github.sha }}
           authorization_receipt: issue-208-runner-backend-smoke
           request_id: issue-208-${{ github.run_id }}-${{ github.run_attempt }}
           lease_seconds: "300"
@@ -133,8 +112,8 @@ jobs:
           phase: release
           device_family: tvos
           device_capability: backend-smoke
-          device_identity_hash: ${{ steps.identity.outputs.device_identity_hash }}
-          tested_source_sha: ${{ github.event.pull_request.head.sha }}
+          device_identity_hash: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          tested_source_sha: ${{ github.sha }}
           authorization_receipt: issue-208-runner-backend-smoke
           request_id: issue-208-${{ github.run_id }}-${{ github.run_attempt }}
           lease_seconds: "300"
@@ -149,8 +128,8 @@ jobs:
           phase: residue
           device_family: tvos
           device_capability: backend-smoke
-          device_identity_hash: ${{ steps.identity.outputs.device_identity_hash }}
-          tested_source_sha: ${{ github.event.pull_request.head.sha }}
+          device_identity_hash: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          tested_source_sha: ${{ github.sha }}
           authorization_receipt: issue-208-runner-backend-smoke
           request_id: issue-208-${{ github.run_id }}-${{ github.run_attempt }}
           lease_seconds: "300"
@@ -164,7 +143,7 @@ jobs:
           VERIFY_OUTCOME: ${{ steps.verify.outcome }}
           RELEASE_OUTCOME: ${{ steps.release.outcome }}
           RESIDUE_OUTCOME: ${{ steps.residue.outcome }}
-          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_SHA: ${{ github.sha }}
         run: |
           set -Eeuo pipefail
           test "${ACQUIRE_OUTCOME}" = success
