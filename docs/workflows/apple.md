@@ -99,15 +99,25 @@ Every created simulator is registered before boot. Terminal cleanup shuts down
 and deletes only registered simulator IDs, rereads the simulator inventory, and
 fails if any registered ID remains.
 
-## Package and script authority
+## Package, script, and additive contract authority
 
 SwiftPM resolution mode is contract-owned. Locked mode requires exact checked-in
 resolved files and passes both automatic-resolution rejection flags. Any lock or
 source mutation fails. Checked-in Python or shell scripts must be regular,
 repository-tracked files and receive only fixed contract arguments. Consumer
 specific environment names, schemes, commands, media preparation, and recovery
-rules remain in `contracts/apple-validation.json` or consumer-owned scripts;
-the shared Python implementation contains no product-name branch.
+rules remain in the validated base `contracts/apple-validation.json`, in bounded
+additive `contracts/apple-validation-*.json` fragments, or in consumer-owned
+scripts; the shared Python implementation contains no product-name branch.
+
+An additive fragment may contain only `tasks` and `consumer_contracts`. Added
+tasks pass the same checked-in Apple task validator as the base contract,
+including profile, simulator, artifact-exception, environment, path, command,
+and fixed-argument checks. Added consumer mappings pass the same identifier,
+repository, profile, and task-compatibility checks. Existing task or consumer
+identifiers cannot be replaced: any collision or malformed fragment fails
+closed before a plan is produced. When no additive fragment exists, the base
+contract resolves unchanged.
 
 ## Outputs and artifacts
 

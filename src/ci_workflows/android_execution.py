@@ -39,8 +39,28 @@ def run_command(
     state_root: Path | None = None,
     stage: str = "command",
     check: bool = True,
+    timeout_rule_id: str | None = None,
+    launch_rule_id: str | None = None,
+    nonzero_rule_id: str | None = None,
+    diagnostic_subject: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     require(bool(argv) and all(isinstance(x, str) and x for x in argv), "invalid_input")
+    diagnostic_rules = (timeout_rule_id, launch_rule_id, nonzero_rule_id)
+    require(
+        (diagnostic_subject is None and not any(diagnostic_rules))
+        or (diagnostic_subject is not None and all(diagnostic_rules)),
+        "invalid_input",
+    )
+
+    def failure(rule_id: str | None) -> AndroidValidationError:
+        if rule_id is None or diagnostic_subject is None:
+            return AndroidValidationError(failure_code)
+        return AndroidValidationError(
+            failure_code,
+            rule_id=rule_id,
+            subject=diagnostic_subject,
+        )
+
     try:
         result = subprocess.run(
             list(argv),
@@ -52,8 +72,10 @@ def run_command(
             timeout=timeout_seconds,
             check=False,
         )
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise AndroidValidationError(failure_code) from error
+    except subprocess.TimeoutExpired as error:
+        raise failure(timeout_rule_id) from error
+    except OSError as error:
+        raise failure(launch_rule_id) from error
     output = sanitize(
         (result.stdout or "") + (result.stderr or ""),
         (cwd, state_root) if state_root else (cwd,),
@@ -64,7 +86,7 @@ def run_command(
         require(re.fullmatch(r'[a-z][a-z0-9-]{1,63}', stage) is not None, "invalid_input")
         (logs / f"{stage}.log").write_text(output, encoding="utf-8")
     if check and result.returncode:
-        raise AndroidValidationError(failure_code)
+        raise failure(nonzero_rule_id)
     return result
 
 
@@ -347,6 +369,8 @@ def verify_wrapper(
             git_blob_sha1(jar) == plan.wrapper.jar_blob_sha1,
             "wrapper_invalid",
         )
+    if plan.wrapper.mode == "standard-wrapper":
+        return plan.wrapper.version
     result = run_command(
         [str(wrapper), *plan.fixed_gradle_arguments, "--version"],
         cwd=working,
@@ -355,6 +379,10 @@ def verify_wrapper(
         failure_code="wrapper_invalid",
         state_root=state,
         stage="gradle-version",
+        timeout_rule_id="wrapper_probe_timeout",
+        launch_rule_id="wrapper_probe_launch_failed",
+        nonzero_rule_id="wrapper_probe_nonzero",
+        diagnostic_subject=plan.wrapper.launcher_path,
     )
     match = _GRADLE.search(result.stdout + result.stderr)
     require(

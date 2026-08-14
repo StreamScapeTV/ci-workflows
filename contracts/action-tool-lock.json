@@ -80,10 +80,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-android",
-      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
-      "release": "issue #104 immutable private-action checkpoint",
+      "sha": "5f503d419696e5bfae4ed5b11eca3b531dbdca0f",
+      "release": "issue #140 immutable integrated source-policy checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/validate-android"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/5f503d419696e5bfae4ed5b11eca3b531dbdca0f/actions/validate-android"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/checkout-private-dependency",
@@ -94,10 +94,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-python",
-      "sha": "e972aa49ad7eb38257711327387894bb44c472f4",
-      "release": "issue #155 immutable private-action checkpoint",
+      "sha": "989a98309f2955a02ff2b108f4b9c565b8fcb76d",
+      "release": "issue #179 Backend host immutable action checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/e972aa49ad7eb38257711327387894bb44c472f4/actions/validate-python"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/989a98309f2955a02ff2b108f4b9c565b8fcb76d/actions/validate-python"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/verify-toolchain",
@@ -146,7 +146,10 @@
       "implementation": "cpython",
       "version": "3.12.13",
       "system": "Darwin",
-      "architectures": ["arm64", "x86_64"],
+      "architectures": [
+        "arm64",
+        "x86_64"
+      ],
       "provisioning": "preinstalled",
       "runtime_installation": "forbidden",
       "privilege_elevation": "forbidden"
@@ -163,7 +166,10 @@
           "filename": "pyyaml-6.0.3.tar.gz",
           "url": "https://files.pythonhosted.org/packages/05/8e/961c0007c59b8dd7729d542c61a4d537767a59645b82a0b521206e1e25c2/pyyaml-6.0.3.tar.gz",
           "sha256": "d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f",
-          "runtimes": ["cp312-macos-arm64", "cp312-macos-x86_64"]
+          "runtimes": [
+            "cp312-macos-arm64",
+            "cp312-macos-x86_64"
+          ]
         },
         "wheels": [
           {
