@@ -29,7 +29,9 @@ runs:
         CIW_REQUEST_ID: ${{ inputs.request_id }}
       run: |
         set -Eeuo pipefail
-        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/maintenance.py" runner-retry \
-          --project-id "${CIW_PROJECT_ID}" --run-id "${CIW_RUN_ID}" \
-          --expected-head-sha "${CIW_EXPECTED_HEAD_SHA}" --dry-run "${CIW_DRY_RUN}" \
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" maintenance runner-retry \
+          --project-id "${CIW_PROJECT_ID}" \
+          --run-id "${CIW_RUN_ID}" \
+          --expected-head-sha "${CIW_EXPECTED_HEAD_SHA}" \
+          --dry-run "${CIW_DRY_RUN}" \
           --request-id "${CIW_REQUEST_ID}"
