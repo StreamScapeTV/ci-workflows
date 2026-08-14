@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -43,6 +45,57 @@ class FluxReconcileSecurityTests(unittest.TestCase):
                 self.resolve(source, sha, state)
             self.assertEqual(sentinel.read_text(), "preserve")
             self.assertTrue(state.is_symlink())
+
+    def test_invalid_request_id_is_rejected_before_state_path_cleanup(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            runner_temp = Path(directory) / "runner-temp"
+            runner_temp.mkdir()
+            # If the invalid id were interpolated before validation, this
+            # prepared intermediate directory would let path traversal resolve
+            # the cleanup target to runner_temp/outside.
+            (runner_temp / "flux-reconcile-local-..").mkdir()
+            outside = runner_temp / "outside"
+            outside.mkdir()
+            sentinel = outside / "sentinel"
+            sentinel.write_text("preserve", encoding="utf-8")
+            environment = os.environ.copy()
+            environment["RUNNER_TEMP"] = str(runner_temp)
+            environment.pop("GITHUB_RUN_ID", None)
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts/ci/flux_reconcile.py"),
+                    "--source-root",
+                    str(Path(directory) / "unused-source"),
+                    "--source-repository",
+                    "StreamScapeTV/flux",
+                    "--admitted-sha",
+                    "a" * 40,
+                    "--target-id",
+                    "synthetic-target",
+                    "--product-id",
+                    "synthetic-product",
+                    "--operation",
+                    "deploy",
+                    "--policy-path",
+                    "scripts/rollout/validate_request.py",
+                    "--allowlist-path",
+                    ".github/flux-rollout-allowlist.json",
+                    "--request-id",
+                    "../../outside",
+                    "--dry-run",
+                    "true",
+                ],
+                cwd=ROOT,
+                env=environment,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 1)
+            self.assertIn('"failure_code": "invalid_request_id"', completed.stdout)
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "preserve")
 
     def test_credential_symlink_is_rejected_without_writing_target(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
