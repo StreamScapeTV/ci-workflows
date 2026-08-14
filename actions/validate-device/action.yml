@@ -1,5 +1,5 @@
 name: Validate exact physical-device request
-description: Derive, plan, synthetically validate, or fail closed for one reviewed device profile
+description: Derive, discover, execute, restore, or synthetically validate one reviewed device profile
 
 inputs:
   phase:
@@ -48,6 +48,14 @@ inputs:
     default: ""
   validated_plan_sha256:
     description: Internal canonical typed-plan digest
+    required: false
+    default: ""
+  selected_device_hash:
+    description: Internal SHA-256 identity of the deterministically discovered device
+    required: false
+    default: ""
+  resource_lock_receipt:
+    description: Internal opaque device-lock/1 fencing receipt
     required: false
     default: ""
   source_root:
@@ -126,6 +134,8 @@ runs:
         INPUT_REQUEST_ID: ${{ inputs.request_id }}
         INPUT_VALIDATED_PLAN: ${{ inputs.validated_plan }}
         INPUT_VALIDATED_PLAN_SHA256: ${{ inputs.validated_plan_sha256 }}
+        INPUT_SELECTED_DEVICE_HASH: ${{ inputs.selected_device_hash }}
+        INPUT_RESOURCE_LOCK_RECEIPT: ${{ inputs.resource_lock_receipt }}
         CIW_DEVICE_SYNTHETIC_MODE: ${{ inputs.synthetic_mode }}
         CIW_DEVICE_EVENT_REPOSITORY: ${{ github.event.repository.full_name || github.repository }}
         CIW_DEVICE_EVENT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -133,18 +143,11 @@ runs:
         CIW_DEVICE_HEAD_FORK: ${{ github.event.pull_request.head.repo.fork && 'true' || 'false' }}
       run: |
         set -Eeuo pipefail
-        if [[ "${{ inputs.phase }}" == "cleanup-checkout" ]]; then
-          python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/device.py" \
-            cleanup-checkout \
-            --source-root "${{ inputs.source_root }}"
-          exit 0
-        fi
         arguments=(
-          device validate
-          --phase "${{ inputs.phase }}"
+          "${{ inputs.phase }}"
           --source-root "${{ inputs.source_root }}"
         )
         if [[ -n "${{ inputs.inventory_fixture }}" ]]; then
           arguments+=(--inventory-fixture "${{ inputs.inventory_fixture }}")
         fi
-        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" "${arguments[@]}"
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/device.py" "${arguments[@]}"

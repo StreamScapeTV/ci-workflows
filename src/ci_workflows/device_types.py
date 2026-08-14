@@ -44,6 +44,7 @@ class DeviceRequest:
     event_name: str
     run_id: str
     live_backend_secret_present: bool = False
+    authorization_receipt_present: bool = False
 
 
 @dataclass(frozen=True, slots=True)

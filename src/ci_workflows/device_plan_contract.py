@@ -26,13 +26,20 @@ from .device_types import (
     canonical_json,
 )
 
+
 def build_plan(contract: Mapping[str, Any], request: DeviceRequest) -> DevicePlan:
     if request.source_trust == "trusted-pr":
-        require(request.repository == "StreamScapeTV/ci-workflows", "source_admission_rejected")
+        require(
+            request.repository == "StreamScapeTV/ci-workflows",
+            "source_admission_rejected",
+        )
         require(request.event_name == "pull_request", "source_admission_rejected")
     else:
         require(request.source_trust == "trusted-exact", "source_admission_rejected")
-        require(request.event_name in {"workflow_call", "workflow_dispatch"}, "authorization_rejected")
+        require(
+            request.event_name in {"workflow_call", "workflow_dispatch"},
+            "authorization_rejected",
+        )
 
     matches: list[DeviceProfile] = []
     for profile_id, raw in contract["profiles"].items():
@@ -48,11 +55,17 @@ def build_plan(contract: Mapping[str, Any], request: DeviceRequest) -> DevicePla
             matches.append(profile)
     require(len(matches) == 1, "device_profile_rejected")
     profile = matches[0]
-    require(request.max_duration_minutes <= profile.timeout_minutes, "authorization_rejected")
+    require(
+        request.max_duration_minutes <= profile.timeout_minutes,
+        "authorization_rejected",
+    )
     if request.source_trust == "trusted-pr":
         require(profile.synthetic_only, "authorization_rejected")
     if request.evidence_exception_id is not None:
-        require(request.evidence_exception_id in profile.artifact_exception_ids, "artifact_exception_rejected")
+        require(
+            request.evidence_exception_id in profile.artifact_exception_ids,
+            "artifact_exception_rejected",
+        )
 
     backend = profile.command_profile.live_backend_profile
     if backend is not None:
@@ -68,24 +81,34 @@ def build_plan(contract: Mapping[str, Any], request: DeviceRequest) -> DevicePla
         require(not request.live_backend_secret_present, "live_backend_rejected")
 
     alias_class = str(profile.aliases[request.device_alias])
-    group = f"device-validation-{profile.profile_id}-{request.family.value}-{alias_class}"
-    require(re.fullmatch(r"[a-z0-9-]{16,180}", group) is not None, "group_injection_rejected")
+    group = (
+        f"device-validation-{profile.profile_id}-{request.family.value}-{alias_class}"
+    )
+    require(
+        re.fullmatch(r"[a-z0-9-]{16,180}", group) is not None,
+        "group_injection_rejected",
+    )
 
-    # Checked-in planning has no accepted runtime authorization/fencing receipt
-    # producer. Runner labels, device presence, branch text, or a secret never
-    # changes this decision.
-    execution_authorized = False
+    # The planner treats only the dedicated owner receipt channel as potential
+    # authorization. Its exact content is validated by the CLI before this plan
+    # is published. Runner labels, hardware presence, GitHub concurrency, issue
+    # text, and the optional product live-backend secret never grant execution.
+    execution_authorized = bool(
+        request.authorization_receipt_present and not profile.synthetic_only
+    )
+    authorization_failure = "" if execution_authorized else "physical_authorization_required"
     return DevicePlan(
         request=request,
         profile=profile,
         alias_class=alias_class,
         execution_authorized=execution_authorized,
-        authorization_failure="physical_authorization_required",
+        authorization_failure=authorization_failure,
         planner_runner_profile=str(contract["planner_runner_profile"]),
         execution_overlay_profile=str(contract["execution_overlay_profile"]),
         serialization_backend=str(contract["serialization_contract"]["backend"]),
         concurrency_group=group,
     )
+
 
 def validate_typed_plan(
     raw_plan: str,
@@ -94,14 +117,20 @@ def validate_typed_plan(
     contract: Mapping[str, Any],
     environment: Mapping[str, str],
 ) -> Mapping[str, Any]:
-    require(re.fullmatch(r"[0-9a-f]{64}", expected_hash) is not None, "typed_plan_hash_mismatch")
+    require(
+        re.fullmatch(r"[0-9a-f]{64}", expected_hash) is not None,
+        "typed_plan_hash_mismatch",
+    )
     try:
         packet = json.loads(raw_plan)
     except json.JSONDecodeError as error:
         raise DeviceValidationError("typed_plan_rejected") from error
     require(isinstance(packet, Mapping), "typed_plan_rejected")
     require(canonical_json(packet) == raw_plan, "typed_plan_rejected")
-    require(hashlib.sha256(raw_plan.encode("utf-8")).hexdigest() == expected_hash, "typed_plan_hash_mismatch")
+    require(
+        hashlib.sha256(raw_plan.encode("utf-8")).hexdigest() == expected_hash,
+        "typed_plan_hash_mismatch",
+    )
     required = {
         "packet_version",
         "repository",
@@ -133,14 +162,30 @@ def validate_typed_plan(
     }
     require(set(packet) == required, "typed_plan_rejected")
     require(packet["packet_version"] == "device-plan/1", "typed_plan_rejected")
-    require(packet["repository"] == environment.get("GITHUB_REPOSITORY"), "typed_plan_rejected")
-    require(packet["admitted_sha"] == environment.get("INPUT_ADMITTED_SHA"), "source_mismatch")
+    require(
+        packet["repository"] == environment.get("GITHUB_REPOSITORY"),
+        "typed_plan_rejected",
+    )
+    require(
+        packet["admitted_sha"] == environment.get("INPUT_ADMITTED_SHA"),
+        "source_mismatch",
+    )
     derived = source_trust_from_environment(environment, str(packet["admitted_sha"]))
     require(packet["source_trust"] == derived, "typed_plan_rejected")
-    require(packet["serialization_backend"] == contract["serialization_contract"]["backend"], "typed_plan_rejected")
+    require(
+        packet["serialization_backend"]
+        == contract["serialization_contract"]["backend"],
+        "typed_plan_rejected",
+    )
     require(packet["cancel_in_progress"] is False, "group_injection_rejected")
-    require(packet["execution_authorized"] is False, "authorization_rejected")
-    require(packet["authorization_failure"] == "physical_authorization_required", "authorization_rejected")
+    require(type(packet["execution_authorized"]) is bool, "authorization_rejected")
+    expected_failure = (
+        "" if packet["execution_authorized"] else "physical_authorization_required"
+    )
+    require(
+        packet["authorization_failure"] == expected_failure,
+        "authorization_rejected",
+    )
     require(
         all(
             isinstance(packet[field], str)
@@ -153,6 +198,7 @@ def validate_typed_plan(
                 "device_family",
                 "device_capability",
                 "device_alias",
+                "alias_class",
                 "device_profile",
                 "command_profile",
                 "script_path",
@@ -164,6 +210,7 @@ def validate_typed_plan(
                 "workspace_profile",
                 "serialization_backend",
                 "concurrency_group",
+                "authorization_failure",
             )
         ),
         "typed_plan_rejected",
@@ -180,22 +227,30 @@ def validate_typed_plan(
     require(packet["concurrency_group"] == expected_group, "group_injection_rejected")
 
     # A digest proves the planner output was not altered in transit. Rebuilding
-    # the packet from the contract also prevents a self-consistent replacement
-    # (new packet plus new digest) from changing profile, script, source, or
-    # authorization facts before an executor ever reaches a hardware boundary.
+    # the packet from current source admission and runtime receipt presence also
+    # prevents a self-consistent replacement from changing authorization facts.
     repository = str(packet["repository"])
     admitted_sha = str(packet["admitted_sha"])
     require(REPOSITORY.fullmatch(repository) is not None, "typed_plan_rejected")
     require(FULL_SHA.fullmatch(admitted_sha) is not None, "typed_plan_rejected")
-    require(packet["event_name"] == environment.get("GITHUB_EVENT_NAME"), "typed_plan_rejected")
+    require(
+        packet["event_name"] == environment.get("GITHUB_EVENT_NAME"),
+        "typed_plan_rejected",
+    )
     expected_run_id = (
         f"{environment.get('GITHUB_RUN_ID', '').strip()}:"
         f"{environment.get('GITHUB_RUN_ATTEMPT', '').strip()}"
     )
-    require(packet["run_id"] == expected_run_id and RUN_ID.fullmatch(expected_run_id), "typed_plan_rejected")
+    require(
+        packet["run_id"] == expected_run_id and RUN_ID.fullmatch(expected_run_id),
+        "typed_plan_rejected",
+    )
     issue_number = parse_request_id(str(packet["request_id"]))
     require(packet["issue_number"] == issue_number, "typed_plan_rejected")
-    require(CAPABILITY.fullmatch(str(packet["device_capability"])) is not None, "typed_plan_rejected")
+    require(
+        CAPABILITY.fullmatch(str(packet["device_capability"])) is not None,
+        "typed_plan_rejected",
+    )
     script_path = safe_relative(packet["script_path"], "typed_plan_rejected")
     require(script_path == packet["script_path"], "typed_plan_rejected")
     try:
@@ -212,6 +267,11 @@ def validate_typed_plan(
         and all(isinstance(label, str) and label for label in runs_on)
         and canonical_json(runs_on) == packet["runs_on_json"],
         "typed_plan_rejected",
+    )
+    authorization_raw = environment.get("CIW_DEVICE_AUTHORIZATION_PRESENT", "false").strip()
+    require(
+        authorization_raw in {"true", "false"},
+        "authorization_rejected",
     )
     rebuilt_request = DeviceRequest(
         repository=repository,
@@ -231,6 +291,7 @@ def validate_typed_plan(
         live_backend_secret_present=(
             environment.get("CIW_DEVICE_LIVE_BACKEND_PRESENT", "").strip() == "true"
         ),
+        authorization_receipt_present=authorization_raw == "true",
     )
     expected_packet = build_plan(contract, rebuilt_request).packet(
         runs_on_json=str(packet["runs_on_json"])

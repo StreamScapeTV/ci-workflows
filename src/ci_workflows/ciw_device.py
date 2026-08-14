@@ -18,13 +18,11 @@ except ImportError:  # pragma: no cover - isolated focused tests
     CIWContext = object  # type: ignore[assignment,misc]
     CIWResult = object  # type: ignore[assignment,misc]
 
+_PHASES = ("plan", "synthetic", "discover", "execute", "restore", "cleanup", "residue")
+
 
 def configure_device_validate(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--phase",
-        choices=("plan", "synthetic", "execute", "cleanup", "residue"),
-        default="plan",
-    )
+    parser.add_argument("--phase", choices=_PHASES, default="plan")
     parser.add_argument("--source-root", default="source")
     parser.add_argument("--inventory-fixture", default="")
 
@@ -34,14 +32,7 @@ def _standalone_parser() -> argparse.ArgumentParser:
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument(
         "command",
-        choices=(
-            "plan",
-            "synthetic",
-            "execute",
-            "cleanup",
-            "residue",
-            "cleanup-checkout",
-        ),
+        choices=(*_PHASES, "cleanup-checkout"),
     )
     parser.add_argument("--source-root", default="source")
     parser.add_argument("--inventory-fixture", default="")
@@ -112,11 +103,13 @@ def _source_path(root: Path, relative: str, environment: Mapping[str, str]) -> P
     return source
 
 
-def _synthetic_runs_on_json(contract: Mapping[str, object], plan: device_validation.DevicePlan) -> str:
+def _approved_base_runs_on_json(
+    contract: Mapping[str, object], plan: device_validation.DevicePlan
+) -> str:
     profile_id = plan.profile.base_runner_profile
     profile = runners.profile_index(contract).get(profile_id)  # type: ignore[name-defined]
     if not isinstance(profile, Mapping) or profile.get("kind") != "runner":
-        raise ValueError("invalid synthetic runner profile")
+        raise ValueError("invalid device base runner profile")
     runners.validate_source(profile, plan.request.source_trust)  # type: ignore[name-defined]
     raw_selector = profile.get("default_internal_selector")
     if (
@@ -124,42 +117,38 @@ def _synthetic_runs_on_json(contract: Mapping[str, object], plan: device_validat
         or not raw_selector
         or not all(isinstance(label, str) and label for label in raw_selector)
     ):
-        raise ValueError("invalid synthetic runner selector")
-    resolved_profile = runners.validate_direct_selector(contract, raw_selector)  # type: ignore[name-defined]
+        raise ValueError("invalid device base runner selector")
+    resolved_profile = runners.validate_direct_selector(  # type: ignore[name-defined]
+        contract, raw_selector
+    )
     if resolved_profile != profile_id:
-        raise ValueError("synthetic runner selector/profile mismatch")
+        raise ValueError("device base runner selector/profile mismatch")
     return json.dumps(raw_selector, separators=(",", ":"))
 
 
 def _runs_on_json(root: Path, plan: device_validation.DevicePlan) -> str:
     try:
         contract = runners.load_runner_contract(root)  # type: ignore[name-defined]
-        if not plan.execution_authorized:
-            # A denied plan never schedules the physical-device job. Still emit the
-            # centrally approved base selector so the planner can return the stable
-            # physical_authorization_required result instead of failing earlier as
-            # a profile mismatch. This selector is not lock or execution authority.
-            value = _synthetic_runs_on_json(contract, plan)
-        else:
-            resolved = runners.resolve_runner_profile(  # type: ignore[name-defined]
-                contract,
-                workflow_api="validation.device",
-                source_trust=plan.request.source_trust,
-                requested_profile="physical-device",
-                device_family=plan.request.family.value,
-                lock_evidence=None,
-            )
-            value = resolved.as_dict()["runs_on_json"]
+        # Discovery and lock acquisition happen on the centrally reviewed family
+        # base runner. The guarded physical-device overlay is crossed only after
+        # a production receipt is acquired and verified immediately pre-mutation.
+        value = _approved_base_runs_on_json(contract, plan)
     except (NameError, AttributeError, OSError, ValueError) as error:
-        # The focused package deliberately carries no duplicate runner authority.
-        # A tiny deterministic fallback is used only outside the full repository.
         if os.environ.get("CIW_DEVICE_FOCUSED_TEST") == "true":
-            value = json.dumps([plan.profile.base_runner_profile], separators=(",", ":"))
+            value = json.dumps(
+                [plan.profile.base_runner_profile], separators=(",", ":")
+            )
         else:
-            raise device_validation.DeviceValidationError("device_profile_rejected") from error
+            raise device_validation.DeviceValidationError(
+                "device_profile_rejected"
+            ) from error
     if not isinstance(value, str) or not value:
         raise device_validation.DeviceValidationError("device_profile_rejected")
     return value
+
+
+def _authorization_receipt(environment: Mapping[str, str]) -> str:
+    return environment.get("CIW_DEVICE_AUTHORIZATION_RECEIPT", "")
 
 
 def _execute_command(
@@ -177,18 +166,72 @@ def _execute_command(
 
     contract = device_validation.load_device_contract(root)
     typed_packet = None
-    if command in {"execute", "cleanup", "residue"}:
+    if command in {"discover", "execute", "restore", "cleanup", "residue"}:
         typed_packet = device_validation.validate_typed_plan(
             environment.get("INPUT_VALIDATED_PLAN", ""),
             environment.get("INPUT_VALIDATED_PLAN_SHA256", ""),
             contract=contract,
             environment=environment,
         )
-    if command == "execute":
+
+    if command in {"discover", "execute", "restore"}:
         assert typed_packet is not None
         source = _source_path(root, source_root, environment)
-        device_validation.validate_exact_checkout(source, str(typed_packet["admitted_sha"]))
-        raise device_validation.DeviceValidationError("physical_authorization_required")
+        if command in {"discover", "execute"}:
+            device_validation.validate_exact_checkout(
+                source, str(typed_packet["admitted_sha"])
+            )
+        request = device_validation.request_from_environment(environment, contract)
+        plan = device_validation.build_plan(contract, request)
+        device_validation.validate_authorization_receipt(
+            _authorization_receipt(environment), plan=plan
+        )
+        state = _resolved_state_root(root, environment)
+        if command == "discover":
+            selected = device_validation.discover_live_device(
+                plan,
+                source_root=source,
+                state_root=state,
+                environment=environment,
+            )
+            return {
+                "result": "discovered",
+                "request_id": plan.request.request_id,
+                "selected_device_hash": selected.identity_hash,
+                "cleanup_result": "not-run",
+                "failure_code": "",
+            }
+        selected_hash = environment.get("INPUT_SELECTED_DEVICE_HASH", "").strip()
+        lock_receipt = environment.get("INPUT_RESOURCE_LOCK_RECEIPT", "").strip()
+        if command == "restore":
+            device_validation.cleanup_live_device(
+                contract_root=root,
+                plan=plan,
+                source_root=source,
+                state_root=state,
+                selected_identity_hash=selected_hash,
+                authorization_receipt=_authorization_receipt(environment),
+                resource_lock_receipt=lock_receipt,
+                environment=environment,
+            )
+            return {
+                "result": "success",
+                "request_id": plan.request.request_id,
+                "selected_device_hash": selected_hash,
+                "cleanup_result": "success",
+                "failure_code": "",
+            }
+        result = device_validation.execute_live_device(
+            contract_root=root,
+            plan=plan,
+            source_root=source,
+            state_root=state,
+            selected_identity_hash=selected_hash,
+            authorization_receipt=_authorization_receipt(environment),
+            resource_lock_receipt=lock_receipt,
+            environment=environment,
+        )
+        return result.output_values()
 
     if command in {"cleanup", "residue"}:
         assert typed_packet is not None
@@ -207,11 +250,17 @@ def _execute_command(
     request = device_validation.request_from_environment(environment, contract)
     plan = device_validation.build_plan(contract, request)
     if command == "plan":
+        if plan.execution_authorized:
+            device_validation.validate_authorization_receipt(
+                _authorization_receipt(environment), plan=plan
+            )
         return plan.planning_outputs(runs_on_json=_runs_on_json(root, plan))
     if command == "synthetic":
         source = _source_path(root, source_root, environment)
         device_validation.validate_exact_checkout(source, request.admitted_sha)
-        inventory = _bounded_relative_file(root, inventory_fixture).read_text(encoding="utf-8")
+        inventory = _bounded_relative_file(root, inventory_fixture).read_text(
+            encoding="utf-8"
+        )
         result = device_validation.synthetic_validate(
             contract_root=root,
             environment=environment,
@@ -248,6 +297,7 @@ def standalone_main(argv: Sequence[str] | None = None) -> int:
                 "request_id": os.environ.get("INPUT_REQUEST_ID", ""),
                 "device_evidence_id": "",
                 "artifact_exception_used": "false",
+                "selected_device_hash": "",
                 "cleanup_result": "failed",
                 "failure_code": error.code,
             },
@@ -256,7 +306,9 @@ def standalone_main(argv: Sequence[str] | None = None) -> int:
         return 1
 
 
-def execute_device_validate(args: argparse.Namespace, context: "CIWContext") -> "CIWResult":
+def execute_device_validate(
+    args: argparse.Namespace, context: "CIWContext"
+) -> "CIWResult":
     values = _execute_command(
         root=context.root,
         command=args.phase,

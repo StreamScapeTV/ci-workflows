@@ -5,14 +5,25 @@ import re
 from typing import Any, Mapping
 
 from .device_contract_common import (
-    ALIAS, CAPABILITY, FULL_SHA, IDENTIFIER, REPOSITORY, RUN_ID,
-    fail, parse_request_id, require, safe_relative, strings,
+    ALIAS,
+    CAPABILITY,
+    FULL_SHA,
+    IDENTIFIER,
+    REPOSITORY,
+    RUN_ID,
+    fail,
+    parse_request_id,
+    require,
+    safe_relative,
+    strings,
 )
 from .device_types import DeviceFamily, DeviceRequest, DeviceValidationError
+
 
 def _boolean_text(value: str, code: str) -> bool:
     require(value in {"true", "false"}, code)
     return value == "true"
+
 
 def source_trust_from_environment(
     environment: Mapping[str, str], admitted_sha: str
@@ -20,14 +31,10 @@ def source_trust_from_environment(
     """Derive trust only from fixed GitHub event metadata, never from inputs."""
 
     repository = environment.get("GITHUB_REPOSITORY", "").strip()
-    event_repository = environment.get(
-        "CIW_DEVICE_EVENT_REPOSITORY", repository
-    ).strip()
+    event_repository = environment.get("CIW_DEVICE_EVENT_REPOSITORY", repository).strip()
     event_name = environment.get("GITHUB_EVENT_NAME", "").strip()
     event_sha = environment.get("CIW_DEVICE_EVENT_SHA", "").strip()
-    head_repository = environment.get(
-        "CIW_DEVICE_HEAD_REPOSITORY", event_repository
-    ).strip()
+    head_repository = environment.get("CIW_DEVICE_HEAD_REPOSITORY", event_repository).strip()
     head_fork_raw = environment.get("CIW_DEVICE_HEAD_FORK", "false").strip()
     head_fork = _boolean_text(head_fork_raw, "source_admission_rejected")
     synthetic = environment.get("CIW_DEVICE_SYNTHETIC_MODE", "") == "true"
@@ -40,24 +47,29 @@ def source_trust_from_environment(
 
     if synthetic:
         require(
-            event_name == "pull_request"
-            and repository == "StreamScapeTV/ci-workflows",
+            event_name == "pull_request" and repository == "StreamScapeTV/ci-workflows",
             "source_admission_rejected",
         )
         return "trusted-pr"
 
-    require(event_name in {"workflow_call", "workflow_dispatch"}, "authorization_rejected")
+    require(
+        event_name in {"workflow_call", "workflow_dispatch"},
+        "authorization_rejected",
+    )
     return "trusted-exact"
+
 
 def optional_input(environment: Mapping[str, str], key: str) -> str | None:
     value = environment.get(key, "").strip()
     return value or None
+
 
 def _positive_int(value: str, code: str) -> int:
     require(re.fullmatch(r"[1-9][0-9]{0,3}", value) is not None, code)
     result = int(value)
     require(1 <= result <= 240, code)
     return result
+
 
 def request_from_environment(
     environment: Mapping[str, str], contract: Mapping[str, Any]
@@ -103,9 +115,9 @@ def request_from_environment(
         "invalid_input",
     )
     exception_id = optional_input(environment, "INPUT_EVIDENCE_EXCEPTION_ID")
-    secret_present = (
-        environment.get("CIW_DEVICE_LIVE_BACKEND_PRESENT", "").strip() == "true"
-    )
+    secret_present = environment.get("CIW_DEVICE_LIVE_BACKEND_PRESENT", "").strip() == "true"
+    authorization_raw = environment.get("CIW_DEVICE_AUTHORIZATION_PRESENT", "false").strip()
+    authorization_present = _boolean_text(authorization_raw, "authorization_rejected")
     return DeviceRequest(
         repository=repository,
         admitted_sha=admitted_sha,
@@ -122,4 +134,5 @@ def request_from_environment(
         event_name=event_name,
         run_id=run_id,
         live_backend_secret_present=secret_present,
+        authorization_receipt_present=authorization_present,
     )

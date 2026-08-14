@@ -4,10 +4,18 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from pathlib import Path
 from typing import Mapping, Sequence
 
 from .device_contract_common import require
-from .device_types import DevicePlan, LockReceipt, LockReleaseReceipt, SelectedDevice, canonical_json
+from .device_types import (
+    DevicePlan,
+    LockReceipt,
+    LockReleaseReceipt,
+    SelectedDevice,
+    canonical_json,
+)
+from .physical_log_policy import validate_stable_evidence
 
 EVIDENCE_NAME = re.compile(r"^[a-z][a-z0-9._-]{1,95}$")
 MEDIA_TYPE = re.compile(r"^(?:application/json|text/plain)$")
@@ -18,11 +26,21 @@ def _timestamp(value: int) -> str:
     return f"epoch:{value}"
 
 
-def _artifact_inventory(retained: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
+def _artifact_inventory(
+    retained: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
     result: list[dict[str, object]] = []
     for item in retained:
-        require(set(item) == {"name", "media_type", "bytes", "sha256"}, "evidence_policy_failed")
-        name, media_type, byte_count, digest = item["name"], item["media_type"], item["bytes"], item["sha256"]
+        require(
+            set(item) == {"name", "media_type", "bytes", "sha256"},
+            "evidence_policy_failed",
+        )
+        name, media_type, byte_count, digest = (
+            item["name"],
+            item["media_type"],
+            item["bytes"],
+            item["sha256"],
+        )
         require(
             isinstance(name, str)
             and EVIDENCE_NAME.fullmatch(name) is not None
@@ -128,8 +146,12 @@ def build_evidence_packet(
             "accepted": lock_receipt.accepted,
             "epoch": lock_receipt.epoch,
             "owner_hash": lock_receipt.owner_hash,
-            "resource_key_hash": hashlib.sha256(lock_receipt.resource_key.encode()).hexdigest(),
-            "release_receipt": release_receipt.release_receipt if release_receipt else "",
+            "resource_key_hash": hashlib.sha256(
+                lock_receipt.resource_key.encode()
+            ).hexdigest(),
+            "release_receipt": (
+                release_receipt.release_receipt if release_receipt else ""
+            ),
         },
         "command_profiles": {
             "prepare": plan.profile.command_profile.prepare_script,
@@ -150,7 +172,11 @@ def build_evidence_packet(
         "certification_scope": actual_scope,
         "limitations": _limitations(evidence_contract, synthetic=synthetic),
     }
-    validate_evidence_packet(packet, evidence_contract, raw_identifier=selected._raw_identifier)
+    validate_evidence_packet(
+        packet,
+        evidence_contract,
+        raw_identifier=selected._raw_identifier,
+    )
     return packet
 
 
@@ -175,14 +201,32 @@ def validate_evidence_packet(
     required = set(evidence_contract["required_fields"])
     allowed = set(evidence_contract["allowed_fields"])
     require(set(packet) == required == allowed, "evidence_policy_failed")
-    forbidden = {str(value).casefold() for value in evidence_contract["forbidden_fields"]}
-    require(all(key.casefold() not in forbidden for key in _walk_keys(packet)), "evidence_policy_failed")
+    forbidden = {
+        str(value).casefold() for value in evidence_contract["forbidden_fields"]
+    }
+    require(
+        all(key.casefold() not in forbidden for key in _walk_keys(packet)),
+        "evidence_policy_failed",
+    )
     serialized = canonical_json(packet)
-    require(len(serialized.encode()) <= int(evidence_contract["maximum_packet_bytes"]), "evidence_policy_failed")
+    require(
+        len(serialized.encode()) <= int(evidence_contract["maximum_packet_bytes"]),
+        "evidence_policy_failed",
+    )
     require(raw_identifier not in serialized, "evidence_policy_failed")
     for pattern in evidence_contract["forbidden_value_patterns"]:
-        require(re.search(str(pattern), serialized) is None, "evidence_policy_failed")
-    require(re.fullmatch(str(evidence_contract["identity_hash_regex"]), str(packet["device_identity_hash"])) is not None, "evidence_policy_failed")
+        require(
+            re.search(str(pattern), serialized) is None,
+            "evidence_policy_failed",
+        )
+    require(
+        re.fullmatch(
+            str(evidence_contract["identity_hash_regex"]),
+            str(packet["device_identity_hash"]),
+        )
+        is not None,
+        "evidence_policy_failed",
+    )
     assertions = packet["assertions"]
     allowed_assertions = evidence_contract["allowed_assertions"]
     require(
@@ -194,7 +238,12 @@ def validate_evidence_packet(
         and set(assertions) <= set(allowed_assertions),
         "evidence_policy_failed",
     )
-    require(isinstance(packet["retained_evidence"], list) and len(packet["retained_evidence"]) <= int(evidence_contract["maximum_retained_files"]), "evidence_policy_failed")
+    require(
+        isinstance(packet["retained_evidence"], list)
+        and len(packet["retained_evidence"])
+        <= int(evidence_contract["maximum_retained_files"]),
+        "evidence_policy_failed",
+    )
 
     family = str(packet["device_family"])
     physical_scopes = _scope_map(evidence_contract, synthetic=False)
@@ -218,7 +267,10 @@ def validate_evidence_packet(
     if scope == synthetic_scope:
         require(set(synthetic_required) <= set(limitations), "evidence_overclaim")
     else:
-        require(not (set(synthetic_required) & set(limitations)), "evidence_overclaim")
+        require(
+            not (set(synthetic_required) & set(limitations)),
+            "evidence_overclaim",
+        )
         lock = packet["lock"]
         serialization = packet["serialization"]
         require(
@@ -228,6 +280,41 @@ def validate_evidence_packet(
             and serialization.get("cross_run_fencing_claimed") is True,
             "evidence_overclaim",
         )
+
+
+def build_stable_physical_evidence(
+    *,
+    contract_root: Path,
+    repository: str,
+    source_sha: str,
+    workflow_run_id: int,
+    job_id: int,
+    device_family: str,
+    request_id: str,
+    result: str,
+    cleanup_result: str,
+    evidence_id: str,
+    validation_profile: str | None = None,
+    toolchain_profile: str | None = None,
+) -> dict[str, object]:
+    """Route any durable physical proof through the shared #137 allowlist."""
+
+    payload: dict[str, object] = {
+        "repository": repository,
+        "source_sha": source_sha,
+        "workflow_run_id": workflow_run_id,
+        "job_id": job_id,
+        "device_family": device_family,
+        "request_id": request_id,
+        "result": result,
+        "cleanup_result": cleanup_result,
+        "evidence_id": evidence_id,
+    }
+    if validation_profile is not None:
+        payload["validation_profile"] = validation_profile
+    if toolchain_profile is not None:
+        payload["toolchain_profile"] = toolchain_profile
+    return validate_stable_evidence(payload, contract_root=contract_root)
 
 
 def evidence_id(packet: Mapping[str, object]) -> str:
