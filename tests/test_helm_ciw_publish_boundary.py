@@ -19,7 +19,7 @@ class HelmCiwPublishBoundaryTests(unittest.TestCase):
             with (
                 patch("ci_workflows.ciw_helm._state_root", return_value=state),
                 patch("ci_workflows.ciw_helm._source_root") as source_root,
-                patch("ci_workflows.ciw_helm.validate_and_package") as validate,
+                patch("ci_workflows.helm_execution.validate_and_package") as validate,
             ):
                 with self.assertRaisesRegex(
                     HelmValidationError,
@@ -40,7 +40,7 @@ class HelmCiwPublishBoundaryTests(unittest.TestCase):
             state = Path(directory)
             with (
                 patch("ci_workflows.ciw_helm._state_root", return_value=state),
-                patch("ci_workflows.ciw_helm.cleanup_helm_state") as cleanup,
+                patch("ci_workflows.helm_execution.cleanup_helm_state") as cleanup,
             ):
                 values = ciw_helm.execute(
                     ROOT,
@@ -54,7 +54,7 @@ class HelmCiwPublishBoundaryTests(unittest.TestCase):
 
             with (
                 patch("ci_workflows.ciw_helm._state_root", return_value=state),
-                patch("ci_workflows.ciw_helm.verify_no_helm_residue") as residue,
+                patch("ci_workflows.helm_execution.verify_no_helm_residue") as residue,
             ):
                 values = ciw_helm.execute(
                     ROOT,
