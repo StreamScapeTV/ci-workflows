@@ -68,6 +68,10 @@ class MaintenanceCiwTests(unittest.TestCase):
             ):
                 result = execute_maintenance_artifacts(args, context)
             self.assertEqual((result.domain, result.operation), ("maintenance", "artifacts"))
+            self.assertEqual(
+                set(result.outputs),
+                {"result", "mutation_count", "request_id", "failure_code"},
+            )
             self.assertEqual(result.outputs["result"], "success")
             self.assertEqual(result.outputs["mutation_count"], "2")
             self.assertEqual(result.outputs["request_id"], "request-123")
@@ -113,10 +117,15 @@ class MaintenanceCiwTests(unittest.TestCase):
             ):
                 execute_maintenance_artifacts(args, context)
             lines = set(output.read_text(encoding="utf-8").splitlines())
-            self.assertIn("result=failure", lines)
-            self.assertIn("mutation_count=0", lines)
-            self.assertIn("request_id=request-123", lines)
-            self.assertIn("failure_code=artifact_state_changed", lines)
+            self.assertEqual(
+                lines,
+                {
+                    "result=failure",
+                    "mutation_count=0",
+                    "request_id=request-123",
+                    "failure_code=artifact_state_changed",
+                },
+            )
 
     def test_flux_adapter_fixes_source_identity_and_dry_run_is_read_only(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -166,6 +175,10 @@ class MaintenanceCiwTests(unittest.TestCase):
                 runner_temp / "flux-reconcile-12345-2",
             )
             reconcile.assert_not_called()
+            self.assertEqual(
+                set(result.outputs),
+                {"result", "reconciliation_state", "request_id", "failure_code"},
+            )
             self.assertEqual(result.outputs["reconciliation_state"], "dry-run")
             self.assertEqual(result.outputs["failure_code"], "")
             self.assertFalse((runner_temp / "flux-reconcile-12345-2").exists())
