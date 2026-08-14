@@ -53,7 +53,7 @@
     {
       "uses": "StreamScapeTV/ci-workflows/actions/device-lock",
       "sha": "599c82201e6da6ca51c4f6247f1526a4ba03d550",
-      "release": "issue #136 production fencing checkpoint",
+      "release": "issue #136 exact-head checkpoint",
       "runtime": "composite",
       "source": "https://github.com/StreamScapeTV/ci-workflows/tree/599c82201e6da6ca51c4f6247f1526a4ba03d550/actions/device-lock"
     },
