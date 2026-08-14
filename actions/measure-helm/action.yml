@@ -34,6 +34,7 @@ runs:
         PYTHONDONTWRITEBYTECODE: "1"
         INPUT_ADMITTED_SHA: ${{ inputs.admitted_sha }}
         INPUT_PRODUCT_ID: ${{ inputs.product_id }}
+        CIW_MEASUREMENT_PHASE: ${{ inputs.phase }}
       run: |
         set -Eeuo pipefail
         runtime_root="${RUNNER_TEMP}/ciw-helm-measurement-python-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
@@ -46,12 +47,13 @@ runs:
           --lock "${GITHUB_ACTION_PATH}/../../contracts/action-tool-lock.json" \
           --target "${runtime_root}"
         export PYTHONPATH="${runtime_root}:${GITHUB_ACTION_PATH}/../../src"
-        case "${{ inputs.phase }}" in
-          start|stop)
-            python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/helm_measurement.py" "${{ inputs.phase }}"
-            ;;
+        case "${CIW_MEASUREMENT_PHASE}" in
+          start|stop) ;;
           *)
             echo "unsupported Helm measurement phase" >&2
             exit 2
             ;;
         esac
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
+          --root "${GITHUB_ACTION_PATH}/../.." \
+          helm publish --phase "measure-${CIW_MEASUREMENT_PHASE}"
