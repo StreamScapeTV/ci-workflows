@@ -31,6 +31,7 @@ This repository owns:
 - named CI functions and thin composite actions;
 - reusable Python, Node/Next, Android, Flutter, Apple, device, YAML, Helm-render, and Kustomize validation orchestration;
 - engine-neutral OCI build, immutable publication, and registry read-back;
+- runner-image Dockerfiles, image composition, reviewed upstream/tool pins and freshness, build, validation, publication, and registry read-back;
 - Helm validation, deterministic packaging, publication, and read-back;
 - tag-driven release manifests and bounded handoff orchestration;
 - reusable Flux infrastructure-asset and trusted reconciliation wrappers;
@@ -61,7 +62,9 @@ Lifecycle and ownership do not move to `ci-workflows`. Approved agents call the 
 - SOPS-encrypted data and decryption credentials;
 - product/target rollout allowlists and authorization rules;
 - cluster credentials, environments, live reconciliation, health, canary, selection, rollback, and incident acceptance;
-- runner product definitions, exact bases/upstreams, desired scale-set selection, quotas, and live infrastructure policy.
+- live ARC desired state, selected immutable runner image, labels, resources, storage, runtime service-account or sidecar wiring, canary, health, rollback, and cluster policy.
+
+Runner-image product source is deliberately separate from live ARC authority. `ci-workflows` owns the central runner-image Dockerfiles, composition, reviewed upstream/tool pins and freshness, build, validation, immutable publication, and registry read-back. Flux consumes the reviewed immutable image identity and decides whether, where, and when that product is selected in live ARC desired state.
 
 `ci-workflows` owns reusable source-validation, runner-image/chart build and publication, release-manifest, maintenance, and trusted reconciliation orchestration. A trusted central Flux wrapper checks out exact protected Flux source and executes Flux-owned allowlist, plan, reconcile, and health scripts. It never accepts an arbitrary namespace, object, kubeconfig path, command, image, chart, or cluster target from untrusted input.
 
