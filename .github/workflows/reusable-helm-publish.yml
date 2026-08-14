@@ -127,7 +127,7 @@ jobs:
           trust_mode: ${{ needs.plan.outputs.source_trust }}
       - id: measurement_start
         name: Start bounded Helm runner measurement
-        uses: StreamScapeTV/ci-workflows/actions/measure-helm@f867827a41174ea5a9ad554eeea91dbb2c2c0bfa # issue #18 immutable Helm runtime checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/measure-helm@1f2c0ae5bec042adc9f94e87ebfbba1e7ba48994 # issue #18 immutable Helm measurement CIW checkpoint
         with:
           phase: start
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -162,7 +162,7 @@ jobs:
         name: Stop and validate bounded Helm runner measurement
         if: always() && steps.measurement_start.outcome == 'success'
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/measure-helm@f867827a41174ea5a9ad554eeea91dbb2c2c0bfa # issue #18 immutable Helm runtime checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/measure-helm@1f2c0ae5bec042adc9f94e87ebfbba1e7ba48994 # issue #18 immutable Helm measurement CIW checkpoint
         with:
           phase: stop
           admitted_sha: ${{ inputs.admitted_sha }}
