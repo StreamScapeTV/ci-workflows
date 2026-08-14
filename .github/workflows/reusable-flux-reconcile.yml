@@ -40,7 +40,7 @@ jobs:
           fetch_depth: '1'
       - name: Resolve and run trusted Flux reconciliation
         id: reconcile
-        uses: StreamScapeTV/ci-workflows/actions/flux-reconcile@3de0f365eed5ff69cf18b1af26aa42f7928fd8ef # issue #20 immutable maintenance action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/flux-reconcile@ac5b6be68ea2aa562ccc513103dbdd9b6c23d7ad # issue #20 immutable maintenance action checkpoint
         with:
           admitted_sha: ${{ inputs.admitted_sha }}
           target_id: ${{ inputs.target_id }}
