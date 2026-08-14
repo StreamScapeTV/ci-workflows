@@ -143,11 +143,18 @@ runs:
         CIW_DEVICE_HEAD_FORK: ${{ github.event.pull_request.head.repo.fork && 'true' || 'false' }}
       run: |
         set -Eeuo pipefail
+        if [[ "${{ inputs.phase }}" == "cleanup-checkout" ]]; then
+          python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/device.py" \
+            cleanup-checkout \
+            --source-root "${{ inputs.source_root }}"
+          exit 0
+        fi
         arguments=(
-          "${{ inputs.phase }}"
+          device validate
+          --phase "${{ inputs.phase }}"
           --source-root "${{ inputs.source_root }}"
         )
         if [[ -n "${{ inputs.inventory_fixture }}" ]]; then
           arguments+=(--inventory-fixture "${{ inputs.inventory_fixture }}")
         fi
-        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/device.py" "${arguments[@]}"
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" "${arguments[@]}"
