@@ -2,66 +2,60 @@
 
 ## Authority boundary
 
-`ci-workflows` owns reusable admission, typed planning, bounded inventory parsing, deterministic selection, GitHub job serialization, named component orchestration, redacted evidence, stage ordering, and cleanup contracts. Product repositories retain checked-in device test scripts and assertions. Flux and product desired state are not modified by this issue.
+`ci-workflows` owns reusable source admission, typed planning, deterministic device discovery, production cross-run fencing, bounded evidence identity, stage ordering, restoration, and cleanup. Product repositories retain checked-in device test scripts and assertions. Flux, signing, store, registry, and deployment authority are outside this workflow.
 
-There is no checked-in physical-device execution authorization. A real request without a separately accepted runtime authorization/fencing receipt remains `execution_authorized=false` with stable failure `physical_authorization_required`; the reusable workflow turns that result into an explicit general-Linux authorization-denied failure rather than silently skipping the device job. Runner labels, device presence, issue or branch text, opaque aliases, and secret presence are never authorization.
+Real mutation requires **both** a separately supplied `device_authorization_receipt` and a current production `device-lock/1` fencing receipt. A runner label, attached device, opaque alias, issue, branch, GitHub concurrency group, or `live_test_credentials` secret never grants physical-device authority. When the exact owner receipt is absent or invalid, planning fails closed with `physical_authorization_required` before the device job is scheduled.
 
 ## Current GitHub source admission and immutable implementation identity
 
-There is no caller-supplied `source_trust` field. The action derives caller trust from fixed GitHub metadata: repository, event, exact lowercase admitted SHA, event SHA, head repository, and fork state. Synthetic pull-request smoke is limited to a same-repository `ci-workflows` head. Trusted reusable or dispatch planning requires same-repository, non-fork, exact-SHA metadata.
+There is no caller-supplied `source_trust` field. The action derives trust from fixed GitHub repository, event, exact admitted SHA, event SHA, head repository, and fork state. Synthetic pull-request smoke is limited to the same `ci-workflows` repository. Real execution accepts only exact trusted reusable/dispatch source.
 
-Reusable workflow implementation identity is separate from caller source identity. The workflow executes `validate-device` as an immutable private action pinned to the reviewed #14 implementation checkpoint. Exact checkout, workspace preparation, and workspace cleanup use their reviewed immutable shared checkpoints. The public reusable workflow does not execute a mutable local `.ciw` implementation checkout.
+The planner emits one canonical `device-plan/1` packet and SHA-256. The executor rejects noncanonical bytes, hash drift, source drift, authorization-presence drift, changed concurrency, changed cancel behavior, changed profile/script facts, or moved source. It then validates the exact detached caller checkout and clean tree before discovery.
 
-The executor receives the canonical one-line `device-plan/1` packet and its SHA-256 from the planner. It rejects unknown fields, noncanonical bytes, hash drift, source drift, changed authorization, changed concurrency, or changed cancel behavior. It then revalidates the exact detached caller checkout and clean tree before any execution boundary.
+The reusable workflow invokes `validate-device` and `device-lock` through immutable private action checkpoints. Exact checkout, workspace preparation, and workspace cleanup also use reviewed immutable private actions. The public reusable workflow never executes mutable Central helper source from a local checkout.
 
-## Opaque alias and raw device identity
+## Opaque alias and runner-local device identity
 
-The public request carries a bounded opaque alias, never a raw serial or UDID. Each reviewed profile maps an allowlisted alias to one contract-owned alias class. Only after admission does trusted-host inventory parsing see a raw identifier. Selection filters family, version, model, capability, health, connection, personal/conflict flags, and profile policy, then emits only a profile-scoped SHA-256 identity hash.
+The public request carries a bounded opaque alias, never a raw serial or UDID. Trusted runner-local discovery sees raw identifiers only after exact source and owner authorization have been validated. Deterministic selection filters family, version/API, reviewed model class, capability, connection, and health policy, then stores a private run-owned record and emits only a profile-scoped SHA-256 device identity.
 
-Raw serial or UDID values are absent from public inputs, outputs, summaries, evidence, job names, concurrency groups, and stable errors.
+Raw serial or UDID values are absent from public inputs, outputs, summaries, job names, concurrency groups, stable failures, and durable evidence. Product scripts receive the selected identifier only in the platform-specific process environment (`ANDROID_SERIAL` or the reviewed Apple selector variables). They do **not** receive the owner receipt, fencing receipt, device-lock backend root, Central lock internals, checkout token, or GitHub token.
 
-## Guarded runner selection
+## Scheduling and guarded mutation
 
-Central runner policy registers `validation.device` only through the guarded `physical-device` overlay. That overlay maps Android to the `mobile` base profile and iOS/tvOS to the `apple` base profile. Resolving an actual physical execution profile requires exact trusted source plus the reviewed lock/authorization evidence fields.
+Central runner policy maps Android device work to the reviewed `mobile` base capacity and iOS/tvOS to `apple`. The selected base runner is scheduling capability, not physical authority.
 
-Denied plans never schedule the device job. They may serialize the centrally approved concrete base selector so the planner can complete and emit `physical_authorization_required`; the selector is not authorization or lock evidence. Synthetic PR validation follows the same central selector authority and cannot escalate into the guarded overlay.
+The workflow order is fixed:
 
-## Stable public components and CIW
+1. derive and validate the typed exact-source plan;
+2. deterministically discover one eligible physical device;
+3. acquire one production `device-lock/1` receipt for exact family, capability, discovered-device hash, tested source SHA, owner/run identity, request ID, and authorization-receipt hash;
+4. verify that receipt immediately before mutation;
+5. execute only the contract-selected product command profile, which independently re-verifies the same receipt at the Python mutation boundary;
+6. restore product-owned device state;
+7. expected-state release the exact receipt;
+8. prove the released receipt has no live fencing residue;
+9. remove Central device state, exact source checkout, and registered workspace state and prove zero residue.
 
-`ci_workflows.devices` supplies the public implementation-component names used by the workflow contract:
+GitHub job concurrency remains supplemental serialization using the contract-owned group and `cancel-in-progress: false`. It is not the fencing token and cannot replace `device-lock/1`.
 
-- `lock` forwards exact typed plan/device acquisition through the supplied bounded lock adapter;
-- `validate` forwards to the restoration-first `execute_device_plan` lifecycle;
-- `cleanup` removes only registered device state and verifies zero residue.
+## Owner authorization receipt
 
-The bridge adds no production lock backend and no physical authority. `InMemoryDeviceLockAdapter` remains a deterministic single-process test double only.
+`device_authorization_receipt` is an exact, canonical `device-authorization/1` JSON receipt carried only through the named reusable-workflow secret channel. It binds repository, exact source SHA, family, capability, request ID, and expiry. The checked-in contract contains no authorized family list and does not manufacture authorization from secret presence: the receipt bytes are validated before an authorized plan is emitted and again at the live boundary.
 
-The typed command registry exposes `ciw device validate`. `scripts/ci/device.py` routes ordinary plan/synthetic/execute/cleanup/residue phases through that stable command and retains only fixed checkout cleanup on its narrow compatibility parser.
+The independent `live_test_credentials` secret is only the reviewed non-production product backend credential channel. It may be required by a product command profile, but it never authorizes device scheduling or lock acquisition.
 
-## Serialization, not fencing
+## Production fencing contract
 
-The planner emits one group:
+The merged #136 `device-lock/1:posix-shared-root-v1` adapter is the production cross-run/cross-repository fencing authority. Runner infrastructure owns the backend root; callers cannot select it. The opaque receipt binds hashed authorization, discovered-device identity, source, owner, request, lease, and a fencing token. Stale, mismatched, superseded, expired, wrong-family, wrong-source, wrong-device, wrong-owner, replayed, or fabricated receipts fail closed.
 
-```text
-device-validation-<reviewed-profile>-<family>-<contract-alias-class>
-```
-
-The executor uses that exact value with `cancel-in-progress: false`. There is no caller concurrency input and no raw identity in the group. GitHub job concurrency provides bounded CI serialization only; it is not a fencing token or cross-repository ownership authority.
-
-The runner contract therefore still requires a separate accepted authorization receipt, resource-lock receipt, discovered device identity, tested source SHA, family, and cleanup evidence before the guarded overlay may resolve a real execution profile. The repository does not fabricate those receipts from a runner label, secret, or checked-in authorization list.
+The in-memory adapter remains a deterministic single-process **test double only**. Synthetic evidence cannot claim production fencing or physical proof.
 
 ## Synthetic execution
 
-The three `ciw-synthetic-*` profiles permit successful source-only planning, inventory parsing, selection, redaction, lifecycle, restoration, cleanup, and local test-double lock coverage. They never perform device mutation. Real profiles remain represented for contract review but do not become executable merely because an owner authorization exists outside the checked-in runtime receipt path.
+The three `ciw-synthetic-*` profiles exercise source admission, planning, inventory parsing, deterministic selection, evidence redaction, restoration-first lifecycle behavior, and the in-memory test lock. They never acquire `device-lock/1`, never receive `device_authorization_receipt`, and never mutate hardware.
 
-## Restoration and cleanup
+## Restoration, cleanup, and evidence
 
-The lifecycle records the first primary failure while independently recording restoration, cleanup, and release failures. Restoration is attempted before cleanup. Cleanup removes only run-owned state and uses `lstat`-based no-follow traversal.
+The live executor records the first product-stage failure while still attempting product cleanup. The workflow then performs a separate lock-protected restore step before expected-state lock release, verifies released-lock residue, removes Central private device state, removes the exact source checkout without following symlinks, and removes registered workspace state. Terminal projection fails if any required discovery, fencing, execution, restore, release, residue, or cleanup outcome is not successful.
 
-The reusable workflow removes the fixed caller `source` checkout through the immutable device cleanup action and independently projects execution, device cleanup, residue, source cleanup, and registered-workspace cleanup outcomes. The synthetic smoke still owns and removes its temporary `.ciw` branch checkout under `if: always()` with no-follow semantics.
-
-## Evidence
-
-Evidence is bounded, deterministic, and recursively allowlisted. It contains exact source, reviewed profile, hashed device identity, contract serialization facts, synthetic test-lock facts, contract-allowlisted assertions, restoration/cleanup state, and explicit limitations. It rejects raw identifiers, credentials, endpoints, environment dumps, unrestricted logs, screenshots, traces, or private media.
-
-Every packet states that it does not certify simulator or emulator behavior, authorize release/signing/store/deployment, or claim cross-run database fencing. Synthetic evidence is never represented as real physical-device proof.
+Zero routine Actions artifacts are retained. Stable product evidence is limited to bounded identifiers and routes through the shared physical-log policy; raw platform logs, host paths, device identifiers, credentials, receipts, environment dumps, screenshots, traces, and private media are not durable evidence. Synthetic evidence remains explicitly non-physical.
