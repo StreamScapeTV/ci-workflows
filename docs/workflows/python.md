@@ -34,7 +34,7 @@ No command output, database URL, generated credential, host path, image pull det
 
 ### `host`
 
-`host` uses `portable`, verifies exact CPython `3.12.13`, creates an isolated home, temporary directory, XDG roots, and optional virtual environment, and runs only the selected checked-in profile. Current Agent State automation checks use this shape.
+`host` uses `portable`, verifies exact CPython `3.12.3`, creates an isolated home, temporary directory, XDG roots, and optional virtual environment, and runs only the selected checked-in profile. Current Agent State automation and Backend PR-safe checks use this shape.
 
 ### `podman`
 
