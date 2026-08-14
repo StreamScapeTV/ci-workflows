@@ -10,6 +10,7 @@ from typing import Mapping, Sequence
 
 from . import apple as apple_validation
 from .apple_contract_fragments import load_apple_contract
+from .apple_simulator_script import SimulatorLeaseArgumentRunner
 
 try:
     from . import runners
@@ -117,6 +118,7 @@ def _run_plan(
         plan=plan,
         source_root=source,
         state_root=state,
+        runner=SimulatorLeaseArgumentRunner(),
         environment=environment,
     )
 
