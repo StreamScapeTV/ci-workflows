@@ -220,51 +220,40 @@ jobs:
           PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.ciw/src python3 - <<'PY'
           import os
           from pathlib import Path
-
           from ci_workflows.ciw import main
-
-          output = Path(os.environ["DEVICE_DENIED_OUTPUT"])
-          output.write_text("", encoding="utf-8")
-          admitted_sha = "0123456789abcdef0123456789abcdef01234567"
-          environment = dict(os.environ)
-          environment.update(
-              {
-                  "GITHUB_REPOSITORY": "StreamScapeTV/iptv-android",
-                  "GITHUB_EVENT_NAME": "workflow_dispatch",
-                  "GITHUB_RUN_ID": "31234567891",
-                  "GITHUB_RUN_ATTEMPT": "1",
-                  "GITHUB_OUTPUT": str(output),
-                  "INPUT_ADMITTED_SHA": admitted_sha,
-                  "INPUT_DEVICE_FAMILY": "android",
-                  "INPUT_DEVICE_CAPABILITY": "instrumentation",
-                  "INPUT_DEVICE_ALIAS": "acceptance-primary",
-                  "INPUT_COMMAND_PROFILE": "iptv-android-device",
-                  "INPUT_SCRIPT_PATH": "build.sh",
-                  "INPUT_MAX_DURATION_MINUTES": "60",
-                  "INPUT_EVIDENCE_EXCEPTION_ID": "",
-                  "INPUT_REQUEST_ID": "issue-14-physical-request",
-                  "CIW_DEVICE_EVENT_REPOSITORY": "StreamScapeTV/iptv-android",
-                  "CIW_DEVICE_EVENT_SHA": admitted_sha,
-                  "CIW_DEVICE_HEAD_REPOSITORY": "StreamScapeTV/iptv-android",
-                  "CIW_DEVICE_HEAD_FORK": "false",
-                  "CIW_DEVICE_LIVE_BACKEND_PRESENT": "true",
-                  "CIW_DEVICE_AUTHORIZATION_PRESENT": "false",
-              }
-          )
-          result = main(
-              ["--root", ".ciw", "device", "validate", "--phase", "plan"],
-              environment=environment,
-          )
-          if result != 0:
-              raise SystemExit(f"typed denial plan failed before projection: {result}")
-          actual = set(output.read_text(encoding="utf-8").splitlines())
-          required = {
-              "execution_authorized=false",
-              "authorization_failure=physical_authorization_required",
-          }
-          missing = required - actual
-          if missing:
-              raise SystemExit(f"typed denial projection missing: {sorted(missing)}")
+          sha = "0123456789abcdef0123456789abcdef01234567"
+          out = Path(os.environ["DEVICE_DENIED_OUTPUT"])
+          out.write_text("", encoding="utf-8")
+          env = dict(os.environ)
+          env.update({
+              "GITHUB_REPOSITORY": "StreamScapeTV/iptv-android",
+              "GITHUB_EVENT_NAME": "workflow_dispatch",
+              "GITHUB_RUN_ID": "31234567891",
+              "GITHUB_RUN_ATTEMPT": "1",
+              "GITHUB_OUTPUT": str(out),
+              "INPUT_ADMITTED_SHA": sha,
+              "INPUT_DEVICE_FAMILY": "android",
+              "INPUT_DEVICE_CAPABILITY": "instrumentation",
+              "INPUT_DEVICE_ALIAS": "acceptance-primary",
+              "INPUT_COMMAND_PROFILE": "iptv-android-device",
+              "INPUT_SCRIPT_PATH": "build.sh",
+              "INPUT_MAX_DURATION_MINUTES": "60",
+              "INPUT_EVIDENCE_EXCEPTION_ID": "",
+              "INPUT_REQUEST_ID": "issue-14-physical-request",
+              "CIW_DEVICE_EVENT_REPOSITORY": "StreamScapeTV/iptv-android",
+              "CIW_DEVICE_EVENT_SHA": sha,
+              "CIW_DEVICE_HEAD_REPOSITORY": "StreamScapeTV/iptv-android",
+              "CIW_DEVICE_HEAD_FORK": "false",
+              "CIW_DEVICE_LIVE_BACKEND_PRESENT": "true",
+              "CIW_DEVICE_AUTHORIZATION_PRESENT": "false",
+          })
+          rc = main(["--root", ".ciw", "device", "validate", "--phase", "plan"], environment=env)
+          if rc:
+              raise SystemExit(f"typed denial plan failed before projection: {rc}")
+          lines = set(out.read_text(encoding="utf-8").splitlines())
+          need = {"execution_authorized=false", "authorization_failure=physical_authorization_required"}
+          if not need <= lines:
+              raise SystemExit(f"typed denial projection missing: {sorted(need - lines)}")
           PY
 
       - name: Remove exact Central source without following links
