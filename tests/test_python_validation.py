@@ -393,6 +393,30 @@ class PythonValidationTests(unittest.TestCase):
         ):
             self.assertNotIn(token, script)
 
+    def test_container_script_encodes_only_bounded_failure_stages(self) -> None:
+        plan = python_validation.resolve_validation_plan(
+            self.contract,
+            request(
+                "StreamScapeTV/iptv-backend",
+                "podman",
+                "full-test",
+            ),
+        )
+        script = python_validation._container_script(plan)
+        self.assertIn("cp -a /src/. /work/source || exit 80", script)
+        self.assertIn("pip install --no-input --no-cache-dir", script)
+        self.assertIn("|| exit 81", script)
+        self.assertIn("./scripts/run_release_gates.sh || exit 82", script)
+        self.assertIn("python -m pytest -q || exit 83", script)
+        self.assertEqual(
+            python_execution._failure_stage_for_command("release-contract"),
+            "script-invocation",
+        )
+        self.assertEqual(
+            python_execution._failure_stage_for_command("tests"),
+            "product-command",
+        )
+
     def test_cleanup_verification_rejects_container_residue(self) -> None:
         completed = subprocess.CompletedProcess(["podman"], 0, "", "")
         residue = subprocess.CompletedProcess(["podman"], 0, "", "")
