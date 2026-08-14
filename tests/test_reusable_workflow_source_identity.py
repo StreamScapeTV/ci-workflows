@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_SHA = "87a7454aaa59cb680db8f580d22551b749ac4193"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 PYTHON_SHA = "d060c275570e07222969546acf988a2616a3bcc6"
-ANDROID_SHA = "006ce9e3766893f226aaf495451ae68c92fc62d1"
+ANDROID_SHA = "f0dbc1161e11e62421e5e183edb415a0622cf731"
 APPLE_SHA = "293dee450e3464032d67f702b768f493abf65d7b"
 OCI_SHA = "3b401078d1167d7048281e3c3269556ce586dada"
 GITOPS_SHA = "8445e63dd9fa9468b60b6d0c61e543da9681b47b"
@@ -20,7 +20,7 @@ GITOPS_SHA = "8445e63dd9fa9468b60b6d0c61e543da9681b47b"
 FOUNDATION = "issue #116 immutable private-action checkpoint"
 ISSUE_132 = "issue #132 immutable mode-aware source checkpoint"
 ISSUE_104 = "issue #104 immutable private-action checkpoint"
-ISSUE_196 = "issue #196 immutable Media tvOS source-regression checkpoint"
+ISSUE_196 = "issue #196 immutable Media redaction-exception checkpoint"
 ISSUE_125 = "issue #125 immutable private-action checkpoint"
 ISSUE_229 = "issue #229 immutable portable host runtime checkpoint"
 ISSUE_150 = "issue #150 immutable OCI input checkpoint"
@@ -81,6 +81,11 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
 ANDROID_WORKFLOW = ".github/workflows/reusable-android.yml"
 SOURCE_WORKFLOW = ".github/workflows/reusable-resolve-source.yml"
 SOURCE_HELPER = "StreamScapeTV/ci-workflows/actions/resolve-source"
+MEDIA_GUIDED_FLOW_PATH = (
+    "apple/Tests/StreamscapePlaybackLabSupportTests/"
+    "PlaybackLabGuidedAcceptanceRunFlowTests.swift"
+)
+MEDIA_GUIDED_FLOW_BLOB_SHA1 = "2a9149b864bf59079099035c15af54234f54b452"
 
 
 class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
@@ -128,6 +133,22 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
                     self.assertEqual(sha, locked[helper]["sha"])
                     self.assertEqual("composite", locked[helper]["runtime"])
                     self.assertEqual(release, locked[helper]["release"])
+
+    def test_android_private_action_checkpoint_contains_media_redaction_exception(self) -> None:
+        source, _ = self.load(ANDROID_WORKFLOW)
+        policy = json.loads(
+            (ROOT / "contracts/android-source-policy.json").read_text(encoding="utf-8")
+        )
+        media = next(
+            item
+            for item in policy["tracked_secret_exceptions"]
+            if item["id"] == "streamscape_media_playback_lab_redaction_sentinels_v1"
+        )
+        paths = {item["path"]: item["git_blob_sha1"] for item in media["paths"]}
+        self.assertEqual(MEDIA_GUIDED_FLOW_BLOB_SHA1, paths[MEDIA_GUIDED_FLOW_PATH])
+        self.assertIn("consumer-script", media["validation_profiles"])
+        self.assertEqual(4, source.count(f"actions/validate-android@{ANDROID_SHA}"))
+        self.assertNotIn("actions/validate-android@006ce9e3766893f226aaf495451ae68c92fc62d1", source)
 
     def test_oci_public_input_evidence_projection_does_not_change_action_pins(self) -> None:
         source, workflow = self.load(".github/workflows/reusable-oci-build.yml")
