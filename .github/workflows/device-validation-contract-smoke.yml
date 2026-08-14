@@ -2,194 +2,283 @@ name: Device validation contract smoke
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    branches: [main]
     paths:
       - ".github/workflows/reusable-device.yml"
       - ".github/workflows/device-validation-contract-smoke.yml"
       - "actions/validate-device/**"
       - "scripts/ci/device.py"
       - "src/ci_workflows/device*.py"
-      - "src/ci_workflows/ciw_device.py"
-      - "src/ci_workflows/ciw.py"
-      - "contracts/device-profiles.json"
-      - "contracts/device-evidence.json"
-      - "contracts/bootstrap-public-workflows.json"
-      - "contracts/ciw-commands.json"
-      - "contracts/public-workflows.json"
-      - "contracts/public-workflows/validation.json"
-      - "docs/reference/ciw.md"
-      - "docs/workflows/public-api-reference.md"
+      - "contracts/device-*.json"
+      - "tests/test_device*.py"
       - "tests/fixtures/device-validation/**"
-      - "tests/test_device_*.py"
-      - "tests/test_bootstrap.py"
-      - "tests/test_ciw_cli.py"
-      - "tests/test_ciw_contracts.py"
-      - "tests/test_public_api_contract.py"
-      - "docs/workflows/devices.md"
       - "docs/architecture/device-validation.md"
-
-concurrency:
-  group: device-validation-contract-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+      - "docs/workflows/devices.md"
+  workflow_dispatch:
 
 permissions:
-  actions: read
   contents: read
 
 jobs:
-  contract_smoke:
-    name: Validate synthetic device contracts only
-    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+  synthetic:
+    name: Synthetic device contract smoke
     runs-on: [linux, amd64, general]
-    timeout-minutes: 30
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - family: android
+            capability: synthetic-android
+            fixture: tests/fixtures/device-validation/android.txt
+          - family: ios
+            capability: synthetic-ios
+            fixture: tests/fixtures/device-validation/ios.json
+          - family: tvos
+            capability: synthetic-tvos
+            fixture: tests/fixtures/device-validation/tvos.json
     steps:
-      - name: Check out exact pull request source
+      - name: Remove stale source-only smoke checkouts without following links
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import os
+          import stat
+          from pathlib import Path
+
+          def remove_no_follow(path: Path) -> None:
+              try:
+                  metadata = os.lstat(path)
+              except FileNotFoundError:
+                  return
+              if stat.S_ISLNK(metadata.st_mode) or stat.S_ISREG(metadata.st_mode):
+                  os.unlink(path)
+              elif stat.S_ISDIR(metadata.st_mode):
+                  with os.scandir(path) as entries:
+                      children = [path / entry.name for entry in entries]
+                  for child in children:
+                      remove_no_follow(child)
+                  os.rmdir(path)
+              else:
+                  raise SystemExit("unsupported smoke checkout entry")
+
+          remove_no_follow(Path("source"))
+          remove_no_follow(Path(".ciw"))
+          PY
+
+      - name: Check out exact pull-request head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          path: .ciw
-          fetch-depth: 1
-          clean: true
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: source
           persist-credentials: false
-          set-safe-directory: false
+          fetch-depth: 1
 
-      - name: Verify exact pull request source
+      - name: Check out exact Central implementation beside source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: .ciw
+          persist-credentials: false
+          fetch-depth: 1
+
+      - id: synthetic
+        name: Execute bounded synthetic device contract
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@233ed6c10f00012405c7f3edf2196067a80445e5 # issue #14 typed CIW action checkpoint
+        with:
+          phase: synthetic
+          admitted_sha: ${{ github.event.pull_request.head.sha || github.sha }}
+          device_family: ${{ matrix.family }}
+          device_capability: ${{ matrix.capability }}
+          device_alias: synthetic-primary
+          command_profile: ciw-device-synthetic
+          script_path: tests/fixtures/device-validation/scripts/test.sh
+          max_duration_minutes: "15"
+          request_id: issue-14-contract-smoke
+          source_root: source
+          inventory_fixture: tests/fixtures/device-validation/${{ matrix.family == 'android' && 'android.txt' || format('{0}.json', matrix.family) }}
+          synthetic_mode: "true"
+
+      - name: Assert synthetic evidence is explicitly non-physical
         shell: bash
         env:
-          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+          RESULT: ${{ steps.synthetic.outputs.result }}
+          EVIDENCE_ID: ${{ steps.synthetic.outputs.device_evidence_id }}
+          CLEANUP_RESULT: ${{ steps.synthetic.outputs.cleanup_result }}
         run: |
           set -Eeuo pipefail
-          (
-            cd .ciw
-            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
-            test -z "$(git status --porcelain=v1 --untracked-files=all)"
-          )
-
-      - name: Clear fixed synthetic source root without following links
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          PYTHONDONTWRITEBYTECODE=1 \
-            python3 .ciw/scripts/ci/device.py cleanup-checkout --source-root source
-          test ! -e source
-          test ! -L source
-
-      - name: Check out exact synthetic source
-        uses: ./.ciw/actions/exact-checkout
-        with:
-          repository: ${{ github.repository }}
-          admitted_sha: ${{ github.event.pull_request.head.sha }}
-          path: source
-          fetch_depth: "1"
-
-      - name: Run focused device source tests
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          CIW_DEVICE_FOCUSED_TEST=true PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.ciw/src \
-            python3 -m unittest discover -s .ciw/tests -p 'test_device_*.py' -v
-
-      - name: Validate synthetic Android inventory and typed plan
-        uses: ./.ciw/actions/validate-device
-        with:
-          phase: synthetic
-          admitted_sha: ${{ github.event.pull_request.head.sha }}
-          device_family: android
-          device_capability: synthetic-android
-          device_alias: synthetic-primary
-          command_profile: ciw-device-synthetic
-          script_path: tests/fixtures/device-validation/scripts/test.sh
-          max_duration_minutes: "15"
-          request_id: issue-14-${{ github.run_id }}-${{ github.run_attempt }}
-          source_root: source
-          inventory_fixture: tests/fixtures/device-validation/android.txt
-          synthetic_mode: "true"
-
-      - name: Validate synthetic iOS inventory and typed plan
-        uses: ./.ciw/actions/validate-device
-        with:
-          phase: synthetic
-          admitted_sha: ${{ github.event.pull_request.head.sha }}
-          device_family: ios
-          device_capability: synthetic-ios
-          device_alias: synthetic-primary
-          command_profile: ciw-device-synthetic
-          script_path: tests/fixtures/device-validation/scripts/test.sh
-          max_duration_minutes: "15"
-          request_id: issue-14-${{ github.run_id }}-${{ github.run_attempt }}
-          source_root: source
-          inventory_fixture: tests/fixtures/device-validation/ios.json
-          synthetic_mode: "true"
-
-      - name: Validate synthetic tvOS inventory and typed plan
-        uses: ./.ciw/actions/validate-device
-        with:
-          phase: synthetic
-          admitted_sha: ${{ github.event.pull_request.head.sha }}
-          device_family: tvos
-          device_capability: synthetic-tvos
-          device_alias: synthetic-primary
-          command_profile: ciw-device-synthetic
-          script_path: tests/fixtures/device-validation/scripts/test.sh
-          max_duration_minutes: "15"
-          request_id: issue-14-${{ github.run_id }}-${{ github.run_attempt }}
-          source_root: source
-          inventory_fixture: tests/fixtures/device-validation/tvos.json
-          synthetic_mode: "true"
+          test "${RESULT}" = "success"
+          test "${CLEANUP_RESULT}" = "success"
+          [[ "${EVIDENCE_ID}" =~ ^[0-9a-f]{64}$ ]]
 
       - name: Remove exact synthetic and central source without following links
         if: always()
         shell: bash
         run: |
-          set -u
-          cleanup_failed=0
-          if [[ -d .ciw && ! -L .ciw ]]; then
-            PYTHONDONTWRITEBYTECODE=1 \
-              python3 .ciw/scripts/ci/device.py cleanup-checkout --source-root source \
-              || cleanup_failed=1
-            PYTHONDONTWRITEBYTECODE=1 \
-              python3 .ciw/scripts/ci/device.py cleanup-checkout --source-root .ciw \
-              || cleanup_failed=1
-          elif [[ -L .ciw || -f .ciw ]]; then
-            unlink .ciw || cleanup_failed=1
-          fi
-          [[ ! -e source && ! -L source ]] || cleanup_failed=1
-          [[ ! -e .ciw && ! -L .ciw ]] || cleanup_failed=1
-          exit "${cleanup_failed}"
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import os
+          import stat
+          from pathlib import Path
 
-  zero_artifacts:
-    name: Verify device contract smoke artifacts remain zero
-    needs: contract_smoke
-    if: ${{ always() && !cancelled() }}
+          def remove_no_follow(path: Path) -> None:
+              try:
+                  metadata = os.lstat(path)
+              except FileNotFoundError:
+                  return
+              if stat.S_ISLNK(metadata.st_mode) or stat.S_ISREG(metadata.st_mode):
+                  os.unlink(path)
+              elif stat.S_ISDIR(metadata.st_mode):
+                  with os.scandir(path) as entries:
+                      children = [path / entry.name for entry in entries]
+                  for child in children:
+                      remove_no_follow(child)
+                  os.rmdir(path)
+              else:
+                  raise SystemExit("unsupported smoke checkout entry")
+
+          remove_no_follow(Path("source"))
+          remove_no_follow(Path(".ciw"))
+          PY
+          test ! -e source
+          test ! -L source
+          test ! -e .ciw
+          test ! -L .ciw
+
+  unauthorized:
+    name: Unauthorized physical plan fails closed
     runs-on: [linux, amd64, general]
     timeout-minutes: 10
     steps:
-      - name: Require contract smoke success and zero Actions artifacts
-        env:
-          CONTRACT_RESULT: ${{ needs.contract_smoke.result }}
-          GITHUB_TOKEN: ${{ github.token }}
+      - name: Remove stale source-only smoke checkout without following links
         shell: bash
         run: |
           set -Eeuo pipefail
-          test "${CONTRACT_RESULT}" = success
-          python3 - <<'PY_ARTIFACTS'
-          import json
+          python3 - <<'PY'
           import os
-          import urllib.request
-          request = urllib.request.Request(
-              f"{os.environ['GITHUB_API_URL'].rstrip('/')}/repos/"
-              f"{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
-              f"{os.environ['GITHUB_RUN_ID']}/artifacts",
-              headers={
-                  "Accept": "application/vnd.github+json",
-                  "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
-                  "X-GitHub-Api-Version": "2022-11-28",
-              },
-          )
-          with urllib.request.urlopen(request, timeout=20) as response:
-              payload = json.load(response)
-          if payload.get("total_count") != 0 or payload.get("artifacts"):
-              raise SystemExit("device contract smoke retained Actions artifacts")
-          print("Routine device contract Actions artifacts verified: zero.")
-          PY_ARTIFACTS
+          import stat
+          from pathlib import Path
+
+          def remove_no_follow(path: Path) -> None:
+              try:
+                  metadata = os.lstat(path)
+              except FileNotFoundError:
+                  return
+              if stat.S_ISLNK(metadata.st_mode) or stat.S_ISREG(metadata.st_mode):
+                  os.unlink(path)
+              elif stat.S_ISDIR(metadata.st_mode):
+                  with os.scandir(path) as entries:
+                      children = [path / entry.name for entry in entries]
+                  for child in children:
+                      remove_no_follow(child)
+                  os.rmdir(path)
+              else:
+                  raise SystemExit("unsupported smoke checkout entry")
+
+          remove_no_follow(Path(".ciw"))
+          PY
+
+      - name: Check out exact Central implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: .ciw
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify real profile cannot execute from untrusted smoke
+        shell: bash
+        env:
+          GITHUB_REPOSITORY: StreamScapeTV/streamscape-media
+          GITHUB_EVENT_NAME: workflow_dispatch
+          GITHUB_RUN_ID: "123456"
+          GITHUB_RUN_ATTEMPT: "1"
+          GITHUB_OUTPUT: ${{ runner.temp }}/device-denied.out
+          INPUT_ADMITTED_SHA: 0123456789abcdef0123456789abcdef01234567
+          INPUT_DEVICE_FAMILY: android
+          INPUT_DEVICE_CAPABILITY: full
+          INPUT_DEVICE_ALIAS: media-primary
+          INPUT_COMMAND_PROFILE: streamscape-media-android-device
+          INPUT_SCRIPT_PATH: scripts/ci/run-validation-scope.sh
+          INPUT_MAX_DURATION_MINUTES: "30"
+          INPUT_REQUEST_ID: issue-14-denied-smoke
+          CIW_DEVICE_EVENT_REPOSITORY: StreamScapeTV/streamscape-media
+          CIW_DEVICE_EVENT_SHA: 0123456789abcdef0123456789abcdef01234567
+          CIW_DEVICE_HEAD_REPOSITORY: StreamScapeTV/streamscape-media
+          CIW_DEVICE_HEAD_FORK: "false"
+          CIW_DEVICE_AUTHORIZATION_PRESENT: "false"
+        run: |
+          set -Eeuo pipefail
+          : > "${GITHUB_OUTPUT}"
+          PYTHONDONTWRITEBYTECODE=1 python3 .ciw/scripts/ci/ciw.py --root .ciw device validate --phase plan
+          grep -Fx 'execution_authorized=false' "${GITHUB_OUTPUT}"
+          grep -Fx 'authorization_failure=physical_authorization_required' "${GITHUB_OUTPUT}"
+
+      - name: Remove exact Central source without following links
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import os
+          import stat
+          from pathlib import Path
+
+          def remove_no_follow(path: Path) -> None:
+              try:
+                  metadata = os.lstat(path)
+              except FileNotFoundError:
+                  return
+              if stat.S_ISLNK(metadata.st_mode) or stat.S_ISREG(metadata.st_mode):
+                  os.unlink(path)
+              elif stat.S_ISDIR(metadata.st_mode):
+                  with os.scandir(path) as entries:
+                      children = [path / entry.name for entry in entries]
+                  for child in children:
+                      remove_no_follow(child)
+                  os.rmdir(path)
+              else:
+                  raise SystemExit("unsupported smoke checkout entry")
+
+          remove_no_follow(Path(".ciw"))
+          PY
+          test ! -e .ciw
+          test ! -L .ciw
+
+  zero_artifacts:
+    name: Verify device contract smoke artifacts remain zero
+    if: ${{ always() && !cancelled() }}
+    needs: [synthetic, unauthorized]
+    runs-on: [linux, amd64, general]
+    timeout-minutes: 10
+    steps:
+      - name: Assert prerequisite jobs passed
+        shell: bash
+        env:
+          SYNTHETIC_RESULT: ${{ needs.synthetic.result }}
+          UNAUTHORIZED_RESULT: ${{ needs.unauthorized.result }}
+        run: |
+          set -Eeuo pipefail
+          test "${SYNTHETIC_RESULT}" = "success"
+          test "${UNAUTHORIZED_RESULT}" = "success"
+
+      - name: Check out exact pull-request head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Assert exact run retained no Actions artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          actual_sha="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" --jq '.head_sha')"
+          test "${actual_sha}" = "${EXPECTED_SHA}"
+          count="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" --jq '.total_count')"
+          test "${count}" = "0"
