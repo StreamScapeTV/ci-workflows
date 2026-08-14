@@ -51,28 +51,9 @@ jobs:
       workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
       source_trust: ${{ steps.plan.outputs.source_trust }}
     steps:
-      - name: Check out exact called workflow source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          path: .ciw
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
-      - name: Verify exact called workflow source
-        shell: bash
-        env:
-          CALLED_WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
-          CALLED_WORKFLOW_SHA: ${{ job.workflow_sha }}
-        run: |
-          set -Eeuo pipefail
-          test "${CALLED_WORKFLOW_REPOSITORY}" = "StreamScapeTV/ci-workflows"
-          (cd .ciw && test "$(git rev-parse HEAD)" = "${CALLED_WORKFLOW_SHA}")
       - id: plan
         name: Resolve fixed Helm contract
-        uses: ./.ciw/actions/validate-helm
+        uses: StreamScapeTV/ci-workflows/actions/validate-helm@138e0c7b0e10f5ad09679d97e81e5c33ada803ac # issue #18 immutable Helm dispatcher checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -93,34 +74,15 @@ jobs:
       chart_digest: ${{ steps.helm.outputs.chart_digest }}
       artifact_exception_used: ${{ steps.helm.outputs.artifact_exception_used }}
     steps:
-      - name: Check out exact called workflow source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          path: .ciw
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
-      - name: Verify exact called workflow source
-        shell: bash
-        env:
-          CALLED_WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
-          CALLED_WORKFLOW_SHA: ${{ job.workflow_sha }}
-        run: |
-          set -Eeuo pipefail
-          test "${CALLED_WORKFLOW_REPOSITORY}" = "StreamScapeTV/ci-workflows"
-          (cd .ciw && test "$(git rev-parse HEAD)" = "${CALLED_WORKFLOW_SHA}")
       - name: Check out exact admitted caller source
-        uses: ./.ciw/actions/exact-checkout
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           repository: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && github.event.pull_request.head.repo.full_name || github.repository }}
           admitted_sha: ${{ inputs.admitted_sha }}
           path: source
           fetch_depth: "1"
       - name: Prepare isolated Helm state
-        uses: ./.ciw/actions/prepare-workspace
+        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           profile: ${{ needs.plan.outputs.workspace_profile }}
           cache_mode: disabled
@@ -129,7 +91,7 @@ jobs:
       - id: helm
         name: Validate and deterministically package Helm chart
         continue-on-error: true
-        uses: ./.ciw/actions/validate-helm
+        uses: StreamScapeTV/ci-workflows/actions/validate-helm@138e0c7b0e10f5ad09679d97e81e5c33ada803ac # issue #18 immutable Helm dispatcher checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -142,7 +104,7 @@ jobs:
       - id: helm_cleanup
         name: Remove Helm package and credential state
         if: always()
-        uses: ./.ciw/actions/validate-helm
+        uses: StreamScapeTV/ci-workflows/actions/validate-helm@138e0c7b0e10f5ad09679d97e81e5c33ada803ac # issue #18 immutable Helm dispatcher checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -151,7 +113,7 @@ jobs:
       - id: residue
         name: Verify zero Helm-specific residue
         if: always()
-        uses: ./.ciw/actions/validate-helm
+        uses: StreamScapeTV/ci-workflows/actions/validate-helm@138e0c7b0e10f5ad09679d97e81e5c33ada803ac # issue #18 immutable Helm dispatcher checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -160,7 +122,7 @@ jobs:
       - id: workspace_cleanup
         name: Remove and verify all registered workspace state
         if: always()
-        uses: ./.ciw/actions/cleanup-workspace
+        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
       - name: Verify exact caller source remained clean
         if: always()
         shell: bash
