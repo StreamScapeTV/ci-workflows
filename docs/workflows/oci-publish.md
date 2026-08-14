@@ -63,10 +63,17 @@ Cleanup removes the auth file together with all read-back and publication state.
 
 A caller provides the already-admitted exact source and stable release version. The release tag must already exist and resolve to that exact SHA.
 
+During active development/bootstrap, repository consumers call public reusable
+`ci-workflows` workflows at `@main`. Full-SHA and stable-tag references remain
+supported, but they are not the current default consumer channel; a later
+explicit stable-release/cutover decision may make an immutable channel preferred
+or required. This does not weaken internal/private helper pins, which remain
+exact immutable SHAs.
+
 ```yaml
 jobs:
   publish_backend:
-    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-oci-publish.yml@<immutable-ci-workflows-ref>
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-oci-publish.yml@main
     with:
       admitted_sha: ${{ needs.release_source.outputs.sha }}
       product_id: iptv-backend-image

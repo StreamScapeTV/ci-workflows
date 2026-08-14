@@ -65,10 +65,17 @@ zero-artifact contract are unchanged by this helper-distribution mechanism.
 
 ## Product examples
 
+During active development/bootstrap, repository consumers call public reusable
+`ci-workflows` workflows at `@main`. Full-SHA and stable-tag references remain
+supported, but they are not the current default consumer channel; a later
+explicit stable-release/cutover decision may make an immutable channel preferred
+or required. This does not weaken internal/private helper pins, which remain
+exact immutable SHAs.
+
 ```yaml
 jobs:
   oci:
-    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-oci-build.yml@<immutable-ref>
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-oci-build.yml@main
     with:
       admitted_sha: ${{ needs.source.outputs.source_sha }}
       product_id: iptv-backend-image
