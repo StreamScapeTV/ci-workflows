@@ -36,7 +36,7 @@ The private central implementation is not cloned into the caller workspace. Inst
 
 Every helper identity is registered in `contracts/action-tool-lock.json` with runtime `composite`. Each action resolves its central Python/scripts relative to `GITHUB_ACTION_PATH`; no second central repository checkout, caller-provided central source ref, `private_dependency_token`, broad secret inheritance, or central-repository credential is required. The caller-scoped `github.token` remains limited to exact checkout of the admitted caller repository when that helper needs it.
 
-This deliberately differs from Android/Flutter/Python reusable workflows that still use an exact `job.workflow_repository` / `job.workflow_sha` checkout. Both models preserve immutable central source identity; Node uses immutable private action identities because that form works for private reusable consumers without requiring a separate central clone credential.
+Node, Python, Android, and Flutter now share this reviewed immutable private-action distribution model. Their exact helper checkpoints may differ as later fixes are published, but none of these reusable validators clones the central repository through `job.workflow_repository` / `job.workflow_sha` merely to obtain implementation code. The common model preserves immutable central helper identity without requiring a caller-provided central credential.
 
 ## Runtime authority
 
