@@ -94,7 +94,10 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
         action_lock = json.loads(
             (ROOT / "contracts/action-tool-lock.json").read_text(encoding="utf-8")
         )
-        return {item["uses"]: item for item in action_lock["third_party_actions"]}
+        return {
+            item["uses"]: item
+            for item in action_lock["third_party_actions"]
+        }
 
     def test_private_reusable_validators_use_only_locked_immutable_central_actions(self) -> None:
         locked = self.locked_actions()
@@ -149,6 +152,7 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
             for step in job.get("steps", [])
             if str(step.get("uses", "")).startswith(f"{SOURCE_HELPER}@")
         )
+
         self.assertEqual(helper["uses"], f"{SOURCE_HELPER}@{SOURCE_SHA}")
         self.assertNotIn("actions/checkout@", source)
         self.assertNotIn("secrets: inherit", source)
@@ -164,10 +168,14 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
     def test_private_android_consumer_cannot_control_central_source_or_credential_scope(self) -> None:
         source, workflow = self.load(ANDROID_WORKFLOW)
         public = json.loads(
-            (ROOT / "contracts/public-workflows/validation.json").read_text(encoding="utf-8")
+            (ROOT / "contracts/public-workflows/validation.json").read_text(
+                encoding="utf-8"
+            )
         )
         android = next(
-            item for item in public["workflows"] if item["api_name"] == "validation.android"
+            item
+            for item in public["workflows"]
+            if item["api_name"] == "validation.android"
         )
         self.assertIn("StreamScapeTV/streamscape-media", android["supported_consumers"])
         self.assertEqual(
