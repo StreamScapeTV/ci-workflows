@@ -13,21 +13,36 @@ WORKFLOW = ROOT / ".github/workflows/apple-physical-device-lock-smoke.yml"
 FIXED_SYNTHETIC_DEVICE_HASH = (
     "7d054eda67532b301dded6c800d129646403f37995c4a96c723f2016b7b4e6c3"
 )
+FIXED_APPLE_SELECTOR_JSON = '["macOS","ARM64","ios"]'
+TRUSTED_PLANNER_RUNNER = "${{ fromJSON(needs.plan.outputs.runs_on_json) }}"
 
 
 class ApplePhysicalDeviceLockSmokeContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.source = WORKFLOW.read_text(encoding="utf-8")
         self.workflow = yaml.load(self.source, Loader=ActionsLoader)
+        self.plan = self.workflow["jobs"]["plan"]
         self.job = self.workflow["jobs"]["fence_smoke"]
         self.steps = self.job["steps"]
 
-    def test_smoke_is_manual_input_free_and_uses_only_physical_capable_apple_selector(self) -> None:
+    def test_smoke_is_manual_input_free_and_uses_only_fixed_physical_capable_apple_selector(self) -> None:
         self.assertEqual({"workflow_dispatch"}, set(self.workflow["on"]))
         dispatch = self.workflow["on"]["workflow_dispatch"]
         self.assertIn(dispatch, (None, {}))
         self.assertEqual({"actions": "read", "contents": "read"}, self.workflow["permissions"])
-        self.assertEqual(["macOS", "ARM64", "ios"], self.job["runs-on"])
+        self.assertEqual({"plan", "fence_smoke"}, set(self.workflow["jobs"]))
+        self.assertEqual(["linux", "amd64", "general"], self.plan["runs-on"])
+        self.assertEqual(TRUSTED_PLANNER_RUNNER, self.job["runs-on"])
+        self.assertEqual("plan", self.job["needs"])
+
+        selector = next(step for step in self.plan["steps"] if step.get("id") == "selector")
+        self.assertIn(f"runs_on_json={FIXED_APPLE_SELECTOR_JSON}", selector["run"])
+        self.assertEqual(
+            "${{ steps.selector.outputs.runs_on_json }}",
+            self.plan["outputs"]["runs_on_json"],
+        )
+        self.assertNotIn("inputs.", selector["run"])
+        self.assertNotIn("github.event.inputs", selector["run"])
         self.assertNotIn("secrets.", self.source)
         self.assertNotIn("pull_request_target", self.source)
         self.assertNotIn("repository_dispatch", self.source)
