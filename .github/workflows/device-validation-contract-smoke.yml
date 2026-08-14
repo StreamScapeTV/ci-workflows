@@ -16,6 +16,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
@@ -321,7 +322,25 @@ jobs:
           set -Eeuo pipefail
           test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
-          actual_sha="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" --jq '.head_sha')"
-          test "${actual_sha}" = "${EXPECTED_SHA}"
-          count="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" --jq '.total_count')"
-          test "${count}" = "0"
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+          base = f"{os.environ['GITHUB_API_URL']}/repos/{os.environ['GITHUB_REPOSITORY']}"
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          def load(path: str) -> dict:
+              request = urllib.request.Request(base + path, headers=headers)
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  return json.load(response)
+          run = load(f"/actions/runs/{os.environ['GITHUB_RUN_ID']}")
+          if run.get("head_sha") != os.environ["EXPECTED_SHA"]:
+              raise SystemExit("device smoke run head SHA mismatch")
+          artifacts = load(f"/actions/runs/{os.environ['GITHUB_RUN_ID']}/artifacts?per_page=100")
+          if int(artifacts.get("total_count", 0)) != 0 or artifacts.get("artifacts"):
+              raise SystemExit("device contract smoke retained Actions artifacts")
+          print("Device contract smoke artifact policy passed: zero artifacts.")
+          PY
