@@ -9,14 +9,22 @@ import yaml
 from ci_workflows.validation_model import ActionsLoader
 
 ROOT = Path(__file__).resolve().parents[1]
+SOURCE_SHA = "87a7454aaa59cb680db8f580d22551b749ac4193"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-APPLE_SHA = "3175577052ac22b838789709f7082dfee372cfa7"
-OCI_SHA = "29cb88e406a0490834bd556bb825d0e227c862ac"
+PYTHON_SHA = "e869906a0b192ab954dce3dbd1e90cccb649eb18"
+ANDROID_SHA = "5f503d419696e5bfae4ed5b11eca3b531dbdca0f"
+APPLE_SHA = "293dee450e3464032d67f702b768f493abf65d7b"
+OCI_SHA = "3b401078d1167d7048281e3c3269556ce586dada"
 GITOPS_SHA = "8445e63dd9fa9468b60b6d0c61e543da9681b47b"
 
 FOUNDATION = "issue #116 immutable private-action checkpoint"
+ISSUE_132 = "issue #132 immutable mode-aware source checkpoint"
 ISSUE_104 = "issue #104 immutable private-action checkpoint"
+ISSUE_140 = "issue #140 immutable integrated source-policy checkpoint"
 ISSUE_125 = "issue #125 immutable private-action checkpoint"
+ISSUE_155 = "issue #155 immutable Backend execution repair checkpoint"
+ISSUE_150 = "issue #150 immutable OCI input checkpoint"
+ISSUE_164 = "issue #164 immutable Media VLC tvOS checkpoint"
 
 PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
     ".github/workflows/reusable-node.yml": {
@@ -27,7 +35,7 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
     },
     ".github/workflows/reusable-android.yml": {
-        "StreamScapeTV/ci-workflows/actions/validate-android": (FOUNDATION_SHA, ISSUE_104),
+        "StreamScapeTV/ci-workflows/actions/validate-android": (ANDROID_SHA, ISSUE_140),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/checkout-private-dependency": (FOUNDATION_SHA, ISSUE_104),
@@ -35,7 +43,7 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
     },
     ".github/workflows/reusable-python.yml": {
-        "StreamScapeTV/ci-workflows/actions/validate-python": (FOUNDATION_SHA, ISSUE_125),
+        "StreamScapeTV/ci-workflows/actions/validate-python": (PYTHON_SHA, ISSUE_155),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/verify-toolchain": (FOUNDATION_SHA, ISSUE_125),
@@ -49,13 +57,13 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
     },
     ".github/workflows/reusable-apple.yml": {
-        "StreamScapeTV/ci-workflows/actions/validate-apple": (APPLE_SHA, ISSUE_125),
+        "StreamScapeTV/ci-workflows/actions/validate-apple": (APPLE_SHA, ISSUE_164),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
     },
     ".github/workflows/reusable-oci-build.yml": {
-        "StreamScapeTV/ci-workflows/actions/validate-oci": (OCI_SHA, ISSUE_125),
+        "StreamScapeTV/ci-workflows/actions/validate-oci": (OCI_SHA, ISSUE_150),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/render-evidence": (FOUNDATION_SHA, FOUNDATION),
@@ -71,6 +79,8 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
 }
 
 ANDROID_WORKFLOW = ".github/workflows/reusable-android.yml"
+SOURCE_WORKFLOW = ".github/workflows/reusable-resolve-source.yml"
+SOURCE_HELPER = "StreamScapeTV/ci-workflows/actions/resolve-source"
 
 
 class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
@@ -118,6 +128,42 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
                     self.assertEqual(sha, locked[helper]["sha"])
                     self.assertEqual("composite", locked[helper]["runtime"])
                     self.assertEqual(release, locked[helper]["release"])
+
+    def test_oci_public_input_evidence_projection_does_not_change_action_pins(self) -> None:
+        source, workflow = self.load(".github/workflows/reusable-oci-build.yml")
+        public_outputs = workflow["on"]["workflow_call"]["outputs"]
+        job_outputs = workflow["jobs"]["build"]["outputs"]
+        self.assertEqual(
+            "${{ jobs.build.outputs.resolved_inputs_json }}",
+            public_outputs["resolved_inputs_json"]["value"],
+        )
+        self.assertEqual(
+            "${{ steps.execute.outputs.resolved_inputs_json }}",
+            job_outputs["resolved_inputs_json"],
+        )
+        self.assertEqual(4, source.count(f"actions/validate-oci@{OCI_SHA}"))
+
+    def test_source_reusable_uses_locked_mode_aware_helper_checkpoint(self) -> None:
+        source, workflow = self.load(SOURCE_WORKFLOW)
+        locked = self.locked_actions()
+        helper = next(
+            step
+            for job in workflow["jobs"].values()
+            for step in job.get("steps", [])
+            if str(step.get("uses", "")).startswith(f"{SOURCE_HELPER}@")
+        )
+
+        self.assertEqual(helper["uses"], f"{SOURCE_HELPER}@{SOURCE_SHA}")
+        self.assertNotIn("actions/checkout@", source)
+        self.assertNotIn("secrets: inherit", source)
+        self.assertEqual(locked[SOURCE_HELPER]["sha"], SOURCE_SHA)
+        self.assertEqual(locked[SOURCE_HELPER]["release"], ISSUE_132)
+        self.assertEqual(locked[SOURCE_HELPER]["runtime"], "composite")
+        self.assertEqual(
+            locked[SOURCE_HELPER]["source"],
+            f"https://github.com/StreamScapeTV/ci-workflows/tree/"
+            f"{SOURCE_SHA}/actions/resolve-source",
+        )
 
     def test_private_android_consumer_cannot_control_central_source_or_credential_scope(self) -> None:
         source, workflow = self.load(ANDROID_WORKFLOW)

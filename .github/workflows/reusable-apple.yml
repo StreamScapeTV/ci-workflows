@@ -77,7 +77,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve contract-owned Apple plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@3175577052ac22b838789709f7082dfee372cfa7 # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@293dee450e3464032d67f702b768f493abf65d7b # issue #164 immutable Media VLC tvOS checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -197,7 +197,7 @@ jobs:
       - id: execute
         name: Execute bounded Apple validation
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@3175577052ac22b838789709f7082dfee372cfa7 # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@293dee450e3464032d67f702b768f493abf65d7b # issue #164 immutable Media VLC tvOS checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -216,7 +216,7 @@ jobs:
         name: Remove Apple-specific state
         if: always()
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@3175577052ac22b838789709f7082dfee372cfa7 # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@293dee450e3464032d67f702b768f493abf65d7b # issue #164 immutable Media VLC tvOS checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -235,7 +235,7 @@ jobs:
         name: Verify zero Apple-specific residue
         if: always()
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@3175577052ac22b838789709f7082dfee372cfa7 # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@293dee450e3464032d67f702b768f493abf65d7b # issue #164 immutable Media VLC tvOS checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}

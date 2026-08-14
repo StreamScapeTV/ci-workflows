@@ -11,11 +11,13 @@ on:
       - scripts/ci/apple_checkout_cleanup.py
       - src/ci_workflows/apple.py
       - src/ci_workflows/apple_contract.py
+      - src/ci_workflows/apple_contract_fragments.py
       - src/ci_workflows/apple_execution.py
       - src/ci_workflows/apple_types.py
       - src/ci_workflows/ciw.py
       - src/ci_workflows/ciw_apple.py
       - contracts/apple-validation.json
+      - contracts/apple-validation-*.json
       - contracts/bootstrap-public-workflows.json
       - contracts/ciw-commands.json
       - contracts/public-workflows.json
@@ -24,10 +26,14 @@ on:
       - docs/workflows/public-api-reference.md
       - tests/fixtures/apple-validation/**
       - tests/test_apple_ciw_dispatch.py
+      - tests/test_apple_contract_fragments.py
+      - tests/test_apple_contract_fragment_path_safety.py
+      - tests/test_apple_fragment_loader_isolation.py
       - tests/test_apple_simulator_ownership.py
       - tests/test_apple_terminal_cleanup.py
       - tests/test_apple_validation.py
       - tests/test_apple_workflow_contract.py
+      - tests/test_apple_smoke_trigger_contract.py
       - tests/test_bootstrap.py
       - tests/test_ciw_cli.py
       - tests/test_ciw_contracts.py

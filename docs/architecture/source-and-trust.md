@@ -10,8 +10,8 @@ Trust is derived from the current GitHub event and current repository metadata. 
 
 | Event and admitted transition | Resulting trust | Exact source | Required current evidence |
 |---|---|---|---|
-| `pull_request` with `pr-head` | `untrusted-validation` | current PR head commit, including a fork repository | event head/base/merge agree with the current PR API response; PR base is the asserted integration branch |
-| `pull_request` with `pr-merge` | `untrusted-validation` | current GitHub merge commit | same PR freshness checks and a non-null current merge SHA |
+| `pull_request` with `pr-head` | `untrusted-validation` | current PR head commit, including a fork repository | event head/base agree with the current PR API response; PR base is the asserted integration branch; an explicitly asserted merge SHA must still match, but an unselected synthetic merge ref may be regenerated independently |
+| `pull_request` with `pr-merge` | `untrusted-validation` | current GitHub merge commit | event head/base/merge agree with the current PR API response; PR base is the asserted integration branch and the current merge SHA is non-null |
 | protected branch `push` | `trusted-validation` | exact pushed commit | pushed branch is the asserted integration branch and its current tip still equals `github.sha` |
 | `workflow_dispatch` | `trusted-validation` | exact requested full SHA, or the exact dispatch SHA | triggering actor has write, maintain, or admin permission and the commit exists |
 | reusable call with `workflow-call` | event-derived validation trust | exact caller-provided full SHA | the original triggering event is still validated; a PR remains untrusted, a branch push remains branch-bound, and a tag remains tag-bound |
@@ -56,7 +56,8 @@ Admission is evidence, not permission to publish, merge, comment, set a privileg
 
 Revalidation checks:
 
-- current PR head, base, and merge SHA;
+- current PR head and base for every admitted PR source;
+- current PR merge SHA when the merge candidate was selected, when a caller explicitly asserted the merge SHA, or when trusted maintenance depends on PR evidence;
 - current integration-branch tip for protected pushes;
 - current default-branch helper SHA for trusted maintenance.
 

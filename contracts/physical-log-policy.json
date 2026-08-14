@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "stable_evidence": {
+    "required_fields": [
+      "repository",
+      "source_sha",
+      "workflow_run_id",
+      "job_id",
+      "device_family",
+      "request_id",
+      "result",
+      "cleanup_result",
+      "evidence_id"
+    ],
+    "allowed_fields": [
+      "repository",
+      "source_sha",
+      "workflow_run_id",
+      "job_id",
+      "device_family",
+      "request_id",
+      "result",
+      "cleanup_result",
+      "evidence_id",
+      "validation_profile",
+      "toolchain_profile"
+    ],
+    "device_families": ["android", "ios", "tvos"],
+    "results": ["success", "failure"],
+    "forbidden_field_fragments": [
+      "runner",
+      "machine",
+      "hostname",
+      "host_name",
+      "serial",
+      "udid",
+      "device_id",
+      "home",
+      "workspace",
+      "path",
+      "directory",
+      "credential",
+      "token",
+      "secret",
+      "keychain",
+      "endpoint",
+      "address"
+    ],
+    "forbidden_identifier_fragments": [
+      "runner",
+      "machine",
+      "hostname",
+      "host-name",
+      "host_name",
+      "serial",
+      "udid",
+      "device-id",
+      "device_id",
+      "homelab",
+      "provider"
+    ],
+    "forbidden_value_patterns": [
+      "(?i)(?:^|[\\s=])/(?:Users|home|private|Volumes|var/folders|tmp)/",
+      "(?i)(?:^|[\\s=])[A-Za-z]:\\\\(?:Users|Temp|Windows)\\\\",
+      "(?i)(?:runner[_ -]?name|machine[_ -]?name|host[_ -]?name|hostname|device[_ -]?(?:id|serial)|serial|udid)\\s*[:=]",
+      "(?i)(?:authorization|bearer|token|password|secret|credential|keychain)\\s*[:=]\\s*\\S+",
+      "(?i)https?://[^\\s/@]+:[^\\s/@]+@"
+    ]
+  },
+  "platform_generated_logs": {
+    "workflow_source_can_suppress_runner_bootstrap_metadata": false,
+    "retention_requirement": "shortest_repository_supported",
+    "access_requirement": "repository_maintainers_only",
+    "stable_evidence_reference": "repository_source_sha_run_id_job_id_only",
+    "raw_log_excerpt_copy": "forbidden",
+    "raw_log_attachment": "forbidden",
+    "product_artifact_retention": "zero_by_default"
+  }
+}

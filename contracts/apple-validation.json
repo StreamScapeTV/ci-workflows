@@ -258,6 +258,123 @@
       ],
       "environment": {}
     },
+    "ciw-ios-release-smoke": {
+      "validation_profile": "ios-simulator",
+      "working_directory": "tests/fixtures/apple-validation/smoke-project",
+      "container": {
+        "kind": "project",
+        "path": "tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj",
+        "scheme": "AppleValidationSmoke",
+        "configuration": "Release",
+        "test_plan": null,
+        "package_resolution_mode": "disabled",
+        "resolved_files": []
+      },
+      "simulator_id": "ciw-ios",
+      "commands": [
+        {
+          "stage": "build",
+          "kind": "xcodebuild",
+          "action": "build",
+          "script_path": null,
+          "fixed_arguments": [],
+          "expected_outputs": []
+        }
+      ],
+      "protected_paths": [
+        "tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj/project.pbxproj",
+        "tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj/xcshareddata/xcschemes/AppleValidationSmoke.xcscheme",
+        "tests/fixtures/apple-validation/smoke-project/Sources/SmokeApp.swift"
+      ],
+      "cleanup_paths": [
+        "tests/fixtures/apple-validation/smoke-project/build",
+        "tests/fixtures/apple-validation/smoke-project/.swiftpm",
+        "tests/fixtures/apple-validation/smoke-project/xcuserdata",
+        "tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj/xcuserdata"
+      ],
+      "artifact_exception_ids": [
+        "redacted-xcresult-diagnostics"
+      ],
+      "environment": {}
+    },
+    "ciw-tvos-release-smoke": {
+      "validation_profile": "tvos-simulator",
+      "working_directory": "tests/fixtures/apple-validation/smoke-project",
+      "container": {
+        "kind": "project",
+        "path": "tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj",
+        "scheme": "AppleValidationSmoke",
+        "configuration": "Release",
+        "test_plan": null,
+        "package_resolution_mode": "disabled",
+        "resolved_files": []
+      },
+      "simulator_id": "ciw-tvos",
+      "commands": [
+        {
+          "stage": "build",
+          "kind": "xcodebuild",
+          "action": "build",
+          "script_path": null,
+          "fixed_arguments": [],
+          "expected_outputs": []
+        }
+      ],
+      "protected_paths": [
+        "tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj/project.pbxproj",
+        "tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj/xcshareddata/xcschemes/AppleValidationSmoke.xcscheme",
+        "tests/fixtures/apple-validation/smoke-project/Sources/SmokeApp.swift"
+      ],
+      "cleanup_paths": [
+        "tests/fixtures/apple-validation/smoke-project/build",
+        "tests/fixtures/apple-validation/smoke-project/.swiftpm",
+        "tests/fixtures/apple-validation/smoke-project/xcuserdata",
+        "tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj/xcuserdata"
+      ],
+      "artifact_exception_ids": [
+        "redacted-xcresult-diagnostics"
+      ],
+      "environment": {}
+    },
+    "ciw-macos-release-smoke": {
+      "validation_profile": "macos",
+      "working_directory": "tests/fixtures/apple-validation/smoke-project",
+      "container": {
+        "kind": "project",
+        "path": "tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj",
+        "scheme": "AppleValidationSmoke",
+        "configuration": "Release",
+        "test_plan": null,
+        "package_resolution_mode": "disabled",
+        "resolved_files": []
+      },
+      "simulator_id": null,
+      "commands": [
+        {
+          "stage": "build",
+          "kind": "xcodebuild",
+          "action": "build",
+          "script_path": null,
+          "fixed_arguments": [],
+          "expected_outputs": []
+        }
+      ],
+      "protected_paths": [
+        "tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj/project.pbxproj",
+        "tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj/xcshareddata/xcschemes/AppleValidationSmoke.xcscheme",
+        "tests/fixtures/apple-validation/smoke-project/Sources/SmokeApp.swift"
+      ],
+      "cleanup_paths": [
+        "tests/fixtures/apple-validation/smoke-project/build",
+        "tests/fixtures/apple-validation/smoke-project/.swiftpm",
+        "tests/fixtures/apple-validation/smoke-project/xcuserdata",
+        "tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj/xcuserdata"
+      ],
+      "artifact_exception_ids": [
+        "redacted-xcresult-diagnostics"
+      ],
+      "environment": {}
+    },
     "iptv-source-audit": {
       "validation_profile": "source-audit",
       "working_directory": ".",
@@ -370,6 +487,126 @@
           "stage": "build",
           "kind": "xcodebuild",
           "action": "build-for-testing",
+          "script_path": null,
+          "fixed_arguments": [],
+          "expected_outputs": []
+        }
+      ],
+      "protected_paths": [
+        "streamscapetv.xcodeproj/project.pbxproj",
+        ".github/scripts/develop-ci.sh",
+        "streamscapetv.xcworkspace/contents.xcworkspacedata"
+      ],
+      "cleanup_paths": [
+        ".build",
+        ".swiftpm",
+        "build",
+        "streamscapetv.xcodeproj/xcuserdata",
+        "streamscapetv.xcworkspace/xcuserdata"
+      ],
+      "artifact_exception_ids": [
+        "redacted-xcresult-diagnostics"
+      ],
+      "environment": {}
+    },
+    "iptv-ios-release": {
+      "validation_profile": "ios-simulator",
+      "working_directory": ".",
+      "container": {
+        "kind": "workspace",
+        "path": "streamscapetv.xcworkspace",
+        "scheme": "streamscapetv",
+        "configuration": "Release",
+        "test_plan": null,
+        "package_resolution_mode": "resolve-only",
+        "resolved_files": []
+      },
+      "simulator_id": "ciw-ios",
+      "commands": [
+        {
+          "stage": "build",
+          "kind": "xcodebuild",
+          "action": "build",
+          "script_path": null,
+          "fixed_arguments": [],
+          "expected_outputs": []
+        }
+      ],
+      "protected_paths": [
+        "streamscapetv.xcodeproj/project.pbxproj",
+        ".github/scripts/develop-ci.sh",
+        "streamscapetv.xcworkspace/contents.xcworkspacedata"
+      ],
+      "cleanup_paths": [
+        ".build",
+        ".swiftpm",
+        "build",
+        "streamscapetv.xcodeproj/xcuserdata",
+        "streamscapetv.xcworkspace/xcuserdata"
+      ],
+      "artifact_exception_ids": [
+        "redacted-xcresult-diagnostics"
+      ],
+      "environment": {}
+    },
+    "iptv-tvos-release": {
+      "validation_profile": "tvos-simulator",
+      "working_directory": ".",
+      "container": {
+        "kind": "workspace",
+        "path": "streamscapetv.xcworkspace",
+        "scheme": "streamscapetv",
+        "configuration": "Release",
+        "test_plan": null,
+        "package_resolution_mode": "resolve-only",
+        "resolved_files": []
+      },
+      "simulator_id": "ciw-tvos",
+      "commands": [
+        {
+          "stage": "build",
+          "kind": "xcodebuild",
+          "action": "build",
+          "script_path": null,
+          "fixed_arguments": [],
+          "expected_outputs": []
+        }
+      ],
+      "protected_paths": [
+        "streamscapetv.xcodeproj/project.pbxproj",
+        ".github/scripts/develop-ci.sh",
+        "streamscapetv.xcworkspace/contents.xcworkspacedata"
+      ],
+      "cleanup_paths": [
+        ".build",
+        ".swiftpm",
+        "build",
+        "streamscapetv.xcodeproj/xcuserdata",
+        "streamscapetv.xcworkspace/xcuserdata"
+      ],
+      "artifact_exception_ids": [
+        "redacted-xcresult-diagnostics"
+      ],
+      "environment": {}
+    },
+    "iptv-macos-release": {
+      "validation_profile": "macos",
+      "working_directory": ".",
+      "container": {
+        "kind": "workspace",
+        "path": "streamscapetv.xcworkspace",
+        "scheme": "streamscapetv",
+        "configuration": "Release",
+        "test_plan": null,
+        "package_resolution_mode": "resolve-only",
+        "resolved_files": []
+      },
+      "simulator_id": null,
+      "commands": [
+        {
+          "stage": "build",
+          "kind": "xcodebuild",
+          "action": "build",
           "script_path": null,
           "fixed_arguments": [],
           "expected_outputs": []
@@ -561,6 +798,14 @@
         "macos": "ciw-macos-smoke"
       }
     },
+    "ciw-apple-release-smoke": {
+      "repository": "StreamScapeTV/ci-workflows",
+      "profiles": {
+        "ios-simulator": "ciw-ios-release-smoke",
+        "tvos-simulator": "ciw-tvos-release-smoke",
+        "macos": "ciw-macos-release-smoke"
+      }
+    },
     "iptv-apple": {
       "repository": "StreamScapeTV/iptv-apple",
       "profiles": {
@@ -569,6 +814,14 @@
         "tvos-simulator": "iptv-tvos-simulator",
         "macos": "iptv-macos",
         "repository-recovery": "iptv-repository-recovery"
+      }
+    },
+    "iptv-apple-release": {
+      "repository": "StreamScapeTV/iptv-apple",
+      "profiles": {
+        "ios-simulator": "iptv-ios-release",
+        "tvos-simulator": "iptv-tvos-release",
+        "macos": "iptv-macos-release"
       }
     },
     "streamscape-media-apple": {

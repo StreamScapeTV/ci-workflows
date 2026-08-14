@@ -31,12 +31,29 @@ A protected `portable` planner validates the contract and resolves the semantic
 runner mapping. All source execution occurs on semantic `apple`; the caller
 never supplies a concrete label.
 
+## Bounded iptv-apple Release certification
+
+The existing `iptv-apple` consumer contract remains the Debug validation
+mapping. `iptv-apple-release` is a separate checked-in consumer contract for
+exact-SHA certification and exposes only the existing `ios-simulator`,
+`tvos-simulator`, and `macos` profiles. Those three mappings select fixed tasks
+with `configuration: Release` and compile-only `xcodebuild build` actions.
+
+Release configuration is not a workflow input. The caller selects the reviewed
+consumer contract and bounded platform profile; a supplied configuration field
+or other unregistered input fails closed. iOS/tvOS simulator destinations remain
+contract-owned and macOS remains unsigned. Every execution still forces
+`CODE_SIGNING_ALLOWED=NO`, `CODE_SIGNING_REQUIRED=NO`, and an empty
+`CODE_SIGN_IDENTITY`; Release certification adds no signing, provisioning,
+archive/export, notarization, store, physical-device, registry, or deployment
+authority.
+
 ## Immutable private helper reuse
 
 Private same-organization consumers do not clone the private central repository
 with their caller-scoped token. The planner and Apple execution job invoke the
-reviewed `validate-apple` composite action through the immutable Apple integration
-revision `3175577052ac22b838789709f7082dfee372cfa7`. Exact caller checkout,
+reviewed `validate-apple` composite action through the immutable Release-aware
+checkpoint `88d179740145ccea00b6986d78ceb67ea365face`. Exact caller checkout,
 workspace preparation, and registered-state cleanup use the already reviewed
 immutable foundation helpers.
 
@@ -82,15 +99,25 @@ Every created simulator is registered before boot. Terminal cleanup shuts down
 and deletes only registered simulator IDs, rereads the simulator inventory, and
 fails if any registered ID remains.
 
-## Package and script authority
+## Package, script, and additive contract authority
 
 SwiftPM resolution mode is contract-owned. Locked mode requires exact checked-in
 resolved files and passes both automatic-resolution rejection flags. Any lock or
 source mutation fails. Checked-in Python or shell scripts must be regular,
 repository-tracked files and receive only fixed contract arguments. Consumer
 specific environment names, schemes, commands, media preparation, and recovery
-rules remain in `contracts/apple-validation.json` or consumer-owned scripts;
-the shared Python implementation contains no product-name branch.
+rules remain in the validated base `contracts/apple-validation.json`, in bounded
+additive `contracts/apple-validation-*.json` fragments, or in consumer-owned
+scripts; the shared Python implementation contains no product-name branch.
+
+An additive fragment may contain only `tasks` and `consumer_contracts`. Added
+tasks pass the same checked-in Apple task validator as the base contract,
+including profile, simulator, artifact-exception, environment, path, command,
+and fixed-argument checks. Added consumer mappings pass the same identifier,
+repository, profile, and task-compatibility checks. Existing task or consumer
+identifiers cannot be replaced: any collision or malformed fragment fails
+closed before a plan is produced. When no additive fragment exists, the base
+contract resolves unchanged.
 
 ## Outputs and artifacts
 
@@ -112,14 +139,20 @@ not accepted, outside sentinels are preserved, and residue is a terminal
 failure. Fixed source and stale central-checkout roots are also removed without
 following links and participate in the combined cleanup outcome.
 
-## Smoke workflow
+## Smoke workflows
 
 `.github/workflows/apple-validation-smoke.yml` checks out the exact
 pull-request implementation and executes the same planner, composite action,
 contract, workspace isolation, and cleanup path directly for a product-neutral
-fixture on iOS simulator, tvOS simulator, and unsigned macOS. The direct caller
-preserves the repository's maximum reusable depth of one while proving the
-implementation used by `.github/workflows/reusable-apple.yml`. It accepts
-same-repository pull requests only and independently verifies that the run
-retained zero Actions artifacts.
-Simulator smoke is not physical-device, signing, release, or store proof.
+Debug fixture on iOS simulator, tvOS simulator, and unsigned macOS.
+
+`.github/workflows/apple-certification-smoke.yml` independently proves the
+Release path. Its fixed three-row, non-fail-fast matrix resolves
+`ciw-apple-release-smoke`, runs iOS simulator, tvOS simulator, and macOS Release
+compile jobs on the exact same pull-request SHA, verifies Apple-specific and
+workspace cleanup/residue, and requires zero routine Actions artifacts.
+
+Both smoke workflows are direct repository-owned callers rather than nested
+calls to `reusable-apple.yml`; this preserves the repository's maximum reusable
+depth of one. Simulator smoke is not physical-device, signing, release
+publication, or store proof.
