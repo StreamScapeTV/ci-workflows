@@ -33,7 +33,7 @@ jobs:
       - name: Run read-only organization conformance
         id: report_read
         if: ${{ inputs.dry_run }}
-        uses: StreamScapeTV/ci-workflows/actions/maintenance-conformance@d8d02c46c7abf7134786baa90c53f50db898d683 # issue #20 immutable maintenance action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/maintenance-conformance@3de0f365eed5ff69cf18b1af26aa42f7928fd8ef # issue #20 immutable maintenance action checkpoint
         with:
           repository_scope: ${{ inputs.repository_scope }}
           shared_reference_target_sha: ${{ inputs.shared_reference_target_sha }}
@@ -43,7 +43,7 @@ jobs:
       - name: Update organization conformance report
         id: report_update
         if: ${{ !inputs.dry_run }}
-        uses: StreamScapeTV/ci-workflows/actions/maintenance-conformance@d8d02c46c7abf7134786baa90c53f50db898d683 # issue #20 immutable maintenance action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/maintenance-conformance@3de0f365eed5ff69cf18b1af26aa42f7928fd8ef # issue #20 immutable maintenance action checkpoint
         with:
           repository_scope: ${{ inputs.repository_scope }}
           shared_reference_target_sha: ${{ inputs.shared_reference_target_sha }}
