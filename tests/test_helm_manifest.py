@@ -155,14 +155,13 @@ class HelmManifestReadBackTests(unittest.TestCase):
                         {"PATH": "/usr/bin", "HOME": str(root)},
                     )
 
-    def test_release_adapter_routes_manifest_proof_through_raw_module(self) -> None:
-        script = (
-            Path(__file__).resolve().parents[1] / "scripts/ci/helm_release.py"
-        ).read_text(encoding="utf-8")
-        self.assertIn(
-            "from ci_workflows.helm_manifest import remote_chart_manifest_digest",
-            script,
-        )
+    def test_release_adapter_routes_manifest_proof_through_hardened_facade(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        adapter = (root / "scripts/ci/helm_release.py").read_text(encoding="utf-8")
+        facade = (root / "src/ci_workflows/helm.py").read_text(encoding="utf-8")
+        self.assertIn("from ci_workflows.helm import publish as publish_chart", adapter)
+        self.assertIn("from .helm_manifest import remote_chart_manifest_digest", facade)
+        self.assertIn("remote_chart_manifest_digest(", facade)
 
 
 if __name__ == "__main__":
