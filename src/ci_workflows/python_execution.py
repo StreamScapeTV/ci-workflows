@@ -21,6 +21,52 @@ from .python_types import (
     PythonValidationResult,
 )
 
+_PODMAN_RUNTIME_SETUP_EXIT = 80
+_PODMAN_DEPENDENCY_RESTORE_EXIT = 81
+_PODMAN_SCRIPT_INVOCATION_EXIT = 82
+_PODMAN_PRODUCT_COMMAND_EXIT = 83
+_DATABASE_URL_SCHEMES = {"postgresql", "postgresql+asyncpg"}
+
+
+def _failure_stage_for_command(stage: str) -> str:
+    return "script-invocation" if stage == "release-contract" else "product-command"
+
+
+def _report_failure(stage: str, code: str) -> None:
+    "Emit one bounded diagnostic without command output, paths, or credentials."
+
+    sys.stderr.write(f"python validation stage failed: {stage}:{code}\n")
+
+
+def _classify_script_failure(output: str) -> str:
+    "Classify captured product-script output without echoing untrusted text."
+
+    lowered = output.casefold()
+    if any(
+        marker in lowered
+        for marker in (
+            "temporary failure in name resolution",
+            "name or service not known",
+            "could not resolve host",
+            "no such host",
+        )
+    ):
+        return "script_network_failure"
+    if any(
+        marker in lowered
+        for marker in (
+            "certificate verify failed",
+            "certificate_verify_failed",
+            "x509: certificate",
+        )
+    ):
+        return "script_tls_failure"
+    if "command not found" in lowered or ": not found" in lowered:
+        return "script_tool_missing"
+    if "checksum mismatch" in lowered:
+        return "script_integrity_failure"
+    return "script_command_failed"
+
 
 def run_command(
     argv: Sequence[str],
@@ -30,6 +76,7 @@ def run_command(
     timeout_seconds: int,
     code: str = "command_failed",
     allow_failure: bool = False,
+    failure_stage: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     try:
         completed = subprocess.run(
@@ -45,8 +92,12 @@ def run_command(
     except (OSError, subprocess.TimeoutExpired) as error:
         if allow_failure:
             return subprocess.CompletedProcess(list(argv), 124, "", "")
+        if failure_stage is not None:
+            _report_failure(failure_stage, code)
         raise PythonValidationError(code) from error
     if completed.returncode != 0 and not allow_failure:
+        if failure_stage is not None:
+            _report_failure(failure_stage, code)
         raise PythonValidationError(code)
     return completed
 
@@ -119,6 +170,7 @@ def host_python_version(
         environment=environment,
         timeout_seconds=30,
         code="toolchain_mismatch",
+        failure_stage="runtime-container-setup",
     )
     fields = completed.stdout.strip().split("|")
     require(len(fields) == 4 and fields[0] == "cpython", "toolchain_mismatch")
@@ -195,6 +247,7 @@ def execute_host_plan(
             environment=execution_environment,
             timeout_seconds=120,
             code="dependency_restore_failed",
+            failure_stage="dependency-restoration",
         )
         executable = str(venv / "bin" / "python")
         execution_environment["VIRTUAL_ENV"] = str(venv)
@@ -216,6 +269,7 @@ def execute_host_plan(
             environment=execution_environment,
             timeout_seconds=max(60, plan.timeout_minutes * 30),
             code="dependency_restore_failed",
+            failure_stage="dependency-restoration",
         )
     for command in plan.commands:
         argv = tuple(
@@ -227,19 +281,21 @@ def execute_host_plan(
             cwd=cwd,
             environment=execution_environment,
             timeout_seconds=plan.timeout_minutes * 60,
+            failure_stage=_failure_stage_for_command(command.stage),
         )
     return len(plan.commands)
 
 
 def podman_command(state_root: Path) -> list[str]:
+    # Podman 4.9 rejects runroot paths longer than 50 characters. Buildah
+    # semantic runners already provide a job-isolated default runroot, so only
+    # graph storage needs to be redirected into the registered workflow state.
     return [
         "podman",
         "--storage-driver",
         "vfs",
         "--root",
         str(state_root / "python-validation" / "podman-storage"),
-        "--runroot",
-        str(state_root / "python-validation" / "podman-runroot"),
     ]
 
 
@@ -253,17 +309,24 @@ def container_script(plan: PythonValidationPlan) -> str:
     )
     lines = [
         "set -eu",
-        "cp -a /src/. /work/source",
-        f"cd {shlex.quote(target)}",
-        "python -m venv /work/venv",
+        f"cp -a /src/. /work/source || exit {_PODMAN_RUNTIME_SETUP_EXIT}",
+        f"cd {shlex.quote(target)} || exit {_PODMAN_RUNTIME_SETUP_EXIT}",
+        f"python -m venv /work/venv || exit {_PODMAN_RUNTIME_SETUP_EXIT}",
     ]
     if plan.dependency_file is not None:
         lines.append(
             "/work/venv/bin/python -m pip install --no-input --no-cache-dir "
-            f"-r {shlex.quote('/work/source/' + plan.dependency_file)}"
+            f"-r {shlex.quote('/work/source/' + plan.dependency_file)} "
+            f"|| exit {_PODMAN_DEPENDENCY_RESTORE_EXIT}"
         )
     lines.append("export PATH=/work/venv/bin:$PATH")
-    lines.extend(shlex.join(command.argv) for command in plan.commands)
+    for command in plan.commands:
+        exit_code = (
+            _PODMAN_SCRIPT_INVOCATION_EXIT
+            if command.stage == "release-contract"
+            else _PODMAN_PRODUCT_COMMAND_EXIT
+        )
+        lines.append(f"{shlex.join(command.argv)} || exit {exit_code}")
     return "\n".join(lines)
 
 
@@ -379,6 +442,26 @@ def _resource_token(
     )
 
 
+def _database_url_scheme(
+    plan: PythonValidationPlan,
+    contract: Mapping[str, Any],
+) -> str:
+    "Resolve a reviewed consumer-owned database URL scheme."
+
+    try:
+        consumer = contract["consumers"][plan.repository]["profiles"][
+            plan.command_profile
+        ]
+    except (KeyError, TypeError) as error:
+        raise PythonValidationError("invalid_input") from error
+    scheme = consumer.get("database_url_scheme", "postgresql")
+    require(
+        isinstance(scheme, str) and scheme in _DATABASE_URL_SCHEMES,
+        "invalid_input",
+    )
+    return scheme
+
+
 def _start_postgres(
     podman: Sequence[str],
     *,
@@ -408,6 +491,7 @@ def _start_postgres(
         environment=environment,
         timeout_seconds=30,
         code="isolation_unavailable",
+        failure_stage="runtime-container-setup",
     )
     run_command(
         [*podman, "volume", "create", volume],
@@ -415,6 +499,7 @@ def _start_postgres(
         environment=environment,
         timeout_seconds=30,
         code="isolation_unavailable",
+        failure_stage="runtime-container-setup",
     )
     run_command(
         [
@@ -437,6 +522,7 @@ def _start_postgres(
         environment=environment,
         timeout_seconds=60,
         code="isolation_unavailable",
+        failure_stage="runtime-container-setup",
     )
     ready = False
     for _ in range(plan.readiness_attempts):
@@ -460,11 +546,35 @@ def _start_postgres(
             ready = True
             break
         time.sleep(plan.readiness_interval_seconds)
+    if not ready:
+        _report_failure("runtime-container-setup", "postgres_readiness_timeout")
     require(ready, "postgres_readiness_timeout")
     return (
-        f"postgresql://{postgres['username']}:{password}@"
+        f"{_database_url_scheme(plan, contract)}://"
+        f"{postgres['username']}:{password}@"
         f"{postgres['network_alias']}:5432/{postgres['database']}"
     )
+
+
+def _raise_podman_execution_failure(returncode: int, output: str = "") -> None:
+    if returncode == _PODMAN_DEPENDENCY_RESTORE_EXIT:
+        code = "dependency_restore_failed"
+        stage = "dependency-restoration"
+        diagnostic = code
+    elif returncode == _PODMAN_SCRIPT_INVOCATION_EXIT:
+        code = "command_failed"
+        stage = "script-invocation"
+        diagnostic = _classify_script_failure(output)
+    elif returncode == _PODMAN_PRODUCT_COMMAND_EXIT:
+        code = "command_failed"
+        stage = "product-command"
+        diagnostic = code
+    else:
+        code = "isolation_unavailable"
+        stage = "runtime-container-setup"
+        diagnostic = code
+    _report_failure(stage, diagnostic)
+    raise PythonValidationError(code)
 
 
 def execute_podman_plan(
@@ -490,7 +600,6 @@ def execute_podman_plan(
     podman_root = state_root / "python-validation"
     for path in (
         podman_root / "podman-storage",
-        podman_root / "podman-runroot",
         podman_root / "work",
     ):
         path.mkdir(parents=True, exist_ok=True)
@@ -503,6 +612,7 @@ def execute_podman_plan(
         environment=execution_environment,
         timeout_seconds=60,
         code="isolation_unavailable",
+        failure_stage="runtime-container-setup",
     )
     images = [plan.runtime_reference]
     for image in (
@@ -516,6 +626,7 @@ def execute_podman_plan(
                 environment=execution_environment,
                 timeout_seconds=180,
                 code="toolchain_mismatch",
+                failure_stage="runtime-container-setup",
             )
             if image not in images:
                 images.append(image)
@@ -573,12 +684,18 @@ def execute_podman_plan(
                 container_script(plan),
             ]
         )
-        run_command(
+        completed = run_command(
             arguments,
             cwd=source_root,
             environment=execution_environment,
             timeout_seconds=plan.timeout_minutes * 60,
+            allow_failure=True,
         )
+        if completed.returncode != 0:
+            _raise_podman_execution_failure(
+                completed.returncode,
+                (completed.stdout or "") + (completed.stderr or ""),
+            )
     except BaseException as error:
         original_error = error
     try:

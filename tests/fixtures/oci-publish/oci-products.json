@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "contract_version": "1.0.0",
+  "organization": "StreamScapeTV",
+  "workflow_api": "oci.build",
+  "publication": false,
+  "registry_credentials": false,
+  "artifact_policy": "zero-default",
+  "platform_sets": {
+    "linux-amd64": ["linux/amd64"],
+    "linux-multi-arch": ["linux/amd64", "linux/arm64/v8"]
+  },
+  "runner_profiles": {
+    "buildah-small": {
+      "labels": ["linux", "amd64", "buildah", "small"]
+    },
+    "buildah-high": {
+      "labels": ["linux", "amd64", "buildah", "high"]
+    }
+  },
+  "products": {
+    "backend-image": {
+      "repository": "StreamScapeTV/backend",
+      "runner_profile": "buildah-small",
+      "workspace_profile": "standard",
+      "timeout_minutes": 90,
+      "metadata": {
+        "title": "Backend",
+        "description": "Backend image",
+        "licenses": "Proprietary"
+      },
+      "targets": [
+        {
+          "target_id": "backend",
+          "platform_set": "linux-multi-arch",
+          "assertions": {
+            "user": "appuser",
+            "entrypoint": [],
+            "command": ["/app/start"],
+            "ports": ["8080/tcp"]
+          }
+        }
+      ],
+      "flux_asset": false,
+      "canary_id": null,
+      "previous_known_good": null,
+      "rollback_id": null,
+      "adoption_ready": true
+    },
+    "runner-images": {
+      "repository": "StreamScapeTV/flux",
+      "runner_profile": "buildah-high",
+      "workspace_profile": "large",
+      "timeout_minutes": 180,
+      "metadata": {
+        "title": "Runner Images",
+        "description": "Runner family",
+        "licenses": "Repository-defined"
+      },
+      "targets": [
+        {
+          "target_id": "runner-buildah",
+          "platform_set": "linux-amd64",
+          "assertions": {
+            "user": null,
+            "entrypoint": [],
+            "command": [],
+            "ports": []
+          }
+        },
+        {
+          "target_id": "runner-mobile",
+          "platform_set": "linux-amd64",
+          "assertions": {
+            "user": null,
+            "entrypoint": [],
+            "command": [],
+            "ports": []
+          }
+        }
+      ],
+      "flux_asset": true,
+      "canary_id": "runner-images-canary",
+      "previous_known_good": "flux-policy:runner-images/current-known-good",
+      "rollback_id": "runner-images-rollback",
+      "adoption_ready": true
+    }
+  }
+}

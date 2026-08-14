@@ -12,15 +12,16 @@ from ci_workflows.validation_model import ActionsLoader
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/reusable-python.yml"
 ACTION_PATH = ROOT / "actions/validate-python/action.yml"
-PRIVATE_HELPER_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-PRIVATE_HELPERS = (
-    "validate-python",
-    "exact-checkout",
-    "prepare-workspace",
-    "verify-toolchain",
-    "render-evidence",
-    "cleanup-workspace",
-)
+FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
+PYTHON_ACTION_SHA = "e869906a0b192ab954dce3dbd1e90cccb649eb18"
+PRIVATE_HELPERS = {
+    "validate-python": PYTHON_ACTION_SHA,
+    "exact-checkout": FOUNDATION_SHA,
+    "prepare-workspace": FOUNDATION_SHA,
+    "verify-toolchain": FOUNDATION_SHA,
+    "render-evidence": FOUNDATION_SHA,
+    "cleanup-workspace": FOUNDATION_SHA,
+}
 
 
 class PythonWorkflowContractTests(unittest.TestCase):
@@ -100,15 +101,15 @@ class PythonWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("./.ciw/actions/", self.workflow_text)
         self.assertNotIn("secrets: inherit", self.workflow_text)
         self.assertNotIn("private_dependency_token", self.workflow_text)
-        for helper in PRIVATE_HELPERS:
+        for helper, sha in PRIVATE_HELPERS.items():
             self.assertIn(
-                f"StreamScapeTV/ci-workflows/actions/{helper}@{PRIVATE_HELPER_SHA}",
+                f"StreamScapeTV/ci-workflows/actions/{helper}@{sha}",
                 self.workflow_text,
             )
 
     def test_exact_caller_source_is_still_verified_and_clean(self) -> None:
         self.assertIn(
-            f"uses: StreamScapeTV/ci-workflows/actions/exact-checkout@{PRIVATE_HELPER_SHA}",
+            f"uses: StreamScapeTV/ci-workflows/actions/exact-checkout@{FOUNDATION_SHA}",
             self.workflow_text,
         )
         self.assertIn("admitted_sha: ${{ inputs.admitted_sha }}", self.workflow_text)
@@ -122,23 +123,23 @@ class PythonWorkflowContractTests(unittest.TestCase):
         source = self.workflow_text
         validate_job = source.index("\n  validate:\n")
         planner_action = source.index(
-            f"uses: StreamScapeTV/ci-workflows/actions/validate-python@{PRIVATE_HELPER_SHA}"
+            f"uses: StreamScapeTV/ci-workflows/actions/validate-python@{PYTHON_ACTION_SHA}"
         )
         self.assertLess(planner_action, validate_job)
         self.assertEqual(
             source.count(
-                f"uses: StreamScapeTV/ci-workflows/actions/validate-python@{PRIVATE_HELPER_SHA}"
+                f"uses: StreamScapeTV/ci-workflows/actions/validate-python@{PYTHON_ACTION_SHA}"
             ),
             2,
         )
         validation_source = source[validate_job:]
         sequence = [
-            f"uses: StreamScapeTV/ci-workflows/actions/exact-checkout@{PRIVATE_HELPER_SHA}",
-            f"uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@{PRIVATE_HELPER_SHA}",
-            f"uses: StreamScapeTV/ci-workflows/actions/verify-toolchain@{PRIVATE_HELPER_SHA}",
-            f"uses: StreamScapeTV/ci-workflows/actions/validate-python@{PRIVATE_HELPER_SHA}",
-            f"uses: StreamScapeTV/ci-workflows/actions/render-evidence@{PRIVATE_HELPER_SHA}",
-            f"uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@{PRIVATE_HELPER_SHA}",
+            f"uses: StreamScapeTV/ci-workflows/actions/exact-checkout@{FOUNDATION_SHA}",
+            f"uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@{FOUNDATION_SHA}",
+            f"uses: StreamScapeTV/ci-workflows/actions/verify-toolchain@{FOUNDATION_SHA}",
+            f"uses: StreamScapeTV/ci-workflows/actions/validate-python@{PYTHON_ACTION_SHA}",
+            f"uses: StreamScapeTV/ci-workflows/actions/render-evidence@{FOUNDATION_SHA}",
+            f"uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@{FOUNDATION_SHA}",
         ]
         positions = [validation_source.index(value) for value in sequence]
         self.assertEqual(positions, sorted(positions))

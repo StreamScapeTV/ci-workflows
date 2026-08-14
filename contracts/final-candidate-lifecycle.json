@@ -1,0 +1,145 @@
+{
+  "allowed_trigger_classes": [
+    "final-pull-request-validation",
+    "protected-integration-release-validation",
+    "authorized-publication-deployment-device-live-evidence",
+    "maintenance-control",
+    "noncompliant-unprotected-feature-branch-product-validation",
+    "retired-stale"
+  ],
+  "audited_on": "2026-08-13",
+  "checkpoint_prefix": "[skip push ci] ",
+  "native_skip_markers": [
+    "[skip ci]",
+    "[ci skip]",
+    "[no ci]",
+    "[skip actions]",
+    "[actions skip]",
+    "skip-checks:"
+  ],
+  "organization": "StreamScapeTV",
+  "prefix_contract": {
+    "manual_publication_deployment_device_live": "explicit-authority-only",
+    "ordinary_unprotected_feature_push": "product-validation-forbidden",
+    "protected_integration_release": "policy-controlled-and-not-suppressed-by-prefix",
+    "pull_request": "must-run-even-when-head-subject-is-prefixed"
+  },
+  "repositories": [
+    {"integration_branch":"main","repository":"StreamScapeTV/StreamScapeWeb","workflows":[
+      {"path":".github/workflows/baseline.yml","trigger_classes":["final-pull-request-validation"]},
+      {"finding":"ordinary non-main push currently invokes product validation unless checkpoint-prefixed","path":".github/workflows/branch-feedback.yml","remediation_issue":"https://github.com/StreamScapeTV/StreamScapeWeb/issues/261","trigger_classes":["noncompliant-unprotected-feature-branch-product-validation","maintenance-control"]}
+    ]},
+    {"integration_branch":"main","repository":"StreamScapeTV/agent-state","workflows":[
+      {"path":".github/workflows/agent-state-claim.yml","trigger_classes":["retired-stale"]},
+      {"path":".github/workflows/agent-state-lifecycle.yml","trigger_classes":["retired-stale"]},
+      {"path":".github/workflows/agent-state-ownership.yml","trigger_classes":["retired-stale"]},
+      {"path":".github/workflows/branch-hygiene.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/organization-artifact-cleanup.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/organization-runner-infrastructure-retry.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/recover-release-1-0-65.yml","trigger_classes":["retired-stale"]},
+      {"path":".github/workflows/release.yml","trigger_classes":["authorized-publication-deployment-device-live-evidence"]},
+      {"path":".github/workflows/runner-infrastructure-retry-fixture.yml","trigger_classes":["retired-stale"]},
+      {"finding":"canonical runner routing/runtime remediation","path":".github/workflows/test.yml","remediation_issue":"https://github.com/StreamScapeTV/agent-state/issues/195","trigger_classes":["final-pull-request-validation","protected-integration-release-validation"]}
+    ]},
+    {"integration_branch":"main","repository":"StreamScapeTV/agent-state-dashboard","workflows":[
+      {"path":".github/workflows/validation.yml","trigger_classes":["final-pull-request-validation","protected-integration-release-validation"]}
+    ]},
+    {"integration_branch":"main","repository":"StreamScapeTV/agent-state-supabase","workflows":[
+      {"path":".github/workflows/bootstrap-validation.yml","trigger_classes":["final-pull-request-validation"]},
+      {"path":".github/workflows/postgres-reconstruction.yml","trigger_classes":["final-pull-request-validation"]}
+    ]},
+    {"integration_branch":"main","repository":"StreamScapeTV/ci-workflows","workflows":[
+      {"path":".github/workflows/android-validation-smoke.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/apple-certification-smoke.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/apple-validation-smoke.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/device-lock-contract-smoke.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/flutter-apple-validation-smoke.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/flutter-validation-smoke.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/gitops-validation-smoke.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/issue-dependency-sync.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/oci-build-smoke.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/oci-publish-smoke.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/reusable-android.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/reusable-apple.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/reusable-flutter.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/reusable-gitops-validation.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/reusable-node.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/reusable-oci-build.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/reusable-oci-publish.yml","trigger_classes":["authorized-publication-deployment-device-live-evidence"]},
+      {"path":".github/workflows/reusable-python.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/reusable-resolve-source.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/reusable-tag-image-chart.yml","trigger_classes":["authorized-publication-deployment-device-live-evidence"]},
+      {"path":".github/workflows/self-check.yml","trigger_classes":["final-pull-request-validation","protected-integration-release-validation"]}
+    ]},
+    {"integration_branch":"main","repository":"StreamScapeTV/directus-front","workflows":[
+      {"path":".github/workflows/agent-state-claim.yml","trigger_classes":["retired-stale"]},
+      {"path":".github/workflows/agent-state-ownership.yml","trigger_classes":["retired-stale"]},
+      {"path":".github/workflows/delete-merged-head-branch.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/mobile-release.yml","trigger_classes":["authorized-publication-deployment-device-live-evidence"]},
+      {"path":".github/workflows/quality-gate.yml","trigger_classes":["maintenance-control"]},
+      {"finding":"runner capability and deterministic prerequisite remediation","path":".github/workflows/quality.yml","remediation_issue":"https://github.com/StreamScapeTV/directus-front/issues/146","trigger_classes":["final-pull-request-validation"]}
+    ]},
+    {"integration_branch":"main","repository":"StreamScapeTV/finance-hub","workflows":[
+      {"path":".github/workflows/agent-state-claim.yml","trigger_classes":["retired-stale"]},
+      {"finding":"unrestricted push currently invokes product validation","path":".github/workflows/ci.yml","remediation_issue":"https://github.com/StreamScapeTV/finance-hub/issues/221","trigger_classes":["final-pull-request-validation","protected-integration-release-validation","noncompliant-unprotected-feature-branch-product-validation"]},
+      {"path":".github/workflows/extended-ci.yml","trigger_classes":["final-pull-request-validation","maintenance-control"]},
+      {"path":".github/workflows/one-time-current-main-baseline.yml","trigger_classes":["retired-stale"]}
+    ]},
+    {"integration_branch":"main","repository":"StreamScapeTV/flux","workflows":[
+      {"path":".github/workflows/agent-state-helm-activation-smoke.yaml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/arc-observer-rbac-ci.yaml","trigger_classes":["final-pull-request-validation"]},
+      {"path":".github/workflows/database-chart-ci.yaml","trigger_classes":["final-pull-request-validation"]},
+      {"path":".github/workflows/directus-web-release-contract.yaml","trigger_classes":["final-pull-request-validation"]},
+      {"path":".github/workflows/flux-control-plane-ci.yaml","trigger_classes":["final-pull-request-validation"]},
+      {"path":".github/workflows/github-actions-runner-activation-ci.yaml","trigger_classes":["final-pull-request-validation"]},
+      {"path":".github/workflows/github-actions-runner-arc-reconcile-source-contract-ci.yaml","trigger_classes":["final-pull-request-validation"]},
+      {"path":".github/workflows/github-actions-runner-arc-recovery-contract-ci.yaml","trigger_classes":["final-pull-request-validation"]},
+      {"path":".github/workflows/github-actions-runner-arc-recovery.yaml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/github-actions-runner-buildah-ci.yaml","trigger_classes":["final-pull-request-validation"]},
+      {"path":".github/workflows/github-actions-runner-buildah-image.yaml","trigger_classes":["authorized-publication-deployment-device-live-evidence"]},
+      {"path":".github/workflows/github-actions-runner-buildah-smoke.yaml","trigger_classes":["authorized-publication-deployment-device-live-evidence"]},
+      {"path":".github/workflows/github-actions-runner-capacity-ci.yaml","trigger_classes":["final-pull-request-validation"]},
+      {"path":".github/workflows/github-actions-runner-capacity-evidence-contract-ci.yaml","trigger_classes":["final-pull-request-validation"]},
+      {"path":".github/workflows/github-actions-runner-capacity-evidence.yaml","trigger_classes":["authorized-publication-deployment-device-live-evidence"]},
+      {"path":".github/workflows/github-actions-runner-ci.yaml","trigger_classes":["final-pull-request-validation"]},
+      {"path":".github/workflows/github-actions-runner-class-profiles-ci.yaml","trigger_classes":["final-pull-request-validation"]},
+      {"path":".github/workflows/github-actions-runner-flux-control-redundancy-ci.yaml","trigger_classes":["final-pull-request-validation"]},
+      {"path":".github/workflows/github-actions-runner-image.yaml","trigger_classes":["authorized-publication-deployment-device-live-evidence"]},
+      {"path":".github/workflows/github-actions-runner-k3s-smoke.yaml","trigger_classes":["authorized-publication-deployment-device-live-evidence"]},
+      {"path":".github/workflows/github-actions-runner-label-hard-cutover-ci.yaml","trigger_classes":["final-pull-request-validation"]},
+      {"path":".github/workflows/github-actions-runner-retired-namespace-diagnostic-contract-ci.yaml","trigger_classes":["final-pull-request-validation"]},
+      {"path":".github/workflows/github-actions-runner-retired-namespace-diagnostic.yaml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/github-actions-runner-scale-set-identity-diagnostic-contract-ci.yaml","trigger_classes":["final-pull-request-validation"]},
+      {"path":".github/workflows/github-actions-runner-scale-set-identity-diagnostic.yaml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/github-actions-runner-storage-ci.yaml","trigger_classes":["final-pull-request-validation"]},
+      {"path":".github/workflows/iptv-backend-helm-release-ci.yaml","trigger_classes":["final-pull-request-validation"]},
+      {"path":".github/workflows/issue-ledger-contract.yaml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/monitoring-operational-alerts-ci.yaml","trigger_classes":["final-pull-request-validation"]},
+      {"path":".github/workflows/monitoring-storage-alerts-ci.yaml","trigger_classes":["final-pull-request-validation"]},
+      {"path":".github/workflows/monitoring-subcharts-diagnostic.yaml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/reconcile-allowlisted-release.yaml","trigger_classes":["authorized-publication-deployment-device-live-evidence"]},
+      {"path":".github/workflows/resource-policy-ci.yaml","trigger_classes":["final-pull-request-validation"]},
+      {"path":".github/workflows/storage-rightsizing-ci.yaml","trigger_classes":["final-pull-request-validation"]},
+      {"path":".github/workflows/traefik-ingress-ci.yaml","trigger_classes":["final-pull-request-validation"]},
+      {"path":".github/workflows/vaultwarden-backup-ci.yaml","trigger_classes":["final-pull-request-validation"]}
+    ]},
+    {"integration_branch":"develop","repository":"StreamScapeTV/iptv-android","workflows":[
+      {"path":".github/workflows/android-ci.yml","trigger_classes":["final-pull-request-validation","protected-integration-release-validation"]},
+      {"path":".github/workflows/room-schema-json-integrity.yml","trigger_classes":["final-pull-request-validation","protected-integration-release-validation"]}
+    ]},
+    {"integration_branch":"develop","repository":"StreamScapeTV/iptv-apple","workflows":[
+      {"path":".github/workflows/central-apple-ci.yml","trigger_classes":["final-pull-request-validation","protected-integration-release-validation"]},
+      {"path":".github/workflows/guarded-branch-cleanup.yml","trigger_classes":["maintenance-control"]}
+    ]},
+    {"integration_branch":"main","repository":"StreamScapeTV/iptv-backend","workflows":[
+      {"finding":"pull_request currently admits source but skips product validation jobs","path":".github/workflows/backend-ci.yml","remediation_issue":"https://github.com/StreamScapeTV/iptv-backend/issues/428","trigger_classes":["final-pull-request-validation","protected-integration-release-validation"]},
+      {"path":".github/workflows/release.yml","trigger_classes":["authorized-publication-deployment-device-live-evidence"]}
+    ]},
+    {"integration_branch":"main","repository":"StreamScapeTV/organization-rules","workflows":[]},
+    {"integration_branch":"develop","repository":"StreamScapeTV/streamscape-media","workflows":[
+      {"path":".github/workflows/central-apple-validation.yml","trigger_classes":["final-pull-request-validation","maintenance-control"]},
+      {"path":".github/workflows/central-source-admission.yml","trigger_classes":["protected-integration-release-validation","maintenance-control"]}
+    ]}
+  ],
+  "schema_version": 1
+}

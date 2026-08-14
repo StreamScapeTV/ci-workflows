@@ -80,10 +80,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-android",
-      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
-      "release": "issue #104 immutable private-action checkpoint",
+      "sha": "5f503d419696e5bfae4ed5b11eca3b531dbdca0f",
+      "release": "issue #140 immutable integrated source-policy checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/validate-android"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/5f503d419696e5bfae4ed5b11eca3b531dbdca0f/actions/validate-android"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/checkout-private-dependency",
@@ -94,10 +94,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-python",
-      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
-      "release": "issue #125 immutable private-action checkpoint",
+      "sha": "e869906a0b192ab954dce3dbd1e90cccb649eb18",
+      "release": "issue #155 immutable Backend execution repair checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/validate-python"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/e869906a0b192ab954dce3dbd1e90cccb649eb18/actions/validate-python"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/verify-toolchain",
@@ -115,10 +115,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-apple",
-      "sha": "88d179740145ccea00b6986d78ceb67ea365face",
-      "release": "issue #131 immutable Release-aware Apple checkpoint",
+      "sha": "293dee450e3464032d67f702b768f493abf65d7b",
+      "release": "issue #164 immutable Media VLC tvOS checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/88d179740145ccea00b6986d78ceb67ea365face/actions/validate-apple"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/293dee450e3464032d67f702b768f493abf65d7b/actions/validate-apple"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-oci",
