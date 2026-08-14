@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/reusable-python.yml"
 ACTION_PATH = ROOT / "actions/validate-python/action.yml"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-PYTHON_ACTION_SHA = "e869906a0b192ab954dce3dbd1e90cccb649eb18"
+PYTHON_ACTION_SHA = "d060c275570e07222969546acf988a2616a3bcc6"
 PRIVATE_HELPERS = {
     "validate-python": PYTHON_ACTION_SHA,
     "exact-checkout": FOUNDATION_SHA,
@@ -199,7 +199,8 @@ class PythonWorkflowContractTests(unittest.TestCase):
         )
         for identifier, runtime in self.python_contract["runtimes"].items():
             if runtime["kind"] == "host":
-                self.assertEqual(runtime["python_version"], "3.12.13")
+                self.assertEqual(identifier, "host-cpython-3.12.3")
+                self.assertEqual(runtime["python_version"], "3.12.3")
                 continue
             with self.subTest(runtime=identifier):
                 self.assertRegex(runtime["digest"], r"^sha256:[0-9a-f]{64}$")

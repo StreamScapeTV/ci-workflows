@@ -13,16 +13,11 @@ from typing import Any, Callable, Mapping, Sequence
 from . import runners
 from .ciw_android import configure_android_validate, execute_android_validate
 from .ciw_apple import configure_apple_validate, execute_apple_validate
+from .ciw_device import configure_device_validate, execute_device_validate
 from .ciw_device_lock import configure_device_lock, execute_device_lock
 from .ciw_docs import load_command_contract
 from .ciw_flutter import configure_flutter_validate, execute_flutter_validate
 from .ciw_gitops import configure_gitops_validate, execute_gitops_validate
-from .ciw_helm import (
-    configure_helm_publish,
-    configure_helm_validate,
-    execute_helm_publish,
-    execute_helm_validate,
-)
 from .ciw_node import configure_node_validate, execute_node_validate
 from .ciw_oci import (
     configure_oci_publish,
@@ -143,14 +138,6 @@ def _add_node_validate(parser: argparse.ArgumentParser) -> None:
     configure_node_validate(parser)
 
 
-def _add_helm_validate(parser: argparse.ArgumentParser) -> None:
-    configure_helm_validate(parser)
-
-
-def _add_helm_publish(parser: argparse.ArgumentParser) -> None:
-    configure_helm_publish(parser)
-
-
 def _add_gitops_validate(parser: argparse.ArgumentParser) -> None:
     configure_gitops_validate(parser)
 
@@ -161,6 +148,10 @@ def _add_oci_publish(parser: argparse.ArgumentParser) -> None:
 
 def _add_oci_validate(parser: argparse.ArgumentParser) -> None:
     configure_oci_validate(parser)
+
+
+def _add_device_validate(parser: argparse.ArgumentParser) -> None:
+    configure_device_validate(parser)
 
 
 def _add_device_lock(parser: argparse.ArgumentParser) -> None:
@@ -498,20 +489,6 @@ def handle_node_validate(
     return execute_node_validate(args, context)
 
 
-def handle_helm_validate(
-    args: argparse.Namespace,
-    context: CIWContext,
-) -> CIWResult:
-    return execute_helm_validate(args, context)
-
-
-def handle_helm_publish(
-    args: argparse.Namespace,
-    context: CIWContext,
-) -> CIWResult:
-    return execute_helm_publish(args, context)
-
-
 def handle_gitops_validate(
     args: argparse.Namespace,
     context: CIWContext,
@@ -531,6 +508,13 @@ def handle_oci_validate(
     context: CIWContext,
 ) -> CIWResult:
     return execute_oci_validate(args, context)
+
+
+def handle_device_validate(
+    args: argparse.Namespace,
+    context: CIWContext,
+) -> CIWResult:
+    return execute_device_validate(args, context)
 
 
 def handle_device_lock(
@@ -1072,18 +1056,6 @@ def command_specs() -> tuple[CommandSpec, ...]:
             _add_node_validate,
         ),
         CommandSpec(
-            "helm",
-            "validate",
-            handle_helm_validate,
-            _add_helm_validate,
-        ),
-        CommandSpec(
-            "helm",
-            "publish",
-            handle_helm_publish,
-            _add_helm_publish,
-        ),
-        CommandSpec(
             "gitops",
             "validate",
             handle_gitops_validate,
@@ -1100,6 +1072,12 @@ def command_specs() -> tuple[CommandSpec, ...]:
             "validate",
             handle_oci_validate,
             _add_oci_validate,
+        ),
+        CommandSpec(
+            "device",
+            "validate",
+            handle_device_validate,
+            _add_device_validate,
         ),
         CommandSpec(
             "device",
