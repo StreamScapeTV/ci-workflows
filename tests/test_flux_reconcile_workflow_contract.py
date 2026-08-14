@@ -9,7 +9,7 @@ import yaml
 from ci_workflows.validation_model import ActionsLoader
 
 ROOT = Path(__file__).resolve().parents[1]
-HELPER_SHA = "ac5b6be68ea2aa562ccc513103dbdd9b6c23d7ad"
+HELPER_SHA = "37f6309dff0fe6cae0b910df2ee427c55ced3684"
 EXACT_CHECKOUT_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 
 
@@ -69,11 +69,13 @@ class FluxReconcileWorkflowContractTests(unittest.TestCase):
             self.assertNotIn(forbidden, self.text)
 
     def test_flux_target_data_and_credentials_remain_outside_central_source(self) -> None:
-        action = (ROOT / "actions/flux-reconcile/action.yml").read_text(encoding="utf-8")
+        action_path = ROOT / "actions/flux-reconcile/action.yml"
+        action_text = action_path.read_text(encoding="utf-8")
+        action = yaml.load(action_text, Loader=ActionsLoader)
         plan_source = (ROOT / "src/ci_workflows/flux_reconcile_plan.py").read_text(encoding="utf-8")
         apply_source = (ROOT / "src/ci_workflows/flux_reconcile_apply.py").read_text(encoding="utf-8")
         contract = (ROOT / "contracts/organization-maintenance.json").read_text(encoding="utf-8")
-        combined = (self.text + action + plan_source + apply_source).casefold()
+        combined = (self.text + action_text + plan_source + apply_source).casefold()
         for domain_value in ("agent-state-api", "iptv-backend-worker", "directus-web", "tailscale", "longhorn"):
             self.assertNotIn(domain_value, combined)
         self.assertNotIn("flux_kubeconfig_b64", combined)
@@ -81,6 +83,7 @@ class FluxReconcileWorkflowContractTests(unittest.TestCase):
         self.assertIn('policy["policy_interface"]', plan_source)
         self.assertIn("--central-request", plan_source)
         self.assertNotIn("shell=true", combined.replace(" ", ""))
+        self.assertNotIn("${{ inputs.", action["runs"]["steps"][0]["run"])
 
     def test_flux_cli_cleanup_is_no_follow_and_fail_closed(self) -> None:
         cli = (ROOT / "scripts/ci/flux_reconcile.py").read_text(encoding="utf-8")
