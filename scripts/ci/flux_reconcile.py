@@ -6,8 +6,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
-import stat
 import sys
 from pathlib import Path
 
@@ -15,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 from ci_workflows.flux_reconcile import plan_summary, reconcile, resolve_request
+from ci_workflows.flux_reconcile_fs import remove_state
 from ci_workflows.maintenance_contract import MaintenanceError, load_contract
 
 
@@ -36,35 +35,6 @@ def _write(values: dict[str, str]) -> None:
                     raise MaintenanceError("output_invalid")
                 output.write(f"{name}={value}\n")
     print(json.dumps(values, sort_keys=True))
-
-
-def _remove_state(path: Path, *, fail_on_unsafe: bool) -> None:
-    try:
-        metadata = path.lstat()
-    except FileNotFoundError:
-        return
-    if stat.S_ISLNK(metadata.st_mode):
-        try:
-            path.unlink()
-        except OSError as error:
-            raise MaintenanceError("flux_state_cleanup_failed") from error
-        if fail_on_unsafe:
-            raise MaintenanceError("flux_state_invalid")
-        return
-    if not stat.S_ISDIR(metadata.st_mode):
-        try:
-            path.unlink()
-        except OSError as error:
-            raise MaintenanceError("flux_state_cleanup_failed") from error
-        if fail_on_unsafe:
-            raise MaintenanceError("flux_state_invalid")
-        return
-    try:
-        shutil.rmtree(path)
-    except OSError as error:
-        raise MaintenanceError("flux_state_cleanup_failed") from error
-    if path.exists() or path.is_symlink():
-        raise MaintenanceError("flux_state_cleanup_failed")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -96,7 +66,7 @@ def main(argv: list[str] | None = None) -> int:
             f"flux-reconcile-{os.environ.get('GITHUB_RUN_ID', 'local')}-"
             f"{os.environ.get('GITHUB_RUN_ATTEMPT', '1')}"
         )
-        _remove_state(state, fail_on_unsafe=True)
+        remove_state(state, fail_on_unsafe=True)
         plan = resolve_request(
             contract,
             source_root=args.source_root,
@@ -129,7 +99,7 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         if state is not None:
             try:
-                _remove_state(state, fail_on_unsafe=False)
+                remove_state(state, fail_on_unsafe=False)
             except MaintenanceError as cleanup_error:
                 if failure is None:
                     failure = cleanup_error
