@@ -35,6 +35,9 @@ class FluxReconcileWorkflowContractTests(unittest.TestCase):
         self.assertEqual(job["runs-on"], ["linux", "amd64", "flux-control"])
         self.assertEqual(job["timeout-minutes"], 120)
         self.assertIs(call["inputs"]["dry_run"]["default"], True)
+        for step in job["steps"]:
+            if isinstance(step, dict) and isinstance(step.get("run"), str):
+                self.assertNotIn("${{ inputs.", step["run"])
 
     def test_flux_workflow_executes_only_exact_flux_owned_policy_source(self) -> None:
         self.assertIn(
@@ -51,8 +54,9 @@ class FluxReconcileWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("./.ciw/actions/", self.text)
         self.assertIn("repository: StreamScapeTV/flux", self.text)
         self.assertIn("admitted_sha: ${{ inputs.admitted_sha }}", self.text)
+        self.assertIn("CIW_ADMITTED_SHA: ${{ inputs.admitted_sha }}", self.text)
         self.assertIn("cd source", self.text)
-        self.assertIn('test "$(git rev-parse HEAD)" = "${{ inputs.admitted_sha }}"', self.text)
+        self.assertIn('test "$(git rev-parse HEAD)" = "${CIW_ADMITTED_SHA}"', self.text)
         self.assertIn("git status --porcelain --untracked-files=all", self.text)
         self.assertIn("rm -rf source", self.text)
         self.assertIn("! -e source", self.text)
