@@ -19,9 +19,12 @@ runs:
       env:
         PYTHONDONTWRITEBYTECODE: '1'
         MAINTENANCE_GITHUB_TOKEN: ${{ inputs.token }}
+        CIW_REPOSITORY_SCOPE: ${{ inputs.repository_scope }}
+        CIW_DRY_RUN: ${{ inputs.dry_run }}
+        CIW_REQUEST_ID: ${{ inputs.request_id }}
       run: |
         set -Eeuo pipefail
         python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/maintenance.py" artifacts \
-          --repository-scope "${{ inputs.repository_scope }}" \
-          --dry-run "${{ inputs.dry_run }}" \
-          --request-id "${{ inputs.request_id }}"
+          --repository-scope "${CIW_REPOSITORY_SCOPE}" \
+          --dry-run "${CIW_DRY_RUN}" \
+          --request-id "${CIW_REQUEST_ID}"
