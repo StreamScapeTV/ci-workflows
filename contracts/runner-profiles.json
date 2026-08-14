@@ -1,1 +1,652 @@
-{"authority":{"agent_reference":"RUNNERS.md","apple_source":"organization-managed Apple capacity verified by current product workflows","flux_source":"StreamScapeTV/flux@main/apps/github-actions-runner/values.yaml","implementation_authority":"contracts/runner-profiles.json"},"buildah_escalation":{"order":["buildah-tiny","buildah-small","buildah-medium","buildah-high"],"policy":"Select the smallest tier whose limits exceed measured peak memory and local storage with reviewed headroom. Generic buildah resolves only to buildah-small.","required_evidence":["peak_memory_bytes","peak_local_storage_bytes","source_sha","workflow_api","product_id"]},"caller_forbidden_fields":["runner","runs-on","runs_on","runner_labels","labels","container_engine","storage_driver","cluster","namespace","service_account"],"compatibility_rules":[{"migration":"release","profiles":["portable","buildah-small","buildah-medium","buildah-high"]},{"migration":"artifact-cleanup","profiles":["portable"]},{"migration":"infra-retry","profiles":["portable"]},{"migration":"branch-hygiene","profiles":["portable"]},{"migration":"device","profiles":["physical-device"]},{"migration":"flutter","profiles":["mobile","apple"]},{"migration":"node","profiles":["portable"]},{"migration":"android","profiles":["mobile"]},{"migration":"apple","profiles":["apple"]},{"migration":"flux-assets","profiles":["portable","buildah-tiny","buildah-small","buildah-medium","buildah-high","flux-control"]},{"migration":"flux-reconcile","profiles":["flux-control"]},{"migration":"gitops","profiles":["portable"]},{"migration":"conformance","profiles":["portable"]},{"migration":"python","profiles":["portable","buildah-medium","buildah-high"]},{"migration":"media","profiles":["mobile","apple","physical-device"]},{"migration":"policy-validation","profiles":["portable"]},{"migration":"products","profiles":["portable","buildah-small","buildah-medium","buildah-high"]},{"exception":"retired-temporary-or-recovery-workflow","migration":"retire","profiles":[]},{"exception":"linked-adoption-issue-required-before-runner-selection","migration":"other","profiles":[]}],"contract_version":"2.1.0","direct_selection_policy":{"bare_self_hosted_forbidden":true,"consumer_infrastructure_identity_forbidden":true,"docker_and_dind_retired":true,"generic_buildah_maps_only_to":"buildah-small","migration_only":true},"forbidden_selector_tokens":["self-hosted","docker","dind","docker-capable","docker-capable-validation"],"organization":"StreamScapeTV","profiles":[{"allowed_workflow_apis":["source.resolve","validation.python","validation.node","validation.gitops","helm.validate","helm.publish","maintenance.artifacts","maintenance.branches","maintenance.conformance","maintenance.runner-retry","release.orchestrate","flux.assets"],"architecture":"x64","capacity_owner":"flux-arc","concurrency_cap":10,"default_internal_selector":["linux","amd64","general"],"evidence_fields":["result","test_summary","artifact_exception_used"],"forbidden_uses":["privileged containers or daemon access","Kubernetes or Agent State credentials","Apple SDK or simulator work","physical-device claims","assuming a container engine is present"],"id":"portable","internal_selectors":[["linux","amd64","general"]],"kind":"runner","lifecycle":"ephemeral-one-job","os":"linux","privilege":{"device_locked":false,"kubernetes_token":false,"manual_capacity":false,"privileged_container":false,"repository_scoped":false},"public_labels":["portable"],"public_name":"portable","resources":{"local_storage_limit":"4Gi","managed_cache":null,"memory_limit":"1Gi","memory_request":"256Mi","scratch":null,"workspace":"2Gi emptyDir"},"tools":[{"name":"github-actions-runner","version":"2.336.0"},{"name":"base-linux-toolchain","version":"image-defined"}],"trust":{"allowed_source_trust":["untrusted-fork","trusted-pr","trusted-exact"],"credential_baseline":"tokenless","executes_caller_source":true}},{"allowed_workflow_apis":["validation.android","validation.flutter","validation.device"],"architecture":"x64","capacity_owner":"flux-arc","concurrency_cap":10,"default_internal_selector":["linux","amd64","mobile"],"evidence_fields":["result","test_summary","artifact_exception_used"],"forbidden_uses":["assuming an Android device is attached","privileged OCI builds","registry publication without a publication workflow","Apple SDK or simulator work","untrusted fork source against the shared cache"],"id":"mobile","internal_selectors":[["linux","amd64","mobile"],["linux","amd64","android"],["linux","amd64","flutter"],["linux","amd64","jdk-25"],["linux","amd64","node-24"],["linux","amd64","nodejs"]],"kind":"runner","lifecycle":"ephemeral-one-job-with-managed-cache","os":"linux","privilege":{"device_locked":false,"kubernetes_token":false,"manual_capacity":false,"privileged_container":false,"repository_scoped":false},"public_labels":["mobile"],"public_name":"mobile","resources":{"local_storage_limit":"4Gi container writable layer","managed_cache":"20Gi shared dependency cache with job/pruner lock","memory_limit":"4Gi","memory_request":"2Gi","scratch":"20Gi generic-ephemeral PVC","workspace":"6Gi generic-ephemeral PVC"},"tools":[{"name":"github-actions-runner","version":"2.336.0"},{"name":"jdk","version":"25"},{"name":"javac","version":"25"},{"name":"flutter","version":"3.44.8"},{"name":"dart","version":"3.12.2"},{"name":"node","version":"24.18.0"},{"name":"android-api","version":"36,37"},{"name":"android-build-tools","version":"36,37"},{"name":"android-ndk","version":"28.2.13676358"}],"trust":{"allowed_source_trust":["trusted-pr","trusted-exact"],"credential_baseline":"tokenless","executes_caller_source":true}},{"allowed_workflow_apis":["oci.build","oci.publish","release.orchestrate","flux.assets"],"architecture":"x64","capacity_owner":"flux-arc","concurrency_cap":10,"default_internal_selector":["linux","amd64","buildah","tiny"],"evidence_fields":["result","image_digest","platform_digests_json","immutable_references_json","remote_read_back"],"forbidden_uses":["untrusted fork or issue-controlled source","Docker daemon or DinD","Kubernetes or Agent State credentials","caller-selected storage driver or builder engine","physical-device work"],"id":"buildah-tiny","internal_selectors":[["linux","amd64","buildah","tiny"]],"kind":"runner","lifecycle":"ephemeral-one-job","os":"linux","privilege":{"device_locked":false,"kubernetes_token":false,"manual_capacity":false,"privileged_container":true,"repository_scoped":false},"public_labels":["buildah-tiny"],"public_name":"buildah-tiny","resources":{"local_storage_limit":"6Gi","managed_cache":null,"memory_limit":"1Gi","memory_request":"512Mi","scratch":"bounded container storage/runroot/push temporary volumes","workspace":"bounded emptyDir within local storage envelope"},"tools":[{"name":"github-actions-runner","version":"2.336.0"},{"name":"buildah","version":"1.33.7"},{"name":"skopeo","version":"1.13.3"},{"name":"podman","version":"4.9.3"}],"trust":{"allowed_source_trust":["trusted-exact"],"credential_baseline":"tokenless","executes_caller_source":true}},{"allowed_workflow_apis":["oci.build","oci.publish","release.orchestrate","flux.assets"],"architecture":"x64","capacity_owner":"flux-arc","concurrency_cap":6,"default_internal_selector":["linux","amd64","buildah","small"],"evidence_fields":["result","image_digest","platform_digests_json","immutable_references_json","remote_read_back"],"forbidden_uses":["untrusted fork or issue-controlled source","Docker daemon or DinD","Kubernetes or Agent State credentials","caller-selected storage driver or builder engine","physical-device work"],"id":"buildah-small","internal_selectors":[["linux","amd64","buildah","small"]],"kind":"runner","lifecycle":"ephemeral-one-job","os":"linux","privilege":{"device_locked":false,"kubernetes_token":false,"manual_capacity":false,"privileged_container":true,"repository_scoped":false},"public_labels":["buildah","buildah-small"],"public_name":"buildah-small","resources":{"local_storage_limit":"16Gi","managed_cache":null,"memory_limit":"2Gi","memory_request":"512Mi","scratch":"bounded container storage/runroot/push temporary volumes","workspace":"bounded emptyDir within local storage envelope"},"tools":[{"name":"github-actions-runner","version":"2.336.0"},{"name":"buildah","version":"1.33.7"},{"name":"skopeo","version":"1.13.3"},{"name":"podman","version":"4.9.3"}],"trust":{"allowed_source_trust":["trusted-exact"],"credential_baseline":"tokenless","executes_caller_source":true}},{"allowed_workflow_apis":["validation.python","oci.build","oci.publish","release.orchestrate","flux.assets"],"architecture":"x64","capacity_owner":"flux-arc","concurrency_cap":3,"default_internal_selector":["linux","amd64","buildah","medium"],"evidence_fields":["result","image_digest","platform_digests_json","immutable_references_json","remote_read_back"],"forbidden_uses":["untrusted fork or issue-controlled source","Docker daemon or DinD","Kubernetes or Agent State credentials","caller-selected storage driver or builder engine","physical-device work"],"id":"buildah-medium","internal_selectors":[["linux","amd64","buildah","medium"]],"kind":"runner","lifecycle":"ephemeral-one-job","os":"linux","privilege":{"device_locked":false,"kubernetes_token":false,"manual_capacity":false,"privileged_container":true,"repository_scoped":false},"public_labels":["buildah-medium"],"public_name":"buildah-medium","resources":{"local_storage_limit":"32Gi","managed_cache":null,"memory_limit":"4Gi","memory_request":"2Gi","scratch":"bounded container storage/runroot/push temporary volumes","workspace":"bounded emptyDir within local storage envelope"},"tools":[{"name":"github-actions-runner","version":"2.336.0"},{"name":"buildah","version":"1.33.7"},{"name":"skopeo","version":"1.13.3"},{"name":"podman","version":"4.9.3"}],"trust":{"allowed_source_trust":["trusted-exact"],"credential_baseline":"tokenless","executes_caller_source":true}},{"allowed_workflow_apis":["validation.python","oci.build","oci.publish","release.orchestrate","flux.assets"],"architecture":"x64","capacity_owner":"flux-arc","concurrency_cap":1,"default_internal_selector":["linux","amd64","buildah","high"],"evidence_fields":["result","image_digest","platform_digests_json","immutable_references_json","remote_read_back"],"forbidden_uses":["untrusted fork or issue-controlled source","Docker daemon or DinD","Kubernetes or Agent State credentials","caller-selected storage driver or builder engine","physical-device work"],"id":"buildah-high","internal_selectors":[["linux","amd64","buildah","high"]],"kind":"runner","lifecycle":"ephemeral-one-job","os":"linux","privilege":{"device_locked":false,"kubernetes_token":false,"manual_capacity":false,"privileged_container":true,"repository_scoped":false},"public_labels":["buildah-high"],"public_name":"buildah-high","resources":{"local_storage_limit":"44Gi","managed_cache":null,"memory_limit":"8Gi","memory_request":"4Gi","scratch":"bounded container storage/runroot/push temporary volumes","workspace":"bounded emptyDir within local storage envelope"},"tools":[{"name":"github-actions-runner","version":"2.336.0"},{"name":"buildah","version":"1.33.7"},{"name":"skopeo","version":"1.13.3"},{"name":"podman","version":"4.9.3"}],"trust":{"allowed_source_trust":["trusted-exact"],"credential_baseline":"tokenless","executes_caller_source":true}},{"allowed_workflow_apis":["validation.apple","validation.flutter","validation.device"],"architecture":"arm64","capacity_owner":"organization-manual","concurrency_cap":null,"default_internal_selector":["macOS","ARM64"],"evidence_fields":["result","test_summary","artifact_exception_used","cleanup_result"],"forbidden_uses":["assuming signing identities, profiles, or store credentials","assuming a physical Apple device is attached","untrusted fork source","leaving DerivedData, simulators, result bundles, or credentials behind"],"id":"apple","internal_selectors":[["macOS","ARM64"]],"kind":"runner","lifecycle":"organization-managed-persistent-capacity","os":"macos","privilege":{"device_locked":false,"kubernetes_token":false,"manual_capacity":true,"privileged_container":false,"repository_scoped":false},"public_labels":["macOS"],"public_name":"apple","resources":{"local_storage_limit":"host-policy-defined","managed_cache":"none implied","memory_limit":null,"memory_request":null,"scratch":"RUNNER_TEMP; explicit cleanup required","workspace":"workflow-cleaned host workspace"},"tools":[{"name":"xcode","version":"runtime-verified"},{"name":"swift","version":"runtime-verified"},{"name":"apple-sdks-and-simulators","version":"runtime-verified"}],"trust":{"allowed_source_trust":["trusted-pr","trusted-exact"],"credential_baseline":"no-signing-or-store-credential-implied","executes_caller_source":true}},{"allowed_workflow_apis":["validation.device"],"architecture":"device-and-host-dependent","base_profile_by_family":{"android":"mobile","ios":"apple","tvos":"apple"},"capacity_owner":"device-registry-and-host-owner","concurrency_cap":1,"default_internal_selector":null,"evidence_fields":["result","device_evidence_id","authorization_receipt","resource_lock_receipt","discovered_device_id","cleanup_evidence","request_id"],"forbidden_uses":["treating mobile or apple runner selection as proof of attachment","running without trusted authorization and an exclusive resource lock","non-deterministic first-device discovery","missing exact-source, evidence, or cleanup records","concurrent use of the same device"],"id":"physical-device","internal_selectors":[],"kind":"guarded-overlay","lifecycle":"trusted-resource-lock-required","lock_contract":{"required":true,"required_fields":["authorization_receipt","resource_lock_receipt","device_family","discovered_device_id","tested_source_sha","cleanup_evidence"]},"os":"family-dependent","privilege":{"device_locked":true,"kubernetes_token":false,"manual_capacity":true,"privileged_container":false,"repository_scoped":false},"public_labels":[],"public_name":"physical-device","resources":{"local_storage_limit":"base-profile-defined","managed_cache":"base-profile-defined","memory_limit":null,"memory_request":null,"scratch":"base-profile-defined","workspace":"base-profile-defined"},"tools":[{"name":"device-discovery","version":"deterministic-provider-contract"}],"trust":{"allowed_source_trust":["trusted-exact"],"credential_baseline":"explicit-live-test-secrets-only","executes_caller_source":true}},{"allowed_workflow_apis":["flux.reconcile","flux.assets"],"architecture":"x64","capacity_owner":"flux-arc","concurrency_cap":10,"default_internal_selector":["linux","amd64","flux-control"],"evidence_fields":["result","reconciliation_state","request_id","cleanup_result"],"forbidden_uses":["untrusted product or pull-request source","non-Flux repositories","caller-selected cluster, namespace, service account, or kubeconfig","general product build or publication"],"id":"flux-control","internal_selectors":[["linux","amd64","flux-control"]],"kind":"runner","lifecycle":"ephemeral-one-job-repository-scoped","os":"linux","privilege":{"device_locked":false,"kubernetes_token":true,"manual_capacity":false,"privileged_container":false,"repository_scoped":true},"public_labels":[],"public_name":"flux-control","resources":{"local_storage_limit":"2Gi container ephemeral storage","managed_cache":null,"memory_limit":"1Gi","memory_request":"256Mi","scratch":"RUNNER_TEMP inside bounded workspace","workspace":"2Gi generic-ephemeral PVC"},"tools":[{"name":"github-actions-runner","version":"2.336.0"},{"name":"kubernetes-api-access","version":"service-account-bound"},{"name":"flux-policy-toolchain","version":"protected-source-defined"}],"trust":{"allowed_source_trust":["protected-flux-policy-only"],"credential_baseline":"flux-owned-kubernetes-service-account","executes_caller_source":false}}],"scheduling_mechanism":{"caller_supplied_selectors":false,"composite_action_can_change_runs_on":false,"description":"A minimal protected planning job validates bounded semantic intent and emits a JSON selector. A dependent job uses fromJSON(needs.plan.outputs.runs_on), which GitHub resolves before scheduling that dependent job.","generated_mapping":"generated/runner-mappings.json","kind":"trusted-planning-job","planner_profile":"portable"},"schema_version":1,"source_trust_values":["untrusted-fork","trusted-pr","trusted-exact","protected-flux-policy-only"],"workflow_bindings":[{"api":"source.resolve","profiles":["portable"],"strategy":"fixed"},{"api":"validation.python","profiles":["portable","buildah-medium","buildah-high"],"strategy":"profile-contract"},{"api":"validation.node","profiles":["portable"],"strategy":"fixed"},{"api":"validation.android","profiles":["mobile"],"strategy":"fixed"},{"api":"validation.flutter","profiles":["mobile","apple"],"strategy":"platform"},{"api":"validation.apple","profiles":["apple"],"strategy":"fixed"},{"api":"validation.device","profiles":["physical-device"],"strategy":"guarded-overlay"},{"api":"validation.gitops","profiles":["portable"],"strategy":"fixed"},{"api":"oci.build","profiles":["buildah-tiny","buildah-small","buildah-medium","buildah-high"],"strategy":"measured-tier"},{"api":"oci.publish","profiles":["buildah-small","buildah-medium","buildah-high"],"strategy":"product-contract-tier"},{"api":"helm.validate","profiles":["portable"],"strategy":"fixed"},{"api":"helm.publish","profiles":["portable"],"strategy":"fixed"},{"api":"release.orchestrate","profiles":["portable","buildah-small","buildah-medium","buildah-high"],"strategy":"internal-multi-job"},{"api":"flux.assets","profiles":["portable","buildah-tiny","buildah-small","buildah-medium","buildah-high","flux-control"],"strategy":"internal-multi-job"},{"api":"flux.reconcile","profiles":["flux-control"],"strategy":"fixed"},{"api":"maintenance.artifacts","profiles":["portable"],"strategy":"fixed"},{"api":"maintenance.branches","profiles":["portable"],"strategy":"fixed"},{"api":"maintenance.conformance","profiles":["portable"],"strategy":"fixed"},{"api":"maintenance.runner-retry","profiles":["portable"],"strategy":"fixed"}]}
+{
+  "authority": {
+    "agent_reference": "RUNNERS.md",
+    "apple_source": "organization-managed Apple capacity verified by current product workflows",
+    "flux_source": "StreamScapeTV/flux@main/apps/github-actions-runner/values.yaml",
+    "implementation_authority": "contracts/runner-profiles.json"
+  },
+  "buildah_escalation": {
+    "order": [
+      "buildah-tiny",
+      "buildah-small",
+      "buildah-medium",
+      "buildah-high"
+    ],
+    "policy": "Select the smallest tier whose limits exceed measured peak memory and local storage with reviewed headroom. Generic buildah resolves only to buildah-small.",
+    "required_evidence": [
+      "peak_memory_bytes",
+      "peak_local_storage_bytes",
+      "source_sha",
+      "workflow_api",
+      "product_id"
+    ]
+  },
+  "caller_forbidden_fields": [
+    "runner",
+    "runs-on",
+    "runs_on",
+    "runner_labels",
+    "labels",
+    "container_engine",
+    "storage_driver",
+    "cluster",
+    "namespace",
+    "service_account"
+  ],
+  "compatibility_rules": [
+    {
+      "migration": "release",
+      "profiles": [
+        "portable",
+        "buildah-tiny",
+        "buildah-small",
+        "buildah-medium",
+        "buildah-high"
+      ]
+    },
+    {
+      "migration": "artifact-cleanup",
+      "profiles": ["portable"]
+    },
+    {
+      "migration": "infra-retry",
+      "profiles": ["portable"]
+    },
+    {
+      "migration": "branch-hygiene",
+      "profiles": ["portable"]
+    },
+    {
+      "migration": "device",
+      "profiles": ["physical-device"]
+    },
+    {
+      "migration": "flutter",
+      "profiles": ["mobile", "apple"]
+    },
+    {
+      "migration": "node",
+      "profiles": ["portable"]
+    },
+    {
+      "migration": "android",
+      "profiles": ["mobile"]
+    },
+    {
+      "migration": "apple",
+      "profiles": ["apple"]
+    },
+    {
+      "migration": "flux-assets",
+      "profiles": [
+        "portable",
+        "buildah-tiny",
+        "buildah-small",
+        "buildah-medium",
+        "buildah-high",
+        "flux-control"
+      ]
+    },
+    {
+      "migration": "flux-reconcile",
+      "profiles": ["flux-control"]
+    },
+    {
+      "migration": "gitops",
+      "profiles": ["portable"]
+    },
+    {
+      "migration": "conformance",
+      "profiles": ["portable"]
+    },
+    {
+      "migration": "python",
+      "profiles": ["portable", "buildah-medium", "buildah-high"]
+    },
+    {
+      "migration": "media",
+      "profiles": ["mobile", "apple", "physical-device"]
+    },
+    {
+      "migration": "policy-validation",
+      "profiles": ["portable"]
+    },
+    {
+      "migration": "products",
+      "profiles": ["portable", "buildah-small", "buildah-medium", "buildah-high"]
+    },
+    {
+      "exception": "retired-temporary-or-recovery-workflow",
+      "migration": "retire",
+      "profiles": []
+    },
+    {
+      "exception": "linked-adoption-issue-required-before-runner-selection",
+      "migration": "other",
+      "profiles": []
+    }
+  ],
+  "contract_version": "2.1.0",
+  "direct_selection_policy": {
+    "bare_self_hosted_forbidden": true,
+    "consumer_infrastructure_identity_forbidden": true,
+    "docker_and_dind_retired": true,
+    "generic_buildah_maps_only_to": "buildah-small",
+    "migration_only": true
+  },
+  "forbidden_selector_tokens": [
+    "self-hosted",
+    "docker",
+    "dind",
+    "docker-capable",
+    "docker-capable-validation"
+  ],
+  "organization": "StreamScapeTV",
+  "profiles": [
+    {
+      "allowed_workflow_apis": [
+        "source.resolve",
+        "validation.python",
+        "validation.node",
+        "validation.gitops",
+        "helm.validate",
+        "maintenance.artifacts",
+        "maintenance.branches",
+        "maintenance.conformance",
+        "maintenance.runner-retry",
+        "release.orchestrate",
+        "flux.assets"
+      ],
+      "architecture": "x64",
+      "capacity_owner": "flux-arc",
+      "concurrency_cap": 10,
+      "default_internal_selector": ["linux", "amd64", "general"],
+      "evidence_fields": ["result", "test_summary", "artifact_exception_used"],
+      "forbidden_uses": [
+        "privileged containers or daemon access",
+        "Kubernetes or Agent State credentials",
+        "Apple SDK or simulator work",
+        "physical-device claims",
+        "assuming a container engine is present"
+      ],
+      "id": "portable",
+      "internal_selectors": [["linux", "amd64", "general"]],
+      "kind": "runner",
+      "lifecycle": "ephemeral-one-job",
+      "os": "linux",
+      "privilege": {
+        "device_locked": false,
+        "kubernetes_token": false,
+        "manual_capacity": false,
+        "privileged_container": false,
+        "repository_scoped": false
+      },
+      "public_labels": ["portable"],
+      "public_name": "portable",
+      "resources": {
+        "local_storage_limit": "4Gi",
+        "managed_cache": null,
+        "memory_limit": "1Gi",
+        "memory_request": "256Mi",
+        "scratch": null,
+        "workspace": "2Gi emptyDir"
+      },
+      "tools": [
+        {"name": "github-actions-runner", "version": "2.336.0"},
+        {"name": "base-linux-toolchain", "version": "image-defined"}
+      ],
+      "trust": {
+        "allowed_source_trust": ["untrusted-fork", "trusted-pr", "trusted-exact"],
+        "credential_baseline": "tokenless",
+        "executes_caller_source": true
+      }
+    },
+    {
+      "allowed_workflow_apis": ["validation.android", "validation.flutter", "validation.device"],
+      "architecture": "x64",
+      "capacity_owner": "flux-arc",
+      "concurrency_cap": 10,
+      "default_internal_selector": ["linux", "amd64", "mobile"],
+      "evidence_fields": ["result", "test_summary", "artifact_exception_used"],
+      "forbidden_uses": [
+        "assuming an Android device is attached",
+        "privileged OCI builds",
+        "registry publication without a publication workflow",
+        "Apple SDK or simulator work",
+        "untrusted fork source against the shared cache"
+      ],
+      "id": "mobile",
+      "internal_selectors": [
+        ["linux", "amd64", "mobile"],
+        ["linux", "amd64", "android"],
+        ["linux", "amd64", "flutter"],
+        ["linux", "amd64", "jdk-25"],
+        ["linux", "amd64", "node-24"],
+        ["linux", "amd64", "nodejs"]
+      ],
+      "kind": "runner",
+      "lifecycle": "ephemeral-one-job-with-managed-cache",
+      "os": "linux",
+      "privilege": {
+        "device_locked": false,
+        "kubernetes_token": false,
+        "manual_capacity": false,
+        "privileged_container": false,
+        "repository_scoped": false
+      },
+      "public_labels": ["mobile"],
+      "public_name": "mobile",
+      "resources": {
+        "local_storage_limit": "4Gi container writable layer",
+        "managed_cache": "20Gi shared dependency cache with job/pruner lock",
+        "memory_limit": "4Gi",
+        "memory_request": "2Gi",
+        "scratch": "20Gi generic-ephemeral PVC",
+        "workspace": "6Gi generic-ephemeral PVC"
+      },
+      "tools": [
+        {"name": "github-actions-runner", "version": "2.336.0"},
+        {"name": "jdk", "version": "25"},
+        {"name": "javac", "version": "25"},
+        {"name": "flutter", "version": "3.44.8"},
+        {"name": "dart", "version": "3.12.2"},
+        {"name": "node", "version": "24.18.0"},
+        {"name": "android-api", "version": "36,37"},
+        {"name": "android-build-tools", "version": "36,37"},
+        {"name": "android-ndk", "version": "28.2.13676358"}
+      ],
+      "trust": {
+        "allowed_source_trust": ["trusted-pr", "trusted-exact"],
+        "credential_baseline": "tokenless",
+        "executes_caller_source": true
+      }
+    },
+    {
+      "allowed_workflow_apis": ["oci.build", "oci.publish", "helm.publish", "release.orchestrate", "flux.assets"],
+      "architecture": "x64",
+      "capacity_owner": "flux-arc",
+      "concurrency_cap": 10,
+      "default_internal_selector": ["linux", "amd64", "buildah", "tiny"],
+      "evidence_fields": ["result", "image_digest", "chart_digest", "platform_digests_json", "immutable_references_json", "remote_read_back"],
+      "forbidden_uses": [
+        "untrusted fork or issue-controlled source",
+        "Docker daemon or DinD",
+        "Kubernetes or Agent State credentials",
+        "caller-selected storage driver or builder engine",
+        "physical-device work"
+      ],
+      "id": "buildah-tiny",
+      "internal_selectors": [["linux", "amd64", "buildah", "tiny"]],
+      "kind": "runner",
+      "lifecycle": "ephemeral-one-job",
+      "os": "linux",
+      "privilege": {
+        "device_locked": false,
+        "kubernetes_token": false,
+        "manual_capacity": false,
+        "privileged_container": true,
+        "repository_scoped": false
+      },
+      "public_labels": ["buildah-tiny"],
+      "public_name": "buildah-tiny",
+      "resources": {
+        "local_storage_limit": "6Gi",
+        "managed_cache": null,
+        "memory_limit": "1Gi",
+        "memory_request": "512Mi",
+        "scratch": "bounded container storage/runroot/push temporary volumes",
+        "workspace": "bounded emptyDir within local storage envelope"
+      },
+      "tools": [
+        {"name": "github-actions-runner", "version": "2.336.0"},
+        {"name": "buildah", "version": "1.33.7"},
+        {"name": "skopeo", "version": "1.13.3"},
+        {"name": "podman", "version": "4.9.3"}
+      ],
+      "trust": {
+        "allowed_source_trust": ["trusted-exact"],
+        "credential_baseline": "tokenless",
+        "executes_caller_source": true
+      }
+    },
+    {
+      "allowed_workflow_apis": ["oci.build", "oci.publish", "release.orchestrate", "flux.assets"],
+      "architecture": "x64",
+      "capacity_owner": "flux-arc",
+      "concurrency_cap": 6,
+      "default_internal_selector": ["linux", "amd64", "buildah", "small"],
+      "evidence_fields": ["result", "image_digest", "platform_digests_json", "immutable_references_json", "remote_read_back"],
+      "forbidden_uses": [
+        "untrusted fork or issue-controlled source",
+        "Docker daemon or DinD",
+        "Kubernetes or Agent State credentials",
+        "caller-selected storage driver or builder engine",
+        "physical-device work"
+      ],
+      "id": "buildah-small",
+      "internal_selectors": [["linux", "amd64", "buildah", "small"]],
+      "kind": "runner",
+      "lifecycle": "ephemeral-one-job",
+      "os": "linux",
+      "privilege": {
+        "device_locked": false,
+        "kubernetes_token": false,
+        "manual_capacity": false,
+        "privileged_container": true,
+        "repository_scoped": false
+      },
+      "public_labels": ["buildah", "buildah-small"],
+      "public_name": "buildah-small",
+      "resources": {
+        "local_storage_limit": "16Gi",
+        "managed_cache": null,
+        "memory_limit": "2Gi",
+        "memory_request": "512Mi",
+        "scratch": "bounded container storage/runroot/push temporary volumes",
+        "workspace": "bounded emptyDir within local storage envelope"
+      },
+      "tools": [
+        {"name": "github-actions-runner", "version": "2.336.0"},
+        {"name": "buildah", "version": "1.33.7"},
+        {"name": "skopeo", "version": "1.13.3"},
+        {"name": "podman", "version": "4.9.3"}
+      ],
+      "trust": {
+        "allowed_source_trust": ["trusted-exact"],
+        "credential_baseline": "tokenless",
+        "executes_caller_source": true
+      }
+    },
+    {
+      "allowed_workflow_apis": ["validation.python", "oci.build", "oci.publish", "release.orchestrate", "flux.assets"],
+      "architecture": "x64",
+      "capacity_owner": "flux-arc",
+      "concurrency_cap": 3,
+      "default_internal_selector": ["linux", "amd64", "buildah", "medium"],
+      "evidence_fields": ["result", "image_digest", "platform_digests_json", "immutable_references_json", "remote_read_back"],
+      "forbidden_uses": [
+        "untrusted fork or issue-controlled source",
+        "Docker daemon or DinD",
+        "Kubernetes or Agent State credentials",
+        "caller-selected storage driver or builder engine",
+        "physical-device work"
+      ],
+      "id": "buildah-medium",
+      "internal_selectors": [["linux", "amd64", "buildah", "medium"]],
+      "kind": "runner",
+      "lifecycle": "ephemeral-one-job",
+      "os": "linux",
+      "privilege": {
+        "device_locked": false,
+        "kubernetes_token": false,
+        "manual_capacity": false,
+        "privileged_container": true,
+        "repository_scoped": false
+      },
+      "public_labels": ["buildah-medium"],
+      "public_name": "buildah-medium",
+      "resources": {
+        "local_storage_limit": "32Gi",
+        "managed_cache": null,
+        "memory_limit": "4Gi",
+        "memory_request": "2Gi",
+        "scratch": "bounded container storage/runroot/push temporary volumes",
+        "workspace": "bounded emptyDir within local storage envelope"
+      },
+      "tools": [
+        {"name": "github-actions-runner", "version": "2.336.0"},
+        {"name": "buildah", "version": "1.33.7"},
+        {"name": "skopeo", "version": "1.13.3"},
+        {"name": "podman", "version": "4.9.3"}
+      ],
+      "trust": {
+        "allowed_source_trust": ["trusted-exact"],
+        "credential_baseline": "tokenless",
+        "executes_caller_source": true
+      }
+    },
+    {
+      "allowed_workflow_apis": ["validation.python", "oci.build", "oci.publish", "release.orchestrate", "flux.assets"],
+      "architecture": "x64",
+      "capacity_owner": "flux-arc",
+      "concurrency_cap": 1,
+      "default_internal_selector": ["linux", "amd64", "buildah", "high"],
+      "evidence_fields": ["result", "image_digest", "platform_digests_json", "immutable_references_json", "remote_read_back"],
+      "forbidden_uses": [
+        "untrusted fork or issue-controlled source",
+        "Docker daemon or DinD",
+        "Kubernetes or Agent State credentials",
+        "caller-selected storage driver or builder engine",
+        "physical-device work"
+      ],
+      "id": "buildah-high",
+      "internal_selectors": [["linux", "amd64", "buildah", "high"]],
+      "kind": "runner",
+      "lifecycle": "ephemeral-one-job",
+      "os": "linux",
+      "privilege": {
+        "device_locked": false,
+        "kubernetes_token": false,
+        "manual_capacity": false,
+        "privileged_container": true,
+        "repository_scoped": false
+      },
+      "public_labels": ["buildah-high"],
+      "public_name": "buildah-high",
+      "resources": {
+        "local_storage_limit": "44Gi",
+        "managed_cache": null,
+        "memory_limit": "8Gi",
+        "memory_request": "4Gi",
+        "scratch": "bounded container storage/runroot/push temporary volumes",
+        "workspace": "bounded emptyDir within local storage envelope"
+      },
+      "tools": [
+        {"name": "github-actions-runner", "version": "2.336.0"},
+        {"name": "buildah", "version": "1.33.7"},
+        {"name": "skopeo", "version": "1.13.3"},
+        {"name": "podman", "version": "4.9.3"}
+      ],
+      "trust": {
+        "allowed_source_trust": ["trusted-exact"],
+        "credential_baseline": "tokenless",
+        "executes_caller_source": true
+      }
+    },
+    {
+      "allowed_workflow_apis": ["validation.apple", "validation.flutter", "validation.device"],
+      "architecture": "arm64",
+      "capacity_owner": "organization-manual",
+      "concurrency_cap": null,
+      "default_internal_selector": ["macOS", "ARM64"],
+      "evidence_fields": ["result", "test_summary", "artifact_exception_used", "cleanup_result"],
+      "forbidden_uses": [
+        "assuming signing identities, profiles, or store credentials",
+        "assuming a physical Apple device is attached",
+        "untrusted fork source",
+        "leaving DerivedData, simulators, result bundles, or credentials behind"
+      ],
+      "id": "apple",
+      "internal_selectors": [["macOS", "ARM64"]],
+      "kind": "runner",
+      "lifecycle": "organization-managed-persistent-capacity",
+      "os": "macos",
+      "privilege": {
+        "device_locked": false,
+        "kubernetes_token": false,
+        "manual_capacity": true,
+        "privileged_container": false,
+        "repository_scoped": false
+      },
+      "public_labels": ["macOS"],
+      "public_name": "apple",
+      "resources": {
+        "local_storage_limit": "host-policy-defined",
+        "managed_cache": "none implied",
+        "memory_limit": null,
+        "memory_request": null,
+        "scratch": "RUNNER_TEMP; explicit cleanup required",
+        "workspace": "workflow-cleaned host workspace"
+      },
+      "tools": [
+        {"name": "xcode", "version": "runtime-verified"},
+        {"name": "swift", "version": "runtime-verified"},
+        {"name": "apple-sdks-and-simulators", "version": "runtime-verified"}
+      ],
+      "trust": {
+        "allowed_source_trust": ["trusted-pr", "trusted-exact"],
+        "credential_baseline": "no-signing-or-store-credential-implied",
+        "executes_caller_source": true
+      }
+    },
+    {
+      "allowed_workflow_apis": ["validation.device"],
+      "architecture": "device-and-host-dependent",
+      "base_profile_by_family": {
+        "android": "mobile",
+        "ios": "apple",
+        "tvos": "apple"
+      },
+      "capacity_owner": "device-registry-and-host-owner",
+      "concurrency_cap": 1,
+      "default_internal_selector": null,
+      "evidence_fields": [
+        "result",
+        "device_evidence_id",
+        "authorization_receipt",
+        "resource_lock_receipt",
+        "discovered_device_id",
+        "cleanup_evidence",
+        "request_id"
+      ],
+      "forbidden_uses": [
+        "treating mobile or apple runner selection as proof of attachment",
+        "running without trusted authorization and an exclusive resource lock",
+        "non-deterministic first-device discovery",
+        "missing exact-source, evidence, or cleanup records",
+        "concurrent use of the same device"
+      ],
+      "id": "physical-device",
+      "internal_selectors": [],
+      "kind": "guarded-overlay",
+      "lifecycle": "trusted-resource-lock-required",
+      "lock_contract": {
+        "required": true,
+        "required_fields": [
+          "authorization_receipt",
+          "resource_lock_receipt",
+          "device_family",
+          "discovered_device_id",
+          "tested_source_sha",
+          "cleanup_evidence"
+        ]
+      },
+      "os": "family-dependent",
+      "privilege": {
+        "device_locked": true,
+        "kubernetes_token": false,
+        "manual_capacity": true,
+        "privileged_container": false,
+        "repository_scoped": false
+      },
+      "public_labels": [],
+      "public_name": "physical-device",
+      "resources": {
+        "local_storage_limit": "base-profile-defined",
+        "managed_cache": "base-profile-defined",
+        "memory_limit": null,
+        "memory_request": null,
+        "scratch": "base-profile-defined",
+        "workspace": "base-profile-defined"
+      },
+      "tools": [{"name": "device-discovery", "version": "deterministic-provider-contract"}],
+      "trust": {
+        "allowed_source_trust": ["trusted-exact"],
+        "credential_baseline": "explicit-live-test-secrets-only",
+        "executes_caller_source": true
+      }
+    },
+    {
+      "allowed_workflow_apis": ["flux.reconcile", "flux.assets"],
+      "architecture": "x64",
+      "capacity_owner": "flux-arc",
+      "concurrency_cap": 10,
+      "default_internal_selector": ["linux", "amd64", "flux-control"],
+      "evidence_fields": ["result", "reconciliation_state", "request_id", "cleanup_result"],
+      "forbidden_uses": [
+        "untrusted product or pull-request source",
+        "non-Flux repositories",
+        "caller-selected cluster, namespace, service account, or kubeconfig",
+        "general product build or publication"
+      ],
+      "id": "flux-control",
+      "internal_selectors": [["linux", "amd64", "flux-control"]],
+      "kind": "runner",
+      "lifecycle": "ephemeral-one-job-repository-scoped",
+      "os": "linux",
+      "privilege": {
+        "device_locked": false,
+        "kubernetes_token": true,
+        "manual_capacity": false,
+        "privileged_container": false,
+        "repository_scoped": true
+      },
+      "public_labels": [],
+      "public_name": "flux-control",
+      "resources": {
+        "local_storage_limit": "2Gi container ephemeral storage",
+        "managed_cache": null,
+        "memory_limit": "1Gi",
+        "memory_request": "256Mi",
+        "scratch": "RUNNER_TEMP inside bounded workspace",
+        "workspace": "2Gi generic-ephemeral PVC"
+      },
+      "tools": [
+        {"name": "github-actions-runner", "version": "2.336.0"},
+        {"name": "kubernetes-api-access", "version": "service-account-bound"},
+        {"name": "flux-policy-toolchain", "version": "protected-source-defined"}
+      ],
+      "trust": {
+        "allowed_source_trust": ["protected-flux-policy-only"],
+        "credential_baseline": "flux-owned-kubernetes-service-account",
+        "executes_caller_source": false
+      }
+    }
+  ],
+  "scheduling_mechanism": {
+    "caller_supplied_selectors": false,
+    "composite_action_can_change_runs_on": false,
+    "description": "A minimal protected planning job validates bounded semantic intent and emits a JSON selector. A dependent job uses fromJSON(needs.plan.outputs.runs_on), which GitHub resolves before scheduling that dependent job.",
+    "generated_mapping": "generated/runner-mappings.json",
+    "kind": "trusted-planning-job",
+    "planner_profile": "portable"
+  },
+  "schema_version": 1,
+  "source_trust_values": [
+    "untrusted-fork",
+    "trusted-pr",
+    "trusted-exact",
+    "protected-flux-policy-only"
+  ],
+  "workflow_bindings": [
+    {"api": "source.resolve", "profiles": ["portable"], "strategy": "fixed"},
+    {"api": "validation.python", "profiles": ["portable", "buildah-medium", "buildah-high"], "strategy": "profile-contract"},
+    {"api": "validation.node", "profiles": ["portable"], "strategy": "fixed"},
+    {"api": "validation.android", "profiles": ["mobile"], "strategy": "fixed"},
+    {"api": "validation.flutter", "profiles": ["mobile", "apple"], "strategy": "platform"},
+    {"api": "validation.apple", "profiles": ["apple"], "strategy": "fixed"},
+    {"api": "validation.device", "profiles": ["physical-device"], "strategy": "guarded-overlay"},
+    {"api": "validation.gitops", "profiles": ["portable"], "strategy": "fixed"},
+    {"api": "oci.build", "profiles": ["buildah-tiny", "buildah-small", "buildah-medium", "buildah-high"], "strategy": "measured-tier"},
+    {"api": "oci.publish", "profiles": ["buildah-small", "buildah-medium", "buildah-high"], "strategy": "product-contract-tier"},
+    {"api": "helm.validate", "profiles": ["portable"], "strategy": "fixed"},
+    {"api": "helm.publish", "profiles": ["buildah-tiny"], "strategy": "measured-tier"},
+    {"api": "release.orchestrate", "profiles": ["portable", "buildah-small", "buildah-medium", "buildah-high"], "strategy": "internal-multi-job"},
+    {"api": "flux.assets", "profiles": ["portable", "buildah-tiny", "buildah-small", "buildah-medium", "buildah-high", "flux-control"], "strategy": "internal-multi-job"},
+    {"api": "flux.reconcile", "profiles": ["flux-control"], "strategy": "fixed"},
+    {"api": "maintenance.artifacts", "profiles": ["portable"], "strategy": "fixed"},
+    {"api": "maintenance.branches", "profiles": ["portable"], "strategy": "fixed"},
+    {"api": "maintenance.conformance", "profiles": ["portable"], "strategy": "fixed"},
+    {"api": "maintenance.runner-retry", "profiles": ["portable"], "strategy": "fixed"}
+  ]
+}

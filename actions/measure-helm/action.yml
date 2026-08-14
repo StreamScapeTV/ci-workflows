@@ -36,6 +36,16 @@ runs:
         INPUT_PRODUCT_ID: ${{ inputs.product_id }}
       run: |
         set -Eeuo pipefail
+        runtime_root="${RUNNER_TEMP}/ciw-helm-measurement-python-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+        case "${runtime_root}" in "${RUNNER_TEMP}"/*) ;; *) exit 2 ;; esac
+        rm -rf -- "${runtime_root}"
+        mkdir -p -- "${runtime_root}"
+        cleanup_runtime() { rm -rf -- "${runtime_root}"; }
+        trap cleanup_runtime EXIT
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/bootstrap_validation_runtime.py" \
+          --lock "${GITHUB_ACTION_PATH}/../../contracts/action-tool-lock.json" \
+          --target "${runtime_root}"
+        export PYTHONPATH="${runtime_root}:${GITHUB_ACTION_PATH}/../../src"
         case "${{ inputs.phase }}" in
           start|stop)
             python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/helm_measurement.py" "${{ inputs.phase }}"

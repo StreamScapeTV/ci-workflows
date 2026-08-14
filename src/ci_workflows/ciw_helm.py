@@ -1,4 +1,4 @@
-"""Thin, bounded Helm command adapter pending shared CIW registration."""
+"""Thin, bounded Helm command adapter registered through shared CIW."""
 from __future__ import annotations
 
 import argparse
@@ -8,28 +8,13 @@ import sys
 from pathlib import Path
 from typing import Mapping, Sequence
 
-from . import runners
 from .ciw_types import CIWContext, CIWResult, write_command_file
-from .helm_archive import finalize_validation_archive
-from .helm_contract import (
-    bounded_path,
-    load_helm_contract,
-    load_helm_publication_contract,
-    request_from_environment,
-    require,
-)
-from .helm_dependency_policy import resolve_validation_plan
-from .helm_execution import (
-    cleanup_helm_state,
-    validate_and_package,
-    verify_no_helm_residue,
-)
-from .helm_policy import run_policy_hook
 from .helm_types import HelmRequest, HelmValidationError
-from .workspace import resolve_state_root
 
 
 def _state_root(root: Path, environment: Mapping[str, str]) -> Path:
+    from .workspace import resolve_state_root
+
     try:
         state = resolve_state_root(
             runner_temp=Path(environment["RUNNER_TEMP"]),
@@ -40,10 +25,8 @@ def _state_root(root: Path, environment: Mapping[str, str]) -> Path:
     except KeyError as error:
         raise HelmValidationError("invalid_input") from error
     temporary = state / "tmp"
-    require(
-        temporary.is_dir() and not temporary.is_symlink(),
-        "cleanup_failed",
-    )
+    if not (temporary.is_dir() and not temporary.is_symlink()):
+        raise HelmValidationError("cleanup_failed")
     return temporary
 
 
@@ -52,13 +35,15 @@ def _source_root(
     environment: Mapping[str, str],
     relative: str,
 ) -> Path:
+    from .helm_contract import bounded_path
+
     workspace = Path(environment.get("GITHUB_WORKSPACE", ".")).resolve()
     return bounded_path(workspace, relative, "source_mismatch")
 
 
 def _require_operation_trust(request: HelmRequest, operation: str) -> None:
-    if operation == "publish":
-        require(request.source_trust == "trusted-exact", "source_trust_rejected")
+    if operation == "publish" and request.source_trust != "trusted-exact":
+        raise HelmValidationError("source_trust_rejected")
 
 
 def _runner_profile(operation: str) -> str:
@@ -95,6 +80,14 @@ def _plan(
     environment: Mapping[str, str],
     operation: str,
 ) -> dict[str, str]:
+    from . import runners
+    from .helm_contract import (
+        load_helm_contract,
+        load_helm_publication_contract,
+        request_from_environment,
+        require,
+    )
+
     contract = load_helm_contract(root)
     if operation == "publish":
         load_helm_publication_contract(root)
@@ -139,6 +132,16 @@ def execute(
     phase: str,
     source_relative: str,
 ) -> dict[str, str]:
+    from .helm_archive import finalize_validation_archive
+    from .helm_contract import load_helm_contract, request_from_environment, require
+    from .helm_dependency_policy import resolve_validation_plan
+    from .helm_execution import (
+        cleanup_helm_state,
+        validate_and_package,
+        verify_no_helm_residue,
+    )
+    from .helm_policy import run_policy_hook
+
     require(operation in {"validate", "publish"}, "invalid_operation")
     if phase == "plan":
         return _plan(root, environment, operation)
