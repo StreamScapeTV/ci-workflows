@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_SHA = "87a7454aaa59cb680db8f580d22551b749ac4193"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 PYTHON_SHA = "e869906a0b192ab954dce3dbd1e90cccb649eb18"
-ANDROID_SHA = "5f503d419696e5bfae4ed5b11eca3b531dbdca0f"
+ANDROID_SHA = "006ce9e3766893f226aaf495451ae68c92fc62d1"
 APPLE_SHA = "293dee450e3464032d67f702b768f493abf65d7b"
 OCI_SHA = "3b401078d1167d7048281e3c3269556ce586dada"
 GITOPS_SHA = "8445e63dd9fa9468b60b6d0c61e543da9681b47b"
@@ -20,7 +20,7 @@ GITOPS_SHA = "8445e63dd9fa9468b60b6d0c61e543da9681b47b"
 FOUNDATION = "issue #116 immutable private-action checkpoint"
 ISSUE_132 = "issue #132 immutable mode-aware source checkpoint"
 ISSUE_104 = "issue #104 immutable private-action checkpoint"
-ISSUE_140 = "issue #140 immutable integrated source-policy checkpoint"
+ISSUE_196 = "issue #196 immutable Media tvOS source-regression checkpoint"
 ISSUE_125 = "issue #125 immutable private-action checkpoint"
 ISSUE_155 = "issue #155 immutable Backend execution repair checkpoint"
 ISSUE_150 = "issue #150 immutable OCI input checkpoint"
@@ -35,7 +35,7 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
     },
     ".github/workflows/reusable-android.yml": {
-        "StreamScapeTV/ci-workflows/actions/validate-android": (ANDROID_SHA, ISSUE_140),
+        "StreamScapeTV/ci-workflows/actions/validate-android": (ANDROID_SHA, ISSUE_196),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/checkout-private-dependency": (FOUNDATION_SHA, ISSUE_104),

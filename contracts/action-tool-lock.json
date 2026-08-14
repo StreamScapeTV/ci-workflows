@@ -80,10 +80,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-android",
-      "sha": "5f503d419696e5bfae4ed5b11eca3b531dbdca0f",
-      "release": "issue #140 immutable integrated source-policy checkpoint",
+      "sha": "006ce9e3766893f226aaf495451ae68c92fc62d1",
+      "release": "issue #196 immutable Media tvOS source-regression checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/5f503d419696e5bfae4ed5b11eca3b531dbdca0f/actions/validate-android"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/006ce9e3766893f226aaf495451ae68c92fc62d1/actions/validate-android"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/checkout-private-dependency",

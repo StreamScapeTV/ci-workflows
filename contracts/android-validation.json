@@ -577,6 +577,23 @@
             "scripts/ci/run-validation-scope.sh"
           ]
         },
+        "media-tvos-source-regressions": {
+          "validation_profile": "consumer-script",
+          "commands": [
+            {
+              "stage": "consumer-script",
+              "argv": [
+                "bash",
+                "scripts/ci/test-tvos-source-regressions.sh"
+              ]
+            }
+          ],
+          "consumer_script_path": "scripts/ci/test-tvos-source-regressions.sh",
+          "expected_debug_outputs": [],
+          "protected_paths": [
+            "scripts/ci/test-tvos-source-regressions.sh"
+          ]
+        },
         "media-device-handoff": {
           "validation_profile": "device-handoff",
           "commands": [],
