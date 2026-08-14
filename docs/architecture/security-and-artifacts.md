@@ -2,7 +2,18 @@
 
 ## Trust classes
 
-Shared workflows classify execution as read-only validation, trusted publication, trusted Flux reconciliation, or organization maintenance. Permissions, runners, secrets, source admission, and cleanup are reviewed independently for each class.
+`contracts/public-workflow-types.json` is the machine authority for public workflow trust classes. The security baseline mirrors its current privilege and caller-source execution boundaries:
+
+| Trust class | Privileged | Executes caller source | Security boundary |
+|---|---|---|---|
+| `source-admission` | no | no | Resolves and verifies source identity without executing caller source or receiving product privilege. |
+| `read-only-validation` | no | yes | Executes admitted caller source only under validation permissions with no publication, device, Flux, or maintenance authority. |
+| `physical-device-validation` | yes | yes | Executes exact trusted caller source only after the separate guarded device authorization, fencing, runner, evidence, restoration, and cleanup boundaries admit it. |
+| `trusted-publication` | yes | yes | Executes exact approved release source with explicitly named publication credentials; publication remains separate from deployment. |
+| `flux-authorized` | yes | no | Executes exact protected Flux-owned policy/orchestration source and bounded target authority, never producer or pull-request source. |
+| `trusted-maintenance` | yes | no | Performs bounded trusted organization maintenance from reviewed control policy without executing arbitrary caller/product source. |
+
+Permissions, runners, secrets, source admission, evidence, and cleanup are reviewed independently for each class. A privileged class is not an escalation of ordinary read-only validation: its event, source, credential, target, runner, and mutation authority remain separately bounded by the public workflow contract and domain policy.
 
 ## Source and credentials
 
