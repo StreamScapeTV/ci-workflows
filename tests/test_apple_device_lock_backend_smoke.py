@@ -10,6 +10,7 @@ from ci_workflows.validation_model import ActionsLoader
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/apple-device-lock-backend-smoke.yml"
 ACTION = ROOT / "actions/device-lock/action.yml"
+SYNTHETIC_HASH = "b" * 64
 
 
 class AppleDeviceLockBackendSmokeTests(unittest.TestCase):
@@ -17,11 +18,14 @@ class AppleDeviceLockBackendSmokeTests(unittest.TestCase):
         self.source = WORKFLOW.read_text(encoding="utf-8")
         self.workflow = yaml.load(self.source, Loader=ActionsLoader)
 
-    def test_smoke_is_pr_only_minimum_permission_and_exact_source(self) -> None:
-        self.assertEqual({"pull_request"}, set(self.workflow["on"]))
+    def test_smoke_runs_only_from_protected_main_push(self) -> None:
+        self.assertEqual({"push"}, set(self.workflow["on"]))
+        push = self.workflow["on"]["push"]
+        self.assertEqual(["main"], push["branches"])
         self.assertEqual({"actions": "read", "contents": "read"}, self.workflow["permissions"])
-        self.assertIn("github.event.pull_request.head.sha", self.source)
+        self.assertIn("github.sha", self.source)
         self.assertIn("persist-credentials: false", self.source)
+        self.assertNotIn("pull_request", self.source)
         self.assertNotIn("pull_request_target", self.source)
         self.assertNotIn("workflow_dispatch", self.source)
         self.assertNotIn("secrets.", self.source)
@@ -29,10 +33,13 @@ class AppleDeviceLockBackendSmokeTests(unittest.TestCase):
     def test_physical_capable_apple_selector_is_explicit(self) -> None:
         job = self.workflow["jobs"]["backend_smoke"]
         self.assertEqual(["macOS", "ARM64", "ios"], job["runs-on"])
-        self.assertEqual(
-            "${{ github.event.pull_request.head.repo.full_name == github.repository }}",
-            job["if"],
-        )
+
+    def test_smoke_serializes_one_stable_synthetic_resource(self) -> None:
+        concurrency = self.workflow["concurrency"]
+        self.assertEqual("apple-device-lock-backend-main", concurrency["group"])
+        self.assertFalse(concurrency["cancel-in-progress"])
+        self.assertNotIn("github.run_id", concurrency["group"])
+        self.assertNotIn("github.run_attempt", concurrency["group"])
 
     def test_backend_is_runner_owned_and_never_caller_selected(self) -> None:
         self.assertNotIn("CIW_DEVICE_LOCK_ROOT:", self.source)
@@ -47,10 +54,10 @@ class AppleDeviceLockBackendSmokeTests(unittest.TestCase):
         self.assertNotIn("backend", action["inputs"])
         self.assertNotIn("backend_root", action["inputs"])
 
-    def test_smoke_uses_only_synthetic_hash_identity_and_lock_phases(self) -> None:
+    def test_smoke_uses_only_hash_identity_and_lock_phases(self) -> None:
         job = self.workflow["jobs"]["backend_smoke"]
         steps = {step.get("id"): step for step in job["steps"] if step.get("id")}
-        self.assertEqual({"identity", "acquire", "verify", "release", "residue"}, set(steps))
+        self.assertEqual({"acquire", "verify", "release", "residue"}, set(steps))
         for name, phase in (
             ("acquire", "acquire"),
             ("verify", "verify"),
@@ -61,21 +68,16 @@ class AppleDeviceLockBackendSmokeTests(unittest.TestCase):
             self.assertEqual(phase, steps[name]["with"]["phase"])
             self.assertEqual("tvos", steps[name]["with"]["device_family"])
             self.assertEqual("backend-smoke", steps[name]["with"]["device_capability"])
-            self.assertEqual(
-                "${{ steps.identity.outputs.device_identity_hash }}",
-                steps[name]["with"]["device_identity_hash"],
-            )
-        identity = steps["identity"]["run"]
-        self.assertIn("hashlib.sha256", identity)
-        self.assertIn("issue-208-apple-backend-smoke", identity)
+            self.assertEqual(SYNTHETIC_HASH, steps[name]["with"]["device_identity_hash"])
+            self.assertEqual("${{ github.sha }}", steps[name]["with"]["tested_source_sha"])
         lowered = self.source.casefold()
         for forbidden in (
             "devicectl",
             "simctl",
             "xcodebuild",
             "adb ",
-            "device_identity_hash: udid",
-            "device_identity_hash: serial",
+            "udid",
+            "serial",
         ):
             self.assertNotIn(forbidden, lowered)
 
@@ -104,8 +106,7 @@ class AppleDeviceLockBackendSmokeTests(unittest.TestCase):
         self.assertNotIn("print(raw)", lowered)
         self.assertNotIn("runner.name", lowered)
         self.assertNotIn("runner_name", lowered)
-        self.assertNotIn("udid", lowered)
-        self.assertNotIn("serial", lowered)
+        self.assertNotIn("backend_root", lowered)
         self.assertNotIn("upload-artifact", lowered)
         self.assertNotIn("download-artifact", lowered)
 
