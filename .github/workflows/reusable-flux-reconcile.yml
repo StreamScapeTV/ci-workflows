@@ -55,13 +55,15 @@ jobs:
       - name: Cleanup and verify exact Flux workflow state
         if: always()
         shell: bash
+        env:
+          CIW_ADMITTED_SHA: ${{ inputs.admitted_sha }}
         run: |
           set -u
           cleanup_failed=0
           if [[ -d source && ! -L source ]]; then
             (
               cd source
-              test "$(git rev-parse HEAD)" = "${{ inputs.admitted_sha }}"
+              test "$(git rev-parse HEAD)" = "${CIW_ADMITTED_SHA}"
               test -z "$(git status --porcelain --untracked-files=all)"
             ) || cleanup_failed=1
             rm -rf source || cleanup_failed=1
