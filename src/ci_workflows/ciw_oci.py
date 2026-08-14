@@ -1,4 +1,4 @@
-"""Thin CLI adapter for the versioned OCI build contract."""
+"""Thin CIW adapters for versioned OCI validation and publication contracts."""
 from __future__ import annotations
 
 import argparse
@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 from . import oci
+from . import oci_publish_contract as publication
 from .ciw_types import CIWContext, CIWResult, write_command_file
 from .oci_contract import (
     MAPPING_PATH,
@@ -59,15 +60,26 @@ def configure_oci_validate(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--source-root", default="source")
 
 
-def _failure_outputs(context: CIWContext, error: OciBuildError) -> None:
+def configure_oci_publish(parser: argparse.ArgumentParser) -> None:
+    """Configure the bounded ``ciw oci publish`` command."""
+
+    parser.add_argument(
+        "--phase",
+        choices=("plan", "authenticate", "publish", "readback", "verify", "cleanup", "residue"),
+        default="plan",
+    )
+
+
+def _failure_outputs(context: CIWContext, error: BaseException) -> None:
     target = context.environment.get("GITHUB_OUTPUT", "")
-    if not target:
+    code = getattr(error, "code", "invalid_request")
+    if not target or not isinstance(code, str):
         return
     write_command_file(
         Path(target),
         {
             "result": "failure",
-            "failure_code": error.code,
+            "failure_code": code,
         },
     )
 
@@ -114,6 +126,58 @@ def execute_oci_validate(
         result = oci.build(context.root, source_root, plan, context.environment)
         return CIWResult("oci", "validate", outputs=result.output_values())
     except OciBuildError as error:
+        _failure_outputs(context, error)
+        raise
+
+
+def execute_oci_publish(
+    args: argparse.Namespace,
+    context: CIWContext,
+) -> CIWResult:
+    """Plan, authenticate, publish/verify, read back, or clean one OCI release."""
+
+    try:
+        if args.phase == "cleanup":
+            publication.cleanup(context.environment)
+            return CIWResult(
+                "oci",
+                "publish",
+                outputs={
+                    "result": "success",
+                    "cleanup_result": "success",
+                    "failure_code": "",
+                },
+            )
+        if args.phase == "residue":
+            publication.residue(context.environment)
+            return CIWResult(
+                "oci",
+                "publish",
+                outputs={
+                    "result": "success",
+                    "cleanup_result": "success",
+                    "failure_code": "",
+                },
+            )
+        request = publication.request_from_environment(context.environment)
+        plan = publication.resolve_plan(context.root, request)
+        if args.phase == "plan":
+            outputs = plan.planning_outputs()
+        elif args.phase == "authenticate":
+            outputs = publication.authenticate(
+                plan,
+                context.environment,
+                context.environment.get("INPUT_REGISTRY_USERNAME", ""),
+                context.environment.get("INPUT_REGISTRY_TOKEN", ""),
+            )
+        elif args.phase == "publish":
+            outputs = oci.publish(plan, context.environment)
+        elif args.phase == "readback":
+            outputs = oci.read_back(plan, context.environment)
+        else:
+            outputs = publication.verify(plan, context.environment)
+        return CIWResult("oci", "publish", outputs=outputs)
+    except publication.OciPublishError as error:
         _failure_outputs(context, error)
         raise
 

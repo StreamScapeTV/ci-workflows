@@ -1,0 +1,62 @@
+name: OCI publication exact-head mock smoke
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/reusable-oci-publish.yml
+      - .github/workflows/oci-publish-smoke.yml
+      - actions/publish-oci/**
+      - contracts/oci-publication.schema.json
+      - docs/workflows/oci-publish.md
+      - scripts/ci/oci_publish.py
+      - src/ci_workflows/oci_publish*.py
+      - tests/fixtures/oci-publish/**
+      - tests/test_oci_publication*.py
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oci-publish-smoke-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  mock_validation:
+    name: CI / OCI publication mock validation
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: [linux, amd64, general]
+    timeout-minutes: 15
+    steps:
+      - name: Check out exact same-repository pull-request head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact mock-smoke source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+
+      - name: Run focused trusted-publication unit and workflow-contract tests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 \
+            python3 -m unittest -v \
+              tests.test_oci_publication \
+              tests.test_oci_publication_contract_alignment \
+              tests.test_oci_publication_workflow_contract
+
+      - name: Verify smoke source remains clean and credential-free
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -z "$(git status --porcelain --untracked-files=all)"
+          test ! -e "${RUNNER_TEMP}/registry-auth.json"
