@@ -181,8 +181,16 @@ class InventoryAndEvidenceTests(unittest.TestCase):
 
     def test_in_memory_adapter_is_test_only_and_not_cross_run_authority(self) -> None:
         self.assertIn("test double only", InMemoryDeviceLockAdapter.__doc__ or "")
-        self.assertFalse(self.contract["lock_contract"]["cross_run_fencing_claimed"])
-        self.assertEqual("none-in-source-package", self.contract["lock_contract"]["production_adapter"])
+        self.assertEqual(
+            "in-memory-tests-only",
+            self.contract["lock_contract"]["temporary_reference_adapter"],
+        )
+        self.assertTrue(self.contract["lock_contract"]["cross_run_fencing_claimed"])
+        self.assertEqual(
+            "device-lock/1:posix-shared-root-v1",
+            self.contract["lock_contract"]["production_adapter"],
+        )
+        self.assertFalse(self.contract["lock_contract"]["agent_state_transport_used"])
 
     def test_evidence_rejects_unreviewed_assertions_that_could_leak_identifiers(self) -> None:
         result, records = self.synthetic_result()
