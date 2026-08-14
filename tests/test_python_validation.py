@@ -68,7 +68,7 @@ class PythonValidationTests(unittest.TestCase):
         for identifier, runtime in self.contract["runtimes"].items():
             with self.subTest(runtime=identifier):
                 if runtime["kind"] == "host":
-                    self.assertEqual(runtime["python_version"], "3.12.13")
+                    self.assertEqual(runtime["python_version"], "3.12.3")
                 else:
                     reference = (
                         f"{runtime['repository']}:{runtime['tag']}"
@@ -112,7 +112,7 @@ class PythonValidationTests(unittest.TestCase):
                 "audit",
                 "source-audit",
                 "portable",
-                "host-cpython-3.12.13",
+                "host-cpython-3.12.3",
                 False,
             ),
             (
@@ -120,7 +120,7 @@ class PythonValidationTests(unittest.TestCase):
                 "host",
                 "source-audit",
                 "portable",
-                "host-cpython-3.12.13",
+                "host-cpython-3.12.3",
                 False,
             ),
             (
@@ -156,6 +156,8 @@ class PythonValidationTests(unittest.TestCase):
                 )
                 self.assertEqual(plan.runner_profile, runner)
                 self.assertEqual(plan.runtime_id, runtime)
+                if runtime == "host-cpython-3.12.3":
+                    self.assertEqual(plan.python_version, "3.12.3")
                 self.assertEqual(bool(plan.postgres_runtime_reference), postgres)
                 self.assertTrue(plan.commands)
                 self.assertNotIn("callback", json.dumps(plan.planning_outputs()))
