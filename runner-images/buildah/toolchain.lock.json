@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "product_id": "runner-buildah",
+  "platform": "linux/amd64",
+  "actions_runner": {
+    "version": "2.336.0",
+    "root_digest": "sha256:0cfdcc701ce933c6d243c6b0b2da767366dc9f2e99961d4c3754b0b78084cdda",
+    "linux_amd64_manifest_digest": "sha256:a1919047b038c38871d667c58cfdc7a878452711ab1212fb6036188f27a7ab16",
+    "linux_amd64_config_digest": "sha256:bd6fe162bb4ab4821daa8d694e20d779865618825d30c94342a0228b89947305"
+  },
+  "packages": {
+    "buildah": "1.33.7+ds1-1ubuntu0.24.04.3",
+    "skopeo": "1.13.3+ds1-2ubuntu0.24.04.3",
+    "podman": "4.9.3+ds1-1ubuntu0.2",
+    "podman-compose": "1.0.6-1"
+  }
+}
