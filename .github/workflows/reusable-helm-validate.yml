@@ -53,7 +53,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve fixed Helm contract
-        uses: StreamScapeTV/ci-workflows/actions/validate-helm@138e0c7b0e10f5ad09679d97e81e5c33ada803ac # issue #18 immutable Helm dispatcher checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-helm@f867827a41174ea5a9ad554eeea91dbb2c2c0bfa # issue #18 immutable Helm runtime checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -91,7 +91,7 @@ jobs:
       - id: helm
         name: Validate and deterministically package Helm chart
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/validate-helm@138e0c7b0e10f5ad09679d97e81e5c33ada803ac # issue #18 immutable Helm dispatcher checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-helm@f867827a41174ea5a9ad554eeea91dbb2c2c0bfa # issue #18 immutable Helm runtime checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -104,7 +104,7 @@ jobs:
       - id: helm_cleanup
         name: Remove Helm package and credential state
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-helm@138e0c7b0e10f5ad09679d97e81e5c33ada803ac # issue #18 immutable Helm dispatcher checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-helm@f867827a41174ea5a9ad554eeea91dbb2c2c0bfa # issue #18 immutable Helm runtime checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -113,7 +113,7 @@ jobs:
       - id: residue
         name: Verify zero Helm-specific residue
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-helm@138e0c7b0e10f5ad09679d97e81e5c33ada803ac # issue #18 immutable Helm dispatcher checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-helm@f867827a41174ea5a9ad554eeea91dbb2c2c0bfa # issue #18 immutable Helm runtime checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
