@@ -9,6 +9,7 @@ from .flux_reconcile import plan_summary, reconcile, resolve_request
 from .flux_reconcile_fs import remove_state
 from .maintenance import GitHubApi, artifacts, branches, conformance, render_result, runner_retry
 from .maintenance_contract import MaintenanceError, load_contract
+from .maintenance_core import OperationResult
 
 
 def _bool(value: str) -> bool:
@@ -102,8 +103,8 @@ def _failure_outputs(
     write_command_file(Path(path), values)
 
 
-def _maintenance_result(operation: str, value: object) -> CIWResult:
-    outputs = render_result(value)  # type: ignore[arg-type]
+def _maintenance_result(operation: str, value: OperationResult) -> CIWResult:
+    outputs = render_result(value)
     outputs["failure_code"] = ""
     return CIWResult("maintenance", operation, outputs=outputs)
 
@@ -217,8 +218,11 @@ def _flux_source(context: CIWContext) -> Path:
             code="github_workspace_required",
         )
     ).resolve()
-    source = (workspace / "source").resolve()
-    if workspace not in source.parents or not source.is_dir() or source.is_symlink():
+    raw_source = workspace / "source"
+    if raw_source.is_symlink() or not raw_source.is_dir():
+        raise MaintenanceError("flux_source_invalid")
+    source = raw_source.resolve()
+    if workspace not in source.parents:
         raise MaintenanceError("flux_source_invalid")
     return source
 
