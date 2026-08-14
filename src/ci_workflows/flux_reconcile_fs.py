@@ -2,10 +2,35 @@
 from __future__ import annotations
 
 import os
+import shutil
 import stat
 from pathlib import Path
 
 from .maintenance_contract import MaintenanceError
+
+
+def remove_state(path: Path, *, fail_on_unsafe: bool) -> None:
+    """Remove one run-owned Flux state path without following links."""
+
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError:
+        return
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+        try:
+            path.unlink()
+        except OSError as error:
+            raise MaintenanceError("flux_state_cleanup_failed") from error
+        if fail_on_unsafe:
+            raise MaintenanceError("flux_state_invalid")
+        return
+    try:
+        shutil.rmtree(path)
+    except OSError as error:
+        raise MaintenanceError("flux_state_cleanup_failed") from error
+    if path.exists() or path.is_symlink():
+        raise MaintenanceError("flux_state_cleanup_failed")
+
 
 def _state_directory(state_root: Path) -> Path:
     state = state_root.absolute()
