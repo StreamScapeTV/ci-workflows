@@ -9,7 +9,7 @@ import yaml
 from ci_workflows.validation_model import ActionsLoader
 
 ROOT = Path(__file__).resolve().parents[1]
-HELPER_SHA = "3de0f365eed5ff69cf18b1af26aa42f7928fd8ef"
+HELPER_SHA = "ac5b6be68ea2aa562ccc513103dbdd9b6c23d7ad"
 HELPERS = {
     "maintenance.artifacts": ("maintenance-artifacts", HELPER_SHA),
     "maintenance.branches": ("maintenance-branches", HELPER_SHA),
