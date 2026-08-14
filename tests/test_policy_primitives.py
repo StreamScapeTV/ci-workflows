@@ -111,6 +111,49 @@ class PolicyPrimitiveTests(unittest.TestCase):
             )
         self.assertEqual(caught.exception.instruction, "tracked_secret_detected")
 
+    def test_bearer_placeholders_pass_but_credential_shaped_value_fails(self) -> None:
+        path = self.commit(
+            "README.md",
+            'curl -H "Authorization: Bearer TOKEN" https://example.test\n',
+        )
+        self.assertEqual(
+            scan_tracked_repository(
+                self.repo,
+                repository="StreamScapeTV/example",
+                contract_root=ROOT,
+            ),
+            (1, 1),
+        )
+
+        path.write_text(
+            "Authorization: Bearer synthetic-access-token\n",
+            encoding="utf-8",
+        )
+        subprocess.run(["git", "-C", str(self.repo), "add", "README.md"], check=True)
+        subprocess.run(["git", "-C", str(self.repo), "commit", "-qm", "synthetic"], check=True)
+        self.assertEqual(
+            scan_tracked_repository(
+                self.repo,
+                repository="StreamScapeTV/example",
+                contract_root=ROOT,
+            ),
+            (1, 1),
+        )
+
+        path.write_text(
+            'curl -H "Authorization: Bearer ' + "A" * 32 + '" https://example.test\n',
+            encoding="utf-8",
+        )
+        subprocess.run(["git", "-C", str(self.repo), "add", "README.md"], check=True)
+        subprocess.run(["git", "-C", str(self.repo), "commit", "-qm", "credential"], check=True)
+        with self.assertRaises(FoundationError) as caught:
+            scan_tracked_repository(
+                self.repo,
+                repository="StreamScapeTV/example",
+                contract_root=ROOT,
+            )
+        self.assertEqual(caught.exception.instruction, "tracked_secret_detected")
+
     def test_tracked_symlink_escape_is_rejected(self) -> None:
         outside = Path(self.temp.name) / "outside.txt"
         outside.write_text("outside\n", encoding="utf-8")
