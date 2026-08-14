@@ -169,7 +169,7 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         self.assertGreaterEqual(self.smoke.count("test ! -L source"), 1)
         self.assertGreaterEqual(self.smoke.count("test ! -e .ciw"), 2)
         self.assertGreaterEqual(self.smoke.count("test ! -L .ciw"), 2)
-        self.assertEqual(3, self.smoke.count("clean: true"))
+        self.assertEqual(4, self.smoke.count("clean: true"))
         self.assertGreaterEqual(self.smoke.count("rev-parse HEAD"), 3)
 
     def test_terminal_projection_preserves_restore_lock_and_cleanup_failures(self) -> None:
@@ -195,8 +195,10 @@ class DeviceWorkflowContractTests(unittest.TestCase):
             self.assertIn(name, device_job)
 
     def test_smoke_is_source_only_and_synthetic(self) -> None:
-        self.assertEqual(2, self.smoke.count("runs-on: [linux, amd64, general]"))
-        self.assertEqual(3, self.smoke.count("phase: synthetic"))
+        self.assertEqual(3, self.smoke.count("runs-on: [linux, amd64, general]"))
+        self.assertEqual(1, self.smoke.count("phase: synthetic"))
+        for family in ("android", "ios", "tvos"):
+            self.assertIn(f"- family: {family}", self.smoke)
         self.assertNotIn("phase: execute", self.smoke)
         self.assertNotIn("device_authorization_receipt", self.smoke)
         self.assertNotIn("live_test_credentials", self.smoke)
@@ -227,7 +229,7 @@ class DeviceWorkflowContractTests(unittest.TestCase):
             self.workflow + "\n" + self.smoke,
             re.M,
         )
-        self.assertEqual(4, direct_selectors.count(selector_value))
+        self.assertEqual(5, direct_selectors.count(selector_value))
         direct_selector_text = "\n".join(direct_selectors)
         for forbidden in (
             "physical-device",
