@@ -6,7 +6,16 @@
     "network_during_image_build": false,
     "ambient_credentials": false,
     "inherits_streamscape_runner_image": false,
-    "forbidden_tools": ["docker", "dockerd", "buildah", "podman", "skopeo"]
+    "forbidden_tools": ["docker", "dockerd", "containerd", "buildah", "podman", "skopeo"]
+  },
+  "toolchain": {
+    "actions_runner": "2.336.0",
+    "python": "3.12.13",
+    "node": "24.19.0",
+    "yq": "4.53.3",
+    "kubectl": "1.36.3",
+    "helm": "4.2.4",
+    "kustomize": "5.8.1"
   },
   "oci_stages": {
     "actions_runner": {
@@ -15,20 +24,16 @@
       "root_digest": "sha256:0cfdcc701ce933c6d243c6b0b2da767366dc9f2e99961d4c3754b0b78084cdda",
       "linux_amd64_manifest_digest": "sha256:a1919047b038c38871d667c58cfdc7a878452711ab1212fb6036188f27a7ab16",
       "linux_amd64_config_digest": "sha256:bd6fe162bb4ab4821daa8d694e20d779865618825d30c94342a0228b89947305"
-    },
+    }
+  },
+  "external_runtime_assets": {
     "python": {
-      "version": "3.12.13",
-      "reference": "docker.io/library/python:3.12.13-slim-bookworm",
-      "root_digest": "sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2",
-      "linux_amd64_manifest_digest": "sha256:6e13e65c55e33adf203d77ee371cf8bf5d81bd4902ef07565721f46bf44917af",
-      "linux_amd64_config_digest": "sha256:64d91f7b885eed272bba87909446b12ff408d4aaa5f1a0e9ca787bbea1a020b9"
+      "source": "astral-sh/python-build-standalone@20260807",
+      "sha256": "5bd6f36fd7ef02b909234c94dca9994ef0da06ace3bc3cece4fe27870e9cdbbe"
     },
     "node": {
-      "version": "24.18.0",
-      "reference": "docker.io/library/node:24.18.0-bookworm-slim",
-      "root_digest": "sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d",
-      "linux_amd64_manifest_digest": "sha256:fc75682c0d5eb1cb254610dafede9c97371d89bb5c6591a9e1f8773b059f3f67",
-      "linux_amd64_config_digest": "sha256:caf64f520f232a66f04c44d659f78941c792ab8f5ae2268386c2c827df6d1317"
+      "source": "nodejs.org/dist/v24.19.0/node-v24.19.0-linux-x64.tar.gz",
+      "sha256": "f625d97cd707df4ff96254916fbc5ff014f09c09effe5a1e0ca8f6d41a8789d4"
     }
   }
 }
