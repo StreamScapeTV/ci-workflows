@@ -23,7 +23,7 @@ DOC = ROOT / "docs/workflows/android.md"
 ARCH = ROOT / "docs/architecture/android-validation.md"
 CASES = ROOT / "tests/fixtures/android-validation/cases.json"
 SOURCE_POLICY = ROOT / "contracts/android-source-policy.json"
-VALIDATE_ANDROID_SHA = "006ce9e3766893f226aaf495451ae68c92fc62d1"
+VALIDATE_ANDROID_SHA = "275ee86f0f5de3d8f3330b92c84d7c0188fb10f8"
 PRIVATE_HELPER_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 PRIVATE_HELPERS = {
     "validate-android",
@@ -249,7 +249,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
                 self.assertEqual(android_execution.verify_toolchain(root, root, plan, self.contract, {"ANDROID_SDK_ROOT": str(sdk)}), (25, 37))
                 outputs["javac"] = subprocess.CompletedProcess([], 0, "javac 24\n", "")
                 with self.assertRaises(AndroidValidationError) as failure:
-                    android_execution.verify_toolchain(root, root, plan, self.contract, {"ANDROID_SDK_ROOT": str(sdk)})
+                    android_execution.verify_toolchain(root, root, plan, {"PATH": os.environ.get("PATH", "")})
                 self.assertEqual(failure.exception.code, "toolchain_mismatch")
                 outputs["javac"] = subprocess.CompletedProcess([], 0, "javac 25\n", "")
                 outputs["packages"] = subprocess.CompletedProcess([], 0, "platform-tools | 36\n", "")
