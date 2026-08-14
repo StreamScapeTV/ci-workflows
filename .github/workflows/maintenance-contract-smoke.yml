@@ -14,11 +14,17 @@ on:
       - 'actions/flux-reconcile/**'
       - 'contracts/organization-maintenance*.json'
       - 'contracts/public-workflows/operations.json'
+      - 'contracts/ciw-commands.json'
+      - 'docs/reference/ciw.md'
+      - 'scripts/ci/ciw.py'
       - 'scripts/ci/maintenance.py'
       - 'scripts/ci/flux_reconcile.py'
+      - 'src/ci_workflows/ciw.py'
+      - 'src/ci_workflows/ciw_maintenance.py'
       - 'src/ci_workflows/maintenance*.py'
       - 'src/ci_workflows/flux.py'
       - 'src/ci_workflows/flux_reconcile*.py'
+      - 'tests/test_ciw_contracts.py'
       - 'tests/test_maintenance_*.py'
       - 'tests/test_flux_component_facade.py'
       - 'tests/test_flux_reconcile_*.py'
@@ -68,6 +74,8 @@ jobs:
           set -Eeuo pipefail
           PYTHONPATH="${VALIDATION_ROOT}/python:${GITHUB_WORKSPACE}/src" \
             "${VERIFIED_PYTHON}" -m unittest -v \
+              tests.test_ciw_contracts \
+              tests.test_maintenance_ciw \
               tests.test_maintenance_contract \
               tests.test_maintenance_component_facade \
               tests.test_maintenance_operations_fragment \
