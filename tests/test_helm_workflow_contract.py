@@ -15,6 +15,9 @@ PUBLISH_WORKFLOW = ROOT / ".github/workflows/reusable-helm-publish.yml"
 VALIDATE_ACTION = ROOT / "actions/validate-helm/action.yml"
 PUBLISH_ACTION = ROOT / "actions/publish-helm/action.yml"
 MEASURE_ACTION = ROOT / "actions/measure-helm/action.yml"
+HELM_SHA = "138e0c7b0e10f5ad09679d97e81e5c33ada803ac"
+FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
+RELEASE_TAG_SHA = "2b0443fdad002d47625386a959ebe68545cfe022"
 
 
 class HelmWorkflowContractTests(unittest.TestCase):
@@ -49,9 +52,7 @@ class HelmWorkflowContractTests(unittest.TestCase):
             if item["api_name"] == "helm.publish"
         )
 
-    def test_workflow_call_shapes_match_or_await_only_serialized_publish_registration(
-        self,
-    ) -> None:
+    def test_workflow_call_shapes_match_public_registration(self) -> None:
         self.assertEqual(set(self.validate["on"]), {"workflow_call"})
         self.assertEqual(set(self.publish["on"]), {"workflow_call"})
         validate_call = self.validate["on"]["workflow_call"]
@@ -64,24 +65,9 @@ class HelmWorkflowContractTests(unittest.TestCase):
             set(self.public_validate["outputs"]),
             set(validate_call["outputs"]),
         )
-
-        desired_publish_inputs = {
-            "admitted_sha",
-            "product_id",
-            "release_version",
-            "values_profile",
-            "policy_path",
-            "image_digest",
-            "immutable_references_json",
-        }
-        self.assertEqual(set(publish_call["inputs"]), desired_publish_inputs)
-        registered_publish_inputs = {
-            entry["name"] for entry in self.public_publish["inputs"]
-        }
-        self.assertTrue(registered_publish_inputs <= desired_publish_inputs)
-        self.assertIn(
-            desired_publish_inputs - registered_publish_inputs,
-            (set(), {"image_digest", "immutable_references_json"}),
+        self.assertEqual(
+            {entry["name"] for entry in self.public_publish["inputs"]},
+            set(publish_call["inputs"]),
         )
         self.assertEqual(
             set(self.public_publish["outputs"]),
@@ -95,14 +81,44 @@ class HelmWorkflowContractTests(unittest.TestCase):
         self.assertEqual(self.public_validate["status"], "implemented")
         self.assertEqual(self.public_publish["status"], "implemented")
 
-    def test_called_workflow_source_identity_is_not_caller_workflow_identity(self) -> None:
+    def test_reusable_workflows_use_only_immutable_central_actions(self) -> None:
         for text in (self.validate_text, self.publish_text):
-            self.assertIn("${{ job.workflow_repository }}", text)
-            self.assertIn("${{ job.workflow_sha }}", text)
-            self.assertIn('test "${CALLED_WORKFLOW_REPOSITORY}" = "StreamScapeTV/ci-workflows"', text)
+            self.assertNotIn("actions/checkout@", text)
+            self.assertNotIn("${{ job.workflow_repository }}", text)
+            self.assertNotIn("${{ job.workflow_sha }}", text)
             self.assertNotIn("github.workflow_sha", text)
             self.assertNotIn("GITHUB_WORKFLOW_SHA", text)
-            self.assertEqual(text.count("persist-credentials: false"), 2)
+            self.assertNotIn("path: .ciw", text)
+            self.assertNotIn("./.ciw/actions/", text)
+            self.assertNotIn("secrets: inherit", text)
+            self.assertIn(
+                f"StreamScapeTV/ci-workflows/actions/exact-checkout@{FOUNDATION_SHA}",
+                text,
+            )
+            self.assertIn(
+                f"StreamScapeTV/ci-workflows/actions/prepare-workspace@{FOUNDATION_SHA}",
+                text,
+            )
+            self.assertIn(
+                f"StreamScapeTV/ci-workflows/actions/cleanup-workspace@{FOUNDATION_SHA}",
+                text,
+            )
+        self.assertIn(
+            f"StreamScapeTV/ci-workflows/actions/validate-helm@{HELM_SHA}",
+            self.validate_text,
+        )
+        self.assertIn(
+            f"StreamScapeTV/ci-workflows/actions/publish-helm@{HELM_SHA}",
+            self.publish_text,
+        )
+        self.assertIn(
+            f"StreamScapeTV/ci-workflows/actions/measure-helm@{HELM_SHA}",
+            self.publish_text,
+        )
+        self.assertIn(
+            f"StreamScapeTV/ci-workflows/actions/resolve-release-tag@{RELEASE_TAG_SHA}",
+            self.publish_text,
+        )
 
     def test_jobs_use_contract_resolved_runner_without_caller_control(self) -> None:
         for workflow, text, job in (
@@ -119,12 +135,7 @@ class HelmWorkflowContractTests(unittest.TestCase):
                 "${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
             )
             self.assertNotIn("self-hosted", text)
-            self.assertNotIn("secrets: inherit", text)
-            self.assertIn(
-                "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
-                text,
-            )
-            self.assertIn("actions/cleanup-workspace", text)
+            self.assertNotIn("runs-on: mobile", text)
             self.assertIn("if: always()", text)
 
     def test_actions_are_thin_and_have_no_generic_privileged_surface(self) -> None:
