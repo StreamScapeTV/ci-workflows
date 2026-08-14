@@ -11,6 +11,13 @@ from .maintenance import GitHubApi, artifacts, branches, conformance, render_res
 from .maintenance_contract import MaintenanceError, load_contract
 from .maintenance_core import OperationResult
 
+_MAINTENANCE_OUTPUTS: dict[str, tuple[str, ...]] = {
+    "artifacts": ("result", "mutation_count", "request_id"),
+    "branches": ("result", "mutation_count", "request_id"),
+    "conformance": ("result", "mutation_count", "report_issue_url", "request_id"),
+    "runner-retry": ("result", "retry_run_id", "request_id"),
+}
+
 
 def _bool(value: str) -> bool:
     normalized = value.casefold()
@@ -84,27 +91,31 @@ def _failure_outputs(
     path = context.environment.get("GITHUB_OUTPUT", "")
     if not path:
         return
-    values = {
-        "result": "failure",
-        "request_id": request_id,
-        "failure_code": code,
-    }
     if operation == "flux-reconcile":
-        values["reconciliation_state"] = "rejected"
+        values = {
+            "result": "failure",
+            "reconciliation_state": "rejected",
+            "request_id": request_id,
+            "failure_code": code,
+        }
     else:
-        values.update(
-            {
-                "mutation_count": "0",
-                "retry_run_id": "",
-                "report_issue_url": "",
-                "decision_count": "0",
-            }
-        )
+        values = {
+            "result": "failure",
+            "request_id": request_id,
+            "failure_code": code,
+        }
+        if operation in {"artifacts", "branches", "conformance"}:
+            values["mutation_count"] = "0"
+        if operation == "conformance":
+            values["report_issue_url"] = ""
+        if operation == "runner-retry":
+            values["retry_run_id"] = ""
     write_command_file(Path(path), values)
 
 
 def _maintenance_result(operation: str, value: OperationResult) -> CIWResult:
-    outputs = render_result(value)
+    rendered = render_result(value)
+    outputs = {name: rendered[name] for name in _MAINTENANCE_OUTPUTS[operation]}
     outputs["failure_code"] = ""
     return CIWResult("maintenance", operation, outputs=outputs)
 
