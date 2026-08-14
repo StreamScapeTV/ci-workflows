@@ -87,12 +87,15 @@ def main(argv: list[str] | None = None) -> int:
     values: dict[str, str] | None = None
 
     try:
-        # request_id becomes part of a filesystem path, so reject it before
-        # constructing or cleaning any marker-owned state path.
+        # Validate request identity before any state operation. Filesystem state
+        # itself is keyed only by GitHub-owned run identity, never caller input.
         contract.validate_request_id(args.request_id)
         state = Path(
             os.environ.get("RUNNER_TEMP", str(ROOT / ".maintenance-state"))
-        ) / f"flux-reconcile-{os.environ.get('GITHUB_RUN_ID', 'local')}-{args.request_id}"
+        ) / (
+            f"flux-reconcile-{os.environ.get('GITHUB_RUN_ID', 'local')}-"
+            f"{os.environ.get('GITHUB_RUN_ATTEMPT', '1')}"
+        )
         _remove_state(state, fail_on_unsafe=True)
         plan = resolve_request(
             contract,
