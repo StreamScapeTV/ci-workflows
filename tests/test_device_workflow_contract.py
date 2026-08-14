@@ -6,7 +6,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DEVICE_ACTION_SHA = "17f53e8c16a5ee7ce0563814078841af7aad92c0"
+DEVICE_ACTION_SHA = "435701539ff0e1cb90898bfb2425889986294360"
+DEVICE_LOCK_ACTION_SHA = "599c82201e6da6ca51c4f6247f1526a4ba03d550"
 FOUNDATION_ACTION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 
 
@@ -44,12 +45,25 @@ class DeviceWorkflowContractTests(unittest.TestCase):
             self.assertNotIn(forbidden, inputs)
         self.assertEqual(set(self.profile["public_inputs"]), actual)
 
+    def test_public_secret_contract_separates_authorization_from_live_backend(self) -> None:
+        secrets = self.workflow.split("secrets:", 1)[1].split("outputs:", 1)[0]
+        actual = set(re.findall(r"^      ([a-z_]+):$", secrets, re.M))
+        self.assertEqual(
+            {"device_authorization_receipt", "live_test_credentials"},
+            actual,
+        )
+        self.assertEqual(self.profile["public_secrets"], sorted(actual))
+        self.assertIn("CIW_DEVICE_AUTHORIZATION_RECEIPT", self.workflow)
+        self.assertIn("CIW_DEVICE_LIVE_BACKEND_PRESENT", self.workflow)
+
     def test_action_has_no_caller_trust_or_raw_identifier_input(self) -> None:
         input_block = self.action.split("inputs:", 1)[1].split("outputs:", 1)[0]
         for forbidden in ("\n  source_trust:", "\n  device_identifier:", "\n  serial:", "\n  udid:"):
             self.assertNotIn(forbidden, input_block)
         self.assertIn("validated_plan:", input_block)
         self.assertIn("validated_plan_sha256:", input_block)
+        self.assertIn("selected_device_hash:", input_block)
+        self.assertIn("resource_lock_receipt:", input_block)
         self.assertIn("CIW_DEVICE_HEAD_FORK", self.action)
         self.assertIn("CIW_DEVICE_EVENT_SHA", self.action)
 
@@ -71,14 +85,18 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         device_ref = (
             "StreamScapeTV/ci-workflows/actions/validate-device@" + DEVICE_ACTION_SHA
         )
-        self.assertEqual(6, self.workflow.count(device_ref))
+        lock_ref = (
+            "StreamScapeTV/ci-workflows/actions/device-lock@" + DEVICE_LOCK_ACTION_SHA
+        )
+        self.assertEqual(8, self.workflow.count(device_ref))
+        self.assertEqual(4, self.workflow.count(lock_ref))
         for action in ("exact-checkout", "prepare-workspace", "cleanup-workspace"):
             self.assertIn(
                 f"StreamScapeTV/ci-workflows/actions/{action}@{FOUNDATION_ACTION_SHA}",
                 self.workflow,
             )
 
-    def test_concurrency_group_is_planner_owned_and_never_cancellable(self) -> None:
+    def test_concurrency_group_is_supplemental_to_production_fencing(self) -> None:
         self.assertIn(
             "group: ${{ needs.plan.outputs.concurrency_group }}",
             self.workflow,
@@ -89,7 +107,8 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("cancel_in_progress:", public_inputs)
         self.assertFalse(self.profile["serialization_contract"]["caller_override"])
         self.assertFalse(self.profile["serialization_contract"]["cancel_in_progress"])
-        self.assertFalse(self.profile["serialization_contract"]["fencing_token"])
+        self.assertTrue(self.profile["serialization_contract"]["fencing_token"])
+        self.assertTrue(self.profile["lock_contract"]["cross_run_fencing_claimed"])
 
     def test_executor_revalidates_exact_checkout(self) -> None:
         device_job = self.workflow.split("  device:\n", 1)[1]
@@ -115,6 +134,24 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         )
         self.assertFalse(self.profile["owner_authorization"]["runner_or_secret_is_authorization"])
 
+    def test_production_lock_is_verified_immediately_before_mutation(self) -> None:
+        device_job = self.workflow.split("  device:\n", 1)[1]
+        discover = device_job.index("Deterministically discover one eligible physical device")
+        acquire = device_job.index("Acquire production cross-run device fencing receipt")
+        verify = device_job.index("Verify exact fencing receipt before physical mutation")
+        execute = device_job.index("Execute only the exact typed plan emitted by the planner")
+        restore = device_job.index("Restore product-owned physical-device state before releasing lock")
+        release = device_job.index("Expected-state release exact production fencing receipt")
+        residue = device_job.index("Verify production fencing receipt has no live residue")
+        self.assertLess(discover, acquire)
+        self.assertLess(acquire, verify)
+        self.assertLess(verify, execute)
+        self.assertLess(execute, restore)
+        self.assertLess(restore, release)
+        self.assertLess(release, residue)
+        self.assertIn("resource_lock_receipt: ${{ steps.acquire_lock.outputs.resource_lock_receipt }}", device_job)
+        self.assertIn("selected_device_hash: ${{ steps.discover.outputs.selected_device_hash }}", device_job)
+
     def test_source_cleanup_is_action_owned_and_smoke_cleanup_remains_no_follow(self) -> None:
         self.assertEqual(2, self.workflow.count("phase: cleanup-checkout"))
         self.assertNotIn("path: .ciw", self.workflow)
@@ -126,12 +163,21 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         self.assertGreaterEqual(self.smoke.count("test ! -e source"), 2)
         self.assertGreaterEqual(self.smoke.count("test ! -L source"), 2)
 
-    def test_terminal_projection_preserves_cleanup_failures(self) -> None:
+    def test_terminal_projection_preserves_restore_lock_and_cleanup_failures(self) -> None:
         device_job = self.workflow.split("  device:\n", 1)[1]
-        self.assertEqual(5, device_job.count("continue-on-error: true"))
-        self.assertIn("Project terminal physical-device result after cleanup", device_job)
+        self.assertGreaterEqual(device_job.count("continue-on-error: true"), 11)
+        self.assertIn(
+            "Project terminal physical-device result after restore, release, and cleanup",
+            device_job,
+        )
         for name in (
+            "DISCOVER_OUTCOME",
+            "ACQUIRE_LOCK_OUTCOME",
+            "VERIFY_LOCK_OUTCOME",
             "EXECUTE_OUTCOME",
+            "RESTORE_OUTCOME",
+            "RELEASE_LOCK_OUTCOME",
+            "LOCK_RESIDUE_OUTCOME",
             "DEVICE_CLEANUP_OUTCOME",
             "DEVICE_RESIDUE_OUTCOME",
             "SOURCE_CLEANUP_OUTCOME",
@@ -143,6 +189,7 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         self.assertEqual(2, self.smoke.count("runs-on: [linux, amd64, general]"))
         self.assertEqual(3, self.smoke.count("phase: synthetic"))
         self.assertNotIn("phase: execute", self.smoke)
+        self.assertNotIn("device_authorization_receipt", self.smoke)
         self.assertNotIn("live_test_credentials", self.smoke)
         self.assertNotIn("device_identifier:", self.smoke)
         self.assertNotIn("source_trust:", self.smoke)
@@ -166,7 +213,11 @@ class DeviceWorkflowContractTests(unittest.TestCase):
             "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
             self.workflow,
         )
-        direct_selectors = re.findall(r"^    runs-on: (.+)$", self.workflow + "\n" + self.smoke, re.M)
+        direct_selectors = re.findall(
+            r"^    runs-on: (.+)$",
+            self.workflow + "\n" + self.smoke,
+            re.M,
+        )
         self.assertEqual(4, direct_selectors.count(selector_value))
         direct_selector_text = "\n".join(direct_selectors)
         for forbidden in (
@@ -196,20 +247,23 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, text)
 
-    def test_in_memory_adapter_is_explicitly_test_only(self) -> None:
+    def test_in_memory_adapter_is_test_only_and_production_adapter_is_canonical(self) -> None:
         self.assertEqual(
             "in-memory-tests-only",
             self.profile["lock_contract"]["temporary_reference_adapter"],
         )
-        self.assertFalse(self.profile["lock_contract"]["cross_run_fencing_claimed"])
-        self.assertEqual("none-in-source-package", self.profile["lock_contract"]["production_adapter"])
+        self.assertTrue(self.profile["lock_contract"]["cross_run_fencing_claimed"])
+        self.assertEqual(
+            "device-lock/1:posix-shared-root-v1",
+            self.profile["lock_contract"]["production_adapter"],
+        )
+        self.assertFalse(self.profile["lock_contract"]["agent_state_transport_used"])
 
     def test_shared_registration_surfaces_include_device(self) -> None:
         public = json.loads((ROOT / "contracts/public-workflows.json").read_text())
         validation = json.loads(
             (ROOT / "contracts/public-workflows/validation.json").read_text()
         )
-        ciw = json.loads((ROOT / "contracts/ciw-commands.json").read_text())
         bootstrap = json.loads(
             (ROOT / "contracts/bootstrap-public-workflows.json").read_text()
         )
@@ -223,9 +277,9 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         )
         self.assertEqual("implemented", public_device["status"])
         self.assertEqual("implemented", validation_device["status"])
-        self.assertIn(
-            "device validate",
-            {f"{item['domain']} {item['operation']}" for item in ciw["commands"]},
+        self.assertEqual(
+            ["device_authorization_receipt", "live_test_credentials"],
+            validation_device["secrets"],
         )
         self.assertIn(
             ".github/workflows/reusable-device.yml",
@@ -239,9 +293,11 @@ class DeviceWorkflowContractTests(unittest.TestCase):
             "raw serial or udid",
             "current github source admission",
             "cancel-in-progress: false",
-            "not a fencing token",
+            "device-lock/1",
+            "device_authorization_receipt",
             "physical_authorization_required",
-            "no checked-in physical-device execution authorization",
+            "restore",
+            "release",
             "zero routine actions artifacts",
             "immutable private action",
         ):
