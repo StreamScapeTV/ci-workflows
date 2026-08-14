@@ -67,28 +67,9 @@ jobs:
       tag_object_sha: ${{ steps.authority.outputs.tag_object_sha }}
       tag_commit_sha: ${{ steps.authority.outputs.tag_commit_sha }}
     steps:
-      - name: Check out exact called workflow source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          path: .ciw
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
-      - name: Verify exact called workflow source
-        shell: bash
-        env:
-          CALLED_WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
-          CALLED_WORKFLOW_SHA: ${{ job.workflow_sha }}
-        run: |
-          set -Eeuo pipefail
-          test "${CALLED_WORKFLOW_REPOSITORY}" = "StreamScapeTV/ci-workflows"
-          (cd .ciw && test "$(git rev-parse HEAD)" = "${CALLED_WORKFLOW_SHA}")
       - id: authority
         name: Resolve exact release tag authority
-        uses: ./.ciw/actions/resolve-release-tag
+        uses: StreamScapeTV/ci-workflows/actions/resolve-release-tag@2b0443fdad002d47625386a959ebe68545cfe022 # issue #59 immutable helper checkpoint
         with:
           phase: resolve
           release_mode: ${{ github.event_name == 'workflow_dispatch' && 'existing-tag' || 'tag-push' }}
@@ -107,7 +88,7 @@ jobs:
           test "${REQUESTED_SOURCE_SHA}" = "${RESOLVED_SOURCE_SHA}"
       - id: plan
         name: Resolve fixed Helm publication contract and OCI evidence binding
-        uses: ./.ciw/actions/publish-helm
+        uses: StreamScapeTV/ci-workflows/actions/publish-helm@138e0c7b0e10f5ad09679d97e81e5c33ada803ac # issue #18 immutable Helm dispatcher checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -130,34 +111,15 @@ jobs:
       chart_digest: ${{ steps.helm.outputs.chart_digest }}
       immutable_references_json: ${{ steps.helm.outputs.immutable_references_json }}
     steps:
-      - name: Check out exact called workflow source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          path: .ciw
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
-      - name: Verify exact called workflow source
-        shell: bash
-        env:
-          CALLED_WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
-          CALLED_WORKFLOW_SHA: ${{ job.workflow_sha }}
-        run: |
-          set -Eeuo pipefail
-          test "${CALLED_WORKFLOW_REPOSITORY}" = "StreamScapeTV/ci-workflows"
-          (cd .ciw && test "$(git rev-parse HEAD)" = "${CALLED_WORKFLOW_SHA}")
       - name: Check out exact admitted caller source
-        uses: ./.ciw/actions/exact-checkout
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           repository: ${{ github.repository }}
           admitted_sha: ${{ inputs.admitted_sha }}
           path: source
           fetch_depth: "1"
       - name: Prepare isolated Helm publication state
-        uses: ./.ciw/actions/prepare-workspace
+        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           profile: ${{ needs.plan.outputs.workspace_profile }}
           cache_mode: disabled
@@ -165,13 +127,13 @@ jobs:
           trust_mode: ${{ needs.plan.outputs.source_trust }}
       - id: measurement_start
         name: Start bounded Helm runner measurement
-        uses: ./.ciw/actions/measure-helm
+        uses: StreamScapeTV/ci-workflows/actions/measure-helm@138e0c7b0e10f5ad09679d97e81e5c33ada803ac # issue #18 immutable Helm dispatcher checkpoint
         with:
           phase: start
           admitted_sha: ${{ inputs.admitted_sha }}
           product_id: ${{ inputs.product_id }}
       - name: Revalidate exact release tag immediately before registry write
-        uses: ./.ciw/actions/resolve-release-tag
+        uses: StreamScapeTV/ci-workflows/actions/resolve-release-tag@2b0443fdad002d47625386a959ebe68545cfe022 # issue #59 immutable helper checkpoint
         with:
           phase: revalidate
           release_mode: ${{ needs.plan.outputs.release_mode }}
@@ -182,7 +144,7 @@ jobs:
       - id: helm
         name: Bind OCI evidence, package, publish or verify, and prove OCI pull read-back
         continue-on-error: true
-        uses: ./.ciw/actions/publish-helm
+        uses: StreamScapeTV/ci-workflows/actions/publish-helm@138e0c7b0e10f5ad09679d97e81e5c33ada803ac # issue #18 immutable Helm dispatcher checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -200,7 +162,7 @@ jobs:
         name: Stop and validate bounded Helm runner measurement
         if: always() && steps.measurement_start.outcome == 'success'
         continue-on-error: true
-        uses: ./.ciw/actions/measure-helm
+        uses: StreamScapeTV/ci-workflows/actions/measure-helm@138e0c7b0e10f5ad09679d97e81e5c33ada803ac # issue #18 immutable Helm dispatcher checkpoint
         with:
           phase: stop
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -217,7 +179,7 @@ jobs:
       - id: helm_cleanup
         name: Remove Helm package, registry, and credential state
         if: always()
-        uses: ./.ciw/actions/publish-helm
+        uses: StreamScapeTV/ci-workflows/actions/publish-helm@138e0c7b0e10f5ad09679d97e81e5c33ada803ac # issue #18 immutable Helm dispatcher checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -228,7 +190,7 @@ jobs:
       - id: residue
         name: Verify zero Helm publication residue
         if: always()
-        uses: ./.ciw/actions/publish-helm
+        uses: StreamScapeTV/ci-workflows/actions/publish-helm@138e0c7b0e10f5ad09679d97e81e5c33ada803ac # issue #18 immutable Helm dispatcher checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -239,7 +201,7 @@ jobs:
       - id: workspace_cleanup
         name: Remove and verify all registered workspace state
         if: always()
-        uses: ./.ciw/actions/cleanup-workspace
+        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
       - name: Verify exact caller source remained clean
         if: always()
         shell: bash
