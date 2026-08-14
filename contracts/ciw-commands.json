@@ -114,6 +114,28 @@
     },
     {
       "cleanup": "ciw workspace cleanup under if: always()",
+      "domain": "helm",
+      "failure": "HelmValidationError.code",
+      "handler": "ci_workflows.ciw.handle_helm_validate",
+      "inputs": ["phase", "admitted_sha", "product_id", "release_version", "values_profile", "policy_path", "artifact_exception_id", "GitHub event identity"],
+      "operation": "validate",
+      "outputs": ["result", "chart_digest", "chart_package_sha256", "test_summary", "artifact_exception_used", "failure_code", "runner_profile", "runs_on_json", "workspace_profile", "timeout_minutes", "source_trust"],
+      "side_effects": ["resolves a fixed product-manifest chart root", "runs locked dependency, lint, template, and deterministic package checks", "enforces source, image-reference, archive, cleanup, and zero-artifact policy"],
+      "trust_class": "read-only-validation"
+    },
+    {
+      "cleanup": "ciw workspace cleanup under if: always()",
+      "domain": "helm",
+      "failure": "HelmValidationError.code",
+      "handler": "ci_workflows.ciw.handle_helm_publish",
+      "inputs": ["phase", "admitted_sha", "product_id", "release_version", "values_profile", "policy_path", "registry_username", "registry_token", "GitHub event identity"],
+      "operation": "publish",
+      "outputs": ["result", "chart_digest", "chart_package_sha256", "immutable_references_json", "published", "failure_code", "runner_profile", "runs_on_json", "workspace_profile", "timeout_minutes", "source_trust"],
+      "side_effects": ["validates and deterministically packages a fixed product chart", "authenticates only with named registry credentials", "pulls before push and proves normalized package read-back", "never installs a chart or accesses Kubernetes or SOPS data"],
+      "trust_class": "trusted-publication"
+    },
+    {
+      "cleanup": "ciw workspace cleanup under if: always()",
       "domain": "gitops",
       "failure": "GitOpsValidationError.code",
       "handler": "ci_workflows.ciw.handle_gitops_validate",
@@ -318,6 +340,7 @@
     {"commands": ["release-tag resolve", "release-tag revalidate"], "path": "scripts/ci/release_tag_authority.py"},
     {"commands": ["python validate"], "path": "scripts/ci/python.py"},
     {"commands": ["node validate"], "path": "scripts/ci/node.py"},
+    {"commands": ["helm validate", "helm publish"], "path": "scripts/ci/helm.py"},
     {"commands": ["gitops validate"], "path": "scripts/ci/gitops.py"},
     {"commands": ["oci validate"], "path": "scripts/ci/oci.py"},
     {"commands": ["oci publish"], "path": "scripts/ci/oci_publish.py"},
@@ -326,7 +349,7 @@
   ],
   "entry_point": "scripts/ci/ciw.py",
   "forbidden_dispatch_inputs": ["arbitrary_command", "shell", "callback", "callback_url", "handler", "function_name", "module_name", "runner", "runs_on", "runner_labels", "container_engine", "secret_name", "deletion_path", "workspace_root"],
-  "future_namespaces": ["helm", "release", "github"],
+  "future_namespaces": ["release", "github"],
   "program": "ciw",
   "schema_version": 1
 }
