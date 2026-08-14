@@ -15,7 +15,7 @@ PUBLISH_WORKFLOW = ROOT / ".github/workflows/reusable-helm-publish.yml"
 VALIDATE_ACTION = ROOT / "actions/validate-helm/action.yml"
 PUBLISH_ACTION = ROOT / "actions/publish-helm/action.yml"
 MEASURE_ACTION = ROOT / "actions/measure-helm/action.yml"
-HELM_SHA = "138e0c7b0e10f5ad09679d97e81e5c33ada803ac"
+HELM_SHA = "f867827a41174ea5a9ad554eeea91dbb2c2c0bfa"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 RELEASE_TAG_SHA = "2b0443fdad002d47625386a959ebe68545cfe022"
 
