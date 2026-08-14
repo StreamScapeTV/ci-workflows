@@ -23,7 +23,7 @@ class PublicApiContractTests(unittest.TestCase):
 
     def test_registry_is_complete_and_deterministic(self) -> None:
         self.assertEqual(len(self.data.workflows), 20)
-        self.assertEqual(len(self.profiles), 11)
+        self.assertEqual(len(self.profiles), 12)
         self.assertEqual(len(self.data.types["trust_classes"]), 6)
         self.assertEqual("2.0.0", self.data.index["contract_version"])
         self.assertEqual(
@@ -168,6 +168,23 @@ class PublicApiContractTests(unittest.TestCase):
             },
         )
 
+    def test_oci_resolved_inputs_output_is_typed_and_additive(self) -> None:
+        output_type = self.data.types["output_catalog"]["resolved_inputs_json"]
+        self.assertEqual(
+            {"type": "json-object", "nullable": True},
+            output_type,
+        )
+
+        current = copy.deepcopy(self.workflows["oci.build"])
+        self.assertIn("resolved_inputs_json", current["outputs"])
+        baseline = copy.deepcopy(current)
+        baseline["outputs"].remove("resolved_inputs_json")
+        self.assertEqual(
+            "compatible",
+            contract.classify_change(baseline, current),
+        )
+        self.assertEqual([], self.data.types["breaking_change_acknowledgements"])
+
     def test_existing_bootstrap_workflow_matches_its_versioned_api_record(self) -> None:
         row = self.workflows["release.tag-image-chart-bootstrap"]
         self.assertEqual("1.2.0", row["api_version"])
@@ -219,6 +236,11 @@ class PublicApiContractTests(unittest.TestCase):
         self.assertIn("`release_source_sha`", rendered)
         self.assertIn("`image_recovery_authority` (default ``)", rendered)
         self.assertIn("`workflow_dispatch-existing-tag`", rendered)
+        self.assertIn(
+            "- Outputs: `result`, `image_digest`, `platform_digests_json`, "
+            "`resolved_inputs_json`, `artifact_exception_used`",
+            rendered,
+        )
 
     def test_breaking_changes_fail_without_a_complete_acknowledgement(self) -> None:
         baseline = copy.deepcopy(self.workflows["validation.python"])

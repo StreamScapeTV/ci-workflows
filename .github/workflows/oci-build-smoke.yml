@@ -1,0 +1,401 @@
+name: OCI build contract smoke
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/reusable-oci-build.yml"
+      - ".github/workflows/oci-build-smoke.yml"
+      - "actions/validate-oci/**"
+      - "contracts/oci-*.json"
+      - "generated/oci-engine-mapping.json"
+      - "scripts/ci/oci.py"
+      - "src/ci_workflows/ciw_oci.py"
+      - "src/ci_workflows/oci_*.py"
+      - "tests/fixtures/oci-build/**"
+      - "tests/test_oci_*.py"
+concurrency:
+  group: oci-build-smoke-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  plan:
+    name: Resolve bounded OCI smoke plan
+    runs-on: [linux, amd64, general]
+    timeout-minutes: 10
+    outputs:
+      runner_profile: ${{ steps.plan.outputs.runner_profile }}
+      runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
+      workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
+      source_trust: ${{ steps.plan.outputs.source_trust }}
+    steps:
+      - name: Admit same-repository trusted pull request source
+        shell: bash
+        env:
+          BASE_REPOSITORY: ${{ github.repository }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -Eeuo pipefail
+          test "${GITHUB_EVENT_NAME}" = "pull_request"
+          test "${HEAD_REPOSITORY}" = "${BASE_REPOSITORY}"
+          [[ "${HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]
+
+      - name: Check out exact central source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact central source
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -Eeuo pipefail
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+          )
+
+      - id: plan
+        name: Resolve contract-owned OCI smoke product and runner
+        uses: ./.ciw/actions/validate-oci
+        with:
+          phase: plan
+          admitted_sha: ${{ github.event.pull_request.head.sha }}
+          product_id: ciw-oci-input-smoke
+          release_version: 0.0.0-smoke
+          platform_set: linux-amd64
+
+      - name: Run focused OCI contract, security, and media tests
+        working-directory: .ciw
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONPATH: src
+        run: |
+          set -Eeuo pipefail
+          python3 -m unittest discover -s tests -p 'test_oci_*.py' -v
+
+      - name: Verify focused OCI tests left central source clean
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -Eeuo pipefail
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+            test -z "$(git status --porcelain --untracked-files=all)"
+          )
+
+  smoke:
+    name: Non-publishing Buildah smoke
+    needs: plan
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
+    timeout-minutes: 180
+    steps:
+      - name: Check out exact central source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact central source
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -Eeuo pipefail
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+          )
+
+      - name: Check out exact admitted smoke source
+        uses: ./.ciw/actions/exact-checkout
+        with:
+          repository: ${{ github.repository }}
+          admitted_sha: ${{ github.event.pull_request.head.sha }}
+          path: source
+          fetch_depth: "1"
+
+      - id: workspace
+        name: Prepare isolated marker-bound OCI smoke state
+        uses: ./.ciw/actions/prepare-workspace
+        with:
+          profile: ${{ needs.plan.outputs.workspace_profile }}
+          cache_mode: disabled
+          source_sha: ${{ github.event.pull_request.head.sha }}
+          trust_mode: ${{ needs.plan.outputs.source_trust }}
+
+      - id: implicit_cache_baseline
+        name: Require no runner-global containers/image cache at entry
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test ! -e /var/lib/containers/cache
+          test ! -L /var/lib/containers/cache
+
+      - id: execute
+        name: Build and inspect exact smoke source without publication
+        continue-on-error: true
+        uses: ./.ciw/actions/validate-oci
+        with:
+          phase: execute
+          admitted_sha: ${{ github.event.pull_request.head.sha }}
+          product_id: ciw-oci-input-smoke
+          release_version: 0.0.0-smoke
+          platform_set: linux-amd64
+
+      - id: input_evidence
+        name: Verify exact resolved OCI input evidence is nonempty and redacted
+        if: ${{ always() && !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        env:
+          EXECUTE_OUTCOME: ${{ steps.execute.outcome }}
+          RESOLVED_INPUTS_JSON: ${{ steps.execute.outputs.resolved_inputs_json }}
+        run: |
+          set -Eeuo pipefail
+          test "${EXECUTE_OUTCOME}" = "success"
+          python3 - <<'PY'
+          import json
+          import os
+
+          raw = os.environ["RESOLVED_INPUTS_JSON"]
+          evidence = json.loads(raw)
+          target = evidence["immutable-input-smoke"]
+          assert target["lock_digest"].startswith("sha256:")
+          assert target["input_policy_id"] == "oci-inputs-public-v1"
+          assert len(target["bases"]) == 1
+          assert len(target["external_inputs"]) == 1
+          base = target["bases"][0]
+          assert base["root_digest"] == (
+              "sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
+          )
+          assert [row["platform"] for row in base["platforms"]] == ["linux/amd64"]
+          assert base["platforms"][0]["manifest_digest"] == (
+              "sha256:b7f3d86d6e84fc17718c48bcde1450807faa2d56704205c697b4bd5df7b9e29f"
+          )
+          assert base["platforms"][0]["config_digest"] == (
+              "sha256:b116e155074440ffd9e449559433feb4cd2341eb3554b1da1c638c976e56451d"
+          )
+          external = target["external_inputs"][0]
+          assert external["input_id"] == "busybox-readme"
+          assert external["digest"] == (
+              "sha256:17f3e2d1c534738042206970bcf147badf46a95343d3e5ae9e3f88c9c9afa612"
+          )
+          assert external["size_bytes"] == 1688
+          lowered = raw.lower()
+          for forbidden in (
+              "https://", "raw.githubusercontent.com", "authorization",
+              "github_token", "registry_auth_file", "runner_temp", "graphroot",
+              "runroot", "/home/", "/users/",
+          ):
+              assert forbidden not in lowered
+          PY
+
+      - name: Render deterministic redacted OCI smoke evidence
+        if: ${{ always() && !cancelled() }}
+        uses: ./.ciw/actions/render-evidence
+        with:
+          source_sha: ${{ github.event.pull_request.head.sha }}
+          workflow_release: oci-build-1.0.0
+          runner_profile: ${{ needs.plan.outputs.runner_profile }}
+          toolchain_json: >-
+            {"buildah":"1.33.7","publication":"false","registry_credentials":"false"}
+          command_profile: ciw-oci-input-smoke
+          result: ${{ steps.execute.outcome == 'success' && 'success' || 'failure' }}
+          cleanup_state: not-run
+          cleanup_removed_paths: "0"
+
+      - id: oci_cleanup
+        name: Remove OCI smoke images, manifests, containers, layouts, caches, and temporary state
+        if: always()
+        uses: ./.ciw/actions/validate-oci
+        with:
+          phase: cleanup
+          admitted_sha: ${{ github.event.pull_request.head.sha }}
+          product_id: ciw-oci-input-smoke
+          release_version: 0.0.0-smoke
+          platform_set: linux-amd64
+
+      - id: residue
+        name: Verify zero OCI-specific smoke residue
+        if: always()
+        uses: ./.ciw/actions/validate-oci
+        with:
+          phase: residue
+          admitted_sha: ${{ github.event.pull_request.head.sha }}
+          product_id: ciw-oci-input-smoke
+          release_version: 0.0.0-smoke
+          platform_set: linux-amd64
+
+      - id: workspace_cleanup
+        name: Remove and verify registered OCI smoke state
+        if: always()
+        uses: ./.ciw/actions/cleanup-workspace
+
+      - id: implicit_cache_residue
+        name: Verify engine isolation left no runner-global cache
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test ! -e /var/lib/containers/cache
+          test ! -L /var/lib/containers/cache
+
+      - name: Verify exact smoke source remained clean
+        if: ${{ always() && !cancelled() }}
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -Eeuo pipefail
+          (
+            cd source
+            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+            test -z "$(git status --porcelain --untracked-files=all)"
+          )
+
+      - name: Project terminal OCI smoke status
+        if: ${{ always() && !cancelled() }}
+        shell: bash
+        env:
+          EXECUTE_OUTCOME: ${{ steps.execute.outcome }}
+          IMPLICIT_CACHE_BASELINE_OUTCOME: ${{ steps.implicit_cache_baseline.outcome }}
+          INPUT_EVIDENCE_OUTCOME: ${{ steps.input_evidence.outcome }}
+          OCI_CLEANUP_OUTCOME: ${{ steps.oci_cleanup.outcome }}
+          RESIDUE_OUTCOME: ${{ steps.residue.outcome }}
+          WORKSPACE_CLEANUP_OUTCOME: ${{ steps.workspace_cleanup.outcome }}
+          IMPLICIT_CACHE_RESIDUE_OUTCOME: ${{ steps.implicit_cache_residue.outcome }}
+        run: |
+          set -Eeuo pipefail
+          test "${EXECUTE_OUTCOME}" = "success"
+          test "${IMPLICIT_CACHE_BASELINE_OUTCOME}" = "success"
+          test "${INPUT_EVIDENCE_OUTCOME}" = "success"
+          test "${OCI_CLEANUP_OUTCOME}" = "success"
+          test "${RESIDUE_OUTCOME}" = "success"
+          test "${WORKSPACE_CLEANUP_OUTCOME}" = "success"
+          test "${IMPLICIT_CACHE_RESIDUE_OUTCOME}" = "success"
+
+  zero_artifacts:
+    name: Verify OCI smoke routine artifacts remain zero
+    needs: smoke
+    if: ${{ always() && !cancelled() }}
+    runs-on: [linux, amd64, general]
+    timeout-minutes: 10
+    steps:
+      - id: audit
+        name: Require OCI smoke success and zero Actions artifacts
+        continue-on-error: true
+        env:
+          SMOKE_RESULT: ${{ needs.smoke.result }}
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "${SMOKE_RESULT}" = success
+          token_scope="$(mktemp -d "${RUNNER_TEMP}/ciw-oci-token.XXXXXX")"
+          chmod 700 "${token_scope}"
+          printf 'token_scope=%s\n' "${token_scope}" >> "${GITHUB_OUTPUT}"
+          umask 077
+          token_file="${token_scope}/github-token"
+          printf '%s' "${GITHUB_TOKEN}" > "${token_file}"
+          unset GITHUB_TOKEN
+          OCI_TOKEN_FILE="${token_file}" python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+          from pathlib import Path
+
+          token = Path(os.environ["OCI_TOKEN_FILE"]).read_text(encoding="utf-8")
+
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
+              f"{os.environ['GITHUB_RUN_ID']}/artifacts?per_page=100",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {token}",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              payload = json.load(response)
+          if payload.get("total_count") != 0 or payload.get("artifacts"):
+              raise SystemExit("OCI smoke retained Actions artifacts")
+          print("Routine OCI smoke Actions artifacts verified: zero.")
+          PY
+
+      - id: token_scope_cleanup
+        name: Remove bounded zero-artifact audit token scope
+        if: always()
+        env:
+          TOKEN_SCOPE: ${{ steps.audit.outputs.token_scope }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if test -z "${TOKEN_SCOPE}"; then
+            exit 0
+          fi
+          case "${TOKEN_SCOPE}" in
+            "${RUNNER_TEMP}"/ciw-oci-token.*) ;;
+            *) exit 1 ;;
+          esac
+          if test -L "${TOKEN_SCOPE}"; then
+            rm -- "${TOKEN_SCOPE}"
+            exit 1
+          fi
+          test -d "${TOKEN_SCOPE}"
+          token_file="${TOKEN_SCOPE}/github-token"
+          if test -L "${token_file}"; then
+            rm -- "${token_file}"
+            rmdir -- "${TOKEN_SCOPE}"
+            exit 1
+          fi
+          rm -f -- "${token_file}"
+          rmdir -- "${TOKEN_SCOPE}"
+
+      - id: token_scope_residue
+        name: Verify zero-artifact audit token scope residue is absent
+        if: always()
+        env:
+          TOKEN_SCOPE: ${{ steps.audit.outputs.token_scope }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if test -z "${TOKEN_SCOPE}"; then
+            exit 0
+          fi
+          test ! -e "${TOKEN_SCOPE}"
+          test ! -L "${TOKEN_SCOPE}"
+
+      - name: Project OCI smoke artifact audit status
+        if: ${{ always() && !cancelled() }}
+        env:
+          AUDIT_OUTCOME: ${{ steps.audit.outcome }}
+          TOKEN_SCOPE_CLEANUP_OUTCOME: ${{ steps.token_scope_cleanup.outcome }}
+          TOKEN_SCOPE_RESIDUE_OUTCOME: ${{ steps.token_scope_residue.outcome }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "${AUDIT_OUTCOME}" = success
+          test "${TOKEN_SCOPE_CLEANUP_OUTCOME}" = success
+          test "${TOKEN_SCOPE_RESIDUE_OUTCOME}" = success

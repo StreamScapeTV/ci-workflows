@@ -17,6 +17,14 @@ The Android gate follows the repository's named-function architecture:
 
 Workflow YAML does not implement Gradle task selection, repository compatibility, authentication, cleanup traversal, test-filter parsing, source-policy exception selection, or product policy. Those decisions remain in typed code and checked-in contract data.
 
+## Immutable private helper source
+
+Private reusable callers do not clone the private `StreamScapeTV/ci-workflows` repository with the caller-scoped Actions token. `reusable-android.yml` composes the reviewed central primitives directly as immutable private composite-action references pinned to `70e08d4ddf8930046632a7135950e924b82e22bf`: `validate-android`, `exact-checkout`, `prepare-workspace`, `checkout-private-dependency`, `render-evidence`, and `cleanup-workspace`.
+
+Each composite resolves its implementation and contracts relative to its own `GITHUB_ACTION_PATH`, so the called helper source is the immutable central revision rather than a caller PR merge SHA or a second central checkout. The caller cannot select or override the helper revision. The workflow does not accept a central-repository PAT, generic checkout token, mutable ref, or `secrets: inherit`.
+
+The existing optional `private_dependency_token` remains a separate product dependency credential. It is passed only to `checkout-private-dependency` when the protected Android plan selects the reviewed dependency contract; it is never used to retrieve central helper source and never reaches planning, Android execution, evidence, or cleanup actions.
+
 ## Trust and runner resolution
 
 The planner derives trust from immutable GitHub event metadata. Only `trusted-pr` and `trusted-exact` are permitted by the Android profiles. Untrusted forks fail before mobile execution, shared cache, private dependency, live backend, signing, device, or privileged state. No public input can select a semantic profile or raw label.
@@ -41,7 +49,7 @@ Before execution, the exact caller worktree must equal the admitted SHA and have
 
 The runtime creates private mode-0700 locations for home, temporary files, Gradle state, Android user state, and logs beneath the registered Android state root. Java, Javac, SDK manager, Gradle wrapper, and Gradle tasks all receive those same paths. Inherited host `HOME` and `TMPDIR` values are not part of the execution environment. `GRADLE_OPTS` disables the daemon and enforces UTF-8. The checked-in wrapper receives `--no-daemon` on every invocation.
 
-JDK/Javac and SDK package inventory are verified before Gradle. Wrapper properties are parsed without shell evaluation. Distribution URL, checksum, Git blob identities where declared, and `Gradle <version>` output are verified against the contract. Streamscape Media's checked-in launcher and IPTV Android's standard wrapper have distinct reviewed wrapper modes.
+JDK/Javac and SDK package inventory are verified before Gradle. Wrapper properties are parsed without shell evaluation. The contract names the launcher path and blob identity, properties path and blob identity, and, when a standard Gradle wrapper uses one, JAR path and blob identity as independent fields relative to the reviewed working directory. Distribution URL, checksum, every declared component identity, and `Gradle <version>` output are verified against the contract; a JAR digest can never satisfy launcher verification. Streamscape Media's checked-in launcher and IPTV Android's standard wrapper have distinct reviewed wrapper modes.
 
 The central synthetic fixture is the only mode that obtains Gradle at runtime. Its checked-in launcher contains a fixed official Gradle `9.6.1` HTTPS URL and SHA-256, downloads beneath isolated `GRADLE_USER_HOME`, verifies the digest before extraction, and performs bounded no-follow extraction that rejects traversal, duplicate destinations, unsupported members, excessive member counts, and excessive expanded size. It then executes the fixed synthetic task through the installed binary. This does not install a system package, modify the host, use sudo, or create state outside the registered root. Consumer profiles continue to use their own checked-in wrapper or launcher contracts.
 

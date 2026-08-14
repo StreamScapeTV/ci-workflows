@@ -96,7 +96,7 @@ permissions:
 jobs:
   admit:
     name: Shared / Source admission
-    runs-on: portable
+    runs-on: [linux, amd64, general]
     timeout-minutes: 10
     outputs:
       caller_repository: ${{ steps.resolve.outputs.caller_repository }}
@@ -123,7 +123,7 @@ jobs:
     steps:
       - id: resolve
         name: Resolve exact source through immutable trusted helper
-        uses: StreamScapeTV/ci-workflows/actions/resolve-source@90706a72aa68c81b7840c139965ae528d8ed6b25 # issue #7 immutable helper checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/resolve-source@87a7454aaa59cb680db8f580d22551b749ac4193 # issue #132 immutable mode-aware source checkpoint
         with:
           source_mode: ${{ inputs.source_mode }}
           requested_sha: ${{ inputs.requested_sha }}

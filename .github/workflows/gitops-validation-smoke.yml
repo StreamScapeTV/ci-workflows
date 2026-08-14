@@ -1,0 +1,264 @@
+name: GitOps validation exact-head smoke
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/reusable-gitops-validation.yml
+      - .github/workflows/gitops-validation-smoke.yml
+      - actions/validate-gitops/**
+      - contracts/gitops-validation.json
+      - scripts/ci/gitops.py
+      - src/ci_workflows/gitops*.py
+      - src/ci_workflows/ciw_gitops.py
+      - tests/fixtures/gitops-validation/**
+      - tests/test_gitops_*.py
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: gitops-validation-smoke-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    name: Resolve exact synthetic GitOps smoke
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: [linux, amd64, general]
+    timeout-minutes: 10
+    outputs:
+      runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
+      workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
+      source_trust: ${{ steps.plan.outputs.source_trust }}
+      source_sha: ${{ steps.source.outputs.sha }}
+    steps:
+      - id: source
+        name: Admit exact same-repository source
+        shell: bash
+        env:
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -Eeuo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == pull_request ]]; then
+            test "${HEAD_REPOSITORY}" = "${GITHUB_REPOSITORY}"
+            sha="${HEAD_SHA}"
+          else
+            sha="${GITHUB_SHA}"
+          fi
+          [[ "${sha}" =~ ^[0-9a-f]{40}$ ]]
+          echo "sha=${sha}" >> "${GITHUB_OUTPUT}"
+
+      - name: Check out exact central source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.source.outputs.sha }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact smoke source
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "${{ steps.source.outputs.sha }}"
+
+      - id: plan
+        name: Resolve contract-owned full synthetic plan
+        uses: ./actions/validate-gitops
+        with:
+          phase: plan
+          admitted_sha: ${{ steps.source.outputs.sha }}
+          validation_profile: full
+          consumer_contract: synthetic
+          policy_script_profile: synthetic-policy
+
+      - name: Bootstrap locked PyYAML for focused source tests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "${GITHUB_RUN_ID}" =~ ^[0-9]+$ ]]
+          [[ "${GITHUB_RUN_ATTEMPT}" =~ ^[0-9]+$ ]]
+          test -n "${RUNNER_TEMP}"
+          validation_root="${RUNNER_TEMP}/gitops-smoke-pyyaml-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          test "$(dirname "${validation_root}")" = "${RUNNER_TEMP}"
+          rm -rf "${validation_root}"
+          mkdir -p "${validation_root}"
+          python3 scripts/ci/bootstrap_validation_runtime.py \
+            --lock contracts/action-tool-lock.json \
+            --target "${validation_root}/python"
+          test -f "${validation_root}/python/yaml/__init__.py"
+          printf 'GITOPS_SMOKE_PYTHONPATH=%s\n' "${validation_root}/python" >> "${GITHUB_ENV}"
+
+      - name: Run focused source package tests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -d "${GITOPS_SMOKE_PYTHONPATH}"
+          test ! -L "${GITOPS_SMOKE_PYTHONPATH}"
+          PYTHONPATH="${GITOPS_SMOKE_PYTHONPATH}:src" PYTHONDONTWRITEBYTECODE=1 \
+            python3 -m unittest -v \
+              tests.test_gitops_validation \
+              tests.test_gitops_workflow_contract
+
+      - name: Remove locked PyYAML test state
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "${GITHUB_RUN_ID}" =~ ^[0-9]+$ ]]
+          [[ "${GITHUB_RUN_ATTEMPT}" =~ ^[0-9]+$ ]]
+          test -n "${RUNNER_TEMP}"
+          validation_root="${RUNNER_TEMP}/gitops-smoke-pyyaml-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          test "$(dirname "${validation_root}")" = "${RUNNER_TEMP}"
+          rm -rf "${validation_root}"
+          test ! -e "${validation_root}"
+
+  execute:
+    name: Execute pinned Helm and Kustomize synthetic smoke
+    needs: plan
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
+    timeout-minutes: 30
+    steps:
+      - name: Check out exact smoke source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+          path: source
+          fetch-depth: 0
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Check out exact central action source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - id: workspace
+        name: Prepare bounded synthetic state
+        uses: ./.ciw/actions/prepare-workspace
+        with:
+          profile: ${{ needs.plan.outputs.workspace_profile }}
+          cache_mode: disabled
+          source_sha: ${{ needs.plan.outputs.source_sha }}
+          trust_mode: ${{ needs.plan.outputs.source_trust }}
+
+      - id: execute
+        name: Execute exact pinned synthetic validation
+        uses: ./.ciw/actions/validate-gitops
+        with:
+          phase: execute
+          admitted_sha: ${{ needs.plan.outputs.source_sha }}
+          validation_profile: full
+          consumer_contract: synthetic
+          policy_script_profile: synthetic-policy
+
+      - name: Require exact synthetic result
+        shell: bash
+        env:
+          RESULT: ${{ steps.execute.outputs.result }}
+          SELECTED: ${{ steps.execute.outputs.selected_targets_json }}
+          TOOLS: ${{ steps.execute.outputs.tool_versions_json }}
+          POLICY: ${{ steps.execute.outputs.policy_result }}
+        run: |
+          set -Eeuo pipefail
+          test "${RESULT}" = success
+          test "${POLICY}" = success
+          python3 - <<'PY'
+          import json
+          import os
+
+          assert json.loads(os.environ["SELECTED"]) == [
+              "synthetic-yaml",
+              "synthetic-helm",
+              "synthetic-kustomize",
+          ]
+          assert json.loads(os.environ["TOOLS"]) == {
+              "helm": "3.18.6",
+              "kustomize": "5.8.1",
+              "pyyaml": "6.0.3",
+          }
+          PY
+
+      - name: Remove issue-owned GitOps state
+        if: always()
+        uses: ./.ciw/actions/validate-gitops
+        with:
+          phase: cleanup
+          admitted_sha: ${{ needs.plan.outputs.source_sha }}
+          validation_profile: full
+          consumer_contract: synthetic
+          policy_script_profile: synthetic-policy
+
+      - name: Verify zero issue-owned GitOps residue
+        if: always()
+        uses: ./.ciw/actions/validate-gitops
+        with:
+          phase: residue
+          admitted_sha: ${{ needs.plan.outputs.source_sha }}
+          validation_profile: full
+          consumer_contract: synthetic
+          policy_script_profile: synthetic-policy
+
+      - name: Remove registered workspace state
+        if: always()
+        uses: ./.ciw/actions/cleanup-workspace
+
+      - name: Verify source cleanup and exactness
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          (
+            cd source
+            test "$(git rev-parse HEAD)" = "${{ needs.plan.outputs.source_sha }}"
+            test -z "$(git status --porcelain --untracked-files=all)"
+          )
+          rm -rf source .ciw
+          test ! -e source
+          test ! -e .ciw
+
+  artifacts:
+    name: Verify GitOps smoke retained zero artifacts
+    if: ${{ always() && !cancelled() && needs.plan.result != 'skipped' }}
+    needs: [plan, execute]
+    runs-on: [linux, amd64, general]
+    timeout-minutes: 10
+    steps:
+      - name: Require successful smoke and zero Actions artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLAN_RESULT: ${{ needs.plan.result }}
+          EXECUTE_RESULT: ${{ needs.execute.result }}
+        run: |
+          set -Eeuo pipefail
+          test "${PLAN_RESULT}" = success
+          test "${EXECUTE_RESULT}" = success
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          request = urllib.request.Request(
+              f"{os.environ['GITHUB_API_URL']}/repos/{os.environ['GITHUB_REPOSITORY']}"
+              f"/actions/runs/{os.environ['GITHUB_RUN_ID']}/artifacts?per_page=100",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              payload = json.load(response)
+          if int(payload.get("total_count", 0)) != 0 or payload.get("artifacts") != []:
+              raise SystemExit("GitOps smoke retained an Actions artifact")
+          PY

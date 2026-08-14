@@ -248,6 +248,32 @@ Apple capacity. Before device access, the workflow must have:
 Selecting `mobile`, `android`, `apple`, `macOS`, or `ios` never proves that a
 physical device is attached or authorized.
 
+### Production device fencing backend
+
+Physical-device mutation uses the checked-in `device-lock/1` contract and the
+runner-infrastructure-owned `posix-shared-root-v1` backend. Runner/device
+infrastructure provisions one absolute private POSIX directory through
+`CIW_DEVICE_LOCK_ROOT`; the directory is mode `0700`, is owned by the runner
+execution identity, and is not a workflow or action input.
+
+Every execution context capable of reaching the same exact physical device must
+share that backend root. The root path, runner/host identity, raw serial/UDID,
+and infrastructure details never appear in public inputs, outputs, job names, or
+evidence. Synthetic contract tests may provision a temporary private root, but
+that is not physical-device evidence.
+
+The lock action binds exact family/capability, hashed discovered-device identity,
+exact tested source SHA, hashed authorization receipt, hashed
+repository/run/attempt owner, bounded request identity, lease lifetime, and a
+random 256-bit fencing token. An older, expired, released, mismatched, replayed,
+or superseded receipt fails closed before mutation. Release is expected-state
+protected and produces deterministic cleanup/release evidence. GitHub
+`concurrency` remains supplemental serialization only and is never the fencing
+authority.
+
+The full receipt and cleanup contract is documented in
+`docs/architecture/device-locking.md`.
+
 ## Selection by intent
 
 | Intent | Semantic request |

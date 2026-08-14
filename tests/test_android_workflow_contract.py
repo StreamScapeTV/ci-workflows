@@ -6,6 +6,7 @@ import os
 import subprocess
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
@@ -21,6 +22,17 @@ ACTION = ROOT / "actions/validate-android/action.yml"
 DOC = ROOT / "docs/workflows/android.md"
 ARCH = ROOT / "docs/architecture/android-validation.md"
 CASES = ROOT / "tests/fixtures/android-validation/cases.json"
+SOURCE_POLICY = ROOT / "contracts/android-source-policy.json"
+VALIDATE_ANDROID_SHA = "5f503d419696e5bfae4ed5b11eca3b531dbdca0f"
+PRIVATE_HELPER_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
+PRIVATE_HELPERS = {
+    "validate-android",
+    "exact-checkout",
+    "prepare-workspace",
+    "checkout-private-dependency",
+    "render-evidence",
+    "cleanup-workspace",
+}
 
 
 class AndroidWorkflowContractTests(unittest.TestCase):
@@ -28,6 +40,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.contract = android_contract.load_android_contract(ROOT)
         cls.cases = json.loads(CASES.read_text(encoding="utf-8"))
+        cls.source_policy = json.loads(SOURCE_POLICY.read_text(encoding="utf-8"))
         cls.reusable = REUSABLE.read_text(encoding="utf-8")
         cls.smoke = SMOKE.read_text(encoding="utf-8")
         cls.action = ACTION.read_text(encoding="utf-8")
@@ -78,13 +91,104 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("runs-on: portable", self.reusable)
         self.assertNotIn("runs-on: portable", self.smoke)
         self.assertIn("fromJSON(needs.plan.outputs.runs_on_json)", self.reusable)
-        self.assertIn("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", self.reusable)
-        self.assertIn("./.ciw/actions/exact-checkout", self.reusable)
-        self.assertIn("./.ciw/actions/checkout-private-dependency", self.reusable)
+        self.assertNotIn("actions/checkout@", self.reusable)
+        self.assertNotIn("./.ciw/actions/", self.reusable)
+        for helper in PRIVATE_HELPERS:
+            expected_sha = (
+                VALIDATE_ANDROID_SHA if helper == "validate-android" else PRIVATE_HELPER_SHA
+            )
+            self.assertIn(
+                f"StreamScapeTV/ci-workflows/actions/{helper}@{expected_sha}",
+                self.reusable,
+            )
         self.assertNotIn("self-hosted", self.reusable)
         self.assertNotIn("runs-on: mobile", self.reusable)
         for forbidden in ("macos-latest", "ubuntu-latest", "buildah", "apple-", "docker"):
             self.assertNotIn(forbidden, self.reusable.casefold())
+
+    def test_central_source_uses_immutable_private_action_identity(self) -> None:
+        reusable = yaml.safe_load(self.reusable)
+        steps = [
+            step
+            for job in reusable["jobs"].values()
+            for step in job.get("steps", [])
+        ]
+        self.assertFalse(
+            any(step.get("name") == "Check out exact central workflow source" for step in steps)
+        )
+        self.assertFalse(
+            any(step.get("name") == "Verify exact central workflow source" for step in steps)
+        )
+        self.assertNotIn("job.workflow_repository", self.reusable)
+        self.assertNotIn("job.workflow_sha", self.reusable)
+        self.assertNotIn("path: .ciw", self.reusable)
+        self.assertNotIn("github.workflow_sha", self.reusable)
+        self.assertNotIn("GITHUB_WORKFLOW_SHA", self.reusable)
+        remote_helpers = {
+            str(step["uses"]).split("@", 1)[0]: str(step["uses"]).split("@", 1)[1]
+            for step in steps
+            if str(step.get("uses", "")).startswith(
+                "StreamScapeTV/ci-workflows/actions/"
+            )
+        }
+        self.assertEqual(
+            {
+                f"StreamScapeTV/ci-workflows/actions/{helper}"
+                for helper in PRIVATE_HELPERS
+            },
+            set(remote_helpers),
+        )
+        validate_path = "StreamScapeTV/ci-workflows/actions/validate-android"
+        self.assertEqual(remote_helpers[validate_path], VALIDATE_ANDROID_SHA)
+        self.assertEqual(
+            {PRIVATE_HELPER_SHA},
+            {
+                sha
+                for path, sha in remote_helpers.items()
+                if path != validate_path
+            },
+        )
+        self.assertEqual(
+            set(reusable[True]["workflow_call"].get("secrets", {})),
+            {"private_dependency_token"},
+        )
+        dependency = next(step for step in steps if step.get("id") == "dependency")
+        self.assertEqual(
+            dependency["with"]["token"],
+            "${{ secrets.private_dependency_token }}",
+        )
+        for step in steps:
+            if step is not dependency:
+                self.assertNotIn("private_dependency_token", json.dumps(step))
+
+    def test_validate_android_checkpoint_carries_media_policy_exception(self) -> None:
+        exception = next(
+            item
+            for item in self.source_policy["tracked_secret_exceptions"]
+            if item["id"] == "streamscape_media_playback_lab_redaction_sentinels_v1"
+        )
+        self.assertEqual(exception["repository"], "StreamScapeTV/streamscape-media")
+        self.assertEqual(
+            exception["validation_profiles"],
+            ["compile", "unit-full", "consumer-script"],
+        )
+        self.assertEqual(
+            exception["paths"],
+            [{
+                "path": "apple/Tests/StreamscapePlaybackLabSupportTests/PlaybackLabBootstrapEvidenceTests.swift",
+                "git_blob_sha1": "1770311f5b3998b5dbf3f8ee191acd419aa52a56",
+            }],
+        )
+        self.assertIn(
+            'python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py"',
+            self.action,
+        )
+        self.assertEqual(
+            self.reusable.count(
+                f"StreamScapeTV/ci-workflows/actions/validate-android@{VALIDATE_ANDROID_SHA}"
+            ),
+            4,
+        )
 
     def test_smoke_is_direct_mobile_plan_execute_not_nested_reuse(self) -> None:
         self.assertNotIn("./.github/workflows/reusable-android.yml", self.smoke)
@@ -174,6 +278,78 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             finally:
                 properties.write_text(original, encoding="utf-8")
 
+    def test_wrapper_component_identities_are_verified_independently(self) -> None:
+        plan = self.plan(1)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            working = root / "source"
+            properties = working / "gradle/wrapper/gradle-wrapper.properties"
+            launcher = working / "gradlew"
+            jar = working / "gradle/wrapper/gradle-wrapper.jar"
+            properties.parent.mkdir(parents=True)
+            launcher.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            launcher.chmod(0o700)
+            properties.write_text(
+                "distributionUrl=https\\://services.gradle.org/distributions/gradle-9.5.0-bin.zip\n",
+                encoding="utf-8",
+            )
+            jar.write_bytes(b"reviewed-wrapper-jar")
+            wrapper = replace(
+                plan.wrapper,
+                launcher_path="gradlew",
+                properties_path="gradle/wrapper/gradle-wrapper.properties",
+                jar_path="gradle/wrapper/gradle-wrapper.jar",
+                launcher_blob_sha1=android_contract.git_blob_sha1(launcher),
+                properties_blob_sha1=android_contract.git_blob_sha1(properties),
+                jar_blob_sha1=android_contract.git_blob_sha1(jar),
+            )
+            plan = replace(plan, working_directory="source", wrapper=wrapper)
+
+            def runner(argv, **_kwargs):
+                return subprocess.CompletedProcess(argv, 0, "Gradle 9.5.0\n", "")
+
+            with mock.patch.object(android_execution, "run_command", side_effect=runner):
+                self.assertEqual(
+                    android_execution.verify_wrapper(
+                        root, root / "state", plan, {"PATH": os.environ.get("PATH", "")}
+                    ),
+                    "9.5.0",
+                )
+
+            for path, replacement in (
+                (launcher, "#!/bin/sh\necho changed\n"),
+                (properties, properties.read_text(encoding="utf-8") + "networkTimeout=1\n"),
+            ):
+                original = path.read_text(encoding="utf-8")
+                try:
+                    path.write_text(replacement, encoding="utf-8")
+                    with self.subTest(path=path.name), self.assertRaises(
+                        AndroidValidationError
+                    ) as failure:
+                        android_execution.verify_wrapper(
+                            root,
+                            root / "state",
+                            plan,
+                            {"PATH": os.environ.get("PATH", "")},
+                        )
+                    self.assertEqual(failure.exception.code, "wrapper_invalid")
+                finally:
+                    path.write_text(original, encoding="utf-8")
+
+            original_jar = jar.read_bytes()
+            try:
+                jar.write_bytes(b"changed-wrapper-jar")
+                with self.assertRaises(AndroidValidationError) as failure:
+                    android_execution.verify_wrapper(
+                        root,
+                        root / "state",
+                        plan,
+                        {"PATH": os.environ.get("PATH", "")},
+                    )
+                self.assertEqual(failure.exception.code, "wrapper_invalid")
+            finally:
+                jar.write_bytes(original_jar)
+
     def test_test_selector_and_gradle_injection_rejection(self) -> None:
         valid = dict(self.cases["positive"][1]["environment"])
         plan = android_contract.resolve_validation_plan(
@@ -230,6 +406,42 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("abc", redacted); self.assertNotIn("user:pass", redacted)
         self.assertIn("<redacted>", redacted)
 
+    def test_cleanup_waits_boundedly_for_a_single_use_gradle_daemon(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "state"; state.mkdir()
+            (state / "android-validation").mkdir()
+            active = f"GradleDaemon --gradle-user-home {state / 'android-validation'}"
+            with mock.patch.object(
+                android_execution,
+                "run_command",
+                side_effect=(
+                    subprocess.CompletedProcess([], 0, active, ""),
+                    subprocess.CompletedProcess([], 0, "", ""),
+                ),
+            ) as command, mock.patch.object(android_execution.time, "sleep") as sleep:
+                android_execution.cleanup_android_state(state, self.contract)
+            self.assertEqual(command.call_count, 2)
+            sleep.assert_called_once_with(
+                android_execution.GRADLE_DAEMON_CLEANUP_POLL_SECONDS
+            )
+            self.assertFalse((state / "android-validation").exists())
+
+    def test_cleanup_rejects_a_daemon_after_the_bounded_grace_period(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "state"; state.mkdir()
+            active = f"GradleDaemon --gradle-user-home {state / 'android-validation'}"
+            with mock.patch.object(
+                android_execution,
+                "run_command",
+                return_value=subprocess.CompletedProcess([], 0, active, ""),
+            ), mock.patch.object(
+                android_execution.time,
+                "monotonic",
+                side_effect=(0.0, android_execution.GRADLE_DAEMON_CLEANUP_GRACE_SECONDS),
+            ), self.assertRaises(AndroidValidationError) as failure:
+                android_execution.cleanup_android_state(state, self.contract)
+            self.assertEqual(failure.exception.code, "cleanup_failed")
+
     def test_room_schema_profiles_failure_projection_and_device_handoff(self) -> None:
         app = self.contract["consumers"]["StreamScapeTV/iptv-android"]["tasks"]
         self.assertEqual([row["stage"] for row in app["app-room-schema"]["commands"]], ["schema-generation", "schema-validation"])
@@ -239,7 +451,14 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         handoff = self.plan(3)
         self.assertTrue(handoff.is_device_handoff); self.assertEqual(handoff.commands, ())
         self.assertEqual(handoff.output_mode, "handoff-only")
-        self.assertNotIn("adb", json.dumps(self.contract, sort_keys=True).casefold())
+        command_arguments = "\0".join(
+            argument
+            for consumer in self.contract["consumers"].values()
+            for task in consumer["tasks"].values()
+            for command in task["commands"]
+            for argument in command["argv"]
+        )
+        self.assertNotIn("adb", command_arguments.casefold())
 
     def test_docs_record_profiles_noncertification_and_deterministic_outputs(self) -> None:
         for profile in self.contract["profiles"]:

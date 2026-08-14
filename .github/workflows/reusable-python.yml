@@ -49,7 +49,7 @@ permissions:
 jobs:
   plan:
     name: Resolve bounded Python validation plan
-    runs-on: portable
+    runs-on: [linux, amd64, general]
     timeout-minutes: 10
     outputs:
       runner_profile: ${{ steps.plan.outputs.runner_profile }}
@@ -58,29 +58,9 @@ jobs:
       timeout_minutes: ${{ steps.plan.outputs.timeout_minutes }}
       source_trust: ${{ steps.plan.outputs.source_trust }}
     steps:
-      - name: Check out exact central workflow source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: StreamScapeTV/ci-workflows
-          ref: ${{ github.workflow_sha }}
-          path: .ciw
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
-
-      - name: Verify exact central workflow source
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          (
-            cd .ciw
-            test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
-          )
-
       - id: plan
         name: Resolve contract-owned command and runner plan
-        uses: ./.ciw/actions/validate-python
+        uses: StreamScapeTV/ci-workflows/actions/validate-python@e869906a0b192ab954dce3dbd1e90cccb649eb18 # issue #155 immutable Backend execution repair checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -107,28 +87,8 @@ jobs:
       failure_code: ${{ steps.python.outputs.failure_code }}
       artifact_exception_used: ${{ steps.python.outputs.artifact_exception_used }}
     steps:
-      - name: Check out exact central workflow source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: StreamScapeTV/ci-workflows
-          ref: ${{ github.workflow_sha }}
-          path: .ciw
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
-
-      - name: Verify exact central workflow source
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          (
-            cd .ciw
-            test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
-          )
-
       - name: Check out exact admitted caller source
-        uses: ./.ciw/actions/exact-checkout
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -137,7 +97,7 @@ jobs:
 
       - id: workspace
         name: Prepare isolated marker-bound Python state
-        uses: ./.ciw/actions/prepare-workspace
+        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           profile: ${{ needs.plan.outputs.workspace_profile }}
           cache_mode: disabled
@@ -146,7 +106,7 @@ jobs:
 
       - id: tools
         name: Verify contract-selected host toolchain
-        uses: ./.ciw/actions/verify-toolchain
+        uses: StreamScapeTV/ci-workflows/actions/verify-toolchain@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
         with:
           operation: verify-set
           tool_set: baseline
@@ -154,7 +114,7 @@ jobs:
 
       - id: python
         name: Execute bounded Python validation
-        uses: ./.ciw/actions/validate-python
+        uses: StreamScapeTV/ci-workflows/actions/validate-python@e869906a0b192ab954dce3dbd1e90cccb649eb18 # issue #155 immutable Backend execution repair checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -167,7 +127,7 @@ jobs:
 
       - name: Render deterministic redacted Python evidence
         if: always()
-        uses: ./.ciw/actions/render-evidence
+        uses: StreamScapeTV/ci-workflows/actions/render-evidence@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           source_sha: ${{ inputs.admitted_sha }}
           workflow_release: validation-python-1.0.0
@@ -181,7 +141,7 @@ jobs:
       - id: cleanup
         name: Remove and verify all registered Python state
         if: always()
-        uses: ./.ciw/actions/cleanup-workspace
+        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
 
       - name: Verify exact source remained clean after cleanup
         if: always()

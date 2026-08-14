@@ -21,22 +21,22 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. D
 |---|---|---|---|---|---|---|---|---|
 | `flux.assets` `1.0.0` | `.github/workflows/reusable-flux-infrastructure-assets.yml` | `planned` | `trusted-publication` | `release-orchestration` | `contract:flux-assets` | Release / Flux infrastructure assets | StreamScapeTV/flux | flux-runner-images, flux-runner-chart-assets |
 | `flux.reconcile` `1.0.0` | `.github/workflows/reusable-flux-reconcile.yml` | `planned` | `flux-authorized` | `flux-reconciliation` | `contract:flux-control` | Flux / Reconciliation | StreamScapeTV/flux | — |
-| `helm.publish` `1.0.0` | `.github/workflows/reusable-helm-publish.yml` | `implemented` | `trusted-publication` | `oci-publication` | `contract:helm-publish` | Release / Helm publication | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | iptv-backend-chart, agent-state-chart, flux-runner-chart-assets |
-| `helm.validate` `1.0.0` | `.github/workflows/reusable-helm-validate.yml` | `implemented` | `read-only-validation` | `validation-read` | `portable` | CI / Helm validation | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | iptv-backend-chart, agent-state-chart, flux-runner-chart-assets |
+| `helm.publish` `1.0.0` | `.github/workflows/reusable-helm-publish.yml` | `planned` | `trusted-publication` | `oci-publication` | `contract:helm-publish` | Release / Helm publication | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | iptv-backend-chart, agent-state-chart, flux-runner-chart-assets |
+| `helm.validate` `1.0.0` | `.github/workflows/reusable-helm-validate.yml` | `planned` | `read-only-validation` | `validation-read` | `portable` | CI / Helm validation | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | iptv-backend-chart, agent-state-chart, flux-runner-chart-assets |
 | `maintenance.artifacts` `1.0.0` | `.github/workflows/reusable-artifact-cleanup.yml` | `planned` | `trusted-maintenance` | `artifact-cleanup` | `maintenance-control` | Maintenance / Artifact cleanup | StreamScapeTV/ci-workflows | — |
 | `maintenance.branches` `1.0.0` | `.github/workflows/reusable-branch-hygiene.yml` | `planned` | `trusted-maintenance` | `branch-hygiene` | `maintenance-control` | Maintenance / Branch hygiene | StreamScapeTV/* | — |
 | `maintenance.conformance` `1.0.0` | `.github/workflows/reusable-conformance.yml` | `planned` | `trusted-maintenance` | `conformance-report` | `maintenance-control` | Maintenance / Organization conformance | StreamScapeTV/ci-workflows | — |
 | `maintenance.runner-retry` `1.0.0` | `.github/workflows/reusable-runner-infrastructure-retry.yml` | `planned` | `trusted-maintenance` | `runner-infrastructure-retry` | `maintenance-control` | Maintenance / Runner retry | StreamScapeTV/* | — |
-| `oci.build` `1.0.0` | `.github/workflows/reusable-oci-build.yml` | `planned` | `read-only-validation` | `validation-read` | `contract:oci-build` | CI / OCI build validation | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | iptv-backend-image, agent-state-image, flux-runner-images |
-| `oci.publish` `1.0.0` | `.github/workflows/reusable-oci-publish.yml` | `planned` | `trusted-publication` | `oci-publication` | `contract:oci-publish` | Release / OCI publication | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | iptv-backend-image, agent-state-image, flux-runner-images |
+| `oci.build` `1.0.0` | `.github/workflows/reusable-oci-build.yml` | `implemented` | `read-only-validation` | `validation-read` | `contract:oci-build` | CI / OCI build validation | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | iptv-backend-image, agent-state-image, flux-runner-images |
+| `oci.publish` `1.0.0` | `.github/workflows/reusable-oci-publish.yml` | `implemented` | `trusted-publication` | `oci-publication` | `contract:oci-publish` | Release / OCI publication | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | iptv-backend-image, agent-state-image, flux-runner-images |
 | `release.orchestrate` `1.0.0` | `.github/workflows/reusable-release.yml` | `planned` | `trusted-publication` | `release-orchestration` | `contract:release` | Release / Verified products | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | — |
 | `release.tag-image-chart-bootstrap` `1.2.0` | `.github/workflows/reusable-tag-image-chart.yml` | `deprecated-bootstrap-exception` | `trusted-publication` | `bootstrap-tag-publication` | `contract:oci-publish` | Release / Bootstrap image and chart | StreamScapeTV/iptv-backend | iptv-backend-image, iptv-backend-chart |
 | `source.resolve` `1.0.0` | `.github/workflows/reusable-resolve-source.yml` | `implemented` | `source-admission` | `source-read` | `portable` | Shared / Source admission | * | — |
 | `validation.android` `1.0.0` | `.github/workflows/reusable-android.yml` | `implemented` | `read-only-validation` | `validation-read` | `contract:android` | CI / Android validation | StreamScapeTV/iptv-android, StreamScapeTV/streamscape-media | — |
-| `validation.apple` `1.0.0` | `.github/workflows/reusable-apple.yml` | `planned` | `read-only-validation` | `validation-read` | `contract:apple-simulator` | CI / Apple validation | StreamScapeTV/iptv-apple, StreamScapeTV/streamscape-media | — |
+| `validation.apple` `1.0.0` | `.github/workflows/reusable-apple.yml` | `implemented` | `read-only-validation` | `validation-read` | `contract:apple-simulator` | CI / Apple validation | StreamScapeTV/iptv-apple, StreamScapeTV/streamscape-media | — |
 | `validation.device` `1.0.0` | `.github/workflows/reusable-device.yml` | `planned` | `physical-device-validation` | `device-validation` | `contract:physical-device` | CI / Physical device validation | StreamScapeTV/iptv-android, StreamScapeTV/iptv-apple, StreamScapeTV/streamscape-media, StreamScapeTV/finance-hub | — |
 | `validation.flutter` `1.0.0` | `.github/workflows/reusable-flutter.yml` | `implemented` | `read-only-validation` | `validation-read` | `contract:flutter` | CI / Flutter validation | StreamScapeTV/directus-front, StreamScapeTV/finance-hub | — |
-| `validation.gitops` `1.0.0` | `.github/workflows/reusable-gitops-validation.yml` | `planned` | `read-only-validation` | `validation-read` | `portable` | CI / GitOps source validation | StreamScapeTV/flux, StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/organization-rules | — |
+| `validation.gitops` `1.0.0` | `.github/workflows/reusable-gitops-validation.yml` | `implemented` | `read-only-validation` | `validation-artifact-read` | `portable` | CI / GitOps validation | StreamScapeTV/flux, StreamScapeTV/iptv-backend, StreamScapeTV/agent-state | — |
 | `validation.node` `1.0.0` | `.github/workflows/reusable-node.yml` | `implemented` | `read-only-validation` | `validation-read` | `contract:node` | CI / Node validation | StreamScapeTV/StreamScapeWeb, StreamScapeTV/agent-state, StreamScapeTV/finance-hub | — |
 | `validation.python` `1.0.0` | `.github/workflows/reusable-python.yml` | `implemented` | `read-only-validation` | `validation-read` | `contract:python` | CI / Python validation | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | — |
 
@@ -144,7 +144,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. D
 - Maximum reusable-workflow depth: `1`
 - Inputs: `admitted_sha` (required), `product_id` (required), `release_version`, `platform_set`, `artifact_exception_id`
 - Secrets: none
-- Outputs: `result`, `image_digest`, `platform_digests_json`, `artifact_exception_used`
+- Outputs: `result`, `image_digest`, `platform_digests_json`, `resolved_inputs_json`, `artifact_exception_used`
 - Repository-owned hooks: none
 - Implementation components: `ci_workflows.oci.build`, `ci_workflows.oci.inspect`
 
@@ -180,7 +180,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. D
 - Maximum reusable-workflow depth: `1`
 - Inputs: `release_mode` (default `tag-push`), `release_version`, `release_source_sha`, `image_recovery_authority` (default ``), `image_name` (required), `chart_name` (required), `chart_path` (required), `dockerfile_path` (default `Dockerfile`), `build_context` (default `.`)
 - Secrets: `registry_username`, `registry_token`
-- Outputs: `version`, `source_sha`, `image_reference`, `image_digest`, `chart_reference`, `chart_package_sha256`
+- Outputs: `version`, `source_sha`, `image_reference`, `image_digest`, `chart_reference`, `chart_digest`, `chart_package_sha256`
 - Repository-owned hooks: none
 - Implementation components: `ci_workflows.release_tag_authority.resolve_release_authority`, `ci_workflows.release_tag_authority.revalidate_release_authority`, `actions/resolve-release-tag`, `bootstrap-monolithic-workflow`
 - Deprecation replacement: `release.orchestrate`
@@ -249,13 +249,13 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. D
 
 - Public file: `.github/workflows/reusable-gitops-validation.yml`
 - Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
-- Timeout / matrix maximum: `90 minutes` / `16` jobs
+- Timeout / matrix maximum: `120 minutes` / `1` jobs
 - Maximum reusable-workflow depth: `1`
-- Inputs: `admitted_sha` (required), `validation_profile` (required), `working_directory` (default `.`), `command_profile` (required), `script_path`, `policy_path`, `values_profile`, `artifact_exception_id`
+- Inputs: `admitted_sha` (required), `validation_profile` (required), `consumer_contract` (required), `change_base_sha` (default ``), `policy_script_profile` (default ``), `artifact_exception_id`
 - Secrets: none
-- Outputs: `result`, `test_summary`, `artifact_exception_used`
-- Repository-owned hooks: `command_profile`, `script_path`, `policy_path`
-- Implementation components: `ci_workflows.gitops.validate`
+- Outputs: `result`, `test_summary`, `render_digest`, `cleanup_result`, `evidence_id`
+- Repository-owned hooks: `policy_script_profile`
+- Implementation components: `ci_workflows.gitops.validate`, `actions/validate-gitops`
 
 ### `validation.node`
 

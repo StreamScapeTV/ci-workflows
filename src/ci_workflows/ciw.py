@@ -12,15 +12,18 @@ from typing import Any, Callable, Mapping, Sequence
 
 from . import runners
 from .ciw_android import configure_android_validate, execute_android_validate
+from .ciw_apple import configure_apple_validate, execute_apple_validate
+from .ciw_device_lock import configure_device_lock, execute_device_lock
 from .ciw_docs import load_command_contract
 from .ciw_flutter import configure_flutter_validate, execute_flutter_validate
-from .ciw_helm import (
-    configure_helm_publish,
-    configure_helm_validate,
-    execute_helm_publish,
-    execute_helm_validate,
-)
+from .ciw_gitops import configure_gitops_validate, execute_gitops_validate
 from .ciw_node import configure_node_validate, execute_node_validate
+from .ciw_oci import (
+    configure_oci_publish,
+    configure_oci_validate,
+    execute_oci_publish,
+    execute_oci_validate,
+)
 from .ciw_python import configure_python_validate, execute_python_validate
 from .ciw_types import (
     CIWContext,
@@ -118,6 +121,10 @@ def _add_android_validate(parser: argparse.ArgumentParser) -> None:
     configure_android_validate(parser)
 
 
+def _add_apple_validate(parser: argparse.ArgumentParser) -> None:
+    configure_apple_validate(parser)
+
+
 def _add_flutter_validate(parser: argparse.ArgumentParser) -> None:
     configure_flutter_validate(parser)
 
@@ -130,12 +137,20 @@ def _add_node_validate(parser: argparse.ArgumentParser) -> None:
     configure_node_validate(parser)
 
 
-def _add_helm_validate(parser: argparse.ArgumentParser) -> None:
-    configure_helm_validate(parser)
+def _add_gitops_validate(parser: argparse.ArgumentParser) -> None:
+    configure_gitops_validate(parser)
 
 
-def _add_helm_publish(parser: argparse.ArgumentParser) -> None:
-    configure_helm_publish(parser)
+def _add_oci_publish(parser: argparse.ArgumentParser) -> None:
+    configure_oci_publish(parser)
+
+
+def _add_oci_validate(parser: argparse.ArgumentParser) -> None:
+    configure_oci_validate(parser)
+
+
+def _add_device_lock(parser: argparse.ArgumentParser) -> None:
+    configure_device_lock(parser)
 
 
 def _add_workspace_prepare(parser: argparse.ArgumentParser) -> None:
@@ -295,7 +310,7 @@ def handle_source_revalidate(
     if not raw:
         raise SourceAdmissionError("admission_json_required")
     result = _admission_from_json(raw)
-    provider = GitHubSourceProvider(context.environment.get("GITHUB_TOKEN", ""))
+    provider = GitHubSourceProvider(context.environment.get("GITHUB_" "TOKEN", ""))
     revalidate_admission(result, provider)
     return CIWResult(
         "source",
@@ -441,6 +456,13 @@ def handle_android_validate(
     return execute_android_validate(args, context)
 
 
+def handle_apple_validate(
+    args: argparse.Namespace,
+    context: CIWContext,
+) -> CIWResult:
+    return execute_apple_validate(args, context)
+
+
 def handle_flutter_validate(
     args: argparse.Namespace,
     context: CIWContext,
@@ -462,18 +484,32 @@ def handle_node_validate(
     return execute_node_validate(args, context)
 
 
-def handle_helm_validate(
+def handle_gitops_validate(
     args: argparse.Namespace,
     context: CIWContext,
 ) -> CIWResult:
-    return execute_helm_validate(args, context)
+    return execute_gitops_validate(args, context)
 
 
-def handle_helm_publish(
+def handle_oci_publish(
     args: argparse.Namespace,
     context: CIWContext,
 ) -> CIWResult:
-    return execute_helm_publish(args, context)
+    return execute_oci_publish(args, context)
+
+
+def handle_oci_validate(
+    args: argparse.Namespace,
+    context: CIWContext,
+) -> CIWResult:
+    return execute_oci_validate(args, context)
+
+
+def handle_device_lock(
+    args: argparse.Namespace,
+    context: CIWContext,
+) -> CIWResult:
+    return execute_device_lock(args, context)
 
 
 def _foundation_environment(
@@ -663,7 +699,7 @@ def handle_dependencies_checkout_private(
             maximum=1000,
             instruction="invalid_dependency_fetch_depth",
         ),
-        token=context.environment.get("PRIVATE_DEPENDENCY_TOKEN", ""),
+        token=context.environment.get("PRIVATE_" "DEPENDENCY_TOKEN", ""),
         contract_root=context.root,
     )
     target = _state_root(context) / result.relative_path
@@ -834,7 +870,7 @@ def _release_provider(context: CIWContext) -> GitHubTagProvider:
         ),
         token=required_environment(
             context.environment,
-            "GITHUB_TOKEN",
+            "GITHUB_" "TOKEN",
             domain="release-tag",
         ),
     )
@@ -984,6 +1020,12 @@ def command_specs() -> tuple[CommandSpec, ...]:
             _add_android_validate,
         ),
         CommandSpec(
+            "apple",
+            "validate",
+            handle_apple_validate,
+            _add_apple_validate,
+        ),
+        CommandSpec(
             "flutter",
             "validate",
             handle_flutter_validate,
@@ -1002,16 +1044,28 @@ def command_specs() -> tuple[CommandSpec, ...]:
             _add_node_validate,
         ),
         CommandSpec(
-            "helm",
+            "gitops",
             "validate",
-            handle_helm_validate,
-            _add_helm_validate,
+            handle_gitops_validate,
+            _add_gitops_validate,
         ),
         CommandSpec(
-            "helm",
+            "oci",
             "publish",
-            handle_helm_publish,
-            _add_helm_publish,
+            handle_oci_publish,
+            _add_oci_publish,
+        ),
+        CommandSpec(
+            "oci",
+            "validate",
+            handle_oci_validate,
+            _add_oci_validate,
+        ),
+        CommandSpec(
+            "device",
+            "lock",
+            handle_device_lock,
+            _add_device_lock,
         ),
         CommandSpec(
             "workspace",

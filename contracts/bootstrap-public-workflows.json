@@ -8,28 +8,38 @@
       "required_follow_up": []
     },
     {
+      "path": ".github/workflows/reusable-apple.yml",
+      "issue": 13,
+      "status": "implemented-public-workflow",
+      "required_follow_up": []
+    },
+    {
       "path": ".github/workflows/reusable-flutter.yml",
       "issue": 12,
       "status": "implemented-public-workflow",
       "required_follow_up": []
     },
     {
-      "path": ".github/workflows/reusable-helm-publish.yml",
-      "issue": 18,
-      "status": "implemented-public-workflow",
-      "required_follow_up": [
-        17
-      ]
-    },
-    {
-      "path": ".github/workflows/reusable-helm-validate.yml",
-      "issue": 18,
+      "path": ".github/workflows/reusable-gitops-validation.yml",
+      "issue": 15,
       "status": "implemented-public-workflow",
       "required_follow_up": []
     },
     {
       "path": ".github/workflows/reusable-node.yml",
       "issue": 10,
+      "status": "implemented-public-workflow",
+      "required_follow_up": []
+    },
+    {
+      "path": ".github/workflows/reusable-oci-build.yml",
+      "issue": 16,
+      "status": "implemented-public-workflow",
+      "required_follow_up": []
+    },
+    {
+      "path": ".github/workflows/reusable-oci-publish.yml",
+      "issue": 17,
       "status": "implemented-public-workflow",
       "required_follow_up": []
     },
@@ -49,12 +59,7 @@
       "path": ".github/workflows/reusable-tag-image-chart.yml",
       "issue": 34,
       "status": "bootstrap-exception",
-      "required_follow_up": [
-        3,
-        4,
-        5,
-        31
-      ]
+      "required_follow_up": [3, 4, 5, 31]
     }
   ]
 }

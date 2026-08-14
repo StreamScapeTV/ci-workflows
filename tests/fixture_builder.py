@@ -70,7 +70,7 @@ permissions:
 jobs:
   validate:
     name: CI / Sample
-    runs-on: portable
+    runs-on: [linux, amd64, general]
     timeout-minutes: 20
     outputs:
       result: ${{{{ steps.execute.outputs.result }}}}
@@ -168,6 +168,25 @@ def create_repository(
     if config_overrides:
         config.update(config_overrides)
     write_json(root / "contracts/validation-harness.json", config)
+    write_json(
+        root / "contracts/runner-profiles.json",
+        {
+            "schema_version": 1,
+            "profiles": [
+                {
+                    "id": "portable",
+                    "default_internal_selector": [
+                        "linux",
+                        "amd64",
+                        "general",
+                    ],
+                    "internal_selectors": [
+                        ["linux", "amd64", "general"],
+                    ],
+                }
+            ],
+        },
+    )
     write_json(
         root / "contracts/action-tool-lock.json",
         {

@@ -13,6 +13,14 @@ if str(SRC) not in sys.path:
 
 from ci_workflows import flutter
 
+PRIVATE_HELPER_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
+PRIVATE_HELPERS = (
+    "validate-flutter",
+    "exact-checkout",
+    "prepare-workspace",
+    "cleanup-workspace",
+)
+
 
 class FlutterWorkflowContractTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -54,6 +62,45 @@ class FlutterWorkflowContractTests(unittest.TestCase):
             self.assertNotIn(forbidden, public_inputs)
         self.assertIn("java-version: ${{ needs.plan.outputs.jdk_version }}", self.reusable)
         self.assertIn("distribution: ${{ needs.plan.outputs.jdk_distribution }}", self.reusable)
+
+    def test_private_central_helpers_are_immutable_without_central_clone(self) -> None:
+        self.assertNotIn("actions/checkout@", self.reusable)
+        self.assertNotIn("repository: ${{ job.workflow_repository }}", self.reusable)
+        self.assertNotIn("ref: ${{ job.workflow_sha }}", self.reusable)
+        self.assertNotIn("path: .ciw", self.reusable)
+        self.assertNotIn("./.ciw/actions/", self.reusable)
+        self.assertNotIn("secrets: inherit", self.reusable)
+        self.assertNotIn("private_dependency_token", self.reusable)
+        for helper in PRIVATE_HELPERS:
+            self.assertIn(
+                f"StreamScapeTV/ci-workflows/actions/{helper}@{PRIVATE_HELPER_SHA}",
+                self.reusable,
+            )
+        self.assertEqual(
+            3,
+            self.reusable.count(
+                f"uses: StreamScapeTV/ci-workflows/actions/exact-checkout@{PRIVATE_HELPER_SHA}"
+            ),
+        )
+        self.assertEqual(
+            3,
+            self.reusable.count(
+                f"uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@{PRIVATE_HELPER_SHA}"
+            ),
+        )
+        self.assertEqual(
+            3,
+            self.reusable.count(
+                f"uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@{PRIVATE_HELPER_SHA}"
+            ),
+        )
+        self.assertIn("admitted_sha: ${{ inputs.admitted_sha }}", self.reusable)
+        self.assertEqual(
+            3,
+            self.reusable.count(
+                '(cd source && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")'
+            ),
+        )
 
     def test_plan_exports_immutable_flutter_dart_gradle_jdk_tuple(self) -> None:
         for output in (
@@ -149,9 +196,17 @@ class FlutterWorkflowContractTests(unittest.TestCase):
             self.assertLess(execute, persistent_verify)
             self.assertLess(persistent_verify, cleanup)
             self.assertLess(cleanup, residue)
-            self.assertIn("if: always()", block[persistent_verify - 160:persistent_verify])
-            self.assertIn("if: always()", block[cleanup - 200:cleanup])
-            self.assertIn("if: always()", block[residue - 180:residue])
+            terminal_steps = {
+                "persistent_cache_verify": "phase: persistent-cache-verify",
+                "flutter_cleanup": "phase: cleanup",
+                "flutter_residue": "phase: residue",
+            }
+            for step_id, phase in terminal_steps.items():
+                start = block.index(f"- id: {step_id}")
+                end = block.find("\n      - ", start + 1)
+                step_block = block[start : end if end >= 0 else None]
+                self.assertIn("if: always()", step_block, step_id)
+                self.assertIn(phase, step_block, step_id)
         self.assertLess(mobile.index("uses: actions/setup-java@"), mobile.index("uses: subosito/flutter-action@"))
         self.assertNotIn("uses: actions/setup-java@", apple)
 

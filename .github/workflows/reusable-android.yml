@@ -89,29 +89,9 @@ jobs:
       private_dependency_subdirectory: ${{ steps.plan.outputs.private_dependency_subdirectory }}
       private_dependency_id: ${{ steps.plan.outputs.private_dependency_id }}
     steps:
-      - name: Check out exact central workflow source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: StreamScapeTV/ci-workflows
-          ref: ${{ github.workflow_sha }}
-          path: .ciw
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
-
-      - name: Verify exact central workflow source
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          (
-            cd .ciw
-            test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
-          )
-
       - id: plan
         name: Resolve contract-owned Android plan
-        uses: ./.ciw/actions/validate-android
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@5f503d419696e5bfae4ed5b11eca3b531dbdca0f # issue #140 immutable integrated source-policy checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -151,28 +131,8 @@ jobs:
       failure_code: ${{ steps.android.outputs.failure_code }}
       evidence_id: ${{ steps.android.outputs.evidence_id }}
     steps:
-      - name: Check out exact central workflow source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: StreamScapeTV/ci-workflows
-          ref: ${{ github.workflow_sha }}
-          path: .ciw
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
-
-      - name: Verify exact central workflow source
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          (
-            cd .ciw
-            test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
-          )
-
       - name: Check out exact admitted caller source
-        uses: ./.ciw/actions/exact-checkout
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -181,7 +141,7 @@ jobs:
 
       - id: workspace
         name: Prepare isolated marker-bound Android state
-        uses: ./.ciw/actions/prepare-workspace
+        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           profile: ${{ needs.plan.outputs.workspace_profile }}
           cache_mode: disabled
@@ -191,7 +151,7 @@ jobs:
       - id: dependency
         name: Check out exact reviewed private dependency
         if: needs.plan.outputs.private_dependency_used == 'true'
-        uses: ./.ciw/actions/checkout-private-dependency
+        uses: StreamScapeTV/ci-workflows/actions/checkout-private-dependency@70e08d4ddf8930046632a7135950e924b82e22bf # issue #104 immutable private-action checkpoint
         with:
           repository: ${{ needs.plan.outputs.private_dependency_repository }}
           admitted_sha: ${{ needs.plan.outputs.private_dependency_sha }}
@@ -203,7 +163,7 @@ jobs:
       - id: android
         name: Execute bounded Android validation
         continue-on-error: true
-        uses: ./.ciw/actions/validate-android
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@5f503d419696e5bfae4ed5b11eca3b531dbdca0f # issue #140 immutable integrated source-policy checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -225,7 +185,7 @@ jobs:
 
       - name: Render deterministic redacted Android evidence
         if: always()
-        uses: ./.ciw/actions/render-evidence
+        uses: StreamScapeTV/ci-workflows/actions/render-evidence@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           source_sha: ${{ inputs.admitted_sha }}
           workflow_release: validation-android-1.0.0
@@ -240,7 +200,7 @@ jobs:
       - id: android_cleanup
         name: Remove Android-specific source, output, and state
         if: always()
-        uses: ./.ciw/actions/validate-android
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@5f503d419696e5bfae4ed5b11eca3b531dbdca0f # issue #140 immutable integrated source-policy checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -252,7 +212,7 @@ jobs:
       - id: residue
         name: Verify zero Android-specific residue
         if: always()
-        uses: ./.ciw/actions/validate-android
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@5f503d419696e5bfae4ed5b11eca3b531dbdca0f # issue #140 immutable integrated source-policy checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -264,7 +224,7 @@ jobs:
       - id: workspace_cleanup
         name: Remove and verify all registered Android workspace state
         if: always()
-        uses: ./.ciw/actions/cleanup-workspace
+        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
 
       - name: Verify exact caller source remained clean
         if: always()

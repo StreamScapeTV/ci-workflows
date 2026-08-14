@@ -1,0 +1,21 @@
+{
+  "device_family": "android",
+  "device_capability": "instrumentation",
+  "device_identity_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "tested_source_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "authorization_receipt": "issue-136-owner-authorized-android",
+  "request_id": "issue-136-lock-fixture",
+  "lease_seconds": 300,
+  "owners": [
+    {
+      "repository": "StreamScapeTV/iptv-android",
+      "run_id": "1001",
+      "run_attempt": "1"
+    },
+    {
+      "repository": "StreamScapeTV/streamscape-media",
+      "run_id": "2002",
+      "run_attempt": "1"
+    }
+  ]
+}

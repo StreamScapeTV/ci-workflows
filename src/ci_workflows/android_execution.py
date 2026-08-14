@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -17,6 +18,8 @@ _MAJOR = re.compile(r'(?:openjdk version |java version |javac )?"?([0-9]+)')
 _GRADLE = re.compile(r'(?m)^Gradle\s+([0-9]+\.[0-9]+\.[0-9]+)\s*$')
 _SECRET = re.compile(r'(?i)(token|password|authorization|secret|keystore)\s*[:=]\s*\S+')
 SYNTHETIC_SMOKE_TASK = ":verifyToolchainSmoke"
+GRADLE_DAEMON_CLEANUP_GRACE_SECONDS = 30
+GRADLE_DAEMON_CLEANUP_POLL_SECONDS = 0.25
 
 
 def sanitize(text: str, roots: Sequence[Path] = ()) -> str:
@@ -36,8 +39,28 @@ def run_command(
     state_root: Path | None = None,
     stage: str = "command",
     check: bool = True,
+    timeout_rule_id: str | None = None,
+    launch_rule_id: str | None = None,
+    nonzero_rule_id: str | None = None,
+    diagnostic_subject: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     require(bool(argv) and all(isinstance(x, str) and x for x in argv), "invalid_input")
+    diagnostic_rules = (timeout_rule_id, launch_rule_id, nonzero_rule_id)
+    require(
+        (diagnostic_subject is None and not any(diagnostic_rules))
+        or (diagnostic_subject is not None and all(diagnostic_rules)),
+        "invalid_input",
+    )
+
+    def failure(rule_id: str | None) -> AndroidValidationError:
+        if rule_id is None or diagnostic_subject is None:
+            return AndroidValidationError(failure_code)
+        return AndroidValidationError(
+            failure_code,
+            rule_id=rule_id,
+            subject=diagnostic_subject,
+        )
+
     try:
         result = subprocess.run(
             list(argv),
@@ -49,8 +72,10 @@ def run_command(
             timeout=timeout_seconds,
             check=False,
         )
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise AndroidValidationError(failure_code) from error
+    except subprocess.TimeoutExpired as error:
+        raise failure(timeout_rule_id) from error
+    except OSError as error:
+        raise failure(launch_rule_id) from error
     output = sanitize(
         (result.stdout or "") + (result.stderr or ""),
         (cwd, state_root) if state_root else (cwd,),
@@ -61,7 +86,7 @@ def run_command(
         require(re.fullmatch(r'[a-z][a-z0-9-]{1,63}', stage) is not None, "invalid_input")
         (logs / f"{stage}.log").write_text(output, encoding="utf-8")
     if check and result.returncode:
-        raise AndroidValidationError(failure_code)
+        raise failure(nonzero_rule_id)
     return result
 
 
@@ -306,14 +331,21 @@ def verify_wrapper(
     environment: Mapping[str, str],
 ) -> str:
     working = bounded_path(copy, plan.working_directory)
-    wrapper = bounded_path(working, plan.gradle_wrapper_path)
+    require(plan.gradle_wrapper_path == plan.wrapper.launcher_path, "wrapper_invalid")
+    wrapper = bounded_path(working, plan.wrapper.launcher_path)
     require(
         wrapper.is_file() and not wrapper.is_symlink() and os.access(wrapper, os.X_OK),
         "wrapper_invalid",
     )
-    properties = bounded_path(copy, plan.wrapper.properties_path)
-    if not properties.exists():
-        properties = bounded_path(working, plan.wrapper.properties_path)
+    properties = bounded_path(working, plan.wrapper.properties_path)
+    require(properties.is_file() and not properties.is_symlink(), "wrapper_invalid")
+    jar = (
+        bounded_path(working, plan.wrapper.jar_path)
+        if plan.wrapper.jar_path is not None
+        else None
+    )
+    if jar is not None:
+        require(jar.is_file() and not jar.is_symlink(), "wrapper_invalid")
     values = _properties(properties, "wrapper_invalid")
     require(
         values.get("distributionUrl") == plan.wrapper.distribution_url,
@@ -324,13 +356,21 @@ def verify_wrapper(
             values.get("distributionSha256Sum") == plan.wrapper.distribution_sha256,
             "wrapper_distribution_drift",
         )
-    if plan.wrapper.tracked_blob_sha1:
-        require(git_blob_sha1(wrapper) == plan.wrapper.tracked_blob_sha1, "wrapper_invalid")
-    if plan.wrapper.properties_blob_sha1:
+    require(
+        git_blob_sha1(wrapper) == plan.wrapper.launcher_blob_sha1,
+        "wrapper_invalid",
+    )
+    require(
+        git_blob_sha1(properties) == plan.wrapper.properties_blob_sha1,
+        "wrapper_invalid",
+    )
+    if jar is not None:
         require(
-            git_blob_sha1(properties) == plan.wrapper.properties_blob_sha1,
+            git_blob_sha1(jar) == plan.wrapper.jar_blob_sha1,
             "wrapper_invalid",
         )
+    if plan.wrapper.mode == "standard-wrapper":
+        return plan.wrapper.version
     result = run_command(
         [str(wrapper), *plan.fixed_gradle_arguments, "--version"],
         cwd=working,
@@ -339,6 +379,10 @@ def verify_wrapper(
         failure_code="wrapper_invalid",
         state_root=state,
         stage="gradle-version",
+        timeout_rule_id="wrapper_probe_timeout",
+        launch_rule_id="wrapper_probe_launch_failed",
+        nonzero_rule_id="wrapper_probe_nonzero",
+        diagnostic_subject=plan.wrapper.launcher_path,
     )
     match = _GRADLE.search(result.stdout + result.stderr)
     require(
@@ -635,8 +679,7 @@ def execute_android_plan(
     )
 
 
-def cleanup_android_state(state: Path, contract: Mapping[str, Any]) -> None:
-    require(state.is_absolute(), "cleanup_failed")
+def _gradle_daemon_is_active(state: Path) -> bool:
     processes = run_command(
         ["ps", "-axo", "command="],
         cwd=state.parent,
@@ -645,13 +688,23 @@ def cleanup_android_state(state: Path, contract: Mapping[str, Any]) -> None:
         failure_code="cleanup_failed",
         check=False,
     ).stdout
-    require(
-        not any(
-            "GradleDaemon" in row and str(state) in row
-            for row in processes.splitlines()
-        ),
-        "cleanup_failed",
+    return any(
+        "GradleDaemon" in row and str(state) in row
+        for row in processes.splitlines()
     )
+
+
+def _wait_for_gradle_daemon_exit(state: Path) -> None:
+    deadline = time.monotonic() + GRADLE_DAEMON_CLEANUP_GRACE_SECONDS
+    while _gradle_daemon_is_active(state):
+        if time.monotonic() >= deadline:
+            raise AndroidValidationError("cleanup_failed")
+        time.sleep(GRADLE_DAEMON_CLEANUP_POLL_SECONDS)
+
+
+def cleanup_android_state(state: Path, contract: Mapping[str, Any]) -> None:
+    require(state.is_absolute(), "cleanup_failed")
+    _wait_for_gradle_daemon_exit(state)
     for path in (state / "android-source", state / "android-validation"):
         remove_no_follow(path)
     require(

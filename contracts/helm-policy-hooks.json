@@ -1,8 +1,0 @@
-{
-  "products": {
-    "agent-state-chart": null,
-    "flux-github-actions-runner-chart": null,
-    "iptv-backend-chart": null
-  },
-  "schema_version": 1
-}

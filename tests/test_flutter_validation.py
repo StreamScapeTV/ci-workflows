@@ -3,11 +3,13 @@ from __future__ import annotations
 import copy
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from typing import Mapping, Sequence
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -15,6 +17,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ci_workflows import flutter
+from ci_workflows import flutter_execution
 from ci_workflows.flutter_contract import (
     EXPECTED_COMMAND_FIELDS,
     EXPECTED_COMMAND_IDS,
@@ -424,6 +427,68 @@ class FlutterValidationTests(unittest.TestCase):
             terminal_cleanup_flutter_state(source, state),
         )
         assert_zero_flutter_residue(source, state)
+
+    def test_cleanup_stops_and_waits_for_the_state_scoped_gradle_daemon(self) -> None:
+        source = self.source()
+        state = self.temp / "state"
+        flutter_state = state / "flutter-validation"
+        flutter_state.mkdir(parents=True)
+        active = f"123 GradleDaemon --gradle-user-home {flutter_state / 'gradle-home'}"
+        with mock.patch.object(
+            flutter_execution.subprocess,
+            "run",
+            side_effect=(
+                subprocess.CompletedProcess([], 0, active, ""),
+                subprocess.CompletedProcess([], 0, active, ""),
+                subprocess.CompletedProcess([], 0, "", ""),
+            ),
+        ) as command, mock.patch.object(
+            flutter_execution.os, "kill"
+        ) as kill, mock.patch.object(flutter_execution.time, "sleep") as sleep:
+            terminal_cleanup_flutter_state(source, state)
+        self.assertEqual(3, command.call_count)
+        kill.assert_called_once_with(123, flutter_execution.signal.SIGTERM)
+        sleep.assert_called_once_with(
+            flutter_execution.GRADLE_DAEMON_CLEANUP_POLL_SECONDS
+        )
+        self.assertFalse(flutter_state.exists())
+
+    def test_cleanup_rejects_a_state_scoped_gradle_daemon_after_grace_period(self) -> None:
+        source = self.source()
+        state = self.temp / "state"
+        flutter_state = state / "flutter-validation"
+        flutter_state.mkdir(parents=True)
+        active = f"123 GradleDaemon --gradle-user-home {flutter_state / 'gradle-home'}"
+        with mock.patch.object(
+            flutter_execution.subprocess,
+            "run",
+            return_value=subprocess.CompletedProcess([], 0, active, ""),
+        ), mock.patch.object(flutter_execution.os, "kill") as kill, mock.patch.object(
+            flutter_execution.time,
+            "monotonic",
+            side_effect=(0.0, flutter_execution.GRADLE_DAEMON_CLEANUP_GRACE_SECONDS),
+        ), self.assertRaises(FlutterValidationError) as failure:
+            terminal_cleanup_flutter_state(source, state)
+        self.assertEqual("cleanup_failed", failure.exception.code)
+        kill.assert_called_once_with(123, flutter_execution.signal.SIGTERM)
+        self.assertTrue(flutter_state.exists())
+
+    def test_cleanup_does_not_wait_for_a_gradle_daemon_outside_its_state(self) -> None:
+        source = self.source()
+        state = self.temp / "state"
+        flutter_state = state / "flutter-validation"
+        flutter_state.mkdir(parents=True)
+        other_state = self.temp / "other-state" / "flutter-validation" / "gradle-home"
+        active = f"123 GradleDaemon --gradle-user-home {other_state}"
+        with mock.patch.object(
+            flutter_execution.subprocess,
+            "run",
+            return_value=subprocess.CompletedProcess([], 0, active, ""),
+        ) as command, mock.patch.object(flutter_execution.os, "kill") as kill:
+            terminal_cleanup_flutter_state(source, state)
+        command.assert_called_once()
+        kill.assert_not_called()
+        self.assertFalse(flutter_state.exists())
 
     def test_source_audit_and_device_handoff_install_nothing(self) -> None:
         for profile in ("source-audit", "device-handoff"):

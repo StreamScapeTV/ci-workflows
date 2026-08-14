@@ -95,6 +95,19 @@ class NodeContractTests(unittest.TestCase):
             ),
         )
 
+    def dashboard_plan(self):
+        return resolve_validation_plan(
+            self.contract,
+            request(
+                "StreamScapeTV/agent-state-dashboard",
+                "frontend-contract-static",
+                "contract-test-build",
+                version_file=".nvmrc",
+                node_version=None,
+                output="out",
+            ),
+        )
+
     def test_profiles_commands_and_consumer_matrix_are_exact(self) -> None:
         self.assertEqual(
             set(self.contract["profiles"]),
@@ -119,6 +132,7 @@ class NodeContractTests(unittest.TestCase):
             {
                 "StreamScapeTV/StreamScapeWeb",
                 "StreamScapeTV/agent-state",
+                "StreamScapeTV/agent-state-dashboard",
                 "StreamScapeTV/finance-hub",
             },
         )
@@ -162,6 +176,14 @@ class NodeContractTests(unittest.TestCase):
                 },
             ),
             request(
+                "StreamScapeTV/agent-state-dashboard",
+                "frontend-contract-static",
+                "contract-test-build",
+                version_file=".nvmrc",
+                node_version=None,
+                output="out",
+            ),
+            request(
                 "StreamScapeTV/finance-hub",
                 "node-source-audit",
                 "source-audit",
@@ -176,20 +198,68 @@ class NodeContractTests(unittest.TestCase):
         ]
         self.assertEqual(
             [plan.node_version for plan in plans],
-            ["22.18.0", "22.18.0", "22.18.0", "22.16.0"],
+            ["22.18.0", "22.18.0", "22.18.0", "22.18.0", "22.16.0"],
         )
         self.assertEqual(
             [plan.version_file for plan in plans],
-            [".nvmrc", ".nvmrc", None, ".node-version"],
+            [".nvmrc", ".nvmrc", None, ".nvmrc", ".node-version"],
         )
         self.assertEqual(
             [plan.version_authority for plan in plans],
-            ["version-file", "version-file", "exact-api", "version-file"],
+            [
+                "version-file",
+                "version-file",
+                "exact-api",
+                "version-file",
+                "version-file",
+            ],
         )
         self.assertEqual({plan.runner_profile for plan in plans}, {"portable"})
         self.assertFalse(plans[2].adoption_ready)
         self.assertTrue(plans[0].adoption_ready)
-        self.assertEqual(plans[3].install_profile, "none")
+        self.assertTrue(plans[3].adoption_ready)
+        self.assertEqual(plans[4].install_profile, "none")
+
+    def test_dashboard_consumer_reuses_bounded_static_contract(self) -> None:
+        plan = self.dashboard_plan()
+        self.assertEqual(plan.node_version, "22.18.0")
+        self.assertEqual(plan.version_file, ".nvmrc")
+        self.assertEqual(plan.version_authority, "version-file")
+        self.assertEqual(plan.validation_profile, "frontend-contract-static")
+        self.assertEqual(plan.command_profile, "contract-test-build")
+        self.assertEqual(plan.runner_profile, "portable")
+        self.assertEqual(plan.install_profile, "npm-ci")
+        self.assertEqual(plan.output_mode, "static-generic")
+        self.assertEqual(plan.static_output_directory, "out")
+        self.assertIsNone(plan.output_verifier_path)
+        self.assertEqual(plan.allowed_public_environment, ())
+        self.assertEqual(plan.public_environment, {})
+        self.assertTrue(plan.adoption_ready)
+        self.assertEqual(
+            [(command.stage, command.argv) for command in plan.commands],
+            [
+                ("tests", ("npm", "test")),
+                ("build", ("npm", "run", "validate")),
+            ],
+        )
+        with self.assertRaisesRegex(
+            NodeValidationError,
+            "public_environment_rejected",
+        ):
+            resolve_validation_plan(
+                self.contract,
+                request(
+                    "StreamScapeTV/agent-state-dashboard",
+                    "frontend-contract-static",
+                    "contract-test-build",
+                    version_file=".nvmrc",
+                    node_version=None,
+                    output="out",
+                    public_environment={
+                        "NEXT_PUBLIC_API_URL": "https://example.invalid"
+                    },
+                ),
+            )
 
     def test_version_authority_round_trips_through_the_typed_plan(self) -> None:
         version_file_plan = self.web_plan()
