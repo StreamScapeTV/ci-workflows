@@ -33,7 +33,8 @@ jobs:
             exit 1
           fi
 
-      - name: Check out exact protected source
+      - id: checkout
+        name: Check out exact protected source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
@@ -149,6 +150,29 @@ jobs:
               raise SystemExit("Synthetic device-lock cleanup residue remains.")
           PY_CLEANUP
 
+      - id: workspace_cleanup
+        name: Remove exact checked-out smoke workspace
+        if: ${{ always() && steps.checkout.outcome != 'skipped' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY_WORKSPACE'
+          import shutil
+          from pathlib import Path
+
+          workspace = Path(".ciw")
+          if workspace.is_symlink():
+              raise SystemExit("Smoke workspace cleanup target is unsafe.")
+          try:
+              if workspace.exists():
+                  shutil.rmtree(workspace)
+          except OSError:
+              raise SystemExit("Smoke workspace cleanup failed.") from None
+          if workspace.exists() or workspace.is_symlink():
+              raise SystemExit("Smoke workspace cleanup residue remains.")
+          PY_WORKSPACE
+
       - id: zero_artifacts
         name: Verify infrastructure smoke retained zero Actions artifacts
         if: always()
@@ -191,6 +215,7 @@ jobs:
           RELEASE_OUTCOME: ${{ steps.release.outcome }}
           RESIDUE_OUTCOME: ${{ steps.residue.outcome }}
           CLEANUP_OUTCOME: ${{ steps.cleanup.outcome }}
+          WORKSPACE_CLEANUP_OUTCOME: ${{ steps.workspace_cleanup.outcome }}
           ZERO_ARTIFACTS_OUTCOME: ${{ steps.zero_artifacts.outcome }}
         run: |
           set -Eeuo pipefail
@@ -201,4 +226,5 @@ jobs:
           test "${RELEASE_OUTCOME}" = success
           test "${RESIDUE_OUTCOME}" = success
           test "${CLEANUP_OUTCOME}" = success
+          test "${WORKSPACE_CLEANUP_OUTCOME}" = success
           test "${ZERO_ARTIFACTS_OUTCOME}" = success
