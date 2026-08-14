@@ -231,7 +231,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. D
 - Secrets: `device_authorization_receipt`, `live_test_credentials`
 - Outputs: `result`, `device_evidence_id`, `artifact_exception_used`, `request_id`
 - Repository-owned hooks: `command_profile`, `script_path`
-- Implementation components: `ci_workflows.devices.lock`, `ci_workflows.devices.validate`, `ci_workflows.devices.cleanup`
+- Implementation components: `ci_workflows.ciw_device.execute_device_validate`, `ci_workflows.ciw_device_lock.execute_device_lock`, `actions/validate-device`, `actions/device-lock`
 
 ### `validation.flutter`
 
