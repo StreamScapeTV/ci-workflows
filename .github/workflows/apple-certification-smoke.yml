@@ -11,13 +11,19 @@ on:
       - scripts/ci/apple_checkout_cleanup.py
       - src/ci_workflows/apple.py
       - src/ci_workflows/apple_contract.py
+      - src/ci_workflows/apple_contract_fragments.py
       - src/ci_workflows/apple_execution.py
       - src/ci_workflows/apple_types.py
       - src/ci_workflows/ciw_apple.py
       - contracts/apple-validation.json
+      - contracts/apple-validation-*.json
       - docs/architecture/apple-validation.md
       - tests/fixtures/apple-validation/**
+      - tests/test_apple_contract_fragments.py
+      - tests/test_apple_contract_fragment_path_safety.py
+      - tests/test_apple_fragment_loader_isolation.py
       - tests/test_apple_release_profiles.py
+      - tests/test_apple_smoke_trigger_contract.py
 
 permissions:
   actions: read
