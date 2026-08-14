@@ -37,9 +37,8 @@ class ApplePhysicalDeviceLockSmokeContractTests(unittest.TestCase):
         self.assertIn("StreamScapeTV/ci-workflows", guard["run"])
         self.assertIn("refs/heads/main", guard["run"])
 
-        checkout = next(
-            step for step in self.steps if str(step.get("uses", "")).startswith("actions/checkout@")
-        )
+        checkout = next(step for step in self.steps if step.get("id") == "checkout")
+        self.assertTrue(str(checkout["uses"]).startswith("actions/checkout@"))
         self.assertEqual("${{ github.sha }}", checkout["with"]["ref"])
         self.assertFalse(checkout["with"]["persist-credentials"])
         self.assertFalse(checkout["with"]["set-safe-directory"])
@@ -101,7 +100,7 @@ class ApplePhysicalDeviceLockSmokeContractTests(unittest.TestCase):
         self.assertTrue(release["continue-on-error"])
         self.assertTrue(residue["continue-on-error"])
 
-    def test_cleanup_removes_only_synthetic_release_marker_after_residue(self) -> None:
+    def test_backend_cleanup_removes_only_synthetic_release_marker_after_residue(self) -> None:
         cleanup = next(step for step in self.steps if step.get("id") == "cleanup")
         self.assertEqual("${{ always() && steps.residue.outcome == 'success' }}", cleanup["if"])
         self.assertTrue(cleanup["continue-on-error"])
@@ -113,6 +112,18 @@ class ApplePhysicalDeviceLockSmokeContractTests(unittest.TestCase):
         self.assertNotIn("rm -rf", run)
         self.assertNotIn("rmdir", run)
         self.assertNotIn("mkdir", run)
+
+    def test_persistent_apple_workspace_is_terminally_removed_without_touching_backend(self) -> None:
+        cleanup = next(step for step in self.steps if step.get("id") == "workspace_cleanup")
+        self.assertEqual("${{ always() && steps.checkout.outcome != 'skipped' }}", cleanup["if"])
+        self.assertTrue(cleanup["continue-on-error"])
+        run = cleanup["run"]
+        self.assertIn('Path(".ciw")', run)
+        self.assertIn("shutil.rmtree(workspace)", run)
+        self.assertIn("workspace.is_symlink()", run)
+        self.assertNotIn("CIW_DEVICE_LOCK_ROOT", run)
+        self.assertNotIn("released", run)
+        self.assertNotIn("leases", run)
 
     def test_smoke_has_no_device_product_or_signing_execution_surface(self) -> None:
         lowered = self.source.casefold()
@@ -156,6 +167,7 @@ class ApplePhysicalDeviceLockSmokeContractTests(unittest.TestCase):
             "RELEASE_OUTCOME",
             "RESIDUE_OUTCOME",
             "CLEANUP_OUTCOME",
+            "WORKSPACE_CLEANUP_OUTCOME",
             "ZERO_ARTIFACTS_OUTCOME",
         ):
             self.assertIn(name, terminal["env"])
