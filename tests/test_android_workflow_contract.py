@@ -249,7 +249,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
                 self.assertEqual(android_execution.verify_toolchain(root, root, plan, self.contract, {"ANDROID_SDK_ROOT": str(sdk)}), (25, 37))
                 outputs["javac"] = subprocess.CompletedProcess([], 0, "javac 24\n", "")
                 with self.assertRaises(AndroidValidationError) as failure:
-                    android_execution.verify_toolchain(root, root, plan, {"PATH": os.environ.get("PATH", "")})
+                    android_execution.verify_toolchain(root, root, plan, self.contract, {"ANDROID_SDK_ROOT": str(sdk)})
                 self.assertEqual(failure.exception.code, "toolchain_mismatch")
                 outputs["javac"] = subprocess.CompletedProcess([], 0, "javac 25\n", "")
                 outputs["packages"] = subprocess.CompletedProcess([], 0, "platform-tools | 36\n", "")
