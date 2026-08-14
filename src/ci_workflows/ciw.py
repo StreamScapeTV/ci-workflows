@@ -13,6 +13,7 @@ from typing import Any, Callable, Mapping, Sequence
 from . import runners
 from .ciw_android import configure_android_validate, execute_android_validate
 from .ciw_apple import configure_apple_validate, execute_apple_validate
+from .ciw_device import configure_device_validate, execute_device_validate
 from .ciw_device_lock import configure_device_lock, execute_device_lock
 from .ciw_docs import load_command_contract
 from .ciw_flutter import configure_flutter_validate, execute_flutter_validate
@@ -147,6 +148,10 @@ def _add_oci_publish(parser: argparse.ArgumentParser) -> None:
 
 def _add_oci_validate(parser: argparse.ArgumentParser) -> None:
     configure_oci_validate(parser)
+
+
+def _add_device_validate(parser: argparse.ArgumentParser) -> None:
+    configure_device_validate(parser)
 
 
 def _add_device_lock(parser: argparse.ArgumentParser) -> None:
@@ -503,6 +508,13 @@ def handle_oci_validate(
     context: CIWContext,
 ) -> CIWResult:
     return execute_oci_validate(args, context)
+
+
+def handle_device_validate(
+    args: argparse.Namespace,
+    context: CIWContext,
+) -> CIWResult:
+    return execute_device_validate(args, context)
 
 
 def handle_device_lock(
@@ -1060,6 +1072,12 @@ def command_specs() -> tuple[CommandSpec, ...]:
             "validate",
             handle_oci_validate,
             _add_oci_validate,
+        ),
+        CommandSpec(
+            "device",
+            "validate",
+            handle_device_validate,
+            _add_device_validate,
         ),
         CommandSpec(
             "device",

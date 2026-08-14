@@ -44,6 +44,20 @@
       "source": "https://github.com/StreamScapeTV/ci-workflows/tree/87a7454aaa59cb680db8f580d22551b749ac4193/actions/resolve-source"
     },
     {
+      "uses": "StreamScapeTV/ci-workflows/actions/validate-device",
+      "sha": "092d26777aebaf87a0a07d39a1660b4bc5cb658d",
+      "release": "issue #14 complete CIW checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/092d26777aebaf87a0a07d39a1660b4bc5cb658d/actions/validate-device"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/device-lock",
+      "sha": "599c82201e6da6ca51c4f6247f1526a4ba03d550",
+      "release": "issue #136 exact-head checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/599c82201e6da6ca51c4f6247f1526a4ba03d550/actions/device-lock"
+    },
+    {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-node",
       "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
       "release": "issue #116 immutable private-action checkpoint",
