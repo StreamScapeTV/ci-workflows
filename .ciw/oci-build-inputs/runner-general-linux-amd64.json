@@ -7,28 +7,8 @@
   "platforms": ["linux/amd64"],
   "bases": [
     {
-      "stage_id": "python-runtime",
-      "from_ordinal": 1,
-      "stage_marker": "intermediate",
-      "kind": "external",
-      "declared_reference": "docker.io/library/python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2",
-      "dockerfile_platform": null,
-      "platforms": ["linux/amd64"],
-      "platform_identities": [{"platform":"linux/amd64","manifest_digest":"sha256:6e13e65c55e33adf203d77ee371cf8bf5d81bd4902ef07565721f46bf44917af","config_digest":"sha256:64d91f7b885eed272bba87909446b12ff408d4aaa5f1a0e9ca787bbea1a020b9"}]
-    },
-    {
-      "stage_id": "node-runtime",
-      "from_ordinal": 2,
-      "stage_marker": "intermediate",
-      "kind": "external",
-      "declared_reference": "docker.io/library/node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d",
-      "dockerfile_platform": null,
-      "platforms": ["linux/amd64"],
-      "platform_identities": [{"platform":"linux/amd64","manifest_digest":"sha256:fc75682c0d5eb1cb254610dafede9c97371d89bb5c6591a9e1f8773b059f3f67","config_digest":"sha256:caf64f520f232a66f04c44d659f78941c792ab8f5ae2268386c2c827df6d1317"}]
-    },
-    {
       "stage_id": "actions-runner",
-      "from_ordinal": 3,
+      "from_ordinal": 1,
       "stage_marker": "final",
       "kind": "external",
       "declared_reference": "ghcr.io/actions/actions-runner:2.336.0@sha256:0cfdcc701ce933c6d243c6b0b2da767366dc9f2e99961d4c3754b0b78084cdda",
@@ -38,6 +18,8 @@
     }
   ],
   "external_inputs": [
+    {"input_id":"cpython-linux-amd64","url":"https://github.com/astral-sh/python-build-standalone/releases/download/20260807/cpython-3.12.13%2B20260807-x86_64-unknown-linux-gnu-install_only.tar.gz","sha256":"5bd6f36fd7ef02b909234c94dca9994ef0da06ace3bc3cece4fe27870e9cdbbe","maximum_bytes":134217728,"destination":".ciw-build-inputs/cpython-3.12.13-linux-amd64.tar.gz"},
+    {"input_id":"node-linux-amd64","url":"https://nodejs.org/dist/v24.19.0/node-v24.19.0-linux-x64.tar.gz","sha256":"f625d97cd707df4ff96254916fbc5ff014f09c09effe5a1e0ca8f6d41a8789d4","maximum_bytes":67108864,"destination":".ciw-build-inputs/node-v24.19.0-linux-x64.tar.gz"},
     {"input_id":"zstd-noble-amd64","url":"https://archive.ubuntu.com/ubuntu/pool/main/libz/libzstd/zstd_1.5.5%2Bdfsg2-2build1.1_amd64.deb","sha256":"d7667f83e3a2caeaaecaca464d542ee6ccf537259a479622796c84afc96d6032","maximum_bytes":1048576,"destination":".ciw-build-inputs/zstd-noble-amd64.pkg"},
     {"input_id":"zip-noble-amd64","url":"https://archive.ubuntu.com/ubuntu/pool/main/z/zip/zip_3.0-13ubuntu0.2_amd64.deb","sha256":"30b325b542ef8e9a22a5e1e1cfce8c4f4b75db73e339e76bf405b635861f1f76","maximum_bytes":1048576,"destination":".ciw-build-inputs/zip-noble-amd64.pkg"},
     {"input_id":"yq-linux-amd64","url":"https://github.com/mikefarah/yq/releases/download/v4.53.3/yq_linux_amd64","sha256":"fa52a4e758c63d38299163fbdd1edfb4c4963247918bf9c1c5d31d84789eded4","maximum_bytes":20971520,"destination":".ciw-build-inputs/yq-4.53.3-linux-amd64"},
