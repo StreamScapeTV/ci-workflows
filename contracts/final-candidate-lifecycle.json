@@ -54,7 +54,7 @@
       {"path":".github/workflows/oci-publish-smoke.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/reusable-android.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/reusable-apple.yml","trigger_classes":["maintenance-control"]},
-      {"path":".github/workflows/reusable-device.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/reusable-device.yml","trigger_classes":["authorized-publication-deployment-device-live-evidence"]},
       {"path":".github/workflows/reusable-flutter.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/reusable-gitops-validation.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/reusable-helm-publish.yml","trigger_classes":["authorized-publication-deployment-device-live-evidence"]},

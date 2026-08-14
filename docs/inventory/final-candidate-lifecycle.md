@@ -84,7 +84,7 @@ This report classifies the current live workflow-file set. A workflow can have m
 | `.github/workflows/oci-publish-smoke.yml` | `maintenance-control` | — | — |
 | `.github/workflows/reusable-android.yml` | `maintenance-control` | — | — |
 | `.github/workflows/reusable-apple.yml` | `maintenance-control` | — | — |
-| `.github/workflows/reusable-device.yml` | `maintenance-control` | — | — |
+| `.github/workflows/reusable-device.yml` | `authorized-publication-deployment-device-live-evidence` | — | — |
 | `.github/workflows/reusable-flutter.yml` | `maintenance-control` | — | — |
 | `.github/workflows/reusable-gitops-validation.yml` | `maintenance-control` | — | — |
 | `.github/workflows/reusable-helm-publish.yml` | `authorized-publication-deployment-device-live-evidence` | — | — |

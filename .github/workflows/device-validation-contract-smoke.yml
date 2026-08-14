@@ -16,6 +16,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
@@ -72,8 +73,9 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           path: source
-          persist-credentials: false
           fetch-depth: 1
+          clean: true
+          persist-credentials: false
 
       - name: Check out exact Central implementation beside source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -81,12 +83,24 @@ jobs:
           repository: StreamScapeTV/ci-workflows
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           path: .ciw
-          persist-credentials: false
           fetch-depth: 1
+          clean: true
+          persist-credentials: false
+
+      - name: Verify exact synthetic and Central checkouts
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C source rev-parse HEAD)" = "${EXPECTED_SHA}"
+          test "$(git -C .ciw rev-parse HEAD)" = "${EXPECTED_SHA}"
+          test -z "$(git -C source status --porcelain=v1 --untracked-files=all)"
+          test -z "$(git -C .ciw status --porcelain=v1 --untracked-files=all)"
 
       - id: synthetic
         name: Execute bounded synthetic device contract
-        uses: StreamScapeTV/ci-workflows/actions/validate-device@233ed6c10f00012405c7f3edf2196067a80445e5 # issue #14 typed CIW action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@092d26777aebaf87a0a07d39a1660b4bc5cb658d # issue #14 complete CIW checkpoint
         with:
           phase: synthetic
           admitted_sha: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -185,36 +199,63 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           path: .ciw
-          persist-credentials: false
           fetch-depth: 1
+          clean: true
+          persist-credentials: false
 
-      - name: Verify real profile cannot execute from untrusted smoke
+      - name: Verify exact Central implementation
         shell: bash
         env:
-          GITHUB_REPOSITORY: StreamScapeTV/streamscape-media
-          GITHUB_EVENT_NAME: workflow_dispatch
-          GITHUB_RUN_ID: "123456"
-          GITHUB_RUN_ATTEMPT: "1"
-          GITHUB_OUTPUT: ${{ runner.temp }}/device-denied.out
-          INPUT_ADMITTED_SHA: 0123456789abcdef0123456789abcdef01234567
-          INPUT_DEVICE_FAMILY: android
-          INPUT_DEVICE_CAPABILITY: full
-          INPUT_DEVICE_ALIAS: media-primary
-          INPUT_COMMAND_PROFILE: streamscape-media-android-device
-          INPUT_SCRIPT_PATH: scripts/ci/run-validation-scope.sh
-          INPUT_MAX_DURATION_MINUTES: "30"
-          INPUT_REQUEST_ID: issue-14-denied-smoke
-          CIW_DEVICE_EVENT_REPOSITORY: StreamScapeTV/streamscape-media
-          CIW_DEVICE_EVENT_SHA: 0123456789abcdef0123456789abcdef01234567
-          CIW_DEVICE_HEAD_REPOSITORY: StreamScapeTV/streamscape-media
-          CIW_DEVICE_HEAD_FORK: "false"
-          CIW_DEVICE_AUTHORIZATION_PRESENT: "false"
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -Eeuo pipefail
-          : > "${GITHUB_OUTPUT}"
-          PYTHONDONTWRITEBYTECODE=1 python3 .ciw/scripts/ci/ciw.py --root .ciw device validate --phase plan
-          grep -Fx 'execution_authorized=false' "${GITHUB_OUTPUT}"
-          grep -Fx 'authorization_failure=physical_authorization_required' "${GITHUB_OUTPUT}"
+          test "$(git -C .ciw rev-parse HEAD)" = "${EXPECTED_SHA}"
+          test -z "$(git -C .ciw status --porcelain=v1 --untracked-files=all)"
+
+      - name: Verify real profile without owner receipt is denied before scheduling
+        shell: bash
+        env:
+          DEVICE_DENIED_OUTPUT: ${{ runner.temp }}/device-denied.out
+        run: |
+          set -Eeuo pipefail
+          PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.ciw/src python3 - <<'PY'
+          import os
+          from pathlib import Path
+          from ci_workflows.ciw import main
+          sha = "0123456789abcdef0123456789abcdef01234567"
+          out = Path(os.environ["DEVICE_DENIED_OUTPUT"])
+          out.write_text("", encoding="utf-8")
+          env = dict(os.environ)
+          env.update({
+              "GITHUB_REPOSITORY": "StreamScapeTV/iptv-android",
+              "GITHUB_EVENT_NAME": "workflow_dispatch",
+              "GITHUB_RUN_ID": "31234567891",
+              "GITHUB_RUN_ATTEMPT": "1",
+              "GITHUB_OUTPUT": str(out),
+              "INPUT_ADMITTED_SHA": sha,
+              "INPUT_DEVICE_FAMILY": "android",
+              "INPUT_DEVICE_CAPABILITY": "instrumentation",
+              "INPUT_DEVICE_ALIAS": "acceptance-primary",
+              "INPUT_COMMAND_PROFILE": "iptv-android-device",
+              "INPUT_SCRIPT_PATH": "build.sh",
+              "INPUT_MAX_DURATION_MINUTES": "60",
+              "INPUT_EVIDENCE_EXCEPTION_ID": "",
+              "INPUT_REQUEST_ID": "issue-14-physical-request",
+              "CIW_DEVICE_EVENT_REPOSITORY": "StreamScapeTV/iptv-android",
+              "CIW_DEVICE_EVENT_SHA": sha,
+              "CIW_DEVICE_HEAD_REPOSITORY": "StreamScapeTV/iptv-android",
+              "CIW_DEVICE_HEAD_FORK": "false",
+              "CIW_DEVICE_LIVE_BACKEND_PRESENT": "true",
+              "CIW_DEVICE_AUTHORIZATION_PRESENT": "false",
+          })
+          rc = main(["--root", ".ciw", "device", "validate", "--phase", "plan"], environment=env)
+          if rc:
+              raise SystemExit(f"typed denial plan failed before projection: {rc}")
+          lines = set(out.read_text(encoding="utf-8").splitlines())
+          need = {"execution_authorized=false", "authorization_failure=physical_authorization_required"}
+          if not need <= lines:
+              raise SystemExit(f"typed denial projection missing: {sorted(need - lines)}")
+          PY
 
       - name: Remove exact Central source without following links
         if: always()
@@ -268,8 +309,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          persist-credentials: false
           fetch-depth: 1
+          clean: true
+          persist-credentials: false
 
       - name: Assert exact run retained no Actions artifacts
         env:
@@ -278,7 +320,27 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          actual_sha="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" --jq '.head_sha')"
-          test "${actual_sha}" = "${EXPECTED_SHA}"
-          count="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" --jq '.total_count')"
-          test "${count}" = "0"
+          test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+          base = f"{os.environ['GITHUB_API_URL']}/repos/{os.environ['GITHUB_REPOSITORY']}"
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          def load(path: str) -> dict:
+              request = urllib.request.Request(base + path, headers=headers)
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  return json.load(response)
+          run = load(f"/actions/runs/{os.environ['GITHUB_RUN_ID']}")
+          if run.get("head_sha") != os.environ["EXPECTED_SHA"]:
+              raise SystemExit("device smoke run head SHA mismatch")
+          artifacts = load(f"/actions/runs/{os.environ['GITHUB_RUN_ID']}/artifacts?per_page=100")
+          if int(artifacts.get("total_count", 0)) != 0 or artifacts.get("artifacts"):
+              raise SystemExit("device contract smoke retained Actions artifacts")
+          print("Device contract smoke artifact policy passed: zero artifacts.")
+          PY
