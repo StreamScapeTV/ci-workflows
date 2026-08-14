@@ -79,7 +79,7 @@ Host profiles copy the complete exact source tree into registered temporary stat
 Podman profiles require the central Buildah classes and:
 
 - reject Docker, `dockerd`, and Docker sockets;
-- use Podman with explicit `vfs`, marker-bound `--root`, and marker-bound `--runroot`;
+- use Podman with explicit `vfs` and marker-bound private graph storage through `--root`; `--runroot` is deliberately left unset so Podman uses the semantic Buildah runner's job-isolated default runroot, because Podman 4.9 rejects custom runroot paths longer than 50 characters;
 - pull exact digest-pinned linux/amd64 images;
 - mount caller source read-only at `/src`;
 - copy source into disposable `/work/source` before installing or running commands;
