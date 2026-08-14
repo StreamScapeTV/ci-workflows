@@ -9,7 +9,7 @@ import yaml
 from ci_workflows.validation_model import ActionsLoader
 
 ROOT = Path(__file__).resolve().parents[1]
-HELPER_SHA = "ac5b6be68ea2aa562ccc513103dbdd9b6c23d7ad"
+HELPER_SHA = "37f6309dff0fe6cae0b910df2ee427c55ced3684"
 HELPERS = {
     "maintenance.artifacts": ("maintenance-artifacts", HELPER_SHA),
     "maintenance.branches": ("maintenance-branches", HELPER_SHA),
@@ -105,14 +105,11 @@ class MaintenanceWorkflowContractTests(unittest.TestCase):
         text = (
             ROOT / "actions/maintenance-branches/action.yml"
         ).read_text(encoding="utf-8")
-        self.assertIn('pr_number="${{ inputs.pr_number }}"', text)
+        self.assertIn("CIW_PR_NUMBER: ${{ inputs.pr_number }}", text)
+        self.assertIn('pr_number="${CIW_PR_NUMBER}"', text)
         self.assertIn('"${pr_number}" != "0"', text)
         self.assertIn('[[ "${pr_number}" =~ ^[1-9][0-9]*$ ]]', text)
         self.assertIn('args+=(--pr-number "${pr_number}")', text)
-        self.assertNotIn(
-            '--pr-number "${{ inputs.pr_number }}"',
-            text,
-        )
 
     def test_dry_run_remains_default_for_every_mutating_maintenance_api(self) -> None:
         for api in HELPERS:
@@ -142,6 +139,7 @@ class MaintenanceWorkflowContractTests(unittest.TestCase):
             self.assertNotIn("runs-on", text)
             self.assertNotIn("repository_url", text)
             self.assertNotIn("shell_command", text)
+            self.assertNotIn("${{ inputs.", action["runs"]["steps"][0]["run"])
 
     def test_focused_smoke_is_unprivileged_exact_head_and_zero_artifact(self) -> None:
         path = ROOT / ".github/workflows/maintenance-contract-smoke.yml"
