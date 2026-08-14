@@ -46,7 +46,7 @@ No command output, database URL, generated credential, host path, image pull det
 
 ## Immutable private helper reuse
 
-Private consumers do not clone `StreamScapeTV/ci-workflows` with the caller-scoped token. The planner and executor invoke reviewed central composite actions directly through immutable full-SHA references. `validate-python` and `verify-toolchain` use the reviewed issue #125 checkpoint, while exact checkout, workspace preparation, evidence rendering, and cleanup reuse the immutable foundation checkpoint established by #116.
+Private consumers do not clone `StreamScapeTV/ci-workflows` with the caller-scoped token. The planner and executor invoke reviewed central composite actions directly through immutable full-SHA references. `validate-python` is pinned to `e869906a0b192ab954dce3dbd1e90cccb649eb18`, recorded in the action lock as `issue #155 immutable Backend execution repair checkpoint`. `verify-toolchain` remains pinned to `70e08d4ddf8930046632a7135950e924b82e22bf`, recorded as `issue #125 immutable private-action checkpoint`. Exact checkout, workspace preparation, evidence rendering, and cleanup reuse the immutable foundation checkpoint established by #116.
 
 The action archives resolve central scripts and libraries through `GITHUB_ACTION_PATH`. No `.ciw` checkout, central PAT, caller secret, `secrets: inherit`, mutable helper ref, or caller-selected central version is exposed. Exact caller source remains separate: it is admitted by `source.resolve`, checked out through the immutable exact-checkout action, and verified clean after terminal cleanup.
 
