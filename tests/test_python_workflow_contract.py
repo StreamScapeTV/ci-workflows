@@ -199,11 +199,16 @@ class PythonWorkflowContractTests(unittest.TestCase):
         )
         for identifier, runtime in self.python_contract["runtimes"].items():
             if runtime["kind"] == "host":
-                self.assertEqual(runtime["python_version"], "3.12.13")
+                self.assertEqual(identifier, "host-cpython-3.12.3")
+                self.assertEqual(runtime["python_version"], "3.12.3")
                 continue
             with self.subTest(runtime=identifier):
                 self.assertRegex(runtime["digest"], r"^sha256:[0-9a-f]{64}$")
                 self.assertNotEqual(runtime["tag"], "latest")
+        self.assertEqual(
+            self.python_contract["runtimes"]["python-3.12.13-slim-amd64"]["python_version"],
+            "3.12.13",
+        )
 
     def test_docs_and_command_registry_cover_the_public_workflow(self) -> None:
         workflow_doc = (ROOT / "docs/workflows/python.md").read_text(encoding="utf-8")
