@@ -39,7 +39,7 @@ jobs:
     steps:
       - name: Run bounded artifact maintenance
         id: cleanup
-        uses: StreamScapeTV/ci-workflows/actions/maintenance-artifacts@3de0f365eed5ff69cf18b1af26aa42f7928fd8ef # issue #20 immutable maintenance action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/maintenance-artifacts@ac5b6be68ea2aa562ccc513103dbdd9b6c23d7ad # issue #20 immutable maintenance action checkpoint
         with:
           repository_scope: ${{ inputs.repository_scope }}
           dry_run: ${{ inputs.dry_run }}
