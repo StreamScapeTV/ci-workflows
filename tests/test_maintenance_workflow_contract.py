@@ -125,7 +125,7 @@ class MaintenanceWorkflowContractTests(unittest.TestCase):
                 True,
             )
 
-    def test_composite_actions_are_thin_and_do_not_select_repositories_or_runners(self) -> None:
+    def test_composite_actions_are_thin_and_delegate_only_through_ciw(self) -> None:
         for name, _ in HELPERS.values():
             path = ROOT / f"actions/{name}/action.yml"
             action = yaml.load(
@@ -135,7 +135,8 @@ class MaintenanceWorkflowContractTests(unittest.TestCase):
             self.assertEqual(action["runs"]["using"], "composite")
             self.assertEqual(len(action["runs"]["steps"]), 1)
             text = path.read_text(encoding="utf-8")
-            self.assertIn("scripts/ci/maintenance.py", text)
+            self.assertIn("scripts/ci/ciw.py", text)
+            self.assertNotIn("scripts/ci/maintenance.py", text)
             self.assertNotIn("runs-on", text)
             self.assertNotIn("repository_url", text)
             self.assertNotIn("shell_command", text)
