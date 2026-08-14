@@ -94,10 +94,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-python",
-      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
-      "release": "issue #125 immutable private-action checkpoint",
+      "sha": "989a98309f2955a02ff2b108f4b9c565b8fcb76d",
+      "release": "issue #179 Backend host immutable action checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/validate-python"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/989a98309f2955a02ff2b108f4b9c565b8fcb76d/actions/validate-python"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/verify-toolchain",
@@ -115,10 +115,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-apple",
-      "sha": "293dee450e3464032d67f702b768f493abf65d7b",
-      "release": "issue #164 immutable Media VLC tvOS checkpoint",
+      "sha": "88d179740145ccea00b6986d78ceb67ea365face",
+      "release": "issue #131 immutable Release-aware Apple checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/293dee450e3464032d67f702b768f493abf65d7b/actions/validate-apple"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/88d179740145ccea00b6986d78ceb67ea365face/actions/validate-apple"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-oci",
