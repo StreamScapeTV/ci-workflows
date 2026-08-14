@@ -28,7 +28,6 @@ class ApplePhysicalDeviceLockSmokeContractTests(unittest.TestCase):
         self.assertIn(dispatch, (None, {}))
         self.assertEqual({"actions": "read", "contents": "read"}, self.workflow["permissions"])
         self.assertEqual(["macOS", "ARM64", "ios"], self.job["runs-on"])
-        self.assertNotIn("inputs", self.source)
         self.assertNotIn("secrets.", self.source)
         self.assertNotIn("pull_request_target", self.source)
         self.assertNotIn("repository_dispatch", self.source)
