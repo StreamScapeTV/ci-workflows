@@ -12,7 +12,7 @@ from ci_workflows.helm_contract import (
     request_from_environment,
     resolve_validation_plan,
 )
-from ci_workflows.helm_execution import publish_and_read_back
+from ci_workflows.helm_registry import publish_and_read_back
 from ci_workflows.helm_types import HelmValidationError, HelmValidationResult
 
 
@@ -57,6 +57,7 @@ def _fixture(root: Path):
         "HOME": str(root),
         "INPUT_REGISTRY_USERNAME": "user",
         "INPUT_REGISTRY_TOKEN": "token",
+        "INPUT_RELEASE_MODE": "existing-tag",
     }
     return source, state, plan, validation, runtime
 
@@ -88,7 +89,7 @@ class HelmVerifyOnlyTests(unittest.TestCase):
                     )
                 return subprocess.CompletedProcess(argv, 0, "", "")
 
-            with patch("ci_workflows.helm_execution._run", side_effect=fake_run):
+            with patch("ci_workflows.helm_registry._run", side_effect=fake_run):
                 with self.assertRaisesRegex(
                     HelmValidationError,
                     "remote_version_missing",
@@ -99,7 +100,6 @@ class HelmVerifyOnlyTests(unittest.TestCase):
                         plan,
                         validation,
                         runtime,
-                        allow_publish=False,
                     )
             self.assertFalse(
                 any(command[:2] == ["helm", "push"] for command in calls)
@@ -132,9 +132,9 @@ class HelmVerifyOnlyTests(unittest.TestCase):
                 return subprocess.CompletedProcess(argv, 0, "", "")
 
             with (
-                patch("ci_workflows.helm_execution._run", side_effect=fake_run),
+                patch("ci_workflows.helm_registry._run", side_effect=fake_run),
                 patch(
-                    "ci_workflows.helm_execution.normalize_chart_archive",
+                    "ci_workflows.helm_registry.normalize_chart_archive",
                     return_value="b" * 64,
                 ),
             ):
@@ -144,7 +144,6 @@ class HelmVerifyOnlyTests(unittest.TestCase):
                     plan,
                     validation,
                     runtime,
-                    allow_publish=False,
                 )
             self.assertFalse(result.published)
             self.assertFalse(
@@ -156,13 +155,16 @@ class HelmVerifyOnlyTests(unittest.TestCase):
             ROOT / ".github/workflows/reusable-helm-publish.yml"
         ).read_text(encoding="utf-8")
         action = (ROOT / "actions/publish-helm/action.yml").read_text(encoding="utf-8")
-        adapter = (ROOT / "scripts/ci/helm_release.py").read_text(encoding="utf-8")
+        registry = (ROOT / "src/ci_workflows/helm_registry.py").read_text(
+            encoding="utf-8"
+        )
         self.assertIn("github.event_name == 'workflow_dispatch'", workflow)
         self.assertIn("'existing-tag'", workflow)
         self.assertIn("release_mode: ${{ needs.plan.outputs.release_mode }}", workflow)
         self.assertIn("release_mode:", action)
         self.assertIn("INPUT_RELEASE_MODE", action)
-        self.assertIn('allow_publish=release_mode == "tag-push"', adapter)
+        self.assertIn('allow_publish = release_mode == "tag-push"', registry)
+        self.assertIn('require(allow_publish, "remote_version_missing")', registry)
 
 
 if __name__ == "__main__":
