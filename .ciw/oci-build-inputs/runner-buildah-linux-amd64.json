@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "lock_version": "1.0.0",
+  "product_id": "runner-buildah",
+  "target_id": "linux-amd64",
+  "input_policy_id": "runner-image-public-v1",
+  "platforms": ["linux/amd64"],
+  "bases": [
+    {
+      "stage_id": "actions-runner",
+      "from_ordinal": 1,
+      "stage_marker": "final",
+      "kind": "external",
+      "declared_reference": "ghcr.io/actions/actions-runner:2.336.0@sha256:0cfdcc701ce933c6d243c6b0b2da767366dc9f2e99961d4c3754b0b78084cdda",
+      "dockerfile_platform": null,
+      "platforms": ["linux/amd64"],
+      "platform_identities": [
+        {
+          "platform": "linux/amd64",
+          "manifest_digest": "sha256:a1919047b038c38871d667c58cfdc7a878452711ab1212fb6036188f27a7ab16",
+          "config_digest": "sha256:bd6fe162bb4ab4821daa8d694e20d779865618825d30c94342a0228b89947305"
+        }
+      ]
+    }
+  ],
+  "external_inputs": []
+}
