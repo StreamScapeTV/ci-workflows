@@ -11,7 +11,7 @@ from ci_workflows.ciw_maintenance import (
     execute_flux_reconcile,
     execute_maintenance_artifacts,
 )
-from ci_workflows.ciw_types import CIWContext
+from ci_workflows.ciw_types import CIWContext, project_error
 from ci_workflows.flux_reconcile_fs import remove_state
 from ci_workflows.maintenance_contract import MaintenanceError
 from ci_workflows.maintenance_core import OperationResult
@@ -37,6 +37,17 @@ class MaintenanceCiwTests(unittest.TestCase):
             request_id="request-123",
             dry_run=True,
         )
+
+    def test_maintenance_errors_project_only_stable_codes(self) -> None:
+        projected = project_error(
+            MaintenanceError("artifact_state_changed"),
+            domain="maintenance",
+        )
+        self.assertEqual(projected.code, "artifact_state_changed")
+        self.assertEqual(projected.exit_code, 2)
+        unexpected = project_error(RuntimeError("token=private"), domain="maintenance")
+        self.assertEqual(unexpected.code, "ciw_unexpected_failure")
+        self.assertNotIn("private", str(unexpected))
 
     def test_artifact_adapter_projects_existing_typed_result(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
