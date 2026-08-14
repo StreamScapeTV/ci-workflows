@@ -8,9 +8,24 @@ permissions:
   contents: read
 
 jobs:
+  plan:
+    name: Select fixed physical-capable Apple runner
+    runs-on: [linux, amd64, general]
+    timeout-minutes: 5
+    outputs:
+      runs_on_json: ${{ steps.selector.outputs.runs_on_json }}
+    steps:
+      - id: selector
+        name: Select fixed Apple infrastructure capability
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          printf '%s\n' 'runs_on_json=["macOS","ARM64","ios"]' >> "${GITHUB_OUTPUT}"
+
   fence_smoke:
     name: Validate runner-owned Apple fencing backend with synthetic identity
-    runs-on: [macOS, ARM64, ios]
+    needs: plan
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
     timeout-minutes: 20
     steps:
       - id: dispatch_guard
