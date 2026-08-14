@@ -142,6 +142,13 @@ class MaintenanceWorkflowContractTests(unittest.TestCase):
             self.assertNotIn("shell_command", text)
             self.assertNotIn("${{ inputs.", action["runs"]["steps"][0]["run"])
 
+    def test_maintenance_compatibility_cli_delegates_only_through_ciw(self) -> None:
+        text = (ROOT / "scripts/ci/maintenance.py").read_text(encoding="utf-8")
+        self.assertIn("from ci_workflows.ciw import main", text)
+        self.assertIn('"maintenance", *sys.argv[1:]', text)
+        self.assertNotIn("from ci_workflows.maintenance import", text)
+        self.assertNotIn("MAINTENANCE_GITHUB_TOKEN", text)
+
     def test_focused_smoke_is_unprivileged_exact_head_and_zero_artifact(self) -> None:
         path = ROOT / ".github/workflows/maintenance-contract-smoke.yml"
         text = path.read_text(encoding="utf-8")
