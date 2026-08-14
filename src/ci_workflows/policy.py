@@ -156,9 +156,32 @@ def _contains_token_like(content: str, contract: Mapping[str, Any]) -> bool:
     for marker in markers:
         require(isinstance(marker, dict), "repository_policy_invalid")
         segments = marker.get("segments")
-        require(isinstance(segments, list) and all(isinstance(value, str) for value in segments), "repository_policy_invalid")
-        if "".join(segments) in content:
-            return True
+        minimum_trailing = marker.get("minimum_trailing_length")
+        require(
+            isinstance(segments, list)
+            and all(isinstance(value, str) for value in segments)
+            and (
+                minimum_trailing is None
+                or isinstance(minimum_trailing, int)
+                and minimum_trailing > 0
+            ),
+            "repository_policy_invalid",
+        )
+        joined = "".join(segments)
+        if minimum_trailing is None:
+            if joined in content:
+                return True
+            continue
+        start = 0
+        while True:
+            index = content.find(joined, start)
+            if index < 0:
+                break
+            suffix = content[index + len(joined):]
+            candidate = re.match(r"[A-Za-z0-9_+=./~-]+", suffix)
+            if candidate and len(candidate.group(0)) >= minimum_trailing:
+                return True
+            start = index + len(joined)
     # Bounded JWT signature detection avoids storing a token-shaped fixture in
     # the policy contract itself.
     if re.search(r"\beyJ[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\b", content):
