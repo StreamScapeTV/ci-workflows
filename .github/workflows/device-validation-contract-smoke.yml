@@ -72,8 +72,9 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           path: source
-          persist-credentials: false
           fetch-depth: 1
+          clean: true
+          persist-credentials: false
 
       - name: Check out exact Central implementation beside source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -81,12 +82,24 @@ jobs:
           repository: StreamScapeTV/ci-workflows
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           path: .ciw
-          persist-credentials: false
           fetch-depth: 1
+          clean: true
+          persist-credentials: false
+
+      - name: Verify exact synthetic and Central checkouts
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C source rev-parse HEAD)" = "${EXPECTED_SHA}"
+          test "$(git -C .ciw rev-parse HEAD)" = "${EXPECTED_SHA}"
+          test -z "$(git -C source status --porcelain=v1 --untracked-files=all)"
+          test -z "$(git -C .ciw status --porcelain=v1 --untracked-files=all)"
 
       - id: synthetic
         name: Execute bounded synthetic device contract
-        uses: StreamScapeTV/ci-workflows/actions/validate-device@233ed6c10f00012405c7f3edf2196067a80445e5 # issue #14 typed CIW action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@092d26777aebaf87a0a07d39a1660b4bc5cb658d # issue #14 complete CIW checkpoint
         with:
           phase: synthetic
           admitted_sha: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -185,8 +198,18 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           path: .ciw
-          persist-credentials: false
           fetch-depth: 1
+          clean: true
+          persist-credentials: false
+
+      - name: Verify exact Central implementation
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C .ciw rev-parse HEAD)" = "${EXPECTED_SHA}"
+          test -z "$(git -C .ciw status --porcelain=v1 --untracked-files=all)"
 
       - name: Verify real profile cannot execute from untrusted smoke
         shell: bash
@@ -268,8 +291,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          persist-credentials: false
           fetch-depth: 1
+          clean: true
+          persist-credentials: false
 
       - name: Assert exact run retained no Actions artifacts
         env:
@@ -278,6 +302,8 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
           actual_sha="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" --jq '.head_sha')"
           test "${actual_sha}" = "${EXPECTED_SHA}"
           count="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" --jq '.total_count')"
