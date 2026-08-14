@@ -50,7 +50,9 @@ class ApplePhysicalDeviceLockSmokeContractTests(unittest.TestCase):
         guard = next(step for step in self.steps if step.get("id") == "backend_guard")
         self.assertIn("CIW_DEVICE_LOCK_ROOT", guard["run"])
         self.assertIn("Runner-owned device-lock backend is unavailable.", guard["run"])
-        self.assertNotIn("CIW_DEVICE_LOCK_ROOT:", self.source)
+        self.assertNotIn("CIW_DEVICE_LOCK_ROOT", self.job.get("env", {}))
+        for step in self.steps:
+            self.assertNotIn("CIW_DEVICE_LOCK_ROOT", step.get("env", {}))
         self.assertNotIn("runner.temp", self.source)
         self.assertNotIn("mktemp", self.source)
         self.assertNotIn("tempfile", self.source)
