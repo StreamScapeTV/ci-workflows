@@ -24,7 +24,7 @@ runs:
         CIW_REQUEST_ID: ${{ inputs.request_id }}
       run: |
         set -Eeuo pipefail
-        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/maintenance.py" artifacts \
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" maintenance artifacts \
           --repository-scope "${CIW_REPOSITORY_SCOPE}" \
           --dry-run "${CIW_DRY_RUN}" \
           --request-id "${CIW_REQUEST_ID}"
