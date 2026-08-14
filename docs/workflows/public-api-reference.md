@@ -34,7 +34,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. D
 | `source.resolve` `1.0.0` | `.github/workflows/reusable-resolve-source.yml` | `implemented` | `source-admission` | `source-read` | `portable` | Shared / Source admission | * | — |
 | `validation.android` `1.0.0` | `.github/workflows/reusable-android.yml` | `implemented` | `read-only-validation` | `validation-read` | `contract:android` | CI / Android validation | StreamScapeTV/iptv-android, StreamScapeTV/streamscape-media | — |
 | `validation.apple` `1.0.0` | `.github/workflows/reusable-apple.yml` | `implemented` | `read-only-validation` | `validation-read` | `contract:apple-simulator` | CI / Apple validation | StreamScapeTV/iptv-apple, StreamScapeTV/streamscape-media | — |
-| `validation.device` `1.0.0` | `.github/workflows/reusable-device.yml` | `planned` | `physical-device-validation` | `device-validation` | `contract:physical-device` | CI / Physical device validation | StreamScapeTV/iptv-android, StreamScapeTV/iptv-apple, StreamScapeTV/streamscape-media, StreamScapeTV/finance-hub | — |
+| `validation.device` `1.0.0` | `.github/workflows/reusable-device.yml` | `implemented` | `physical-device-validation` | `device-validation` | `contract:physical-device` | CI / Physical device validation | StreamScapeTV/iptv-android, StreamScapeTV/iptv-apple, StreamScapeTV/streamscape-media, StreamScapeTV/finance-hub | — |
 | `validation.flutter` `1.0.0` | `.github/workflows/reusable-flutter.yml` | `implemented` | `read-only-validation` | `validation-read` | `contract:flutter` | CI / Flutter validation | StreamScapeTV/directus-front, StreamScapeTV/finance-hub | — |
 | `validation.gitops` `1.0.0` | `.github/workflows/reusable-gitops-validation.yml` | `implemented` | `read-only-validation` | `validation-artifact-read` | `portable` | CI / GitOps validation | StreamScapeTV/flux, StreamScapeTV/iptv-backend, StreamScapeTV/agent-state | — |
 | `validation.node` `1.0.0` | `.github/workflows/reusable-node.yml` | `implemented` | `read-only-validation` | `validation-read` | `contract:node` | CI / Node validation | StreamScapeTV/StreamScapeWeb, StreamScapeTV/agent-state, StreamScapeTV/finance-hub | — |
@@ -227,8 +227,8 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. D
 - Events: `workflow_dispatch`, `workflow_call`
 - Timeout / matrix maximum: `240 minutes` / `1` jobs
 - Maximum reusable-workflow depth: `1`
-- Inputs: `admitted_sha` (required), `device_family` (required), `device_capability` (required), `device_identifier`, `command_profile` (required), `script_path` (required), `max_duration_minutes` (default `60`), `evidence_exception_id`, `request_id` (required)
-- Secrets: `live_test_credentials`
+- Inputs: `admitted_sha` (required), `device_family` (required), `device_capability` (required), `device_alias` (required), `command_profile` (required), `script_path` (required), `max_duration_minutes` (default `60`), `evidence_exception_id`, `request_id` (required)
+- Secrets: `device_authorization_receipt`, `live_test_credentials`
 - Outputs: `result`, `device_evidence_id`, `artifact_exception_used`, `request_id`
 - Repository-owned hooks: `command_profile`, `script_path`
 - Implementation components: `ci_workflows.devices.lock`, `ci_workflows.devices.validate`, `ci_workflows.devices.cleanup`
