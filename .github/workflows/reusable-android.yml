@@ -91,7 +91,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve contract-owned Android plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@70e08d4ddf8930046632a7135950e924b82e22bf # issue #104 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@006ce9e3766893f226aaf495451ae68c92fc62d1 # issue #196 immutable Media tvOS source-regression checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -163,7 +163,7 @@ jobs:
       - id: android
         name: Execute bounded Android validation
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@70e08d4ddf8930046632a7135950e924b82e22bf # issue #104 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@006ce9e3766893f226aaf495451ae68c92fc62d1 # issue #196 immutable Media tvOS source-regression checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -200,7 +200,7 @@ jobs:
       - id: android_cleanup
         name: Remove Android-specific source, output, and state
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@70e08d4ddf8930046632a7135950e924b82e22bf # issue #104 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@006ce9e3766893f226aaf495451ae68c92fc62d1 # issue #196 immutable Media tvOS source-regression checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -212,7 +212,7 @@ jobs:
       - id: residue
         name: Verify zero Android-specific residue
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@70e08d4ddf8930046632a7135950e924b82e22bf # issue #104 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@006ce9e3766893f226aaf495451ae68c92fc62d1 # issue #196 immutable Media tvOS source-regression checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}

@@ -33,7 +33,9 @@ ORGANIZATION = "StreamScapeTV"
 EXPECTED_REPOSITORY = "StreamScapeTV/ci-workflows"
 EXPECTED_REF = "refs/heads/main"
 SUPPORTED_EVENTS = frozenset({"schedule", "workflow_dispatch"})
-_ALLOWED_CONTENT_PATHS = frozenset({"AGENTS.md", "ISSUE_DEPENDENCIES.yml"})
+_ALLOWED_CONTENT_PATHS = frozenset(
+    {"ISSUE_DEPENDENCIES.yml", "ISSUE_DEPENDENCIES.yaml"}
+)
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _API_REPOSITORY_RE = re.compile(
     r"^https://api\.github\.com/repos/"
