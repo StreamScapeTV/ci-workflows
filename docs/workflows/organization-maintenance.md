@@ -12,7 +12,7 @@ Issue #20 centralizes domain-neutral GitHub maintenance and trusted Flux reconci
 | `maintenance.runner-retry` | `reusable-runner-infrastructure-retry.yml` | dry-run | rerun attempt-1 failed jobs only for proven self-hosted runner-infrastructure loss |
 | `flux.reconcile` | `reusable-flux-reconcile.yml` | dry-run | resolve a typed plan from exact Flux-owned policy and optionally apply it on `flux-control` capacity |
 
-Maintenance runs on `[linux, amd64, general]`; Flux reconciliation runs on `[linux, amd64, flux-control]`. Callers never choose runner labels, repositories, shell commands, callbacks, cluster targets, or secret names.
+Maintenance runs on `[linux, amd64, general]`; Flux reconciliation runs on `[linux, amd64, flux-control]`. Callers never choose runner labels, repositories, shell commands, callbacks, cluster targets, or secret names. The five private composite actions are thin adapters over the canonical typed `scripts/ci/ciw.py` registry (`maintenance artifacts`, `maintenance branches`, `maintenance conformance`, `maintenance runner-retry`, and `flux reconcile`); they do not bypass the command registry through bespoke script entry points.
 
 ## GitHub transport and replay safety
 
@@ -42,7 +42,7 @@ Conformance uses `contracts/workflow-inventory.json` and reports missing/new/ret
 
 Those entries are **review-only proposals**. `maintenance.conformance` never rewrites a consumer workflow, opens a consumer branch, pushes a commit, or creates a consumer pull request. Consumer cutovers remain separately authorized repository work. Update mode only creates or updates the deterministic report issue in `ci-workflows` after expected-state revalidation.
 
-Runner retry requires a non-retired allowlisted workflow, supported event/trust, completed attempt 1, same-repository current source, bounded failed-job count/logs, self-hosted evidence, no failed user step, an allowlisted infrastructure-loss signature, and no deterministic product/test/compiler/lint/dependency/timeout/manual-cancel signature.
+Runner retry requires a non-retired allowlisted workflow, supported event/trust, completed attempt 1, same-repository current source, bounded failed-job count/logs, self-hosted evidence, no failed user step, an allowlisted infrastructure-loss signature, deterministic product/test/compiler/lint/dependency/timeout/manual-cancel signature absent, and exact pre-rerun revalidation.
 
 ## Sanitized projection helpers
 
@@ -60,11 +60,11 @@ These functions own transport mechanics only. They do not decide product state, 
 
 The policy receives only `target_id`, `product_id`, and `operation` and must emit the bounded typed plan. Plan files are regular non-symlink files with a size limit; extra command fields and unsupported resource kinds fail closed. Exact source cleanliness and policy/allowlist/executor hashes are revalidated before live apply.
 
-Workflow state must be a real private directory, never a symlink. Kubeconfig and SOPS age-key files are created exclusively with no-follow semantics and mode `0600`, supplied only through `KUBECONFIG` / `SOPS_AGE_KEY_FILE`, and verified removed in terminal cleanup. Live mutation remains prohibited until the Flux-owned adapter/caller authorization is separately reviewed.
+Workflow state must be a real private directory, never a symlink. Kubeconfig and SOPS age-key files are created exclusively with no-follow semantics and mode `0600`, supplied only through `KUBECONFIG` / `SOPS_AGE_KEY_FILE`, and verified removed in terminal cleanup. The run-owned state directory is keyed only by GitHub-owned run ID and attempt; caller request IDs are validated before state operations and never become filesystem path components. Live mutation remains prohibited until the Flux-owned adapter/caller authorization is separately reviewed.
 
 ## Validation
 
-`maintenance-contract-smoke.yml` is pull-request-only, unprivileged, exact-head, and receives no maintenance/cluster secrets. It runs maintenance/Flux contract, runtime, proposal, projection, workflow, and security suites, removes Python state, verifies the source tree remains clean, and confirms zero Actions artifacts.
+`maintenance-contract-smoke.yml` is pull-request-only, unprivileged, exact-head, and receives no maintenance/cluster secrets. It runs maintenance/Flux contract, runtime, proposal, projection, workflow, typed-CIW, and security suites, removes Python state, verifies the source tree remains clean, and confirms zero Actions artifacts.
 
 No issue-#20 implementation test or this recovered Agent 4 delivery runs live GitHub projection, maintenance deletion/retry, or Flux/Kubernetes mutation. Required final CI validates synthetic and contract behavior; real privileged execution remains separately authorized.
 
