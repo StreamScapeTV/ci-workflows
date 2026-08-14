@@ -33,7 +33,8 @@ class BackendPullRequestHostProfileTests(unittest.TestCase):
             self.request(profile="host", command="locked-test", trust="trusted-pr"),
         )
         self.assertEqual("portable", plan.runner_profile)
-        self.assertEqual("host-cpython-3.12.13", plan.runtime_id)
+        self.assertEqual("host-cpython-3.12.3", plan.runtime_id)
+        self.assertEqual("3.12.3", plan.python_version)
         self.assertIsNone(plan.postgres_runtime_reference)
         self.assertEqual(
             [command.argv for command in plan.commands],
