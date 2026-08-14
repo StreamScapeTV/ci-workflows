@@ -36,8 +36,12 @@ runs:
         CIW_DRY_RUN: ${{ inputs.dry_run }}
       run: |
         set -Eeuo pipefail
-        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/flux_reconcile.py" \
-          --source-root source --source-repository StreamScapeTV/flux --admitted-sha "${CIW_ADMITTED_SHA}" \
-          --target-id "${CIW_TARGET_ID}" --product-id "${CIW_PRODUCT_ID}" --operation "${CIW_OPERATION}" \
-          --policy-path "${CIW_POLICY_PATH}" --allowlist-path "${CIW_ALLOWLIST_PATH}" \
-          --request-id "${CIW_REQUEST_ID}" --dry-run "${CIW_DRY_RUN}"
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" flux reconcile \
+          --admitted-sha "${CIW_ADMITTED_SHA}" \
+          --target-id "${CIW_TARGET_ID}" \
+          --product-id "${CIW_PRODUCT_ID}" \
+          --operation "${CIW_OPERATION}" \
+          --policy-path "${CIW_POLICY_PATH}" \
+          --allowlist-path "${CIW_ALLOWLIST_PATH}" \
+          --request-id "${CIW_REQUEST_ID}" \
+          --dry-run "${CIW_DRY_RUN}"
