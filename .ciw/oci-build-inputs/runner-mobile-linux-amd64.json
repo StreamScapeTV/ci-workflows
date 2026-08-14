@@ -27,8 +27,18 @@
       "platform_identities": [{"platform":"linux/amd64","manifest_digest":"sha256:fc75682c0d5eb1cb254610dafede9c97371d89bb5c6591a9e1f8773b059f3f67","config_digest":"sha256:caf64f520f232a66f04c44d659f78941c792ab8f5ae2268386c2c827df6d1317"}]
     },
     {
-      "stage_id": "actions-runner",
+      "stage_id": "python-runtime",
       "from_ordinal": 3,
+      "stage_marker": "intermediate",
+      "kind": "external",
+      "declared_reference": "docker.io/library/python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2",
+      "dockerfile_platform": null,
+      "platforms": ["linux/amd64"],
+      "platform_identities": [{"platform":"linux/amd64","manifest_digest":"sha256:6e13e65c55e33adf203d77ee371cf8bf5d81bd4902ef07565721f46bf44917af","config_digest":"sha256:64d91f7b885eed272bba87909446b12ff408d4aaa5f1a0e9ca787bbea1a020b9"}]
+    },
+    {
+      "stage_id": "actions-runner",
+      "from_ordinal": 4,
       "stage_marker": "final",
       "kind": "external",
       "declared_reference": "ghcr.io/actions/actions-runner:2.336.0@sha256:0cfdcc701ce933c6d243c6b0b2da767366dc9f2e99961d4c3754b0b78084cdda",
@@ -37,5 +47,14 @@
       "platform_identities": [{"platform":"linux/amd64","manifest_digest":"sha256:a1919047b038c38871d667c58cfdc7a878452711ab1212fb6036188f27a7ab16","config_digest":"sha256:bd6fe162bb4ab4821daa8d694e20d779865618825d30c94342a0228b89947305"}]
     }
   ],
-  "external_inputs": []
+  "external_inputs": [
+    {"input_id":"flutter-linux-amd64","url":"https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.44.8-stable.tar.xz","sha256":"672089e001571a9fbb209a495c583580c0c6c73ef98999264ba07fa93ace332d","maximum_bytes":2147483648,"destination":".ciw-build-inputs/flutter-3.44.8-linux-amd64.tar.xz"},
+    {"input_id":"android-command-line-tools-linux","url":"https://dl.google.com/android/repository/commandlinetools-linux-15859902_latest.zip","sha256":"4e4c464f145a7512b57d088ac6c278c03c9eea610886b35a5e0804e74eedf583","maximum_bytes":268435456,"destination":".ciw-build-inputs/android-command-line-tools-15859902-linux.zip"},
+    {"input_id":"android-platform-tools-linux","url":"https://dl.google.com/android/repository/platform-tools_r36.0.0-linux.zip","sha256":"0ead642c943ffe79701fccca8f5f1c69c4ce4f43df2eefee553f6ccb27cbfbe8","maximum_bytes":16777216,"destination":".ciw-build-inputs/android-platform-tools-36.0.0-linux.zip"},
+    {"input_id":"android-platform-36","url":"https://dl.google.com/android/repository/platform-36_r02.zip","sha256":"37607369a28c5b640b3a7998868d45898ebcb777565a0e85f9acf36f29631d2e","maximum_bytes":100663296,"destination":".ciw-build-inputs/android-platform-36-r02.zip"},
+    {"input_id":"android-platform-37","url":"https://dl.google.com/android/repository/platform-37.0_r01.zip","sha256":"19bdcf42de0cb0e9500a27da6833fc30cdd49a7ec690aa5cabaa0ef893af9ebe","maximum_bytes":100663296,"destination":".ciw-build-inputs/android-platform-37.0-r01.zip"},
+    {"input_id":"android-build-tools-36-linux","url":"https://dl.google.com/android/repository/build-tools_r36_linux.zip","sha256":"5d9ac77fb6ff43d9da518a337b4fcf8f9097113df531d99ccefe80ef7ce8250b","maximum_bytes":100663296,"destination":".ciw-build-inputs/android-build-tools-36.0.0-linux.zip"},
+    {"input_id":"android-build-tools-37-linux","url":"https://dl.google.com/android/repository/build-tools_r37_linux.zip","sha256":"01af179347cbcd9c208b7f8171f7b21f6dd1d2f85bcd15e88caa51d5d7b86060","maximum_bytes":100663296,"destination":".ciw-build-inputs/android-build-tools-37.0.0-linux.zip"},
+    {"input_id":"android-ndk-r28c-linux","url":"https://dl.google.com/android/repository/android-ndk-r28c-linux.zip","sha256":"dfb20d396df28ca02a8c708314b814a4d961dc9074f9a161932746f815aa552f","maximum_bytes":805306368,"destination":".ciw-build-inputs/android-ndk-r28c-linux.zip"}
+  ]
 }
