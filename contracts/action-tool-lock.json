@@ -115,10 +115,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-apple",
-      "sha": "88d179740145ccea00b6986d78ceb67ea365face",
-      "release": "issue #131 immutable Release-aware Apple checkpoint",
+      "sha": "293dee450e3464032d67f702b768f493abf65d7b",
+      "release": "issue #164 immutable Media VLC tvOS checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/88d179740145ccea00b6986d78ceb67ea365face/actions/validate-apple"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/293dee450e3464032d67f702b768f493abf65d7b/actions/validate-apple"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-oci",
