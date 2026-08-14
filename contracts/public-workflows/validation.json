@@ -198,7 +198,7 @@
       "supported_consumers": ["StreamScapeTV/iptv-android", "StreamScapeTV/iptv-apple", "StreamScapeTV/streamscape-media", "StreamScapeTV/finance-hub"],
       "supported_products": [],
       "repository_owned_hooks": ["command_profile", "script_path"],
-      "implementation_components": ["ci_workflows.devices.lock", "ci_workflows.devices.validate", "ci_workflows.devices.cleanup"],
+      "implementation_components": ["ci_workflows.ciw_device.execute_device_validate", "ci_workflows.ciw_device_lock.execute_device_lock", "actions/validate-device", "actions/device-lock"],
       "concurrency_policy": "resource-locked"
     },
     {
