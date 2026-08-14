@@ -1,0 +1,215 @@
+name: Apple physical device lock backend smoke
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+    paths:
+      - ".github/workflows/apple-device-lock-backend-smoke.yml"
+      - "actions/device-lock/**"
+      - "contracts/device-lock.json"
+      - "scripts/ci/ciw.py"
+      - "src/ci_workflows/ciw_device_lock.py"
+      - "src/ci_workflows/device_lock.py"
+      - "tests/test_apple_device_lock_backend_smoke.py"
+
+concurrency:
+  group: apple-device-lock-backend-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  backend_smoke:
+    name: Verify Apple physical lock backend
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: [macOS, ARM64, ios]
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact pull-request source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact source and runner-owned backend contract
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -Eeuo pipefail
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+            test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          )
+          python3 - <<'PY_BACKEND'
+          import os
+          import stat
+          from pathlib import Path
+
+          raw = os.environ.get("CIW_DEVICE_LOCK_ROOT", "")
+          if not raw or len(raw) > 4096 or any(character in raw for character in ("\x00", "\r", "\n")):
+              raise SystemExit("runner-owned device-lock backend is unavailable")
+          root = Path(raw)
+          if not root.is_absolute():
+              raise SystemExit("runner-owned device-lock backend is unavailable")
+          try:
+              info = root.lstat()
+              resolved = root.resolve(strict=True)
+          except OSError as error:
+              raise SystemExit("runner-owned device-lock backend is unavailable") from error
+          if not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode):
+              raise SystemExit("runner-owned device-lock backend is unavailable")
+          if info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) != 0o700:
+              raise SystemExit("runner-owned device-lock backend is unavailable")
+          if resolved != root:
+              raise SystemExit("runner-owned device-lock backend is unavailable")
+          print("Runner-owned device-lock backend contract verified.")
+          PY_BACKEND
+
+      - id: identity
+        name: Derive one run-scoped synthetic device identity hash
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY_IDENTITY'
+          import hashlib
+          import os
+
+          value = hashlib.sha256(
+              f"issue-208-apple-backend-smoke:{os.environ['RUN_ID']}:{os.environ['RUN_ATTEMPT']}".encode("utf-8")
+          ).hexdigest()
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"device_identity_hash={value}\n")
+          PY_IDENTITY
+
+      - id: acquire
+        name: Acquire synthetic tvOS backend receipt
+        continue-on-error: true
+        uses: ./.ciw/actions/device-lock
+        with:
+          phase: acquire
+          device_family: tvos
+          device_capability: backend-smoke
+          device_identity_hash: ${{ steps.identity.outputs.device_identity_hash }}
+          tested_source_sha: ${{ github.event.pull_request.head.sha }}
+          authorization_receipt: issue-208-runner-backend-smoke
+          request_id: issue-208-${{ github.run_id }}-${{ github.run_attempt }}
+          lease_seconds: "300"
+
+      - id: verify
+        name: Verify exact synthetic receipt before mutation authority
+        if: ${{ always() && steps.acquire.outputs.resource_lock_receipt != '' }}
+        continue-on-error: true
+        uses: ./.ciw/actions/device-lock
+        with:
+          phase: verify
+          device_family: tvos
+          device_capability: backend-smoke
+          device_identity_hash: ${{ steps.identity.outputs.device_identity_hash }}
+          tested_source_sha: ${{ github.event.pull_request.head.sha }}
+          authorization_receipt: issue-208-runner-backend-smoke
+          request_id: issue-208-${{ github.run_id }}-${{ github.run_attempt }}
+          lease_seconds: "300"
+          minimum_remaining_seconds: "30"
+          resource_lock_receipt: ${{ steps.acquire.outputs.resource_lock_receipt }}
+
+      - id: release
+        name: Expected-state release exact synthetic receipt
+        if: ${{ always() && steps.acquire.outputs.resource_lock_receipt != '' }}
+        continue-on-error: true
+        uses: ./.ciw/actions/device-lock
+        with:
+          phase: release
+          device_family: tvos
+          device_capability: backend-smoke
+          device_identity_hash: ${{ steps.identity.outputs.device_identity_hash }}
+          tested_source_sha: ${{ github.event.pull_request.head.sha }}
+          authorization_receipt: issue-208-runner-backend-smoke
+          request_id: issue-208-${{ github.run_id }}-${{ github.run_attempt }}
+          lease_seconds: "300"
+          resource_lock_receipt: ${{ steps.acquire.outputs.resource_lock_receipt }}
+
+      - id: residue
+        name: Verify exact synthetic receipt has no active lock residue
+        if: ${{ always() && steps.release.outcome == 'success' }}
+        continue-on-error: true
+        uses: ./.ciw/actions/device-lock
+        with:
+          phase: residue
+          device_family: tvos
+          device_capability: backend-smoke
+          device_identity_hash: ${{ steps.identity.outputs.device_identity_hash }}
+          tested_source_sha: ${{ github.event.pull_request.head.sha }}
+          authorization_receipt: issue-208-runner-backend-smoke
+          request_id: issue-208-${{ github.run_id }}-${{ github.run_attempt }}
+          lease_seconds: "300"
+          resource_lock_receipt: ${{ steps.acquire.outputs.resource_lock_receipt }}
+
+      - name: Project terminal Apple backend smoke result
+        if: always()
+        shell: bash
+        env:
+          ACQUIRE_OUTCOME: ${{ steps.acquire.outcome }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          RELEASE_OUTCOME: ${{ steps.release.outcome }}
+          RESIDUE_OUTCOME: ${{ steps.residue.outcome }}
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -Eeuo pipefail
+          test "${ACQUIRE_OUTCOME}" = success
+          test "${VERIFY_OUTCOME}" = success
+          test "${RELEASE_OUTCOME}" = success
+          test "${RESIDUE_OUTCOME}" = success
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+            test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          )
+
+  zero_artifacts:
+    name: Verify Apple backend smoke artifacts remain zero
+    needs: backend_smoke
+    if: ${{ always() && !cancelled() }}
+    runs-on: [linux, amd64, general]
+    timeout-minutes: 10
+    steps:
+      - name: Require zero Actions artifacts and successful backend smoke
+        env:
+          BACKEND_RESULT: ${{ needs.backend_smoke.result }}
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY_ARTIFACTS'
+          import json
+          import os
+          import urllib.request
+
+          request = urllib.request.Request(
+              f"{os.environ['GITHUB_API_URL'].rstrip('/')}/repos/"
+              f"{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
+              f"{os.environ['GITHUB_RUN_ID']}/artifacts",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              payload = json.load(response)
+          if payload.get("total_count") != 0 or payload.get("artifacts"):
+              raise SystemExit("Apple device-lock backend smoke retained Actions artifacts")
+          print("Routine Apple device-lock backend Actions artifacts verified: zero.")
+          PY_ARTIFACTS
+          test "${BACKEND_RESULT}" = success
