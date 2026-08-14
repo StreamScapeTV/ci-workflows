@@ -15,7 +15,8 @@ PUBLISH_WORKFLOW = ROOT / ".github/workflows/reusable-helm-publish.yml"
 VALIDATE_ACTION = ROOT / "actions/validate-helm/action.yml"
 PUBLISH_ACTION = ROOT / "actions/publish-helm/action.yml"
 MEASURE_ACTION = ROOT / "actions/measure-helm/action.yml"
-HELM_SHA = "f867827a41174ea5a9ad554eeea91dbb2c2c0bfa"
+HELM_RUNTIME_SHA = "f867827a41174ea5a9ad554eeea91dbb2c2c0bfa"
+HELM_MEASUREMENT_SHA = "1f2c0ae5bec042adc9f94e87ebfbba1e7ba48994"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 RELEASE_TAG_SHA = "2b0443fdad002d47625386a959ebe68545cfe022"
 
@@ -104,15 +105,15 @@ class HelmWorkflowContractTests(unittest.TestCase):
                 text,
             )
         self.assertIn(
-            f"StreamScapeTV/ci-workflows/actions/validate-helm@{HELM_SHA}",
+            f"StreamScapeTV/ci-workflows/actions/validate-helm@{HELM_RUNTIME_SHA}",
             self.validate_text,
         )
         self.assertIn(
-            f"StreamScapeTV/ci-workflows/actions/publish-helm@{HELM_SHA}",
+            f"StreamScapeTV/ci-workflows/actions/publish-helm@{HELM_RUNTIME_SHA}",
             self.publish_text,
         )
         self.assertIn(
-            f"StreamScapeTV/ci-workflows/actions/measure-helm@{HELM_SHA}",
+            f"StreamScapeTV/ci-workflows/actions/measure-helm@{HELM_MEASUREMENT_SHA}",
             self.publish_text,
         )
         self.assertIn(
@@ -194,6 +195,10 @@ class HelmWorkflowContractTests(unittest.TestCase):
                 "selected_profile",
             },
         )
+        run = self.measure_action["runs"]["steps"][0]["run"]
+        self.assertIn("scripts/ci/ciw.py", run)
+        self.assertIn("helm publish --phase", run)
+        self.assertNotIn("${{ inputs.", run)
         text = MEASURE_ACTION.read_text(encoding="utf-8").casefold()
         for token in ("registry", "token", "password", "kubectl", "sops", "docker "):
             self.assertNotIn(token, text)
