@@ -59,11 +59,10 @@ class MediaTvOSSimulatorConfidenceTests(unittest.TestCase):
             packet.fixed_arguments,
             ("--packet", "avfoundation-all", "--simulator", SIMULATOR_UDID_TOKEN),
         )
-        self.assertEqual(
-            plan.cleanup_paths,
-            (".tmp/ci-evidence/tvos-simulator-avfoundation-all",),
-        )
-        self.assertEqual(plan.artifact_exception_id, None)
+        self.assertEqual(plan.environment_bindings, (("STREAMSCAPE_ARTIFACT_DIR", "reports"),))
+        self.assertEqual(plan.cleanup_paths, ())
+        self.assertIsNone(plan.artifact_exception_id)
+        self.assertEqual(packet.expected_outputs, ())
 
     def test_reserved_token_materializes_only_from_successful_central_create(self) -> None:
         delegate = RecordingRunner()
