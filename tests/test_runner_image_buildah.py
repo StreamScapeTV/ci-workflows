@@ -80,6 +80,7 @@ def test_buildah_runner_input_lock_matches_exact_base() -> None:
 def test_buildah_runner_product_and_smoke_contract() -> None:
     product = json.loads(PRODUCT.read_text(encoding="utf-8"))
     assert product["product_id"] == "runner-buildah"
+    assert product["image_repository"].endswith("/github-actions-runner-buildah")
     assert product["platform"] == "linux/amd64"
     assert product["release_authority"] == "ci-workflows-git-tag"
 
