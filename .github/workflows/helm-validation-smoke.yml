@@ -1,6 +1,35 @@
 name: Helm workflow contract smoke
 
 on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+    paths:
+      - ".github/workflows/helm-validation-smoke.yml"
+      - ".github/workflows/reusable-helm-validate.yml"
+      - ".github/workflows/reusable-helm-publish.yml"
+      - "actions/validate-helm/**"
+      - "actions/publish-helm/**"
+      - "actions/measure-helm/**"
+      - "contracts/helm-*.json"
+      - "contracts/action-tool-lock.json"
+      - "contracts/bootstrap-public-workflows.json"
+      - "contracts/ciw-commands.json"
+      - "contracts/public-workflows.json"
+      - "contracts/public-workflows/products.json"
+      - "scripts/ci/helm*.py"
+      - "src/ci_workflows/ciw.py"
+      - "src/ci_workflows/ciw_helm.py"
+      - "src/ci_workflows/helm*.py"
+      - "tests/fixtures/helm-validation/**"
+      - "tests/test_helm*.py"
+      - "tests/test_ciw*.py"
+      - "tests/test_bootstrap.py"
+      - "tests/test_reusable_workflow_source_identity.py"
+      - "docs/architecture/helm-validation.md"
+      - "docs/reference/ciw.md"
+      - "docs/workflows/helm-validation.md"
+      - "docs/workflows/public-api-reference.md"
   workflow_dispatch:
 
 permissions:
@@ -15,16 +44,18 @@ jobs:
       - name: Check out exact workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 1
           persist-credentials: false
           clean: true
           set-safe-directory: false
       - name: Verify exact smoke source
         shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         run: |
           set -Eeuo pipefail
-          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
       - name: Run bounded Helm contract tests
         shell: bash
         env:
