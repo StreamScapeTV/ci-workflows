@@ -22,9 +22,14 @@ runs:
       env:
         PYTHONDONTWRITEBYTECODE: '1'
         MAINTENANCE_GITHUB_TOKEN: ${{ inputs.token }}
+        CIW_PROJECT_ID: ${{ inputs.project_id }}
+        CIW_RUN_ID: ${{ inputs.run_id }}
+        CIW_EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+        CIW_DRY_RUN: ${{ inputs.dry_run }}
+        CIW_REQUEST_ID: ${{ inputs.request_id }}
       run: |
         set -Eeuo pipefail
         python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/maintenance.py" runner-retry \
-          --project-id "${{ inputs.project_id }}" --run-id "${{ inputs.run_id }}" \
-          --expected-head-sha "${{ inputs.expected_head_sha }}" --dry-run "${{ inputs.dry_run }}" \
-          --request-id "${{ inputs.request_id }}"
+          --project-id "${CIW_PROJECT_ID}" --run-id "${CIW_RUN_ID}" \
+          --expected-head-sha "${CIW_EXPECTED_HEAD_SHA}" --dry-run "${CIW_DRY_RUN}" \
+          --request-id "${CIW_REQUEST_ID}"
