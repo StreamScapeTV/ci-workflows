@@ -26,10 +26,18 @@ runs:
         PYTHONDONTWRITEBYTECODE: '1'
         FLUX_KUBECONFIG: ${{ inputs.flux_kubeconfig }}
         FLUX_SOPS_AGE_KEY: ${{ inputs.flux_sops_age_key }}
+        CIW_ADMITTED_SHA: ${{ inputs.admitted_sha }}
+        CIW_TARGET_ID: ${{ inputs.target_id }}
+        CIW_PRODUCT_ID: ${{ inputs.product_id }}
+        CIW_OPERATION: ${{ inputs.operation }}
+        CIW_POLICY_PATH: ${{ inputs.policy_path }}
+        CIW_ALLOWLIST_PATH: ${{ inputs.allowlist_path }}
+        CIW_REQUEST_ID: ${{ inputs.request_id }}
+        CIW_DRY_RUN: ${{ inputs.dry_run }}
       run: |
         set -Eeuo pipefail
         python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/flux_reconcile.py" \
-          --source-root source --source-repository StreamScapeTV/flux --admitted-sha "${{ inputs.admitted_sha }}" \
-          --target-id "${{ inputs.target_id }}" --product-id "${{ inputs.product_id }}" --operation "${{ inputs.operation }}" \
-          --policy-path "${{ inputs.policy_path }}" --allowlist-path "${{ inputs.allowlist_path }}" \
-          --request-id "${{ inputs.request_id }}" --dry-run "${{ inputs.dry_run }}"
+          --source-root source --source-repository StreamScapeTV/flux --admitted-sha "${CIW_ADMITTED_SHA}" \
+          --target-id "${CIW_TARGET_ID}" --product-id "${CIW_PRODUCT_ID}" --operation "${CIW_OPERATION}" \
+          --policy-path "${CIW_POLICY_PATH}" --allowlist-path "${CIW_ALLOWLIST_PATH}" \
+          --request-id "${CIW_REQUEST_ID}" --dry-run "${CIW_DRY_RUN}"
