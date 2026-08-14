@@ -176,8 +176,8 @@ def validate(contract: dict) -> list[str]:
             if workflow.get("finding") and not workflow.get("remediation_issue"):
                 errors.append(f"{name}:{path}: finding missing remediation owner")
 
-    if total != 88:
-        errors.append(f"expected 88 current workflow files, found {total}")
+    if total != 90:
+        errors.append(f"expected 90 current workflow files, found {total}")
 
     central = next(
         (repo for repo in repositories if repo.get("repository") == "StreamScapeTV/ci-workflows"),

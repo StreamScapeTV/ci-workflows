@@ -2,7 +2,7 @@
 
 - Audited: `2026-08-13`
 - Repositories: `13`
-- Current workflow files: `88`
+- Current workflow files: `90`
 - Intermediate checkpoint prefix: `[skip push ci] `
 
 This report classifies the current live workflow-file set. A workflow can have multiple trigger classes when one file serves more than one authorized event family.
@@ -66,7 +66,7 @@ This report classifies the current live workflow-file set. A workflow can have m
 ## StreamScapeTV/ci-workflows
 
 - Protected integration branch: `main`
-- Workflow files: `19`
+- Workflow files: `21`
 
 | Workflow path | Trigger class(es) | Finding | Remediation owner |
 |---|---|---|---|
@@ -79,12 +79,14 @@ This report classifies the current live workflow-file set. A workflow can have m
 | `.github/workflows/gitops-validation-smoke.yml` | `maintenance-control` | — | — |
 | `.github/workflows/issue-dependency-sync.yml` | `maintenance-control` | — | — |
 | `.github/workflows/oci-build-smoke.yml` | `maintenance-control` | — | — |
+| `.github/workflows/oci-publish-smoke.yml` | `maintenance-control` | — | — |
 | `.github/workflows/reusable-android.yml` | `maintenance-control` | — | — |
 | `.github/workflows/reusable-apple.yml` | `maintenance-control` | — | — |
 | `.github/workflows/reusable-flutter.yml` | `maintenance-control` | — | — |
 | `.github/workflows/reusable-gitops-validation.yml` | `maintenance-control` | — | — |
 | `.github/workflows/reusable-node.yml` | `maintenance-control` | — | — |
 | `.github/workflows/reusable-oci-build.yml` | `maintenance-control` | — | — |
+| `.github/workflows/reusable-oci-publish.yml` | `authorized-publication-deployment-device-live-evidence` | — | — |
 | `.github/workflows/reusable-python.yml` | `maintenance-control` | — | — |
 | `.github/workflows/reusable-resolve-source.yml` | `maintenance-control` | — | — |
 | `.github/workflows/reusable-tag-image-chart.yml` | `authorized-publication-deployment-device-live-evidence` | — | — |
