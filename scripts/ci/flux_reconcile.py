@@ -81,14 +81,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", type=_bool, required=True)
     args = parser.parse_args(argv)
 
-    state = Path(os.environ.get("RUNNER_TEMP", str(ROOT / ".maintenance-state"))) / (
-        f"flux-reconcile-{os.environ.get('GITHUB_RUN_ID', 'local')}-{args.request_id}"
-    )
     contract = load_contract(ROOT)
+    state: Path | None = None
     failure: MaintenanceError | None = None
     values: dict[str, str] | None = None
 
     try:
+        # request_id becomes part of a filesystem path, so reject it before
+        # constructing or cleaning any marker-owned state path.
+        contract.validate_request_id(args.request_id)
+        state = Path(
+            os.environ.get("RUNNER_TEMP", str(ROOT / ".maintenance-state"))
+        ) / f"flux-reconcile-{os.environ.get('GITHUB_RUN_ID', 'local')}-{args.request_id}"
         _remove_state(state, fail_on_unsafe=True)
         plan = resolve_request(
             contract,
@@ -120,11 +124,12 @@ def main(argv: list[str] | None = None) -> int:
     except MaintenanceError as error:
         failure = error
     finally:
-        try:
-            _remove_state(state, fail_on_unsafe=False)
-        except MaintenanceError as cleanup_error:
-            if failure is None:
-                failure = cleanup_error
+        if state is not None:
+            try:
+                _remove_state(state, fail_on_unsafe=False)
+            except MaintenanceError as cleanup_error:
+                if failure is None:
+                    failure = cleanup_error
 
     if failure is not None:
         _write(
