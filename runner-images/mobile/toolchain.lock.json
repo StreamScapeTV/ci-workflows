@@ -6,16 +6,24 @@
     "actions_runner": "2.336.0",
     "java": "25.0.3+9",
     "node": "24.18.0",
+    "python": "3.12.13",
     "flutter": "3.44.8",
     "dart": "3.12.2",
     "android_command_line_tools": "15859902",
+    "android_platform_tools": "36.0.0",
     "android_platforms": ["36", "37.0"],
     "android_build_tools": ["36.0.0", "37.0.0"],
     "android_ndk": "28.2.13676358"
   },
   "checksums": {
     "flutter_linux_x64": "672089e001571a9fbb209a495c583580c0c6c73ef98999264ba07fa93ace332d",
-    "android_command_line_tools_linux": "4e4c464f145a7512b57d088ac6c278c03c9eea610886b35a5e0804e74eedf583"
+    "android_command_line_tools_linux": "4e4c464f145a7512b57d088ac6c278c03c9eea610886b35a5e0804e74eedf583",
+    "android_platform_tools_36_linux": "0ead642c943ffe79701fccca8f5f1c69c4ce4f43df2eefee553f6ccb27cbfbe8",
+    "android_platform_36_r02": "37607369a28c5b640b3a7998868d45898ebcb777565a0e85f9acf36f29631d2e",
+    "android_platform_37_0_r01": "19bdcf42de0cb0e9500a27da6833fc30cdd49a7ec690aa5cabaa0ef893af9ebe",
+    "android_build_tools_36_linux": "5d9ac77fb6ff43d9da518a337b4fcf8f9097113df531d99ccefe80ef7ce8250b",
+    "android_build_tools_37_linux": "01af179347cbcd9c208b7f8171f7b21f6dd1d2f85bcd15e88caa51d5d7b86060",
+    "android_ndk_r28c_linux": "dfb20d396df28ca02a8c708314b814a4d961dc9074f9a161932746f815aa552f"
   },
   "oci_stages": {
     "java": {
@@ -29,6 +37,12 @@
       "root_digest": "sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d",
       "linux_amd64_manifest_digest": "sha256:fc75682c0d5eb1cb254610dafede9c97371d89bb5c6591a9e1f8773b059f3f67",
       "linux_amd64_config_digest": "sha256:caf64f520f232a66f04c44d659f78941c792ab8f5ae2268386c2c827df6d1317"
+    },
+    "python": {
+      "reference": "docker.io/library/python:3.12.13-slim-bookworm",
+      "root_digest": "sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2",
+      "linux_amd64_manifest_digest": "sha256:6e13e65c55e33adf203d77ee371cf8bf5d81bd4902ef07565721f46bf44917af",
+      "linux_amd64_config_digest": "sha256:64d91f7b885eed272bba87909446b12ff408d4aaa5f1a0e9ca787bbea1a020b9"
     },
     "actions_runner": {
       "reference": "ghcr.io/actions/actions-runner:2.336.0",
