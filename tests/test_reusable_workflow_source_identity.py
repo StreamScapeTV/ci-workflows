@@ -16,7 +16,7 @@ ANDROID_SHA = "006ce9e3766893f226aaf495451ae68c92fc62d1"
 APPLE_SHA = "293dee450e3464032d67f702b768f493abf65d7b"
 OCI_SHA = "3b401078d1167d7048281e3c3269556ce586dada"
 GITOPS_SHA = "8445e63dd9fa9468b60b6d0c61e543da9681b47b"
-HELM_SHA = "138e0c7b0e10f5ad09679d97e81e5c33ada803ac"
+HELM_SHA = "f867827a41174ea5a9ad554eeea91dbb2c2c0bfa"
 RELEASE_TAG_SHA = "2b0443fdad002d47625386a959ebe68545cfe022"
 
 FOUNDATION = "issue #116 immutable private-action checkpoint"
@@ -27,7 +27,7 @@ ISSUE_125 = "issue #125 immutable private-action checkpoint"
 ISSUE_155 = "issue #155 immutable Backend execution repair checkpoint"
 ISSUE_150 = "issue #150 immutable OCI input checkpoint"
 ISSUE_164 = "issue #164 immutable Media VLC tvOS checkpoint"
-ISSUE_18 = "issue #18 immutable Helm dispatcher checkpoint"
+ISSUE_18 = "issue #18 immutable Helm runtime checkpoint"
 ISSUE_59 = "issue #59 immutable helper checkpoint"
 
 PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
