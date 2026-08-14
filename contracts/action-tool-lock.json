@@ -94,10 +94,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-python",
-      "sha": "e869906a0b192ab954dce3dbd1e90cccb649eb18",
-      "release": "issue #155 immutable Backend execution repair checkpoint",
+      "sha": "d060c275570e07222969546acf988a2616a3bcc6",
+      "release": "issue #229 immutable portable host runtime checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/e869906a0b192ab954dce3dbd1e90cccb649eb18/actions/validate-python"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/d060c275570e07222969546acf988a2616a3bcc6/actions/validate-python"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/verify-toolchain",
