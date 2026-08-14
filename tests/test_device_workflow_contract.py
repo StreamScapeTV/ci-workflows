@@ -157,11 +157,20 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("path: .ciw", self.workflow)
         self.assertNotIn("cleanup-checkout --source-root .ciw", self.workflow)
         self.assertGreaterEqual(self.smoke.count("if: always()"), 2)
-        self.assertGreaterEqual(self.smoke.count("cleanup-checkout --source-root .ciw"), 2)
-        self.assertGreaterEqual(self.smoke.count("! -e .ciw"), 2)
-        self.assertGreaterEqual(self.smoke.count("! -L .ciw"), 2)
-        self.assertGreaterEqual(self.smoke.count("test ! -e source"), 2)
-        self.assertGreaterEqual(self.smoke.count("test ! -L source"), 2)
+        self.assertGreaterEqual(
+            self.smoke.count("def remove_no_follow(path: Path) -> None:"), 3
+        )
+        self.assertGreaterEqual(self.smoke.count("os.lstat(path)"), 3)
+        self.assertGreaterEqual(self.smoke.count("os.unlink(path)"), 3)
+        self.assertGreaterEqual(self.smoke.count("os.rmdir(path)"), 3)
+        self.assertGreaterEqual(self.smoke.count('remove_no_follow(Path("source"))'), 2)
+        self.assertGreaterEqual(self.smoke.count('remove_no_follow(Path(".ciw"))'), 3)
+        self.assertGreaterEqual(self.smoke.count("test ! -e source"), 1)
+        self.assertGreaterEqual(self.smoke.count("test ! -L source"), 1)
+        self.assertGreaterEqual(self.smoke.count("test ! -e .ciw"), 2)
+        self.assertGreaterEqual(self.smoke.count("test ! -L .ciw"), 2)
+        self.assertEqual(3, self.smoke.count("clean: true"))
+        self.assertGreaterEqual(self.smoke.count("rev-parse HEAD"), 3)
 
     def test_terminal_projection_preserves_restore_lock_and_cleanup_failures(self) -> None:
         device_job = self.workflow.split("  device:\n", 1)[1]
