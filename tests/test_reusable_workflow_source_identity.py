@@ -16,6 +16,9 @@ ANDROID_SHA = "006ce9e3766893f226aaf495451ae68c92fc62d1"
 APPLE_SHA = "293dee450e3464032d67f702b768f493abf65d7b"
 OCI_SHA = "3b401078d1167d7048281e3c3269556ce586dada"
 GITOPS_SHA = "8445e63dd9fa9468b60b6d0c61e543da9681b47b"
+HELM_SHA = "f867827a41174ea5a9ad554eeea91dbb2c2c0bfa"
+HELM_MEASURE_SHA = "1f2c0ae5bec042adc9f94e87ebfbba1e7ba48994"
+RELEASE_TAG_SHA = "2b0443fdad002d47625386a959ebe68545cfe022"
 
 FOUNDATION = "issue #116 immutable private-action checkpoint"
 ISSUE_132 = "issue #132 immutable mode-aware source checkpoint"
@@ -25,6 +28,9 @@ ISSUE_125 = "issue #125 immutable private-action checkpoint"
 ISSUE_229 = "issue #229 immutable portable host runtime checkpoint"
 ISSUE_150 = "issue #150 immutable OCI input checkpoint"
 ISSUE_164 = "issue #164 immutable Media VLC tvOS checkpoint"
+ISSUE_18 = "issue #18 immutable Helm runtime checkpoint"
+ISSUE_18_MEASURE = "issue #18 immutable Helm measurement CIW checkpoint"
+ISSUE_59 = "issue #59 immutable helper checkpoint"
 
 PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
     ".github/workflows/reusable-node.yml": {
@@ -74,6 +80,20 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/render-evidence": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
+    },
+    ".github/workflows/reusable-helm-validate.yml": {
+        "StreamScapeTV/ci-workflows/actions/validate-helm": (HELM_SHA, ISSUE_18),
+        "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
+    },
+    ".github/workflows/reusable-helm-publish.yml": {
+        "StreamScapeTV/ci-workflows/actions/resolve-release-tag": (RELEASE_TAG_SHA, ISSUE_59),
+        "StreamScapeTV/ci-workflows/actions/publish-helm": (HELM_SHA, ISSUE_18),
+        "StreamScapeTV/ci-workflows/actions/measure-helm": (HELM_MEASURE_SHA, ISSUE_18_MEASURE),
+        "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
     },
 }
