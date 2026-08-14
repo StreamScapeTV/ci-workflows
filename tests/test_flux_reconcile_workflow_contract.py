@@ -138,8 +138,17 @@ class FluxReconcileWorkflowContractTests(unittest.TestCase):
         self.assertIn("scripts/ci/ciw.py", action_text)
         self.assertNotIn("scripts/ci/flux_reconcile.py", action_text)
 
-    def test_flux_state_cleanup_is_no_follow_and_fail_closed(self) -> None:
+    def test_flux_compatibility_cli_is_fixed_source_and_ciw_only(self) -> None:
         cli = (ROOT / "scripts/ci/flux_reconcile.py").read_text(encoding="utf-8")
+        self.assertIn("from ci_workflows.ciw import main", cli)
+        self.assertIn('args.source_root != "source"', cli)
+        self.assertIn('args.source_repository != "StreamScapeTV/flux"', cli)
+        self.assertIn('"flux",', cli)
+        self.assertIn('"reconcile",', cli)
+        self.assertNotIn("from ci_workflows.flux_reconcile import", cli)
+        self.assertNotIn("FLUX_KUBECONFIG", cli)
+
+    def test_flux_state_cleanup_is_no_follow_and_fail_closed(self) -> None:
         adapter = (
             ROOT / "src/ci_workflows/ciw_maintenance.py"
         ).read_text(encoding="utf-8")
@@ -149,11 +158,10 @@ class FluxReconcileWorkflowContractTests(unittest.TestCase):
         self.assertIn("def remove_state", filesystem)
         self.assertIn("lstat()", filesystem)
         self.assertIn("flux_state_cleanup_failed", filesystem)
-        self.assertIn("contract.validate_request_id(args.request_id)", cli)
-        self.assertIn("GITHUB_RUN_ATTEMPT", cli)
+        self.assertIn("contract.validate_request_id(args.request_id)", adapter)
         self.assertIn("GITHUB_RUN_ATTEMPT", adapter)
         self.assertIn("raw_source.is_symlink()", adapter)
-        self.assertNotIn("ignore_errors=True", cli + adapter + filesystem)
+        self.assertNotIn("ignore_errors=True", adapter + filesystem)
 
 
 if __name__ == "__main__":
