@@ -26,6 +26,18 @@ class MaintenanceCiwTests(unittest.TestCase):
             stderr=io.StringIO(),
         )
 
+    def flux_args(self) -> argparse.Namespace:
+        return argparse.Namespace(
+            admitted_sha="0123456789abcdef0123456789abcdef01234567",
+            target_id="target-a",
+            product_id="product-a",
+            operation="reconcile",
+            policy_path="policy.json",
+            allowlist_path="allowlist.json",
+            request_id="request-123",
+            dry_run=True,
+        )
+
     def test_artifact_adapter_projects_existing_typed_result(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -125,16 +137,6 @@ class MaintenanceCiwTests(unittest.TestCase):
                     "FLUX_SOPS_AGE_KEY": "unused-dry-run",
                 },
             )
-            args = argparse.Namespace(
-                admitted_sha="0123456789abcdef0123456789abcdef01234567",
-                target_id="target-a",
-                product_id="product-a",
-                operation="reconcile",
-                policy_path="policy.json",
-                allowlist_path="allowlist.json",
-                request_id="request-123",
-                dry_run=True,
-            )
             contract = Mock()
             plan = object()
             with (
@@ -152,7 +154,7 @@ class MaintenanceCiwTests(unittest.TestCase):
                 ),
                 patch("ci_workflows.ciw_maintenance.reconcile") as reconcile,
             ):
-                result = execute_flux_reconcile(args, context)
+                result = execute_flux_reconcile(self.flux_args(), context)
             contract.validate_request_id.assert_called_once_with("request-123")
             self.assertEqual(
                 resolve_request.call_args.kwargs["source_repository"],
@@ -166,6 +168,37 @@ class MaintenanceCiwTests(unittest.TestCase):
             reconcile.assert_not_called()
             self.assertEqual(result.outputs["reconciliation_state"], "dry-run")
             self.assertEqual(result.outputs["failure_code"], "")
+            self.assertFalse((runner_temp / "flux-reconcile-12345-2").exists())
+
+    def test_flux_adapter_rejects_symlinked_source_without_following_target(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            workspace = root / "workspace"
+            target = root / "target"
+            runner_temp = root / "runner-temp"
+            workspace.mkdir()
+            target.mkdir()
+            runner_temp.mkdir()
+            sentinel = target / "keep"
+            sentinel.write_text("safe", encoding="utf-8")
+            (workspace / "source").symlink_to(target, target_is_directory=True)
+            context = self.context(
+                root,
+                {
+                    "GITHUB_WORKSPACE": str(workspace),
+                    "RUNNER_TEMP": str(runner_temp),
+                    "GITHUB_RUN_ID": "12345",
+                    "GITHUB_RUN_ATTEMPT": "2",
+                },
+            )
+            with (
+                patch("ci_workflows.ciw_maintenance.load_contract", return_value=Mock()),
+                self.assertRaisesRegex(MaintenanceError, "flux_source_invalid"),
+            ):
+                execute_flux_reconcile(self.flux_args(), context)
+            self.assertTrue(sentinel.is_file())
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "safe")
+            self.assertTrue((workspace / "source").is_symlink())
             self.assertFalse((runner_temp / "flux-reconcile-12345-2").exists())
 
     def test_remove_state_rejects_symlink_without_following_target(self) -> None:
