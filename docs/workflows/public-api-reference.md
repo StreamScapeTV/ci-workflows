@@ -25,7 +25,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. D
 | `helm.validate` `1.0.0` | `.github/workflows/reusable-helm-validate.yml` | `implemented` | `read-only-validation` | `validation-read` | `portable` | CI / Helm validation | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | iptv-backend-chart, agent-state-chart, flux-runner-chart-assets |
 | `maintenance.artifacts` `1.0.0` | `.github/workflows/reusable-artifact-cleanup.yml` | `planned` | `trusted-maintenance` | `artifact-cleanup` | `maintenance-control` | Maintenance / Artifact cleanup | StreamScapeTV/ci-workflows | — |
 | `maintenance.branches` `1.0.0` | `.github/workflows/reusable-branch-hygiene.yml` | `planned` | `trusted-maintenance` | `branch-hygiene` | `maintenance-control` | Maintenance / Branch hygiene | StreamScapeTV/* | — |
-| `maintenance.conformance` `1.0.0` | `.github/workflows/reusable-conformance.yml` | `planned` | `trusted-maintenance` | `conformance-report` | `maintenance-control` | Maintenance / Organization conformance | StreamScapeTV/ci-workflows | — |
+| `maintenance.conformance` `1.0.0` | `.github/workflows/reusable-conformance.yml` | `planned` | `trusted-maintenance` | `conformance-report` | Maintenance / Organization conformance | StreamScapeTV/ci-workflows | — |
 | `maintenance.runner-retry` `1.0.0` | `.github/workflows/reusable-runner-infrastructure-retry.yml` | `planned` | `trusted-maintenance` | `runner-infrastructure-retry` | `maintenance-control` | Maintenance / Runner retry | StreamScapeTV/* | — |
 | `oci.build` `1.0.0` | `.github/workflows/reusable-oci-build.yml` | `implemented` | `read-only-validation` | `validation-read` | `contract:oci-build` | CI / OCI build validation | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | iptv-backend-image, agent-state-image, flux-runner-images |
 | `oci.publish` `1.0.0` | `.github/workflows/reusable-oci-publish.yml` | `implemented` | `trusted-publication` | `oci-publication` | `contract:oci-publish` | Release / OCI publication | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | iptv-backend-image, agent-state-image, flux-runner-images |
@@ -70,7 +70,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. D
 - Events: `tag-push`, `workflow_call`, `workflow_dispatch-verify-only`
 - Timeout / matrix maximum: `90 minutes` / `8` jobs
 - Maximum reusable-workflow depth: `1`
-- Inputs: `admitted_sha` (required), `product_id` (required), `release_version` (required), `values_profile`, `policy_path`
+- Inputs: `admitted_sha` (required), `product_id` (required), `release_version` (required), `values_profile`, `policy_path`, `image_digest`, `immutable_references_json`
 - Secrets: `registry_username`, `registry_token`
 - Outputs: `result`, `chart_digest`, `immutable_references_json`
 - Repository-owned hooks: `policy_path`
