@@ -11,6 +11,7 @@ from ci_workflows.ciw_types import CIWError, CIWResult, project_error, write_com
 from ci_workflows.device_lock import DeviceLockError
 from ci_workflows.foundation_types import FoundationError
 from ci_workflows.gitops_types import GitOpsValidationError
+from ci_workflows.helm_types import HelmValidationError
 from ci_workflows.node_types import NodeValidationError
 from ci_workflows.oci_types import OciBuildError
 from ci_workflows.python_types import PythonValidationError
@@ -29,13 +30,15 @@ class CIWContractTests(unittest.TestCase):
             for item in contract["commands"]
         }
         self.assertEqual(expected, set(runtime_command_index()))
-        self.assertEqual(27, len(expected))
+        self.assertEqual(29, len(expected))
         self.assertIn("android validate", expected)
         self.assertIn("apple validate", expected)
         self.assertIn("device lock", expected)
         self.assertIn("flutter validate", expected)
         self.assertIn("python validate", expected)
         self.assertIn("node validate", expected)
+        self.assertIn("helm validate", expected)
+        self.assertIn("helm publish", expected)
         self.assertIn("gitops validate", expected)
         self.assertIn("oci publish", expected)
         self.assertIn("oci validate", expected)
@@ -57,6 +60,7 @@ class CIWContractTests(unittest.TestCase):
                 "flutter",
                 "python",
                 "node",
+                "helm",
                 "gitops",
                 "oci",
                 "workspace",
@@ -89,6 +93,7 @@ class CIWContractTests(unittest.TestCase):
                 "scripts/ci/apple.py",
                 "scripts/ci/python.py",
                 "scripts/ci/node.py",
+                "scripts/ci/helm.py",
                 "scripts/ci/gitops.py",
                 "scripts/ci/oci.py",
                 "scripts/ci/oci_publish.py",
@@ -98,6 +103,7 @@ class CIWContractTests(unittest.TestCase):
         self.assertEqual(wrappers["scripts/ci/apple.py"], {"apple validate"})
         self.assertEqual(wrappers["scripts/ci/python.py"], {"python validate"})
         self.assertEqual(wrappers["scripts/ci/node.py"], {"node validate"})
+        self.assertEqual(wrappers["scripts/ci/helm.py"], {"helm validate", "helm publish"})
         self.assertEqual(wrappers["scripts/ci/gitops.py"], {"gitops validate"})
         self.assertEqual(wrappers["scripts/ci/oci.py"], {"oci validate"})
         self.assertEqual(wrappers["scripts/ci/oci_publish.py"], {"oci publish"})
@@ -137,6 +143,7 @@ class CIWContractTests(unittest.TestCase):
             (RunnerContractError("invalid-selector", "private detail"), "runners", "invalid-selector"),
             (PythonValidationError("dependency_lock_drift"), "python", "dependency_lock_drift"),
             (NodeValidationError("lockfile_drift"), "node", "lockfile_drift"),
+            (HelmValidationError("chart_invalid"), "helm", "chart_invalid"),
             (GitOpsValidationError("tool_archive_rejected"), "gitops", "tool_archive_rejected"),
             (OciBuildError("oci_layout_malformed"), "oci", "oci_layout_malformed"),
             (DeviceLockError("lock_stale"), "device", "lock_stale"),
