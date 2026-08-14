@@ -1,30 +1,31 @@
-name: Publish or verify OCI release
-description: Trusted immutable OCI publication and independent registry read-back
+name: Publish trusted OCI image
+description: Plan, authenticate, publish immutable references, read back, verify, clean, or check residue
 
 inputs:
   phase:
-    description: plan, authenticate, publish, readback, verify, cleanup, or residue
-    required: true
+    description: Bounded internal publication phase
+    required: false
+    default: plan
   admitted_sha:
-    description: Exact caller source SHA
+    description: Exact lowercase source SHA admitted by release authority
     required: true
   release_authority_sha:
-    description: Exact release-authority SHA bound to the current tag
+    description: Exact source SHA returned by the validated release-tag authority
     required: true
   product_id:
-    description: Central OCI product identifier
+    description: Checked-in OCI product identifier
     required: true
   release_version:
-    description: Exact release version
+    description: Exact stable SemVer release version without a v prefix
     required: true
   platform_set:
-    description: Optional central platform-set identifier
+    description: Optional exact checked-in platform set confirmation; never an arbitrary matrix
     required: false
   registry_username:
-    description: Named registry username supplied only during authentication
+    description: Named registry credential username; used only by authenticate
     required: false
   registry_token:
-    description: Named registry token supplied only during authentication
+    description: Named registry credential token; used only by authenticate
     required: false
 
 outputs:
@@ -79,8 +80,10 @@ runs:
   using: composite
   steps:
     - id: publish
+      name: Execute bounded OCI publication phase
       shell: bash
       env:
+        PYTHONDONTWRITEBYTECODE: "1"
         INPUT_ADMITTED_SHA: ${{ inputs.admitted_sha }}
         INPUT_RELEASE_AUTHORITY_SHA: ${{ inputs.release_authority_sha }}
         INPUT_PRODUCT_ID: ${{ inputs.product_id }}

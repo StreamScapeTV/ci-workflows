@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 from . import apple as apple_validation
-from .apple_contract import build_plan
+from .apple_contract_fragments import load_apple_contract
 
 try:
     from . import runners
@@ -104,14 +104,31 @@ def _source_path(
     return apple_validation.bounded_path(workspace, relative)
 
 
+def _run_plan(
+    *,
+    plan: apple_validation.AppleValidationPlan,
+    source: Path | None,
+    state: Path | None,
+    environment: Mapping[str, str],
+) -> apple_validation.AppleValidationPlan | apple_validation.AppleValidationResult:
+    if source is None or state is None:
+        return plan
+    return apple_validation.execute_apple_plan(
+        plan=plan,
+        source_root=source,
+        state_root=state,
+        environment=environment,
+    )
+
+
 def standalone_main(argv: Sequence[str] | None = None) -> int:
     args = _standalone_parser().parse_args(argv)
     root = args.root.resolve()
     output = args.output or os.environ.get("GITHUB_OUTPUT")
     try:
-        contract = apple_validation.load_apple_contract(root)
+        contract = load_apple_contract(root)
         request = apple_validation.request_from_environment(os.environ, contract)
-        plan = build_plan(contract, request)
+        plan = apple_validation.resolve_plan(contract, request)
         source = _source_path(root, args.source_root, os.environ)
         state = None if args.command == "plan" else _resolved_state_root(root, os.environ)
         if args.command == "cleanup":
@@ -123,12 +140,10 @@ def standalone_main(argv: Sequence[str] | None = None) -> int:
             apple_validation.assert_zero_apple_residue(source, state, plan)
             values = {"cleanup_result": "success", "failure_code": ""}
         else:
-            result = apple_validation.validate(
-                contract_root=root,
-                source_root=None if args.command == "plan" else source,
-                state_root=state,
-                request=request,
-                phase=args.command,
+            result = _run_plan(
+                plan=plan,
+                source=None if args.command == "plan" else source,
+                state=state,
                 environment=os.environ,
             )
             values = (
@@ -156,12 +171,12 @@ def execute_apple_validate(
     args: argparse.Namespace,
     context: "CIWContext",
 ) -> "CIWResult":
-    contract = apple_validation.load_apple_contract(context.root)
+    contract = load_apple_contract(context.root)
     request = apple_validation.request_from_environment(
         context.environment,
         contract,
     )
-    plan = build_plan(contract, request)
+    plan = apple_validation.resolve_plan(contract, request)
     source = _source_path(context.root, args.source_root, context.environment)
     state = (
         None
@@ -184,12 +199,10 @@ def execute_apple_validate(
             "validate",
             outputs={"cleanup_result": "success", "failure_code": ""},
         )
-    result = apple_validation.validate(
-        contract_root=context.root,
-        source_root=None if args.phase == "plan" else source,
-        state_root=state,
-        request=request,
-        phase=args.phase,
+    result = _run_plan(
+        plan=plan,
+        source=None if args.phase == "plan" else source,
+        state=state,
         environment=context.environment,
     )
     if isinstance(result, apple_validation.AppleValidationPlan):

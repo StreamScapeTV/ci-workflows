@@ -36,7 +36,9 @@ class OciPublicationWorkflowContractTests(unittest.TestCase):
 
     def test_composite_action_is_thin_and_has_no_caller_destination_or_command(self) -> None:
         text = (ROOT / "actions/publish-oci/action.yml").read_text(encoding="utf-8")
-        self.assertIn("scripts/ci/oci_publish.py", text)
+        self.assertIn("scripts/ci/ciw.py", text)
+        self.assertIn("oci publish --phase", text)
+        self.assertNotIn("scripts/ci/oci_publish.py", text)
         self.assertNotIn("registry_repository:", text)
         self.assertNotIn("registry_host:", text)
         self.assertNotIn("command:", text)
