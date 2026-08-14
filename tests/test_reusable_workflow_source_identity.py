@@ -13,7 +13,7 @@ SOURCE_SHA = "87a7454aaa59cb680db8f580d22551b749ac4193"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 PYTHON_SHA = "e869906a0b192ab954dce3dbd1e90cccb649eb18"
 ANDROID_SHA = "5f503d419696e5bfae4ed5b11eca3b531dbdca0f"
-APPLE_SHA = "88d179740145ccea00b6986d78ceb67ea365face"
+APPLE_SHA = "293dee450e3464032d67f702b768f493abf65d7b"
 OCI_SHA = "3b401078d1167d7048281e3c3269556ce586dada"
 GITOPS_SHA = "8445e63dd9fa9468b60b6d0c61e543da9681b47b"
 
@@ -24,7 +24,7 @@ ISSUE_140 = "issue #140 immutable integrated source-policy checkpoint"
 ISSUE_125 = "issue #125 immutable private-action checkpoint"
 ISSUE_155 = "issue #155 immutable Backend execution repair checkpoint"
 ISSUE_150 = "issue #150 immutable OCI input checkpoint"
-ISSUE_131 = "issue #131 immutable Release-aware Apple checkpoint"
+ISSUE_164 = "issue #164 immutable Media VLC tvOS checkpoint"
 
 PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
     ".github/workflows/reusable-node.yml": {
@@ -57,7 +57,7 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
     },
     ".github/workflows/reusable-apple.yml": {
-        "StreamScapeTV/ci-workflows/actions/validate-apple": (APPLE_SHA, ISSUE_131),
+        "StreamScapeTV/ci-workflows/actions/validate-apple": (APPLE_SHA, ISSUE_164),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
