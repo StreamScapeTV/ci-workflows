@@ -128,6 +128,45 @@ def _forbidden_path(path: str, contract: Mapping[str, Any], repository: str) -> 
     return _matches(path, forbidden) and not _matches(path, allowed)
 
 
+def _split_marker_matches(content: str, marker: Mapping[str, Any]) -> bool:
+    segments = marker.get("segments")
+    require(
+        isinstance(segments, list) and all(isinstance(value, str) for value in segments),
+        "repository_policy_invalid",
+    )
+    literal = "".join(segments)
+    minimum_suffix_length = marker.get("minimum_suffix_length")
+    if minimum_suffix_length is None:
+        return literal in content
+    require(
+        isinstance(minimum_suffix_length, int) and 1 <= minimum_suffix_length <= 4096,
+        "repository_policy_invalid",
+    )
+    allowed_suffix_patterns = marker.get("allowed_suffix_patterns", [])
+    require(
+        isinstance(allowed_suffix_patterns, list)
+        and all(isinstance(value, str) and value for value in allowed_suffix_patterns),
+        "repository_policy_invalid",
+    )
+    start = 0
+    while True:
+        index = content.find(literal, start)
+        if index < 0:
+            return False
+        value_start = index + len(literal)
+        candidate = re.match(r"[A-Za-z0-9_+=./~-]+", content[value_start:])
+        if candidate:
+            value = candidate.group(0)
+            if not any(
+                fnmatch.fnmatchcase(value, pattern)
+                for pattern in allowed_suffix_patterns
+            ) and len(value) >= minimum_suffix_length:
+                return True
+            start = value_start + len(value)
+            continue
+        start = value_start
+
+
 def _contains_token_like(content: str, contract: Mapping[str, Any]) -> bool:
     rules = contract.get("token_rules")
     markers = contract.get("split_markers")
@@ -155,33 +194,8 @@ def _contains_token_like(content: str, contract: Mapping[str, Any]) -> bool:
                 start = index + len(prefix)
     for marker in markers:
         require(isinstance(marker, dict), "repository_policy_invalid")
-        segments = marker.get("segments")
-        minimum_trailing = marker.get("minimum_trailing_length")
-        require(
-            isinstance(segments, list)
-            and all(isinstance(value, str) for value in segments)
-            and (
-                minimum_trailing is None
-                or isinstance(minimum_trailing, int)
-                and minimum_trailing > 0
-            ),
-            "repository_policy_invalid",
-        )
-        joined = "".join(segments)
-        if minimum_trailing is None:
-            if joined in content:
-                return True
-            continue
-        start = 0
-        while True:
-            index = content.find(joined, start)
-            if index < 0:
-                break
-            suffix = content[index + len(joined):]
-            candidate = re.match(r"[A-Za-z0-9_+=./~-]+", suffix)
-            if candidate and len(candidate.group(0)) >= minimum_trailing:
-                return True
-            start = index + len(joined)
+        if _split_marker_matches(content, marker):
+            return True
     # Bounded JWT signature detection avoids storing a token-shaped fixture in
     # the policy contract itself.
     if re.search(r"\beyJ[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\b", content):

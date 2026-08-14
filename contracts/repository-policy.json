@@ -30,8 +30,9 @@
     {"id": "aws-access-key", "prefixes": ["AKIA"], "minimum_length": 20}
   ],
   "split_markers": [
-    {"id": "private-key", "segments": ["-----BEGIN ", "PRIVATE KEY-----"]},
-    {"id": "bearer-token", "segments": ["Authorization", ": Bearer "], "minimum_trailing_length": 20}
+    {"id": "private-key-pem", "segments": ["-----BEGIN ", "PRIVATE KEY-----\n"], "minimum_suffix_length": 12, "allowed_suffix_patterns": ["c3ludGhldGlj"]},
+    {"id": "private-key-pem-escaped", "segments": ["-----BEGIN ", "PRIVATE KEY-----\\n"], "minimum_suffix_length": 12, "allowed_suffix_patterns": ["c3ludGhldGlj"]},
+    {"id": "bearer-token", "segments": ["Authorization", ": Bearer "], "minimum_suffix_length": 1, "allowed_suffix_patterns": ["TOKEN", "synthetic-*"]}
   ],
   "generated_outputs": [
     "docs/workflows/public-api-reference.md",
