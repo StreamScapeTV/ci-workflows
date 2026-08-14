@@ -143,6 +143,10 @@ def execute(
     from .helm_policy import run_policy_hook
 
     require(operation in {"validate", "publish"}, "invalid_operation")
+    if operation == "publish" and phase in {"measure-start", "measure-stop"}:
+        from .helm_measurement import start, stop
+
+        return start(root, environment) if phase == "measure-start" else stop(root, environment)
     if phase == "plan":
         return _plan(root, environment, operation)
     state_root = _state_root(root, environment)
@@ -212,7 +216,19 @@ def configure_helm_validate(parser: argparse.ArgumentParser) -> None:
 
 
 def configure_helm_publish(parser: argparse.ArgumentParser) -> None:
-    _configure(parser)
+    parser.add_argument(
+        "--phase",
+        choices=(
+            "plan",
+            "execute",
+            "cleanup",
+            "residue",
+            "measure-start",
+            "measure-stop",
+        ),
+        default="execute",
+    )
+    parser.add_argument("--source-root", default="source")
 
 
 def execute_helm_validate(
