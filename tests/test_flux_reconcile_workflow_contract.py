@@ -9,7 +9,7 @@ import yaml
 from ci_workflows.validation_model import ActionsLoader
 
 ROOT = Path(__file__).resolve().parents[1]
-HELPER_SHA = "3de0f365eed5ff69cf18b1af26aa42f7928fd8ef"
+HELPER_SHA = "ac5b6be68ea2aa562ccc513103dbdd9b6c23d7ad"
 EXACT_CHECKOUT_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 
 
@@ -57,6 +57,14 @@ class FluxReconcileWorkflowContractTests(unittest.TestCase):
         self.assertIn("rm -rf source", self.text)
         self.assertIn("! -e source", self.text)
         self.assertIn("! -L source", self.text)
+        self.assertIn(
+            'state="${RUNNER_TEMP}/flux-reconcile-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"',
+            self.text,
+        )
+        self.assertNotIn(
+            'flux-reconcile-${GITHUB_RUN_ID}-${{ inputs.request_id }}',
+            self.text,
+        )
         for forbidden in ("pull_request_target", "issue_comment", "workflow_run", "secrets: inherit", "runs-on: self-hosted", "kubectl apply", "helm upgrade"):
             self.assertNotIn(forbidden, self.text)
 
@@ -79,6 +87,8 @@ class FluxReconcileWorkflowContractTests(unittest.TestCase):
         self.assertIn("lstat()", cli)
         self.assertIn("_remove_state", cli)
         self.assertIn("flux_state_cleanup_failed", cli)
+        self.assertIn("contract.validate_request_id(args.request_id)", cli)
+        self.assertIn("GITHUB_RUN_ATTEMPT", cli)
         self.assertNotIn("ignore_errors=True", cli)
 
 
