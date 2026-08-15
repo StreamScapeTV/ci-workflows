@@ -46,6 +46,11 @@ def test_general_runner_build_is_networkless_and_engine_free() -> None:
     assert ".ciw-build-inputs/actions-runner-linux-x64-2.336.0.tar.gz" in source
     assert "rm -f" in source and "/usr/bin/apt-get" in source
     assert "for forbidden in docker dockerd containerd ctr runc buildah podman skopeo sudo" in source
+    assert "ldconfig -p" in source
+    assert 'libatomic.so.1" {print $nf; exit}' in source
+    assert "readlink -f" in source
+    assert "/node-root/usr/lib/x86_64-linux-gnu/libatomic.so.1" in source
+    assert "for library in /usr/lib/x86_64-linux-gnu/libatomic.so.1*" not in source
 
 
 def test_general_runner_input_lock_matches_debian_stages() -> None:
