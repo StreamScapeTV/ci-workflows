@@ -1,0 +1,29 @@
+name: Runner image contract validation
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/runner-images-validation.yml"
+      - ".ciw/oci-build-inputs/runner-*.json"
+      - "contracts/oci-products.json"
+      - "generated/oci-engine-mapping.json"
+      - "runner-images/**"
+      - "src/ci_workflows/oci_*.py"
+      - "tests/test_runner_image*.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runner-images-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Runner images / Buildah validation
+    uses: ./.github/workflows/reusable-oci-build.yml
+    with:
+      admitted_sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      product_id: ciw-runner-images
+      platform_set: linux-amd64
