@@ -31,9 +31,9 @@ class AppleWorkflowContractTests(unittest.TestCase):
         self.checkout_cleanup_adapter = (
             ROOT / "scripts/ci/apple_checkout_cleanup.py"
         ).read_text(encoding="utf-8")
-        self.facade = (
-            ROOT / "src/ci_workflows/apple.py"
-        ).read_text(encoding="utf-8")
+        self.facade = (ROOT / "src/ci_workflows/apple.py").read_text(
+            encoding="utf-8"
+        )
         self.planner = (
             ROOT / "src/ci_workflows/apple_contract.py"
         ).read_text(encoding="utf-8")
@@ -135,6 +135,7 @@ class AppleWorkflowContractTests(unittest.TestCase):
             concurrency,
         )
         self.assertNotIn("github.event.pull_request.head.sha", concurrency)
+        self.assertIn("cancel-in-progress: true", concurrency)
         zero_artifacts = self.smoke.split("  zero_artifacts:", 1)[1]
         self.assertIn("if: ${{ always() && !cancelled() }}", zero_artifacts)
 
