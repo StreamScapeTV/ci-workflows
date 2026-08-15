@@ -10,6 +10,7 @@ PRODUCT = ROOT / "runner-images/general/product.json"
 SMOKE = ROOT / "runner-images/general/smoke.sh"
 TOOLCHAIN = ROOT / "runner-images/general/toolchain.lock.json"
 ZIP_TOOL = ROOT / "runner-images/general/zip.py"
+UNZIP_TOOL = ROOT / "runner-images/general/unzip.py"
 
 
 def test_general_runner_uses_pinned_debian_only_stages() -> None:
@@ -49,10 +50,13 @@ def test_general_runner_build_is_networkless_and_engine_free() -> None:
     assert "for forbidden in docker dockerd containerd ctr runc buildah podman skopeo sudo" in source
     assert "for path in /usr/bin/bash" in source
     assert "for path in /bin/bash" not in source
+    assert "/usr/bin/unzip" not in source
+    assert "copy --chmod=0755 unzip.py /usr/local/bin/unzip" in source
     assert "cp --parents -a /usr/lib/git-core /out" in source
     assert "cp --parents -a /usr/share/git-core /out" in source
     assert source.count('library_dir="$(readlink -f "$(dirname "${library}")")"') == 2
-    assert source.count('cp -pl "${library}"') == 2
+    assert source.count('cp -pl "${library}"') == 0
+    assert source.count('cp -pl "${library}"'.replace("-pl", "-pL")) == 2
     assert "ldconfig -p" in source
     assert 'libatomic.so.1" {print $nf; exit}' in source
     assert "readlink -f" in source
@@ -174,9 +178,17 @@ def test_general_runner_smoke_proves_runtime_and_trust_boundary() -> None:
         assert forbidden in smoke
 
 
-def test_general_runner_zip_compatibility_tool_is_bounded() -> None:
-    source = ZIP_TOOL.read_text(encoding="utf-8")
-    assert "zipfile.ZipFile" in source
-    assert "source.rglob" in source
-    assert "subprocess" not in source
-    assert "urllib" not in source
+def test_general_runner_archive_compatibility_tools_are_bounded() -> None:
+    zip_source = ZIP_TOOL.read_text(encoding="utf-8")
+    assert "zipfile.ZipFile" in zip_source
+    assert "source.rglob" in zip_source
+    assert "subprocess" not in zip_source
+    assert "urllib" not in zip_source
+
+    unzip_source = UNZIP_TOOL.read_text(encoding="utf-8")
+    assert "zipfile.ZipFile" in unzip_source
+    assert "safe_destination" in unzip_source
+    assert 'option == "o"' in unzip_source
+    assert 'argument == "-d"' in unzip_source
+    assert "subprocess" not in unzip_source
+    assert "urllib" not in unzip_source
