@@ -10,6 +10,7 @@ from ci_workflows.oci_publish_contract import (
     PublishRequest,
     replay_decision,
     resolve_plan,
+    runner_rebuild_decision,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,7 +45,7 @@ def test_runner_image_policy_and_general_target_are_registered() -> None:
     assert target["input_policy_id"] == "runner-image-public-v1"
 
 
-def test_runner_publication_uses_human_release_tag_on_private_forgejo() -> None:
+def test_runner_publication_uses_repository_release_tag_on_private_forgejo() -> None:
     contract = json.loads((ROOT / "contracts/oci-products.json").read_text(encoding="utf-8"))
     contract["products"]["ciw-runner-images"]["adoption_ready"] = True
     with tempfile.TemporaryDirectory() as directory:
@@ -73,7 +74,7 @@ def test_runner_publication_uses_human_release_tag_on_private_forgejo() -> None:
     assert target.source_reference.endswith(":sha-" + "1" * 40)
 
 
-def test_runner_publication_preserves_immutable_conflict_guard() -> None:
+def test_generic_publication_keeps_issue_17_immutable_conflict_guard() -> None:
     local = "sha256:" + "1" * 64
     conflicting = "sha256:" + "2" * 64
     try:
@@ -81,7 +82,14 @@ def test_runner_publication_preserves_immutable_conflict_guard() -> None:
     except OciPublishError as error:
         assert error.code == "immutable_reference_conflict"
     else:
-        raise AssertionError("runner publication must reject a conflicting immutable tag")
+        raise AssertionError("generic publication must reject a conflicting immutable tag")
+
+
+def test_runner_rebuild_may_replace_tags_for_the_same_git_release() -> None:
+    local = "sha256:" + "1" * 64
+    conflicting = "sha256:" + "2" * 64
+    assert runner_rebuild_decision(local, conflicting, None) == (True, True, True)
+    assert runner_rebuild_decision(local, local, local) == (False, False, True)
 
 
 def test_legacy_flux_runner_product_remains_disabled_during_migration() -> None:
