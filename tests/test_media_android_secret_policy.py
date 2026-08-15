@@ -19,9 +19,15 @@ LIFECYCLE_EVIDENCE_PATH = (
     "PlaybackLabLifecycleEvidenceTests.swift"
 )
 LIFECYCLE_EVIDENCE_BLOB = "5df889bbf613ee7f4dabd07ca931aa81fb4f71a3"
+IOS_AUDIO_DERIVE_PATH = "scripts/ci/test-derive-ios-audio-output-evidence.py"
+IOS_AUDIO_DERIVE_BLOB = "dca798a49adf036b34132b0435dd70d0791bfa7a"
+IOS_AUDIO_VALIDATE_PATH = "scripts/ci/test-validate-ios-audio-output-evidence.py"
+IOS_AUDIO_VALIDATE_BLOB = "0dabf33585bb0b55230c76ce3bf255e1dcacb2a1"
 REVIEWED_MEDIA_SENTINELS = {
     GUIDED_ACCEPTANCE_PATH: GUIDED_ACCEPTANCE_BLOB,
     LIFECYCLE_EVIDENCE_PATH: LIFECYCLE_EVIDENCE_BLOB,
+    IOS_AUDIO_DERIVE_PATH: IOS_AUDIO_DERIVE_BLOB,
+    IOS_AUDIO_VALIDATE_PATH: IOS_AUDIO_VALIDATE_BLOB,
 }
 
 
@@ -71,6 +77,34 @@ class MediaAndroidSecretPolicyTests(unittest.TestCase):
                 "path": LIFECYCLE_EVIDENCE_PATH,
                 "git_blob_sha1": LIFECYCLE_EVIDENCE_BLOB,
             }],
+        )
+
+    def test_ios_audio_output_sentinels_are_exact_and_digest_bound(self) -> None:
+        entry = next(
+            item
+            for item in self.contract["tracked_secret_exceptions"]
+            if item["id"]
+            == "streamscape_media_ios_audio_output_redaction_sentinels_v1"
+        )
+        self.assertEqual(entry["repository"], MEDIA_REPOSITORY)
+        self.assertEqual(
+            entry["validation_profiles"],
+            ["compile", "unit-full", "consumer-script"],
+        )
+        self.assertEqual(entry["rule_id"], "tracked_secret_detected")
+        self.assertEqual(entry["digest_algorithm"], "git-blob-sha1")
+        self.assertEqual(
+            entry["paths"],
+            [
+                {
+                    "path": IOS_AUDIO_DERIVE_PATH,
+                    "git_blob_sha1": IOS_AUDIO_DERIVE_BLOB,
+                },
+                {
+                    "path": IOS_AUDIO_VALIDATE_PATH,
+                    "git_blob_sha1": IOS_AUDIO_VALIDATE_BLOB,
+                },
+            ],
         )
 
     def test_exceptions_activate_only_for_reviewed_media_profiles(self) -> None:

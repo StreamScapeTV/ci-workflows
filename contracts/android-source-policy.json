@@ -155,6 +155,27 @@
           "git_blob_sha1": "5df889bbf613ee7f4dabd07ca931aa81fb4f71a3"
         }
       ]
+    },
+    {
+      "id": "streamscape_media_ios_audio_output_redaction_sentinels_v1",
+      "repository": "StreamScapeTV/streamscape-media",
+      "validation_profiles": [
+        "compile",
+        "unit-full",
+        "consumer-script"
+      ],
+      "rule_id": "tracked_secret_detected",
+      "digest_algorithm": "git-blob-sha1",
+      "paths": [
+        {
+          "path": "scripts/ci/test-derive-ios-audio-output-evidence.py",
+          "git_blob_sha1": "dca798a49adf036b34132b0435dd70d0791bfa7a"
+        },
+        {
+          "path": "scripts/ci/test-validate-ios-audio-output-evidence.py",
+          "git_blob_sha1": "0dabf33585bb0b55230c76ce3bf255e1dcacb2a1"
+        }
+      ]
     }
   ]
 }
