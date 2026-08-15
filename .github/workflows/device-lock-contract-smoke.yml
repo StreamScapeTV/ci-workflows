@@ -33,9 +33,17 @@ jobs:
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: [linux, amd64, general, small]
     timeout-minutes: 30
-    env:
-      CIW_DEVICE_LOCK_ROOT: ${{ runner.temp }}/ciw-device-lock-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
+      - name: Initialize synthetic private backend path
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "${RUNNER_TEMP:-}"
+          test -d "${RUNNER_TEMP}"
+          test -n "${GITHUB_ENV:-}"
+          printf 'CIW_DEVICE_LOCK_ROOT=%s/ciw-device-lock-%s-%s\n' \
+            "${RUNNER_TEMP}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}" >> "${GITHUB_ENV}"
+
       - name: Check out exact pull request source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -72,8 +80,20 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.ciw/src \
+          validation_root="${RUNNER_TEMP}/ciw-device-lock-validation-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          trap 'rm -rf -- "${validation_root}"' EXIT
+          rm -rf -- "${validation_root}"
+          mkdir -p "${validation_root}/python"
+          PYTHONDONTWRITEBYTECODE=1 python3 .ciw/scripts/ci/bootstrap_validation_runtime.py \
+            --lock .ciw/contracts/action-tool-lock.json \
+            --target "${validation_root}/python"
+          test -f "${validation_root}/python/yaml/__init__.py"
+          PYTHONDONTWRITEBYTECODE=1 \
+            PYTHONPATH="${validation_root}/python:.ciw/src" \
             python3 -m unittest discover -s .ciw/tests -p 'test_device_lock*.py' -v
+          rm -rf -- "${validation_root}"
+          test ! -e "${validation_root}"
+          trap - EXIT
 
       - id: acquire
         name: Acquire one synthetic cross-run lock receipt

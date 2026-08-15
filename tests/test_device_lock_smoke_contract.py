@@ -27,7 +27,18 @@ class DeviceLockSmokeContractTests(unittest.TestCase):
         self.assertNotIn("secrets.", self.source)
 
     def test_backend_root_is_synthetic_workflow_state_not_an_action_input(self) -> None:
-        self.assertIn("CIW_DEVICE_LOCK_ROOT: ${{ runner.temp }}/ciw-device-lock-", self.source)
+        contract = self.workflow["jobs"]["contract_smoke"]
+        self.assertNotIn("CIW_DEVICE_LOCK_ROOT", contract.get("env", {}))
+        initialize = next(
+            step
+            for step in contract["steps"]
+            if step.get("name") == "Initialize synthetic private backend path"
+        )
+        initialize_run = initialize["run"]
+        self.assertIn("RUNNER_TEMP", initialize_run)
+        self.assertIn("GITHUB_ENV", initialize_run)
+        self.assertIn("CIW_DEVICE_LOCK_ROOT=", initialize_run)
+        self.assertNotIn("${{ runner.temp }}", self.source)
         action = yaml.load(
             (ROOT / "actions/device-lock/action.yml").read_text(encoding="utf-8"),
             Loader=ActionsLoader,
