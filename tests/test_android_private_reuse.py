@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/reusable-android.yml"
 FIXTURES_PATH = ROOT / "tests/fixtures/android-validation/cases.json"
 PUBLIC_PATH = ROOT / "contracts/public-workflows/validation.json"
-VALIDATE_ANDROID_SHA = "006ce9e3766893f226aaf495451ae68c92fc62d1"
+VALIDATE_ANDROID_SHA = "275ee86f0f5de3d8f3330b92c84d7c0188fb10f8"
 PRIVATE_HELPER_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 PRIVATE_HELPERS = {
     "StreamScapeTV/ci-workflows/actions/validate-android",
