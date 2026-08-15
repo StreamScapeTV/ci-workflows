@@ -11,7 +11,7 @@
       "from_ordinal": 1,
       "stage_marker": "intermediate",
       "kind": "external",
-      "declared_reference": "docker.io/library/buildpack-deps:trixie@sha256:3c55df66bea98808f842d6d59aa498012888f4cf82874c4a7f2b3a42a2c9c82e",
+      "declared_reference": "docker.io/library/buildpack-deps@sha256:3c55df66bea98808f842d6d59aa498012888f4cf82874c4a7f2b3a42a2c9c82e",
       "dockerfile_platform": null,
       "platforms": ["linux/amd64"],
       "platform_identities": [
@@ -27,7 +27,7 @@
       "from_ordinal": 2,
       "stage_marker": "intermediate",
       "kind": "external",
-      "declared_reference": "docker.io/library/node:24.19.0-trixie-slim@sha256:0711b541c1c33a8a530ac4f0d391baa9a15b3d804695b1b24a47daa5fb60e74d",
+      "declared_reference": "docker.io/library/node@sha256:0711b541c1c33a8a530ac4f0d391baa9a15b3d804695b1b24a47daa5fb60e74d",
       "dockerfile_platform": null,
       "platforms": ["linux/amd64"],
       "platform_identities": [
@@ -43,7 +43,7 @@
       "from_ordinal": 3,
       "stage_marker": "final",
       "kind": "external",
-      "declared_reference": "docker.io/library/python:3.12.14-slim-trixie@sha256:0bdd92d1210a488ce24366c2e1d3b2390e923dcd70a0ce2f673b6f1ce090f556",
+      "declared_reference": "docker.io/library/python@sha256:0bdd92d1210a488ce24366c2e1d3b2390e923dcd70a0ce2f673b6f1ce090f556",
       "dockerfile_platform": null,
       "platforms": ["linux/amd64"],
       "platform_identities": [

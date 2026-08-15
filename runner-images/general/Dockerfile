@@ -1,7 +1,7 @@
 # Build-only stage for common Debian utilities and the zstd binary. Every
 # network asset is materialized and checksum-verified by the central OCI input
 # contract before Buildah starts; Dockerfile execution itself is networkless.
-FROM docker.io/library/buildpack-deps:trixie@sha256:3c55df66bea98808f842d6d59aa498012888f4cf82874c4a7f2b3a42a2c9c82e AS build-tools
+FROM docker.io/library/buildpack-deps@sha256:3c55df66bea98808f842d6d59aa498012888f4cf82874c4a7f2b3a42a2c9c82e AS build-tools
 
 COPY .ciw-build-inputs/actions-runner-linux-x64-2.336.0.tar.gz /tmp/runner.tar.gz
 COPY .ciw-build-inputs/zstd-1.5.7.tar.gz /tmp/zstd.tar.gz
@@ -43,7 +43,7 @@ RUN set -eux; \
     done; \
     rm -rf /tmp/runner /tmp/zstd /tmp/runner.tar.gz /tmp/zstd.tar.gz
 
-FROM docker.io/library/node:24.19.0-trixie-slim@sha256:0711b541c1c33a8a530ac4f0d391baa9a15b3d804695b1b24a47daa5fb60e74d AS node-runtime
+FROM docker.io/library/node@sha256:0711b541c1c33a8a530ac4f0d391baa9a15b3d804695b1b24a47daa5fb60e74d AS node-runtime
 RUN set -eux; \
     mkdir -p /node-root/usr; \
     cp -a /usr/local /node-root/usr/; \
@@ -57,7 +57,7 @@ RUN set -eux; \
 
 # Final userspace: official CPython 3.12 on Debian Trixie slim. No Ubuntu or
 # another StreamScapeTV runner image participates in the final filesystem.
-FROM docker.io/library/python:3.12.14-slim-trixie@sha256:0bdd92d1210a488ce24366c2e1d3b2390e923dcd70a0ce2f673b6f1ce090f556 AS final
+FROM docker.io/library/python@sha256:0bdd92d1210a488ce24366c2e1d3b2390e923dcd70a0ce2f673b6f1ce090f556 AS final
 
 ENV PATH=/usr/local/bin:/home/runner/bin:${PATH} \
     RUNNER_MANUALLY_TRAP_SIG=1 \

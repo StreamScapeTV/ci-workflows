@@ -17,9 +17,13 @@ def test_general_runner_uses_pinned_debian_only_stages() -> None:
     from_lines = [line for line in source.splitlines() if line.startswith("FROM ")]
     assert len(from_lines) == 3
     assert all("docker.io/library/" in line and "@sha256:" in line for line in from_lines)
-    assert "buildpack-deps:trixie@sha256:" in from_lines[0]
-    assert "node:24.19.0-trixie-slim@sha256:" in from_lines[1]
-    assert "python:3.12.14-slim-trixie@sha256:" in from_lines[2]
+    assert "buildpack-deps@sha256:" in from_lines[0]
+    assert "node@sha256:" in from_lines[1]
+    assert "python@sha256:" in from_lines[2]
+    assert "buildpack-deps:trixie@" not in source
+    assert "node:24.19.0-trixie-slim@" not in source
+    assert "python:3.12.14-slim-trixie@" not in source
+    assert "# syntax=" not in source.lower()
     assert "ghcr.io/actions/actions-runner" not in source
     assert "ubuntu" not in "\n".join(from_lines).lower()
     assert "git.faruqi.dev" not in source
@@ -58,6 +62,11 @@ def test_general_runner_input_lock_matches_debian_stages() -> None:
         "intermediate",
         "intermediate",
         "final",
+    ]
+    assert [base["declared_reference"].split("@", 1)[0] for base in lock["bases"]] == [
+        "docker.io/library/buildpack-deps",
+        "docker.io/library/node",
+        "docker.io/library/python",
     ]
     for ordinal, base in enumerate(lock["bases"], start=1):
         assert base["from_ordinal"] == ordinal
