@@ -27,6 +27,7 @@ def test_general_runner_uses_pinned_debian_only_stages() -> None:
     assert "ghcr.io/actions/actions-runner" not in source
     assert "ubuntu" not in "\n".join(from_lines).lower()
     assert "git.faruqi.dev" not in source
+    assert source.rstrip().endswith("CMD []")
 
 
 def test_general_runner_build_is_networkless_and_engine_free() -> None:
@@ -145,6 +146,7 @@ def test_general_runner_smoke_proves_runtime_and_trust_boundary() -> None:
     for token in (
         "ID=debian",
         "VERSION_CODENAME=trixie",
+        "bash -n /home/runner/run.sh",
         "/home/runner/bin/Runner.Listener --version",
         "libatomic.so.1",
         "Python 3.12.14",
