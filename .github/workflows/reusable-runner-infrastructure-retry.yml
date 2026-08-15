@@ -29,7 +29,7 @@ jobs:
     steps:
       - name: Classify and run bounded infrastructure retry
         id: retry
-        uses: StreamScapeTV/ci-workflows/actions/maintenance-runner-retry@37f6309dff0fe6cae0b910df2ee427c55ced3684 # issue #20 immutable maintenance action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/maintenance-runner-retry@a464a023cf654d00172d62ebd1700c51ce2c75bb # issue #20 complete maintenance action checkpoint
         with:
           project_id: ${{ inputs.project_id }}
           run_id: ${{ inputs.run_id }}
