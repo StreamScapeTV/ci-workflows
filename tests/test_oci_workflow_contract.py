@@ -213,14 +213,13 @@ class OciWorkflowContractTests(unittest.TestCase):
         self.assertIn("unset GITHUB_TOKEN", self.smoke)
         self.assertIn("Project OCI smoke artifact audit status", self.smoke)
 
-    def test_product_contract_covers_backend_agent_state_and_runner_families(self) -> None:
+    def test_product_contract_covers_backend_agent_state_flux_and_rejects_application_mobile(self) -> None:
         products = self.contract["products"]
         self.assertEqual(
             {
                 "iptv-backend-image",
                 "agent-state-image",
                 "flux-runner-images",
-                "ciw-runner-images",
                 "ciw-oci-smoke",
                 "ciw-oci-input-smoke",
             },
@@ -230,17 +229,6 @@ class OciWorkflowContractTests(unittest.TestCase):
         self.assertTrue(flux["independent_bootstrap"])
         self.assertTrue(flux["flux_asset"])
         self.assertEqual("buildah-high", flux["runner_profile"])
-        self.assertFalse(flux["adoption_ready"])
-        central_runners = products["ciw-runner-images"]
-        self.assertEqual("StreamScapeTV/ci-workflows", central_runners["repository"])
-        self.assertEqual("buildah-high", central_runners["runner_profile"])
-        self.assertTrue(central_runners["independent_bootstrap"])
-        self.assertTrue(central_runners["flux_asset"])
-        self.assertFalse(central_runners["adoption_ready"])
-        self.assertEqual(
-            ["runner-general"],
-            [target["target_id"] for target in central_runners["targets"]],
-        )
         smoke = products["ciw-oci-smoke"]["targets"][0]
         self.assertIsNone(smoke["smoke_script"])
         self.assertEqual(
@@ -260,7 +248,6 @@ class OciWorkflowContractTests(unittest.TestCase):
             "iptv-backend-image",
             "agent-state-image",
             "flux-runner-images",
-            "ciw-runner-images",
         ):
             self.assertFalse(products[product_id]["adoption_ready"])
         self.assertNotIn("StreamScapeTV/StreamScapeWeb", json.dumps(products))
@@ -270,11 +257,7 @@ class OciWorkflowContractTests(unittest.TestCase):
     def test_input_policy_is_central_closed_and_never_caller_selected(self) -> None:
         self.assertEqual("1.1.0", self.contract["contract_version"])
         self.assertEqual(
-            {
-                "oci-inputs-public-v1",
-                "runner-image-public-v1",
-                "scratch-only-v1",
-            },
+            {"oci-inputs-public-v1", "scratch-only-v1"},
             set(self.contract["input_policies"]),
         )
         policy = self.contract["input_policies"]["oci-inputs-public-v1"]
@@ -297,18 +280,6 @@ class OciWorkflowContractTests(unittest.TestCase):
         self.assertEqual("same-profile-hosts", policy["redirect_policy"])
         self.assertEqual(5, policy["maximum_redirects"])
         self.assertGreaterEqual(policy["maximum_input_bytes"], 4096)
-
-        runner_policy = self.contract["input_policies"]["runner-image-public-v1"]
-        self.assertEqual(["docker.io"], runner_policy["allowed_registry_hosts"])
-        self.assertEqual(1024 * 1024 * 1024, runner_policy["maximum_input_bytes"])
-        for host in (
-            "github.com",
-            "release-assets.githubusercontent.com",
-            "dl.k8s.io",
-            "get.helm.sh",
-        ):
-            self.assertIn(host, runner_policy["allowed_download_hosts"])
-
         public_schema = json.dumps(self.schema, sort_keys=True)
         for forbidden in (
             "input_policy_id",

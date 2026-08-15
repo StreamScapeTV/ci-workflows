@@ -200,6 +200,7 @@
       "allowed_workflow_apis": [
         "oci.build",
         "oci.publish",
+        "helm.publish",
         "release.orchestrate",
         "flux.assets"
       ],
@@ -215,6 +216,7 @@
       "evidence_fields": [
         "result",
         "image_digest",
+        "chart_digest",
         "platform_digests_json",
         "immutable_references_json",
         "remote_read_back"
@@ -399,7 +401,6 @@
         "validation.node",
         "validation.gitops",
         "helm.validate",
-        "helm.publish",
         "maintenance.artifacts",
         "maintenance.branches",
         "maintenance.conformance",
@@ -468,7 +469,7 @@
     },
     "helm.publish": {
       "profiles": [
-        "portable"
+        "buildah-tiny"
       ],
       "strategy": "fixed"
     },

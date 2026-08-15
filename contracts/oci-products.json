@@ -240,34 +240,6 @@
       "maximum_redirects": 5,
       "maximum_input_bytes": 4194304
     },
-    "runner-image-public-v1": {
-      "allowed_registry_hosts": [
-        "docker.io"
-      ],
-      "allowed_registry_api_hosts": [
-        "registry-1.docker.io"
-      ],
-      "allowed_registry_token_hosts": [
-        "auth.docker.io"
-      ],
-      "allowed_registry_blob_hosts": [
-        "production.cloudfront.docker.com"
-      ],
-      "allowed_download_hosts": [
-        "github.com",
-        "release-assets.githubusercontent.com",
-        "objects.githubusercontent.com",
-        "dl.k8s.io",
-        "get.helm.sh",
-        "storage.googleapis.com",
-        "dl.google.com"
-      ],
-      "https_only": true,
-      "ambient_auth": false,
-      "redirect_policy": "same-profile-hosts",
-      "maximum_redirects": 5,
-      "maximum_input_bytes": 1073741824
-    },
     "scratch-only-v1": {
       "allowed_registry_hosts": [],
       "allowed_registry_api_hosts": [],
@@ -454,7 +426,7 @@
       },
       "metadata": {
         "title": "StreamScapeTV runner images",
-        "description": "Legacy Flux-source runner image family retained disabled during central source migration",
+        "description": "Inventory-controlled organization runner image family",
         "licenses": "Repository-defined"
       },
       "targets": [
@@ -521,83 +493,6 @@
       "canary_id": "flux-runner-images-canary",
       "previous_known_good": "flux-policy:runner-images/current-known-good",
       "rollback_id": "flux-runner-images-rollback",
-      "independent_bootstrap": true,
-      "adoption_ready": false
-    },
-    "ciw-runner-images": {
-      "repository": "StreamScapeTV/ci-workflows",
-      "builder_id": "buildah-v1",
-      "runner_profile": "buildah-high",
-      "workspace_profile": "large",
-      "timeout_minutes": 180,
-      "measurement": {
-        "peak_memory_bytes": 5000000000,
-        "peak_storage_bytes": 32000000000,
-        "headroom_percent": 25
-      },
-      "metadata": {
-        "title": "StreamScapeTV runner images",
-        "description": "Centrally built StreamScapeTV GitHub Actions runner image family",
-        "licenses": "Repository-defined"
-      },
-      "targets": [
-        {
-          "target_id": "runner-general",
-          "context_path": "runner-images/general",
-          "dockerfile_path": "runner-images/general/Dockerfile",
-          "target_stage": null,
-          "platform_set": "linux-amd64",
-          "smoke_script": "runner-images/general/smoke.sh",
-          "assertions": {
-            "user": "1001:1001",
-            "entrypoint": [],
-            "command": [],
-            "ports": [],
-            "required_files": [
-              "/home/runner/run.sh",
-              "/home/runner/bin/Runner.Listener",
-              "/usr/lib/x86_64-linux-gnu/libatomic.so.1"
-            ],
-            "required_tools": [
-              "python3",
-              "node",
-              "npm",
-              "corepack",
-              "git",
-              "curl",
-              "jq",
-              "yq",
-              "tar",
-              "zstd",
-              "gzip",
-              "unzip",
-              "zip",
-              "helm",
-              "kustomize",
-              "kubectl"
-            ],
-            "forbidden_tools": [
-              "docker",
-              "dockerd",
-              "containerd",
-              "ctr",
-              "runc",
-              "buildah",
-              "podman",
-              "skopeo",
-              "sudo"
-            ]
-          },
-          "fixed_build_args": {},
-          "secret_mount_ids": [],
-          "build_input_lock_path": ".ciw/oci-build-inputs/runner-general-linux-amd64.json",
-          "input_policy_id": "runner-image-public-v1"
-        }
-      ],
-      "flux_asset": true,
-      "canary_id": "runner-images-canary",
-      "previous_known_good": "flux-policy:runner-images/current-known-good",
-      "rollback_id": "runner-images-rollback",
       "independent_bootstrap": true,
       "adoption_ready": false
     },

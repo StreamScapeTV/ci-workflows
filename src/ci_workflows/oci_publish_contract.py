@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -12,15 +12,16 @@ from . import oci_publish as _runtime
 OciPublishError = _runtime.OciPublishError
 PublishTarget = _runtime.PublishTarget
 PublishPlan = _runtime.PublishPlan
+authenticate = _runtime.authenticate
 cleanup = _runtime.cleanup
 inspect_layout = _runtime.inspect_layout
 publication_state_root = _runtime.publication_state_root
+publish = _runtime.publish
+read_back = _runtime.read_back
+replay_decision = _runtime.replay_decision
 residue = _runtime.residue
 
 _PRODUCT = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
-_RUNNER_PRODUCT = "ciw-runner-images"
-_RUNNER_REGISTRY_HOST = "git.faruqi.dev"
-_RUNNER_REGISTRY_NAMESPACE = "mimranfaruqi"
 
 
 @dataclass(frozen=True)
@@ -81,20 +82,11 @@ def _confirm_platform_set(repository_root: Path, request: PublishRequest) -> Non
             raise OciPublishError("platform_override_forbidden")
 
 
-def _runner_registry_repository(target_id: str) -> str:
-    if not target_id.startswith("runner-") or _PRODUCT.fullmatch(target_id) is None:
-        raise OciPublishError("invalid_contract")
-    return (
-        f"{_RUNNER_REGISTRY_HOST}/{_RUNNER_REGISTRY_NAMESPACE}/"
-        f"github-actions-{target_id}"
-    )
-
-
 def resolve_plan(repository_root: Path, request: PublishRequest) -> PublishPlan:
-    """Resolve the runtime plan and project runner products to private Forgejo."""
+    """Resolve the runtime plan after optional checked-in platform confirmation."""
 
     _confirm_platform_set(repository_root, request)
-    plan = _runtime.resolve_plan(
+    return _runtime.resolve_plan(
         repository_root,
         _runtime.PublishRequest(
             repository=request.repository,
@@ -105,158 +97,6 @@ def resolve_plan(repository_root: Path, request: PublishRequest) -> PublishPlan:
             source_trust=request.source_trust,
         ),
     )
-    if plan.product_id != _RUNNER_PRODUCT:
-        return plan
-    targets: list[PublishTarget] = []
-    for target in plan.targets:
-        repository = _runner_registry_repository(target.target_id)
-        targets.append(
-            replace(
-                target,
-                registry_repository=repository,
-                version_reference=f"{repository}:{plan.release_version}",
-                source_reference=f"{repository}:sha-{plan.admitted_sha}",
-            )
-        )
-    return replace(plan, targets=tuple(targets))
-
-
-def authenticate(
-    plan: PublishPlan,
-    environment: Mapping[str, str],
-    username: str,
-    token: str,
-) -> dict[str, str]:
-    """Authenticate runner-image publication to the owner-managed Forgejo registry."""
-
-    if plan.product_id != _RUNNER_PRODUCT:
-        return _runtime.authenticate(plan, environment, username, token)
-    _runtime._require(
-        username == username.strip()
-        and bool(username)
-        and "\n" not in username
-        and "\r" not in username,
-        "registry_auth_invalid",
-    )
-    _runtime._require(
-        bool(token) and "\n" not in token and "\r" not in token,
-        "registry_auth_invalid",
-    )
-    _runtime._require(
-        _runtime.shutil.which("skopeo") is not None,
-        "registry_tool_unavailable",
-    )
-    root = publication_state_root(environment)
-    _runtime._require(
-        not root.exists() and not root.is_symlink(),
-        "residue_detected",
-    )
-    root.mkdir(parents=True, mode=0o700)
-    authfile = _runtime._authfile(root)
-    try:
-        _runtime._run(
-            [
-                "skopeo",
-                "login",
-                "--authfile",
-                str(authfile),
-                "--username",
-                username,
-                "--password-stdin",
-                _RUNNER_REGISTRY_HOST,
-            ],
-            input_bytes=token.encode("utf-8"),
-        )
-    except (OSError, _runtime.subprocess.CalledProcessError) as error:
-        raise OciPublishError("registry_auth_failed") from error
-    try:
-        authfile.chmod(0o600)
-    except OSError as error:
-        raise OciPublishError("registry_auth_invalid") from error
-    _runtime._secure_existing_authfile(root)
-    state = {
-        "api": "oci.publish",
-        "version": "1.0.0",
-        "source_sha": plan.admitted_sha,
-        "product_id": plan.product_id,
-        "release_version": plan.release_version,
-        "registry_host": _RUNNER_REGISTRY_HOST,
-    }
-    _runtime._write_state(root / "plan.json", state)
-    return {"result": "authenticated", "failure_code": ""}
-
-
-def publish(plan: PublishPlan, environment: Mapping[str, str]) -> dict[str, str]:
-    """Publish runners, allowing an exact Git-tag rebuild to replace OCI tags."""
-
-    if plan.product_id != _RUNNER_PRODUCT:
-        return _runtime.publish(plan, environment)
-    root = publication_state_root(environment)
-    authfile = _runtime._secure_existing_authfile(root)
-    build_root = _runtime.build_state_root(environment)
-    results: dict[str, Any] = {}
-    any_replayed = False
-    for target in plan.targets:
-        layout = build_root / "layouts" / target.target_id
-        local = _runtime.inspect_layout(layout, target, "validation")
-        local_digest = str(local["manifest_digest"])
-        version_digest = _runtime._inspect_remote_digest(
-            target.version_reference, authfile
-        )
-        source_digest = _runtime._inspect_remote_digest(
-            target.source_reference, authfile
-        )
-        existed = version_digest is not None or source_digest is not None
-        if version_digest != local_digest:
-            _runtime._copy(
-                f"oci:{layout}:validation",
-                f"docker://{target.version_reference}",
-                authfile,
-            )
-        if source_digest != local_digest:
-            _runtime._copy(
-                f"oci:{layout}:validation",
-                f"docker://{target.source_reference}",
-                authfile,
-            )
-        verified_version = _runtime._inspect_remote_digest(
-            target.version_reference, authfile
-        )
-        verified_source = _runtime._inspect_remote_digest(
-            target.source_reference, authfile
-        )
-        _runtime._require(
-            verified_version == local_digest and verified_source == local_digest,
-            "registry_digest_mismatch",
-        )
-        any_replayed = any_replayed or existed
-        results[target.target_id] = {
-            "repository": target.registry_repository,
-            "version_reference": target.version_reference,
-            "source_reference": target.source_reference,
-            "manifest_digest": local_digest,
-            "local": local,
-            "replayed": existed,
-        }
-    _runtime._write_state(root / "publication.json", {"targets": results})
-    return {
-        "result": "published",
-        "manifest_digests_json": json.dumps(
-            {
-                key: row["manifest_digest"]
-                for key, row in sorted(results.items())
-            },
-            separators=(",", ":"),
-        ),
-        "replayed": str(any_replayed).lower(),
-        "failure_code": "",
-    }
-
-
-def read_back(plan: PublishPlan, environment: Mapping[str, str]) -> dict[str, str]:
-    """Independently read back the exact references selected by the plan."""
-
-    return _runtime.read_back(plan, environment)
 
 
 def verify(plan: PublishPlan, environment: Mapping[str, str]) -> dict[str, str]:
