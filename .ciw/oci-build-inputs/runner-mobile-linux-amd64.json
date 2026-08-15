@@ -1,54 +1,55 @@
 {
   "schema_version": 1,
   "lock_version": "1.0.0",
-  "product_id": "runner-mobile",
-  "target_id": "linux-amd64",
+  "product_id": "ciw-runner-images",
+  "target_id": "runner-mobile",
   "input_policy_id": "runner-image-public-v1",
   "platforms": ["linux/amd64"],
   "bases": [
     {
-      "stage_id": "java-runtime",
+      "stage_id": "build-tools",
       "from_ordinal": 1,
       "stage_marker": "intermediate",
       "kind": "external",
-      "declared_reference": "docker.io/library/eclipse-temurin:25-jdk-noble@sha256:3eb81ed94d8c1a34422f19f8188548bdf02cae69c91d0328afdbb7abed90f617",
+      "declared_reference": "docker.io/library/buildpack-deps@sha256:3c55df66bea98808f842d6d59aa498012888f4cf82874c4a7f2b3a42a2c9c82e",
+      "dockerfile_platform": null,
+      "platforms": ["linux/amd64"],
+      "platform_identities": [{"platform":"linux/amd64","manifest_digest":"sha256:2dd5264c3672c90da4143369e013d5b3528dd0457863f9306c47ce4c7aea8f05","config_digest":"sha256:2e2ae4c4b458dead3aa12dd362471fd4e973ac2b9de0dd7cb5479ac854ef0267"}]
+    },
+    {
+      "stage_id": "java-runtime",
+      "from_ordinal": 2,
+      "stage_marker": "intermediate",
+      "kind": "external",
+      "declared_reference": "docker.io/library/eclipse-temurin@sha256:3eb81ed94d8c1a34422f19f8188548bdf02cae69c91d0328afdbb7abed90f617",
       "dockerfile_platform": null,
       "platforms": ["linux/amd64"],
       "platform_identities": [{"platform":"linux/amd64","manifest_digest":"sha256:76dfe92b7a1af973928c04cf9be0d682120d88ece81a830755e093d062222309","config_digest":"sha256:ce6b1352bd258fd773252f8ea62799629c12e32d70124fe8b3b665dc0104b0d1"}]
     },
     {
       "stage_id": "node-runtime",
-      "from_ordinal": 2,
-      "stage_marker": "intermediate",
-      "kind": "external",
-      "declared_reference": "docker.io/library/node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d",
-      "dockerfile_platform": null,
-      "platforms": ["linux/amd64"],
-      "platform_identities": [{"platform":"linux/amd64","manifest_digest":"sha256:fc75682c0d5eb1cb254610dafede9c97371d89bb5c6591a9e1f8773b059f3f67","config_digest":"sha256:caf64f520f232a66f04c44d659f78941c792ab8f5ae2268386c2c827df6d1317"}]
-    },
-    {
-      "stage_id": "python-runtime",
       "from_ordinal": 3,
       "stage_marker": "intermediate",
       "kind": "external",
-      "declared_reference": "docker.io/library/python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2",
+      "declared_reference": "docker.io/library/node@sha256:0711b541c1c33a8a530ac4f0d391baa9a15b3d804695b1b24a47daa5fb60e74d",
       "dockerfile_platform": null,
       "platforms": ["linux/amd64"],
-      "platform_identities": [{"platform":"linux/amd64","manifest_digest":"sha256:6e13e65c55e33adf203d77ee371cf8bf5d81bd4902ef07565721f46bf44917af","config_digest":"sha256:64d91f7b885eed272bba87909446b12ff408d4aaa5f1a0e9ca787bbea1a020b9"}]
+      "platform_identities": [{"platform":"linux/amd64","manifest_digest":"sha256:f2925910482dc53394bc0034c5f4abffcd01de400794c050ca343fe0d733b486","config_digest":"sha256:baa0de81b831420deb6cce9058048718cbd8fed632048e8552551c8bc36cde4e"}]
     },
     {
-      "stage_id": "actions-runner",
+      "stage_id": "final",
       "from_ordinal": 4,
       "stage_marker": "final",
       "kind": "external",
-      "declared_reference": "ghcr.io/actions/actions-runner:2.336.0@sha256:0cfdcc701ce933c6d243c6b0b2da767366dc9f2e99961d4c3754b0b78084cdda",
+      "declared_reference": "docker.io/library/python@sha256:0bdd92d1210a488ce24366c2e1d3b2390e923dcd70a0ce2f673b6f1ce090f556",
       "dockerfile_platform": null,
       "platforms": ["linux/amd64"],
-      "platform_identities": [{"platform":"linux/amd64","manifest_digest":"sha256:a1919047b038c38871d667c58cfdc7a878452711ab1212fb6036188f27a7ab16","config_digest":"sha256:bd6fe162bb4ab4821daa8d694e20d779865618825d30c94342a0228b89947305"}]
+      "platform_identities": [{"platform":"linux/amd64","manifest_digest":"sha256:876416ecde9aca2bcc90e1fb0c7a9500bbf749f5788b70f82d4c5a5c2357f8b4","config_digest":"sha256:613c5454f914638dc2bfcab71c8630de0089f7ebff0a7239b54f34866c4b6051"}]
     }
   ],
   "external_inputs": [
-    {"input_id":"flutter-linux-amd64","url":"https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.44.8-stable.tar.xz","sha256":"672089e001571a9fbb209a495c583580c0c6c73ef98999264ba07fa93ace332d","maximum_bytes":2147483648,"destination":".ciw-build-inputs/flutter-3.44.8-linux-amd64.tar.xz"},
+    {"input_id":"actions-runner-linux-amd64","url":"https://github.com/actions/runner/releases/download/v2.336.0/actions-runner-linux-x64-2.336.0.tar.gz","sha256":"04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d","maximum_bytes":268435456,"destination":".ciw-build-inputs/actions-runner-linux-x64-2.336.0.tar.gz"},
+    {"input_id":"flutter-linux-amd64","url":"https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.44.8-stable.tar.xz","sha256":"672089e001571a9fbb209a495c583580c0c6c73ef98999264ba07fa93ace332d","maximum_bytes":1073741824,"destination":".ciw-build-inputs/flutter-3.44.8-linux-amd64.tar.xz"},
     {"input_id":"android-command-line-tools-linux","url":"https://dl.google.com/android/repository/commandlinetools-linux-15859902_latest.zip","sha256":"4e4c464f145a7512b57d088ac6c278c03c9eea610886b35a5e0804e74eedf583","maximum_bytes":268435456,"destination":".ciw-build-inputs/android-command-line-tools-15859902-linux.zip"},
     {"input_id":"android-platform-tools-linux","url":"https://dl.google.com/android/repository/platform-tools_r36.0.0-linux.zip","sha256":"0ead642c943ffe79701fccca8f5f1c69c4ce4f43df2eefee553f6ccb27cbfbe8","maximum_bytes":16777216,"destination":".ciw-build-inputs/android-platform-tools-36.0.0-linux.zip"},
     {"input_id":"android-platform-36","url":"https://dl.google.com/android/repository/platform-36_r02.zip","sha256":"37607369a28c5b640b3a7998868d45898ebcb777565a0e85f9acf36f29631d2e","maximum_bytes":100663296,"destination":".ciw-build-inputs/android-platform-36-r02.zip"},
