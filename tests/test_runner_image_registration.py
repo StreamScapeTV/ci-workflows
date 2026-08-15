@@ -1,0 +1,76 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import tempfile
+
+from ci_workflows.oci_contract import load_contract
+from ci_workflows.oci_publish_contract import PublishRequest, resolve_plan
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_runner_image_policy_and_general_target_are_registered() -> None:
+    contract = load_contract(ROOT)
+    policy = contract["input_policies"]["runner-image-public-v1"]
+    assert policy["allowed_registry_hosts"] == ["docker.io"]
+    assert policy["maximum_input_bytes"] == 1024 * 1024 * 1024
+    assert policy["allowed_download_hosts"] == [
+        "github.com",
+        "release-assets.githubusercontent.com",
+        "objects.githubusercontent.com",
+        "dl.k8s.io",
+        "get.helm.sh",
+        "storage.googleapis.com",
+        "dl.google.com",
+    ]
+
+    product = contract["products"]["ciw-runner-images"]
+    assert product["repository"] == "StreamScapeTV/ci-workflows"
+    assert product["adoption_ready"] is False
+    assert product["independent_bootstrap"] is True
+    assert [target.target_id for target in contract["_products"]["ciw-runner-images"]["targets"]] == [
+        "runner-general"
+    ]
+    target = product["targets"][0]
+    assert target["dockerfile_path"] == "runner-images/general/Dockerfile"
+    assert target["smoke_script"] == "runner-images/general/smoke.sh"
+    assert target["build_input_lock_path"] == ".ciw/oci-build-inputs/runner-general-linux-amd64.json"
+    assert target["input_policy_id"] == "runner-image-public-v1"
+
+
+def test_runner_publication_uses_human_release_tag_on_private_forgejo() -> None:
+    contract = json.loads((ROOT / "contracts/oci-products.json").read_text(encoding="utf-8"))
+    contract["products"]["ciw-runner-images"]["adoption_ready"] = True
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / "contracts").mkdir()
+        (root / "contracts/oci-products.json").write_text(
+            json.dumps(contract, indent=2) + "\n", encoding="utf-8"
+        )
+        request = PublishRequest(
+            repository="StreamScapeTV/ci-workflows",
+            admitted_sha="1" * 40,
+            release_authority_sha="1" * 40,
+            product_id="ciw-runner-images",
+            release_version="1.2.3",
+            source_trust="trusted-exact",
+        )
+        plan = resolve_plan(root, request)
+    assert len(plan.targets) == 1
+    target = plan.targets[0]
+    assert target.registry_repository == (
+        "git.faruqi.dev/mimranfaruqi/github-actions-runner-general"
+    )
+    assert target.version_reference == (
+        "git.faruqi.dev/mimranfaruqi/github-actions-runner-general:1.2.3"
+    )
+    assert target.source_reference.endswith(":sha-" + "1" * 40)
+
+
+def test_legacy_flux_runner_product_remains_disabled_during_migration() -> None:
+    contract = json.loads((ROOT / "contracts/oci-products.json").read_text(encoding="utf-8"))
+    legacy = contract["products"]["flux-runner-images"]
+    assert legacy["repository"] == "StreamScapeTV/flux"
+    assert legacy["adoption_ready"] is False
+    assert "Legacy Flux-source" in legacy["metadata"]["description"]
