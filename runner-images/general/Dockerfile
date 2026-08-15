@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1.7
-
 # Build-only stage for common Debian utilities and the zstd binary. Every
 # network asset is materialized and checksum-verified by the central OCI input
 # contract before Buildah starts; Dockerfile execution itself is networkless.
