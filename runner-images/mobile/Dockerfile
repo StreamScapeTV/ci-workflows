@@ -103,6 +103,7 @@ COPY .ciw-build-inputs/android-platform-37.0-r01.zip /tmp/android-platform-37.zi
 COPY .ciw-build-inputs/android-build-tools-36.0.0-linux.zip /tmp/android-build-tools-36.zip
 COPY .ciw-build-inputs/android-build-tools-37.0.0-linux.zip /tmp/android-build-tools-37.zip
 COPY .ciw-build-inputs/android-ndk-r28c-linux.zip /tmp/android-ndk.zip
+COPY --chmod=0755 assemble.py /usr/local/bin/runner-mobile-assemble
 COPY --chmod=0755 unzip.py /usr/local/bin/unzip
 COPY --chmod=0755 smoke.sh /usr/local/bin/runner-image-smoke
 
@@ -113,69 +114,14 @@ RUN set -eux; \
     printf '%s\n' 'runner:x:1001:' >> /etc/group; \
     mkdir -p /home/runner /home/runner/_work /opt/android-sdk /opt/runner-cache; \
     tar -xzf /tmp/runner.tar.gz -C /home/runner; \
-    python3 - <<'PY'
-from pathlib import Path
-import shutil
-import tarfile
-import zipfile
-
-android = Path('/opt/android-sdk')
-with tarfile.open('/tmp/flutter.tar.xz', 'r:xz') as archive:
-    archive.extractall('/opt', filter='data')
-
-
-def extract_zip(source: str, temp: str) -> Path:
-    target = Path(temp)
-    target.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(source) as archive:
-        archive.extractall(target)
-    return target
-
-
-def copy_tree(source: Path, destination: Path) -> None:
-    destination.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(source, destination, dirs_exist_ok=True)
-
-cmdline = extract_zip('/tmp/android-command-line-tools.zip', '/tmp/cmdline')
-copy_tree(cmdline / 'cmdline-tools', android / 'cmdline-tools' / 'latest')
-
-platform_tools = extract_zip('/tmp/android-platform-tools.zip', '/tmp/platform-tools')
-copy_tree(platform_tools / 'platform-tools', android / 'platform-tools')
-
-for source, api in (
-    ('/tmp/android-platform-36.zip', '36'),
-    ('/tmp/android-platform-37.zip', '37.0'),
-):
-    unpacked = extract_zip(source, f'/tmp/platform-{api}')
-    jars = list(unpacked.rglob('android.jar'))
-    if len(jars) != 1:
-        raise SystemExit(f'expected one android.jar for platform {api}, got {len(jars)}')
-    copy_tree(jars[0].parent, android / 'platforms' / f'android-{api}')
-
-for source, version in (
-    ('/tmp/android-build-tools-36.zip', '36.0.0'),
-    ('/tmp/android-build-tools-37.zip', '37.0.0'),
-):
-    unpacked = extract_zip(source, f'/tmp/build-tools-{version}')
-    candidates = [path.parent for path in unpacked.rglob('aapt2') if path.is_file()]
-    if len(candidates) != 1:
-        raise SystemExit(f'expected one build-tools directory for {version}, got {len(candidates)}')
-    copy_tree(candidates[0], android / 'build-tools' / version)
-
-ndk = extract_zip('/tmp/android-ndk.zip', '/tmp/ndk')
-ndk_roots = [path for path in ndk.iterdir() if path.is_dir()]
-if len(ndk_roots) != 1:
-    raise SystemExit(f'expected one NDK root, got {len(ndk_roots)}')
-copy_tree(ndk_roots[0], android / 'ndk' / '28.2.13676358')
-PY
-
-RUN set -eux; \
+    /usr/local/bin/runner-mobile-assemble; \
     ln -sfn "android-${ANDROID_PLATFORM_PACKAGE_VERSION}" \
       "${ANDROID_HOME}/platforms/android-${ANDROID_PLATFORM_VERSION}"; \
     git config --system --add safe.directory /opt/flutter; \
     chown -R 1001:1001 /home/runner /opt/android-sdk /opt/flutter /opt/runner-cache; \
     rm -rf /tmp/runner.tar.gz /tmp/flutter.tar.xz /tmp/android-*.zip \
       /tmp/cmdline /tmp/platform-tools /tmp/platform-* /tmp/build-tools-* /tmp/ndk; \
+    rm -f /usr/local/bin/runner-mobile-assemble; \
     rm -f \
       /usr/bin/apt /usr/bin/apt-cache /usr/bin/apt-cdrom /usr/bin/apt-config \
       /usr/bin/apt-get /usr/bin/apt-mark /usr/bin/dpkg /usr/bin/dpkg-deb \
