@@ -119,6 +119,10 @@
         {
           "path": "apple/Tests/StreamscapePlaybackLabSupportTests/PlaybackLabBootstrapEvidenceTests.swift",
           "git_blob_sha1": "1770311f5b3998b5dbf3f8ee191acd419aa52a56"
+        },
+        {
+          "path": "apple/Tests/StreamscapePlaybackLabSupportTests/PlaybackLabLifecycleEvidenceTests.swift",
+          "git_blob_sha1": "5df889bbf613ee7f4dabd07ca931aa81fb4f71a3"
         }
       ]
     },
