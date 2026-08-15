@@ -5,6 +5,7 @@ on:
     paths:
       - ".github/workflows/runner-images-validation.yml"
       - ".ciw/oci-build-inputs/runner-*.json"
+      - "actions/validate-oci/**"
       - "contracts/oci-products.json"
       - "generated/oci-engine-mapping.json"
       - "runner-images/**"
@@ -13,6 +14,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -20,10 +22,276 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  plan:
+    name: Resolve exact runner image plan
+    runs-on: [linux, amd64, general]
+    timeout-minutes: 10
+    outputs:
+      runner_profile: ${{ steps.plan.outputs.runner_profile }}
+      runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
+      workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
+      source_trust: ${{ steps.plan.outputs.source_trust }}
+    steps:
+      - name: Admit exact repository source
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+        run: |
+          set -Eeuo pipefail
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "${HEAD_REPOSITORY}" = "${GITHUB_REPOSITORY}"
+
+      - name: Check out exact central source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact central source
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -Eeuo pipefail
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+          )
+
+      - id: plan
+        name: Resolve contract-owned runner image family and builder
+        uses: ./.ciw/actions/validate-oci
+        with:
+          phase: plan
+          admitted_sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          product_id: ciw-runner-images
+          release_version: 0.0.0-runner-validation
+          platform_set: linux-amd64
+
+      - name: Verify plan checkout remained clean
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          (
+            cd .ciw
+            test -z "$(git status --porcelain --untracked-files=all)"
+          )
+
   validate:
-    name: Runner images / Buildah validation
-    uses: ./.github/workflows/reusable-oci-build.yml
-    with:
-      admitted_sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-      product_id: ciw-runner-images
-      platform_set: linux-amd64
+    name: Build and inspect registered runner images
+    needs: plan
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
+    timeout-minutes: 180
+    steps:
+      - name: Check out exact central source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact central source
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -Eeuo pipefail
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+          )
+
+      - name: Check out exact admitted runner-image source
+        uses: ./.ciw/actions/exact-checkout
+        with:
+          repository: ${{ github.repository }}
+          admitted_sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          path: source
+          fetch_depth: "1"
+
+      - id: workspace
+        name: Prepare isolated runner-image validation workspace
+        uses: ./.ciw/actions/prepare-workspace
+        with:
+          profile: ${{ needs.plan.outputs.workspace_profile }}
+          cache_mode: disabled
+          source_sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          trust_mode: ${{ needs.plan.outputs.source_trust }}
+
+      - id: execute
+        name: Build and inspect exact registered runner images
+        continue-on-error: true
+        uses: ./.ciw/actions/validate-oci
+        with:
+          phase: execute
+          admitted_sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          product_id: ciw-runner-images
+          release_version: 0.0.0-runner-validation
+          platform_set: linux-amd64
+
+      - name: Render deterministic runner-image validation evidence
+        if: ${{ always() && !cancelled() }}
+        uses: ./.ciw/actions/render-evidence
+        with:
+          source_sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          workflow_release: runner-images-validation-1.0.0
+          runner_profile: ${{ needs.plan.outputs.runner_profile }}
+          toolchain_json: >-
+            {"buildah":"1.33.7","publication":"false","registry_credentials":"false"}
+          command_profile: ciw-runner-images
+          result: ${{ steps.execute.outcome == 'success' && 'success' || 'failure' }}
+          cleanup_state: not-run
+          cleanup_removed_paths: "0"
+
+      - id: oci_cleanup
+        name: Remove runner-image validation containers, images, layouts, caches, and state
+        if: always()
+        uses: ./.ciw/actions/validate-oci
+        with:
+          phase: cleanup
+          admitted_sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          product_id: ciw-runner-images
+          release_version: 0.0.0-runner-validation
+          platform_set: linux-amd64
+
+      - id: residue
+        name: Verify zero runner-image OCI residue
+        if: always()
+        uses: ./.ciw/actions/validate-oci
+        with:
+          phase: residue
+          admitted_sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          product_id: ciw-runner-images
+          release_version: 0.0.0-runner-validation
+          platform_set: linux-amd64
+
+      - id: workspace_cleanup
+        name: Remove and verify runner-image validation workspace
+        if: always()
+        uses: ./.ciw/actions/cleanup-workspace
+
+      - name: Verify exact runner-image source remained clean
+        if: ${{ always() && !cancelled() }}
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -Eeuo pipefail
+          (
+            cd source
+            test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+            test -z "$(git status --porcelain --untracked-files=all)"
+          )
+
+      - name: Project terminal runner-image validation status
+        if: ${{ always() && !cancelled() }}
+        shell: bash
+        env:
+          EXECUTE_OUTCOME: ${{ steps.execute.outcome }}
+          OCI_CLEANUP_OUTCOME: ${{ steps.oci_cleanup.outcome }}
+          RESIDUE_OUTCOME: ${{ steps.residue.outcome }}
+          WORKSPACE_CLEANUP_OUTCOME: ${{ steps.workspace_cleanup.outcome }}
+        run: |
+          set -Eeuo pipefail
+          test "${EXECUTE_OUTCOME}" = "success"
+          test "${OCI_CLEANUP_OUTCOME}" = "success"
+          test "${RESIDUE_OUTCOME}" = "success"
+          test "${WORKSPACE_CLEANUP_OUTCOME}" = "success"
+
+  zero_artifacts:
+    name: Verify runner-image validation artifacts remain zero
+    needs: validate
+    if: ${{ always() && !cancelled() }}
+    runs-on: [linux, amd64, general]
+    timeout-minutes: 10
+    steps:
+      - id: audit
+        name: Require runner-image success and zero Actions artifacts
+        continue-on-error: true
+        shell: bash
+        env:
+          VALIDATION_RESULT: ${{ needs.validate.result }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          test "${VALIDATION_RESULT}" = success
+          token_scope="$(mktemp -d "${RUNNER_TEMP}/runner-image-token.XXXXXX")"
+          chmod 700 "${token_scope}"
+          printf 'token_scope=%s\n' "${token_scope}" >> "${GITHUB_OUTPUT}"
+          umask 077
+          token_file="${token_scope}/github-token"
+          printf '%s' "${GITHUB_TOKEN}" > "${token_file}"
+          unset GITHUB_TOKEN
+          TOKEN_FILE="${token_file}" python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+          from pathlib import Path
+
+          token = Path(os.environ["TOKEN_FILE"]).read_text(encoding="utf-8")
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
+              f"{os.environ['GITHUB_RUN_ID']}/artifacts?per_page=100",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {token}",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              payload = json.load(response)
+          if payload.get("total_count") != 0 or payload.get("artifacts"):
+              raise SystemExit("runner-image validation retained Actions artifacts")
+          PY
+
+      - id: token_scope_cleanup
+        name: Remove bounded runner-image audit token scope
+        if: always()
+        shell: bash
+        env:
+          TOKEN_SCOPE: ${{ steps.audit.outputs.token_scope }}
+        run: |
+          set -Eeuo pipefail
+          if test -z "${TOKEN_SCOPE}"; then
+            exit 0
+          fi
+          case "${TOKEN_SCOPE}" in
+            "${RUNNER_TEMP}"/runner-image-token.*) ;;
+            *) exit 1 ;;
+          esac
+          rm -rf "${TOKEN_SCOPE}"
+          test ! -e "${TOKEN_SCOPE}"
+
+      - name: Verify runner-image audit token scope residue is absent
+        if: always()
+        shell: bash
+        env:
+          TOKEN_SCOPE: ${{ steps.audit.outputs.token_scope }}
+        run: |
+          set -Eeuo pipefail
+          if test -z "${TOKEN_SCOPE}"; then
+            exit 0
+          fi
+          test ! -e "${TOKEN_SCOPE}"
+          test ! -L "${TOKEN_SCOPE}"
+
+      - name: Project terminal zero-artifact status
+        if: ${{ always() && !cancelled() }}
+        shell: bash
+        env:
+          AUDIT_OUTCOME: ${{ steps.audit.outcome }}
+          CLEANUP_OUTCOME: ${{ steps.token_scope_cleanup.outcome }}
+        run: |
+          set -Eeuo pipefail
+          test "${AUDIT_OUTCOME}" = success
+          test "${CLEANUP_OUTCOME}" = success
