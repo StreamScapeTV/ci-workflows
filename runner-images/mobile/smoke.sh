@@ -11,6 +11,8 @@ grep -Fx 'VERSION_CODENAME=trixie' /etc/os-release
 
 /home/runner/bin/Runner.Listener --version | grep -F '2.336.0'
 test -e /usr/lib/x86_64-linux-gnu/libatomic.so.1
+test -e /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+test -e /usr/lib/x86_64-linux-gnu/libgcc_s.so.1
 
 test "${JAVA_HOME}" = /opt/java/openjdk
 test "${ANDROID_HOME}" = /opt/android-sdk
