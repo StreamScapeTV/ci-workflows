@@ -2,11 +2,16 @@
   "schema_version": 1,
   "product_id": "runner-mobile",
   "platform": "linux/amd64",
+  "policy": {
+    "final_distribution": "debian-trixie",
+    "release_authority": "ci-workflows-git-tag",
+    "independent_product": true
+  },
   "toolchain": {
     "actions_runner": "2.336.0",
     "java": "25.0.3+9",
-    "node": "24.18.0",
-    "python": "3.12.13",
+    "node": "24.19.0",
+    "python": "3.12.14",
     "flutter": "3.44.8",
     "dart": "3.12.2",
     "android_command_line_tools": "15859902",
@@ -16,6 +21,7 @@
     "android_ndk": "28.2.13676358"
   },
   "checksums": {
+    "actions_runner_linux_x64": "04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d",
     "flutter_linux_x64": "672089e001571a9fbb209a495c583580c0c6c73ef98999264ba07fa93ace332d",
     "android_command_line_tools_linux": "4e4c464f145a7512b57d088ac6c278c03c9eea610886b35a5e0804e74eedf583",
     "android_platform_tools_36_linux": "0ead642c943ffe79701fccca8f5f1c69c4ce4f43df2eefee553f6ccb27cbfbe8",
@@ -26,6 +32,12 @@
     "android_ndk_r28c_linux": "dfb20d396df28ca02a8c708314b814a4d961dc9074f9a161932746f815aa552f"
   },
   "oci_stages": {
+    "build_tools": {
+      "reference": "docker.io/library/buildpack-deps",
+      "root_digest": "sha256:3c55df66bea98808f842d6d59aa498012888f4cf82874c4a7f2b3a42a2c9c82e",
+      "linux_amd64_manifest_digest": "sha256:2dd5264c3672c90da4143369e013d5b3528dd0457863f9306c47ce4c7aea8f05",
+      "linux_amd64_config_digest": "sha256:2e2ae4c4b458dead3aa12dd362471fd4e973ac2b9de0dd7cb5479ac854ef0267"
+    },
     "java": {
       "reference": "docker.io/library/eclipse-temurin:25-jdk-noble",
       "root_digest": "sha256:3eb81ed94d8c1a34422f19f8188548bdf02cae69c91d0328afdbb7abed90f617",
@@ -33,22 +45,16 @@
       "linux_amd64_config_digest": "sha256:ce6b1352bd258fd773252f8ea62799629c12e32d70124fe8b3b665dc0104b0d1"
     },
     "node": {
-      "reference": "docker.io/library/node:24.18.0-bookworm-slim",
-      "root_digest": "sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d",
-      "linux_amd64_manifest_digest": "sha256:fc75682c0d5eb1cb254610dafede9c97371d89bb5c6591a9e1f8773b059f3f67",
-      "linux_amd64_config_digest": "sha256:caf64f520f232a66f04c44d659f78941c792ab8f5ae2268386c2c827df6d1317"
+      "reference": "docker.io/library/node:24.19.0-trixie-slim",
+      "root_digest": "sha256:0711b541c1c33a8a530ac4f0d391baa9a15b3d804695b1b24a47daa5fb60e74d",
+      "linux_amd64_manifest_digest": "sha256:f2925910482dc53394bc0034c5f4abffcd01de400794c050ca343fe0d733b486",
+      "linux_amd64_config_digest": "sha256:baa0de81b831420deb6cce9058048718cbd8fed632048e8552551c8bc36cde4e"
     },
-    "python": {
-      "reference": "docker.io/library/python:3.12.13-slim-bookworm",
-      "root_digest": "sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2",
-      "linux_amd64_manifest_digest": "sha256:6e13e65c55e33adf203d77ee371cf8bf5d81bd4902ef07565721f46bf44917af",
-      "linux_amd64_config_digest": "sha256:64d91f7b885eed272bba87909446b12ff408d4aaa5f1a0e9ca787bbea1a020b9"
-    },
-    "actions_runner": {
-      "reference": "ghcr.io/actions/actions-runner:2.336.0",
-      "root_digest": "sha256:0cfdcc701ce933c6d243c6b0b2da767366dc9f2e99961d4c3754b0b78084cdda",
-      "linux_amd64_manifest_digest": "sha256:a1919047b038c38871d667c58cfdc7a878452711ab1212fb6036188f27a7ab16",
-      "linux_amd64_config_digest": "sha256:bd6fe162bb4ab4821daa8d694e20d779865618825d30c94342a0228b89947305"
+    "final_python_debian": {
+      "reference": "docker.io/library/python:3.12.14-slim-trixie",
+      "root_digest": "sha256:0bdd92d1210a488ce24366c2e1d3b2390e923dcd70a0ce2f673b6f1ce090f556",
+      "linux_amd64_manifest_digest": "sha256:876416ecde9aca2bcc90e1fb0c7a9500bbf749f5788b70f82d4c5a5c2357f8b4",
+      "linux_amd64_config_digest": "sha256:613c5454f914638dc2bfcab71c8630de0089f7ebff0a7239b54f34866c4b6051"
     }
   }
 }
