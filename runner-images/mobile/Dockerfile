@@ -49,7 +49,16 @@ RUN set -eux; \
     mkdir -p /out/usr/lib/x86_64-linux-gnu; \
     cp -pL "${atomic_real}" "/out/usr/lib/x86_64-linux-gnu/$(basename "${atomic_real}")"; \
     ln -s "$(basename "${atomic_real}")" /out/usr/lib/x86_64-linux-gnu/libatomic.so.1; \
+    for soname in libstdc++.so.6 libgcc_s.so.1; do \
+      runtime_library="$(ldconfig -p | awk -v name="${soname}" '$1 == name {print $NF; exit}')"; \
+      test -n "${runtime_library}"; \
+      runtime_real="$(readlink -f "${runtime_library}")"; \
+      test -f "${runtime_real}"; \
+      cp -pL "${runtime_real}" "/out/usr/lib/x86_64-linux-gnu/${soname}"; \
+    done; \
     test -e /out/usr/lib/x86_64-linux-gnu/libatomic.so.1; \
+    test -e /out/usr/lib/x86_64-linux-gnu/libstdc++.so.6; \
+    test -e /out/usr/lib/x86_64-linux-gnu/libgcc_s.so.1; \
     rm -rf /tmp/runner /tmp/runner.tar.gz
 
 FROM docker.io/library/eclipse-temurin@sha256:3eb81ed94d8c1a34422f19f8188548bdf02cae69c91d0328afdbb7abed90f617 AS java-runtime
