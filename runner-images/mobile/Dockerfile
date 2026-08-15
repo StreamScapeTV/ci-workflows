@@ -114,6 +114,7 @@ COPY .ciw-build-inputs/android-build-tools-36.0.0-linux.zip /tmp/android-build-t
 COPY .ciw-build-inputs/android-build-tools-37.0.0-linux.zip /tmp/android-build-tools-37.zip
 COPY .ciw-build-inputs/android-ndk-r28c-linux.zip /tmp/android-ndk.zip
 COPY --chmod=0755 assemble.py /usr/local/bin/runner-mobile-assemble
+COPY --chmod=0755 zip.py /usr/local/bin/zip
 COPY --chmod=0755 unzip.py /usr/local/bin/unzip
 COPY --chmod=0755 smoke.sh /usr/local/bin/runner-image-smoke
 
