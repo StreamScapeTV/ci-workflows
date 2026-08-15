@@ -73,9 +73,11 @@ def test_general_runner_external_inputs_are_checksum_locked() -> None:
     lock = json.loads(INPUT_LOCK.read_text(encoding="utf-8"))
     assert len(lock["external_inputs"]) == 7
     by_id = {item["input_id"]: item for item in lock["external_inputs"]}
-    assert by_id["actions-runner-linux-amd64"]["sha256"] == (
-        "b0ab71ccd65cd421e6e8757356feab08966f5acc276bef3404ed20a070e6c8e9"
+    runner = by_id["actions-runner-linux-amd64"]
+    assert runner["sha256"] == (
+        "04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d"
     )
+    assert runner["maximum_bytes"] >= 226035903
     assert by_id["jq-linux-amd64"]["sha256"] == (
         "b1c22172dd303f3be49e935aa56aa48a8b7a46e0bc838b4997d3bb451495870f"
     )
@@ -113,6 +115,9 @@ def test_general_runner_toolchain_is_release_readable() -> None:
         "node_runtime",
         "final_python_debian",
     }
+    assert toolchain["external_assets"]["actions_runner"] == (
+        "sha256:04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d"
+    )
     assert all(value.startswith("sha256:") for value in toolchain["external_assets"].values())
 
 
