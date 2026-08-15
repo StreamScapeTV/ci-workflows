@@ -67,7 +67,7 @@ permissions:
 jobs:
   plan:
     name: Derive bounded device plan from current GitHub source admission
-    runs-on: [linux, amd64, general]
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 10
     outputs:
       admitted_sha: ${{ steps.plan.outputs.admitted_sha }}
@@ -103,7 +103,7 @@ jobs:
     name: Fail closed when physical authorization is absent
     needs: plan
     if: ${{ needs.plan.outputs.execution_authorized != 'true' }}
-    runs-on: [linux, amd64, general]
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 5
     outputs:
       result: ${{ steps.denied.outputs.result }}

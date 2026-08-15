@@ -31,7 +31,7 @@ jobs:
   contract_smoke:
     name: Validate synthetic cross-run fencing contract
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: [linux, amd64, general]
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 30
     env:
       CIW_DEVICE_LOCK_ROOT: ${{ runner.temp }}/ciw-device-lock-${{ github.run_id }}-${{ github.run_attempt }}
@@ -185,7 +185,7 @@ jobs:
     name: Verify device lock smoke artifacts remain zero
     needs: contract_smoke
     if: ${{ always() && !cancelled() }}
-    runs-on: [linux, amd64, general]
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 10
     steps:
       - name: Require zero Actions artifacts and successful contract smoke

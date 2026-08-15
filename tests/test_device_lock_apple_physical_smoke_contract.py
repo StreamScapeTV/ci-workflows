@@ -31,7 +31,10 @@ class ApplePhysicalDeviceLockSmokeContractTests(unittest.TestCase):
         self.assertIn(dispatch, (None, {}))
         self.assertEqual({"actions": "read", "contents": "read"}, self.workflow["permissions"])
         self.assertEqual({"plan", "fence_smoke"}, set(self.workflow["jobs"]))
-        self.assertEqual(["linux", "amd64", "general"], self.plan["runs-on"])
+        self.assertEqual(
+            ["linux", "amd64", "general", "small"], self.plan["runs-on"]
+        )
+        self.assertNotIn("runs-on: [linux, amd64, general]", self.source)
         self.assertEqual(TRUSTED_PLANNER_RUNNER, self.job["runs-on"])
         self.assertEqual("plan", self.job["needs"])
 

@@ -19,10 +19,11 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotIn("pull_request:", self.text)
         self.assertNotIn("\npush:", self.text)
 
-    def test_protected_main_and_portable_linux_selector(self):
+    def test_protected_main_and_general_tiny_linux_selector(self):
         self.assertIn("github.repository == 'StreamScapeTV/ci-workflows'", self.text)
         self.assertIn("github.ref == 'refs/heads/main'", self.text)
-        self.assertIn("runs-on: [linux, amd64, general]", self.text)
+        self.assertIn("runs-on: [linux, amd64, general, tiny]", self.text)
+        self.assertNotIn("runs-on: [linux, amd64, general]", self.text)
         self.assertNotIn("macOS", self.text)
         self.assertNotIn("ARM64", self.text)
         self.assertNotRegex(self.text, r"runs-on:\s*portable\b")
