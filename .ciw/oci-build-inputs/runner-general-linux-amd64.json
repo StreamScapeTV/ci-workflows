@@ -7,24 +7,103 @@
   "platforms": ["linux/amd64"],
   "bases": [
     {
-      "stage_id": "actions-runner",
+      "stage_id": "build-tools",
       "from_ordinal": 1,
-      "stage_marker": "final",
+      "stage_marker": "intermediate",
       "kind": "external",
-      "declared_reference": "ghcr.io/actions/actions-runner:2.336.0@sha256:0cfdcc701ce933c6d243c6b0b2da767366dc9f2e99961d4c3754b0b78084cdda",
+      "declared_reference": "docker.io/library/buildpack-deps:trixie@sha256:3c55df66bea98808f842d6d59aa498012888f4cf82874c4a7f2b3a42a2c9c82e",
       "dockerfile_platform": null,
       "platforms": ["linux/amd64"],
-      "platform_identities": [{"platform":"linux/amd64","manifest_digest":"sha256:a1919047b038c38871d667c58cfdc7a878452711ab1212fb6036188f27a7ab16","config_digest":"sha256:bd6fe162bb4ab4821daa8d694e20d779865618825d30c94342a0228b89947305"}]
+      "platform_identities": [
+        {
+          "platform": "linux/amd64",
+          "manifest_digest": "sha256:2dd5264c3672c90da4143369e013d5b3528dd0457863f9306c47ce4c7aea8f05",
+          "config_digest": "sha256:2e2ae4c4b458dead3aa12dd362471fd4e973ac2b9de0dd7cb5479ac854ef0267"
+        }
+      ]
+    },
+    {
+      "stage_id": "node-runtime",
+      "from_ordinal": 2,
+      "stage_marker": "intermediate",
+      "kind": "external",
+      "declared_reference": "docker.io/library/node:24.19.0-trixie-slim@sha256:0711b541c1c33a8a530ac4f0d391baa9a15b3d804695b1b24a47daa5fb60e74d",
+      "dockerfile_platform": null,
+      "platforms": ["linux/amd64"],
+      "platform_identities": [
+        {
+          "platform": "linux/amd64",
+          "manifest_digest": "sha256:f2925910482dc53394bc0034c5f4abffcd01de400794c050ca343fe0d733b486",
+          "config_digest": "sha256:baa0de81b831420deb6cce9058048718cbd8fed632048e8552551c8bc36cde4e"
+        }
+      ]
+    },
+    {
+      "stage_id": "final",
+      "from_ordinal": 3,
+      "stage_marker": "final",
+      "kind": "external",
+      "declared_reference": "docker.io/library/python:3.12.14-slim-trixie@sha256:0bdd92d1210a488ce24366c2e1d3b2390e923dcd70a0ce2f673b6f1ce090f556",
+      "dockerfile_platform": null,
+      "platforms": ["linux/amd64"],
+      "platform_identities": [
+        {
+          "platform": "linux/amd64",
+          "manifest_digest": "sha256:876416ecde9aca2bcc90e1fb0c7a9500bbf749f5788b70f82d4c5a5c2357f8b4",
+          "config_digest": "sha256:613c5454f914638dc2bfcab71c8630de0089f7ebff0a7239b54f34866c4b6051"
+        }
+      ]
     }
   ],
   "external_inputs": [
-    {"input_id":"cpython-linux-amd64","url":"https://github.com/astral-sh/python-build-standalone/releases/download/20260807/cpython-3.12.13%2B20260807-x86_64-unknown-linux-gnu-install_only.tar.gz","sha256":"5bd6f36fd7ef02b909234c94dca9994ef0da06ace3bc3cece4fe27870e9cdbbe","maximum_bytes":134217728,"destination":".ciw-build-inputs/cpython-3.12.13-linux-amd64.tar.gz"},
-    {"input_id":"node-linux-amd64","url":"https://nodejs.org/dist/v24.19.0/node-v24.19.0-linux-x64.tar.gz","sha256":"f625d97cd707df4ff96254916fbc5ff014f09c09effe5a1e0ca8f6d41a8789d4","maximum_bytes":67108864,"destination":".ciw-build-inputs/node-v24.19.0-linux-x64.tar.gz"},
-    {"input_id":"zstd-noble-amd64","url":"https://archive.ubuntu.com/ubuntu/pool/main/libz/libzstd/zstd_1.5.5%2Bdfsg2-2build1.1_amd64.deb","sha256":"d7667f83e3a2caeaaecaca464d542ee6ccf537259a479622796c84afc96d6032","maximum_bytes":1048576,"destination":".ciw-build-inputs/zstd-noble-amd64.pkg"},
-    {"input_id":"zip-noble-amd64","url":"https://archive.ubuntu.com/ubuntu/pool/main/z/zip/zip_3.0-13ubuntu0.2_amd64.deb","sha256":"30b325b542ef8e9a22a5e1e1cfce8c4f4b75db73e339e76bf405b635861f1f76","maximum_bytes":1048576,"destination":".ciw-build-inputs/zip-noble-amd64.pkg"},
-    {"input_id":"yq-linux-amd64","url":"https://github.com/mikefarah/yq/releases/download/v4.53.3/yq_linux_amd64","sha256":"fa52a4e758c63d38299163fbdd1edfb4c4963247918bf9c1c5d31d84789eded4","maximum_bytes":20971520,"destination":".ciw-build-inputs/yq-4.53.3-linux-amd64"},
-    {"input_id":"kubectl-linux-amd64","url":"https://dl.k8s.io/release/v1.36.3/bin/linux/amd64/kubectl","sha256":"ebbd151fb91dea5e81ea6300b33ead0a48334afe02ebf951d51681c20cdfc73c","maximum_bytes":67108864,"destination":".ciw-build-inputs/kubectl-1.36.3-linux-amd64"},
-    {"input_id":"helm-linux-amd64","url":"https://get.helm.sh/helm-v4.2.4-linux-amd64.tar.gz","sha256":"c306b46f719b0a4da32d0f78ee21bf90ce8d602f15b22ab753f0674d1670a7f3","maximum_bytes":67108864,"destination":".ciw-build-inputs/helm-4.2.4-linux-amd64.tar.gz"},
-    {"input_id":"kustomize-linux-amd64","url":"https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/v5.8.1/kustomize_v5.8.1_linux_amd64.tar.gz","sha256":"029a7f0f4e1932c52a0476cf02a0fd855c0bb85694b82c338fc648dcb53a819d","maximum_bytes":16777216,"destination":".ciw-build-inputs/kustomize-5.8.1-linux-amd64.tar.gz"}
+    {
+      "input_id": "actions-runner-linux-amd64",
+      "url": "https://github.com/actions/runner/releases/download/v2.336.0/actions-runner-linux-x64-2.336.0.tar.gz",
+      "sha256": "b0ab71ccd65cd421e6e8757356feab08966f5acc276bef3404ed20a070e6c8e9",
+      "maximum_bytes": 157286400,
+      "destination": ".ciw-build-inputs/actions-runner-linux-x64-2.336.0.tar.gz"
+    },
+    {
+      "input_id": "zstd-source",
+      "url": "https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz",
+      "sha256": "eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3",
+      "maximum_bytes": 4194304,
+      "destination": ".ciw-build-inputs/zstd-1.5.7.tar.gz"
+    },
+    {
+      "input_id": "jq-linux-amd64",
+      "url": "https://github.com/jqlang/jq/releases/download/jq-1.8.2/jq-linux-amd64",
+      "sha256": "b1c22172dd303f3be49e935aa56aa48a8b7a46e0bc838b4997d3bb451495870f",
+      "maximum_bytes": 4194304,
+      "destination": ".ciw-build-inputs/jq-1.8.2-linux-amd64"
+    },
+    {
+      "input_id": "yq-linux-amd64",
+      "url": "https://github.com/mikefarah/yq/releases/download/v4.53.3/yq_linux_amd64",
+      "sha256": "fa52a4e758c63d38299163fbdd1edfb4c4963247918bf9c1c5d31d84789eded4",
+      "maximum_bytes": 20971520,
+      "destination": ".ciw-build-inputs/yq-4.53.3-linux-amd64"
+    },
+    {
+      "input_id": "kubectl-linux-amd64",
+      "url": "https://dl.k8s.io/release/v1.36.2/bin/linux/amd64/kubectl",
+      "sha256": "1e9045ec32bea85da43de85f0065358529ea7c7a152eca78154fba5b58c27d82",
+      "maximum_bytes": 104857600,
+      "destination": ".ciw-build-inputs/kubectl-1.36.2-linux-amd64"
+    },
+    {
+      "input_id": "helm-linux-amd64",
+      "url": "https://get.helm.sh/helm-v4.2.4-linux-amd64.tar.gz",
+      "sha256": "c306b46f719b0a4da32d0f78ee21bf90ce8d602f15b22ab753f0674d1670a7f3",
+      "maximum_bytes": 67108864,
+      "destination": ".ciw-build-inputs/helm-4.2.4-linux-amd64.tar.gz"
+    },
+    {
+      "input_id": "kustomize-linux-amd64",
+      "url": "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/v5.8.1/kustomize_v5.8.1_linux_amd64.tar.gz",
+      "sha256": "029a7f0f4e1932c52a0476cf02a0fd855c0bb85694b82c338fc648dcb53a819d",
+      "maximum_bytes": 16777216,
+      "destination": ".ciw-build-inputs/kustomize-5.8.1-linux-amd64.tar.gz"
+    }
   ]
 }
