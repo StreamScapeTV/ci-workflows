@@ -15,6 +15,8 @@ def test_runner_image_validation_uses_exact_branch_contract_and_builder() -> Non
     assert "product_id: ciw-runner-images" in source
     assert "platform_set: linux-amd64" in source
     assert "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}" in source
+    assert source.count("runs-on: [linux, amd64, general, small]") == 2
+    assert "runs-on: [linux, amd64, general]\n" not in source
     assert "github.event.pull_request.head.sha" in source
     assert "runner-images/**" in source
     assert ".ciw/oci-build-inputs/runner-*.json" in source
