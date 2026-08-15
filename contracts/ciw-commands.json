@@ -146,6 +146,17 @@
       "trust_class": "trusted-publication"
     },
     {
+      "cleanup": "restore, release fencing, and workspace cleanup under if: always()",
+      "domain": "device",
+      "failure": "DeviceValidationError.code",
+      "handler": "ci_workflows.ciw.handle_device_validate",
+      "inputs": ["phase", "admitted_sha", "device_family", "device_capability", "device_alias", "command_profile", "script_path", "max_duration_minutes", "evidence_exception_id", "request_id", "validated_plan", "validated_plan_sha256", "selected_device_hash", "resource_lock_receipt", "exact GitHub event identity", "dedicated owner authorization receipt"],
+      "operation": "validate",
+      "outputs": ["result", "admitted_sha", "request_id", "device_evidence_id", "artifact_exception_used", "selected_device_hash", "runner_profile", "base_runner_profile", "runs_on_json", "workspace_profile", "timeout_minutes", "derived_source_trust", "execution_authorized", "authorization_failure", "concurrency_group", "cancel_in_progress", "validated_plan", "validated_plan_sha256", "test_summary", "cleanup_result", "failure_code"],
+      "side_effects": ["derives one contract-owned exact-source physical-device plan", "discovers at most one eligible runner-local device without exposing its raw identity", "revalidates the production resource-lock receipt immediately before mutation", "executes only reviewed product scripts with Central authority material removed from their environment", "restores and removes run-owned device state without following symlinks"],
+      "trust_class": "physical-device-validation"
+    },
+    {
       "cleanup": "expected-state release and residue verification under if: always()",
       "domain": "device",
       "failure": "DeviceLockError.code",

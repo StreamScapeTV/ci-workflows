@@ -23,10 +23,13 @@ The implementation is split into five typed layers:
    the pre-registration compatibility entry point used while issue #11 owns
    shared CIW registration files.
 
-The composite action is a thin environment adapter. The reusable workflow owns
-only orchestration: exact central checkout, exact admitted consumer checkout,
-workspace preparation, immutable runtime setup, one semantic execution path,
-and terminal cleanup.
+The composite action is a thin environment adapter. The reusable workflow does
+not clone or check out central repository source. It invokes reviewed private
+central composite actions through exact full-SHA references. Exact admitted
+consumer source is checked out separately through the immutable
+`exact-checkout` helper and reverified before execution. The reusable workflow
+owns only orchestration around workspace preparation, immutable runtime setup,
+one semantic execution path, and terminal cleanup.
 
 ## Deterministic plan
 
@@ -86,11 +89,12 @@ execution job, so both jobs consume the exact trusted planner output without
 reconstructing labels or exceeding the reviewed reusable-workflow depth.
 
 The smoke workflows create disposable product-neutral Flutter projects only
-after exact central checkout and immutable runtime setup. The initial plain
-`flutter pub get` creates the disposable fixture lock; the validator then runs
-the contract-owned `flutter pub get --enforce-lockfile` command and verifies the
-lock does not change. Build products, dependency state, workspace state, and
-routine Actions artifacts are removed or required to remain zero.
+after exact trusted workflow source is admitted and checked out and immutable
+runtime setup is complete. The initial plain `flutter pub get` creates the
+disposable fixture lock; the validator then runs the contract-owned
+`flutter pub get --enforce-lockfile` command and verifies the lock does not
+change. Build products, dependency state, workspace state, and routine Actions
+artifacts are removed or required to remain zero.
 
 ## State and evidence
 

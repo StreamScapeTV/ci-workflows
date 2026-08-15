@@ -44,6 +44,20 @@
       "source": "https://github.com/StreamScapeTV/ci-workflows/tree/87a7454aaa59cb680db8f580d22551b749ac4193/actions/resolve-source"
     },
     {
+      "uses": "StreamScapeTV/ci-workflows/actions/validate-device",
+      "sha": "092d26777aebaf87a0a07d39a1660b4bc5cb658d",
+      "release": "issue #14 complete CIW checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/092d26777aebaf87a0a07d39a1660b4bc5cb658d/actions/validate-device"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/device-lock",
+      "sha": "599c82201e6da6ca51c4f6247f1526a4ba03d550",
+      "release": "issue #136 exact-head checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/599c82201e6da6ca51c4f6247f1526a4ba03d550/actions/device-lock"
+    },
+    {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-node",
       "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
       "release": "issue #116 immutable private-action checkpoint",
@@ -80,10 +94,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-android",
-      "sha": "5f503d419696e5bfae4ed5b11eca3b531dbdca0f",
-      "release": "issue #140 immutable integrated source-policy checkpoint",
+      "sha": "275ee86f0f5de3d8f3330b92c84d7c0188fb10f8",
+      "release": "issue #196 immutable Media guided-acceptance sentinel checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/5f503d419696e5bfae4ed5b11eca3b531dbdca0f/actions/validate-android"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/275ee86f0f5de3d8f3330b92c84d7c0188fb10f8/actions/validate-android"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/checkout-private-dependency",
@@ -94,10 +108,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-python",
-      "sha": "e869906a0b192ab954dce3dbd1e90cccb649eb18",
-      "release": "issue #155 immutable Backend execution repair checkpoint",
+      "sha": "d060c275570e07222969546acf988a2616a3bcc6",
+      "release": "issue #229 immutable portable host runtime checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/e869906a0b192ab954dce3dbd1e90cccb649eb18/actions/validate-python"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/d060c275570e07222969546acf988a2616a3bcc6/actions/validate-python"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/verify-toolchain",

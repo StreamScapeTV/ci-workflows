@@ -52,8 +52,9 @@ authority.
 
 Private same-organization consumers do not clone the private central repository
 with their caller-scoped token. The planner and Apple execution job invoke the
-reviewed `validate-apple` composite action through the immutable Release-aware
-checkpoint `88d179740145ccea00b6986d78ceb67ea365face`. Exact caller checkout,
+reviewed `validate-apple` composite action through immutable Media VLC tvOS
+checkpoint `293dee450e3464032d67f702b768f493abf65d7b`, recorded in the action
+lock as `issue #164 immutable Media VLC tvOS checkpoint`. Exact caller checkout,
 workspace preparation, and registered-state cleanup use the already reviewed
 immutable foundation helpers.
 

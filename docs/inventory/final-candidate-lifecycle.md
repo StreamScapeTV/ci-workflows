@@ -2,7 +2,7 @@
 
 - Audited: `2026-08-13`
 - Repositories: `13`
-- Current workflow files: `90`
+- Current workflow files: `92`
 - Intermediate checkpoint prefix: `[skip push ci] `
 
 This report classifies the current live workflow-file set. A workflow can have multiple trigger classes when one file serves more than one authorized event family.
@@ -66,7 +66,7 @@ This report classifies the current live workflow-file set. A workflow can have m
 ## StreamScapeTV/ci-workflows
 
 - Protected integration branch: `main`
-- Workflow files: `21`
+- Workflow files: `23`
 
 | Workflow path | Trigger class(es) | Finding | Remediation owner |
 |---|---|---|---|
@@ -74,6 +74,7 @@ This report classifies the current live workflow-file set. A workflow can have m
 | `.github/workflows/apple-certification-smoke.yml` | `maintenance-control` | — | — |
 | `.github/workflows/apple-validation-smoke.yml` | `maintenance-control` | — | — |
 | `.github/workflows/device-lock-contract-smoke.yml` | `maintenance-control` | — | — |
+| `.github/workflows/device-validation-contract-smoke.yml` | `maintenance-control` | — | — |
 | `.github/workflows/flutter-apple-validation-smoke.yml` | `maintenance-control` | — | — |
 | `.github/workflows/flutter-validation-smoke.yml` | `maintenance-control` | — | — |
 | `.github/workflows/gitops-validation-smoke.yml` | `maintenance-control` | — | — |
@@ -82,6 +83,7 @@ This report classifies the current live workflow-file set. A workflow can have m
 | `.github/workflows/oci-publish-smoke.yml` | `maintenance-control` | — | — |
 | `.github/workflows/reusable-android.yml` | `maintenance-control` | — | — |
 | `.github/workflows/reusable-apple.yml` | `maintenance-control` | — | — |
+| `.github/workflows/reusable-device.yml` | `authorized-publication-deployment-device-live-evidence` | — | — |
 | `.github/workflows/reusable-flutter.yml` | `maintenance-control` | — | — |
 | `.github/workflows/reusable-gitops-validation.yml` | `maintenance-control` | — | — |
 | `.github/workflows/reusable-node.yml` | `maintenance-control` | — | — |

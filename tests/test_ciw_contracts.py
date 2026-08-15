@@ -9,6 +9,7 @@ from ci_workflows.ciw import command_specs, runtime_command_index, validate_runt
 from ci_workflows.ciw_docs import load_command_contract, validate_command_contract
 from ci_workflows.ciw_types import CIWError, CIWResult, project_error, write_command_file
 from ci_workflows.device_lock import DeviceLockError
+from ci_workflows.device_types import DeviceValidationError
 from ci_workflows.foundation_types import FoundationError
 from ci_workflows.gitops_types import GitOpsValidationError
 from ci_workflows.node_types import NodeValidationError
@@ -29,10 +30,11 @@ class CIWContractTests(unittest.TestCase):
             for item in contract["commands"]
         }
         self.assertEqual(expected, set(runtime_command_index()))
-        self.assertEqual(27, len(expected))
+        self.assertEqual(28, len(expected))
         self.assertIn("android validate", expected)
         self.assertIn("apple validate", expected)
         self.assertIn("device lock", expected)
+        self.assertIn("device validate", expected)
         self.assertIn("flutter validate", expected)
         self.assertIn("python validate", expected)
         self.assertIn("node validate", expected)
@@ -139,6 +141,7 @@ class CIWContractTests(unittest.TestCase):
             (NodeValidationError("lockfile_drift"), "node", "lockfile_drift"),
             (GitOpsValidationError("tool_archive_rejected"), "gitops", "tool_archive_rejected"),
             (OciBuildError("oci_layout_malformed"), "oci", "oci_layout_malformed"),
+            (DeviceValidationError("physical_authorization_required"), "device", "physical_authorization_required"),
             (DeviceLockError("lock_stale"), "device", "lock_stale"),
             (FoundationError("cleanup_residue_detected"), "workspace", "cleanup_residue_detected"),
             (ReleaseTagError("release_tag_moved"), "release-tag", "release_tag_moved"),

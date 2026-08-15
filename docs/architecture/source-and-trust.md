@@ -42,11 +42,11 @@ The checkout action accepts only:
 
 - `repository` in `owner/name` form;
 - the admitted lowercase 40-character `admitted_sha`;
-- an empty normalized path below `GITHUB_WORKSPACE`;
+- a non-empty normalized relative path below `GITHUB_WORKSPACE`;
 - a bounded fetch depth from 1 through 1000;
 - an optional read token.
 
-It initializes a new repository, fetches the exact SHA with `--no-tags`, checks out detached `FETCH_HEAD`, and requires `git rev-parse HEAD` to equal the admitted SHA. Authentication is passed through transient process environment configuration and is not written to local Git configuration. A branch name, tag name, arbitrary ref, arbitrary remote URL, non-empty destination, or changed checkout fails closed.
+It initializes a new repository, fetches the exact SHA with `--no-tags`, checks out detached `FETCH_HEAD`, and requires `git rev-parse HEAD` to equal the admitted SHA. Authentication is passed through transient process environment configuration and is not written to local Git configuration. A branch name, tag name, arbitrary ref, arbitrary remote URL, empty/absolute/traversal destination, occupied destination directory, or changed checkout fails closed.
 
 The action does not preserve credentials. Its contract is the equivalent of `persist-credentials: false`; callers must not add a credential-bearing remote or rewrite the checked-out source before verification.
 
@@ -89,10 +89,12 @@ Product commands, status/comment formats, registry publication, cluster selectio
 
 ## Thin caller example
 
+During the active-development/bootstrap phase, the public reusable workflow follows protected `@main` so reviewed central fixes propagate without a consumer repin. The separately composed private helper remains an immutable action reference.
+
 ```yaml
 jobs:
   source:
-    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-resolve-source.yml@<immutable-reference>
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-resolve-source.yml@main
     permissions:
       contents: read
       pull-requests: read
@@ -104,10 +106,10 @@ jobs:
     needs: source
     runs-on: <centrally-selected-semantic-profile>
     steps:
-      - uses: StreamScapeTV/ci-workflows/actions/exact-checkout@<immutable-reference>
+      - uses: StreamScapeTV/ci-workflows/actions/exact-checkout@<immutable-helper-sha>
         with:
           repository: ${{ needs.source.outputs.source_repository }}
           admitted_sha: ${{ needs.source.outputs.source_sha }}
 ```
 
-During the owner-approved bootstrap channel, callers may reference protected `@main`; privileged production consumers should prefer an immutable full SHA or released tag. Exact product-source admission remains mandatory regardless of the central workflow reference.
+Full commit SHAs and stable `ci-workflows` tags remain supported fixed/rollback channels and may become the organization default after a later explicit stable-release cutover. Until that decision, they are not preferred or required over `@main` for privileged consumers. Exact product-source admission remains mandatory regardless of the central workflow reference.

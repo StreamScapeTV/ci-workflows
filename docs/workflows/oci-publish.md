@@ -22,12 +22,12 @@ The publication action additionally requires the exact release-authority SHA on 
 
 ## Destination policy
 
-The current issue-#17-exclusive layer has no caller destination input. It derives a canonical GHCR destination from the checked-in `contracts/oci-products.json` source repository and target inventory:
+The merged publication layer has no caller destination input. It derives a canonical GHCR destination from the checked-in `contracts/oci-products.json` source repository and target inventory:
 
 - a single-target product maps to `ghcr.io/streamscapetv/<source-repository-name>`;
 - a multi-target product maps each target to `ghcr.io/streamscapetv/<source-repository-name>-<target-id>`.
 
-This is deliberately fail-closed and deterministic while issue #16 owns `contracts/oci-products.json`. After #16 integrates, any reviewed publication-specific inventory fields and shared public/CIW registration can be reconciled without broadening the caller API. Until that handoff, issue #17 does not modify #16-owned contract/runtime files.
+This is deliberately fail-closed and deterministic. The merged `oci.build` contract owns product/source/assertion inventory in `contracts/oci-products.json`, and `oci.publish` consumes that same checked-in authority instead of maintaining a second destination or product decision engine. Any future publication-specific inventory extension must be reviewed through the shared contract and public API rather than introduced as caller-selected destination authority.
 
 ## Immutable identity and replay behavior
 
@@ -51,7 +51,7 @@ The builder creates and validates a local OCI layout. Publication uses Skopeo's 
 - source SHA, stable version, product ID, title, description, license, source URL, and created metadata labels;
 - configured user, entrypoint, command, and exposed ports.
 
-The remote per-platform manifest/config/layer identities must equal the local validated layout exactly. That byte identity preserves the issue-#16 local assertions for required files/tools and forbidden tools without executing untrusted product scripts in the publication verifier.
+The remote per-platform manifest/config/layer identities must equal the local validated layout exactly. That byte identity preserves the merged `oci.build` local assertions for required files/tools and forbidden tools without executing untrusted product scripts in the publication verifier.
 
 ## Registry credentials and cleanup
 
@@ -63,10 +63,17 @@ Cleanup removes the auth file together with all read-back and publication state.
 
 A caller provides the already-admitted exact source and stable release version. The release tag must already exist and resolve to that exact SHA.
 
+During active development/bootstrap, repository consumers call public reusable
+`ci-workflows` workflows at `@main`. Full-SHA and stable-tag references remain
+supported, but they are not the current default consumer channel; a later
+explicit stable-release/cutover decision may make an immutable channel preferred
+or required. This does not weaken internal/private helper pins, which remain
+exact immutable SHAs.
+
 ```yaml
 jobs:
   publish_backend:
-    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-oci-publish.yml@<immutable-ci-workflows-ref>
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-oci-publish.yml@main
     with:
       admitted_sha: ${{ needs.release_source.outputs.sha }}
       product_id: iptv-backend-image
@@ -92,7 +99,7 @@ The called workflow itself has no branch, schedule, manual, or pull-request trig
 
 ### Flux runner images
 
-`flux-runner-images` is a multi-target product. Each checked-in runner target receives a distinct deterministic repository. Read-back must preserve the exact tool/runtime bytes already validated by the issue-#16 build layer. The contract-owned canary, previous-known-good, and rollback identities are carried inside `immutable_references_json` for later issue-#33 selection logic. Publication does not edit Flux manifests, choose a live runner image, reconcile a scale set, or receive Kubernetes/SOPS authority.
+`flux-runner-images` is a multi-target product. Each checked-in runner target receives a distinct deterministic repository. Read-back must preserve the exact tool/runtime bytes already validated by the merged `oci.build` layer. The contract-owned canary, previous-known-good, and rollback identities are carried inside `immutable_references_json` for later issue-#33 selection logic. Publication does not edit Flux manifests, choose a live runner image, reconcile a scale set, or receive Kubernetes/SOPS authority.
 
 ## Outputs
 
@@ -107,6 +114,6 @@ No credential, auth-file path, runner identity, private host detail, builder sto
 
 ## Validation status and private-registry proof
 
-The issue-exclusive mock/unit suite covers trusted/untrusted publication boundaries, exact release authority, fixed destination derivation, immutable replay and conflict behavior, multi-platform manifest/config/layer read-back, metadata/runtime assertion rejection, workflow API restrictions, zero-artifact smoke behavior, and symlink-safe cleanup.
+The merged central mock/unit suite covers trusted/untrusted publication boundaries, exact release authority, fixed destination derivation, immutable replay and conflict behavior, multi-platform manifest/config/layer read-back, metadata/runtime assertion rejection, workflow API restrictions, zero-artifact smoke behavior, and symlink-safe cleanup.
 
-A genuine authorized private-registry publication proof is intentionally **not claimed** until the required repository credentials and issue-#16 runtime are available on the exact candidate head. A successful mock/unit run proves only the code and contract paths that executed; it does not prove registry write authority, network reachability, or live remote publication.
+Completion of the central `oci.publish` mechanism does not by itself activate any producer or claim a live private-registry publication. Exact producer readiness, least-authority registry write policy, private-registry first-publish/replay/conflict/read-back evidence, and per-product adoption remain separately gated by the current OCI adoption work (issue #154). A successful central mock/unit or contract run proves only the code and contract paths that executed; it does not substitute for those live adoption proofs.
