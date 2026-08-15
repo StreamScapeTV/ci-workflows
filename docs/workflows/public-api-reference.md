@@ -127,7 +127,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. D
 ### `maintenance.runner-retry`
 
 - Public file: `.github/workflows/reusable-runner-infrastructure-retry.yml`
-- Events: `workflow_dispatch`, `workflow_call`
+- Events: `schedule`, `workflow_dispatch`, `workflow_call`
 - Timeout / matrix maximum: `30 minutes` / `1` jobs
 - Maximum reusable-workflow depth: `1`
 - Inputs: `project_id` (required), `run_id` (required), `expected_head_sha` (required), `dry_run` (default `True`), `request_id` (required)
