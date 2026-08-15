@@ -32,7 +32,8 @@ def test_general_runner_uses_pinned_debian_only_stages() -> None:
 
 
 def test_general_runner_build_is_networkless_and_engine_free() -> None:
-    source = DOCKERFILE.read_text(encoding="utf-8").lower()
+    raw = DOCKERFILE.read_text(encoding="utf-8")
+    source = raw.lower()
     for token in (
         "apt-get update",
         "apt-get install",
@@ -54,9 +55,9 @@ def test_general_runner_build_is_networkless_and_engine_free() -> None:
     assert "copy --chmod=0755 unzip.py /usr/local/bin/unzip" in source
     assert "cp --parents -a /usr/lib/git-core /out" in source
     assert "cp --parents -a /usr/share/git-core /out" in source
-    assert source.count('library_dir="$(readlink -f "$(dirname "${library}")")"') == 2
-    assert source.count('cp -pl "${library}"') == 0
-    assert source.count('cp -pl "${library}"'.replace("-pl", "-pL").lower()) == 2
+    assert raw.count('library_dir="$(readlink -f "$(dirname "${library}")")"') == 2
+    assert raw.count('cp -pl "${library}"') == 0
+    assert raw.count('cp -pL "${library}"') == 2
     assert "ldconfig -p" in source
     assert 'libatomic.so.1" {print $nf; exit}' in source
     assert "/out/usr/lib/x86_64-linux-gnu/libatomic.so.1" in source
