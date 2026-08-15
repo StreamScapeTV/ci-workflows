@@ -59,8 +59,8 @@
     {
       "input_id": "actions-runner-linux-amd64",
       "url": "https://github.com/actions/runner/releases/download/v2.336.0/actions-runner-linux-x64-2.336.0.tar.gz",
-      "sha256": "b0ab71ccd65cd421e6e8757356feab08966f5acc276bef3404ed20a070e6c8e9",
-      "maximum_bytes": 157286400,
+      "sha256": "04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d",
+      "maximum_bytes": 268435456,
       "destination": ".ciw-build-inputs/actions-runner-linux-x64-2.336.0.tar.gz"
     },
     {
