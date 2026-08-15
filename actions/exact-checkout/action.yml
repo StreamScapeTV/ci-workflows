@@ -9,7 +9,7 @@ inputs:
     description: Exact lowercase 40-character source SHA returned by source admission
     required: true
   path:
-    description: Empty relative destination beneath GITHUB_WORKSPACE
+    description: Non-empty safe relative destination beneath GITHUB_WORKSPACE
     required: false
     default: source
   fetch_depth:
