@@ -9,7 +9,7 @@ import yaml
 from ci_workflows.validation_model import ActionsLoader
 
 ROOT = Path(__file__).resolve().parents[1]
-HELPER_SHA = "37f6309dff0fe6cae0b910df2ee427c55ced3684"
+HELPER_SHA = "a464a023cf654d00172d62ebd1700c51ce2c75bb"
 EXACT_CHECKOUT_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 
 
