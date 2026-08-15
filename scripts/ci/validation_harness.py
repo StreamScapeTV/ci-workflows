@@ -22,16 +22,6 @@ def parser() -> argparse.ArgumentParser:
     return result
 
 
-def _annotation_value(value: str) -> str:
-    return (
-        value.replace("%", "%25")
-        .replace("\r", "%0D")
-        .replace("\n", "%0A")
-        .replace(":", "%3A")
-        .replace(",", "%2C")
-    )
-
-
 def main(argv: Sequence[str] | None = None) -> int:
     args = parser().parse_args(argv)
     result = validate_repository(args.root)
@@ -43,13 +33,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         result.require_success()
     except HarnessFailure as error:
-        for finding in error.findings:
-            location = f"file={_annotation_value(finding.path)}"
-            if finding.line:
-                location += f",line={finding.line}"
-            title = _annotation_value(finding.rule)
-            message = _annotation_value(finding.message)
-            print(f"::error {location},title={title}::{message}")
         print(str(error), file=sys.stderr)
         return 2
     return 0
