@@ -70,7 +70,7 @@ permissions:
 jobs:
   validate:
     name: CI / Sample
-    runs-on: [linux, amd64, general]
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 20
     outputs:
       result: ${{{{ steps.execute.outputs.result }}}}
@@ -174,14 +174,16 @@ def create_repository(
             "schema_version": 1,
             "profiles": [
                 {
-                    "id": "portable",
+                    "id": "general-small",
+                    "public_labels": ["portable"],
                     "default_internal_selector": [
                         "linux",
                         "amd64",
                         "general",
+                        "small",
                     ],
                     "internal_selectors": [
-                        ["linux", "amd64", "general"],
+                        ["linux", "amd64", "general", "small"],
                     ],
                 }
             ],
