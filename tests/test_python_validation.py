@@ -68,7 +68,8 @@ class PythonValidationTests(unittest.TestCase):
         for identifier, runtime in self.contract["runtimes"].items():
             with self.subTest(runtime=identifier):
                 if runtime["kind"] == "host":
-                    self.assertEqual(runtime["python_version"], "3.12.13")
+                    self.assertEqual(identifier, "host-cpython-3.12.3")
+                    self.assertEqual(runtime["python_version"], "3.12.3")
                 else:
                     reference = (
                         f"{runtime['repository']}:{runtime['tag']}"
@@ -112,7 +113,7 @@ class PythonValidationTests(unittest.TestCase):
                 "audit",
                 "source-audit",
                 "portable",
-                "host-cpython-3.12.13",
+                "host-cpython-3.12.3",
                 False,
             ),
             (
@@ -120,7 +121,7 @@ class PythonValidationTests(unittest.TestCase):
                 "host",
                 "source-audit",
                 "portable",
-                "host-cpython-3.12.13",
+                "host-cpython-3.12.3",
                 False,
             ),
             (

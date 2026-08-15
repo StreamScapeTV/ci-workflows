@@ -30,7 +30,11 @@ Consumer repositories keep triggers, minimum permissions, concurrency and enviro
 
 ## Consumer channel
 
-Trusted publication and release callers must pin an approved immutable 40-character `ci-workflows` commit SHA. The examples below use the explicit placeholder `<APPROVED_CI_WORKFLOWS_SHA>`; replace it with the exact reviewed commit before use. A stable `ci-workflows` tag may be used only after that tag has actually been published and approved for the consumer.
+During the current active-development/bootstrap phase, **all consumer repositories should reference shared `ci-workflows` workflows at `@main`**, including trusted publication and release callers. This is deliberate: a fix merged into central `main` becomes available to every consumer without a separate mass-repin change across the organization.
+
+Using `@main` selects the current reviewed central workflow implementation; it does **not** weaken the exact product/source authority enforced by that workflow. Trusted publication still requires the exact admitted caller source, exact release tag/source tuple, bounded checked-in product identity, explicit named credentials, independent remote read-back, cleanup, and the existing no-`latest`/no-deployment boundaries.
+
+Full 40-character `ci-workflows` SHAs and published stable tags remain supported reference forms, but they are not the required/default consumer channel during this rapid-development phase. A later explicit stable-release/cutover decision may switch consumers to an immutable channel; until then, do not mass-repin consumers away from `@main` merely because a new central fix lands.
 
 Existing genuine tag-push callers retain their product trigger and bounded inputs:
 
@@ -48,7 +52,7 @@ permissions:
 
 jobs:
   release:
-    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-tag-image-chart.yml@<APPROVED_CI_WORKFLOWS_SHA>
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-tag-image-chart.yml@main
     with:
       image_name: iptv-backend
       chart_name: iptv-backend
@@ -83,7 +87,7 @@ permissions:
 
 jobs:
   release:
-    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-tag-image-chart.yml@<APPROVED_CI_WORKFLOWS_SHA>
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-tag-image-chart.yml@main
     with:
       release_mode: existing-tag
       release_version: ${{ inputs.release_version }}
@@ -102,7 +106,7 @@ The explicit caller must execute from the current default branch of the same non
 
 One incident-specific recovery exception is available through the optional `image_recovery_authority` string. It is not a manual-dispatch field or a caller-selected set of hashes: the trusted Backend caller hard-codes the complete reviewed JSON authority from central issue #92. Central admission requires its exact schema, repository, version, source, historical publisher run and attempt, historical caller and central revisions, remote image digest, and exactly the `linux/amd64` and `linux/arm64` config digests. It then verifies the immutable historical run, jobs, steps, logs, zero artifacts, and current default-branch caller before publication credentials are used. Empty remains the default for every ordinary release.
 
-After an approved stable `ci-workflows` release tag actually exists, consumers that are authorized to follow that stable channel may use it instead of a raw commit SHA. The following is illustrative only until that tag is published:
+After an approved stable `ci-workflows` release tag actually exists, a later explicit cutover may authorize consumers to follow that stable channel instead of `@main`. The following is illustrative only until that decision is made:
 
 ```yaml
 uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-tag-image-chart.yml@v1.0.0
