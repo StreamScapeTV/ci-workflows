@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -12,7 +12,6 @@ from . import oci_publish as _runtime
 OciPublishError = _runtime.OciPublishError
 PublishTarget = _runtime.PublishTarget
 PublishPlan = _runtime.PublishPlan
-authenticate = _runtime.authenticate
 cleanup = _runtime.cleanup
 inspect_layout = _runtime.inspect_layout
 publication_state_root = _runtime.publication_state_root
@@ -22,6 +21,9 @@ replay_decision = _runtime.replay_decision
 residue = _runtime.residue
 
 _PRODUCT = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
+_RUNNER_PRODUCT = "ciw-runner-images"
+_RUNNER_REGISTRY_HOST = "git.faruqi.dev"
+_RUNNER_REGISTRY_NAMESPACE = "mimranfaruqi"
 
 
 @dataclass(frozen=True)
@@ -82,11 +84,20 @@ def _confirm_platform_set(repository_root: Path, request: PublishRequest) -> Non
             raise OciPublishError("platform_override_forbidden")
 
 
+def _runner_registry_repository(target_id: str) -> str:
+    if not target_id.startswith("runner-") or _PRODUCT.fullmatch(target_id) is None:
+        raise OciPublishError("invalid_contract")
+    return (
+        f"{_RUNNER_REGISTRY_HOST}/{_RUNNER_REGISTRY_NAMESPACE}/"
+        f"github-actions-{target_id}"
+    )
+
+
 def resolve_plan(repository_root: Path, request: PublishRequest) -> PublishPlan:
-    """Resolve the runtime plan after optional checked-in platform confirmation."""
+    """Resolve the runtime plan and project runner products to private Forgejo."""
 
     _confirm_platform_set(repository_root, request)
-    return _runtime.resolve_plan(
+    plan = _runtime.resolve_plan(
         repository_root,
         _runtime.PublishRequest(
             repository=request.repository,
@@ -97,6 +108,85 @@ def resolve_plan(repository_root: Path, request: PublishRequest) -> PublishPlan:
             source_trust=request.source_trust,
         ),
     )
+    if plan.product_id != _RUNNER_PRODUCT:
+        return plan
+    targets: list[PublishTarget] = []
+    for target in plan.targets:
+        repository = _runner_registry_repository(target.target_id)
+        targets.append(
+            replace(
+                target,
+                registry_repository=repository,
+                version_reference=f"{repository}:{plan.release_version}",
+                source_reference=f"{repository}:sha-{plan.admitted_sha}",
+            )
+        )
+    return replace(plan, targets=tuple(targets))
+
+
+def authenticate(
+    plan: PublishPlan,
+    environment: Mapping[str, str],
+    username: str,
+    token: str,
+) -> dict[str, str]:
+    """Authenticate central runner-image publication to owner-managed Forgejo."""
+
+    if plan.product_id != _RUNNER_PRODUCT:
+        return _runtime.authenticate(plan, environment, username, token)
+    _runtime._require(
+        username == username.strip()
+        and bool(username)
+        and "\n" not in username
+        and "\r" not in username,
+        "registry_auth_invalid",
+    )
+    _runtime._require(
+        bool(token) and "\n" not in token and "\r" not in token,
+        "registry_auth_invalid",
+    )
+    _runtime._require(
+        _runtime.shutil.which("skopeo") is not None,
+        "registry_tool_unavailable",
+    )
+    root = publication_state_root(environment)
+    _runtime._require(
+        not root.exists() and not root.is_symlink(),
+        "residue_detected",
+    )
+    root.mkdir(parents=True, mode=0o700)
+    authfile = _runtime._authfile(root)
+    try:
+        _runtime._run(
+            [
+                "skopeo",
+                "login",
+                "--authfile",
+                str(authfile),
+                "--username",
+                username,
+                "--password-stdin",
+                _RUNNER_REGISTRY_HOST,
+            ],
+            input_bytes=token.encode("utf-8"),
+        )
+    except (OSError, _runtime.subprocess.CalledProcessError) as error:
+        raise OciPublishError("registry_auth_failed") from error
+    try:
+        authfile.chmod(0o600)
+    except OSError as error:
+        raise OciPublishError("registry_auth_invalid") from error
+    _runtime._secure_existing_authfile(root)
+    state = {
+        "api": "oci.publish",
+        "version": "1.0.0",
+        "source_sha": plan.admitted_sha,
+        "product_id": plan.product_id,
+        "release_version": plan.release_version,
+        "registry_host": _RUNNER_REGISTRY_HOST,
+    }
+    _runtime._write_state(root / "plan.json", state)
+    return {"result": "authenticated", "failure_code": ""}
 
 
 def verify(plan: PublishPlan, environment: Mapping[str, str]) -> dict[str, str]:
