@@ -104,3 +104,4 @@ RUN set -eux; \
 USER 1001:1001
 WORKDIR /home/runner
 RUN /usr/local/bin/runner-image-smoke
+CMD []
