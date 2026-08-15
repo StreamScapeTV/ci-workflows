@@ -7,12 +7,15 @@
     "buildah-small": "buildah-small",
     "buildah-tiny": "buildah-tiny",
     "flux-control": "flux-control",
+    "general-medium": "general-medium",
+    "general-small": "general-small",
+    "general-tiny": "general-tiny",
     "macOS": "apple",
     "mobile": "mobile",
     "physical-device": "physical-device",
-    "portable": "portable"
+    "portable": "general-small"
   },
-  "contract_version": "2.1.0",
+  "contract_version": "2.2.0",
   "generated_from": "contracts/runner-profiles.json",
   "profiles": {
     "apple": {
@@ -276,6 +279,140 @@
         "flux-control"
       ]
     },
+    "general-medium": {
+      "allowed_source_trust": [
+        "untrusted-fork",
+        "trusted-pr",
+        "trusted-exact"
+      ],
+      "allowed_workflow_apis": [
+        "validation.python",
+        "release.orchestrate",
+        "flux.assets"
+      ],
+      "approved_selectors": [
+        [
+          "linux",
+          "amd64",
+          "general",
+          "medium"
+        ]
+      ],
+      "capacity_owner": "flux-arc",
+      "evidence_fields": [
+        "result",
+        "test_summary",
+        "artifact_exception_used"
+      ],
+      "kind": "runner",
+      "lifecycle": "ephemeral-one-job",
+      "privilege": {
+        "device_locked": false,
+        "kubernetes_token": false,
+        "manual_capacity": false,
+        "privileged_container": false,
+        "repository_scoped": false
+      },
+      "public_labels": [],
+      "runs_on": [
+        "linux",
+        "amd64",
+        "general",
+        "medium"
+      ]
+    },
+    "general-small": {
+      "allowed_source_trust": [
+        "untrusted-fork",
+        "trusted-pr",
+        "trusted-exact"
+      ],
+      "allowed_workflow_apis": [
+        "validation.python",
+        "validation.node",
+        "validation.gitops",
+        "helm.validate",
+        "helm.publish",
+        "maintenance.conformance",
+        "release.orchestrate",
+        "flux.assets"
+      ],
+      "approved_selectors": [
+        [
+          "linux",
+          "amd64",
+          "general",
+          "small"
+        ]
+      ],
+      "capacity_owner": "flux-arc",
+      "evidence_fields": [
+        "result",
+        "test_summary",
+        "artifact_exception_used"
+      ],
+      "kind": "runner",
+      "lifecycle": "ephemeral-one-job",
+      "privilege": {
+        "device_locked": false,
+        "kubernetes_token": false,
+        "manual_capacity": false,
+        "privileged_container": false,
+        "repository_scoped": false
+      },
+      "public_labels": [
+        "portable"
+      ],
+      "runs_on": [
+        "linux",
+        "amd64",
+        "general",
+        "small"
+      ]
+    },
+    "general-tiny": {
+      "allowed_source_trust": [
+        "untrusted-fork",
+        "trusted-pr",
+        "trusted-exact"
+      ],
+      "allowed_workflow_apis": [
+        "source.resolve",
+        "maintenance.artifacts",
+        "maintenance.branches",
+        "maintenance.runner-retry"
+      ],
+      "approved_selectors": [
+        [
+          "linux",
+          "amd64",
+          "general",
+          "tiny"
+        ]
+      ],
+      "capacity_owner": "flux-arc",
+      "evidence_fields": [
+        "result",
+        "test_summary",
+        "artifact_exception_used"
+      ],
+      "kind": "runner",
+      "lifecycle": "ephemeral-one-job",
+      "privilege": {
+        "device_locked": false,
+        "kubernetes_token": false,
+        "manual_capacity": false,
+        "privileged_container": false,
+        "repository_scoped": false
+      },
+      "public_labels": [],
+      "runs_on": [
+        "linux",
+        "amd64",
+        "general",
+        "tiny"
+      ]
+    },
     "mobile": {
       "allowed_source_trust": [
         "trusted-pr",
@@ -386,57 +523,6 @@
       },
       "public_labels": [],
       "runs_on": null
-    },
-    "portable": {
-      "allowed_source_trust": [
-        "untrusted-fork",
-        "trusted-pr",
-        "trusted-exact"
-      ],
-      "allowed_workflow_apis": [
-        "source.resolve",
-        "validation.python",
-        "validation.node",
-        "validation.gitops",
-        "helm.validate",
-        "helm.publish",
-        "maintenance.artifacts",
-        "maintenance.branches",
-        "maintenance.conformance",
-        "maintenance.runner-retry",
-        "release.orchestrate",
-        "flux.assets"
-      ],
-      "approved_selectors": [
-        [
-          "linux",
-          "amd64",
-          "general"
-        ]
-      ],
-      "capacity_owner": "flux-arc",
-      "evidence_fields": [
-        "result",
-        "test_summary",
-        "artifact_exception_used"
-      ],
-      "kind": "runner",
-      "lifecycle": "ephemeral-one-job",
-      "privilege": {
-        "device_locked": false,
-        "kubernetes_token": false,
-        "manual_capacity": false,
-        "privileged_container": false,
-        "repository_scoped": false
-      },
-      "public_labels": [
-        "portable"
-      ],
-      "runs_on": [
-        "linux",
-        "amd64",
-        "general"
-      ]
     }
   },
   "scheduling_mechanism": {
@@ -445,13 +531,14 @@
     "description": "A minimal protected planning job validates bounded semantic intent and emits a JSON selector. A dependent job uses fromJSON(needs.plan.outputs.runs_on), which GitHub resolves before scheduling that dependent job.",
     "generated_mapping": "generated/runner-mappings.json",
     "kind": "trusted-planning-job",
-    "planner_profile": "portable"
+    "planner_profile": "general-tiny"
   },
   "schema_version": 1,
   "workflow_bindings": {
     "flux.assets": {
       "profiles": [
-        "portable",
+        "general-small",
+        "general-medium",
         "buildah-tiny",
         "buildah-small",
         "buildah-medium",
@@ -468,37 +555,37 @@
     },
     "helm.publish": {
       "profiles": [
-        "portable"
+        "general-small"
       ],
       "strategy": "fixed"
     },
     "helm.validate": {
       "profiles": [
-        "portable"
+        "general-small"
       ],
       "strategy": "fixed"
     },
     "maintenance.artifacts": {
       "profiles": [
-        "portable"
+        "general-tiny"
       ],
       "strategy": "fixed"
     },
     "maintenance.branches": {
       "profiles": [
-        "portable"
+        "general-tiny"
       ],
       "strategy": "fixed"
     },
     "maintenance.conformance": {
       "profiles": [
-        "portable"
+        "general-small"
       ],
       "strategy": "fixed"
     },
     "maintenance.runner-retry": {
       "profiles": [
-        "portable"
+        "general-tiny"
       ],
       "strategy": "fixed"
     },
@@ -521,7 +608,8 @@
     },
     "release.orchestrate": {
       "profiles": [
-        "portable",
+        "general-small",
+        "general-medium",
         "buildah-small",
         "buildah-medium",
         "buildah-high"
@@ -530,7 +618,7 @@
     },
     "source.resolve": {
       "profiles": [
-        "portable"
+        "general-tiny"
       ],
       "strategy": "fixed"
     },
@@ -561,19 +649,20 @@
     },
     "validation.gitops": {
       "profiles": [
-        "portable"
+        "general-small"
       ],
       "strategy": "fixed"
     },
     "validation.node": {
       "profiles": [
-        "portable"
+        "general-small"
       ],
       "strategy": "fixed"
     },
     "validation.python": {
       "profiles": [
-        "portable",
+        "general-small",
+        "general-medium",
         "buildah-medium",
         "buildah-high"
       ],
