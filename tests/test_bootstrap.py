@@ -41,8 +41,12 @@ class BootstrapContractTests(unittest.TestCase):
             [
                 ".github/workflows/reusable-android.yml",
                 ".github/workflows/reusable-apple.yml",
+                ".github/workflows/reusable-artifact-cleanup.yml",
+                ".github/workflows/reusable-branch-hygiene.yml",
+                ".github/workflows/reusable-conformance.yml",
                 ".github/workflows/reusable-device.yml",
                 ".github/workflows/reusable-flutter.yml",
+                ".github/workflows/reusable-flux-reconcile.yml",
                 ".github/workflows/reusable-gitops-validation.yml",
                 ".github/workflows/reusable-helm-publish.yml",
                 ".github/workflows/reusable-helm-validate.yml",
@@ -51,6 +55,7 @@ class BootstrapContractTests(unittest.TestCase):
                 ".github/workflows/reusable-oci-publish.yml",
                 ".github/workflows/reusable-python.yml",
                 ".github/workflows/reusable-resolve-source.yml",
+                ".github/workflows/reusable-runner-infrastructure-retry.yml",
                 ".github/workflows/reusable-tag-image-chart.yml",
             ],
         )
