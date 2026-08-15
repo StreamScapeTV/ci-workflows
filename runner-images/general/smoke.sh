@@ -25,6 +25,10 @@ corepack --version >/dev/null
 
 command -v git bash curl jq yq tar zstd gzip unzip zip helm kustomize kubectl >/dev/null
 git --version >/dev/null
+test -x "$(git --exec-path)/git-remote-https"
+test -d /usr/share/git-core/templates
+git init -q "${venv_root}/git-repository"
+git -C "${venv_root}/git-repository" status --short >/dev/null
 bash --version | head -n1 | grep -F 'GNU bash'
 curl --version | head -n1 | grep -F 'curl '
 jq --version | grep -F 'jq-1.8.2'
