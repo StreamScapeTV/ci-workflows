@@ -42,11 +42,11 @@ The checkout action accepts only:
 
 - `repository` in `owner/name` form;
 - the admitted lowercase 40-character `admitted_sha`;
-- an empty normalized path below `GITHUB_WORKSPACE`;
+- a non-empty normalized relative path below `GITHUB_WORKSPACE`;
 - a bounded fetch depth from 1 through 1000;
 - an optional read token.
 
-It initializes a new repository, fetches the exact SHA with `--no-tags`, checks out detached `FETCH_HEAD`, and requires `git rev-parse HEAD` to equal the admitted SHA. Authentication is passed through transient process environment configuration and is not written to local Git configuration. A branch name, tag name, arbitrary ref, arbitrary remote URL, non-empty destination, or changed checkout fails closed.
+It initializes a new repository, fetches the exact SHA with `--no-tags`, checks out detached `FETCH_HEAD`, and requires `git rev-parse HEAD` to equal the admitted SHA. Authentication is passed through transient process environment configuration and is not written to local Git configuration. A branch name, tag name, arbitrary ref, arbitrary remote URL, empty/absolute/traversal destination, occupied destination directory, or changed checkout fails closed.
 
 The action does not preserve credentials. Its contract is the equivalent of `persist-credentials: false`; callers must not add a credential-bearing remote or rewrite the checked-out source before verification.
 
