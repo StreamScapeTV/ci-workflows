@@ -85,7 +85,7 @@ def render(contract: dict) -> str:
             ]
         )
         if repo.get("remediation_issue"):
-            lines.append(f"- Repository remediation: `{repo['remediation_issue']}`")
+            lines.append(f"- Repository remediation: `{repo['remediation_issue']}")
         lines.extend(
             [
                 "",
@@ -176,8 +176,8 @@ def validate(contract: dict) -> list[str]:
             if workflow.get("finding") and not workflow.get("remediation_issue"):
                 errors.append(f"{name}:{path}: finding missing remediation owner")
 
-    if total != 96:
-        errors.append(f"expected 96 current workflow files, found {total}")
+    if total != 97:
+        errors.append(f"expected 97 current workflow files, found {total}")
 
     central = next(
         (repo for repo in repositories if repo.get("repository") == "StreamScapeTV/ci-workflows"),
