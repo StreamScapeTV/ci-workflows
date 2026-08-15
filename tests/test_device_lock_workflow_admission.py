@@ -61,9 +61,11 @@ class DeviceLockWorkflowAdmissionTests(unittest.TestCase):
         self.assertIn("bootstrap_validation_runtime.py", run)
         self.assertIn("contracts/action-tool-lock.json", run)
         self.assertIn("RUNNER_TEMP", run)
-        self.assertIn("trap cleanup_validation_root EXIT", run)
+        self.assertIn("trap 'rm -rf -- \"${validation_root}\"' EXIT", run)
         self.assertIn('PYTHONPATH="${validation_root}/python:.ciw/src"', run)
         self.assertIn('test ! -e "${validation_root}"', run)
+        self.assertIn("trap - EXIT", run)
+        self.assertNotIn("cleanup_validation_root()", run)
 
     def test_trigger_remains_pull_request_only(self) -> None:
         self.assertEqual({"pull_request"}, set(self.workflow["on"]))
