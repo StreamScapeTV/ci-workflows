@@ -72,6 +72,8 @@ jobs:
           PYTHONDONTWRITEBYTECODE: '1'
         run: |
           set -Eeuo pipefail
+          test_log="${VALIDATION_ROOT}/focused-tests.log"
+          set +e
           PYTHONPATH="${VALIDATION_ROOT}/python:${GITHUB_WORKSPACE}/src" \
             "${VERIFIED_PYTHON}" -m unittest -v \
               tests.test_ciw_contracts \
@@ -92,7 +94,21 @@ jobs:
               tests.test_flux_reconcile_contract \
               tests.test_flux_reconcile_security \
               tests.test_maintenance_workflow_contract \
-              tests.test_flux_reconcile_workflow_contract
+              tests.test_flux_reconcile_workflow_contract \
+              2>&1 | tee "${test_log}"
+          status=${PIPESTATUS[0]}
+          set -e
+          if (( status != 0 )); then
+            annotation="$("${VERIFIED_PYTHON}" - "${test_log}" <<'PY'
+          from pathlib import Path
+          import sys
+          text = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")[-12000:]
+          print(text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A"))
+          PY
+          )"
+            printf '::error title=Focused maintenance tests failed::%s\n' "${annotation}"
+            exit "${status}"
+          fi
       - name: Cleanup focused validation state
         if: always()
         shell: bash
