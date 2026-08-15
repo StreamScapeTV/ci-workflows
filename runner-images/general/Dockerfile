@@ -51,9 +51,14 @@ RUN set -eux; \
       | awk '/=> \/.+ \(/ {print $(NF-1)} /^\/.+ \(/ {print $1}' \
       | sort -u \
       | while read -r library; do cp --parents -a "${library}" /node-root; done; \
-    for library in /usr/lib/x86_64-linux-gnu/libatomic.so.1*; do \
-      cp --parents -a "${library}" /node-root; \
-    done
+    atomic_library="$(ldconfig -p | awk '$1 == "libatomic.so.1" {print $NF; exit}')"; \
+    test -n "${atomic_library}"; \
+    atomic_real="$(readlink -f "${atomic_library}")"; \
+    test -f "${atomic_real}"; \
+    mkdir -p /node-root/usr/lib/x86_64-linux-gnu; \
+    cp -a "${atomic_real}" /node-root/usr/lib/x86_64-linux-gnu/; \
+    ln -s "$(basename "${atomic_real}")" /node-root/usr/lib/x86_64-linux-gnu/libatomic.so.1; \
+    test -e /node-root/usr/lib/x86_64-linux-gnu/libatomic.so.1
 
 # Final userspace: official CPython 3.12 on Debian Trixie slim. No Ubuntu or
 # another StreamScapeTV runner image participates in the final filesystem.
