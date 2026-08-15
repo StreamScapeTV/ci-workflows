@@ -11,14 +11,14 @@ RUN set -eux; \
     tar -xzf /tmp/zstd.tar.gz -C /tmp/zstd --strip-components=1; \
     make -C /tmp/zstd -j2 zstd; \
     install -m 0755 /tmp/zstd/programs/zstd /out/usr/local/bin/zstd; \
-    for path in /usr/bin/bash /usr/bin/curl /usr/bin/git /usr/bin/gzip /usr/bin/tar /usr/bin/unzip; do \
+    for path in /usr/bin/bash /usr/bin/curl /usr/bin/git /usr/bin/gzip /usr/bin/tar; do \
       cp --parents -a "${path}" /out; \
     done; \
     cp --parents -a /usr/lib/git-core /out; \
     cp --parents -a /usr/share/git-core /out; \
     { \
       for executable in \
-        /usr/bin/bash /usr/bin/curl /usr/bin/git /usr/bin/gzip /usr/bin/tar /usr/bin/unzip \
+        /usr/bin/bash /usr/bin/curl /usr/bin/git /usr/bin/gzip /usr/bin/tar \
         /tmp/runner/bin/Runner.Listener /tmp/runner/bin/Runner.Worker /tmp/runner/bin/Runner.PluginHost; do \
         ldd "${executable}" 2>/dev/null || true; \
       done; \
@@ -89,6 +89,7 @@ COPY --chmod=0755 .ciw-build-inputs/kubectl-1.36.2-linux-amd64 /usr/local/bin/ku
 COPY .ciw-build-inputs/helm-4.2.4-linux-amd64.tar.gz /tmp/helm.tar.gz
 COPY .ciw-build-inputs/kustomize-5.8.1-linux-amd64.tar.gz /tmp/kustomize.tar.gz
 COPY --chmod=0755 zip.py /usr/local/bin/zip
+COPY --chmod=0755 unzip.py /usr/local/bin/unzip
 COPY --chmod=0755 smoke.sh /usr/local/bin/runner-image-smoke
 
 RUN set -eux; \
