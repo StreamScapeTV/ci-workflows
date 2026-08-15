@@ -93,6 +93,19 @@ jobs:
               tests.test_flux_reconcile_security \
               tests.test_maintenance_workflow_contract \
               tests.test_flux_reconcile_workflow_contract
+      - name: Diagnose canonical repository harness
+        shell: bash
+        run: |
+          set +e
+          summary="${VALIDATION_ROOT}/canonical-summary.json"
+          "${VERIFIED_PYTHON}" scripts/ci/validation_harness.py --root . --summary "${summary}"
+          status=$?
+          set -e
+          if (( status != 0 )); then
+            annotation="$("${VERIFIED_PYTHON}" -c 'import json,sys; t=json.dumps(json.load(open(sys.argv[1], encoding="utf-8"))["findings"], sort_keys=True); print(t.replace("%","%25").replace("\r","%0D").replace("\n","%0A"))' "${summary}")"
+            printf '::error title=Canonical harness findings::%s\n' "${annotation}"
+            exit "${status}"
+          fi
       - name: Cleanup focused validation state
         if: always()
         shell: bash
