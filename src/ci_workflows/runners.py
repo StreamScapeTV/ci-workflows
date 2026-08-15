@@ -14,11 +14,16 @@ INVENTORY_PATH = Path("contracts/workflow-inventory.json")
 MAPPINGS_PATH = Path("generated/runner-mappings.json")
 COMPATIBILITY_DOC_PATH = Path("docs/inventory/runner-compatibility.md")
 PROFILE_IDS = {
-    "portable", "mobile", "buildah-tiny", "buildah-small", "buildah-medium",
-    "buildah-high", "apple", "physical-device", "flux-control",
+    "general-tiny", "general-small", "general-medium", "mobile",
+    "buildah-tiny", "buildah-small", "buildah-medium", "buildah-high",
+    "apple", "physical-device", "flux-control",
 }
+GENERAL_PROFILE_IDS = {"general-tiny", "general-small", "general-medium"}
+GENERAL_SIZE_TOKENS = {"tiny", "small", "medium"}
 FINAL_LINUX_ARC_SELECTORS = {
-    "portable": (("linux", "amd64", "general"),),
+    "general-tiny": (("linux", "amd64", "general", "tiny"),),
+    "general-small": (("linux", "amd64", "general", "small"),),
+    "general-medium": (("linux", "amd64", "general", "medium"),),
     "mobile": (
         ("linux", "amd64", "mobile"),
         ("linux", "amd64", "android"),
@@ -131,9 +136,15 @@ def profile_alias_index(contract: Mapping[str, Any]) -> dict[str, str]:
     aliases: dict[str, str] = {}
     for profile in contract["profiles"]:
         for name in [profile["id"], profile["public_name"], *profile["public_labels"]]:
-            require(name not in aliases or aliases[name] == profile["id"], "duplicate-profile-alias", name)
+            require(
+                name not in aliases or aliases[name] == profile["id"],
+                "duplicate-profile-alias",
+                name,
+            )
             aliases[name] = profile["id"]
-    aliases["buildah"] = contract["direct_selection_policy"]["generic_buildah_maps_only_to"]
+    policy = contract["direct_selection_policy"]
+    aliases["portable"] = policy["portable_maps_only_to"]
+    aliases["buildah"] = policy["generic_buildah_maps_only_to"]
     return aliases
 
 
@@ -142,33 +153,61 @@ def approved_selector_index(contract: Mapping[str, Any]) -> dict[tuple[str, ...]
     for profile in contract["profiles"]:
         for raw in profile["internal_selectors"]:
             key = selector(raw)
-            require(key not in result or result[key] == profile["id"], "duplicate-selector", str(list(key)))
+            require(
+                key not in result or result[key] == profile["id"],
+                "duplicate-selector",
+                str(list(key)),
+            )
             result[key] = profile["id"]
     return result
 
 
 def validate_runner_contract(contract: Mapping[str, Any]) -> None:
     require(contract.get("schema_version") == 1, "invalid-contract", "schema_version")
-    require(contract.get("contract_version") == "2.1.0", "invalid-contract", "contract_version")
+    require(contract.get("contract_version") == "2.2.0", "invalid-contract", "contract_version")
     require(contract.get("organization") == "StreamScapeTV", "invalid-contract", "organization")
     mechanism = contract.get("scheduling_mechanism")
     require(isinstance(mechanism, dict), "invalid-contract", "scheduling_mechanism")
     require(mechanism.get("kind") == "trusted-planning-job", "invalid-contract", "planner kind")
-    require(mechanism.get("planner_profile") == "portable", "invalid-contract", "planner profile")
-    require(mechanism.get("composite_action_can_change_runs_on") is False, "invalid-contract", "composite action")
-    require(mechanism.get("caller_supplied_selectors") is False, "invalid-contract", "caller selectors")
-    require(mechanism.get("generated_mapping") == MAPPINGS_PATH.as_posix(), "invalid-contract", "mapping path")
+    require(mechanism.get("planner_profile") == "general-tiny", "invalid-contract", "planner profile")
+    require(
+        mechanism.get("composite_action_can_change_runs_on") is False,
+        "invalid-contract",
+        "composite action",
+    )
+    require(
+        mechanism.get("caller_supplied_selectors") is False,
+        "invalid-contract",
+        "caller selectors",
+    )
+    require(
+        mechanism.get("generated_mapping") == MAPPINGS_PATH.as_posix(),
+        "invalid-contract",
+        "mapping path",
+    )
     policy = contract.get("direct_selection_policy")
     require(isinstance(policy, dict), "invalid-contract", "direct selection policy")
     require(policy.get("bare_self_hosted_forbidden") is True, "invalid-contract", "self-hosted policy")
     require(policy.get("docker_and_dind_retired") is True, "invalid-contract", "Docker policy")
-    require(policy.get("generic_buildah_maps_only_to") == "buildah-small", "invalid-contract", "Buildah alias")
+    require(
+        policy.get("generic_buildah_maps_only_to") == "buildah-small",
+        "invalid-contract",
+        "Buildah alias",
+    )
+    require(
+        policy.get("portable_maps_only_to") == "general-small",
+        "invalid-contract",
+        "portable alias",
+    )
     trust_values = set(strings(contract.get("source_trust_values"), "invalid-contract", empty=False))
 
     profiles = contract.get("profiles")
     require(isinstance(profiles, list), "invalid-contract", "profiles")
-    require({profile.get("id") for profile in profiles if isinstance(profile, dict)} == PROFILE_IDS,
-            "invalid-contract", "profile set")
+    require(
+        {profile.get("id") for profile in profiles if isinstance(profile, dict)} == PROFILE_IDS,
+        "invalid-contract",
+        "profile set",
+    )
     for profile in profiles:
         require(isinstance(profile, dict), "invalid-profile", "not an object")
         profile_id = profile["id"]
@@ -176,8 +215,11 @@ def validate_runner_contract(contract: Mapping[str, Any]) -> None:
         require(profile["public_name"] == profile_id, "invalid-profile", f"{profile_id}: public name")
         require(profile["kind"] in {"runner", "guarded-overlay"}, "invalid-profile", f"{profile_id}: kind")
         labels = strings(profile["public_labels"], "invalid-profile")
-        require(not ({label.lower() for label in labels} & {"docker", "dind", "self-hosted"}),
-                "unsafe-public-label", profile_id)
+        require(
+            not ({label.lower() for label in labels} & {"docker", "dind", "self-hosted"}),
+            "unsafe-public-label",
+            profile_id,
+        )
         raw_selectors = profile["internal_selectors"]
         require(isinstance(raw_selectors, list), "invalid-profile", f"{profile_id}: selectors")
         approved = [selector(item) for item in raw_selectors]
@@ -193,16 +235,22 @@ def validate_runner_contract(contract: Mapping[str, Any]) -> None:
                 for approved_selector in approved
                 for label in approved_selector
             }
-            require(
-                not (flattened & RETIRED_LINUX_SELECTOR_TOKENS),
-                "retired-selector",
-                profile_id,
-            )
+            require(not (flattened & RETIRED_LINUX_SELECTOR_TOKENS), "retired-selector", profile_id)
             require(
                 not any(label.startswith("homelab-") for label in flattened),
                 "retired-selector",
                 profile_id,
             )
+        if profile_id in GENERAL_PROFILE_IDS:
+            only = approved[0]
+            require("general" in only, "invalid-profile", f"{profile_id}: general capability")
+            require(
+                len(set(only) & GENERAL_SIZE_TOKENS) == 1,
+                "invalid-profile",
+                f"{profile_id}: exact general size",
+            )
+        if profile_id == "general-small":
+            require("portable" in labels, "invalid-profile", "general-small: portable compatibility alias")
         if profile_id == "apple":
             require(
                 tuple(approved) == APPLE_CAPABILITY_SELECTORS,
@@ -211,80 +259,138 @@ def validate_runner_contract(contract: Mapping[str, Any]) -> None:
             )
         if profile["kind"] == "runner":
             require(bool(approved), "invalid-profile", f"{profile_id}: no selector")
-            require(selector(profile["default_internal_selector"]) in approved,
-                    "invalid-profile", f"{profile_id}: default selector")
+            require(
+                selector(profile["default_internal_selector"]) in approved,
+                "invalid-profile",
+                f"{profile_id}: default selector",
+            )
         else:
-            require(approved == [] and profile["default_internal_selector"] is None,
-                    "invalid-profile", f"{profile_id}: overlay selector")
+            require(
+                approved == [] and profile["default_internal_selector"] is None,
+                "invalid-profile",
+                f"{profile_id}: overlay selector",
+            )
         privilege = profile["privilege"]
-        require(isinstance(privilege, dict) and set(privilege) == PRIVILEGE_FIELDS,
-                "invalid-profile", f"{profile_id}: privilege")
-        require(all(isinstance(item, bool) for item in privilege.values()),
-                "invalid-profile", f"{profile_id}: privilege values")
+        require(
+            isinstance(privilege, dict) and set(privilege) == PRIVILEGE_FIELDS,
+            "invalid-profile",
+            f"{profile_id}: privilege",
+        )
+        require(
+            all(isinstance(item, bool) for item in privilege.values()),
+            "invalid-profile",
+            f"{profile_id}: privilege values",
+        )
         trust = profile["trust"]
         require(isinstance(trust, dict), "invalid-profile", f"{profile_id}: trust")
         allowed_trust = set(strings(trust.get("allowed_source_trust"), "invalid-profile", empty=False))
         require(allowed_trust <= trust_values, "invalid-profile", f"{profile_id}: trust values")
-        require(isinstance(trust.get("executes_caller_source"), bool),
-                "invalid-profile", f"{profile_id}: caller source")
+        require(
+            isinstance(trust.get("executes_caller_source"), bool),
+            "invalid-profile",
+            f"{profile_id}: caller source",
+        )
         tools = profile["tools"]
         require(isinstance(tools, list) and tools, "invalid-profile", f"{profile_id}: tools")
         for tool in tools:
-            require(isinstance(tool, dict) and set(tool) == {"name", "version"},
-                    "invalid-profile", f"{profile_id}: tool")
-            require(not any(word in tool["name"].lower() for word in ("docker", "dind")),
-                    "retired-docker", profile_id)
-        require(isinstance(profile["resources"], dict) and set(profile["resources"]) == RESOURCE_FIELDS,
-                "invalid-profile", f"{profile_id}: resources")
+            require(
+                isinstance(tool, dict) and set(tool) == {"name", "version"},
+                "invalid-profile",
+                f"{profile_id}: tool",
+            )
+            require(
+                not any(word in tool["name"].lower() for word in ("docker", "dind")),
+                "retired-docker",
+                profile_id,
+            )
+        require(
+            isinstance(profile["resources"], dict) and set(profile["resources"]) == RESOURCE_FIELDS,
+            "invalid-profile",
+            f"{profile_id}: resources",
+        )
         cap = profile["concurrency_cap"]
-        require(cap is None or isinstance(cap, int) and cap > 0,
-                "invalid-profile", f"{profile_id}: concurrency")
+        if profile["capacity_owner"] == "flux-arc":
+            require(cap is None, "invalid-profile", f"{profile_id}: Flux owns live concurrency")
+        else:
+            require(
+                cap is None or isinstance(cap, int) and cap > 0,
+                "invalid-profile",
+                f"{profile_id}: concurrency",
+            )
         for key in ("allowed_workflow_apis", "forbidden_uses", "evidence_fields"):
             strings(profile[key], "invalid-profile", empty=False)
 
     approved_selector_index(contract)
     aliases = profile_alias_index(contract)
+    require(aliases["portable"] == "general-small", "invalid-contract", "portable compatibility")
     require(aliases["buildah"] == "buildah-small", "invalid-contract", "generic Buildah")
     profile_map = profile_index(contract)
     physical = profile_map["physical-device"]
-    require(physical.get("base_profile_by_family") == {"android": "mobile", "ios": "apple", "tvos": "apple"},
-            "invalid-contract", "device family mapping")
+    require(
+        physical.get("base_profile_by_family") == {"android": "mobile", "ios": "apple", "tvos": "apple"},
+        "invalid-contract",
+        "device family mapping",
+    )
     lock = physical.get("lock_contract")
-    expected_lock = {"authorization_receipt", "resource_lock_receipt", "device_family",
-                     "discovered_device_id", "tested_source_sha", "cleanup_evidence"}
-    require(isinstance(lock, dict) and lock.get("required") is True and
-            set(strings(lock.get("required_fields"), "invalid-contract", empty=False)) == expected_lock,
-            "invalid-contract", "device lock contract")
+    expected_lock = {
+        "authorization_receipt", "resource_lock_receipt", "device_family",
+        "discovered_device_id", "tested_source_sha", "cleanup_evidence",
+    }
+    require(
+        isinstance(lock, dict)
+        and lock.get("required") is True
+        and set(strings(lock.get("required_fields"), "invalid-contract", empty=False)) == expected_lock,
+        "invalid-contract",
+        "device lock contract",
+    )
 
     seen_apis: set[str] = set()
     for binding in contract.get("workflow_bindings", []):
-        require(isinstance(binding, dict) and set(binding) == {"api", "strategy", "profiles"},
-                "invalid-binding", "fields")
+        require(
+            isinstance(binding, dict) and set(binding) == {"api", "strategy", "profiles"},
+            "invalid-binding",
+            "fields",
+        )
         api = binding["api"]
         require(api not in seen_apis, "duplicate-binding", api)
         seen_apis.add(api)
         for profile_id in strings(binding["profiles"], "invalid-binding", empty=False):
             require(profile_id in profile_map, "invalid-binding", profile_id)
-            require(api in profile_map[profile_id]["allowed_workflow_apis"],
-                    "invalid-binding", f"{api}:{profile_id}")
+            require(
+                api in profile_map[profile_id]["allowed_workflow_apis"],
+                "invalid-binding",
+                f"{api}:{profile_id}",
+            )
     seen_migrations: set[str] = set()
     for rule in contract.get("compatibility_rules", []):
         migration = rule.get("migration") if isinstance(rule, dict) else None
-        require(isinstance(migration, str) and migration not in seen_migrations,
-                "invalid-compatibility-rule", str(migration))
+        require(
+            isinstance(migration, str) and migration not in seen_migrations,
+            "invalid-compatibility-rule",
+            str(migration),
+        )
         seen_migrations.add(migration)
         mapped = strings(rule.get("profiles"), "invalid-compatibility-rule")
         require(set(mapped) <= PROFILE_IDS, "invalid-compatibility-rule", migration)
-        require(bool(mapped) or isinstance(rule.get("exception"), str),
-                "invalid-compatibility-rule", migration)
+        require(
+            bool(mapped) or isinstance(rule.get("exception"), str),
+            "invalid-compatibility-rule",
+            migration,
+        )
     escalation = contract.get("buildah_escalation")
-    require(isinstance(escalation, dict) and escalation.get("order") ==
-            ["buildah-tiny", "buildah-small", "buildah-medium", "buildah-high"],
-            "invalid-contract", "Buildah order")
+    require(
+        isinstance(escalation, dict)
+        and escalation.get("order") == ["buildah-tiny", "buildah-small", "buildah-medium", "buildah-high"],
+        "invalid-contract",
+        "Buildah order",
+    )
     strings(escalation.get("required_evidence"), "invalid-contract", empty=False)
     forbidden = set(strings(contract.get("caller_forbidden_fields"), "invalid-contract", empty=False))
-    require({"runner", "runs-on", "runs_on", "runner_labels", "labels"} <= forbidden,
-            "invalid-contract", "caller selector fields")
+    require(
+        {"runner", "runs-on", "runs_on", "runner_labels", "labels"} <= forbidden,
+        "invalid-contract",
+        "caller selector fields",
+    )
 
 
 def load_runner_contract(root: Path) -> dict[str, Any]:
@@ -301,29 +407,39 @@ def validate_caller_inputs(contract: Mapping[str, Any], inputs: Mapping[str, Any
 
 
 def validate_source(profile: Mapping[str, Any], source_trust: str) -> None:
-    require(source_trust in profile["trust"]["allowed_source_trust"],
-            "source-trust-not-allowed", f"{profile['id']}:{source_trust}")
+    require(
+        source_trust in profile["trust"]["allowed_source_trust"],
+        "source-trust-not-allowed",
+        f"{profile['id']}:{source_trust}",
+    )
 
 
-def validate_device_lock(profile: Mapping[str, Any], family: str | None,
-                         evidence: Mapping[str, Any] | None) -> str:
+def validate_device_lock(
+    profile: Mapping[str, Any], family: str | None, evidence: Mapping[str, Any] | None
+) -> str:
     bases = profile["base_profile_by_family"]
     require(family in bases, "invalid-device-family", str(family))
     evidence = evidence or {}
-    missing = [name for name in profile["lock_contract"]["required_fields"]
-               if not isinstance(evidence.get(name), str) or not evidence[name].strip()]
+    missing = [
+        name
+        for name in profile["lock_contract"]["required_fields"]
+        if not isinstance(evidence.get(name), str) or not evidence[name].strip()
+    ]
     require(not missing, "device-lock-required", ", ".join(missing))
     require(evidence["device_family"] == family, "device-lock-mismatch", "device_family")
-    require(re.fullmatch(r"[0-9a-f]{40}", evidence["tested_source_sha"]) is not None,
-            "device-lock-mismatch", "tested_source_sha")
+    require(
+        re.fullmatch(r"[0-9a-f]{40}", evidence["tested_source_sha"]) is not None,
+        "device-lock-mismatch",
+        "tested_source_sha",
+    )
     return bases[family]
 
 
-def resolve_runner_profile(contract: Mapping[str, Any], *, workflow_api: str,
-                           source_trust: str, requested_profile: str | None = None,
-                           caller_inputs: Mapping[str, Any] | None = None,
-                           device_family: str | None = None,
-                           lock_evidence: Mapping[str, Any] | None = None) -> Resolution:
+def resolve_runner_profile(
+    contract: Mapping[str, Any], *, workflow_api: str, source_trust: str,
+    requested_profile: str | None = None, caller_inputs: Mapping[str, Any] | None = None,
+    device_family: str | None = None, lock_evidence: Mapping[str, Any] | None = None,
+) -> Resolution:
     validate_caller_inputs(contract, caller_inputs)
     bindings = workflow_binding_index(contract)
     require(workflow_api in bindings, "unknown-workflow-api", workflow_api)
@@ -344,17 +460,33 @@ def resolve_runner_profile(contract: Mapping[str, Any], *, workflow_api: str,
         execution_id = validate_device_lock(profile, device_family, lock_evidence)
         execution = profiles[execution_id]
         validate_source(execution, "trusted-exact")
-        return Resolution(profile_id, execution_id, selector(execution["default_internal_selector"]),
-                          workflow_api, source_trust, True, tuple(profile["evidence_fields"]))
-    return Resolution(profile_id, profile_id, selector(profile["default_internal_selector"]),
-                      workflow_api, source_trust, bool(profile["privilege"]["device_locked"]),
-                      tuple(profile["evidence_fields"]))
+        return Resolution(
+            profile_id,
+            execution_id,
+            selector(execution["default_internal_selector"]),
+            workflow_api,
+            source_trust,
+            True,
+            tuple(profile["evidence_fields"]),
+        )
+    return Resolution(
+        profile_id,
+        profile_id,
+        selector(profile["default_internal_selector"]),
+        workflow_api,
+        source_trust,
+        bool(profile["privilege"]["device_locked"]),
+        tuple(profile["evidence_fields"]),
+    )
 
 
 def validate_direct_selector(contract: Mapping[str, Any], labels: Sequence[str] | str) -> str:
     selected = (labels,) if isinstance(labels, str) else tuple(labels)
-    require(bool(selected) and all(isinstance(item, str) and item for item in selected),
-            "invalid-selector", "labels")
+    require(
+        bool(selected) and all(isinstance(item, str) and item for item in selected),
+        "invalid-selector",
+        "labels",
+    )
     require(len(selected) == len(set(selected)), "invalid-selector", "duplicates")
     lowered = {item.lower() for item in selected}
     if "self-hosted" in lowered:
@@ -364,6 +496,13 @@ def validate_direct_selector(contract: Mapping[str, Any], labels: Sequence[str] 
             "unsupported-self-hosted-combination",
             ", ".join(selected),
         )
+    if "general" in lowered:
+        sizes = lowered & GENERAL_SIZE_TOKENS
+        if len(sizes) != 1:
+            raise RunnerContractError(
+                "ambiguous-general",
+                "general selectors must include exactly one of tiny, small, medium",
+            )
     if selected == ("buildah",):
         raise RunnerContractError(
             "ambiguous-buildah",
@@ -387,7 +526,10 @@ def validate_direct_selector(contract: Mapping[str, Any], labels: Sequence[str] 
     for key, profile_id in approved.items():
         if len(key) == 1:
             labels_to_profiles.setdefault(key[0], profile_id)
-    unknown = [item for item in selected if item not in labels_to_profiles and item != "self-hosted"]
+    unknown = [
+        item for item in selected
+        if item not in labels_to_profiles and item != "self-hosted"
+    ]
     require(not unknown, "unknown-selector", ", ".join(unknown))
     mapped = {labels_to_profiles[item] for item in selected}
     require(len(mapped) <= 1, "contradictory-labels", ", ".join(sorted(mapped)))
@@ -400,10 +542,15 @@ def parse_bytes(value: str) -> int:
     return int(match.group(1)) * (1024 ** (2 if match.group(2) == "Mi" else 3))
 
 
-def select_buildah_tier(contract: Mapping[str, Any], *, peak_memory_bytes: int,
-                        peak_local_storage_bytes: int, headroom_percent: int = 20) -> str:
-    require(peak_memory_bytes > 0 and peak_local_storage_bytes > 0,
-            "invalid-measurement", "peaks must be positive")
+def select_buildah_tier(
+    contract: Mapping[str, Any], *, peak_memory_bytes: int,
+    peak_local_storage_bytes: int, headroom_percent: int = 20,
+) -> str:
+    require(
+        peak_memory_bytes > 0 and peak_local_storage_bytes > 0,
+        "invalid-measurement",
+        "peaks must be positive",
+    )
     require(0 <= headroom_percent <= 100, "invalid-measurement", "headroom")
     factor = 1 + headroom_percent / 100
     memory = math.ceil(peak_memory_bytes * factor)
@@ -411,80 +558,130 @@ def select_buildah_tier(contract: Mapping[str, Any], *, peak_memory_bytes: int,
     profiles = profile_index(contract)
     for profile_id in contract["buildah_escalation"]["order"]:
         resources = profiles[profile_id]["resources"]
-        if memory <= parse_bytes(resources["memory_limit"]) and storage <= parse_bytes(resources["local_storage_limit"]):
+        if (
+            memory <= parse_bytes(resources["memory_limit"])
+            and storage <= parse_bytes(resources["local_storage_limit"])
+        ):
             return profile_id
-    raise RunnerContractError("buildah-capacity-exceeded", f"memory={memory} storage={storage}")
+    raise RunnerContractError(
+        "buildah-capacity-exceeded",
+        f"memory={memory} storage={storage}",
+    )
 
 
 def validate_buildah_evidence(contract: Mapping[str, Any], evidence: Mapping[str, Any]) -> None:
-    missing = [name for name in contract["buildah_escalation"]["required_evidence"] if name not in evidence]
+    missing = [
+        name for name in contract["buildah_escalation"]["required_evidence"]
+        if name not in evidence
+    ]
     require(not missing, "missing-buildah-evidence", ", ".join(missing))
-    require(isinstance(evidence["peak_memory_bytes"], int) and evidence["peak_memory_bytes"] > 0,
-            "invalid-buildah-evidence", "peak_memory_bytes")
-    require(isinstance(evidence["peak_local_storage_bytes"], int) and evidence["peak_local_storage_bytes"] > 0,
-            "invalid-buildah-evidence", "peak_local_storage_bytes")
-    require(re.fullmatch(r"[0-9a-f]{40}", str(evidence["source_sha"])) is not None,
-            "invalid-buildah-evidence", "source_sha")
-    require(all(isinstance(evidence[name], str) and evidence[name]
-                for name in ("workflow_api", "product_id")),
-            "invalid-buildah-evidence", "workflow_api/product_id")
+    require(
+        isinstance(evidence["peak_memory_bytes"], int) and evidence["peak_memory_bytes"] > 0,
+        "invalid-buildah-evidence",
+        "peak_memory_bytes",
+    )
+    require(
+        isinstance(evidence["peak_local_storage_bytes"], int)
+        and evidence["peak_local_storage_bytes"] > 0,
+        "invalid-buildah-evidence",
+        "peak_local_storage_bytes",
+    )
+    require(
+        re.fullmatch(r"[0-9a-f]{40}", str(evidence["source_sha"])) is not None,
+        "invalid-buildah-evidence",
+        "source_sha",
+    )
+    require(
+        all(isinstance(evidence[name], str) and evidence[name] for name in ("workflow_api", "product_id")),
+        "invalid-buildah-evidence",
+        "workflow_api/product_id",
+    )
 
 
 def generate_runner_mappings(contract: Mapping[str, Any]) -> dict[str, Any]:
     profiles: dict[str, Any] = {}
     for profile in sorted(contract["profiles"], key=lambda item: item["id"]):
         entry = {
-            "kind": profile["kind"], "public_labels": profile["public_labels"],
-            "lifecycle": profile["lifecycle"], "capacity_owner": profile["capacity_owner"],
+            "kind": profile["kind"],
+            "public_labels": profile["public_labels"],
+            "lifecycle": profile["lifecycle"],
+            "capacity_owner": profile["capacity_owner"],
             "privilege": profile["privilege"],
             "allowed_source_trust": profile["trust"]["allowed_source_trust"],
             "allowed_workflow_apis": profile["allowed_workflow_apis"],
             "evidence_fields": profile["evidence_fields"],
         }
         if profile["kind"] == "runner":
-            entry.update(runs_on=profile["default_internal_selector"],
-                         approved_selectors=profile["internal_selectors"])
+            entry.update(
+                runs_on=profile["default_internal_selector"],
+                approved_selectors=profile["internal_selectors"],
+            )
         else:
-            entry.update(runs_on=None, base_profile_by_family=profile["base_profile_by_family"],
-                         lock_contract=profile["lock_contract"])
+            entry.update(
+                runs_on=None,
+                base_profile_by_family=profile["base_profile_by_family"],
+                lock_contract=profile["lock_contract"],
+            )
         profiles[profile["id"]] = entry
-    bindings = {item["api"]: {"strategy": item["strategy"], "profiles": item["profiles"]}
-                for item in sorted(contract["workflow_bindings"], key=lambda item: item["api"])}
+    bindings = {
+        item["api"]: {"strategy": item["strategy"], "profiles": item["profiles"]}
+        for item in sorted(contract["workflow_bindings"], key=lambda item: item["api"])
+    }
     return {
-        "schema_version": 1, "generated_from": CONTRACT_PATH.as_posix(),
+        "schema_version": 1,
+        "generated_from": CONTRACT_PATH.as_posix(),
         "contract_version": contract["contract_version"],
         "scheduling_mechanism": contract["scheduling_mechanism"],
         "aliases": dict(sorted(profile_alias_index(contract).items())),
-        "profiles": profiles, "workflow_bindings": bindings,
+        "profiles": profiles,
+        "workflow_bindings": bindings,
     }
 
 
 def load_workflow_inventory(root: Path) -> Mapping[str, Any]:
     inventory = read_json(root / INVENTORY_PATH)
-    require(isinstance(inventory, dict) and inventory.get("workflow_columns") == INVENTORY_COLUMNS,
-            "invalid-inventory", "columns")
+    require(
+        isinstance(inventory, dict) and inventory.get("workflow_columns") == INVENTORY_COLUMNS,
+        "invalid-inventory",
+        "columns",
+    )
     require(isinstance(inventory.get("repositories"), list), "invalid-inventory", "repositories")
     return inventory
 
 
-def generate_compatibility_report(contract: Mapping[str, Any], inventory: Mapping[str, Any]) -> dict[str, Any]:
+def generate_compatibility_report(
+    contract: Mapping[str, Any], inventory: Mapping[str, Any]
+) -> dict[str, Any]:
     rules = {rule["migration"]: rule for rule in contract["compatibility_rules"]}
     entries: list[dict[str, Any]] = []
     for repository in inventory["repositories"]:
-        require(isinstance(repository, dict) and isinstance(repository.get("workflows"), list),
-                "invalid-inventory", "repository")
+        require(
+            isinstance(repository, dict) and isinstance(repository.get("workflows"), list),
+            "invalid-inventory",
+            "repository",
+        )
         for row in repository["workflows"]:
-            require(isinstance(row, list) and len(row) == len(INVENTORY_COLUMNS),
-                    "invalid-inventory", repository["repository"])
+            require(
+                isinstance(row, list) and len(row) == len(INVENTORY_COLUMNS),
+                "invalid-inventory",
+                repository["repository"],
+            )
             item = dict(zip(INVENTORY_COLUMNS, row, strict=True))
-            require(item["migration"] in rules, "unmapped-workflow",
-                    f"{repository['repository']}:{item['path']} migration={item['migration']}")
+            require(
+                item["migration"] in rules,
+                "unmapped-workflow",
+                f"{repository['repository']}:{item['path']} migration={item['migration']}",
+            )
             rule = rules[item["migration"]]
             entries.append({
-                "repository": repository["repository"], "path": item["path"],
-                "name": item["name"], "status": item["status"],
-                "migration": item["migration"], "trust": item["trust"],
-                "profiles": list(rule["profiles"]), "exception": rule.get("exception"),
+                "repository": repository["repository"],
+                "path": item["path"],
+                "name": item["name"],
+                "status": item["status"],
+                "migration": item["migration"],
+                "trust": item["trust"],
+                "profiles": list(rule["profiles"]),
+                "exception": rule.get("exception"),
             })
     entries.sort(key=lambda item: (item["repository"].lower(), item["path"]))
     return {
@@ -492,27 +689,38 @@ def generate_compatibility_report(contract: Mapping[str, Any], inventory: Mappin
         "generated_from": [CONTRACT_PATH.as_posix(), INVENTORY_PATH.as_posix()],
         "contract_version": contract["contract_version"],
         "captured_at": inventory.get("captured_at"),
-        "workflow_count": len(entries), "repository_count": len(inventory["repositories"]),
+        "workflow_count": len(entries),
+        "repository_count": len(inventory["repositories"]),
         "entries": entries,
     }
 
 
 def render_compatibility_markdown(report: Mapping[str, Any]) -> str:
     lines = [
-        "# Runner compatibility report", "",
-        f"Generated from `{CONTRACT_PATH}` and `{INVENTORY_PATH}`.", "",
+        "# Runner compatibility report",
+        "",
+        f"Generated from `{CONTRACT_PATH}` and `{INVENTORY_PATH}`.",
+        "",
         f"Every one of the **{report['workflow_count']}** inventoried workflow/job families across "
         f"**{report['repository_count']}** repositories has a semantic profile mapping or an explicit exception.",
-        "", "| Repository | Workflow | Migration | Approved profile(s) or exception |",
+        "",
+        "| Repository | Workflow | Migration | Approved profile(s) or exception |",
         "|---|---|---|---|",
     ]
     for item in report["entries"]:
         decision = ", ".join(f"`{name}`" for name in item["profiles"])
         if not decision:
             decision = f"Exception: `{item['exception']}`"
-        lines.append(f"| `{item['repository']}` | `{item['path']}` | `{item['migration']}` | {decision} |")
-    lines += ["", "## Interpretation", "",
-              "This report classifies current inventory; it does not authorize consumer edits or direct infrastructure selectors. Reusable-workflow callers supply bounded intent and the central planner resolves the current internal selector. `retire` entries remain owner cleanup; `other` entries require a linked adoption decision.", ""]
+        lines.append(
+            f"| `{item['repository']}` | `{item['path']}` | `{item['migration']}` | {decision} |"
+        )
+    lines += [
+        "",
+        "## Interpretation",
+        "",
+        "This report classifies current inventory; it does not authorize consumer edits or direct infrastructure selectors. Reusable-workflow callers supply bounded intent and the central planner resolves the current internal selector. `retire` entries remain owner cleanup; `other` entries require a linked adoption decision.",
+        "",
+    ]
     return "\n".join(lines)
 
 
@@ -576,23 +784,35 @@ def main(argv: Sequence[str] | None = None) -> int:
     contract = load_runner_contract(root)
     if args.command == "validate":
         report = generate_compatibility_report(contract, load_workflow_inventory(root))
-        print(f"validated {len(contract['profiles'])} runner profiles and {report['workflow_count']} inventory mappings")
+        print(
+            f"validated {len(contract['profiles'])} runner profiles and "
+            f"{report['workflow_count']} inventory mappings"
+        )
     elif args.command == "generate":
         write_generated_outputs(root, check=args.check)
         print("runner generated outputs are current" if args.check else "generated runner outputs")
     elif args.command == "resolve":
         resolved = resolve_runner_profile(
-            contract, workflow_api=args.api, source_trust=args.source_trust,
-            requested_profile=args.profile, caller_inputs=optional_object(args.caller_inputs_json),
-            device_family=args.device_family, lock_evidence=optional_object(args.lock_evidence_json),
+            contract,
+            workflow_api=args.api,
+            source_trust=args.source_trust,
+            requested_profile=args.profile,
+            caller_inputs=optional_object(args.caller_inputs_json),
+            device_family=args.device_family,
+            lock_evidence=optional_object(args.lock_evidence_json),
         )
         print(canonical_json(resolved.as_dict()), end="")
     elif args.command == "validate-selector":
         print(validate_direct_selector(contract, args.labels))
     else:
-        print(select_buildah_tier(contract, peak_memory_bytes=args.peak_memory_bytes,
-                                  peak_local_storage_bytes=args.peak_local_storage_bytes,
-                                  headroom_percent=args.headroom_percent))
+        print(
+            select_buildah_tier(
+                contract,
+                peak_memory_bytes=args.peak_memory_bytes,
+                peak_local_storage_bytes=args.peak_local_storage_bytes,
+                headroom_percent=args.headroom_percent,
+            )
+        )
     return 0
 
 

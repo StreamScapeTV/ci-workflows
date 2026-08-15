@@ -18,6 +18,28 @@
       "expected_error": "retired-selector"
     },
     {
+      "id": "ambiguous-bare-general-selector",
+      "mode": "selector",
+      "labels": [
+        "linux",
+        "amd64",
+        "general"
+      ],
+      "expected_error": "ambiguous-general"
+    },
+    {
+      "id": "ambiguous-multi-size-general-selector",
+      "mode": "selector",
+      "labels": [
+        "linux",
+        "amd64",
+        "general",
+        "tiny",
+        "small"
+      ],
+      "expected_error": "ambiguous-general"
+    },
+    {
       "id": "retired-combined-buildah-selector",
       "mode": "selector",
       "labels": [
@@ -113,7 +135,25 @@
         ]
       },
       "expected_error": "caller-supplied-selector",
-      "profile_under_test": "portable"
+      "profile_under_test": "general-small"
+    },
+    {
+      "id": "general-tiny-wrong-api",
+      "mode": "resolve",
+      "workflow_api": "validation.node",
+      "source_trust": "trusted-pr",
+      "requested_profile": "general-tiny",
+      "expected_error": "profile-not-allowed",
+      "profile_under_test": "general-tiny"
+    },
+    {
+      "id": "general-medium-wrong-api",
+      "mode": "resolve",
+      "workflow_api": "source.resolve",
+      "source_trust": "trusted-pr",
+      "requested_profile": "general-medium",
+      "expected_error": "profile-not-allowed",
+      "profile_under_test": "general-medium"
     },
     {
       "id": "untrusted-buildah",

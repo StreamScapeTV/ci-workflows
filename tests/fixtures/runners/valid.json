@@ -2,16 +2,45 @@
   "schema_version": 1,
   "cases": [
     {
-      "id": "portable-untrusted-validation",
+      "id": "portable-compatibility-resolves-general-small",
       "workflow_api": "validation.python",
       "source_trust": "untrusted-fork",
       "requested_profile": "portable",
-      "expected_profile": "portable",
-      "expected_execution_profile": "portable",
+      "expected_profile": "general-small",
+      "expected_execution_profile": "general-small",
       "expected_runs_on": [
         "linux",
         "amd64",
-        "general"
+        "general",
+        "small"
+      ]
+    },
+    {
+      "id": "general-tiny-source-resolution",
+      "workflow_api": "source.resolve",
+      "source_trust": "untrusted-fork",
+      "requested_profile": "general-tiny",
+      "expected_profile": "general-tiny",
+      "expected_execution_profile": "general-tiny",
+      "expected_runs_on": [
+        "linux",
+        "amd64",
+        "general",
+        "tiny"
+      ]
+    },
+    {
+      "id": "general-medium-measured-python",
+      "workflow_api": "validation.python",
+      "source_trust": "trusted-pr",
+      "requested_profile": "general-medium",
+      "expected_profile": "general-medium",
+      "expected_execution_profile": "general-medium",
+      "expected_runs_on": [
+        "linux",
+        "amd64",
+        "general",
+        "medium"
       ]
     },
     {

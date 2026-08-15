@@ -97,7 +97,7 @@ permissions:
 jobs:
   plan:
     name: Resolve bounded Node validation plan
-    runs-on: [linux, amd64, general]
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 10
     outputs:
       node_version: ${{ steps.plan.outputs.node_version }}
@@ -127,7 +127,7 @@ jobs:
   validate:
     name: CI / Node validation
     needs: plan
-    runs-on: [linux, amd64, general]
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 90
     outputs:
       result: ${{ steps.node.outcome == 'success' && steps.cleanup.outcome == 'success' && 'success' || 'failure' }}

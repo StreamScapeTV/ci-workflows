@@ -195,7 +195,8 @@ class DeviceWorkflowContractTests(unittest.TestCase):
             self.assertIn(name, device_job)
 
     def test_smoke_is_source_only_and_synthetic(self) -> None:
-        self.assertEqual(3, self.smoke.count("runs-on: [linux, amd64, general]"))
+        self.assertEqual(3, self.smoke.count("runs-on: [linux, amd64, general, small]"))
+        self.assertNotIn("runs-on: [linux, amd64, general]", self.smoke)
         self.assertEqual(1, self.smoke.count("phase: synthetic"))
         for family in ("android", "ios", "tvos"):
             self.assertIn(f"- family: {family}", self.smoke)
@@ -216,9 +217,10 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("if: always()\n    runs-on", finalizer)
 
     def test_direct_synthetic_selectors_are_general_linux_not_semantic_profiles(self) -> None:
-        selector = "runs-on: [linux, amd64, general]"
-        selector_value = "[linux, amd64, general]"
+        selector = "runs-on: [linux, amd64, general, small]"
+        selector_value = "[linux, amd64, general, small]"
         self.assertEqual(2, self.workflow.count(selector))
+        self.assertNotIn("runs-on: [linux, amd64, general]", self.workflow + self.smoke)
         self.assertNotIn("runs-on: portable", self.workflow + self.smoke)
         self.assertIn(
             "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
