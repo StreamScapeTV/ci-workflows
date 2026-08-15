@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "lock_version": "1.0.0",
-  "product_id": "runner-general",
-  "target_id": "linux-amd64",
+  "product_id": "ciw-runner-images",
+  "target_id": "runner-general",
   "input_policy_id": "runner-image-public-v1",
   "platforms": ["linux/amd64"],
   "bases": [
