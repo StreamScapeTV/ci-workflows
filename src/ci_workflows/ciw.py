@@ -18,6 +18,12 @@ from .ciw_device_lock import configure_device_lock, execute_device_lock
 from .ciw_docs import load_command_contract
 from .ciw_flutter import configure_flutter_validate, execute_flutter_validate
 from .ciw_gitops import configure_gitops_validate, execute_gitops_validate
+from .ciw_helm import (
+    configure_helm_publish,
+    configure_helm_validate,
+    execute_helm_publish,
+    execute_helm_validate,
+)
 from .ciw_node import configure_node_validate, execute_node_validate
 from .ciw_oci import (
     configure_oci_publish,
@@ -136,6 +142,14 @@ def _add_python_validate(parser: argparse.ArgumentParser) -> None:
 
 def _add_node_validate(parser: argparse.ArgumentParser) -> None:
     configure_node_validate(parser)
+
+
+def _add_helm_validate(parser: argparse.ArgumentParser) -> None:
+    configure_helm_validate(parser)
+
+
+def _add_helm_publish(parser: argparse.ArgumentParser) -> None:
+    configure_helm_publish(parser)
 
 
 def _add_gitops_validate(parser: argparse.ArgumentParser) -> None:
@@ -487,6 +501,20 @@ def handle_node_validate(
     context: CIWContext,
 ) -> CIWResult:
     return execute_node_validate(args, context)
+
+
+def handle_helm_validate(
+    args: argparse.Namespace,
+    context: CIWContext,
+) -> CIWResult:
+    return execute_helm_validate(args, context)
+
+
+def handle_helm_publish(
+    args: argparse.Namespace,
+    context: CIWContext,
+) -> CIWResult:
+    return execute_helm_publish(args, context)
 
 
 def handle_gitops_validate(
@@ -1054,6 +1082,18 @@ def command_specs() -> tuple[CommandSpec, ...]:
             "validate",
             handle_node_validate,
             _add_node_validate,
+        ),
+        CommandSpec(
+            "helm",
+            "validate",
+            handle_helm_validate,
+            _add_helm_validate,
+        ),
+        CommandSpec(
+            "helm",
+            "publish",
+            handle_helm_publish,
+            _add_helm_publish,
         ),
         CommandSpec(
             "gitops",
