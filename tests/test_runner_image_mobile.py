@@ -18,7 +18,7 @@ def test_mobile_runner_uses_one_pinned_registry_profile() -> None:
     from_lines = [line for line in source.splitlines() if line.startswith("FROM ")]
     assert len(from_lines) == 4
     assert all("docker.io/library/" in line and "@sha256:" in line for line in from_lines)
-    assert "buildpack-deps@sha256:" in from_lines[0]
+    assert "gcc@sha256:" in from_lines[0]
     assert "eclipse-temurin@sha256:" in from_lines[1]
     assert "node@sha256:" in from_lines[2]
     assert "python@sha256:" in from_lines[3]
@@ -46,6 +46,9 @@ def test_mobile_runner_build_is_networkless_and_frontend_neutral() -> None:
         assert token not in source
     assert ".ciw-build-inputs/actions-runner-linux-x64-2.336.0.tar.gz" in source
     assert "runner-mobile-assemble" in source
+    assert "ldconfig -p" in source
+    assert "/out/usr/lib/x86_64-linux-gnu/libatomic.so.1" in source
+    assert "/node-root/usr/lib/x86_64-linux-gnu/libatomic.so.1" not in source
     for destination in (
         "flutter-3.44.8-linux-amd64.tar.xz",
         "android-command-line-tools-15859902-linux.zip",
@@ -103,6 +106,7 @@ def test_mobile_runner_locks_compatible_toolchain() -> None:
         "node",
         "final_python_debian",
     }
+    assert toolchain["oci_stages"]["build_tools"]["reference"] == "docker.io/library/gcc:15-trixie"
 
 
 def test_mobile_runner_materializes_required_android_components() -> None:
@@ -165,6 +169,12 @@ def test_mobile_runner_input_lock_matches_source_stages_and_assets() -> None:
         "final",
     ]
     assert [base["from_ordinal"] for base in lock["bases"]] == [1, 2, 3, 4]
+    assert [base["declared_reference"].split("@", 1)[0] for base in lock["bases"]] == [
+        "docker.io/library/gcc",
+        "docker.io/library/eclipse-temurin",
+        "docker.io/library/node",
+        "docker.io/library/python",
+    ]
     for base in lock["bases"]:
         assert base["declared_reference"].startswith("docker.io/library/")
         assert "@sha256:" in base["declared_reference"]
