@@ -47,7 +47,12 @@ def test_general_runner_build_is_networkless_and_engine_free() -> None:
     assert ".ciw-build-inputs/actions-runner-linux-x64-2.336.0.tar.gz" in source
     assert "rm -f" in source and "/usr/bin/apt-get" in source
     assert "for forbidden in docker dockerd containerd ctr runc buildah podman skopeo sudo" in source
-    assert source.count("cp --parents -pl") == 2
+    assert "for path in /usr/bin/bash" in source
+    assert "for path in /bin/bash" not in source
+    assert "cp --parents -a /usr/lib/git-core /out" in source
+    assert "cp --parents -a /usr/share/git-core /out" in source
+    assert source.count('library_dir="$(readlink -f "$(dirname "${library}")")"') == 2
+    assert source.count('cp -pl "${library}"') == 2
     assert "ldconfig -p" in source
     assert 'libatomic.so.1" {print $nf; exit}' in source
     assert "readlink -f" in source
@@ -153,6 +158,8 @@ def test_general_runner_smoke_proves_runtime_and_trust_boundary() -> None:
         "Python 3.12.14",
         "python3 -m venv",
         "v24.19.0",
+        "git-remote-https",
+        "git init -q",
         "jq-1.8.2",
         "v4.53.3",
         "v1.5.7",
