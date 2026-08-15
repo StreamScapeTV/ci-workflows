@@ -30,7 +30,7 @@ class CIWContractTests(unittest.TestCase):
             for item in contract["commands"]
         }
         self.assertEqual(expected, set(runtime_command_index()))
-        self.assertEqual(28, len(expected))
+        self.assertEqual(33, len(expected))
         self.assertIn("android validate", expected)
         self.assertIn("apple validate", expected)
         self.assertIn("device lock", expected)
@@ -41,6 +41,11 @@ class CIWContractTests(unittest.TestCase):
         self.assertIn("gitops validate", expected)
         self.assertIn("oci publish", expected)
         self.assertIn("oci validate", expected)
+        self.assertIn("maintenance artifacts", expected)
+        self.assertIn("maintenance branches", expected)
+        self.assertIn("maintenance conformance", expected)
+        self.assertIn("maintenance runner-retry", expected)
+        self.assertIn("flux reconcile", expected)
         self.assertEqual(len(command_specs()), len(expected))
         validate_runtime_contract(ROOT)
 
@@ -67,6 +72,8 @@ class CIWContractTests(unittest.TestCase):
                 "policy",
                 "evidence",
                 "release-tag",
+                "maintenance",
+                "flux",
             },
         )
         contract = load_command_contract(ROOT)
@@ -94,6 +101,8 @@ class CIWContractTests(unittest.TestCase):
                 "scripts/ci/gitops.py",
                 "scripts/ci/oci.py",
                 "scripts/ci/oci_publish.py",
+                "scripts/ci/maintenance.py",
+                "scripts/ci/flux_reconcile.py",
             },
         )
         self.assertEqual(wrappers["scripts/ci/android.py"], {"android validate"})
@@ -103,6 +112,19 @@ class CIWContractTests(unittest.TestCase):
         self.assertEqual(wrappers["scripts/ci/gitops.py"], {"gitops validate"})
         self.assertEqual(wrappers["scripts/ci/oci.py"], {"oci validate"})
         self.assertEqual(wrappers["scripts/ci/oci_publish.py"], {"oci publish"})
+        self.assertEqual(
+            wrappers["scripts/ci/maintenance.py"],
+            {
+                "maintenance artifacts",
+                "maintenance branches",
+                "maintenance conformance",
+                "maintenance runner-retry",
+            },
+        )
+        self.assertEqual(
+            wrappers["scripts/ci/flux_reconcile.py"],
+            {"flux reconcile"},
+        )
         for path in wrappers:
             self.assertTrue((ROOT / path).is_file())
 
