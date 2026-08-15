@@ -46,8 +46,8 @@ def test_general_runner_build_is_networkless_and_engine_free() -> None:
 
 def test_general_runner_input_lock_matches_debian_stages() -> None:
     lock = json.loads(INPUT_LOCK.read_text(encoding="utf-8"))
-    assert lock["product_id"] == "runner-general"
-    assert lock["target_id"] == "linux-amd64"
+    assert lock["product_id"] == "ciw-runner-images"
+    assert lock["target_id"] == "runner-general"
     assert lock["input_policy_id"] == "runner-image-public-v1"
     assert [base["stage_id"] for base in lock["bases"]] == [
         "build-tools",
