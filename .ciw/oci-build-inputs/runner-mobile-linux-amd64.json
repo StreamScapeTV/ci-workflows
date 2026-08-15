@@ -11,10 +11,10 @@
       "from_ordinal": 1,
       "stage_marker": "intermediate",
       "kind": "external",
-      "declared_reference": "docker.io/library/buildpack-deps@sha256:3c55df66bea98808f842d6d59aa498012888f4cf82874c4a7f2b3a42a2c9c82e",
+      "declared_reference": "docker.io/library/gcc@sha256:486d5379b2d679f18bca957901d628952aa0ebc2d82817047bbef1dbfbc13d70",
       "dockerfile_platform": null,
       "platforms": ["linux/amd64"],
-      "platform_identities": [{"platform":"linux/amd64","manifest_digest":"sha256:2dd5264c3672c90da4143369e013d5b3528dd0457863f9306c47ce4c7aea8f05","config_digest":"sha256:2e2ae4c4b458dead3aa12dd362471fd4e973ac2b9de0dd7cb5479ac854ef0267"}]
+      "platform_identities": [{"platform":"linux/amd64","manifest_digest":"sha256:11a6bb72b7ca3e5bd8023c0c03b4addc0a7b24da7a028cc2aa84614efe49f18c","config_digest":"sha256:346a1f1c7cb0a0900f509b64ff29b595c6193750b59df9c9f86332a2857dd47f"}]
     },
     {
       "stage_id": "java-runtime",
