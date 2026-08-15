@@ -23,9 +23,15 @@ GUIDED_ACCEPTANCE_PATH = (
     "PlaybackLabGuidedAcceptanceRunFlowTests.swift"
 )
 GUIDED_ACCEPTANCE_BLOB_SHA1 = "2a9149b864bf59079099035c15af54234f54b452"
+LIFECYCLE_EVIDENCE_PATH = (
+    "apple/Tests/StreamscapePlaybackLabSupportTests/"
+    "PlaybackLabLifecycleEvidenceTests.swift"
+)
+LIFECYCLE_EVIDENCE_BLOB_SHA1 = "5df889bbf613ee7f4dabd07ca931aa81fb4f71a3"
 REVIEWED_MEDIA_SENTINELS = {
     MEDIA_PATH: MEDIA_BLOB_SHA1,
     GUIDED_ACCEPTANCE_PATH: GUIDED_ACCEPTANCE_BLOB_SHA1,
+    LIFECYCLE_EVIDENCE_PATH: LIFECYCLE_EVIDENCE_BLOB_SHA1,
 }
 MEDIA_TASKS = {
     "compile": "media-compile",
