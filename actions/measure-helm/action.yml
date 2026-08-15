@@ -1,0 +1,59 @@
+name: Measure Helm publication runner
+description: Capture bounded peak memory and local-storage evidence for trusted Helm publication
+
+inputs:
+  phase:
+    description: start or stop
+    required: true
+  admitted_sha:
+    description: Exact admitted source SHA being measured
+    required: true
+  product_id:
+    description: Exact Helm product ID being measured
+    required: true
+
+outputs:
+  result:
+    value: ${{ steps.measure.outputs.result }}
+  peak_memory_bytes:
+    value: ${{ steps.measure.outputs.peak_memory_bytes }}
+  peak_local_storage_bytes:
+    value: ${{ steps.measure.outputs.peak_local_storage_bytes }}
+  runner_evidence_json:
+    value: ${{ steps.measure.outputs.runner_evidence_json }}
+  selected_profile:
+    value: ${{ steps.measure.outputs.selected_profile }}
+
+runs:
+  using: composite
+  steps:
+    - id: measure
+      name: Capture bounded Helm runner evidence
+      shell: bash
+      env:
+        PYTHONDONTWRITEBYTECODE: "1"
+        INPUT_ADMITTED_SHA: ${{ inputs.admitted_sha }}
+        INPUT_PRODUCT_ID: ${{ inputs.product_id }}
+        CIW_MEASUREMENT_PHASE: ${{ inputs.phase }}
+      run: |
+        set -Eeuo pipefail
+        runtime_root="${RUNNER_TEMP}/ciw-helm-measurement-python-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+        case "${runtime_root}" in "${RUNNER_TEMP}"/*) ;; *) exit 2 ;; esac
+        rm -rf -- "${runtime_root}"
+        mkdir -p -- "${runtime_root}"
+        cleanup_runtime() { rm -rf -- "${runtime_root}"; }
+        trap cleanup_runtime EXIT
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/bootstrap_validation_runtime.py" \
+          --lock "${GITHUB_ACTION_PATH}/../../contracts/action-tool-lock.json" \
+          --target "${runtime_root}"
+        export PYTHONPATH="${runtime_root}:${GITHUB_ACTION_PATH}/../../src"
+        case "${CIW_MEASUREMENT_PHASE}" in
+          start|stop) ;;
+          *)
+            echo "unsupported Helm measurement phase" >&2
+            exit 2
+            ;;
+        esac
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
+          --root "${GITHUB_ACTION_PATH}/../.." \
+          helm publish --phase "measure-${CIW_MEASUREMENT_PHASE}"

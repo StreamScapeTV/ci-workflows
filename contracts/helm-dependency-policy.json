@@ -1,0 +1,14 @@
+{
+  "products": {
+    "agent-state-chart": [],
+    "flux-github-actions-runner-chart": [],
+    "iptv-backend-chart": [
+      {
+        "name": "valkey",
+        "repository": "https://valkey.io/valkey-helm/",
+        "version": "0.11.0"
+      }
+    ]
+  },
+  "schema_version": 1
+}

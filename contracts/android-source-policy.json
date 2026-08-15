@@ -121,6 +121,23 @@
           "git_blob_sha1": "1770311f5b3998b5dbf3f8ee191acd419aa52a56"
         }
       ]
+    },
+    {
+      "id": "streamscape_media_guided_acceptance_redaction_sentinels_v1",
+      "repository": "StreamScapeTV/streamscape-media",
+      "validation_profiles": [
+        "compile",
+        "unit-full",
+        "consumer-script"
+      ],
+      "rule_id": "tracked_secret_detected",
+      "digest_algorithm": "git-blob-sha1",
+      "paths": [
+        {
+          "path": "apple/Tests/StreamscapePlaybackLabSupportTests/PlaybackLabGuidedAcceptanceRunFlowTests.swift",
+          "git_blob_sha1": "2a9149b864bf59079099035c15af54234f54b452"
+        }
+      ]
     }
   ]
 }
