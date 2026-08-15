@@ -15,7 +15,6 @@ PublishPlan = _runtime.PublishPlan
 cleanup = _runtime.cleanup
 inspect_layout = _runtime.inspect_layout
 publication_state_root = _runtime.publication_state_root
-publish = _runtime.publish
 read_back = _runtime.read_back
 replay_decision = _runtime.replay_decision
 residue = _runtime.residue
@@ -187,6 +186,103 @@ def authenticate(
     }
     _runtime._write_state(root / "plan.json", state)
     return {"result": "authenticated", "failure_code": ""}
+
+
+def runner_rebuild_decision(
+    local_digest: str,
+    version_digest: str | None,
+    source_digest: str | None,
+) -> tuple[bool, bool, bool]:
+    """Return runner tag writes for an exact Git-tag rebuild.
+
+    Runner release tags are cacheable projections of the immutable ci-workflows Git
+    tag/commit. A rerun may replace differing OCI tag contents; generic products
+    continue using the stricter issue-#17 immutable-reference conflict policy.
+    """
+
+    _runtime._require(
+        _runtime._DIGEST.fullmatch(local_digest) is not None,
+        "oci_digest_mismatch",
+    )
+    for remote in (version_digest, source_digest):
+        _runtime._require(
+            remote is None or _runtime._DIGEST.fullmatch(remote) is not None,
+            "registry_inspection_failed",
+        )
+    return (
+        version_digest != local_digest,
+        source_digest != local_digest,
+        version_digest is not None or source_digest is not None,
+    )
+
+
+def publish(plan: PublishPlan, environment: Mapping[str, str]) -> dict[str, str]:
+    """Publish runners under repository-tag rebuild semantics; delegate all others."""
+
+    if plan.product_id != _RUNNER_PRODUCT:
+        return _runtime.publish(plan, environment)
+    root = publication_state_root(environment)
+    authfile = _runtime._secure_existing_authfile(root)
+    build_root = _runtime.build_state_root(environment)
+    results: dict[str, Any] = {}
+    any_replayed = False
+    for target in plan.targets:
+        layout = build_root / "layouts" / target.target_id
+        local = _runtime.inspect_layout(layout, target, "validation")
+        local_digest = str(local["manifest_digest"])
+        version_digest = _runtime._inspect_remote_digest(
+            target.version_reference, authfile
+        )
+        source_digest = _runtime._inspect_remote_digest(
+            target.source_reference, authfile
+        )
+        publish_version, publish_source, replayed = runner_rebuild_decision(
+            local_digest, version_digest, source_digest
+        )
+        any_replayed = any_replayed or replayed
+        if publish_version:
+            _runtime._copy(
+                f"oci:{layout}:validation",
+                f"docker://{target.version_reference}",
+                authfile,
+            )
+        if publish_source:
+            _runtime._copy(
+                f"oci:{layout}:validation",
+                f"docker://{target.source_reference}",
+                authfile,
+            )
+        verified_version = _runtime._inspect_remote_digest(
+            target.version_reference, authfile
+        )
+        verified_source = _runtime._inspect_remote_digest(
+            target.source_reference, authfile
+        )
+        _runtime._require(
+            verified_version == local_digest and verified_source == local_digest,
+            "registry_digest_mismatch",
+        )
+        results[target.target_id] = {
+            "repository": target.registry_repository,
+            "version_reference": target.version_reference,
+            "source_reference": target.source_reference,
+            "manifest_digest": local_digest,
+            "local": local,
+            "replayed": replayed,
+        }
+    _runtime._write_state(root / "publication.json", {"targets": results})
+    return {
+        "result": "published",
+        "manifest_digests_json": json.dumps(
+            {
+                key: row["manifest_digest"]
+                for key, row in sorted(results.items())
+            },
+            separators=(",", ":"),
+        ),
+        "replayed": str(any_replayed).lower(),
+        "failure_code": "",
+    }
 
 
 def verify(plan: PublishPlan, environment: Mapping[str, str]) -> dict[str, str]:
