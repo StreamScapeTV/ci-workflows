@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 ROOT = Path(__file__).resolve().parents[2]
-GENERAL_LINUX_SELECTOR = ["linux", "amd64", "general"]
+GENERAL_LINUX_SELECTOR = ["linux", "amd64", "general", "small"]
 
 HOST_PYTHON = {
     "implementation": "cpython",
@@ -80,6 +80,7 @@ FORBIDDEN_SELF_CHECK_PATTERNS = (
     "id-token: write",
     "homelab-portable-linux-x64",
     "runs-on: portable",
+    "runs-on: [linux, amd64, general]",
     "runs-on: macOS",
     "runs-on: apple",
     "runs-on: macos-latest",
@@ -173,17 +174,17 @@ def validate_public_workflow_exceptions() -> None:
         )
 
 
-def _portable_profile(contract: Mapping[str, Any]) -> Mapping[str, Any]:
+def _general_small_profile(contract: Mapping[str, Any]) -> Mapping[str, Any]:
     profiles = contract.get("profiles")
     if not isinstance(profiles, list):
         raise SystemExit("runner profile contract is invalid")
     matches = [
         profile
         for profile in profiles
-        if isinstance(profile, dict) and profile.get("id") == "portable"
+        if isinstance(profile, dict) and profile.get("id") == "general-small"
     ]
     if len(matches) != 1:
-        raise SystemExit("runner contract requires one portable semantic profile")
+        raise SystemExit("runner contract requires one general-small profile")
     return matches[0]
 
 
@@ -210,12 +211,21 @@ def _validate_general_linux_runner_contract() -> None:
         read_json("contracts/runner-profiles.json"),
         "runner profile contract is invalid",
     )
-    portable = _portable_profile(runner_contract)
-    if portable.get("default_internal_selector") != GENERAL_LINUX_SELECTOR:
-        raise SystemExit("portable default selector must be final general Linux")
-    if portable.get("internal_selectors") != [GENERAL_LINUX_SELECTOR]:
+    policy = _mapping(
+        runner_contract.get("direct_selection_policy"),
+        "runner direct-selection policy is invalid",
+    )
+    if policy.get("portable_maps_only_to") != "general-small":
+        raise SystemExit("portable must resolve only to general-small")
+    general_small = _general_small_profile(runner_contract)
+    public_labels = general_small.get("public_labels")
+    if not isinstance(public_labels, list) or "portable" not in public_labels:
+        raise SystemExit("general-small must publish portable compatibility intent")
+    if general_small.get("default_internal_selector") != GENERAL_LINUX_SELECTOR:
+        raise SystemExit("portable compatibility must resolve to sized general-small")
+    if general_small.get("internal_selectors") != [GENERAL_LINUX_SELECTOR]:
         raise SystemExit(
-            "portable selector set must contain only final general Linux"
+            "general-small selector set must contain only sized general Linux"
         )
 
 
@@ -267,7 +277,7 @@ def _validate_verified_interpreter_use(source: str) -> None:
 def validate_self_check() -> None:
     source = read_text(".github/workflows/self-check.yml")
     required = (
-        "runs-on: [linux, amd64, general]",
+        "runs-on: [linux, amd64, general, small]",
         "timeout-minutes: 10",
         "permissions:\n  actions: read\n  contents: read",
         "Admit trusted workflow source",
@@ -308,9 +318,9 @@ def validate_self_check() -> None:
         source,
         re.MULTILINE,
     )
-    if runs_on != ["[linux, amd64, general]"]:
+    if runs_on != ["[linux, amd64, general, small]"]:
         raise SystemExit(
-            "self-check must use exactly [linux, amd64, general], "
+            "self-check must use exactly [linux, amd64, general, small], "
             f"found {runs_on!r}"
         )
     if re.search(r"runs-on:\s*.*\$\{\{", source):
