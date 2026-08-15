@@ -289,6 +289,61 @@
       "trust_class": "shared-foundation"
     },
     {
+      "cleanup": "workflow state cleanup under if: always()",
+      "domain": "maintenance",
+      "failure": "MaintenanceError.code",
+      "handler": "ci_workflows.ciw_maintenance.execute_maintenance_artifacts",
+      "inputs": ["repository_scope", "dry_run", "request_id", "MAINTENANCE_GITHUB_TOKEN"],
+      "operation": "artifacts",
+      "outputs": ["result", "mutation_count", "request_id", "failure_code"],
+      "side_effects": ["enumerates bounded allowlisted repositories", "deletes only expected-state unretained Actions artifacts when dry_run is false"],
+      "trust_class": "trusted-maintenance"
+    },
+    {
+      "cleanup": "workflow state cleanup under if: always()",
+      "domain": "maintenance",
+      "failure": "MaintenanceError.code",
+      "handler": "ci_workflows.ciw_maintenance.execute_maintenance_branches",
+      "inputs": ["project_id", "pr_number", "expected_head_sha", "dry_run", "request_id", "MAINTENANCE_GITHUB_TOKEN"],
+      "operation": "branches",
+      "outputs": ["result", "mutation_count", "request_id", "failure_code"],
+      "side_effects": ["revalidates exact merged pull-request and branch identity", "deletes only the unchanged expected merged branch when dry_run is false"],
+      "trust_class": "trusted-maintenance"
+    },
+    {
+      "cleanup": "workflow state cleanup under if: always()",
+      "domain": "maintenance",
+      "failure": "MaintenanceError.code",
+      "handler": "ci_workflows.ciw_maintenance.execute_maintenance_conformance",
+      "inputs": ["repository_scope", "shared_reference_target_sha", "dry_run", "request_id", "MAINTENANCE_GITHUB_TOKEN"],
+      "operation": "conformance",
+      "outputs": ["result", "mutation_count", "report_issue_url", "request_id", "failure_code"],
+      "side_effects": ["scans bounded organization workflow and product conformance", "writes only the deterministic central report issue when dry_run is false", "emits shared-reference updates as review-only proposals"],
+      "trust_class": "trusted-maintenance"
+    },
+    {
+      "cleanup": "workflow state cleanup under if: always()",
+      "domain": "maintenance",
+      "failure": "MaintenanceError.code",
+      "handler": "ci_workflows.ciw_maintenance.execute_maintenance_runner_retry",
+      "inputs": ["project_id", "run_id", "expected_head_sha", "dry_run", "request_id", "MAINTENANCE_GITHUB_TOKEN"],
+      "operation": "runner-retry",
+      "outputs": ["result", "retry_run_id", "request_id", "failure_code"],
+      "side_effects": ["proves a bounded allowlisted workflow failure is runner infrastructure", "reruns only the unchanged failed job set when dry_run is false"],
+      "trust_class": "trusted-maintenance"
+    },
+    {
+      "cleanup": "Flux state and credentials cleaned under if: always()",
+      "domain": "flux",
+      "failure": "MaintenanceError.code",
+      "handler": "ci_workflows.ciw_maintenance.execute_flux_reconcile",
+      "inputs": ["admitted_sha", "target_id", "product_id", "operation", "policy_path", "allowlist_path", "request_id", "dry_run", "FLUX_KUBECONFIG", "FLUX_SOPS_AGE_KEY"],
+      "operation": "reconcile",
+      "outputs": ["result", "reconciliation_state", "request_id", "failure_code"],
+      "side_effects": ["loads exact Flux-owned checked-in allowlist and policy", "applies only the exact authorized target when dry_run is false", "verifies reconciliation and removes run-owned state"],
+      "trust_class": "flux-authorized"
+    },
+    {
       "cleanup": "none",
       "domain": "release-tag",
       "failure": "ReleaseTagError.code",
@@ -322,7 +377,9 @@
     {"commands": ["oci validate"], "path": "scripts/ci/oci.py"},
     {"commands": ["oci publish"], "path": "scripts/ci/oci_publish.py"},
     {"commands": ["android validate"], "path": "scripts/ci/android.py"},
-    {"commands": ["apple validate"], "path": "scripts/ci/apple.py"}
+    {"commands": ["apple validate"], "path": "scripts/ci/apple.py"},
+    {"commands": ["maintenance artifacts", "maintenance branches", "maintenance conformance", "maintenance runner-retry"], "path": "scripts/ci/maintenance.py"},
+    {"commands": ["flux reconcile"], "path": "scripts/ci/flux_reconcile.py"}
   ],
   "entry_point": "scripts/ci/ciw.py",
   "forbidden_dispatch_inputs": ["arbitrary_command", "shell", "callback", "callback_url", "handler", "function_name", "module_name", "runner", "runs_on", "runner_labels", "container_engine", "secret_name", "deletion_path", "workspace_root"],
