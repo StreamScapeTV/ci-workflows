@@ -54,6 +54,11 @@ class DeviceLockWorkflowAdmissionTests(unittest.TestCase):
         self.assertIn("GITHUB_RUN_ATTEMPT", run)
         self.assertNotIn("set -x", run)
 
+    def test_trigger_remains_pull_request_only(self) -> None:
+        self.assertEqual({"pull_request"}, set(self.workflow["on"]))
+        self.assertNotIn("push:", self.source)
+        self.assertNotIn("workflow_dispatch", self.source)
+
 
 if __name__ == "__main__":
     unittest.main()

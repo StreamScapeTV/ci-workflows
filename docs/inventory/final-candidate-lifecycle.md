@@ -2,7 +2,7 @@
 
 - Audited: `2026-08-14`
 - Repositories: `13`
-- Current workflow files: `95`
+- Current workflow files: `96`
 - Intermediate checkpoint prefix: `[skip push ci] `
 
 This report classifies the current live workflow-file set. A workflow can have multiple trigger classes when one file serves more than one authorized event family.
@@ -66,12 +66,13 @@ This report classifies the current live workflow-file set. A workflow can have m
 ## StreamScapeTV/ci-workflows
 
 - Protected integration branch: `main`
-- Workflow files: `26`
+- Workflow files: `27`
 
 | Workflow path | Trigger class(es) | Finding | Remediation owner |
 |---|---|---|---|
 | `.github/workflows/android-validation-smoke.yml` | `maintenance-control` | — | — |
 | `.github/workflows/apple-certification-smoke.yml` | `maintenance-control` | — | — |
+| `.github/workflows/apple-physical-device-lock-smoke.yml` | `maintenance-control` | — | — |
 | `.github/workflows/apple-validation-smoke.yml` | `maintenance-control` | — | — |
 | `.github/workflows/device-lock-contract-smoke.yml` | `maintenance-control` | — | — |
 | `.github/workflows/device-validation-contract-smoke.yml` | `maintenance-control` | — | — |

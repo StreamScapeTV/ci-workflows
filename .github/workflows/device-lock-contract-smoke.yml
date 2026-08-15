@@ -33,9 +33,17 @@ jobs:
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: [linux, amd64, general]
     timeout-minutes: 30
-    env:
-      CIW_DEVICE_LOCK_ROOT: ${{ runner.temp }}/ciw-device-lock-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
+      - name: Initialize synthetic private backend path
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "${RUNNER_TEMP:-}"
+          test -d "${RUNNER_TEMP}"
+          test -n "${GITHUB_ENV:-}"
+          printf 'CIW_DEVICE_LOCK_ROOT=%s/ciw-device-lock-%s-%s\n' \
+            "${RUNNER_TEMP}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}" >> "${GITHUB_ENV}"
+
       - name: Check out exact pull request source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
