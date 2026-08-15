@@ -1,8 +1,8 @@
 # Final Candidate Lifecycle Inventory
 
-- Audited: `2026-08-13`
+- Audited: `2026-08-14`
 - Repositories: `13`
-- Current workflow files: `90`
+- Current workflow files: `95`
 - Intermediate checkpoint prefix: `[skip push ci] `
 
 This report classifies the current live workflow-file set. A workflow can have multiple trigger classes when one file serves more than one authorized event family.
@@ -66,7 +66,7 @@ This report classifies the current live workflow-file set. A workflow can have m
 ## StreamScapeTV/ci-workflows
 
 - Protected integration branch: `main`
-- Workflow files: `21`
+- Workflow files: `26`
 
 | Workflow path | Trigger class(es) | Finding | Remediation owner |
 |---|---|---|---|
@@ -74,16 +74,21 @@ This report classifies the current live workflow-file set. A workflow can have m
 | `.github/workflows/apple-certification-smoke.yml` | `maintenance-control` | — | — |
 | `.github/workflows/apple-validation-smoke.yml` | `maintenance-control` | — | — |
 | `.github/workflows/device-lock-contract-smoke.yml` | `maintenance-control` | — | — |
+| `.github/workflows/device-validation-contract-smoke.yml` | `maintenance-control` | — | — |
 | `.github/workflows/flutter-apple-validation-smoke.yml` | `maintenance-control` | — | — |
 | `.github/workflows/flutter-validation-smoke.yml` | `maintenance-control` | — | — |
 | `.github/workflows/gitops-validation-smoke.yml` | `maintenance-control` | — | — |
+| `.github/workflows/helm-validation-smoke.yml` | `maintenance-control` | — | — |
 | `.github/workflows/issue-dependency-sync.yml` | `maintenance-control` | — | — |
 | `.github/workflows/oci-build-smoke.yml` | `maintenance-control` | — | — |
 | `.github/workflows/oci-publish-smoke.yml` | `maintenance-control` | — | — |
 | `.github/workflows/reusable-android.yml` | `maintenance-control` | — | — |
 | `.github/workflows/reusable-apple.yml` | `maintenance-control` | — | — |
+| `.github/workflows/reusable-device.yml` | `authorized-publication-deployment-device-live-evidence` | — | — |
 | `.github/workflows/reusable-flutter.yml` | `maintenance-control` | — | — |
 | `.github/workflows/reusable-gitops-validation.yml` | `maintenance-control` | — | — |
+| `.github/workflows/reusable-helm-publish.yml` | `authorized-publication-deployment-device-live-evidence` | — | — |
+| `.github/workflows/reusable-helm-validate.yml` | `maintenance-control` | — | — |
 | `.github/workflows/reusable-node.yml` | `maintenance-control` | — | — |
 | `.github/workflows/reusable-oci-build.yml` | `maintenance-control` | — | — |
 | `.github/workflows/reusable-oci-publish.yml` | `authorized-publication-deployment-device-live-evidence` | — | — |
