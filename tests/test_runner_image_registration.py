@@ -33,6 +33,7 @@ def test_runner_image_policy_and_general_target_are_registered() -> None:
 
     product = contract["products"]["ciw-runner-images"]
     assert product["repository"] == "StreamScapeTV/ci-workflows"
+    assert product["workspace_profile"] == "container"
     assert product["adoption_ready"] is False
     assert product["independent_bootstrap"] is True
     assert [target.target_id for target in contract["_products"]["ciw-runner-images"]["targets"]] == [
