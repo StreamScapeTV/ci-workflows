@@ -85,7 +85,7 @@ def render(contract: dict) -> str:
             ]
         )
         if repo.get("remediation_issue"):
-            lines.append(f"- Repository remediation: `{repo['remediation_issue']}")
+            lines.append(f"- Repository remediation: `{repo['remediation_issue']}`")
         lines.extend(
             [
                 "",
