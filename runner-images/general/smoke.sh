@@ -5,6 +5,7 @@ test "$(id -un)" = runner
 test "$(id -u)" = 1001
 test -x /home/runner/run.sh
 test -x /home/runner/bin/Runner.Listener
+bash -n /home/runner/run.sh
 grep -Fx 'ID=debian' /etc/os-release
 grep -Fx 'VERSION_CODENAME=trixie' /etc/os-release
 ! grep -Eiq 'ubuntu|alpine|fedora|rhel|suse' /etc/os-release
