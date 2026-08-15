@@ -147,6 +147,41 @@
       "release": "issue #125 immutable private-action checkpoint",
       "runtime": "composite",
       "source": "https://github.com/StreamScapeTV/ci-workflows/tree/8445e63dd9fa9468b60b6d0c61e543da9681b47b/actions/validate-gitops"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/maintenance-artifacts",
+      "sha": "a464a023cf654d00172d62ebd1700c51ce2c75bb",
+      "release": "issue #20 complete maintenance action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/a464a023cf654d00172d62ebd1700c51ce2c75bb/actions/maintenance-artifacts"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/maintenance-branches",
+      "sha": "a464a023cf654d00172d62ebd1700c51ce2c75bb",
+      "release": "issue #20 complete maintenance action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/a464a023cf654d00172d62ebd1700c51ce2c75bb/actions/maintenance-branches"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/maintenance-conformance",
+      "sha": "a464a023cf654d00172d62ebd1700c51ce2c75bb",
+      "release": "issue #20 complete maintenance action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/a464a023cf654d00172d62ebd1700c51ce2c75bb/actions/maintenance-conformance"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/maintenance-runner-retry",
+      "sha": "a464a023cf654d00172d62ebd1700c51ce2c75bb",
+      "release": "issue #20 complete maintenance action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/a464a023cf654d00172d62ebd1700c51ce2c75bb/actions/maintenance-runner-retry"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/flux-reconcile",
+      "sha": "a464a023cf654d00172d62ebd1700c51ce2c75bb",
+      "release": "issue #20 complete maintenance action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/a464a023cf654d00172d62ebd1700c51ce2c75bb/actions/flux-reconcile"
     }
   ],
   "approved_internal_actions": [
