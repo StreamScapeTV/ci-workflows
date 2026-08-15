@@ -102,7 +102,7 @@ jobs:
             annotation="$("${VERIFIED_PYTHON}" - "${test_log}" <<'PY'
           from pathlib import Path
           import sys
-          text = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")[-12000:]
+          text = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")[-3500:]
           print(text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A"))
           PY
           )"
