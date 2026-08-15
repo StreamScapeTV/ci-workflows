@@ -2,7 +2,7 @@
 
 - Audited: `2026-08-14`
 - Repositories: `13`
-- Current workflow files: `96`
+- Current workflow files: `97`
 - Intermediate checkpoint prefix: `[skip push ci] `
 
 This report classifies the current live workflow-file set. A workflow can have multiple trigger classes when one file serves more than one authorized event family.
@@ -66,7 +66,7 @@ This report classifies the current live workflow-file set. A workflow can have m
 ## StreamScapeTV/ci-workflows
 
 - Protected integration branch: `main`
-- Workflow files: `27`
+- Workflow files: `28`
 
 | Workflow path | Trigger class(es) | Finding | Remediation owner |
 |---|---|---|---|
@@ -96,6 +96,7 @@ This report classifies the current live workflow-file set. A workflow can have m
 | `.github/workflows/reusable-python.yml` | `maintenance-control` | — | — |
 | `.github/workflows/reusable-resolve-source.yml` | `maintenance-control` | — | — |
 | `.github/workflows/reusable-tag-image-chart.yml` | `authorized-publication-deployment-device-live-evidence` | — | — |
+| `.github/workflows/runner-images-validation.yml` | `final-pull-request-validation`<br>`maintenance-control` | — | — |
 | `.github/workflows/self-check.yml` | `final-pull-request-validation`<br>`protected-integration-release-validation` | — | — |
 
 ## StreamScapeTV/directus-front
