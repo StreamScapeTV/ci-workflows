@@ -51,7 +51,7 @@ def command_specs() -> tuple[CommandSpec, ...]:
 def runtime_command_index() -> dict[str, CommandSpec]:
     """Return the released current-main runtime index for registry validation."""
 
-    return {spec.command: spec for spec in _base_command_specs()}
+    return {spec.key: spec for spec in _base_command_specs()}
 
 
 def validate_runtime_contract(root):
