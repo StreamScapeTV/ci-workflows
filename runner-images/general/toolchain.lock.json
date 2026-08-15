@@ -6,34 +6,48 @@
     "network_during_image_build": false,
     "ambient_credentials": false,
     "inherits_streamscape_runner_image": false,
-    "forbidden_tools": ["docker", "dockerd", "containerd", "buildah", "podman", "skopeo"]
+    "final_distribution": "debian-trixie",
+    "release_authority": "ci-workflows-git-tag",
+    "forbidden_tools": ["docker", "dockerd", "containerd", "ctr", "runc", "buildah", "podman", "skopeo", "sudo"]
   },
   "toolchain": {
     "actions_runner": "2.336.0",
-    "python": "3.12.13",
+    "python": "3.12.14",
     "node": "24.19.0",
+    "jq": "1.8.2",
     "yq": "4.53.3",
-    "kubectl": "1.36.3",
+    "zstd": "1.5.7",
+    "kubectl": "1.36.2",
     "helm": "4.2.4",
     "kustomize": "5.8.1"
   },
   "oci_stages": {
-    "actions_runner": {
-      "version": "2.336.0",
-      "reference": "ghcr.io/actions/actions-runner:2.336.0",
-      "root_digest": "sha256:0cfdcc701ce933c6d243c6b0b2da767366dc9f2e99961d4c3754b0b78084cdda",
-      "linux_amd64_manifest_digest": "sha256:a1919047b038c38871d667c58cfdc7a878452711ab1212fb6036188f27a7ab16",
-      "linux_amd64_config_digest": "sha256:bd6fe162bb4ab4821daa8d694e20d779865618825d30c94342a0228b89947305"
+    "build_tools": {
+      "reference": "docker.io/library/buildpack-deps:trixie",
+      "root_digest": "sha256:3c55df66bea98808f842d6d59aa498012888f4cf82874c4a7f2b3a42a2c9c82e",
+      "linux_amd64_manifest_digest": "sha256:2dd5264c3672c90da4143369e013d5b3528dd0457863f9306c47ce4c7aea8f05",
+      "linux_amd64_config_digest": "sha256:2e2ae4c4b458dead3aa12dd362471fd4e973ac2b9de0dd7cb5479ac854ef0267"
+    },
+    "node_runtime": {
+      "reference": "docker.io/library/node:24.19.0-trixie-slim",
+      "root_digest": "sha256:0711b541c1c33a8a530ac4f0d391baa9a15b3d804695b1b24a47daa5fb60e74d",
+      "linux_amd64_manifest_digest": "sha256:f2925910482dc53394bc0034c5f4abffcd01de400794c050ca343fe0d733b486",
+      "linux_amd64_config_digest": "sha256:baa0de81b831420deb6cce9058048718cbd8fed632048e8552551c8bc36cde4e"
+    },
+    "final_python_debian": {
+      "reference": "docker.io/library/python:3.12.14-slim-trixie",
+      "root_digest": "sha256:0bdd92d1210a488ce24366c2e1d3b2390e923dcd70a0ce2f673b6f1ce090f556",
+      "linux_amd64_manifest_digest": "sha256:876416ecde9aca2bcc90e1fb0c7a9500bbf749f5788b70f82d4c5a5c2357f8b4",
+      "linux_amd64_config_digest": "sha256:613c5454f914638dc2bfcab71c8630de0089f7ebff0a7239b54f34866c4b6051"
     }
   },
-  "external_runtime_assets": {
-    "python": {
-      "source": "astral-sh/python-build-standalone@20260807",
-      "sha256": "5bd6f36fd7ef02b909234c94dca9994ef0da06ace3bc3cece4fe27870e9cdbbe"
-    },
-    "node": {
-      "source": "nodejs.org/dist/v24.19.0/node-v24.19.0-linux-x64.tar.gz",
-      "sha256": "f625d97cd707df4ff96254916fbc5ff014f09c09effe5a1e0ca8f6d41a8789d4"
-    }
+  "external_assets": {
+    "actions_runner": "sha256:b0ab71ccd65cd421e6e8757356feab08966f5acc276bef3404ed20a070e6c8e9",
+    "zstd_source": "sha256:eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3",
+    "jq": "sha256:b1c22172dd303f3be49e935aa56aa48a8b7a46e0bc838b4997d3bb451495870f",
+    "yq": "sha256:fa52a4e758c63d38299163fbdd1edfb4c4963247918bf9c1c5d31d84789eded4",
+    "kubectl": "sha256:1e9045ec32bea85da43de85f0065358529ea7c7a152eca78154fba5b58c27d82",
+    "helm": "sha256:c306b46f719b0a4da32d0f78ee21bf90ce8d602f15b22ab753f0674d1670a7f3",
+    "kustomize": "sha256:029a7f0f4e1932c52a0476cf02a0fd855c0bb85694b82c338fc648dcb53a819d"
   }
 }
