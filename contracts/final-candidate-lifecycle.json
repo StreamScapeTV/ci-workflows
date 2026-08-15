@@ -42,6 +42,7 @@
     {"integration_branch":"main","repository":"StreamScapeTV/ci-workflows","workflows":[
       {"path":".github/workflows/android-validation-smoke.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/apple-certification-smoke.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/apple-physical-device-lock-smoke.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/apple-validation-smoke.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/device-lock-contract-smoke.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/device-validation-contract-smoke.yml","trigger_classes":["maintenance-control"]},
