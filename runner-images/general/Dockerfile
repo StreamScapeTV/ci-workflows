@@ -26,7 +26,7 @@ RUN set -eux; \
         | xargs -0 -r -n1 sh -c 'ldd "$1" 2>/dev/null || true' sh; \
     } | awk '/=> \/.+ \(/ {print $(NF-1)} /^\/.+ \(/ {print $1}' \
       | sort -u \
-      | while read -r library; do cp --parents -a "${library}" /out; done; \
+      | while read -r library; do cp --parents -pL "${library}" /out; done; \
     for pattern in \
       '/usr/lib/x86_64-linux-gnu/libicu*.so.*' \
       '/usr/lib/x86_64-linux-gnu/libkrb5*.so.*' \
@@ -50,7 +50,7 @@ RUN set -eux; \
     ldd /usr/local/bin/node \
       | awk '/=> \/.+ \(/ {print $(NF-1)} /^\/.+ \(/ {print $1}' \
       | sort -u \
-      | while read -r library; do cp --parents -a "${library}" /node-root; done; \
+      | while read -r library; do cp --parents -pL "${library}" /node-root; done; \
     atomic_library="$(ldconfig -p | awk '$1 == "libatomic.so.1" {print $NF; exit}')"; \
     test -n "${atomic_library}"; \
     atomic_real="$(readlink -f "${atomic_library}")"; \
