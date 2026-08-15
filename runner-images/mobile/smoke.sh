@@ -32,13 +32,14 @@ adb version >/dev/null
 "${ANDROID_HOME}/build-tools/37.0.0/aapt2" version >/dev/null
 "${ANDROID_HOME}/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/clang" --version >/dev/null
 
-command -v git bash curl tar gzip unzip >/dev/null
+command -v git bash curl tar gzip zip unzip >/dev/null
 git --version >/dev/null
 test -x "$(git --exec-path)/git-remote-https"
 test -d /usr/share/git-core/templates
 curl --version | head -n1 | grep -F 'curl '
 tar --version | head -n1 >/dev/null
 gzip --version | head -n1 >/dev/null
+zip --version | grep -F 'ci-workflows zip 1.0'
 unzip --version | grep -F 'ci-workflows unzip 1.0'
 
 test -s "${ANDROID_HOME}/platforms/android-36/android.jar"
