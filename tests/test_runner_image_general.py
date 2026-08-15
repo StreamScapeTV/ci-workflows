@@ -18,10 +18,10 @@ def test_general_runner_uses_pinned_debian_only_stages() -> None:
     from_lines = [line for line in source.splitlines() if line.startswith("FROM ")]
     assert len(from_lines) == 3
     assert all("docker.io/library/" in line and "@sha256:" in line for line in from_lines)
-    assert "buildpack-deps@sha256:" in from_lines[0]
+    assert "gcc@sha256:" in from_lines[0]
     assert "node@sha256:" in from_lines[1]
     assert "python@sha256:" in from_lines[2]
-    assert "buildpack-deps:trixie@" not in source
+    assert "gcc:15-trixie@" not in source
     assert "node:24.19.0-trixie-slim@" not in source
     assert "python:3.12.14-slim-trixie@" not in source
     assert "# syntax=" not in source.lower()
@@ -56,11 +56,11 @@ def test_general_runner_build_is_networkless_and_engine_free() -> None:
     assert "cp --parents -a /usr/share/git-core /out" in source
     assert source.count('library_dir="$(readlink -f "$(dirname "${library}")")"') == 2
     assert source.count('cp -pl "${library}"') == 0
-    assert source.count('cp -pl "${library}"'.replace("-pl", "-pL")) == 2
+    assert source.count('cp -pl "${library}"'.replace("-pl", "-pL").lower()) == 2
     assert "ldconfig -p" in source
     assert 'libatomic.so.1" {print $nf; exit}' in source
-    assert "readlink -f" in source
-    assert "/node-root/usr/lib/x86_64-linux-gnu/libatomic.so.1" in source
+    assert "/out/usr/lib/x86_64-linux-gnu/libatomic.so.1" in source
+    assert "/node-root/usr/lib/x86_64-linux-gnu/libatomic.so.1" not in source
     assert "for library in /usr/lib/x86_64-linux-gnu/libatomic.so.1*" not in source
 
 
@@ -80,7 +80,7 @@ def test_general_runner_input_lock_matches_debian_stages() -> None:
         "final",
     ]
     assert [base["declared_reference"].split("@", 1)[0] for base in lock["bases"]] == [
-        "docker.io/library/buildpack-deps",
+        "docker.io/library/gcc",
         "docker.io/library/node",
         "docker.io/library/python",
     ]
@@ -140,6 +140,7 @@ def test_general_runner_toolchain_is_release_readable() -> None:
         "node_runtime",
         "final_python_debian",
     }
+    assert toolchain["oci_stages"]["build_tools"]["reference"] == "docker.io/library/gcc:15-trixie"
     assert toolchain["external_assets"]["actions_runner"] == (
         "sha256:04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d"
     )
