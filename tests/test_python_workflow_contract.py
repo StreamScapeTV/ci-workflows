@@ -81,7 +81,7 @@ class PythonWorkflowContractTests(unittest.TestCase):
         jobs = self.workflow["jobs"]
         self.assertEqual(set(jobs), {"plan", "validate"})
         self.assertEqual(
-            jobs["plan"]["runs-on"], ["linux", "amd64", "general"]
+            jobs["plan"]["runs-on"], ["linux", "amd64", "general", "small"]
         )
         self.assertEqual(
             jobs["validate"]["runs-on"],
@@ -91,6 +91,7 @@ class PythonWorkflowContractTests(unittest.TestCase):
         self.assertEqual(jobs["validate"]["name"], "CI / Python validation")
         self.assertNotIn("self-hosted", self.workflow_text)
         self.assertNotIn("runs-on: portable", self.workflow_text)
+        self.assertNotIn("runs-on: [linux, amd64, general]", self.workflow_text)
         self.assertNotIn("docker-capable", self.workflow_text)
 
     def test_private_central_helpers_are_immutable_without_central_clone(self) -> None:

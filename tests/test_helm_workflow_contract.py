@@ -129,12 +129,13 @@ class HelmWorkflowContractTests(unittest.TestCase):
             self.assertEqual(workflow["permissions"], {"contents": "read"})
             self.assertEqual(
                 workflow["jobs"]["plan"]["runs-on"],
-                ["linux", "amd64", "general"],
+                ["linux", "amd64", "general", "small"],
             )
             self.assertEqual(
                 workflow["jobs"][job]["runs-on"],
                 "${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
             )
+            self.assertNotIn("runs-on: [linux, amd64, general]", text)
             self.assertNotIn("self-hosted", text)
             self.assertNotIn("runs-on: mobile", text)
             self.assertIn("if: always()", text)
