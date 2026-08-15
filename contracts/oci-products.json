@@ -414,7 +414,9 @@
             "entrypoint": [
               "/bin/cat"
             ],
-            "command": [],
+            "command": [
+              "/ciw-input/README.md"
+            ],
             "ports": [],
             "required_files": [
               "/ciw-input/README.md"
