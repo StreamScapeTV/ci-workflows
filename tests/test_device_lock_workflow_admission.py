@@ -54,6 +54,17 @@ class DeviceLockWorkflowAdmissionTests(unittest.TestCase):
         self.assertIn("GITHUB_RUN_ATTEMPT", run)
         self.assertNotIn("set -x", run)
 
+    def test_focused_tests_use_locked_validation_runtime_and_clean_it(self) -> None:
+        contract = self.workflow["jobs"]["contract_smoke"]
+        focused = next(step for step in contract["steps"] if step.get("id") == "focused")
+        run = focused["run"]
+        self.assertIn("bootstrap_validation_runtime.py", run)
+        self.assertIn("contracts/action-tool-lock.json", run)
+        self.assertIn("RUNNER_TEMP", run)
+        self.assertIn("trap cleanup_validation_root EXIT", run)
+        self.assertIn('PYTHONPATH="${validation_root}/python:.ciw/src"', run)
+        self.assertIn('test ! -e "${validation_root}"', run)
+
     def test_trigger_remains_pull_request_only(self) -> None:
         self.assertEqual({"pull_request"}, set(self.workflow["on"]))
         self.assertNotIn("push:", self.source)

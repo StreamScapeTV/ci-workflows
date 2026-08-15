@@ -80,7 +80,20 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.ciw/src \
+          validation_root="${RUNNER_TEMP}/ciw-device-lock-validation-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cleanup_validation_root() {
+            rm -rf -- "${validation_root}"
+            test ! -e "${validation_root}"
+          }
+          trap cleanup_validation_root EXIT
+          rm -rf -- "${validation_root}"
+          mkdir -p "${validation_root}/python"
+          PYTHONDONTWRITEBYTECODE=1 python3 .ciw/scripts/ci/bootstrap_validation_runtime.py \
+            --lock .ciw/contracts/action-tool-lock.json \
+            --target "${validation_root}/python"
+          test -f "${validation_root}/python/yaml/__init__.py"
+          PYTHONDONTWRITEBYTECODE=1 \
+            PYTHONPATH="${validation_root}/python:.ciw/src" \
             python3 -m unittest discover -s .ciw/tests -p 'test_device_lock*.py' -v
 
       - id: acquire
