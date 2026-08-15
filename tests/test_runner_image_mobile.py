@@ -47,7 +47,12 @@ def test_mobile_runner_build_is_networkless_and_frontend_neutral() -> None:
     assert ".ciw-build-inputs/actions-runner-linux-x64-2.336.0.tar.gz" in source
     assert "runner-mobile-assemble" in source
     assert "ldconfig -p" in source
-    assert "/out/usr/lib/x86_64-linux-gnu/libatomic.so.1" in source
+    for runtime in (
+        "/out/usr/lib/x86_64-linux-gnu/libatomic.so.1",
+        "/out/usr/lib/x86_64-linux-gnu/libstdc++.so.6",
+        "/out/usr/lib/x86_64-linux-gnu/libgcc_s.so.1",
+    ):
+        assert runtime in source
     assert "/node-root/usr/lib/x86_64-linux-gnu/libatomic.so.1" not in source
     for destination in (
         "flutter-3.44.8-linux-amd64.tar.xz",
@@ -220,6 +225,8 @@ def test_mobile_runner_product_and_smoke_contract() -> None:
         "ID=debian",
         "VERSION_CODENAME=trixie",
         "libatomic.so.1",
+        "libstdc++.so.6",
+        "libgcc_s.so.1",
         "java -version",
         "javac -version",
         "Python 3.12.14",
