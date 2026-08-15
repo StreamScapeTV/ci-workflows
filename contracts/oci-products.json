@@ -414,9 +414,7 @@
             "entrypoint": [
               "/bin/cat"
             ],
-            "command": [
-              "/ciw-input/README.md"
-            ],
+            "command": [],
             "ports": [],
             "required_files": [
               "/ciw-input/README.md"
@@ -528,7 +526,7 @@
       "repository": "StreamScapeTV/ci-workflows",
       "builder_id": "buildah-v1",
       "runner_profile": "buildah-high",
-      "workspace_profile": "large",
+      "workspace_profile": "container",
       "timeout_minutes": 180,
       "measurement": {
         "peak_memory_bytes": 5000000000,
