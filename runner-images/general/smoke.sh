@@ -2,20 +2,47 @@
 set -euo pipefail
 
 test "$(id -un)" = runner
+test "$(id -u)" = 1001
 test -x /home/runner/run.sh
-python3 --version | grep -F 'Python 3.12.13'
+test -x /home/runner/bin/Runner.Listener
+grep -Fx 'ID=debian' /etc/os-release
+grep -Fx 'VERSION_CODENAME=trixie' /etc/os-release
+! grep -Eiq 'ubuntu|alpine|fedora|rhel|suse' /etc/os-release
+
+/home/runner/bin/Runner.Listener --version | grep -F '2.336.0'
+test -e /usr/lib/x86_64-linux-gnu/libatomic.so.1
+
+python3 --version | grep -F 'Python 3.12.14'
+venv_root="$(mktemp -d)"
+trap 'rm -rf "${venv_root}"' EXIT
+python3 -m venv "${venv_root}/venv"
+"${venv_root}/venv/bin/python" -m pip --version >/dev/null
+
 node --version | grep -F 'v24.19.0'
-command -v npm corepack git bash curl jq yq tar zstd gzip unzip zip helm kustomize kubectl >/dev/null
 npm --version >/dev/null
 corepack --version >/dev/null
+
+command -v git bash curl jq yq tar zstd gzip unzip zip helm kustomize kubectl >/dev/null
 git --version >/dev/null
-jq --version >/dev/null
+bash --version | head -n1 | grep -F 'GNU bash'
+curl --version | head -n1 | grep -F 'curl '
+jq --version | grep -F 'jq-1.8.2'
 yq --version | grep -F 'v4.53.3'
+tar --version | head -n1 >/dev/null
+zstd --version | grep -F 'v1.5.7'
+gzip --version | head -n1 >/dev/null
+unzip -v | head -n1 >/dev/null
+zip --version | grep -F 'ci-workflows zip 1.0'
 helm version --short | grep -F 'v4.2.4'
 kustomize version | grep -F 'v5.8.1'
-kubectl version --client=true --output=yaml | grep -F 'gitVersion: v1.36.3'
-for forbidden in docker dockerd containerd ctr runc buildah podman skopeo; do
+kubectl version --client=true --output=yaml | grep -F 'gitVersion: v1.36.2'
+
+for forbidden in docker dockerd containerd ctr runc buildah podman skopeo sudo apt apt-get dpkg; do
   ! command -v "${forbidden}"
 done
 test ! -e /var/run/docker.sock
 test ! -e /run/docker.sock
+test ! -e /home/runner/.docker
+test ! -e /home/runner/.kube
+test ! -e /var/run/secrets/kubernetes.io/serviceaccount/token
+test -z "${KUBECONFIG:-}"
