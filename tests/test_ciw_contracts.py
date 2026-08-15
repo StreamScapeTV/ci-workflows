@@ -12,6 +12,7 @@ from ci_workflows.device_lock import DeviceLockError
 from ci_workflows.device_types import DeviceValidationError
 from ci_workflows.foundation_types import FoundationError
 from ci_workflows.gitops_types import GitOpsValidationError
+from ci_workflows.helm_types import HelmValidationError
 from ci_workflows.node_types import NodeValidationError
 from ci_workflows.oci_types import OciBuildError
 from ci_workflows.python_types import PythonValidationError
@@ -30,22 +31,19 @@ class CIWContractTests(unittest.TestCase):
             for item in contract["commands"]
         }
         self.assertEqual(expected, set(runtime_command_index()))
-        self.assertEqual(33, len(expected))
+        self.assertEqual(30, len(expected))
         self.assertIn("android validate", expected)
         self.assertIn("apple validate", expected)
         self.assertIn("device lock", expected)
         self.assertIn("device validate", expected)
         self.assertIn("flutter validate", expected)
+        self.assertIn("helm publish", expected)
+        self.assertIn("helm validate", expected)
         self.assertIn("python validate", expected)
         self.assertIn("node validate", expected)
         self.assertIn("gitops validate", expected)
         self.assertIn("oci publish", expected)
         self.assertIn("oci validate", expected)
-        self.assertIn("maintenance artifacts", expected)
-        self.assertIn("maintenance branches", expected)
-        self.assertIn("maintenance conformance", expected)
-        self.assertIn("maintenance runner-retry", expected)
-        self.assertIn("flux reconcile", expected)
         self.assertEqual(len(command_specs()), len(expected))
         validate_runtime_contract(ROOT)
 
@@ -62,6 +60,7 @@ class CIWContractTests(unittest.TestCase):
                 "apple",
                 "device",
                 "flutter",
+                "helm",
                 "python",
                 "node",
                 "gitops",
@@ -72,8 +71,6 @@ class CIWContractTests(unittest.TestCase):
                 "policy",
                 "evidence",
                 "release-tag",
-                "maintenance",
-                "flux",
             },
         )
         contract = load_command_contract(ROOT)
@@ -96,35 +93,25 @@ class CIWContractTests(unittest.TestCase):
                 "scripts/ci/release_tag_authority.py",
                 "scripts/ci/android.py",
                 "scripts/ci/apple.py",
+                "scripts/ci/helm.py",
                 "scripts/ci/python.py",
                 "scripts/ci/node.py",
                 "scripts/ci/gitops.py",
                 "scripts/ci/oci.py",
                 "scripts/ci/oci_publish.py",
-                "scripts/ci/maintenance.py",
-                "scripts/ci/flux_reconcile.py",
             },
         )
         self.assertEqual(wrappers["scripts/ci/android.py"], {"android validate"})
         self.assertEqual(wrappers["scripts/ci/apple.py"], {"apple validate"})
+        self.assertEqual(
+            wrappers["scripts/ci/helm.py"],
+            {"helm validate", "helm publish"},
+        )
         self.assertEqual(wrappers["scripts/ci/python.py"], {"python validate"})
         self.assertEqual(wrappers["scripts/ci/node.py"], {"node validate"})
         self.assertEqual(wrappers["scripts/ci/gitops.py"], {"gitops validate"})
         self.assertEqual(wrappers["scripts/ci/oci.py"], {"oci validate"})
         self.assertEqual(wrappers["scripts/ci/oci_publish.py"], {"oci publish"})
-        self.assertEqual(
-            wrappers["scripts/ci/maintenance.py"],
-            {
-                "maintenance artifacts",
-                "maintenance branches",
-                "maintenance conformance",
-                "maintenance runner-retry",
-            },
-        )
-        self.assertEqual(
-            wrappers["scripts/ci/flux_reconcile.py"],
-            {"flux reconcile"},
-        )
         for path in wrappers:
             self.assertTrue((ROOT / path).is_file())
 
@@ -161,6 +148,7 @@ class CIWContractTests(unittest.TestCase):
             (RunnerContractError("invalid-selector", "private detail"), "runners", "invalid-selector"),
             (PythonValidationError("dependency_lock_drift"), "python", "dependency_lock_drift"),
             (NodeValidationError("lockfile_drift"), "node", "lockfile_drift"),
+            (HelmValidationError("dependency_policy_mismatch"), "helm", "dependency_policy_mismatch"),
             (GitOpsValidationError("tool_archive_rejected"), "gitops", "tool_archive_rejected"),
             (OciBuildError("oci_layout_malformed"), "oci", "oci_layout_malformed"),
             (DeviceValidationError("physical_authorization_required"), "device", "physical_authorization_required"),

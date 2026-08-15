@@ -14,24 +14,6 @@
       "required_follow_up": []
     },
     {
-      "path": ".github/workflows/reusable-artifact-cleanup.yml",
-      "issue": 20,
-      "status": "implemented-public-workflow",
-      "required_follow_up": []
-    },
-    {
-      "path": ".github/workflows/reusable-branch-hygiene.yml",
-      "issue": 20,
-      "status": "implemented-public-workflow",
-      "required_follow_up": []
-    },
-    {
-      "path": ".github/workflows/reusable-conformance.yml",
-      "issue": 20,
-      "status": "implemented-public-workflow",
-      "required_follow_up": []
-    },
-    {
       "path": ".github/workflows/reusable-device.yml",
       "issue": 14,
       "status": "implemented-public-workflow",
@@ -44,14 +26,20 @@
       "required_follow_up": []
     },
     {
-      "path": ".github/workflows/reusable-flux-reconcile.yml",
-      "issue": 20,
+      "path": ".github/workflows/reusable-gitops-validation.yml",
+      "issue": 15,
       "status": "implemented-public-workflow",
       "required_follow_up": []
     },
     {
-      "path": ".github/workflows/reusable-gitops-validation.yml",
-      "issue": 15,
+      "path": ".github/workflows/reusable-helm-publish.yml",
+      "issue": 18,
+      "status": "implemented-public-workflow",
+      "required_follow_up": []
+    },
+    {
+      "path": ".github/workflows/reusable-helm-validate.yml",
+      "issue": 18,
       "status": "implemented-public-workflow",
       "required_follow_up": []
     },
@@ -82,12 +70,6 @@
     {
       "path": ".github/workflows/reusable-resolve-source.yml",
       "issue": 7,
-      "status": "implemented-public-workflow",
-      "required_follow_up": []
-    },
-    {
-      "path": ".github/workflows/reusable-runner-infrastructure-retry.yml",
-      "issue": 20,
       "status": "implemented-public-workflow",
       "required_follow_up": []
     },

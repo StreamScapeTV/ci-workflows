@@ -149,39 +149,25 @@
       "source": "https://github.com/StreamScapeTV/ci-workflows/tree/8445e63dd9fa9468b60b6d0c61e543da9681b47b/actions/validate-gitops"
     },
     {
-      "uses": "StreamScapeTV/ci-workflows/actions/maintenance-artifacts",
-      "sha": "a464a023cf654d00172d62ebd1700c51ce2c75bb",
-      "release": "issue #20 complete maintenance action checkpoint",
+      "uses": "StreamScapeTV/ci-workflows/actions/validate-helm",
+      "sha": "f867827a41174ea5a9ad554eeea91dbb2c2c0bfa",
+      "release": "issue #18 immutable Helm runtime checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/a464a023cf654d00172d62ebd1700c51ce2c75bb/actions/maintenance-artifacts"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/f867827a41174ea5a9ad554eeea91dbb2c2c0bfa/actions/validate-helm"
     },
     {
-      "uses": "StreamScapeTV/ci-workflows/actions/maintenance-branches",
-      "sha": "a464a023cf654d00172d62ebd1700c51ce2c75bb",
-      "release": "issue #20 complete maintenance action checkpoint",
+      "uses": "StreamScapeTV/ci-workflows/actions/publish-helm",
+      "sha": "f867827a41174ea5a9ad554eeea91dbb2c2c0bfa",
+      "release": "issue #18 immutable Helm runtime checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/a464a023cf654d00172d62ebd1700c51ce2c75bb/actions/maintenance-branches"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/f867827a41174ea5a9ad554eeea91dbb2c2c0bfa/actions/publish-helm"
     },
     {
-      "uses": "StreamScapeTV/ci-workflows/actions/maintenance-conformance",
-      "sha": "a464a023cf654d00172d62ebd1700c51ce2c75bb",
-      "release": "issue #20 complete maintenance action checkpoint",
+      "uses": "StreamScapeTV/ci-workflows/actions/measure-helm",
+      "sha": "1f2c0ae5bec042adc9f94e87ebfbba1e7ba48994",
+      "release": "issue #18 immutable Helm measurement CIW checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/a464a023cf654d00172d62ebd1700c51ce2c75bb/actions/maintenance-conformance"
-    },
-    {
-      "uses": "StreamScapeTV/ci-workflows/actions/maintenance-runner-retry",
-      "sha": "a464a023cf654d00172d62ebd1700c51ce2c75bb",
-      "release": "issue #20 complete maintenance action checkpoint",
-      "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/a464a023cf654d00172d62ebd1700c51ce2c75bb/actions/maintenance-runner-retry"
-    },
-    {
-      "uses": "StreamScapeTV/ci-workflows/actions/flux-reconcile",
-      "sha": "a464a023cf654d00172d62ebd1700c51ce2c75bb",
-      "release": "issue #20 complete maintenance action checkpoint",
-      "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/a464a023cf654d00172d62ebd1700c51ce2c75bb/actions/flux-reconcile"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/1f2c0ae5bec042adc9f94e87ebfbba1e7ba48994/actions/measure-helm"
     }
   ],
   "approved_internal_actions": [

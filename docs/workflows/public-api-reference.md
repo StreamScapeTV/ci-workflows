@@ -20,13 +20,13 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. D
 | API | File | Status | Trust | Permissions | Runner intent | Check | Consumers | Products |
 |---|---|---|---|---|---|---|---|---|
 | `flux.assets` `1.0.0` | `.github/workflows/reusable-flux-infrastructure-assets.yml` | `planned` | `trusted-publication` | `release-orchestration` | `contract:flux-assets` | Release / Flux infrastructure assets | StreamScapeTV/flux | flux-runner-images, flux-runner-chart-assets |
-| `flux.reconcile` `1.0.0` | `.github/workflows/reusable-flux-reconcile.yml` | `implemented` | `flux-authorized` | `flux-reconciliation` | `contract:flux-control` | Flux / Reconciliation | StreamScapeTV/flux | — |
-| `helm.publish` `1.0.0` | `.github/workflows/reusable-helm-publish.yml` | `planned` | `trusted-publication` | `oci-publication` | `contract:helm-publish` | Release / Helm publication | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | iptv-backend-chart, agent-state-chart, flux-runner-chart-assets |
-| `helm.validate` `1.0.0` | `.github/workflows/reusable-helm-validate.yml` | `planned` | `read-only-validation` | `validation-read` | `portable` | CI / Helm validation | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | iptv-backend-chart, agent-state-chart, flux-runner-chart-assets |
-| `maintenance.artifacts` `1.0.0` | `.github/workflows/reusable-artifact-cleanup.yml` | `implemented` | `trusted-maintenance` | `artifact-cleanup` | `maintenance-control` | Maintenance / Artifact cleanup | StreamScapeTV/ci-workflows | — |
-| `maintenance.branches` `1.0.0` | `.github/workflows/reusable-branch-hygiene.yml` | `implemented` | `trusted-maintenance` | `branch-hygiene` | `maintenance-control` | Maintenance / Branch hygiene | StreamScapeTV/* | — |
-| `maintenance.conformance` `1.0.0` | `.github/workflows/reusable-conformance.yml` | `implemented` | `trusted-maintenance` | `conformance-report` | `maintenance-control` | Maintenance / Organization conformance | StreamScapeTV/ci-workflows | — |
-| `maintenance.runner-retry` `1.0.0` | `.github/workflows/reusable-runner-infrastructure-retry.yml` | `implemented` | `trusted-maintenance` | `runner-infrastructure-retry` | `maintenance-control` | Maintenance / Runner retry | StreamScapeTV/* | — |
+| `flux.reconcile` `1.0.0` | `.github/workflows/reusable-flux-reconcile.yml` | `planned` | `flux-authorized` | `flux-reconciliation` | `contract:flux-control` | Flux / Reconciliation | StreamScapeTV/flux | — |
+| `helm.publish` `1.0.0` | `.github/workflows/reusable-helm-publish.yml` | `implemented` | `trusted-publication` | `oci-publication` | `contract:helm-publish` | Release / Helm publication | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | iptv-backend-chart, agent-state-chart, flux-runner-chart-assets |
+| `helm.validate` `1.0.0` | `.github/workflows/reusable-helm-validate.yml` | `implemented` | `read-only-validation` | `validation-read` | `portable` | CI / Helm validation | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | iptv-backend-chart, agent-state-chart, flux-runner-chart-assets |
+| `maintenance.artifacts` `1.0.0` | `.github/workflows/reusable-artifact-cleanup.yml` | `planned` | `trusted-maintenance` | `artifact-cleanup` | `maintenance-control` | Maintenance / Artifact cleanup | StreamScapeTV/ci-workflows | — |
+| `maintenance.branches` `1.0.0` | `.github/workflows/reusable-branch-hygiene.yml` | `planned` | `trusted-maintenance` | `branch-hygiene` | `maintenance-control` | Maintenance / Branch hygiene | StreamScapeTV/* | — |
+| `maintenance.conformance` `1.0.0` | `.github/workflows/reusable-conformance.yml` | `planned` | `trusted-maintenance` | `conformance-report` | `maintenance-control` | Maintenance / Organization conformance | StreamScapeTV/ci-workflows | — |
+| `maintenance.runner-retry` `1.0.0` | `.github/workflows/reusable-runner-infrastructure-retry.yml` | `planned` | `trusted-maintenance` | `runner-infrastructure-retry` | `maintenance-control` | Maintenance / Runner retry | StreamScapeTV/* | — |
 | `oci.build` `1.0.0` | `.github/workflows/reusable-oci-build.yml` | `implemented` | `read-only-validation` | `validation-read` | `contract:oci-build` | CI / OCI build validation | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | iptv-backend-image, agent-state-image, flux-runner-images |
 | `oci.publish` `1.0.0` | `.github/workflows/reusable-oci-publish.yml` | `implemented` | `trusted-publication` | `oci-publication` | `contract:oci-publish` | Release / OCI publication | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | iptv-backend-image, agent-state-image, flux-runner-images |
 | `release.orchestrate` `1.0.0` | `.github/workflows/reusable-release.yml` | `planned` | `trusted-publication` | `release-orchestration` | `contract:release` | Release / Verified products | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | — |
@@ -70,7 +70,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. D
 - Events: `tag-push`, `workflow_call`, `workflow_dispatch-verify-only`
 - Timeout / matrix maximum: `90 minutes` / `8` jobs
 - Maximum reusable-workflow depth: `1`
-- Inputs: `admitted_sha` (required), `product_id` (required), `release_version` (required), `values_profile`, `policy_path`
+- Inputs: `admitted_sha` (required), `product_id` (required), `release_version` (required), `values_profile`, `policy_path`, `image_digest`, `immutable_references_json`
 - Secrets: `registry_username`, `registry_token`
 - Outputs: `result`, `chart_digest`, `immutable_references_json`
 - Repository-owned hooks: `policy_path`
@@ -118,7 +118,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. D
 - Events: `schedule`, `workflow_dispatch`, `workflow_call`
 - Timeout / matrix maximum: `90 minutes` / `1` jobs
 - Maximum reusable-workflow depth: `1`
-- Inputs: `repository_scope`, `shared_reference_target_sha`, `dry_run` (default `True`), `request_id` (required)
+- Inputs: `repository_scope`, `dry_run` (default `True`), `request_id` (required)
 - Secrets: `organization_read_token`, `organization_update_token`
 - Outputs: `result`, `mutation_count`, `report_issue_url`, `request_id`
 - Repository-owned hooks: none
@@ -127,7 +127,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. D
 ### `maintenance.runner-retry`
 
 - Public file: `.github/workflows/reusable-runner-infrastructure-retry.yml`
-- Events: `schedule`, `workflow_dispatch`, `workflow_call`
+- Events: `workflow_dispatch`, `workflow_call`
 - Timeout / matrix maximum: `30 minutes` / `1` jobs
 - Maximum reusable-workflow depth: `1`
 - Inputs: `project_id` (required), `run_id` (required), `expected_head_sha` (required), `dry_run` (default `True`), `request_id` (required)

@@ -114,6 +114,28 @@
     },
     {
       "cleanup": "ciw workspace cleanup under if: always()",
+      "domain": "helm",
+      "failure": "HelmValidationError.code",
+      "handler": "ci_workflows.ciw.handle_helm_validate",
+      "inputs": ["phase", "admitted_sha", "product_id", "release_version", "values_profile", "policy_path", "artifact_exception_id", "GitHub event identity"],
+      "operation": "validate",
+      "outputs": ["result", "chart_digest", "chart_package_sha256", "test_summary", "artifact_exception_used", "failure_code", "runner_profile", "runs_on_json", "workspace_profile", "timeout_minutes", "source_trust"],
+      "side_effects": ["resolves a fixed product-manifest chart root", "runs locked dependency, lint, template, and deterministic package checks", "enforces source, image-reference, archive, cleanup, and zero-artifact policy"],
+      "trust_class": "read-only-validation"
+    },
+    {
+      "cleanup": "ciw workspace cleanup under if: always()",
+      "domain": "helm",
+      "failure": "HelmValidationError.code",
+      "handler": "ci_workflows.ciw.handle_helm_publish",
+      "inputs": ["phase", "admitted_sha", "product_id", "release_version", "values_profile", "policy_path", "registry_username", "registry_token", "GitHub event identity"],
+      "operation": "publish",
+      "outputs": ["result", "chart_digest", "chart_package_sha256", "immutable_references_json", "published", "failure_code", "runner_profile", "runs_on_json", "workspace_profile", "timeout_minutes", "source_trust"],
+      "side_effects": ["validates and deterministically packages a fixed product chart", "authenticates only with named registry credentials", "pulls before push and proves normalized package read-back", "never installs a chart or accesses Kubernetes or SOPS data"],
+      "trust_class": "trusted-publication"
+    },
+    {
+      "cleanup": "ciw workspace cleanup under if: always()",
       "domain": "gitops",
       "failure": "GitOpsValidationError.code",
       "handler": "ci_workflows.ciw.handle_gitops_validate",
@@ -289,61 +311,6 @@
       "trust_class": "shared-foundation"
     },
     {
-      "cleanup": "workflow state cleanup under if: always()",
-      "domain": "maintenance",
-      "failure": "MaintenanceError.code",
-      "handler": "ci_workflows.ciw_maintenance.execute_maintenance_artifacts",
-      "inputs": ["repository_scope", "dry_run", "request_id", "MAINTENANCE_GITHUB_TOKEN"],
-      "operation": "artifacts",
-      "outputs": ["result", "mutation_count", "request_id", "failure_code"],
-      "side_effects": ["enumerates bounded allowlisted repositories", "deletes only expected-state unretained Actions artifacts when dry_run is false"],
-      "trust_class": "trusted-maintenance"
-    },
-    {
-      "cleanup": "workflow state cleanup under if: always()",
-      "domain": "maintenance",
-      "failure": "MaintenanceError.code",
-      "handler": "ci_workflows.ciw_maintenance.execute_maintenance_branches",
-      "inputs": ["project_id", "pr_number", "expected_head_sha", "dry_run", "request_id", "MAINTENANCE_GITHUB_TOKEN"],
-      "operation": "branches",
-      "outputs": ["result", "mutation_count", "request_id", "failure_code"],
-      "side_effects": ["revalidates exact merged pull-request and branch identity", "deletes only the unchanged expected merged branch when dry_run is false"],
-      "trust_class": "trusted-maintenance"
-    },
-    {
-      "cleanup": "workflow state cleanup under if: always()",
-      "domain": "maintenance",
-      "failure": "MaintenanceError.code",
-      "handler": "ci_workflows.ciw_maintenance.execute_maintenance_conformance",
-      "inputs": ["repository_scope", "shared_reference_target_sha", "dry_run", "request_id", "MAINTENANCE_GITHUB_TOKEN"],
-      "operation": "conformance",
-      "outputs": ["result", "mutation_count", "report_issue_url", "request_id", "failure_code"],
-      "side_effects": ["scans bounded organization workflow and product conformance", "writes only the deterministic central report issue when dry_run is false", "emits shared-reference updates as review-only proposals"],
-      "trust_class": "trusted-maintenance"
-    },
-    {
-      "cleanup": "workflow state cleanup under if: always()",
-      "domain": "maintenance",
-      "failure": "MaintenanceError.code",
-      "handler": "ci_workflows.ciw_maintenance.execute_maintenance_runner_retry",
-      "inputs": ["project_id", "run_id", "expected_head_sha", "dry_run", "request_id", "MAINTENANCE_GITHUB_TOKEN"],
-      "operation": "runner-retry",
-      "outputs": ["result", "retry_run_id", "request_id", "failure_code"],
-      "side_effects": ["proves a bounded allowlisted workflow failure is runner infrastructure", "reruns only the unchanged failed job set when dry_run is false"],
-      "trust_class": "trusted-maintenance"
-    },
-    {
-      "cleanup": "Flux state and credentials cleaned under if: always()",
-      "domain": "flux",
-      "failure": "MaintenanceError.code",
-      "handler": "ci_workflows.ciw_maintenance.execute_flux_reconcile",
-      "inputs": ["admitted_sha", "target_id", "product_id", "operation", "policy_path", "allowlist_path", "request_id", "dry_run", "FLUX_KUBECONFIG", "FLUX_SOPS_AGE_KEY"],
-      "operation": "reconcile",
-      "outputs": ["result", "reconciliation_state", "request_id", "failure_code"],
-      "side_effects": ["loads exact Flux-owned checked-in allowlist and policy", "applies only the exact authorized target when dry_run is false", "verifies reconciliation and removes run-owned state"],
-      "trust_class": "flux-authorized"
-    },
-    {
       "cleanup": "none",
       "domain": "release-tag",
       "failure": "ReleaseTagError.code",
@@ -373,17 +340,16 @@
     {"commands": ["release-tag resolve", "release-tag revalidate"], "path": "scripts/ci/release_tag_authority.py"},
     {"commands": ["python validate"], "path": "scripts/ci/python.py"},
     {"commands": ["node validate"], "path": "scripts/ci/node.py"},
+    {"commands": ["helm validate", "helm publish"], "path": "scripts/ci/helm.py"},
     {"commands": ["gitops validate"], "path": "scripts/ci/gitops.py"},
     {"commands": ["oci validate"], "path": "scripts/ci/oci.py"},
     {"commands": ["oci publish"], "path": "scripts/ci/oci_publish.py"},
     {"commands": ["android validate"], "path": "scripts/ci/android.py"},
-    {"commands": ["apple validate"], "path": "scripts/ci/apple.py"},
-    {"commands": ["maintenance artifacts", "maintenance branches", "maintenance conformance", "maintenance runner-retry"], "path": "scripts/ci/maintenance.py"},
-    {"commands": ["flux reconcile"], "path": "scripts/ci/flux_reconcile.py"}
+    {"commands": ["apple validate"], "path": "scripts/ci/apple.py"}
   ],
   "entry_point": "scripts/ci/ciw.py",
   "forbidden_dispatch_inputs": ["arbitrary_command", "shell", "callback", "callback_url", "handler", "function_name", "module_name", "runner", "runs_on", "runner_labels", "container_engine", "secret_name", "deletion_path", "workspace_root"],
-  "future_namespaces": ["helm", "release", "github"],
+  "future_namespaces": ["release", "github"],
   "program": "ciw",
   "schema_version": 1
 }

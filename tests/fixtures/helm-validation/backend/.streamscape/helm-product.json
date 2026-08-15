@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "product_id": "iptv-backend-chart",
+  "repository": "StreamScapeTV/iptv-backend",
+  "chart_name": "iptv-backend",
+  "chart_root": "charts/iptv-backend",
+  "values_profiles": {
+    "default": "values.yaml"
+  },
+  "policy_path": null,
+  "registry_repository": "oci://git.faruqi.dev/mimranfaruqi/helm-charts",
+  "locked_dependencies": [
+    {
+      "name": "valkey",
+      "repository": "https://valkey.io/valkey-helm/",
+      "version": "0.11.0"
+    }
+  ],
+  "required_image_references": [
+    "git.faruqi.dev/mimranfaruqi/iptv-backend@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  ],
+  "upstream_assets": []
+}
