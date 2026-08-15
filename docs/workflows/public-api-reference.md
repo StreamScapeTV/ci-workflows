@@ -21,8 +21,8 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. D
 |---|---|---|---|---|---|---|---|---|
 | `flux.assets` `1.0.0` | `.github/workflows/reusable-flux-infrastructure-assets.yml` | `planned` | `trusted-publication` | `release-orchestration` | `contract:flux-assets` | Release / Flux infrastructure assets | StreamScapeTV/flux | flux-runner-images, flux-runner-chart-assets |
 | `flux.reconcile` `1.0.0` | `.github/workflows/reusable-flux-reconcile.yml` | `planned` | `flux-authorized` | `flux-reconciliation` | `contract:flux-control` | Flux / Reconciliation | StreamScapeTV/flux | — |
-| `helm.publish` `1.0.0` | `.github/workflows/reusable-helm-publish.yml` | `planned` | `trusted-publication` | `oci-publication` | `contract:helm-publish` | Release / Helm publication | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | iptv-backend-chart, agent-state-chart, flux-runner-chart-assets |
-| `helm.validate` `1.0.0` | `.github/workflows/reusable-helm-validate.yml` | `planned` | `read-only-validation` | `validation-read` | `portable` | CI / Helm validation | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | iptv-backend-chart, agent-state-chart, flux-runner-chart-assets |
+| `helm.publish` `1.0.0` | `.github/workflows/reusable-helm-publish.yml` | `implemented` | `trusted-publication` | `oci-publication` | `contract:helm-publish` | Release / Helm publication | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | iptv-backend-chart, agent-state-chart, flux-runner-chart-assets |
+| `helm.validate` `1.0.0` | `.github/workflows/reusable-helm-validate.yml` | `implemented` | `read-only-validation` | `validation-read` | `portable` | CI / Helm validation | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | iptv-backend-chart, agent-state-chart, flux-runner-chart-assets |
 | `maintenance.artifacts` `1.0.0` | `.github/workflows/reusable-artifact-cleanup.yml` | `planned` | `trusted-maintenance` | `artifact-cleanup` | `maintenance-control` | Maintenance / Artifact cleanup | StreamScapeTV/ci-workflows | — |
 | `maintenance.branches` `1.0.0` | `.github/workflows/reusable-branch-hygiene.yml` | `planned` | `trusted-maintenance` | `branch-hygiene` | `maintenance-control` | Maintenance / Branch hygiene | StreamScapeTV/* | — |
 | `maintenance.conformance` `1.0.0` | `.github/workflows/reusable-conformance.yml` | `planned` | `trusted-maintenance` | `conformance-report` | `maintenance-control` | Maintenance / Organization conformance | StreamScapeTV/ci-workflows | — |
@@ -70,7 +70,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. D
 - Events: `tag-push`, `workflow_call`, `workflow_dispatch-verify-only`
 - Timeout / matrix maximum: `90 minutes` / `8` jobs
 - Maximum reusable-workflow depth: `1`
-- Inputs: `admitted_sha` (required), `product_id` (required), `release_version` (required), `values_profile`, `policy_path`
+- Inputs: `admitted_sha` (required), `product_id` (required), `release_version` (required), `values_profile`, `policy_path`, `image_digest`, `immutable_references_json`
 - Secrets: `registry_username`, `registry_token`
 - Outputs: `result`, `chart_digest`, `immutable_references_json`
 - Repository-owned hooks: `policy_path`

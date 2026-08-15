@@ -1,0 +1,174 @@
+"""Central product admission policy for Helm planning."""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any, Mapping
+from urllib.parse import urlsplit
+
+from .helm_contract import NAME, SEMVER, require
+from .helm_contract import resolve_validation_plan as _resolve_validation_plan
+from .helm_policy import POLICY_HOOKS_PATH, enforce_policy_hook, load_policy_hook_contract
+from .helm_product_layout import (
+    PRODUCT_LAYOUT_PATH,
+    enforce_product_layout,
+    load_product_layout,
+)
+from .helm_types import HelmPlan, HelmRequest, HelmValidationError
+from .helm_upstream_policy import (
+    UPSTREAM_POLICY_PATH,
+    enforce_upstream_policy,
+    load_upstream_policy,
+)
+
+
+DEPENDENCY_POLICY_PATH = Path("contracts/helm-dependency-policy.json")
+CENTRAL_ROOT = Path(__file__).resolve().parents[2]
+PRODUCT_IDS = {
+    "iptv-backend-chart",
+    "agent-state-chart",
+    "flux-github-actions-runner-chart",
+}
+
+
+def _repository(value: Any) -> str:
+    require(isinstance(value, str), "invalid_dependency_policy")
+    if value.startswith("oci://"):
+        parsed = value.removeprefix("oci://")
+        require(
+            bool(parsed)
+            and "/" in parsed
+            and "@" not in parsed
+            and "?" not in parsed
+            and "#" not in parsed,
+            "invalid_dependency_policy",
+        )
+        return value
+    parsed = urlsplit(value)
+    require(
+        parsed.scheme == "https"
+        and bool(parsed.hostname)
+        and parsed.username is None
+        and parsed.password is None
+        and not parsed.query
+        and not parsed.fragment
+        and parsed.path not in {"", "/"},
+        "invalid_dependency_policy",
+    )
+    return value
+
+
+def _rows(value: Any) -> tuple[tuple[str, str, str], ...]:
+    require(isinstance(value, list), "invalid_dependency_policy")
+    rows: list[tuple[str, str, str]] = []
+    for item in value:
+        require(
+            isinstance(item, Mapping)
+            and set(item) == {"name", "repository", "version"},
+            "invalid_dependency_policy",
+        )
+        name = item.get("name")
+        version = item.get("version")
+        require(
+            isinstance(name, str) and NAME.fullmatch(name) is not None,
+            "invalid_dependency_policy",
+        )
+        require(
+            isinstance(version, str) and SEMVER.fullmatch(version) is not None,
+            "invalid_dependency_policy",
+        )
+        rows.append((name, version, _repository(item.get("repository"))))
+    require(rows == sorted(set(rows)), "invalid_dependency_policy")
+    return tuple(rows)
+
+
+def load_dependency_policy(root: Path = CENTRAL_ROOT) -> Mapping[str, Any]:
+    try:
+        payload = json.loads(
+            (root / DEPENDENCY_POLICY_PATH).read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError) as error:
+        raise HelmValidationError("invalid_dependency_policy") from error
+    require(
+        isinstance(payload, Mapping)
+        and set(payload) == {"schema_version", "products"}
+        and payload.get("schema_version") == 1,
+        "invalid_dependency_policy",
+    )
+    products = payload.get("products")
+    require(
+        isinstance(products, Mapping) and set(products) == PRODUCT_IDS,
+        "invalid_dependency_policy",
+    )
+    for product_id in sorted(PRODUCT_IDS):
+        _rows(products[product_id])
+    return payload
+
+
+def enforce_dependency_policy(
+    plan: HelmPlan,
+    policy: Mapping[str, Any],
+) -> HelmPlan:
+    products = policy.get("products")
+    require(isinstance(products, Mapping), "invalid_dependency_policy")
+    require(plan.product.product_id in products, "unsupported_product")
+    expected = _rows(products[plan.product.product_id])
+    require(
+        plan.product.locked_dependencies == expected,
+        "dependency_policy_mismatch",
+    )
+    return plan
+
+
+def resolve_validation_plan(
+    source_root: Path,
+    contract: Mapping[str, Any],
+    request: HelmRequest,
+    *,
+    contract_root: Path = CENTRAL_ROOT,
+) -> HelmPlan:
+    """Resolve caller intent only after every central product policy matches."""
+
+    require(
+        contract.get("dependency_policy_contract")
+        == DEPENDENCY_POLICY_PATH.as_posix(),
+        "invalid_contract",
+    )
+    require(
+        contract.get("product_layout_contract") == PRODUCT_LAYOUT_PATH.as_posix(),
+        "invalid_contract",
+    )
+    require(
+        contract.get("upstream_policy_contract")
+        == UPSTREAM_POLICY_PATH.as_posix(),
+        "invalid_contract",
+    )
+    require(
+        contract.get("policy_hook_contract") == POLICY_HOOKS_PATH.as_posix(),
+        "invalid_contract",
+    )
+    enforce_product_layout(
+        source_root,
+        request.product_id,
+        load_product_layout(contract_root),
+    )
+    enforce_policy_hook(
+        source_root,
+        request.product_id,
+        load_policy_hook_contract(contract_root),
+    )
+    enforce_upstream_policy(
+        source_root,
+        request.product_id,
+        load_upstream_policy(contract_root),
+    )
+    plan = _resolve_validation_plan(source_root, contract, request)
+    return enforce_dependency_policy(plan, load_dependency_policy(contract_root))
+
+
+__all__ = [
+    "DEPENDENCY_POLICY_PATH",
+    "enforce_dependency_policy",
+    "load_dependency_policy",
+    "resolve_validation_plan",
+]
