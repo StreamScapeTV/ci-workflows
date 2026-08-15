@@ -1,7 +1,8 @@
-# Build-only stage for common Debian utilities and the zstd binary. Every
-# network asset is materialized and checksum-verified by the central OCI input
-# contract before Buildah starts; Dockerfile execution itself is networkless.
-FROM docker.io/library/buildpack-deps@sha256:3c55df66bea98808f842d6d59aa498012888f4cf82874c4a7f2b3a42a2c9c82e AS build-tools
+# Build-only stage for common Debian utilities, GCC's libatomic runtime, and the
+# zstd binary. Every network asset is materialized and checksum-verified by the
+# central OCI input contract before Buildah starts; Dockerfile execution itself
+# is networkless.
+FROM docker.io/library/gcc@sha256:486d5379b2d679f18bca957901d628952aa0ebc2d82817047bbef1dbfbc13d70 AS build-tools
 
 COPY .ciw-build-inputs/actions-runner-linux-x64-2.336.0.tar.gz /tmp/runner.tar.gz
 COPY .ciw-build-inputs/zstd-1.5.7.tar.gz /tmp/zstd.tar.gz
@@ -46,6 +47,14 @@ RUN set -eux; \
         test ! -e "${library}" || cp --parents -a "${library}" /out; \
       done; \
     done; \
+    atomic_library="$(ldconfig -p | awk '$1 == "libatomic.so.1" {print $NF; exit}')"; \
+    test -n "${atomic_library}"; \
+    atomic_real="$(readlink -f "${atomic_library}")"; \
+    test -f "${atomic_real}"; \
+    mkdir -p /out/usr/lib/x86_64-linux-gnu; \
+    cp -pL "${atomic_real}" "/out/usr/lib/x86_64-linux-gnu/$(basename "${atomic_real}")"; \
+    ln -s "$(basename "${atomic_real}")" /out/usr/lib/x86_64-linux-gnu/libatomic.so.1; \
+    test -e /out/usr/lib/x86_64-linux-gnu/libatomic.so.1; \
     rm -rf /tmp/runner /tmp/zstd /tmp/runner.tar.gz /tmp/zstd.tar.gz
 
 FROM docker.io/library/node@sha256:0711b541c1c33a8a530ac4f0d391baa9a15b3d804695b1b24a47daa5fb60e74d AS node-runtime
@@ -60,15 +69,7 @@ RUN set -eux; \
           test -d "${library_dir}"; \
           mkdir -p "/node-root${library_dir}"; \
           cp -pL "${library}" "/node-root${library_dir}/$(basename "${library}")"; \
-        done; \
-    atomic_library="$(ldconfig -p | awk '$1 == "libatomic.so.1" {print $NF; exit}')"; \
-    test -n "${atomic_library}"; \
-    atomic_real="$(readlink -f "${atomic_library}")"; \
-    test -f "${atomic_real}"; \
-    mkdir -p /node-root/usr/lib/x86_64-linux-gnu; \
-    cp -a "${atomic_real}" /node-root/usr/lib/x86_64-linux-gnu/; \
-    ln -s "$(basename "${atomic_real}")" /node-root/usr/lib/x86_64-linux-gnu/libatomic.so.1; \
-    test -e /node-root/usr/lib/x86_64-linux-gnu/libatomic.so.1
+        done
 
 # Final userspace: official CPython 3.12 on Debian Trixie slim. No Ubuntu or
 # another StreamScapeTV runner image participates in the final filesystem.
