@@ -1,8 +1,8 @@
-# Build-only stage for common Debian utilities, GCC's libatomic runtime, and the
-# zstd binary. Every network asset is materialized and checksum-verified by the
-# central OCI input contract before Buildah starts; Dockerfile execution itself
-# is networkless.
-FROM docker.io/library/gcc@sha256:486d5379b2d679f18bca957901d628952aa0ebc2d82817047bbef1dbfbc13d70 AS build-tools
+# Build-only stage for common Debian utilities, GCC's runtime libraries, and
+# the zstd binary. Every network asset is materialized and checksum-verified by
+# the central OCI input contract before Buildah starts; Dockerfile execution
+# itself is networkless.
+FROM docker.io/library/buildpack-deps@sha256:3c55df66bea98808f842d6d59aa498012888f4cf82874c4a7f2b3a42a2c9c82e AS build-tools
 
 COPY .ciw-build-inputs/actions-runner-linux-x64-2.336.0.tar.gz /tmp/runner.tar.gz
 COPY .ciw-build-inputs/zstd-1.5.7.tar.gz /tmp/zstd.tar.gz
