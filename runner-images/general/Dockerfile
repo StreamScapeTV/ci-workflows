@@ -11,14 +11,14 @@ RUN set -eux; \
     tar -xzf /tmp/zstd.tar.gz -C /tmp/zstd --strip-components=1; \
     make -C /tmp/zstd -j2 zstd; \
     install -m 0755 /tmp/zstd/programs/zstd /out/usr/local/bin/zstd; \
-    for path in /bin/bash /usr/bin/curl /usr/bin/git /usr/bin/gzip /usr/bin/tar /usr/bin/unzip; do \
+    for path in /usr/bin/bash /usr/bin/curl /usr/bin/git /usr/bin/gzip /usr/bin/tar /usr/bin/unzip; do \
       cp --parents -a "${path}" /out; \
     done; \
-    cp -a /usr/lib/git-core /out/usr/lib/; \
-    cp -a /usr/share/git-core /out/usr/share/; \
+    cp --parents -a /usr/lib/git-core /out; \
+    cp --parents -a /usr/share/git-core /out; \
     { \
       for executable in \
-        /bin/bash /usr/bin/curl /usr/bin/git /usr/bin/gzip /usr/bin/tar /usr/bin/unzip \
+        /usr/bin/bash /usr/bin/curl /usr/bin/git /usr/bin/gzip /usr/bin/tar /usr/bin/unzip \
         /tmp/runner/bin/Runner.Listener /tmp/runner/bin/Runner.Worker /tmp/runner/bin/Runner.PluginHost; do \
         ldd "${executable}" 2>/dev/null || true; \
       done; \
@@ -26,7 +26,12 @@ RUN set -eux; \
         | xargs -0 -r -n1 sh -c 'ldd "$1" 2>/dev/null || true' sh; \
     } | awk '/=> \/.+ \(/ {print $(NF-1)} /^\/.+ \(/ {print $1}' \
       | sort -u \
-      | while read -r library; do cp --parents -pL "${library}" /out; done; \
+      | while read -r library; do \
+          library_dir="$(readlink -f "$(dirname "${library}")")"; \
+          test -d "${library_dir}"; \
+          mkdir -p "/out${library_dir}"; \
+          cp -pL "${library}" "/out${library_dir}/$(basename "${library}")"; \
+        done; \
     for pattern in \
       '/usr/lib/x86_64-linux-gnu/libicu*.so.*' \
       '/usr/lib/x86_64-linux-gnu/libkrb5*.so.*' \
@@ -50,7 +55,12 @@ RUN set -eux; \
     ldd /usr/local/bin/node \
       | awk '/=> \/.+ \(/ {print $(NF-1)} /^\/.+ \(/ {print $1}' \
       | sort -u \
-      | while read -r library; do cp --parents -pL "${library}" /node-root; done; \
+      | while read -r library; do \
+          library_dir="$(readlink -f "$(dirname "${library}")")"; \
+          test -d "${library_dir}"; \
+          mkdir -p "/node-root${library_dir}"; \
+          cp -pL "${library}" "/node-root${library_dir}/$(basename "${library}")"; \
+        done; \
     atomic_library="$(ldconfig -p | awk '$1 == "libatomic.so.1" {print $NF; exit}')"; \
     test -n "${atomic_library}"; \
     atomic_real="$(readlink -f "${atomic_library}")"; \
