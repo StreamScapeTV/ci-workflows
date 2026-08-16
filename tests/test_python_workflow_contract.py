@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 import unittest
 from pathlib import Path
 
@@ -13,13 +12,11 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/reusable-python.yml"
 ACTION_PATH = ROOT / "actions/validate-python/action.yml"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-PYTHON_ACTION_SHA = "d060c275570e07222969546acf988a2616a3bcc6"
+PYTHON_ACTION_SHA = "aece8d01efdd5482a1c3d42db357aed87a7917e9"
 PRIVATE_HELPERS = {
     "validate-python": PYTHON_ACTION_SHA,
     "exact-checkout": FOUNDATION_SHA,
     "prepare-workspace": FOUNDATION_SHA,
-    "verify-toolchain": FOUNDATION_SHA,
-    "render-evidence": FOUNDATION_SHA,
     "cleanup-workspace": FOUNDATION_SHA,
 }
 
@@ -75,7 +72,10 @@ class PythonWorkflowContractTests(unittest.TestCase):
             set(self.public_record["outputs"]),
             set(call["outputs"]),
         )
-        self.assertEqual(self.public_record["stable_check_name"], "CI / Python validation")
+        self.assertEqual(
+            self.public_record["stable_check_name"],
+            "CI / Python validation",
+        )
 
     def test_workflow_uses_general_linux_planner_and_exact_planner_runner_output(self) -> None:
         jobs = self.workflow["jobs"]
@@ -107,6 +107,8 @@ class PythonWorkflowContractTests(unittest.TestCase):
                 f"StreamScapeTV/ci-workflows/actions/{helper}@{sha}",
                 self.workflow_text,
             )
+        self.assertNotIn("actions/verify-toolchain@", self.workflow_text)
+        self.assertNotIn("actions/render-evidence@", self.workflow_text)
 
     def test_exact_caller_source_is_still_verified_and_clean(self) -> None:
         self.assertIn(
@@ -119,8 +121,16 @@ class PythonWorkflowContractTests(unittest.TestCase):
             self.workflow_text,
         )
         self.assertIn("git status --porcelain --untracked-files=all", self.workflow_text)
+        clean = next(
+            step
+            for step in self.workflow["jobs"]["validate"]["steps"]
+            if step.get("id") == "clean"
+        )
+        self.assertEqual(clean["if"], "always()")
+        self.assertIn("git rev-parse HEAD", clean["run"])
+        self.assertIn("git status --porcelain --untracked-files=all", clean["run"])
 
-    def test_shared_foundation_sequence_is_marker_bound_and_cleanup_is_unconditional(self) -> None:
+    def test_shared_sequence_is_marker_bound_and_cleanup_is_unconditional(self) -> None:
         source = self.workflow_text
         validate_job = source.index("\n  validate:\n")
         planner_action = source.index(
@@ -137,10 +147,9 @@ class PythonWorkflowContractTests(unittest.TestCase):
         sequence = [
             f"uses: StreamScapeTV/ci-workflows/actions/exact-checkout@{FOUNDATION_SHA}",
             f"uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@{FOUNDATION_SHA}",
-            f"uses: StreamScapeTV/ci-workflows/actions/verify-toolchain@{FOUNDATION_SHA}",
             f"uses: StreamScapeTV/ci-workflows/actions/validate-python@{PYTHON_ACTION_SHA}",
-            f"uses: StreamScapeTV/ci-workflows/actions/render-evidence@{FOUNDATION_SHA}",
             f"uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@{FOUNDATION_SHA}",
+            "name: Verify exact source remained clean after cleanup",
         ]
         positions = [validation_source.index(value) for value in sequence]
         self.assertEqual(positions, sorted(positions))
@@ -148,19 +157,31 @@ class PythonWorkflowContractTests(unittest.TestCase):
             validation_source,
             r"- id: cleanup\n        name: Remove and verify all registered Python state\n        if: always\(\)",
         )
+        self.assertRegex(
+            validation_source,
+            r"- id: clean\n        name: Verify exact source remained clean after cleanup\n        if: always\(\)",
+        )
         self.assertIn("cache_mode: disabled", validation_source)
+        result = self.workflow["jobs"]["validate"]["outputs"]["result"]
+        self.assertIn("steps.python.outcome", result)
+        self.assertIn("steps.cleanup.outcome", result)
+        self.assertIn("steps.clean.outcome", result)
         self.assertNotIn("actions/upload-artifact", source)
         self.assertNotIn("actions/download-artifact", source)
         self.assertNotIn("secrets: inherit", source)
 
-    def test_action_is_thin_and_exposes_no_generic_control_surface(self) -> None:
+    def test_action_is_thin_and_uses_only_runner_provided_python(self) -> None:
         self.assertEqual(self.action["runs"]["using"], "composite")
         self.assertEqual(len(self.action["runs"]["steps"]), 1)
         step = self.action["runs"]["steps"][0]
-        self.assertIn("scripts/ci/ciw.py", step["run"])
-        self.assertIn("python validate", step["run"])
-        self.assertIn("--phase", step["run"])
-        self.assertIn("--source-root source", step["run"])
+        script = step["run"]
+        self.assertIn("type -P python3.12", script)
+        self.assertIn("type -P python3", script)
+        self.assertIn('"${interpreter}" != /*', script)
+        self.assertIn("scripts/ci/ciw.py", script)
+        self.assertIn("python validate", script)
+        self.assertIn("--phase", script)
+        self.assertIn("--source-root source", script)
         inputs = set(self.action["inputs"])
         self.assertEqual(
             inputs,
@@ -177,8 +198,18 @@ class PythonWorkflowContractTests(unittest.TestCase):
         )
         forbidden = set(self.python_contract["forbidden_inputs"])
         self.assertTrue(inputs.isdisjoint(forbidden))
-        for token in ("eval ", "source ", "curl ", "rm -rf", "docker "):
-            self.assertNotIn(token, step["run"])
+        for token in (
+            "actions/setup-python",
+            "setup-python",
+            "apt-get",
+            "sudo ",
+            "eval ",
+            "source ",
+            "curl ",
+            "rm -rf",
+            "docker ",
+        ):
+            self.assertNotIn(token, script)
 
     def test_runtime_and_postgres_identities_are_exact_and_not_workflow_inputs(self) -> None:
         public_inputs = set(self.workflow["on"]["workflow_call"]["inputs"])
@@ -221,7 +252,8 @@ class PythonWorkflowContractTests(unittest.TestCase):
         }
         self.assertIn("validation.python", workflow_doc)
         self.assertIn("podman-postgres", workflow_doc)
-        self.assertIn("ephemeral", architecture)
+        self.assertIn("runner-provided CPython 3.12", workflow_doc)
+        self.assertIn("shared Python primitives", architecture)
         self.assertIn("ciw python validate", architecture)
         self.assertIn("python validate", commands)
         self.assertEqual(
