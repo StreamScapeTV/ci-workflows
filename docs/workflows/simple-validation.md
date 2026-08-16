@@ -10,20 +10,20 @@ The product repository owns the script, tool versions, build/test commands, sche
 
 ## Inputs
 
-- `admitted_sha`: exact caller source commit.
+- `admitted_sha`: exact lowercase caller source commit.
 - `validation_profile`: exactly `general`, `mobile`, or `apple`.
 - `working_directory`: optional repository-relative working directory, default `.`.
 - `script_path`: required repository-relative executable script. It must be a regular non-symlink file inside the checked-out repository.
 
 The reusable workflow does not accept arbitrary shell text or caller-provided arguments: product scripts always receive zero injected arguments from Central. If a product needs multiple behaviors, its checked-in script owns that bounded selection.
 
-## Semantic capacity
+## Semantic capacity and trust
 
-- `general` -> `[linux, amd64, general, small]` for ordinary backend, Python, Node/Next, policy, and source work.
+- `general` -> `[linux, amd64, general, small]` for ordinary backend, Python, Node/Next, policy, and source work. Tokenless fork pull-request source may use this non-specialized capacity.
 - `mobile` -> `[linux, amd64, mobile]` for Android/Gradle and other pre-provisioned mobile toolchains.
-- `apple` -> `[macOS, ARM64]` for Xcode/iOS/tvOS/macOS validation.
+- `apple` -> `[macOS, ARM64, apple]` for Xcode/iOS/tvOS/macOS validation.
 
-Products never select concrete runner hosts or scale sets.
+`mobile` and `apple` are admitted only for same-repository pull requests or exact `push`/`workflow_dispatch` source. Fork pull requests fail in the general-Linux planner before either specialized runner can be scheduled. Products never select concrete runner hosts or scale sets.
 
 ## Thin caller
 
