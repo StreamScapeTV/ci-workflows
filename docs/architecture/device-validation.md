@@ -10,7 +10,7 @@ Real mutation requires **both** a separately supplied `device_authorization_rece
 
 There is no caller-supplied `source_trust` field. The action derives trust from fixed GitHub repository, event, exact admitted SHA, event SHA, head repository, and fork state. Synthetic pull-request smoke is limited to the same `ci-workflows` repository. Real execution accepts only exact trusted reusable/dispatch source.
 
-The planner emits one canonical `device-plan/1` packet and SHA-256. The executor rejects noncanonical bytes, hash drift, source drift, authorization-presence drift, changed concurrency, changed cancel behavior, changed profile/script facts, or moved source. It then validates the exact detached caller checkout and clean tree before discovery.
+The planner emits one canonical `device-plan/1` packet and SHA-256. The executor rejects noncanonical bytes, hash drift, source drift, authorization-presence drift, changed concurrency, changed cancel behavior, changed profile/script facts, moved source, and—when a fixed profile declares them—request issue numbers outside the reviewed profile allowlist. It then validates the exact detached caller checkout and clean tree before discovery.
 
 The reusable workflow invokes `validate-device` and `device-lock` through immutable private action checkpoints. Exact checkout, workspace preparation, and workspace cleanup also use reviewed immutable private actions. The public reusable workflow never executes mutable Central helper source from a local checkout.
 
@@ -30,13 +30,21 @@ The workflow order is fixed:
 2. deterministically discover one eligible physical device;
 3. acquire one production `device-lock/1` receipt for exact family, capability, discovered-device hash, tested source SHA, owner/run identity, request ID, and authorization-receipt hash;
 4. verify that receipt immediately before mutation;
-5. execute only the contract-selected product command profile, which independently re-verifies the same receipt at the Python mutation boundary;
-6. restore product-owned device state;
-7. expected-state release the exact receipt;
-8. prove the released receipt has no live fencing residue;
-9. remove Central device state, exact source checkout, and registered workspace state and prove zero residue.
+5. execute only the contract-selected product prepare and test stages, which independently re-verify the same receipt at the Python mutation boundary;
+6. after every attempted test, run the fixed product evidence stage even when the test failed; preserve the test failure as primary if both stages fail;
+7. always run product cleanup, then inspect at most one contract-declared retained redacted handoff before the checkout is removed;
+8. restore product-owned device state under the still-current lock;
+9. expected-state release the exact receipt;
+10. prove the released receipt has no live fencing residue;
+11. remove Central device state, exact source checkout, and registered workspace state and prove zero residue.
 
 GitHub job concurrency remains supplemental serialization using the contract-owned group and `cancel-in-progress: false`. It is not the fencing token and cannot replace `device-lock/1`.
+
+## Fixed Media iOS request binding
+
+Streamscape Media's physical iOS registrations are contract fragments rather than repository-name branches in runtime code. The fragment retires the stale catch-all `streamscape-media-ios` profile and replaces it with five fixed profile records. Each profile binds exactly one reviewed capability, the existing `media-primary` alias, the Apple base runner, the zero-argument product adapter, and the source/acceptance issue numbers allowed to invoke that packet. The planner includes issue identity in profile matching, so a valid request ID for one packet cannot be paired with another packet capability.
+
+The shared Media adapter has fixed prepare/test/evidence/cleanup script paths and no caller-supplied arguments. The product repository may use a private runner-local state directory to carry selected-device and product preparation state across those separate subprocesses, but Central exposes no path input or durable private state output.
 
 ## Owner authorization receipt
 
@@ -56,6 +64,8 @@ The three `ciw-synthetic-*` profiles exercise source admission, planning, invent
 
 ## Restoration, cleanup, and evidence
 
-The live executor records the first product-stage failure while still attempting product cleanup. The workflow then performs a separate lock-protected restore step before expected-state lock release, verifies released-lock residue, removes Central private device state, removes the exact source checkout without following symlinks, and removes registered workspace state. Terminal projection fails if any required discovery, fencing, execution, restore, release, residue, or cleanup outcome is not successful.
+The live executor records the first product-stage failure. A successful prepare establishes the test boundary; after that point the evidence stage is attempted regardless of test success, and the product cleanup stage is always attempted. Evidence failure can fail an otherwise successful test but cannot mask an already-failed test. Cleanup failure remains terminal while preserving an earlier primary failure.
 
-Zero routine Actions artifacts are retained. Stable product evidence is limited to bounded identifiers and routes through the shared physical-log policy; raw platform logs, host paths, device identifiers, credentials, receipts, environment dumps, screenshots, traces, and private media are not durable evidence. Synthetic evidence remains explicitly non-physical.
+A command profile may declare one fixed retained-evidence data path below `.tmp/ci-retained/` and one reviewed media type. After product cleanup, Central refuses symlinks/traversal, enforces a bounded byte size, validates UTF-8/JSON shape and the shared physical-log durable-text policy, and records only basename, media type, byte count, and SHA-256 into the evidence identity. The retained file content is never projected to workflow outputs. The workflow then performs a separate lock-protected restore step before expected-state lock release, verifies released-lock residue, removes Central private device state, removes the exact source checkout without following symlinks, and removes registered workspace state. Terminal projection fails if any required discovery, fencing, execution, restore, release, residue, or cleanup outcome is not successful.
+
+Zero routine Actions artifacts are retained. Stable product evidence is limited to bounded identifiers and retained-evidence inventory metadata; raw platform logs, host paths, device identifiers, credentials, receipts, environment dumps, screenshots, traces, private media, and retained-manifest contents are not durable evidence. Synthetic evidence remains explicitly non-physical.
