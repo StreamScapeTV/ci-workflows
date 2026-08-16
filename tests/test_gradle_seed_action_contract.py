@@ -133,7 +133,10 @@ class GradleSeedActionContractTests(unittest.TestCase):
         self.assertIn("id-token: write", source)
         self.assertIn("profile: gradle", source)
         self.assertIn("cache_mode: disabled", source)
-        self.assertIn("actions/upload-gradle-seed@<issue-251-immutable-sha>", source)
+        self.assertIn(
+            "actions/upload-gradle-seed@b51754fcd9d2df0f4aa71f097287b019bc6bedcb",
+            source,
+        )
         self.assertIn("source_sha: ${{ github.sha }}", source)
         self.assertIn("same job after execute and before cleanup", source)
         self.assertIn("No artifact/cache transports bridge jobs", source)
