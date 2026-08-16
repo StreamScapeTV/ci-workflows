@@ -69,7 +69,7 @@ jobs:
           case "${VALIDATION_PROFILE}" in
             general) runs_on='["linux","amd64","general","small"]' ;;
             mobile) runs_on='["linux","amd64","mobile"]' ;;
-            apple) runs_on='["macOS","ARM64","apple"]' ;;
+            apple) runs_on='["macOS","ARM64"]' ;;
             *) echo '::error::validation_profile must be general, mobile, or apple' >&2; exit 2 ;;
           esac
           printf 'runs_on_json=%s\n' "${runs_on}" >> "${GITHUB_OUTPUT}"
