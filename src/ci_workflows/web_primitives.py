@@ -25,10 +25,14 @@ _AUTH_ENVIRONMENT_KEYS = {
     "CLOUDFLARE_API_KEY",
     "CLOUDFLARE_EMAIL",
 }
-_CONTROL_ENVIRONMENT_KEYS = {
-    "WRANGLER_LOG_PATH",
-    "WRANGLER_OUTPUT_FILE_DIRECTORY",
-    "CLOUDFLARE_ENV",
+_DEPLOYMENT_ENVIRONMENT_PASSTHROUGH = {
+    "PATH",
+    "LANG",
+    "LC_ALL",
+    "TZ",
+    "TMPDIR",
+    "CI",
+    "GITHUB_ACTIONS",
 }
 
 
@@ -257,11 +261,17 @@ def run_static_verification(
         "verification_timeout_invalid",
     )
     before = inspect_static_output(root)
+    verification_environment = {
+        str(key): str(value)
+        for key, value in environment.items()
+        if key not in _AUTH_ENVIRONMENT_KEYS
+        and key not in {"CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"}
+    }
     try:
         outcome = runner.run(
             tuple(command),
             cwd=root,
-            env=dict(environment),
+            env=verification_environment,
             timeout_seconds=timeout_seconds,
         )
     except Exception as error:
@@ -311,11 +321,12 @@ def _pages_environment(
         "cloudflare_token_required",
     )
     values = {
-        str(key): str(value)
-        for key, value in environment.items()
-        if key not in _AUTH_ENVIRONMENT_KEYS
-        and key not in _CONTROL_ENVIRONMENT_KEYS
-        and key != "CLOUDFLARE_ACCOUNT_ID"
+        key: environment[key]
+        for key in _DEPLOYMENT_ENVIRONMENT_PASSTHROUGH
+        if isinstance(environment.get(key), str)
+        and "\x00" not in environment[key]
+        and "\r" not in environment[key]
+        and "\n" not in environment[key]
     }
     values.update(
         {
