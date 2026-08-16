@@ -12,6 +12,7 @@ from ci_workflows.validation_model import ActionsLoader
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/reusable-release.yml"
 PRODUCTS = ROOT / "contracts/public-workflows/products.json"
+HELM_SHA = "7b17879f21fbf029708d6a404a9dd12d75503a52"
 
 
 class ReusableReleaseTests(unittest.TestCase):
@@ -41,15 +42,6 @@ class ReusableReleaseTests(unittest.TestCase):
             self.public["supported_products"],
             ["iptv-backend-image", "iptv-backend-chart"],
         )
-        self.assertEqual(
-            self.public["implementation_components"],
-            [
-                "reusable-release.yml",
-                "buildah",
-                "internal-release-helm-composition",
-                "github-releases-api",
-            ],
-        )
         self.assertEqual(self.workflow["permissions"], {"actions": "read", "contents": "write"})
 
     def test_release_tag_is_source_of_truth_without_recovery_or_manifest_framework(self) -> None:
@@ -76,7 +68,7 @@ class ReusableReleaseTests(unittest.TestCase):
         ):
             self.assertNotIn(retired, self.text.casefold())
 
-    def test_image_publication_is_plain_buildah_push_with_no_remote_proof_gate(self) -> None:
+    def test_image_publication_is_plain_buildah_push_with_bounded_cleanup(self) -> None:
         image = self.workflow["jobs"]["image"]
         self.assertEqual(image["runs-on"], ["linux", "amd64", "buildah", "high"])
         self.assertEqual(image["permissions"], {"contents": "read"})
@@ -86,30 +78,51 @@ class ReusableReleaseTests(unittest.TestCase):
         self.assertIn("--platform linux/amd64,linux/arm64", source)
         self.assertIn("buildah manifest push --all", source)
         self.assertIn("--password-stdin", source)
+        self.assertIn("Remove image publication state", source)
+        self.assertIn("if: always()", source)
+        self.assertNotIn("cleanup()", source)
         self.assertNotIn("docker build", source.casefold())
         self.assertNotIn("docker push", source.casefold())
         self.assertNotIn("skopeo inspect", source.casefold())
-        self.assertIn("test -z \"$(find \"${RUNNER_TEMP}\" -maxdepth 1 -name 'release-image.*'", source)
 
-    def test_chart_publication_reuses_issue18_workflow(self) -> None:
+    def test_chart_publication_uses_issue18_action_without_reusable_nesting(self) -> None:
         chart = self.workflow["jobs"]["chart"]
-        self.assertEqual(chart["uses"], "./.github/workflows/reusable-helm-publish.yml")
-        self.assertEqual(chart["with"]["admitted_sha"], "${{ needs.admit.outputs.source_sha }}")
-        self.assertEqual(chart["with"]["product_id"], "${{ inputs.product_id }}")
-        self.assertEqual(chart["with"]["release_version"], "${{ needs.admit.outputs.version }}")
-        self.assertEqual(
-            set(chart["secrets"]),
-            {"registry_username", "registry_token"},
+        self.assertNotIn("uses", chart)
+        self.assertEqual(chart["runs-on"], ["linux", "amd64", "buildah", "tiny"])
+        steps = chart["steps"]
+        helpers = [str(step.get("uses", "")) for step in steps]
+        self.assertIn(
+            f"StreamScapeTV/ci-workflows/actions/publish-helm@{HELM_SHA}",
+            helpers,
         )
+        self.assertGreaterEqual(
+            helpers.count(f"StreamScapeTV/ci-workflows/actions/publish-helm@{HELM_SHA}"),
+            3,
+        )
+        helm = next(step for step in steps if step.get("id") == "helm")
+        self.assertEqual(helm["with"]["admitted_sha"], "${{ needs.admit.outputs.source_sha }}")
+        self.assertEqual(helm["with"]["product_id"], "${{ inputs.product_id }}")
+        self.assertEqual(helm["with"]["release_version"], "${{ needs.admit.outputs.version }}")
+        self.assertEqual(helm["with"]["source_trust"], "trusted-exact")
 
     def test_github_release_is_optional_bounded_normal_api_write(self) -> None:
         release = self.workflow["jobs"]["github_release"]
         self.assertEqual(release["permissions"], {"contents": "write"})
         self.assertIn("inputs.operation == 'publish-with-github-release'", release["if"])
-        self.assertIn('"POST"', self.text)
-        self.assertIn('"PATCH"', self.text)
-        self.assertIn("generate_release_notes", self.text)
-        self.assertNotIn("gh release", self.text.casefold())
+        run = release["steps"][0]["run"]
+        self.assertLessEqual(sum(1 for line in run.splitlines() if line.strip()), 40)
+        self.assertIn("curl --fail-with-body", run)
+        self.assertIn("generate_release_notes", run)
+        self.assertNotIn("python3 - <<", run)
+        self.assertNotIn("gh release", run.casefold())
+        self.assertEqual(release["steps"][1]["if"], "always()")
+
+    def test_public_workflow_owns_no_concurrency_or_nested_reusable_workflow(self) -> None:
+        self.assertNotIn("concurrency", self.workflow)
+        for job in self.workflow["jobs"].values():
+            self.assertFalse(
+                isinstance(job, dict) and str(job.get("uses", "")).startswith("./.github/workflows/")
+            )
 
     def test_requested_publication_cannot_fail_silently(self) -> None:
         summary = self.workflow["jobs"]["summary"]
