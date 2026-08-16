@@ -66,6 +66,7 @@
       {"path":".github/workflows/reusable-oci-publish.yml","trigger_classes":["authorized-publication-deployment-device-live-evidence"]},
       {"path":".github/workflows/reusable-python.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/reusable-resolve-source.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/reusable-script.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/reusable-tag-image-chart.yml","trigger_classes":["authorized-publication-deployment-device-live-evidence"]},
       {"path":".github/workflows/runner-images-release.yml","trigger_classes":["authorized-publication-deployment-device-live-evidence"]},
       {"path":".github/workflows/self-check.yml","trigger_classes":["final-pull-request-validation","protected-integration-release-validation"]}
