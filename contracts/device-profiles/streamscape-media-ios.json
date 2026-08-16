@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "contract_version": "1.0.0",
+  "retire_command_profiles": [
+    "streamscape-media-ios-device"
+  ],
+  "retire_profiles": [
+    "streamscape-media-ios"
+  ],
+  "command_profiles": {
+    "streamscape-media-ios-central-device": {
+      "prepare_script": "scripts/ci/prepare-ios-central-device.sh",
+      "test_script": "scripts/ci/run-ios-central-device-test.sh",
+      "evidence_script": "scripts/ci/publish-ios-central-device-evidence.sh",
+      "cleanup_script": "scripts/ci/cleanup-ios-central-device.sh",
+      "fixed_arguments": [],
+      "live_backend_profile": null,
+      "state_restoration": [
+        "terminate-owned-test",
+        "remove-owned-install",
+        "restore-captured-state"
+      ],
+      "retained_evidence_path": ".tmp/ci-retained/ios-central-device-evidence.json",
+      "retained_evidence_media_type": "application/json"
+    }
+  },
+  "profiles": {
+    "streamscape-media-ios-frame-rates": {
+      "repositories": ["StreamScapeTV/streamscape-media"],
+      "products": ["streamscape-media"],
+      "family": "ios",
+      "capabilities": ["native-video-output-frame-rates"],
+      "models": ["iphone", "ipad"],
+      "version_policy": {"os_min": "17.0", "os_max": "26.5"},
+      "aliases": {"media-primary": "media-ios-frame-rates-class"},
+      "selection_policy": "unique",
+      "base_runner_profile": "apple",
+      "workspace_profile": "apple",
+      "command_profile": "streamscape-media-ios-central-device",
+      "timeout_minutes": 120,
+      "artifact_exception_ids": ["redacted-device-diagnostics"],
+      "live_backend_profiles": [],
+      "synthetic_only": false,
+      "connection_states": ["usb", "paired"],
+      "health_states": ["online"],
+      "request_issue_numbers": [379, 527]
+    },
+    "streamscape-media-ios-geometry": {
+      "repositories": ["StreamScapeTV/streamscape-media"],
+      "products": ["streamscape-media"],
+      "family": "ios",
+      "capabilities": ["native-video-output-geometry"],
+      "models": ["iphone", "ipad"],
+      "version_policy": {"os_min": "17.0", "os_max": "26.5"},
+      "aliases": {"media-primary": "media-ios-geometry-class"},
+      "selection_policy": "unique",
+      "base_runner_profile": "apple",
+      "workspace_profile": "apple",
+      "command_profile": "streamscape-media-ios-central-device",
+      "timeout_minutes": 120,
+      "artifact_exception_ids": ["redacted-device-diagnostics"],
+      "live_backend_profiles": [],
+      "synthetic_only": false,
+      "connection_states": ["usb", "paired"],
+      "health_states": ["online"],
+      "request_issue_numbers": [380, 529]
+    },
+    "streamscape-media-ios-dynamic-range": {
+      "repositories": ["StreamScapeTV/streamscape-media"],
+      "products": ["streamscape-media"],
+      "family": "ios",
+      "capabilities": ["native-video-output-dynamic-range-evidence"],
+      "models": ["iphone", "ipad"],
+      "version_policy": {"os_min": "17.0", "os_max": "26.5"},
+      "aliases": {"media-primary": "media-ios-dynamic-range-class"},
+      "selection_policy": "unique",
+      "base_runner_profile": "apple",
+      "workspace_profile": "apple",
+      "command_profile": "streamscape-media-ios-central-device",
+      "timeout_minutes": 120,
+      "artifact_exception_ids": ["redacted-device-diagnostics"],
+      "live_backend_profiles": [],
+      "synthetic_only": false,
+      "connection_states": ["usb", "paired"],
+      "health_states": ["online"],
+      "request_issue_numbers": [174, 530]
+    },
+    "streamscape-media-ios-switching-policy": {
+      "repositories": ["StreamScapeTV/streamscape-media"],
+      "products": ["streamscape-media"],
+      "family": "ios",
+      "capabilities": ["native-switching-policy-preservation"],
+      "models": ["iphone", "ipad"],
+      "version_policy": {"os_min": "17.0", "os_max": "26.5"},
+      "aliases": {"media-primary": "media-ios-switching-policy-class"},
+      "selection_policy": "unique",
+      "base_runner_profile": "apple",
+      "workspace_profile": "apple",
+      "command_profile": "streamscape-media-ios-central-device",
+      "timeout_minutes": 120,
+      "artifact_exception_ids": ["redacted-device-diagnostics"],
+      "live_backend_profiles": [],
+      "synthetic_only": false,
+      "connection_states": ["usb", "paired"],
+      "health_states": ["online"],
+      "request_issue_numbers": [358, 528]
+    },
+    "streamscape-media-ios-shared-lifecycle": {
+      "repositories": ["StreamScapeTV/streamscape-media"],
+      "products": ["streamscape-media"],
+      "family": "ios",
+      "capabilities": ["native-shared-lifecycle"],
+      "models": ["iphone", "ipad"],
+      "version_policy": {"os_min": "17.0", "os_max": "26.5"},
+      "aliases": {"media-primary": "media-ios-shared-lifecycle-class"},
+      "selection_policy": "unique",
+      "base_runner_profile": "apple",
+      "workspace_profile": "apple",
+      "command_profile": "streamscape-media-ios-central-device",
+      "timeout_minutes": 120,
+      "artifact_exception_ids": ["redacted-device-diagnostics"],
+      "live_backend_profiles": [],
+      "synthetic_only": false,
+      "connection_states": ["usb", "paired"],
+      "health_states": ["online"],
+      "request_issue_numbers": [45, 531]
+    }
+  }
+}
