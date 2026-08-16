@@ -21,6 +21,9 @@
     "helm": "4.2.4",
     "kustomize": "5.8.1"
   },
+  "compatibility_probes": {
+    "setup_node_linux_x64": "26.7.0"
+  },
   "oci_stages": {
     "build_tools": {
       "reference": "docker.io/library/buildpack-deps:trixie",
@@ -43,6 +46,7 @@
   },
   "external_assets": {
     "actions_runner": "sha256:04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d",
+    "node_26_compat": "sha256:e1ab5849f548df59f394a978a04dbbfae915c3b35ac6597d829c53dada7ed701",
     "zstd_source": "sha256:eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3",
     "jq": "sha256:b1c22172dd303f3be49e935aa56aa48a8b7a46e0bc838b4997d3bb451495870f",
     "yq": "sha256:fa52a4e758c63d38299163fbdd1edfb4c4963247918bf9c1c5d31d84789eded4",
