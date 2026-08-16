@@ -41,6 +41,11 @@ tracked by `StreamScapeTV/organization-rules#66` and is still a dependency of
 #323 while this scaffold is being built. Final publication must reconcile to the
 merged shared policy before consumers treat these examples as authoritative.
 
+The owner-approved target lifecycle in #66 permits native GitHub `[skip ci]` or
+`[ci skip]` markers on coherent intermediate checkpoints when CI is not wanted; a
+coherent non-skipped branch commit intentionally requests any configured push CI.
+Until #66 is merged, the current shared rules remain the operating authority.
+
 A finalized pull request should receive the repository-defined relevant
 validation, and the protected integration branch should run the repository-defined
 post-merge validation. Repository-specific merge strategy and required checks stay
