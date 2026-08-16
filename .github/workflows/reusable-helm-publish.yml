@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       admitted_sha:
-        description: Exact lowercase tagged source SHA
+        description: Exact lowercase source SHA selected by the caller release job
         required: true
         type: string
       product_id:
@@ -12,41 +12,41 @@ on:
         required: true
         type: string
       release_version:
-        description: Exact immutable release version
+        description: Exact SemVer used for the packaged chart
         required: true
         type: string
       values_profile:
-        description: Optional checked-in product values profile
+        description: Optional caller-owned product values profile
         required: false
         type: string
       policy_path:
-        description: Optional fixed product policy path
+        description: Optional caller-owned product policy path
         required: false
         type: string
       image_digest:
-        description: Exact image_digest output from reusable-oci-publish; required only for a chart with an image binding
+        description: Legacy compatibility input; generic Helm publication does not require image digest evidence
         required: false
         type: string
       immutable_references_json:
-        description: Exact immutable_references_json output from reusable-oci-publish; required only for a chart with an image binding
+        description: Legacy compatibility input; generic Helm publication does not require OCI read-back evidence
         required: false
         type: string
     secrets:
       registry_username:
-        description: Named private OCI registry username
+        description: OCI registry username
         required: true
       registry_token:
-        description: Named private OCI registry token
+        description: OCI registry token
         required: true
     outputs:
       result:
-        description: Success only after exact OCI pull read-back and cleanup
+        description: Success after package publication and terminal cleanup
         value: ${{ jobs.publish.outputs.result }}
       chart_digest:
-        description: SHA-256 digest of the exact remote Helm OCI manifest after read-back
+        description: SHA-256 of the normalized chart package that was published
         value: ${{ jobs.publish.outputs.chart_digest }}
       immutable_references_json:
-        description: Deterministic immutable chart reference and digest summary
+        description: Published chart reference plus local normalized package digest
         value: ${{ jobs.publish.outputs.immutable_references_json }}
 
 permissions:
@@ -61,44 +61,29 @@ jobs:
       runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
       workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
       source_trust: ${{ steps.plan.outputs.source_trust }}
-      release_mode: ${{ steps.authority.outputs.release_mode }}
-      release_version: ${{ steps.authority.outputs.release_version }}
-      release_source_sha: ${{ steps.authority.outputs.release_source_sha }}
-      tag_object_sha: ${{ steps.authority.outputs.tag_object_sha }}
-      tag_commit_sha: ${{ steps.authority.outputs.tag_commit_sha }}
     steps:
-      - id: authority
-        name: Resolve exact release tag authority
-        uses: StreamScapeTV/ci-workflows/actions/resolve-release-tag@2b0443fdad002d47625386a959ebe68545cfe022 # issue #59 immutable helper checkpoint
-        with:
-          phase: resolve
-          release_mode: ${{ github.event_name == 'workflow_dispatch' && 'existing-tag' || 'tag-push' }}
-          release_version: ${{ github.event_name == 'workflow_dispatch' && inputs.release_version || '' }}
-          release_source_sha: ${{ github.event_name == 'workflow_dispatch' && inputs.admitted_sha || '' }}
-      - name: Verify requested publication tuple matches exact tag authority
+      - name: Require an exact product tag push
         shell: bash
         env:
-          REQUESTED_VERSION: ${{ inputs.release_version }}
-          REQUESTED_SOURCE_SHA: ${{ inputs.admitted_sha }}
-          RESOLVED_VERSION: ${{ steps.authority.outputs.release_version }}
-          RESOLVED_SOURCE_SHA: ${{ steps.authority.outputs.release_source_sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          EVENT_SHA: ${{ github.sha }}
+          ADMITTED_SHA: ${{ inputs.admitted_sha }}
         run: |
           set -Eeuo pipefail
-          test "${REQUESTED_VERSION}" = "${RESOLVED_VERSION}"
-          test "${REQUESTED_SOURCE_SHA}" = "${RESOLVED_SOURCE_SHA}"
+          test "${EVENT_NAME}" = push
+          test "${REF_TYPE}" = tag
+          test "${EVENT_SHA}" = "${ADMITTED_SHA}"
       - id: plan
-        name: Resolve fixed Helm publication contract and OCI evidence binding
-        uses: StreamScapeTV/ci-workflows/actions/publish-helm@f867827a41174ea5a9ad554eeea91dbb2c2c0bfa # issue #18 immutable Helm runtime checkpoint
+        name: Resolve caller-owned Helm product metadata
+        uses: StreamScapeTV/ci-workflows/actions/publish-helm@d9adf587a6275c165ddcd0eec37b33c09b3ec149 # issue #18 simple Helm core checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
           product_id: ${{ inputs.product_id }}
           release_version: ${{ inputs.release_version }}
-          release_mode: ${{ steps.authority.outputs.release_mode }}
           values_profile: ${{ inputs.values_profile }}
           policy_path: ${{ inputs.policy_path }}
-          image_digest: ${{ inputs.image_digest }}
-          immutable_references_json: ${{ inputs.immutable_references_json }}
           source_trust: trusted-exact
 
   publish:
@@ -107,7 +92,7 @@ jobs:
     runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
     timeout-minutes: 90
     outputs:
-      result: ${{ steps.measurement_start.outcome == 'success' && steps.helm.outcome == 'success' && steps.measurement_stop.outcome == 'success' && steps.helm_cleanup.outcome == 'success' && steps.residue.outcome == 'success' && steps.workspace_cleanup.outcome == 'success' && 'success' || 'failure' }}
+      result: ${{ steps.helm.outcome == 'success' && steps.helm_cleanup.outcome == 'success' && steps.residue.outcome == 'success' && steps.workspace_cleanup.outcome == 'success' && 'success' || 'failure' }}
       chart_digest: ${{ steps.helm.outputs.chart_digest }}
       immutable_references_json: ${{ steps.helm.outputs.immutable_references_json }}
     steps:
@@ -125,78 +110,39 @@ jobs:
           cache_mode: disabled
           source_sha: ${{ inputs.admitted_sha }}
           trust_mode: ${{ needs.plan.outputs.source_trust }}
-      - id: measurement_start
-        name: Start bounded Helm runner measurement
-        uses: StreamScapeTV/ci-workflows/actions/measure-helm@1f2c0ae5bec042adc9f94e87ebfbba1e7ba48994 # issue #18 immutable Helm measurement CIW checkpoint
-        with:
-          phase: start
-          admitted_sha: ${{ inputs.admitted_sha }}
-          product_id: ${{ inputs.product_id }}
-      - name: Revalidate exact release tag immediately before registry write
-        uses: StreamScapeTV/ci-workflows/actions/resolve-release-tag@2b0443fdad002d47625386a959ebe68545cfe022 # issue #59 immutable helper checkpoint
-        with:
-          phase: revalidate
-          release_mode: ${{ needs.plan.outputs.release_mode }}
-          release_version: ${{ needs.plan.outputs.release_version }}
-          release_source_sha: ${{ needs.plan.outputs.release_source_sha }}
-          expected_tag_object_sha: ${{ needs.plan.outputs.tag_object_sha }}
-          expected_tag_commit_sha: ${{ needs.plan.outputs.tag_commit_sha }}
       - id: helm
-        name: Bind OCI evidence, package, publish or verify, and prove OCI pull read-back
+        name: Lint, render, package, and publish caller Helm chart
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/publish-helm@f867827a41174ea5a9ad554eeea91dbb2c2c0bfa # issue #18 immutable Helm runtime checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/publish-helm@d9adf587a6275c165ddcd0eec37b33c09b3ec149 # issue #18 simple Helm core checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
           product_id: ${{ inputs.product_id }}
           release_version: ${{ inputs.release_version }}
-          release_mode: ${{ needs.plan.outputs.release_mode }}
           values_profile: ${{ inputs.values_profile }}
           policy_path: ${{ inputs.policy_path }}
-          image_digest: ${{ inputs.image_digest }}
-          immutable_references_json: ${{ inputs.immutable_references_json }}
           source_trust: ${{ needs.plan.outputs.source_trust }}
           registry_username: ${{ secrets.registry_username }}
           registry_token: ${{ secrets.registry_token }}
-      - id: measurement_stop
-        name: Stop and validate bounded Helm runner measurement
-        if: always() && steps.measurement_start.outcome == 'success'
-        continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/measure-helm@1f2c0ae5bec042adc9f94e87ebfbba1e7ba48994 # issue #18 immutable Helm measurement CIW checkpoint
-        with:
-          phase: stop
-          admitted_sha: ${{ inputs.admitted_sha }}
-          product_id: ${{ inputs.product_id }}
-      - name: Record bounded Helm runner evidence
-        if: always() && steps.measurement_stop.outcome == 'success'
-        shell: bash
-        env:
-          RUNNER_EVIDENCE_JSON: ${{ steps.measurement_stop.outputs.runner_evidence_json }}
-        run: |
-          set -Eeuo pipefail
-          test -n "${RUNNER_EVIDENCE_JSON}"
-          printf 'Helm runner evidence: %s\n' "${RUNNER_EVIDENCE_JSON}"
       - id: helm_cleanup
         name: Remove Helm package, registry, and credential state
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/publish-helm@f867827a41174ea5a9ad554eeea91dbb2c2c0bfa # issue #18 immutable Helm runtime checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/publish-helm@d9adf587a6275c165ddcd0eec37b33c09b3ec149 # issue #18 simple Helm core checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
           product_id: ${{ inputs.product_id }}
           release_version: ${{ inputs.release_version }}
-          release_mode: ${{ needs.plan.outputs.release_mode }}
           source_trust: ${{ needs.plan.outputs.source_trust }}
       - id: residue
         name: Verify zero Helm publication residue
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/publish-helm@f867827a41174ea5a9ad554eeea91dbb2c2c0bfa # issue #18 immutable Helm runtime checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/publish-helm@d9adf587a6275c165ddcd0eec37b33c09b3ec149 # issue #18 simple Helm core checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
           product_id: ${{ inputs.product_id }}
           release_version: ${{ inputs.release_version }}
-          release_mode: ${{ needs.plan.outputs.release_mode }}
           source_trust: ${{ needs.plan.outputs.source_trust }}
       - id: workspace_cleanup
         name: Remove and verify all registered workspace state
@@ -212,17 +158,13 @@ jobs:
         if: always()
         shell: bash
         env:
-          MEASUREMENT_START_OUTCOME: ${{ steps.measurement_start.outcome }}
           HELM_OUTCOME: ${{ steps.helm.outcome }}
-          MEASUREMENT_STOP_OUTCOME: ${{ steps.measurement_stop.outcome }}
           HELM_CLEANUP_OUTCOME: ${{ steps.helm_cleanup.outcome }}
           RESIDUE_OUTCOME: ${{ steps.residue.outcome }}
           WORKSPACE_CLEANUP_OUTCOME: ${{ steps.workspace_cleanup.outcome }}
         run: |
           set -Eeuo pipefail
-          test "${MEASUREMENT_START_OUTCOME}" = success
           test "${HELM_OUTCOME}" = success
-          test "${MEASUREMENT_STOP_OUTCOME}" = success
           test "${HELM_CLEANUP_OUTCOME}" = success
           test "${RESIDUE_OUTCOME}" = success
           test "${WORKSPACE_CLEANUP_OUTCOME}" = success
