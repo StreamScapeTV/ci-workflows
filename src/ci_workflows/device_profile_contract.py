@@ -20,6 +20,7 @@ from .device_contract_common import (
     strings,
     version_tuple,
 )
+from .device_retained_evidence import _safe_retained_relative
 from .device_types import DeviceCommandProfile, DeviceFamily, DeviceProfile
 
 PROFILE_REQUIRED_KEYS = {
@@ -227,7 +228,7 @@ def _validate_command_profiles(contract: Mapping[str, Any]) -> None:
             and retained_media in RETAINED_EVIDENCE_MEDIA_TYPES,
             "evidence_policy_failed",
         )
-        normalized = safe_relative(retained_path, "evidence_policy_failed")
+        normalized = _safe_retained_relative(retained_path)
         require(
             normalized == retained_path
             and retained_path.startswith(RETAINED_EVIDENCE_PREFIX)
