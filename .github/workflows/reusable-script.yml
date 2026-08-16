@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       validation_profile:
-        description: Bounded semantic capacity: general, mobile, or apple
+        description: "Bounded semantic capacity: general, mobile, or apple"
         required: true
         type: string
       working_directory:
