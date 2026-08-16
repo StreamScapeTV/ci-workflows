@@ -23,8 +23,48 @@ concurrency:
 jobs:
   general:
     name: Build and smoke the general runner image
-    uses: ./.github/workflows/internal-runner-image.yml
-    with:
-      image: general
-      source_sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-      publish: false
+    runs-on: [linux, amd64, buildah, high]
+    timeout-minutes: 180
+    env:
+      SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Check out exact general-image source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact general-image source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+
+      - name: Build and smoke through the shared runner-image action
+        uses: ./actions/runner-image
+        with:
+          image: general
+          source_sha: ${{ env.SOURCE_SHA }}
+          publish: "false"
+
+      - name: Verify runner-image credential cleanup
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          authfile="${RUNNER_TEMP}/ciw-runner-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-general.json"
+          test ! -e "${authfile}"
+          test ! -L "${authfile}"
+
+      - name: Verify exact source remained clean
+        if: ${{ always() && !cancelled() }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+          test -z "$(git status --porcelain --untracked-files=all)"

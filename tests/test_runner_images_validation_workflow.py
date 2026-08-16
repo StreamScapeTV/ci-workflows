@@ -36,7 +36,7 @@ class GeneralRunnerImageValidationWorkflowTests(unittest.TestCase):
         self.assertEqual({}, triggers["workflow_dispatch"])
         self.assertNotIn("push", triggers)
 
-    def test_job_is_a_thin_nonpublishing_shared_workflow_caller(self) -> None:
+    def test_job_uses_only_reviewed_buildah_capacity_and_shared_action(self) -> None:
         self.assertEqual({"contents": "read"}, self.document["permissions"])
         self.assertEqual(
             {
@@ -47,37 +47,49 @@ class GeneralRunnerImageValidationWorkflowTests(unittest.TestCase):
         )
         self.assertEqual(["general"], list(self.document["jobs"]))
         job = self.document["jobs"]["general"]
+        self.assertEqual(["linux", "amd64", "buildah", "high"], job["runs-on"])
+        self.assertEqual("180", job["timeout-minutes"])
         self.assertEqual(
-            "./.github/workflows/internal-runner-image.yml",
-            job["uses"],
+            "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}",
+            job["env"]["SOURCE_SHA"],
         )
+        steps = job["steps"]
+        shared = next(
+            step
+            for step in steps
+            if step.get("name") == "Build and smoke through the shared runner-image action"
+        )
+        self.assertEqual("./actions/runner-image", shared["uses"])
         self.assertEqual(
             {
                 "image": "general",
-                "source_sha": "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}",
+                "source_sha": "${{ env.SOURCE_SHA }}",
                 "publish": "false",
             },
-            job["with"],
+            shared["with"],
         )
-        for forbidden in (
-            "runs-on",
-            "steps",
-            "container",
-            "services",
-            "secrets",
-            "strategy",
-        ):
-            self.assertNotIn(forbidden, job)
+        self.assertEqual(
+            "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+            steps[0]["uses"],
+        )
+        self.assertEqual("${{ env.SOURCE_SHA }}", steps[0]["with"]["ref"])
+        self.assertEqual("false", steps[0]["with"]["persist-credentials"])
+        self.assertEqual("false", steps[0]["with"]["set-safe-directory"])
 
-    def test_caller_adds_no_cache_artifact_registry_or_deployment_authority(self) -> None:
+    def test_cleanup_source_and_authority_boundaries_are_terminal(self) -> None:
+        self.assertIn("Verify runner-image credential cleanup\n        if: always()", self.source)
+        self.assertIn("Verify exact source remained clean", self.source)
+        self.assertIn("always() && !cancelled()", self.source)
         for forbidden in (
+            "uses: ./.github/workflows/",
             "actions/cache",
             "upload-artifact",
             "download-artifact",
             "registry_username",
             "registry_token",
             "secrets: inherit",
-            "buildah ",
+            "buildah bud",
+            "buildah push",
             "docker ",
             "kubectl ",
             "flux ",
