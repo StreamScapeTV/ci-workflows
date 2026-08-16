@@ -11,7 +11,6 @@ jobs:
     with:
       admitted_sha: ${{ github.sha }}
       target_id: production
-      product_id: iptv-backend
       operation: reconcile
       policy_path: policy/reconcile.json
       allowlist_path: policy/targets.json
