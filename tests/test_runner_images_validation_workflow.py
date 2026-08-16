@@ -8,8 +8,23 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/runner-images-validation.yml"
 
+EXPECTED_IMAGES = ["general", "docker", "flux-control"]
+EXPECTED_PATHS = [
+    ".github/workflows/runner-images-validation.yml",
+    "actions/runner-image/**",
+    "runner-images/general/**",
+    "runner-images/docker/**",
+    "runner-images/flux-control/**",
+    "scripts/ci/runner_images.py",
+    "src/ci_workflows/runner_images.py",
+    "tests/test_runner_image_general.py",
+    "tests/test_runner_image_docker.py",
+    "tests/test_runner_image_flux_control.py",
+    "tests/test_runner_images_validation_workflow.py",
+]
 
-class GeneralRunnerImageValidationWorkflowTests(unittest.TestCase):
+
+class RunnerImageValidationWorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.source = WORKFLOW.read_text(encoding="utf-8")
@@ -21,22 +36,11 @@ class GeneralRunnerImageValidationWorkflowTests(unittest.TestCase):
             ["opened", "reopened", "synchronize", "ready_for_review"],
             triggers["pull_request"]["types"],
         )
-        self.assertEqual(
-            [
-                ".github/workflows/runner-images-validation.yml",
-                "actions/runner-image/**",
-                "runner-images/general/**",
-                "scripts/ci/runner_images.py",
-                "src/ci_workflows/runner_images.py",
-                "tests/test_runner_image_general.py",
-                "tests/test_runner_images_validation_workflow.py",
-            ],
-            triggers["pull_request"]["paths"],
-        )
+        self.assertEqual(EXPECTED_PATHS, triggers["pull_request"]["paths"])
         self.assertEqual("", triggers["workflow_dispatch"])
         self.assertNotIn("push", triggers)
 
-    def test_job_uses_only_reviewed_buildah_capacity_and_shared_action(self) -> None:
+    def test_job_uses_fixed_image_matrix_and_reviewed_buildah_capacity(self) -> None:
         self.assertEqual({"contents": "read"}, self.document["permissions"])
         self.assertEqual(
             {
@@ -45,14 +49,24 @@ class GeneralRunnerImageValidationWorkflowTests(unittest.TestCase):
             },
             self.document["concurrency"],
         )
-        self.assertEqual(["general"], list(self.document["jobs"]))
-        job = self.document["jobs"]["general"]
+        self.assertEqual(["images"], list(self.document["jobs"]))
+        job = self.document["jobs"]["images"]
+        self.assertEqual(
+            {
+                "fail-fast": "false",
+                "matrix": {"image": EXPECTED_IMAGES},
+            },
+            job["strategy"],
+        )
         self.assertEqual(["linux", "amd64", "buildah", "high"], job["runs-on"])
         self.assertEqual("180", job["timeout-minutes"])
         self.assertEqual(
             "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}",
             job["env"]["SOURCE_SHA"],
         )
+
+    def test_each_matrix_entry_uses_shared_nonpublishing_action(self) -> None:
+        job = self.document["jobs"]["images"]
         steps = job["steps"]
         shared = next(
             step
@@ -62,22 +76,31 @@ class GeneralRunnerImageValidationWorkflowTests(unittest.TestCase):
         self.assertEqual("./actions/runner-image", shared["uses"])
         self.assertEqual(
             {
-                "image": "general",
+                "image": "${{ matrix.image }}",
                 "source_sha": "${{ env.SOURCE_SHA }}",
                 "publish": "false",
             },
             shared["with"],
         )
+        checkout = steps[0]
         self.assertEqual(
             "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
-            steps[0]["uses"],
+            checkout["uses"],
         )
-        self.assertEqual("${{ env.SOURCE_SHA }}", steps[0]["with"]["ref"])
-        self.assertEqual("false", steps[0]["with"]["persist-credentials"])
-        self.assertEqual("false", steps[0]["with"]["set-safe-directory"])
+        self.assertEqual("${{ env.SOURCE_SHA }}", checkout["with"]["ref"])
+        self.assertEqual("false", checkout["with"]["persist-credentials"])
+        self.assertEqual("false", checkout["with"]["set-safe-directory"])
 
     def test_cleanup_source_and_authority_boundaries_are_terminal(self) -> None:
-        self.assertIn("Verify runner-image credential cleanup\n        if: always()", self.source)
+        job = self.document["jobs"]["images"]
+        cleanup = next(
+            step
+            for step in job["steps"]
+            if step.get("name") == "Verify runner-image credential cleanup"
+        )
+        self.assertEqual("always()", cleanup["if"])
+        self.assertEqual("${{ matrix.image }}", cleanup["env"]["IMAGE"])
+        self.assertIn("-${IMAGE}.json", cleanup["run"])
         self.assertIn("Verify exact source remained clean", self.source)
         self.assertIn("always() && !cancelled()", self.source)
         for forbidden in (
