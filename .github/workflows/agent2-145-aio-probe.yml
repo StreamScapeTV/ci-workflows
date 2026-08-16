@@ -1,0 +1,49 @@
+name: Agent 2 #145 AIO probe
+
+on:
+  push:
+    branches:
+      - issue/145-buildah-runner-image
+    paths:
+      - .github/workflows/agent2-145-aio-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: [self-hosted, linux, amd64, buildah, small]
+    timeout-minutes: 20
+    steps:
+      - name: Resolve exact upstream image identity
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          image='quay.io/containers/aio:latest'
+          root_digest="$(skopeo inspect --format '{{.Digest}}' "docker://${image}")"
+          skopeo inspect --raw "docker://${image}" > /tmp/aio-root.json
+          amd64_digest="$(jq -er '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest' /tmp/aio-root.json)"
+          skopeo inspect --raw "docker://quay.io/containers/aio@${amd64_digest}" > /tmp/aio-amd64.json
+          config_digest="$(jq -er '.config.digest' /tmp/aio-amd64.json)"
+          printf 'root_digest=%s\n' "${root_digest}"
+          printf 'amd64_manifest_digest=%s\n' "${amd64_digest}"
+          printf 'amd64_config_digest=%s\n' "${config_digest}"
+
+      - name: Probe required toolchain
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          image='quay.io/containers/aio:latest'
+          container="$(buildah from --pull=always "${image}")"
+          cleanup() { buildah rm -f "${container}" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          buildah run "${container}" -- buildah --version
+          buildah run "${container}" -- podman --version
+          buildah run "${container}" -- skopeo --version
+          buildah run "${container}" -- crun --version | head -n1
+          buildah run "${container}" -- bash --version | head -n1
+          buildah run "${container}" -- git --version
+          buildah run "${container}" -- curl --version | head -n1
+          buildah run "${container}" -- python3 --version
+          buildah run "${container}" -- sh -c 'test -s /etc/ssl/certs/ca-bundle.crt || test -s /etc/pki/tls/certs/ca-bundle.crt'
