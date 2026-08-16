@@ -1,0 +1,80 @@
+name: Runner image release
+
+on:
+  push:
+    tags:
+      - "*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing ci-workflows Git tag to rebuild
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runner-images-release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve exact repository release tag
+    runs-on: [linux, amd64, general, small]
+    timeout-minutes: 10
+    outputs:
+      release_tag: ${{ steps.release.outputs.release_tag }}
+      source_sha: ${{ steps.release.outputs.source_sha }}
+    steps:
+      - name: Check out exact release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+          fetch-depth: 0
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - id: release
+        name: Bind the human-readable tag to its exact commit
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          set -Eeuo pipefail
+          source_sha="$(git rev-parse HEAD)"
+          test "$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" = "${source_sha}"
+          python3 scripts/ci/runner_images.py release \
+            --tag "${RELEASE_TAG}" \
+            --source-sha "${source_sha}" \
+            --github-output "${GITHUB_OUTPUT}"
+
+      - name: Verify release checkout remained clean
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -z "$(git status --porcelain --untracked-files=all)"
+
+  release:
+    name: Publish ${{ matrix.image }} runner image
+    needs: resolve
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - general
+          - mobile
+          - buildah
+          - docker
+          - flux-control
+    uses: ./.github/workflows/internal-runner-image.yml
+    with:
+      image: ${{ matrix.image }}
+      source_sha: ${{ needs.resolve.outputs.source_sha }}
+      release_tag: ${{ needs.resolve.outputs.release_tag }}
+      publish: true
+    secrets:
+      registry_username: ${{ secrets.RUNNER_REGISTRY_USERNAME }}
+      registry_token: ${{ secrets.RUNNER_REGISTRY_TOKEN }}
