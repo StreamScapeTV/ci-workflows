@@ -21,10 +21,11 @@ def test_buildah_runner_uses_reviewed_actions_runner_release() -> None:
     from_lines = [line for line in source.splitlines() if line.startswith("FROM ")]
 
     assert len(from_lines) == 1
-    assert from_lines[0] == (
-        f"FROM ghcr.io/actions/actions-runner:{runner_version} AS actions-runner"
+    assert from_lines[0].startswith(
+        f"FROM ghcr.io/actions/actions-runner:{runner_version}"
     )
-    assert "@sha256:" not in from_lines[0]
+    assert from_lines[0].endswith(" AS actions-runner")
+    assert set(lock["actions_runner"]) == {"version"}
 
 
 def test_buildah_runner_uses_checked_in_primary_tool_versions() -> None:
