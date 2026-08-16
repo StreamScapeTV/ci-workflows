@@ -1,0 +1,35 @@
+# SCAFFOLDING ONLY.
+# TODO(#324 after #283/#322/#323): replace the reusable workflow filename,
+# central ref, and bounded input placeholder with the final generic API.
+# TODO(consumer): choose product-owned paths OR paths-ignore; do not keep both.
+name: TODO Node validation
+
+"on":
+  pull_request:
+    branches:
+      - TODO_PROTECTED_BRANCH
+    paths:
+      - TODO_PRODUCT_PATH/**
+      - .github/workflows/TODO_CALLER_WORKFLOW.yml
+      - TODO_PRODUCT_CONFIGURATION_PATH
+  push:
+    branches:
+      - TODO_PROTECTED_BRANCH
+      - TODO_OPTIONAL_FEATURE_BRANCH_GLOB
+    paths:
+      - TODO_PRODUCT_PATH/**
+      - .github/workflows/TODO_CALLER_WORKFLOW.yml
+      - TODO_PRODUCT_CONFIGURATION_PATH
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    uses: StreamScapeTV/ci-workflows/.github/workflows/TODO_REUSABLE_NODE_WORKFLOW.yml@TODO_CENTRAL_REF
+    with:
+      TODO_BOUNDED_NODE_INPUT: TODO_PRODUCT_OWNED_VALUE
