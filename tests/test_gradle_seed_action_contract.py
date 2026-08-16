@@ -7,6 +7,7 @@ from ci_workflows import gradle_seed
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTION = ROOT / "actions" / "upload-gradle-seed" / "action.yml"
+README = ROOT / "actions" / "upload-gradle-seed" / "README.md"
 MODULE = ROOT / "src" / "ci_workflows" / "gradle_seed.py"
 
 
@@ -105,6 +106,26 @@ class GradleSeedActionContractTests(unittest.TestCase):
         lowered = output_block.lower()
         for forbidden in ("token", "endpoint", "path", "sha256_json", "file_json"):
             self.assertNotIn(forbidden, lowered)
+
+    def test_consumer_example_keeps_oidc_permission_in_protected_push_lane(self) -> None:
+        source = README.read_text(encoding="utf-8")
+        self.assertIn("github.event_name == 'push'", source)
+        self.assertIn("github.ref == 'refs/heads/develop'", source)
+        self.assertIn("needs: validate", source)
+        self.assertIn("runs-on: mobile", source)
+        self.assertIn("contents: read", source)
+        self.assertIn("id-token: write", source)
+        self.assertIn("profile: gradle", source)
+        self.assertIn("cache_mode: disabled", source)
+        self.assertIn("actions/upload-gradle-seed@<issue-251-immutable-sha>", source)
+        self.assertIn("source_sha: ${{ github.sha }}", source)
+        self.assertIn("same job after execute and before cleanup", source)
+        self.assertIn("No artifact/cache transports bridge jobs", source)
+        validate_block = source.split("  validate:\n", 1)[1].split("\n  warm_gradle_seed:\n", 1)[0]
+        self.assertNotIn("id-token: write", validate_block)
+        warm_block = source.split("  warm_gradle_seed:\n", 1)[1]
+        self.assertLess(warm_block.index("- id: execute"), warm_block.index("- id: promote"))
+        self.assertLess(warm_block.index("- id: promote"), warm_block.index("- id: android_cleanup"))
 
 
 if __name__ == "__main__":
