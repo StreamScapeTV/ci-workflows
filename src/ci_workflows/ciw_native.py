@@ -102,6 +102,19 @@ def _string_map(raw: str, code: str) -> Mapping[str, str]:
     return result
 
 
+def _jobs(args: argparse.Namespace, context: CIWContext) -> int:
+    if args.jobs is not None:
+        value = args.jobs
+    else:
+        raw = _value(args, context, "jobs", "1")
+        if not raw.isdigit():
+            raise CIWError(_DOMAIN, "jobs_invalid")
+        value = int(raw)
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 256:
+        raise CIWError(_DOMAIN, "jobs_invalid")
+    return value
+
+
 def _root(args: argparse.Namespace, context: CIWContext) -> Path:
     raw = _value(args, context, "project_root", "source")
     candidate = Path(_text(raw, "project_root_invalid"))
@@ -204,7 +217,7 @@ def execute_native(args: argparse.Namespace, context: CIWContext) -> CIWResult:
         if phase == "cmake-configure":
             result = cmake_configure(
                 source_dir=_source_path(args, context, "source_directory"),
-                build_dir=_state_path(args, context, "state_directory", "native/build", must_exist=False),
+                build_dir=_state_path(args, context, "state_directory", "generated/native-build", must_exist=False),
                 definitions=_string_map(_value(args, context, "definitions_json", "{}"), "definitions_invalid"),
                 generator=_text(_value(args, context, "generator", ""), "generator_invalid", allow_empty=True),
                 options=_string_list(_value(args, context, "options_json", "[]"), "options_invalid", maximum=256),
@@ -213,10 +226,9 @@ def execute_native(args: argparse.Namespace, context: CIWContext) -> CIWResult:
             return _result(result.operation)
 
         if phase == "cmake-build":
-            jobs = args.jobs if args.jobs is not None else int(_value(args, context, "jobs", "1"))
             result = cmake_build(
-                build_dir=_state_path(args, context, "state_directory", "native/build", must_exist=True),
-                jobs=jobs,
+                build_dir=_state_path(args, context, "state_directory", "generated/native-build", must_exist=True),
+                jobs=_jobs(args, context),
                 target=_text(_value(args, context, "target", ""), "target_invalid", allow_empty=True),
                 configuration=_text(_value(args, context, "configuration", ""), "configuration_invalid", allow_empty=True),
                 options=_string_list(_value(args, context, "options_json", "[]"), "options_invalid", maximum=256),
@@ -226,8 +238,8 @@ def execute_native(args: argparse.Namespace, context: CIWContext) -> CIWResult:
 
         if phase == "cmake-install":
             result = cmake_install(
-                build_dir=_state_path(args, context, "state_directory", "native/build", must_exist=True),
-                install_dir=_state_path(args, context, "install_directory", "native/install", must_exist=False),
+                build_dir=_state_path(args, context, "state_directory", "generated/native-build", must_exist=True),
+                install_dir=_state_path(args, context, "install_directory", "generated/native-install", must_exist=False),
                 configuration=_text(_value(args, context, "configuration", ""), "configuration_invalid", allow_empty=True),
                 component=_text(_value(args, context, "component", ""), "component_invalid", allow_empty=True),
                 options=_string_list(_value(args, context, "options_json", "[]"), "options_invalid", maximum=256),
@@ -241,12 +253,11 @@ def execute_native(args: argparse.Namespace, context: CIWContext) -> CIWResult:
                 raise CIWError(_DOMAIN, "cwd_scope_invalid")
             base = _root(args, context) if scope == "source" else _state_root(context)
             cwd = _bounded(base, _value(args, context, "source_directory", "."), "cwd_invalid", must_exist=True)
-            jobs = args.jobs if args.jobs is not None else int(_value(args, context, "jobs", "1"))
             operation = run_make if phase == "make" else run_ninja
             result = operation(
                 cwd=cwd,
                 targets=_string_list(_value(args, context, "targets_json"), "targets_invalid", maximum=256),
-                jobs=jobs,
+                jobs=_jobs(args, context),
                 options=_string_list(_value(args, context, "options_json", "[]"), "options_invalid", maximum=256),
                 environment=environment,
             )
@@ -254,16 +265,16 @@ def execute_native(args: argparse.Namespace, context: CIWContext) -> CIWResult:
 
         if phase == "archive":
             result = create_deterministic_archive(
-                root=_state_path(args, context, "install_directory", "native/install", must_exist=True),
+                root=_state_path(args, context, "install_directory", "generated/native-install", must_exist=True),
                 members=_string_list(_value(args, context, "members_json"), "members_invalid"),
-                output_path=_state_path(args, context, "archive_output", "native-output.tar.gz", must_exist=False),
+                output_path=_state_path(args, context, "archive_output", "artifacts/native-output.tar.gz", must_exist=False),
                 format=_text(_value(args, context, "archive_format", "tar.gz"), "archive_format_invalid"),
             )
             return _result("archive", sha256=result.sha256, size_bytes=result.size_bytes)
 
         if phase == "inspect":
             outputs = inspect_native_outputs(
-                root=_state_path(args, context, "install_directory", "native/install", must_exist=True),
+                root=_state_path(args, context, "install_directory", "generated/native-install", must_exist=True),
                 outputs=_string_list(_value(args, context, "outputs_json"), "outputs_invalid", maximum=256),
             )
             return _result(
@@ -284,5 +295,5 @@ def execute_native(args: argparse.Namespace, context: CIWContext) -> CIWResult:
             return _result("cleanup", removed_paths=removed)
 
         raise CIWError(_DOMAIN, "phase_invalid")
-    except (CIWError, NativePrimitiveError, ValueError) as error:
+    except (CIWError, NativePrimitiveError) as error:
         raise project_error(error, domain=_DOMAIN) from error
