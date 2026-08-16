@@ -128,12 +128,19 @@ class HelmSimplePublicationTests(unittest.TestCase):
                 "image: git.faruqi.dev/mimranfaruqi/iptv-backend:latest\n"
             )
 
-    def test_core_action_no_longer_invokes_release_adapter(self) -> None:
-        action = (ROOT / "actions/publish-helm/action.yml").read_text(encoding="utf-8")
-        self.assertIn("helm publish --phase", action)
-        self.assertNotIn("scripts/ci/helm_release.py", action)
-        self.assertNotIn("INPUT_IMAGE_DIGEST", action)
-        self.assertNotIn("INPUT_IMMUTABLE_REFERENCES_JSON", action)
+    def test_core_actions_use_normal_python_without_action_lock_bootstrap(self) -> None:
+        for relative, operation in (
+            ("actions/validate-helm/action.yml", "helm validate --phase"),
+            ("actions/publish-helm/action.yml", "helm publish --phase"),
+        ):
+            action = (ROOT / relative).read_text(encoding="utf-8")
+            self.assertIn(operation, action)
+            self.assertIn("PYTHONPATH", action)
+            self.assertNotIn("bootstrap_validation_runtime.py", action)
+            self.assertNotIn("action-tool-lock.json", action)
+            self.assertNotIn("scripts/ci/helm_release.py", action)
+            self.assertNotIn("INPUT_IMAGE_DIGEST", action)
+            self.assertNotIn("INPUT_IMMUTABLE_REFERENCES_JSON", action)
 
 
 if __name__ == "__main__":
