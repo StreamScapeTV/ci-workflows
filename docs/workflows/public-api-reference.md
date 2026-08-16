@@ -25,7 +25,6 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. D
 | `helm.validate` `1.0.0` | `.github/workflows/reusable-helm-validate.yml` | `implemented` | `read-only-validation` | `validation-read` | `portable` | CI / Helm validation | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | iptv-backend-chart, agent-state-chart, flux-runner-chart-assets |
 | `maintenance.artifacts` `1.0.0` | `.github/workflows/reusable-artifact-cleanup.yml` | `planned` | `trusted-maintenance` | `artifact-cleanup` | `maintenance-control` | Maintenance / Artifact cleanup | StreamScapeTV/ci-workflows | — |
 | `maintenance.branches` `1.0.0` | `.github/workflows/reusable-branch-hygiene.yml` | `planned` | `trusted-maintenance` | `branch-hygiene` | `maintenance-control` | Maintenance / Branch hygiene | StreamScapeTV/* | — |
-| `maintenance.conformance` `1.0.0` | `.github/workflows/reusable-conformance.yml` | `planned` | `trusted-maintenance` | `conformance-report` | `maintenance-control` | Maintenance / Organization conformance | StreamScapeTV/ci-workflows | — |
 | `maintenance.runner-retry` `1.0.0` | `.github/workflows/reusable-runner-infrastructure-retry.yml` | `planned` | `trusted-maintenance` | `runner-infrastructure-retry` | `maintenance-control` | Maintenance / Runner retry | StreamScapeTV/* | — |
 | `oci.build` `1.0.0` | `.github/workflows/reusable-oci-build.yml` | `implemented` | `read-only-validation` | `validation-read` | `contract:oci-build` | CI / OCI build validation | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | iptv-backend-image, agent-state-image, flux-runner-images |
 | `oci.publish` `1.0.0` | `.github/workflows/reusable-oci-publish.yml` | `implemented` | `trusted-publication` | `oci-publication` | `contract:oci-publish` | Release / OCI publication | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | iptv-backend-image, agent-state-image, flux-runner-images |
@@ -39,6 +38,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. D
 | `validation.gitops` `1.0.0` | `.github/workflows/reusable-gitops-validation.yml` | `implemented` | `read-only-validation` | `validation-artifact-read` | `portable` | CI / GitOps validation | StreamScapeTV/flux, StreamScapeTV/iptv-backend, StreamScapeTV/agent-state | — |
 | `validation.node` `1.0.0` | `.github/workflows/reusable-node.yml` | `implemented` | `read-only-validation` | `validation-read` | `contract:node` | CI / Node validation | StreamScapeTV/StreamScapeWeb, StreamScapeTV/agent-state, StreamScapeTV/finance-hub | — |
 | `validation.python` `1.0.0` | `.github/workflows/reusable-python.yml` | `implemented` | `read-only-validation` | `validation-read` | `contract:python` | CI / Python validation | StreamScapeTV/iptv-backend, StreamScapeTV/agent-state, StreamScapeTV/flux | — |
+| `validation.script` `1.0.0` | `.github/workflows/reusable-script.yml` | `implemented` | `read-only-validation` | `validation-read` | `contract:script` | CI / Script validation | StreamScapeTV/* | — |
 
 ### `flux.assets`
 
@@ -111,18 +111,6 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. D
 - Outputs: `result`, `mutation_count`, `request_id`
 - Repository-owned hooks: none
 - Implementation components: `ci_workflows.maintenance.branches`
-
-### `maintenance.conformance`
-
-- Public file: `.github/workflows/reusable-conformance.yml`
-- Events: `schedule`, `workflow_dispatch`, `workflow_call`
-- Timeout / matrix maximum: `90 minutes` / `1` jobs
-- Maximum reusable-workflow depth: `1`
-- Inputs: `repository_scope`, `dry_run` (default `True`), `request_id` (required)
-- Secrets: `organization_read_token`, `organization_update_token`
-- Outputs: `result`, `mutation_count`, `report_issue_url`, `request_id`
-- Repository-owned hooks: none
-- Implementation components: `ci_workflows.maintenance.conformance`
 
 ### `maintenance.runner-retry`
 
@@ -280,6 +268,18 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. D
 - Outputs: `result`, `test_summary`, `artifact_exception_used`
 - Repository-owned hooks: `command_profile`, `script_path`
 - Implementation components: `ci_workflows.python.validate`, `actions/validate-python`
+
+### `validation.script`
+
+- Public file: `.github/workflows/reusable-script.yml`
+- Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
+- Timeout / matrix maximum: `120 minutes` / `1` jobs
+- Maximum reusable-workflow depth: `1`
+- Inputs: `admitted_sha` (required), `validation_profile` (required), `working_directory` (default `.`), `script_path` (required)
+- Secrets: none
+- Outputs: `result`
+- Repository-owned hooks: `script_path`, `working_directory`
+- Implementation components: `reusable-script.yml`
 
 ## Compatibility
 
