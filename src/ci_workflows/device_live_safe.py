@@ -17,6 +17,7 @@ from .device_live import (
     load_selected_device,
     verify_production_lock,
 )
+from .device_retained_evidence import inspect_retained_evidence
 from .device_types import (
     DeviceFamily,
     DevicePlan,
@@ -150,6 +151,9 @@ def execute_live_device(
     failure_code = ""
     cleanup_result = "success"
     timeout_seconds = max(60, plan.request.max_duration_minutes * 60)
+    prepared = False
+    retained_evidence: list[dict[str, object]] = []
+
     try:
         _run_product_stage(
             source_root,
@@ -159,24 +163,37 @@ def execute_live_device(
             timeout_seconds=min(timeout_seconds, 900),
             failure_code="prepare_failed",
         )
-        _run_product_stage(
-            source_root,
-            profile.test_script,
-            args=profile.fixed_arguments,
-            environment=runtime_environment,
-            timeout_seconds=timeout_seconds,
-            failure_code="stage_failed",
-        )
-        _run_product_stage(
-            source_root,
-            profile.evidence_script,
-            args=(),
-            environment=runtime_environment,
-            timeout_seconds=min(timeout_seconds, 900),
-            failure_code="evidence_policy_failed",
-        )
+        prepared = True
     except DeviceValidationError as error:
         failure_code = error.code
+    else:
+        try:
+            _run_product_stage(
+                source_root,
+                profile.test_script,
+                args=profile.fixed_arguments,
+                environment=runtime_environment,
+                timeout_seconds=timeout_seconds,
+                failure_code="stage_failed",
+            )
+        except DeviceValidationError as error:
+            failure_code = error.code
+
+        # Evidence is a terminal product stage after every attempted test. A
+        # failed test remains the primary failure, while an evidence failure can
+        # fail an otherwise-successful test but never turn a failed test green.
+        try:
+            _run_product_stage(
+                source_root,
+                profile.evidence_script,
+                args=(),
+                environment=runtime_environment,
+                timeout_seconds=min(timeout_seconds, 900),
+                failure_code="evidence_policy_failed",
+            )
+        except DeviceValidationError as error:
+            if not failure_code:
+                failure_code = error.code
     finally:
         try:
             _run_product_stage(
@@ -192,6 +209,27 @@ def execute_live_device(
             if not failure_code:
                 failure_code = "cleanup_failed"
 
+    # Product cleanup may retain only one contract-declared redacted handoff.
+    # Central validates it before reusable-workflow source/workspace cleanup and
+    # records metadata only; the checkout itself is still terminally deleted.
+    if prepared and profile.retained_evidence_path is not None:
+        try:
+            require(
+                profile.retained_evidence_media_type is not None,
+                "evidence_policy_failed",
+            )
+            retained_evidence.append(
+                inspect_retained_evidence(
+                    contract_root=contract_root,
+                    source_root=source_root,
+                    relative_path=profile.retained_evidence_path,
+                    media_type=profile.retained_evidence_media_type,
+                )
+            )
+        except DeviceValidationError as error:
+            if not failure_code:
+                failure_code = error.code
+
     result = "failure" if failure_code else "success"
     stable_basis = {
         "repository": plan.request.repository,
@@ -202,6 +240,7 @@ def execute_live_device(
         "validation_profile": plan.profile.profile_id,
         "result": result,
         "cleanup_result": cleanup_result,
+        "retained_evidence": retained_evidence,
     }
     evidence_digest = hashlib.sha256(
         canonical_json(stable_basis).encode("utf-8")
