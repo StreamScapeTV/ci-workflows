@@ -11,7 +11,7 @@ from ci_workflows.validation_model import ActionsLoader
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_SHA = "87a7454aaa59cb680db8f580d22551b749ac4193"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-PYTHON_SHA = "d060c275570e07222969546acf988a2616a3bcc6"
+PYTHON_SHA = "aece8d01efdd5482a1c3d42db357aed87a7917e9"
 ANDROID_SHA = "aef024030a7e96da74bb98b24bd67b532f289fc1"
 APPLE_SHA = "702b950b6a5baf208e7b21f16e3f7df9b8f0f96e"
 OCI_SHA = "3b401078d1167d7048281e3c3269556ce586dada"
@@ -25,7 +25,7 @@ ISSUE_132 = "issue #132 immutable mode-aware source checkpoint"
 ISSUE_104 = "issue #104 immutable private-action checkpoint"
 ISSUE_256 = "issue #256 immutable Media lifecycle sentinel checkpoint"
 ISSUE_125 = "issue #125 immutable private-action checkpoint"
-ISSUE_229 = "issue #229 immutable portable host runtime checkpoint"
+ISSUE_235 = "issue #235 general-runner Python primitives checkpoint"
 ISSUE_150 = "issue #150 immutable OCI input checkpoint"
 ISSUE_187 = "issue #187 integrated Media tvOS consumer checkpoint"
 ISSUE_59 = "issue #59 immutable helper checkpoint"
@@ -47,11 +47,9 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
     },
     ".github/workflows/reusable-python.yml": {
-        "StreamScapeTV/ci-workflows/actions/validate-python": (PYTHON_SHA, ISSUE_229),
+        "StreamScapeTV/ci-workflows/actions/validate-python": (PYTHON_SHA, ISSUE_235),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
-        "StreamScapeTV/ci-workflows/actions/verify-toolchain": (FOUNDATION_SHA, ISSUE_125),
-        "StreamScapeTV/ci-workflows/actions/render-evidence": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
     },
     ".github/workflows/reusable-flutter.yml": {
