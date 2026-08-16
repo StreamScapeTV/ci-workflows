@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "product_id": "runner-flux-control",
+  "image_repository": "git.faruqi.dev/mimranfaruqi/github-actions-runner-flux-control",
+  "platform": "linux/amd64",
+  "dockerfile": "runner-images/flux-control/Dockerfile",
+  "smoke": "runner-images/flux-control/smoke.sh",
+  "selection": {
+    "semantic_profile": "flux-control",
+    "direct_labels": ["linux", "amd64", "flux-control"]
+  },
+  "authority": {
+    "cluster_credentials_baked_in": false,
+    "service_account_token_baked_in": false,
+    "kubeconfig_baked_in": false,
+    "registry_credentials_baked_in": false,
+    "sops_credentials_baked_in": false,
+    "github_credentials_baked_in": false
+  },
+  "composition": {
+    "inherits_streamscape_runner_image": false
+  },
+  "compatibility": {
+    "kubernetes_minor": "1.34",
+    "kubectl_version": "1.34.8",
+    "flux_version": "2.9.4"
+  }
+}
