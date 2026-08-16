@@ -21,7 +21,6 @@ _SERVICE_HOST_ENV = "SERVICE_HOST"
 _SERVICE_PORT_ENV = "SERVICE_PORT"
 _SERVICE_HTTP_URL_ENV = "SERVICE_HTTP_URL"
 _ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{2,95}$")
-_TARGET_PREFIX = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 _RUN_TOKEN = re.compile(r"^[a-f0-9]{12}$")
 _GENERATED_TARGET = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 _SSLMODE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
@@ -61,6 +60,7 @@ class PostgreSQLConnection:
         if not isinstance(environment, Mapping) or any(not isinstance(name, str) or not isinstance(value, str) for name, value in environment.items()):
             raise ServicePrimitiveError("service_environment_invalid")
         result = dict(environment)
+        result.pop(_POSTGRES_DSN_ENV, None)
         for name in _POSTGRES_ENVIRONMENT:
             result.pop(name, None)
         result["PGHOST"] = self.host
@@ -93,7 +93,9 @@ class RunOwnedPostgreSQLTarget:
             raise ServicePrimitiveError("postgres_target_kind_invalid")
         if not isinstance(self.name, str) or _GENERATED_TARGET.fullmatch(self.name) is None:
             raise ServicePrimitiveError("postgres_target_name_invalid")
-        if not isinstance(self.owner_token, str) or _RUN_TOKEN.fullmatch(self.owner_token) is None or not self.name.endswith(f"_{self.owner_token}"):
+        if not isinstance(self.owner_token, str) or _RUN_TOKEN.fullmatch(self.owner_token) is None:
+            raise ServicePrimitiveError("postgres_target_owner_invalid")
+        if self.name != f"ci_{self.kind}_{self.owner_token}":
             raise ServicePrimitiveError("postgres_target_owner_invalid")
 
 @dataclass(frozen=True, slots=True)
@@ -274,8 +276,15 @@ def _bounded_sql_file(cwd: Path, sql_file: Path) -> Path:
     candidate = Path(sql_file)
     if not candidate.is_absolute():
         candidate = root / candidate
-    if candidate.is_symlink():
-        raise ServicePrimitiveError("postgres_sql_file_invalid")
+    try:
+        relative = candidate.relative_to(root)
+    except ValueError as error:
+        raise ServicePrimitiveError("postgres_sql_file_invalid") from error
+    cursor = root
+    for part in relative.parts:
+        cursor = cursor / part
+        if cursor.is_symlink():
+            raise ServicePrimitiveError("postgres_sql_file_invalid")
     try:
         candidate = candidate.resolve(strict=True)
         candidate.relative_to(root)
@@ -306,20 +315,18 @@ def _owner_token(run_id: str) -> str:
         raise ServicePrimitiveError("postgres_run_id_invalid")
     return hashlib.sha256(run_id.encode("utf-8")).hexdigest()[:12]
 
-def run_owned_postgres_target(*, kind: Literal["database", "schema"], run_id: str, prefix: str = "ci_test") -> RunOwnedPostgreSQLTarget:
+def run_owned_postgres_target(*, kind: Literal["database", "schema"], run_id: str) -> RunOwnedPostgreSQLTarget:
     if kind not in ("database", "schema"):
         raise ServicePrimitiveError("postgres_target_kind_invalid")
-    if not isinstance(prefix, str) or _TARGET_PREFIX.fullmatch(prefix) is None:
-        raise ServicePrimitiveError("postgres_target_prefix_invalid")
     token = _owner_token(run_id)
-    return RunOwnedPostgreSQLTarget(kind, f"{prefix}_{token}", token)
+    return RunOwnedPostgreSQLTarget(kind, f"ci_{kind}_{token}", token)
 
-def create_run_owned_postgres_target(connection: PostgreSQLConnection, *, requested: bool, kind: Literal["database", "schema"], run_id: str, cwd: Path, environment: Mapping[str, str], prefix: str = "ci_test", executable: str = "psql", timeout_seconds: float | None = None) -> PostgreSQLTargetResult:
+def create_run_owned_postgres_target(connection: PostgreSQLConnection, *, requested: bool, kind: Literal["database", "schema"], run_id: str, cwd: Path, environment: Mapping[str, str], executable: str = "psql", timeout_seconds: float | None = None) -> PostgreSQLTargetResult:
     if not isinstance(requested, bool):
         raise ServicePrimitiveError("postgres_target_request_invalid")
     if not requested:
         return PostgreSQLTargetResult(None, None)
-    target = run_owned_postgres_target(kind=kind, run_id=run_id, prefix=prefix)
+    target = run_owned_postgres_target(kind=kind, run_id=run_id)
     quoted = f'"{target.name}"'
     sql = f"CREATE DATABASE {quoted};" if target.kind == "database" else f"CREATE SCHEMA {quoted};"
     return PostgreSQLTargetResult(target, execute_psql(connection, cwd=cwd, environment=environment, sql=sql, executable=executable, timeout_seconds=timeout_seconds))

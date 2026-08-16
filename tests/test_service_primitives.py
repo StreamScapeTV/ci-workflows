@@ -59,6 +59,7 @@ class PostgreSQLConnectionTests(unittest.TestCase):
         self.assertEqual(environment["PGHOST"], "db.internal")
         self.assertEqual(environment["PGPASSWORD"], "p@ssword")
         self.assertEqual(environment["PGDATABASE"], "ci_db")
+        self.assertNotIn("POSTGRES_DSN", environment)
 
     def test_standard_pg_environment_uses_default_port_and_rejects_bad_port(self) -> None:
         connection = normalize_postgres_connection(
@@ -328,7 +329,7 @@ class RunOwnedTargetTests(unittest.TestCase):
                 )
         self.assertTrue(created.requested)
         self.assertTrue(created.ok)
-        self.assertRegex(created.target.name, r"^ci_test_[a-f0-9]{12}$")
+        self.assertRegex(created.target.name, r"^ci_database_[a-f0-9]{12}$")
         self.assertIn(f'CREATE DATABASE "{created.target.name}";', execute.call_args.kwargs["sql"])
         target_connection = connection_for_postgres_target(connection, created.target)
         self.assertEqual(target_connection.database, created.target.name)
