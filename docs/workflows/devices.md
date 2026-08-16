@@ -52,15 +52,39 @@ The planner derives current GitHub source admission and emits one canonical type
 3. deterministic discovery of exactly one eligible device, publishing only its SHA-256 identity;
 4. production `device-lock/1` acquisition for the exact device/source/request/owner;
 5. production lock verification immediately before physical mutation;
-6. execution of only the contract-selected product scripts, with an independent Python receipt revalidation at the mutation boundary;
-7. lock-protected product restore/cleanup;
-8. expected-state lock release;
-9. released-lock residue verification;
-10. Central private device-state removal and residue verification;
-11. exact source no-follow cleanup and registered workspace cleanup;
-12. terminal projection that fails if any required lifecycle outcome failed.
+6. execution of only the contract-selected product prepare and test scripts, with an independent Python receipt revalidation at the mutation boundary;
+7. after every attempted test, execution of the fixed product evidence stage even when the test failed; the original test failure remains primary;
+8. product cleanup on every terminal path, followed by validation of any one contract-declared redacted retained handoff as metadata only;
+9. lock-protected product restore/cleanup;
+10. expected-state lock release;
+11. released-lock residue verification;
+12. Central private device-state removal and residue verification;
+13. exact source no-follow cleanup and registered workspace cleanup;
+14. terminal projection that fails if any required lifecycle outcome failed.
 
 The plan's GitHub concurrency group uses `cancel-in-progress: false` and remains supplemental serialization only. It is **not** the fencing token.
+
+## Fixed Streamscape Media iOS packets
+
+Streamscape Media iOS physical validation uses the unchanged opaque alias `media-primary` and one zero-argument product adapter contract. The effective contract retires the stale `streamscape-media-ios` / `streamscape-media-ios-device` registration and the invalid bare `native-failover` invocation. Five independent Central profiles bind capability and request issue before scheduling:
+
+| Central profile | Capability | Allowed request issues |
+|---|---|---|
+| `streamscape-media-ios-frame-rates` | `native-video-output-frame-rates` | `#379`, `#527` |
+| `streamscape-media-ios-geometry` | `native-video-output-geometry` | `#380`, `#529` |
+| `streamscape-media-ios-dynamic-range` | `native-video-output-dynamic-range-evidence` | `#174`, `#530` |
+| `streamscape-media-ios-switching-policy` | `native-switching-policy-preservation` | `#358`, `#528` |
+| `streamscape-media-ios-shared-lifecycle` | `native-shared-lifecycle` | `#45`, `#531` |
+
+All five use `streamscape-media-ios-central-device` with fixed product-owned stages:
+
+- prepare: `scripts/ci/prepare-ios-central-device.sh`;
+- test: `scripts/ci/run-ios-central-device-test.sh`;
+- evidence: `scripts/ci/publish-ios-central-device-evidence.sh`;
+- cleanup: `scripts/ci/cleanup-ios-central-device.sh`;
+- fixed arguments: none.
+
+The request issue cannot select a different packet capability, script, command profile, alias, runner, or argv. Product state that must cross subprocess boundaries remains private inside the product checkout. Product cleanup may leave only `.tmp/ci-retained/ios-central-device-evidence.json`; Central validates its bounded JSON content against the physical-log policy and records only basename, media type, byte count, and SHA-256 before the source checkout is deleted. The manifest itself, raw traces, media, signing state, device identity, credentials, and private paths are not workflow outputs or routine Actions artifacts.
 
 ## Authority isolation
 
@@ -76,7 +100,7 @@ The merged #136 fencing action owns acquisition, verification, expected-state re
 
 The reusable workflow calls the reviewed `validate-device`, `device-lock`, exact-checkout, workspace-preparation, and workspace-cleanup actions through immutable private action SHAs. Public workflow execution does not depend on a mutable Central checkout.
 
-All private selected-device state is stored below the registered device-validation state root, removed without following symlinks, and independently residue-checked. Zero routine Actions artifacts are retained. Stable evidence is bounded and redacted; raw platform logs, receipts, device identifiers, host paths, credentials, environment dumps, screenshots, traces, and private media are not durable product evidence.
+All private selected-device state is stored below the registered device-validation state root, removed without following symlinks, and independently residue-checked. Zero routine Actions artifacts are retained. Stable evidence is bounded and redacted; raw platform logs, receipts, device identifiers, host paths, credentials, environment dumps, screenshots, traces, private media, and retained-manifest contents are not durable product evidence.
 
 ## Activation
 
