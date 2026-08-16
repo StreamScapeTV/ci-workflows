@@ -47,6 +47,7 @@ def test_general_runner_build_is_networkless_and_engine_free() -> None:
     ):
         assert token not in source
     assert ".ciw-build-inputs/actions-runner-linux-x64-2.336.0.tar.gz" in source
+    assert ".ciw-build-inputs/node-26.7.0-linux-x64.tar.gz" in source
     assert "rm -f" in source and "/usr/bin/apt-get" in source
     assert "for forbidden in docker dockerd containerd ctr runc buildah podman skopeo sudo" in source
     assert "for path in /usr/bin/bash" in source
@@ -63,6 +64,9 @@ def test_general_runner_build_is_networkless_and_engine_free() -> None:
     assert "/out/usr/lib/x86_64-linux-gnu/libatomic.so.1" in source
     assert "/node-root/usr/lib/x86_64-linux-gnu/libatomic.so.1" not in source
     assert "for library in /usr/lib/x86_64-linux-gnu/libatomic.so.1*" not in source
+    assert "--mount=type=bind,from=build-tools,source=/node26-compat,target=/tmp/node26-compat,ro" in source
+    assert "/tmp/node26-compat/bin/node --version | grep -fx 'v26.7.0'" in source
+    assert "/tmp/node26-compat/lib/node_modules/npm/bin/npm-cli.js" in source
 
 
 def test_general_runner_input_lock_matches_debian_stages() -> None:
@@ -97,13 +101,21 @@ def test_general_runner_input_lock_matches_debian_stages() -> None:
 
 def test_general_runner_external_inputs_are_checksum_locked() -> None:
     lock = json.loads(INPUT_LOCK.read_text(encoding="utf-8"))
-    assert len(lock["external_inputs"]) == 7
+    assert len(lock["external_inputs"]) == 8
     by_id = {item["input_id"]: item for item in lock["external_inputs"]}
     runner = by_id["actions-runner-linux-amd64"]
     assert runner["sha256"] == (
         "04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d"
     )
     assert runner["maximum_bytes"] >= 226035903
+    node_26 = by_id["node-26-compat-linux-amd64"]
+    assert node_26["url"] == (
+        "https://github.com/actions/node-versions/releases/download/"
+        "26.7.0-31064755789/node-26.7.0-linux-x64.tar.gz"
+    )
+    assert node_26["sha256"] == (
+        "e1ab5849f548df59f394a978a04dbbfae915c3b35ac6597d829c53dada7ed701"
+    )
     assert by_id["jq-linux-amd64"]["sha256"] == (
         "b1c22172dd303f3be49e935aa56aa48a8b7a46e0bc838b4997d3bb451495870f"
     )
@@ -136,6 +148,7 @@ def test_general_runner_toolchain_is_release_readable() -> None:
         "helm": "4.2.4",
         "kustomize": "5.8.1",
     }
+    assert toolchain["compatibility_probes"] == {"setup_node_linux_x64": "26.7.0"}
     assert set(toolchain["oci_stages"]) == {
         "build_tools",
         "node_runtime",
@@ -144,6 +157,9 @@ def test_general_runner_toolchain_is_release_readable() -> None:
     assert toolchain["oci_stages"]["build_tools"]["reference"] == "docker.io/library/buildpack-deps:trixie"
     assert toolchain["external_assets"]["actions_runner"] == (
         "sha256:04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d"
+    )
+    assert toolchain["external_assets"]["node_26_compat"] == (
+        "sha256:e1ab5849f548df59f394a978a04dbbfae915c3b35ac6597d829c53dada7ed701"
     )
     assert all(value.startswith("sha256:") for value in toolchain["external_assets"].values())
 
@@ -161,6 +177,8 @@ def test_general_runner_smoke_proves_runtime_and_trust_boundary() -> None:
         "bash -n /home/runner/run.sh",
         "/home/runner/bin/Runner.Listener --version",
         "libatomic.so.1",
+        "/etc/ssl/certs/ca-certificates.crt",
+        "BEGIN CERTIFICATE",
         "Python 3.12.14",
         "python3 -m venv",
         "v24.19.0",
