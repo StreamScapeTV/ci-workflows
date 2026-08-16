@@ -1,0 +1,347 @@
+name: Reusable Git-tag product release
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Existing caller-repository Git tag that is the release source of truth
+        required: true
+        type: string
+      release_version:
+        description: Caller-owned SemVer used for image and chart publication
+        required: true
+        type: string
+      admitted_sha:
+        description: Exact commit that the release tag must resolve to
+        required: true
+        type: string
+      image_repository:
+        description: Optional full private OCI image repository; empty skips image publication
+        required: false
+        default: ""
+        type: string
+      dockerfile_path:
+        description: Caller-repository Dockerfile path used when image publication is enabled
+        required: false
+        default: Dockerfile
+        type: string
+      build_context:
+        description: Caller-repository build context used when image publication is enabled
+        required: false
+        default: .
+        type: string
+      helm_product_id:
+        description: Optional caller-owned Helm product id; empty skips chart publication
+        required: false
+        default: ""
+        type: string
+      values_profile:
+        description: Optional caller-owned Helm values profile
+        required: false
+        default: ""
+        type: string
+      policy_path:
+        description: Optional caller-owned Helm policy path
+        required: false
+        default: ""
+        type: string
+      create_github_release:
+        description: Create or update the normal GitHub Release for release_tag
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      registry_username:
+        description: Private OCI registry username used only by publication jobs
+        required: true
+      registry_token:
+        description: Private OCI registry token used only by publication jobs
+        required: true
+    outputs:
+      result:
+        description: Success after all requested publication jobs and terminal summary
+        value: ${{ jobs.summary.outputs.result }}
+      release_tag:
+        description: Exact caller Git tag used as release authority
+        value: ${{ jobs.summary.outputs.release_tag }}
+      release_version:
+        description: Caller-owned release version
+        value: ${{ jobs.summary.outputs.release_version }}
+      source_sha:
+        description: Exact commit resolved from release_tag
+        value: ${{ jobs.summary.outputs.source_sha }}
+      image_reference:
+        description: Published image version reference, or empty when image publication is skipped
+        value: ${{ jobs.summary.outputs.image_reference }}
+      chart_digest:
+        description: Local normalized Helm package digest, or empty when chart publication is skipped
+        value: ${{ jobs.summary.outputs.chart_digest }}
+      github_release_url:
+        description: GitHub Release URL, or empty when GitHub Release creation is skipped
+        value: ${{ jobs.summary.outputs.github_release_url }}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.repository }}-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  admit:
+    name: Resolve caller Git tag
+    runs-on: [linux, amd64, general, small]
+    timeout-minutes: 10
+    outputs:
+      source_sha: ${{ steps.verify.outputs.source_sha }}
+      release_tag: ${{ steps.verify.outputs.release_tag }}
+      release_version: ${{ steps.verify.outputs.release_version }}
+    steps:
+      - name: Check out exact caller Git tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.release_tag }}
+          path: source
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+      - id: verify
+        name: Verify tag resolves to admitted source
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          ADMITTED_SHA: ${{ inputs.admitted_sha }}
+        run: |
+          set -Eeuo pipefail
+          [[ "${ADMITTED_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${RELEASE_TAG}" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$ ]]
+          [[ "${RELEASE_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]
+          test "$(git -C source rev-parse HEAD)" = "${ADMITTED_SHA}"
+          test -z "$(git -C source status --porcelain --untracked-files=all)"
+          printf 'source_sha=%s\n' "${ADMITTED_SHA}" >> "${GITHUB_OUTPUT}"
+          printf 'release_tag=%s\n' "${RELEASE_TAG}" >> "${GITHUB_OUTPUT}"
+          printf 'release_version=%s\n' "${RELEASE_VERSION}" >> "${GITHUB_OUTPUT}"
+
+  image:
+    name: Release / Image publication
+    needs: admit
+    if: ${{ inputs.image_repository != '' }}
+    runs-on: [linux, amd64, buildah, high]
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    outputs:
+      image_reference: ${{ steps.publish.outputs.image_reference }}
+    steps:
+      - name: Check out exact tagged caller source
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        with:
+          repository: ${{ github.repository }}
+          admitted_sha: ${{ needs.admit.outputs.source_sha }}
+          path: source
+          fetch_depth: "1"
+      - id: publish
+        name: Build and publish version image
+        shell: bash
+        env:
+          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+          RELEASE_VERSION: ${{ needs.admit.outputs.release_version }}
+          DOCKERFILE_PATH: ${{ inputs.dockerfile_path }}
+          BUILD_CONTEXT: ${{ inputs.build_context }}
+          REGISTRY_USERNAME: ${{ secrets.registry_username }}
+          REGISTRY_TOKEN: ${{ secrets.registry_token }}
+        run: |
+          set -Eeuo pipefail
+          test "$(id -u)" -ne 0
+          command -v buildah >/dev/null
+          ! command -v docker >/dev/null 2>&1
+          [[ "${IMAGE_REPOSITORY}" =~ ^git\.faruqi\.dev/[a-z0-9][a-z0-9._/-]*$ ]]
+          source_root="$(realpath source)"
+          dockerfile="$(realpath -m "source/${DOCKERFILE_PATH}")"
+          context="$(realpath -m "source/${BUILD_CONTEXT}")"
+          case "${dockerfile}" in "${source_root}"/*) ;; *) exit 1 ;; esac
+          case "${context}" in "${source_root}"|"${source_root}"/*) ;; *) exit 1 ;; esac
+          test -f "${dockerfile}"
+          test ! -L "${dockerfile}"
+          test -d "${context}"
+          test ! -L "${context}"
+
+          state="$(mktemp -d "${RUNNER_TEMP}/release-image.XXXXXX")"
+          chmod 700 "${state}"
+          auth="${state}/auth.json"
+          manifest="release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          image_ref="${IMAGE_REPOSITORY}:${RELEASE_VERSION}"
+          cleanup() {
+            buildah manifest rm "${manifest}" >/dev/null 2>&1 || true
+            buildah rmi -a -f >/dev/null 2>&1 || true
+            rm -rf "${state}"
+          }
+          trap cleanup EXIT
+          printf '%s' "${REGISTRY_TOKEN}" | buildah login --authfile "${auth}" --username "${REGISTRY_USERNAME}" --password-stdin git.faruqi.dev
+          unset REGISTRY_TOKEN
+          buildah bud --pull=always --layers=false --platform linux/amd64,linux/arm64 --jobs 2 --manifest "${manifest}" -f "${dockerfile}" "${context}"
+          buildah manifest push --all --authfile "${auth}" "${manifest}" "docker://${image_ref}"
+          printf 'image_reference=%s\n' "${image_ref}" >> "${GITHUB_OUTPUT}"
+      - name: Verify exact image source remained clean
+        if: always()
+        shell: bash
+        env:
+          ADMITTED_SHA: ${{ needs.admit.outputs.source_sha }}
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C source rev-parse HEAD)" = "${ADMITTED_SHA}"
+          test -z "$(git -C source status --porcelain --untracked-files=all)"
+          test -z "$(find "${RUNNER_TEMP}" -maxdepth 1 -name 'release-image.*' -print -quit)"
+
+  chart:
+    name: Release / Helm publication
+    needs: admit
+    if: ${{ inputs.helm_product_id != '' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/reusable-helm-publish.yml
+    with:
+      admitted_sha: ${{ needs.admit.outputs.source_sha }}
+      product_id: ${{ inputs.helm_product_id }}
+      release_version: ${{ needs.admit.outputs.release_version }}
+      values_profile: ${{ inputs.values_profile }}
+      policy_path: ${{ inputs.policy_path }}
+    secrets:
+      registry_username: ${{ secrets.registry_username }}
+      registry_token: ${{ secrets.registry_token }}
+
+  github_release:
+    name: Release / GitHub Release
+    needs: [admit, image, chart]
+    if: >-
+      ${{ always() && inputs.create_github_release && needs.admit.result == 'success' &&
+          (needs.image.result == 'success' || needs.image.result == 'skipped') &&
+          (needs.chart.result == 'success' || needs.chart.result == 'skipped') }}
+    runs-on: [linux, amd64, general, small]
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      url: ${{ steps.release.outputs.url }}
+    steps:
+      - id: release
+        name: Create or update normal GitHub Release
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.admit.outputs.release_tag }}
+          SOURCE_SHA: ${{ needs.admit.outputs.source_sha }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          api = os.environ["GITHUB_API_URL"].rstrip("/")
+          repository = os.environ["GITHUB_REPOSITORY"]
+          tag = os.environ["RELEASE_TAG"]
+          token = os.environ["GITHUB_TOKEN"]
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {token}",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+
+          def request(method: str, path: str, payload=None):
+              data = None if payload is None else json.dumps(payload).encode("utf-8")
+              req = urllib.request.Request(f"{api}{path}", data=data, headers=headers, method=method)
+              with urllib.request.urlopen(req, timeout=20) as response:
+                  body = response.read(1_000_001)
+              if len(body) > 1_000_000:
+                  raise SystemExit("GitHub release response too large")
+              return json.loads(body.decode("utf-8")) if body else {}
+
+          encoded_tag = urllib.parse.quote(tag, safe="")
+          try:
+              current = request("GET", f"/repos/{repository}/releases/tags/{encoded_tag}")
+          except urllib.error.HTTPError as error:
+              if error.code != 404:
+                  raise
+              current = None
+
+          if current is None:
+              release = request(
+                  "POST",
+                  f"/repos/{repository}/releases",
+                  {
+                      "tag_name": tag,
+                      "target_commitish": os.environ["SOURCE_SHA"],
+                      "name": tag,
+                      "draft": False,
+                      "prerelease": False,
+                      "generate_release_notes": True,
+                  },
+              )
+          else:
+              release_id = current.get("id")
+              if not isinstance(release_id, int) or release_id <= 0:
+                  raise SystemExit("existing GitHub Release identity invalid")
+              release = request(
+                  "PATCH",
+                  f"/repos/{repository}/releases/{release_id}",
+                  {"tag_name": tag, "name": tag, "draft": False},
+              )
+          url = release.get("html_url")
+          if not isinstance(url, str) or not url.startswith("https://"):
+              raise SystemExit("GitHub Release URL invalid")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"url={url}\n")
+          PY
+
+  summary:
+    name: Release / Summary
+    needs: [admit, image, chart, github_release]
+    if: always()
+    runs-on: [linux, amd64, general, small]
+    timeout-minutes: 10
+    outputs:
+      result: ${{ steps.summary.outputs.result }}
+      release_tag: ${{ steps.summary.outputs.release_tag }}
+      release_version: ${{ steps.summary.outputs.release_version }}
+      source_sha: ${{ steps.summary.outputs.source_sha }}
+      image_reference: ${{ steps.summary.outputs.image_reference }}
+      chart_digest: ${{ steps.summary.outputs.chart_digest }}
+      github_release_url: ${{ steps.summary.outputs.github_release_url }}
+    steps:
+      - id: summary
+        name: Project requested publication results
+        shell: bash
+        env:
+          ADMIT_RESULT: ${{ needs.admit.result }}
+          IMAGE_RESULT: ${{ needs.image.result }}
+          CHART_RESULT: ${{ needs.chart.result }}
+          RELEASE_RESULT: ${{ needs.github_release.result }}
+          CREATE_GITHUB_RELEASE: ${{ inputs.create_github_release }}
+          RELEASE_TAG: ${{ needs.admit.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.admit.outputs.release_version }}
+          SOURCE_SHA: ${{ needs.admit.outputs.source_sha }}
+          IMAGE_REFERENCE: ${{ needs.image.outputs.image_reference }}
+          CHART_DIGEST: ${{ needs.chart.outputs.chart_digest }}
+          GITHUB_RELEASE_URL: ${{ needs.github_release.outputs.url }}
+        run: |
+          set -Eeuo pipefail
+          test "${ADMIT_RESULT}" = success
+          test "${IMAGE_RESULT}" = success -o "${IMAGE_RESULT}" = skipped
+          test "${CHART_RESULT}" = success -o "${CHART_RESULT}" = skipped
+          if test "${CREATE_GITHUB_RELEASE}" = true; then
+            test "${RELEASE_RESULT}" = success
+          else
+            test "${RELEASE_RESULT}" = skipped
+          fi
+          printf 'result=success\n' >> "${GITHUB_OUTPUT}"
+          printf 'release_tag=%s\n' "${RELEASE_TAG}" >> "${GITHUB_OUTPUT}"
+          printf 'release_version=%s\n' "${RELEASE_VERSION}" >> "${GITHUB_OUTPUT}"
+          printf 'source_sha=%s\n' "${SOURCE_SHA}" >> "${GITHUB_OUTPUT}"
+          printf 'image_reference=%s\n' "${IMAGE_REFERENCE}" >> "${GITHUB_OUTPUT}"
+          printf 'chart_digest=%s\n' "${CHART_DIGEST}" >> "${GITHUB_OUTPUT}"
+          printf 'github_release_url=%s\n' "${GITHUB_RELEASE_URL}" >> "${GITHUB_OUTPUT}"
