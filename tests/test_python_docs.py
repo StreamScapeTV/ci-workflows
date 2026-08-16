@@ -32,6 +32,8 @@ class PythonDocumentationTests(unittest.TestCase):
         self.assertIn("runner-provided CPython 3.12", guide)
         self.assertIn("host-cpython-3.12", guide)
         self.assertIn("shared Python primitives", guide)
+        self.assertIn("No Actions cache", guide)
+        self.assertIn("workflow-owned persistent volume", guide)
         self.assertNotIn("verify-toolchain", guide)
         self.assertNotIn("render-evidence", guide)
         self.assertNotIn("3.12.3", guide)
@@ -40,13 +42,8 @@ class PythonDocumentationTests(unittest.TestCase):
             "setup-python",
             "sudo apt",
             "apt-get",
-            "Actions cache",
-            "workflow-owned persistent volume",
         ):
-            if forbidden in {"Actions cache", "workflow-owned persistent volume"}:
-                self.assertIn(f"No {forbidden}", guide)
-            else:
-                self.assertNotIn(forbidden, guide)
+            self.assertNotIn(forbidden, guide)
 
 
 if __name__ == "__main__":
