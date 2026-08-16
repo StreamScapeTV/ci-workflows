@@ -12,7 +12,7 @@ jobs:
     uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-flux-infrastructure-assets.yml@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
     with:
       admitted_sha: ${{ github.sha }}
-      product_id: flux-runner-images
+      release_manifest_path: ci/runner-assets-release.json
       release_version: 1.2.3
       operation: release
       policy_path: policy/runner-assets.json

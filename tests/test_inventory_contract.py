@@ -31,7 +31,7 @@ class InventoryContractTests(unittest.TestCase):
             inventory_contract.render(data),
         )
 
-    def test_repository_and_product_boundaries_are_exact(self) -> None:
+    def test_repository_navigation_is_identity_neutral(self) -> None:
         data = inventory_contract.validate(ROOT)
         repositories = {
             row["repository"] for row in data["inventory"]["repositories"]
@@ -43,19 +43,12 @@ class InventoryContractTests(unittest.TestCase):
             if row["repository"] == "StreamScapeTV/organization-rules"
         )
         self.assertEqual(organization_rules["workflows"], [])
-        products = data["products"]["products"]
-        oci = {
-            product["repository"]
-            for product in products
-            if product["kind"] in {"oci-image", "oci-runner-image-family"}
-        }
-        charts = {
-            product["repository"]
-            for product in products
-            if product["kind"] in {"helm-oci-chart", "helm-oci-chart-assets"}
-        }
-        self.assertEqual(oci, inventory_contract.OCI_PRODUCERS)
-        self.assertEqual(charts, inventory_contract.OCI_PRODUCERS)
+        source = (ROOT / "scripts/ci/inventory_contract.py").read_text(encoding="utf-8")
+        self.assertNotIn("contracts/consumers.json", source)
+        self.assertNotIn("contracts/products.json", source)
+        self.assertNotIn("OCI_PRODUCERS", source)
+        self.assertNotIn("products", data)
+        self.assertNotIn("consumers", data)
 
     def test_live_comparison_accepts_matching_paths_and_blobs(self) -> None:
         data = inventory_contract.validate(ROOT)
@@ -75,11 +68,7 @@ class InventoryContractTests(unittest.TestCase):
         data = inventory_contract.validate(ROOT)
         inventory = copy.deepcopy(data["inventory"])
         repository = inventory["repositories"][0]
-        recorded = next(
-            workflow
-            for workflow in repository["workflows"]
-            if workflow[6] is not None
-        )
+        recorded = next(workflow for workflow in repository["workflows"] if workflow[6] is not None)
         live = {
             row["repository"]: {
                 workflow[0]: workflow[6] or ("a" * 40)
@@ -90,9 +79,7 @@ class InventoryContractTests(unittest.TestCase):
         live[repository["repository"]][recorded[0]] = "b" * 40
         removed = repository["workflows"][-1][0]
         live[repository["repository"]].pop(removed)
-        live[repository["repository"]][
-            ".github/workflows/new-unregistered.yml"
-        ] = "c" * 40
+        live[repository["repository"]][".github/workflows/new-unregistered.yml"] = "c" * 40
         errors = inventory_live_check.compare_inventory(inventory, live)
         self.assertTrue(any("workflow changed" in error for error in errors))
         self.assertTrue(any("workflow removed" in error for error in errors))
@@ -102,9 +89,7 @@ class InventoryContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             for relative in (
-                "contracts/consumers.json",
                 "contracts/workflow-inventory.json",
-                "contracts/products.json",
                 "docs/architecture/ownership-boundaries.md",
                 "docs/inventory/workflows.md",
             ):

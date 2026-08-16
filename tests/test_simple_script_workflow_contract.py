@@ -150,7 +150,8 @@ class SimpleScriptWorkflowContractTests(unittest.TestCase):
         validation_rows = {row["api_name"]: row for row in validation["workflows"]}
         script = validation_rows["validation.script"]
         self.assertEqual("validation-read", script["permission_profile"])
-        self.assertEqual("StreamScapeTV/*", script["supported_consumers"][0])
+        self.assertNotIn("supported_consumers", script)
+        self.assertNotIn("supported_products", script)
         self.assertEqual(["script_path", "working_directory"], script["repository_owned_hooks"])
         self.assertNotIn(
             "maintenance.conformance",

@@ -82,13 +82,14 @@ class AndroidPrivateReuseRegressionTests(unittest.TestCase):
             self.source,
         )
 
-    def test_public_api_still_supports_streamscape_media_without_new_surface(self) -> None:
+    def test_public_android_api_is_repository_identity_free_without_new_surface(self) -> None:
         android = next(
             workflow
             for workflow in self.public["workflows"]
             if workflow["api_name"] == "validation.android"
         )
-        self.assertIn("StreamScapeTV/streamscape-media", android["supported_consumers"])
+        self.assertNotIn("supported_consumers", android)
+        self.assertNotIn("supported_products", android)
         reusable_inputs = set(self.workflow["on"]["workflow_call"]["inputs"])
         self.assertEqual(reusable_inputs, {item["name"] for item in android["inputs"]})
 

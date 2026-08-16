@@ -6,52 +6,17 @@
     "semver_tag_pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$",
     "immutable_references": ["full-sha", "immutable-semver-tag"],
     "bootstrap_mutable_reference": "main",
-    "bootstrap_mutable_allowed_trust_classes": [
-      "source-admission",
-      "read-only-validation",
-      "physical-device-validation",
-      "trusted-publication",
-      "flux-authorized",
-      "trusted-maintenance"
-    ],
+    "bootstrap_mutable_allowed_trust_classes": ["source-admission", "read-only-validation", "physical-device-validation", "trusted-publication", "flux-authorized", "trusted-maintenance"],
     "privileged_mutable_references_forbidden": false,
     "consumer_updates": "reviewable-pull-request",
     "rollback_reference_required": true,
     "delete_referenced_release_forbidden": true
   },
   "compatibility_policy": {
-    "compatible": [
-      "add workflow",
-      "add optional input without behavior change",
-      "add output",
-      "widen documented supported consumer without privilege change",
-      "documentation clarification"
-    ],
-    "conditional": [
-      "tighten input validation within documented bounds",
-      "change internal implementation or named function without public behavior change",
-      "change timeout or matrix within published maximum",
-      "deprecate with replacement and supported window"
-    ],
-    "breaking": [
-      "remove or rename workflow",
-      "remove or rename input/output/secret/check",
-      "add required input or secret",
-      "change default behavior",
-      "expand caller permissions",
-      "change trust class or reference policy",
-      "change semantic runner class incompatibly",
-      "remove product or consumer support",
-      "increase reusable-workflow depth"
-    ],
-    "acknowledgement_required_fields": [
-      "id",
-      "api_name",
-      "kind",
-      "reason",
-      "migration_issue",
-      "effective_version"
-    ]
+    "compatible": ["add workflow", "add optional input without behavior change", "add output", "widen documented technology capability without privilege change", "documentation clarification"],
+    "conditional": ["tighten input validation within documented bounds", "change internal implementation or named function without public behavior change", "change timeout or matrix within published maximum", "deprecate with replacement and supported window"],
+    "breaking": ["remove or rename workflow", "remove or rename input/output/secret/check", "add required input or secret", "change default behavior", "expand caller permissions", "change trust class or reference policy", "change semantic runner class incompatibly", "remove or narrow documented technology capability", "increase reusable-workflow depth"],
+    "acknowledgement_required_fields": ["id", "api_name", "kind", "reason", "migration_issue", "effective_version"]
   },
   "defaults": {
     "artifact_policy": "zero-default-named-exception-only",
@@ -59,61 +24,15 @@
     "cleanup_policy": "always-residue-checked",
     "concurrency_policy": "caller-owned",
     "max_reusable_workflow_depth": 1,
-    "forbidden_caller_fields": [
-      "runner",
-      "runs_on",
-      "runner_labels",
-      "container_engine",
-      "docker_command",
-      "buildah_command",
-      "registry_host",
-      "registry_command",
-      "secret_name",
-      "kubeconfig_path",
-      "cluster",
-      "namespace",
-      "arbitrary_command",
-      "shell",
-      "callback_url"
-    ]
+    "forbidden_caller_fields": ["runner", "runs_on", "runner_labels", "container_engine", "docker_command", "buildah_command", "registry_host", "registry_command", "secret_name", "kubeconfig_path", "cluster", "namespace", "arbitrary_command", "shell", "callback_url", "product_id"]
   },
   "trust_classes": {
-    "source-admission": {
-      "reference_policy": "bootstrap-main-or-immutable",
-      "allowed_events": ["pull_request", "push", "workflow_dispatch", "workflow_call", "tag-push", "workflow_run", "issue_comment", "pull_request_target"],
-      "executes_caller_source": false,
-      "privileged": false
-    },
-    "read-only-validation": {
-      "reference_policy": "bootstrap-main-or-immutable",
-      "allowed_events": ["pull_request", "push", "workflow_dispatch", "workflow_call"],
-      "executes_caller_source": true,
-      "privileged": false
-    },
-    "physical-device-validation": {
-      "reference_policy": "bootstrap-main-or-immutable",
-      "allowed_events": ["workflow_dispatch", "workflow_call"],
-      "executes_caller_source": true,
-      "privileged": true
-    },
-    "trusted-publication": {
-      "reference_policy": "bootstrap-main-or-immutable",
-      "allowed_events": ["tag-push", "workflow_call", "workflow_dispatch-verify-only", "workflow_dispatch-existing-tag"],
-      "executes_caller_source": true,
-      "privileged": true
-    },
-    "flux-authorized": {
-      "reference_policy": "bootstrap-main-or-immutable",
-      "allowed_events": ["workflow_dispatch", "repository_dispatch", "workflow_call"],
-      "executes_caller_source": false,
-      "privileged": true
-    },
-    "trusted-maintenance": {
-      "reference_policy": "bootstrap-main-or-immutable",
-      "allowed_events": ["schedule", "workflow_dispatch", "pull_request-closed", "workflow_call"],
-      "executes_caller_source": false,
-      "privileged": true
-    }
+    "source-admission": {"reference_policy": "bootstrap-main-or-immutable", "allowed_events": ["pull_request", "push", "workflow_dispatch", "workflow_call", "tag-push", "workflow_run", "issue_comment", "pull_request_target"], "executes_caller_source": false, "privileged": false},
+    "read-only-validation": {"reference_policy": "bootstrap-main-or-immutable", "allowed_events": ["pull_request", "push", "workflow_dispatch", "workflow_call"], "executes_caller_source": true, "privileged": false},
+    "physical-device-validation": {"reference_policy": "bootstrap-main-or-immutable", "allowed_events": ["workflow_dispatch", "workflow_call"], "executes_caller_source": true, "privileged": true},
+    "trusted-publication": {"reference_policy": "bootstrap-main-or-immutable", "allowed_events": ["tag-push", "workflow_call", "workflow_dispatch-verify-only", "workflow_dispatch-existing-tag"], "executes_caller_source": true, "privileged": true},
+    "flux-authorized": {"reference_policy": "bootstrap-main-or-immutable", "allowed_events": ["workflow_dispatch", "repository_dispatch", "workflow_call"], "executes_caller_source": false, "privileged": true},
+    "trusted-maintenance": {"reference_policy": "bootstrap-main-or-immutable", "allowed_events": ["schedule", "workflow_dispatch", "pull_request-closed", "workflow_call"], "executes_caller_source": false, "privileged": true}
   },
   "input_catalog": {
     "source_mode": {"type": "string", "enum": ["auto", "pr-head", "pr-merge", "push", "manual", "workflow-call", "tag", "trusted-maintenance"]},
@@ -121,6 +40,7 @@
     "admitted_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "expected_branch": {"type": "string", "pattern": "^[A-Za-z0-9._/-]{1,255}$", "nullable": true},
     "release_contract": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$", "nullable": true},
+    "release_manifest_path": {"type": "path", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$"},
     "project_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$"},
     "pr_number": {"type": "integer", "minimum": 1, "nullable": true},
     "request_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"},
@@ -154,7 +74,6 @@
     "device_capability": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$", "nullable": true},
     "device_alias": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$"},
     "max_duration_minutes": {"type": "integer", "minimum": 1, "maximum": 240, "default": 60},
-    "product_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$"},
     "release_mode": {"type": "string", "enum": ["tag-push", "existing-tag"], "default": "tag-push"},
     "release_version": {"type": "string", "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$", "nullable": true},
     "release_source_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$", "nullable": true},
@@ -166,6 +85,7 @@
     "operation": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$", "nullable": true},
     "policy_path": {"type": "path", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$", "nullable": true},
     "allowlist_path": {"type": "path", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$", "nullable": true},
+    "values_path": {"type": "path", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$", "nullable": true},
     "evidence_exception_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$", "nullable": true},
     "dry_run": {"type": "boolean", "default": true},
     "repository_scope": {"type": "json-array", "max_items": 100, "nullable": true},
@@ -246,5 +166,13 @@
     "history_depth": {"type": "integer", "minimum": 1, "maximum": 1000},
     "evidence_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{7,63}$"}
   },
-  "breaking_change_acknowledgements": []
+  "breaking_change_acknowledgements": [
+    {"id": "issue-322-oci-build", "api_name": "oci.build", "kind": "technology-input-decoupling", "reason": "Replace central application product lookup with caller-owned OCI name and paths.", "migration_issue": "#322", "effective_version": "2.0.0"},
+    {"id": "issue-322-oci-publish", "api_name": "oci.publish", "kind": "technology-input-decoupling", "reason": "Replace central application product lookup with caller-owned OCI name and paths.", "migration_issue": "#322", "effective_version": "2.0.0"},
+    {"id": "issue-322-helm-validate", "api_name": "helm.validate", "kind": "technology-input-decoupling", "reason": "Replace central application product lookup with caller-owned chart paths and names.", "migration_issue": "#322", "effective_version": "2.0.0"},
+    {"id": "issue-322-helm-publish", "api_name": "helm.publish", "kind": "technology-input-decoupling", "reason": "Replace central application product lookup with caller-owned chart paths and names.", "migration_issue": "#322", "effective_version": "2.0.0"},
+    {"id": "issue-322-release", "api_name": "release.orchestrate", "kind": "technology-input-decoupling", "reason": "Use a caller-owned bounded release manifest instead of a central application release profile.", "migration_issue": "#322", "effective_version": "2.0.0"},
+    {"id": "issue-322-flux-assets", "api_name": "flux.assets", "kind": "technology-input-decoupling", "reason": "Use a caller-owned bounded asset manifest instead of a central application product ID.", "migration_issue": "#322", "effective_version": "2.0.0"},
+    {"id": "issue-322-flux-reconcile", "api_name": "flux.reconcile", "kind": "technology-input-decoupling", "reason": "Keep Flux authorization capability-based without a central application product ID.", "migration_issue": "#322", "effective_version": "2.0.0"}
+  ]
 }
