@@ -18,15 +18,21 @@ from ci_workflows.node_contract import (
 
 
 class FinanceFlutterNodeCompositionTests(unittest.TestCase):
-    def test_every_finance_node_composition_has_one_runtime_authority(self) -> None:
-        flutter_contract = load_flutter_contract(ROOT)
-        node_contract = load_node_contract(ROOT)
-        profiles = flutter_contract["consumer_contracts"]["finance-embedded-web"][
-            "profiles"
-        ]
+    def setUp(self) -> None:
+        self.flutter_contract = load_flutter_contract(ROOT)
+        self.node_contract = load_node_contract(ROOT)
+        self.profiles = self.flutter_contract["consumer_contracts"][
+            "finance-embedded-web"
+        ]["profiles"]
 
+    def test_explicit_finance_audit_is_not_repeated_in_quality_or_android(self) -> None:
+        for profile_name in ("canonical-gate", "android-debug"):
+            with self.subTest(profile=profile_name):
+                self.assertIsNone(self.profiles[profile_name]["node_composition"])
+
+    def test_remaining_finance_node_compositions_have_one_runtime_authority(self) -> None:
         checked = 0
-        for profile_name, profile in profiles.items():
+        for profile_name, profile in self.profiles.items():
             composition = profile["node_composition"]
             if composition is None:
                 continue
@@ -47,14 +53,14 @@ class FinanceFlutterNodeCompositionTests(unittest.TestCase):
                     "INPUT_PUBLIC_ENVIRONMENT": "",
                     "INPUT_ARTIFACT_EXCEPTION_ID": "",
                 }
-                request = request_from_environment(environment, node_contract)
-                plan = resolve_validation_plan(node_contract, request)
+                request = request_from_environment(environment, self.node_contract)
+                plan = resolve_validation_plan(self.node_contract, request)
                 self.assertEqual(".node-version", plan.version_file)
                 self.assertEqual("22.16.0", plan.node_version)
                 self.assertEqual("source-audit", plan.command_profile)
                 checked += 1
 
-        self.assertGreaterEqual(checked, 1)
+        self.assertEqual(4, checked)
 
 
 if __name__ == "__main__":
