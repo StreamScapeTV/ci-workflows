@@ -94,10 +94,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-android",
-      "sha": "aef024030a7e96da74bb98b24bd67b532f289fc1",
-      "release": "issue #256 immutable Media lifecycle sentinel checkpoint",
+      "sha": "8c7e16003b56da9f6bd2e20b0b5b78e4bbfaceaf",
+      "release": "issue #262 immutable Media audio-output sentinel checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/aef024030a7e96da74bb98b24bd67b532f289fc1/actions/validate-android"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/8c7e16003b56da9f6bd2e20b0b5b78e4bbfaceaf/actions/validate-android"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/checkout-private-dependency",
