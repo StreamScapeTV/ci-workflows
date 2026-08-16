@@ -227,6 +227,31 @@
       "supported_products": [],
       "repository_owned_hooks": ["policy_script_profile"],
       "implementation_components": ["ci_workflows.gitops.validate", "actions/validate-gitops"]
+    },
+    {
+      "file": ".github/workflows/reusable-script.yml",
+      "api_name": "validation.script",
+      "api_version": "1.0.0",
+      "status": "implemented",
+      "trust_class": "read-only-validation",
+      "permission_profile": "validation-read",
+      "semantic_runner_profile": "contract:script",
+      "permitted_events": ["pull_request", "push", "workflow_dispatch", "workflow_call"],
+      "inputs": [
+        {"name": "admitted_sha", "required": true},
+        {"name": "validation_profile", "required": true},
+        {"name": "working_directory", "required": false, "default": "."},
+        {"name": "script_path", "required": true}
+      ],
+      "secrets": [],
+      "outputs": ["result"],
+      "stable_check_name": "CI / Script validation",
+      "timeout_minutes": 120,
+      "matrix_max_jobs": 1,
+      "supported_consumers": ["StreamScapeTV/*"],
+      "supported_products": [],
+      "repository_owned_hooks": ["script_path", "working_directory"],
+      "implementation_components": ["reusable-script.yml"]
     }
   ]
 }
