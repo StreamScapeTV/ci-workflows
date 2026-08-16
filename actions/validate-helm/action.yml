@@ -1,5 +1,5 @@
 name: Validate bounded Helm chart
-description: Resolve, validate, package, or clean one product-contract Helm chart
+description: Resolve, validate, and package one caller-owned Helm chart
 
 inputs:
   phase:
@@ -10,16 +10,16 @@ inputs:
     description: Exact admitted caller source SHA
     required: true
   product_id:
-    description: Central product-contract identifier
+    description: Caller-owned Helm product identity
     required: true
   release_version:
     description: Optional exact release version to bind in the isolated package copy
     required: false
   values_profile:
-    description: Optional product-manifest values profile
+    description: Optional caller-owned product-manifest values profile
     required: false
   policy_path:
-    description: Optional product-manifest policy file path
+    description: Optional caller-owned product policy file path
     required: false
   artifact_exception_id:
     description: Must remain empty because package artifacts are never retained
@@ -63,15 +63,6 @@ runs:
         INPUT_SOURCE_TRUST: ${{ inputs.source_trust }}
       run: |
         set -Eeuo pipefail
-        runtime_root="${RUNNER_TEMP}/ciw-helm-validation-python-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-        case "${runtime_root}" in "${RUNNER_TEMP}"/*) ;; *) exit 2 ;; esac
-        rm -rf -- "${runtime_root}"
-        mkdir -p -- "${runtime_root}"
-        cleanup_runtime() { rm -rf -- "${runtime_root}"; }
-        trap cleanup_runtime EXIT
-        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/bootstrap_validation_runtime.py" \
-          --lock "${GITHUB_ACTION_PATH}/../../contracts/action-tool-lock.json" \
-          --target "${runtime_root}"
-        export PYTHONPATH="${runtime_root}:${GITHUB_ACTION_PATH}/../../src"
-        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
-          helm validate --phase "${{ inputs.phase }}" --source-root source
+        PYTHONPATH="${GITHUB_ACTION_PATH}/../../src" \
+          python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
+            helm validate --phase "${{ inputs.phase }}" --source-root source
