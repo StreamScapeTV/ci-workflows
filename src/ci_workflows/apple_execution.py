@@ -728,6 +728,59 @@ def _exact_owned_candidates(
     return candidates
 
 
+def _recorded_owned_candidates(
+    row: Mapping[str, str],
+    payload: object,
+) -> list[dict[str, str]]:
+    """Find only devices described by one validated CIW ownership row."""
+
+    devices = payload.get("devices") if isinstance(payload, dict) else None
+    if not isinstance(devices, dict):
+        fail("simulator_malformed")
+    rows = devices.get(row["runtime_identifier"], [])
+    if not isinstance(rows, list):
+        fail("simulator_malformed")
+    candidates: list[dict[str, str]] = []
+    for raw in rows:
+        if not isinstance(raw, dict):
+            continue
+        name = raw.get("name")
+        udid = raw.get("udid")
+        if row["status"] == "owned":
+            name_matches = name == row["device_name"]
+            udid_matches = udid == row["udid"]
+            if not name_matches and not udid_matches:
+                continue
+            if not name_matches or not udid_matches:
+                fail("simulator_ownership_identity_mismatch")
+        elif name != row["device_name"]:
+            continue
+        state = raw.get("state")
+        available = raw.get("isAvailable", True)
+        device_type_identifier = raw.get("deviceTypeIdentifier")
+        if device_type_identifier != row["device_type_identifier"]:
+            fail("simulator_ownership_identity_mismatch")
+        if (
+            not isinstance(udid, str)
+            or _UDID.fullmatch(udid) is None
+            or state not in {"Shutdown", "Booted"}
+            or not isinstance(available, bool)
+        ):
+            fail("simulator_malformed")
+        candidates.append(
+            {
+                "name": str(name),
+                "udid": udid,
+                "state": str(state),
+                "runtime_identifier": row["runtime_identifier"],
+                "device_type_identifier": str(device_type_identifier),
+            }
+        )
+    if len(candidates) > 1:
+        fail("simulator_ambiguous")
+    return candidates
+
+
 def _device_inventory(
     runner: CommandRunner,
     *,
@@ -805,6 +858,90 @@ def _delete_exact_owned_simulator(
         fail(failure_code)
 
 
+def _delete_recorded_owned_simulator(
+    runner: CommandRunner,
+    *,
+    source_root: Path,
+    state_root: Path,
+    env: Mapping[str, str],
+    row: Mapping[str, str],
+    udid: str,
+    failure_code: str,
+) -> None:
+    """Delete one exact simulator proven by a persisted CIW ownership row."""
+
+    _run(
+        runner,
+        ("xcrun", "simctl", "shutdown", udid),
+        cwd=source_root,
+        env=env,
+        timeout_seconds=60,
+        failure_code=failure_code,
+        state_root=state_root,
+        stage="simulator-stale-shutdown",
+        check=False,
+    )
+    _run(
+        runner,
+        ("xcrun", "simctl", "delete", udid),
+        cwd=source_root,
+        env=env,
+        timeout_seconds=60,
+        failure_code=failure_code,
+        state_root=state_root,
+        stage="simulator-stale-delete",
+    )
+    payload = _device_inventory(
+        runner,
+        source_root=source_root,
+        state_root=state_root,
+        env=env,
+        available_only=False,
+        failure_code=failure_code,
+    )
+    if _recorded_owned_candidates(row, payload):
+        fail(failure_code)
+
+
+def _reconcile_stale_ownership_rows(
+    plan: AppleValidationPlan,
+    source_root: Path,
+    state_root: Path,
+    runner: CommandRunner,
+    env: Mapping[str, str],
+    ownership: SimulatorOwnership,
+) -> None:
+    """Terminalize stale CIW rows from older exact heads before new selection."""
+
+    current_owner_key = _simulator_owner_key(plan)
+    for row in tuple(ownership.rows):
+        if row["owner_key"] == current_owner_key:
+            continue
+        payload = _device_inventory(
+            runner,
+            source_root=source_root,
+            state_root=state_root,
+            env=env,
+            available_only=False,
+            failure_code="cleanup_failed",
+        )
+        candidates = _recorded_owned_candidates(row, payload)
+        if not candidates:
+            ownership.replace(row["owner_key"], None)
+            continue
+        candidate = candidates[0]
+        _delete_recorded_owned_simulator(
+            runner,
+            source_root=source_root,
+            state_root=state_root,
+            env=env,
+            row=row,
+            udid=candidate["udid"],
+            failure_code="cleanup_failed",
+        )
+        ownership.replace(row["owner_key"], None)
+
+
 def _recover_stale_owned_simulator(
     plan: AppleValidationPlan,
     source_root: Path,
@@ -814,6 +951,14 @@ def _recover_stale_owned_simulator(
     ownership: SimulatorOwnership,
 ) -> None:
     owner_key = _simulator_owner_key(plan)
+    _reconcile_stale_ownership_rows(
+        plan,
+        source_root,
+        state_root,
+        runner,
+        env,
+        ownership,
+    )
     row = ownership.row(owner_key)
     payload = _device_inventory(
         runner,
