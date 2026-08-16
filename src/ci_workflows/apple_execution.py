@@ -5,13 +5,15 @@ import fcntl
 import hashlib
 import json
 import os
+import pwd
 import re
 import stat
 import subprocess
+import time
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Iterator, Mapping, Protocol, Sequence
+from typing import Callable, Iterator, Mapping, Protocol, Sequence
 
 from .apple_contract import bounded_path, fail, regular_path, safe_relative
 from .apple_types import (
@@ -50,6 +52,7 @@ _OWNERSHIP_ROW_KEYS = {
     "device_type_identifier",
     "device_family",
 }
+_SIMULATOR_DELETE_BACKOFF_SECONDS = (0.05, 0.15)
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,7 +93,9 @@ class SubprocessCommandRunner:
                 timeout=timeout_seconds,
                 check=False,
             )
-        except (OSError, subprocess.TimeoutExpired) as error:
+        except subprocess.TimeoutExpired:
+            raise
+        except OSError as error:
             raise AppleValidationError("command_failed") from error
         return CommandOutcome(
             completed.returncode,
@@ -109,7 +114,7 @@ class SimulatorLease:
 
 @dataclass(slots=True)
 class SimulatorOwnership:
-    """One non-blocking runner-local lock and its validated registry rows."""
+    """One host-user simulator lock and its validated ownership registry."""
 
     root: Path
     lock_fd: int
@@ -414,22 +419,48 @@ def _verify_absolute_directory_no_follow(path: Path, code: str) -> Path:
     return absolute
 
 
+def _ownership_base(
+    environment: Mapping[str, str],
+    state_root: Path | None = None,
+) -> Path:
+    raw_workspace = environment.get("RUNNER_WORKSPACE", "").strip()
+    github_actions = environment.get("GITHUB_ACTIONS") == "true"
+    if github_actions:
+        if not raw_workspace:
+            fail("simulator_ownership_invalid")
+        _verify_absolute_directory_no_follow(
+            Path(raw_workspace),
+            "simulator_ownership_invalid",
+        )
+        try:
+            account_home = Path(pwd.getpwuid(os.geteuid()).pw_dir)
+        except (KeyError, OSError) as error:
+            raise AppleValidationError("simulator_ownership_invalid") from error
+        return _verify_absolute_directory_no_follow(
+            account_home,
+            "simulator_ownership_invalid",
+        )
+    if raw_workspace:
+        return _verify_absolute_directory_no_follow(
+            Path(raw_workspace),
+            "simulator_ownership_invalid",
+        )
+    if environment.get("CI") == "true":
+        fail("simulator_ownership_invalid")
+    if state_root is None or not state_root.is_absolute():
+        fail("simulator_ownership_invalid")
+    return _verify_absolute_directory_no_follow(
+        state_root.parent,
+        "simulator_ownership_invalid",
+    )
+
+
 def _ownership_root(
     environment: Mapping[str, str],
     state_root: Path | None = None,
 ) -> Path:
-    raw = environment.get("RUNNER_WORKSPACE", "").strip()
-    if not raw:
-        if environment.get("GITHUB_ACTIONS") == "true" or environment.get("CI") == "true":
-            fail("simulator_ownership_invalid")
-        if state_root is None or not state_root.is_absolute():
-            fail("simulator_ownership_invalid")
-        raw = str(state_root.parent)
-    workspace = _verify_absolute_directory_no_follow(
-        Path(raw),
-        "simulator_ownership_invalid",
-    )
-    root = workspace / _OWNERSHIP_DIRECTORY
+    base = _ownership_base(environment, state_root)
+    root = base / _OWNERSHIP_DIRECTORY
     metadata = _lstat(root)
     if metadata is None:
         try:
@@ -437,7 +468,12 @@ def _ownership_root(
         except OSError as error:
             raise AppleValidationError("simulator_ownership_invalid") from error
         metadata = _lstat(root)
-    if metadata is None or stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+    if (
+        metadata is None
+        or stat.S_ISLNK(metadata.st_mode)
+        or not stat.S_ISDIR(metadata.st_mode)
+        or stat.S_IMODE(metadata.st_mode) & 0o077
+    ):
         fail("simulator_ownership_invalid")
     return root
 
@@ -483,6 +519,9 @@ def _validate_ownership_row(raw: object) -> dict[str, str]:
     ):
         if not row[key] or "\x00" in row[key] or "\n" in row[key] or "\r" in row[key]:
             fail("simulator_ownership_corrupt")
+    owner_suffix = f" {row['owner_key'][:16]}"
+    if not row["device_name"].startswith("CIW ") or not row["device_name"].endswith(owner_suffix):
+        fail("simulator_ownership_corrupt")
     return row
 
 
@@ -506,7 +545,13 @@ def _read_ownership_registry(root: Path) -> list[dict[str, str]]:
         fail("simulator_ownership_corrupt")
     rows = [_validate_ownership_row(row) for row in payload["owners"]]
     keys = [row["owner_key"] for row in rows]
-    if len(keys) != len(set(keys)):
+    names = [row["device_name"] for row in rows]
+    udids = [row["udid"] for row in rows if row["udid"]]
+    if (
+        len(keys) != len(set(keys))
+        or len(names) != len(set(names))
+        or len(udids) != len(set(udids))
+    ):
         fail("simulator_ownership_corrupt")
     return rows
 
@@ -514,7 +559,14 @@ def _read_ownership_registry(root: Path) -> list[dict[str, str]]:
 def _write_ownership_registry(root: Path, rows: Sequence[Mapping[str, str]]) -> None:
     validated = [_validate_ownership_row(dict(row)) for row in rows]
     keys = [row["owner_key"] for row in validated]
-    if len(keys) != len(set(keys)) or len(validated) > _OWNERSHIP_MAX_ROWS:
+    names = [row["device_name"] for row in validated]
+    udids = [row["udid"] for row in validated if row["udid"]]
+    if (
+        len(keys) != len(set(keys))
+        or len(names) != len(set(names))
+        or len(udids) != len(set(udids))
+        or len(validated) > _OWNERSHIP_MAX_ROWS
+    ):
         fail("simulator_ownership_corrupt")
     path = root / _OWNERSHIP_REGISTRY
     metadata = _lstat(path)
@@ -590,8 +642,11 @@ def _simulator_ownership(
         metadata = os.fstat(lock_fd)
         if not stat.S_ISREG(metadata.st_mode):
             fail("simulator_ownership_invalid")
+        operation = fcntl.LOCK_EX
+        if environment.get("GITHUB_ACTIONS") != "true":
+            operation |= fcntl.LOCK_NB
         try:
-            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(lock_fd, operation)
         except BlockingIOError as error:
             raise AppleValidationError("simulator_ownership_locked") from error
         ownership = SimulatorOwnership(
@@ -680,6 +735,8 @@ def _require_record_identity(plan: AppleValidationPlan, row: Mapping[str, str]) 
 def _exact_owned_candidates(
     plan: AppleValidationPlan,
     payload: object,
+    *,
+    require_available: bool = True,
 ) -> list[dict[str, str]]:
     simulator = plan.simulator
     if simulator is None:
@@ -707,11 +764,16 @@ def _exact_owned_candidates(
         device_type_identifier = raw.get("deviceTypeIdentifier")
         if device_type_identifier != simulator.device_type_identifier:
             fail("simulator_ownership_identity_mismatch")
+        availability_invalid = (
+            available is not True
+            if require_available
+            else not isinstance(available, bool)
+        )
         if (
             not isinstance(udid, str)
             or _UDID.fullmatch(udid) is None
             or state not in {"Shutdown", "Booted"}
-            or available is not True
+            or availability_invalid
         ):
             fail("simulator_malformed")
         candidates.append(
@@ -814,6 +876,74 @@ def _device_inventory(
         ) from error
 
 
+def _delete_owned_simulator_with_retry(
+    runner: CommandRunner,
+    *,
+    source_root: Path,
+    state_root: Path,
+    env: Mapping[str, str],
+    udid: str,
+    failure_code: str,
+    stage_prefix: str,
+    candidates_for: Callable[[object], list[dict[str, str]]],
+) -> None:
+    """Delete one proven simulator with bounded read-back retry/backoff."""
+
+    attempts = len(_SIMULATOR_DELETE_BACKOFF_SECONDS) + 1
+    for attempt in range(attempts):
+        payload = _device_inventory(
+            runner,
+            source_root=source_root,
+            state_root=state_root,
+            env=env,
+            available_only=False,
+            failure_code=failure_code,
+        )
+        candidates = candidates_for(payload)
+        if not candidates:
+            return
+        if candidates[0]["udid"] != udid:
+            fail(failure_code)
+        _run(
+            runner,
+            ("xcrun", "simctl", "shutdown", udid),
+            cwd=source_root,
+            env=env,
+            timeout_seconds=60,
+            failure_code=failure_code,
+            state_root=state_root,
+            stage=f"{stage_prefix}-shutdown",
+            check=False,
+        )
+        _run(
+            runner,
+            ("xcrun", "simctl", "delete", udid),
+            cwd=source_root,
+            env=env,
+            timeout_seconds=60,
+            failure_code=failure_code,
+            state_root=state_root,
+            stage=f"{stage_prefix}-delete",
+            check=False,
+        )
+        payload = _device_inventory(
+            runner,
+            source_root=source_root,
+            state_root=state_root,
+            env=env,
+            available_only=False,
+            failure_code=failure_code,
+        )
+        remaining = candidates_for(payload)
+        if not remaining:
+            return
+        if remaining[0]["udid"] != udid:
+            fail(failure_code)
+        if attempt < len(_SIMULATOR_DELETE_BACKOFF_SECONDS):
+            time.sleep(_SIMULATOR_DELETE_BACKOFF_SECONDS[attempt])
+    fail(failure_code)
+
+
 def _delete_exact_owned_simulator(
     runner: CommandRunner,
     *,
@@ -824,38 +954,20 @@ def _delete_exact_owned_simulator(
     plan: AppleValidationPlan,
     failure_code: str,
 ) -> None:
-    _run(
-        runner,
-        ("xcrun", "simctl", "shutdown", udid),
-        cwd=source_root,
-        env=env,
-        timeout_seconds=60,
-        failure_code=failure_code,
-        state_root=state_root,
-        stage="simulator-shutdown",
-        check=False,
-    )
-    _run(
-        runner,
-        ("xcrun", "simctl", "delete", udid),
-        cwd=source_root,
-        env=env,
-        timeout_seconds=60,
-        failure_code=failure_code,
-        state_root=state_root,
-        stage="simulator-delete",
-    )
-    payload = _device_inventory(
+    _delete_owned_simulator_with_retry(
         runner,
         source_root=source_root,
         state_root=state_root,
         env=env,
-        available_only=False,
+        udid=udid,
         failure_code=failure_code,
+        stage_prefix="simulator",
+        candidates_for=lambda payload: _exact_owned_candidates(
+            plan,
+            payload,
+            require_available=False,
+        ),
     )
-    remaining = _exact_owned_candidates(plan, payload)
-    if any(candidate["udid"] == udid for candidate in remaining):
-        fail(failure_code)
 
 
 def _delete_recorded_owned_simulator(
@@ -870,37 +982,16 @@ def _delete_recorded_owned_simulator(
 ) -> None:
     """Delete one exact simulator proven by a persisted CIW ownership row."""
 
-    _run(
-        runner,
-        ("xcrun", "simctl", "shutdown", udid),
-        cwd=source_root,
-        env=env,
-        timeout_seconds=60,
-        failure_code=failure_code,
-        state_root=state_root,
-        stage="simulator-stale-shutdown",
-        check=False,
-    )
-    _run(
-        runner,
-        ("xcrun", "simctl", "delete", udid),
-        cwd=source_root,
-        env=env,
-        timeout_seconds=60,
-        failure_code=failure_code,
-        state_root=state_root,
-        stage="simulator-stale-delete",
-    )
-    payload = _device_inventory(
+    _delete_owned_simulator_with_retry(
         runner,
         source_root=source_root,
         state_root=state_root,
         env=env,
-        available_only=False,
+        udid=udid,
         failure_code=failure_code,
+        stage_prefix="simulator-stale",
+        candidates_for=lambda payload: _recorded_owned_candidates(row, payload),
     )
-    if _recorded_owned_candidates(row, payload):
-        fail(failure_code)
 
 
 def _reconcile_stale_ownership_rows(
@@ -965,28 +1056,31 @@ def _recover_stale_owned_simulator(
         source_root=source_root,
         state_root=state_root,
         env=env,
-        available_only=True,
+        available_only=False,
         failure_code="simulator_unavailable",
     )
-    candidates = _exact_owned_candidates(plan, payload)
+    exact_candidates = _exact_owned_candidates(
+        plan,
+        payload,
+        require_available=False,
+    )
     if row is None:
-        if candidates:
+        if exact_candidates:
             fail("simulator_unowned")
         return
     _require_record_identity(plan, row)
+    candidates = _recorded_owned_candidates(row, payload)
     if not candidates:
         ownership.replace(owner_key, None)
         return
     candidate = candidates[0]
-    if row["status"] == "owned" and candidate["udid"] != row["udid"]:
-        fail("simulator_unowned")
-    _delete_exact_owned_simulator(
+    _delete_recorded_owned_simulator(
         runner,
         source_root=source_root,
         state_root=state_root,
         env=env,
+        row=row,
         udid=candidate["udid"],
-        plan=plan,
         failure_code="cleanup_failed",
     )
     ownership.replace(owner_key, None)
@@ -1438,6 +1532,14 @@ def _cleanup_simulator_locked(
     environment: Mapping[str, str],
     ownership: SimulatorOwnership,
 ) -> None:
+    _reconcile_stale_ownership_rows(
+        plan,
+        source_root,
+        state_root,
+        runner,
+        environment,
+        ownership,
+    )
     owner_key = _simulator_owner_key(plan)
     row = ownership.row(owner_key)
     payload = _device_inventory(
@@ -1448,25 +1550,28 @@ def _cleanup_simulator_locked(
         available_only=False,
         failure_code="cleanup_failed",
     )
-    candidates = _exact_owned_candidates(plan, payload)
+    exact_candidates = _exact_owned_candidates(
+        plan,
+        payload,
+        require_available=False,
+    )
     if row is None:
-        if candidates:
+        if exact_candidates:
             fail("cleanup_failed")
         return
     _require_record_identity(plan, row)
+    candidates = _recorded_owned_candidates(row, payload)
     if not candidates:
         ownership.replace(owner_key, None)
         return
     candidate = candidates[0]
-    if row["status"] == "owned" and candidate["udid"] != row["udid"]:
-        fail("cleanup_failed")
-    _delete_exact_owned_simulator(
+    _delete_recorded_owned_simulator(
         runner,
         source_root=source_root,
         state_root=state_root,
         env=environment,
+        row=row,
         udid=candidate["udid"],
-        plan=plan,
         failure_code="cleanup_failed",
     )
     ownership.replace(owner_key, None)
@@ -1547,7 +1652,7 @@ def _assert_zero_apple_residue_locked(
     if plan.requires_simulator:
         if ownership is None:
             fail("simulator_ownership_invalid")
-        if ownership.row(_simulator_owner_key(plan)) is not None:
+        if ownership.rows:
             fail("cleanup_failed")
         payload = _device_inventory(
             runner,
@@ -1558,7 +1663,11 @@ def _assert_zero_apple_residue_locked(
             failure_code="cleanup_failed",
             record_log=False,
         )
-        if _exact_owned_candidates(plan, payload):
+        if _exact_owned_candidates(
+            plan,
+            payload,
+            require_available=False,
+        ):
             fail("cleanup_failed")
 
 
