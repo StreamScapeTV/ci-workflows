@@ -11,6 +11,7 @@ from ci_workflows.validation_model import ActionsLoader
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_SHA = "87a7454aaa59cb680db8f580d22551b749ac4193"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
+FLUTTER_SHA = "d2e1c7a7601e1caeeb976311fb13cf41fef94d4a"
 PYTHON_SHA = "aece8d01efdd5482a1c3d42db357aed87a7917e9"
 ANDROID_SHA = "aef024030a7e96da74bb98b24bd67b532f289fc1"
 APPLE_SHA = "702b950b6a5baf208e7b21f16e3f7df9b8f0f96e"
@@ -29,6 +30,7 @@ ISSUE_235 = "issue #235 general-runner Python primitives checkpoint"
 ISSUE_150 = "issue #150 immutable OCI input checkpoint"
 ISSUE_187 = "issue #187 integrated Media tvOS consumer checkpoint"
 ISSUE_59 = "issue #59 immutable helper checkpoint"
+ISSUE_27 = "issue #27 Finance composition publication checkpoint"
 
 PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
     ".github/workflows/reusable-node.yml": {
@@ -53,7 +55,7 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
     },
     ".github/workflows/reusable-flutter.yml": {
-        "StreamScapeTV/ci-workflows/actions/validate-flutter": (FOUNDATION_SHA, ISSUE_125),
+        "StreamScapeTV/ci-workflows/actions/validate-flutter": (FLUTTER_SHA, ISSUE_27),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
