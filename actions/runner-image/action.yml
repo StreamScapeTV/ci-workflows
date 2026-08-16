@@ -87,15 +87,35 @@ runs:
         test -n "${REGISTRY_USERNAME}"
         test -n "${REGISTRY_TOKEN}"
 
+    - name: Prepare isolated registry authentication state
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+      run: |
+        set -Eeuo pipefail
+        authfile="${RUNNER_TEMP}/ciw-runner-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${IMAGE}.json"
+        test ! -e "${authfile}"
+        test ! -L "${authfile}"
+        umask 077
+        printf '{}\n' > "${authfile}"
+        test -f "${authfile}"
+        test ! -L "${authfile}"
+        chmod 0600 "${authfile}"
+
     - name: Build exact runner image
       shell: bash
       env:
+        IMAGE: ${{ inputs.image }}
         CONTEXT_PATH: ${{ steps.plan.outputs.context_path }}
         DOCKERFILE_PATH: ${{ steps.plan.outputs.dockerfile_path }}
         LOCAL_REFERENCE: ${{ steps.plan.outputs.local_reference }}
       run: |
         set -Eeuo pipefail
+        authfile="${RUNNER_TEMP}/ciw-runner-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${IMAGE}.json"
+        test -f "${authfile}"
+        test ! -L "${authfile}"
         buildah bud \
+          --authfile "${authfile}" \
           --layers=false \
           --tag "${LOCAL_REFERENCE}" \
           --file "${DOCKERFILE_PATH}" \
@@ -110,7 +130,13 @@ runs:
       run: |
         set -Eeuo pipefail
         container="ciw-${IMAGE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-        buildah from --name "${container}" "${LOCAL_REFERENCE}" >/dev/null
+        authfile="${RUNNER_TEMP}/ciw-runner-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${IMAGE}.json"
+        test -f "${authfile}"
+        test ! -L "${authfile}"
+        buildah from \
+          --authfile "${authfile}" \
+          --name "${container}" \
+          "${LOCAL_REFERENCE}" >/dev/null
         buildah run "${container}" -- "${SMOKE_COMMAND}"
 
     - name: Authenticate to the fixed runner registry
@@ -124,7 +150,8 @@ runs:
       run: |
         set -Eeuo pipefail
         authfile="${RUNNER_TEMP}/ciw-runner-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${IMAGE}.json"
-        test ! -e "${authfile}"
+        test -f "${authfile}"
+        test ! -L "${authfile}"
         umask 077
         printf '%s' "${REGISTRY_TOKEN}" | buildah login \
           --authfile "${authfile}" \
@@ -144,6 +171,7 @@ runs:
         set -Eeuo pipefail
         authfile="${RUNNER_TEMP}/ciw-runner-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${IMAGE}.json"
         test -f "${authfile}"
+        test ! -L "${authfile}"
         test -n "${REMOTE_REFERENCE}"
         buildah push \
           --authfile "${authfile}" \
