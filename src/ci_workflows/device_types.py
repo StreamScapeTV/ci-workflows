@@ -57,6 +57,8 @@ class DeviceCommandProfile:
     fixed_arguments: tuple[str, ...]
     live_backend_profile: str | None
     state_restoration: tuple[str, ...]
+    retained_evidence_path: str | None = None
+    retained_evidence_media_type: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +81,7 @@ class DeviceProfile:
     synthetic_only: bool
     connection_states: tuple[str, ...]
     health_states: tuple[str, ...]
+    request_issue_numbers: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,6 +240,9 @@ class DeviceResult:
     evidence_packet: Mapping[str, object]
 
     def output_values(self) -> dict[str, str]:
+        retained = self.evidence_packet.get("retained_evidence", [])
+        if not isinstance(retained, list):
+            retained = []
         return {
             "result": self.result,
             "request_id": self.request_id,
@@ -249,6 +255,7 @@ class DeviceResult:
                 {
                     "cleanup": self.cleanup_result,
                     "result": self.result,
+                    "retained_evidence": retained,
                     "selected_device_hash": self.selected_device_hash,
                 }
             ),
