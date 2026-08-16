@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   probe:
-    runs-on: [self-hosted, linux, amd64, buildah, small]
+    runs-on: [self-hosted, linux, amd64, buildah, medium]
     timeout-minutes: 20
     steps:
       - name: Resolve exact upstream image identity
@@ -22,13 +22,15 @@ jobs:
           set -Eeuo pipefail
           image='quay.io/containers/aio:latest'
           root_digest="$(skopeo inspect --format '{{.Digest}}' "docker://${image}")"
-          skopeo inspect --raw "docker://${image}" > /tmp/aio-root.json
+          skopeo --debug inspect --raw "docker://${image}" >/tmp/aio-root.json 2>/tmp/aio-debug.log
           amd64_digest="$(jq -er '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest' /tmp/aio-root.json)"
           skopeo inspect --raw "docker://quay.io/containers/aio@${amd64_digest}" > /tmp/aio-amd64.json
           config_digest="$(jq -er '.config.digest' /tmp/aio-amd64.json)"
           printf 'root_digest=%s\n' "${root_digest}"
           printf 'amd64_manifest_digest=%s\n' "${amd64_digest}"
           printf 'amd64_config_digest=%s\n' "${config_digest}"
+          printf '%s\n' 'observed_registry_hosts:'
+          grep -Eo 'https://[A-Za-z0-9.-]+' /tmp/aio-debug.log | sed 's#https://##' | sort -u
 
       - name: Probe required toolchain
         shell: bash
