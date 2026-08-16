@@ -4,7 +4,7 @@ Issue #18 owns the common Helm mechanics that product repositories should not du
 
 ## Product metadata
 
-Each supported product keeps `.streamscape/helm-product.json` in its own repository. The simple core planner uses the registered product/repository pair only for admission; it then reads these fields from exact caller source:
+Each product keeps `.streamscape/helm-product.json` in its own repository. The simple core reads these fields from the exact admitted caller source and validates that the manifest repository/product identity matches the caller request:
 
 - chart name and chart root;
 - values-profile map;
@@ -12,7 +12,7 @@ Each supported product keeps `.streamscape/helm-product.json` in its own reposit
 - locked Helm dependencies;
 - OCI registry repository.
 
-Legacy image-reference and upstream-provenance fields may remain in the product manifest for compatibility with older helpers, but the core Helm path does not use them as mandatory central release gates.
+There is no per-product Central allowlist on the simple required path. Legacy image-reference and upstream-provenance fields may remain in the product manifest for compatibility with older helpers, but the core Helm path does not use them as mandatory central release gates.
 
 ## Common validation pipeline
 
@@ -31,22 +31,15 @@ Product-specific image assertions, provenance checks, render scenarios, or addit
 
 ## Publication pipeline
 
-Publication uses the same validation/package path. The public reusable workflow performs a small write-boundary guard before registry credentials are used:
+Publication uses the same validation/package path. The caller owns its release authority: a Git tag, GitHub release, or another reviewed product release trigger may supply the exact admitted source and SemVer. Central does not inspect the caller event type or implement a separate tag/release authority object for this core path. The Helm command path requires `trusted-exact` source before registry credentials are used.
 
-- event must be `push`;
-- ref type must be `tag`;
-- `github.sha` must equal the supplied exact `admitted_sha`;
-- the Helm command path requires `trusted-exact` source.
+After validation, Central authenticates to the product-owned OCI destination with caller-provided `registry_username` and `registry_token`, sends the token only through `--password-stdin`, and performs one ordinary `helm push`. The public digest output is the normalized local chart-package SHA-256 used for that push; the compatibility JSON output records the published chart reference and that local identity.
 
-The product/caller owns the tag naming/version policy. Central does not resolve or revalidate a separate release-authority object for the core path.
-
-After validation, Central creates an isolated Helm runtime, authenticates to the product-owned OCI destination with caller-provided `registry_username` and `registry_token`, sends the token only through `--password-stdin`, and performs one ordinary `helm push`. The public digest output is the normalized local chart-package SHA-256 used for that push; the compatibility JSON output records the published chart reference and that local identity.
-
-Mandatory pull-before-push, remote Helm pull read-back, Skopeo raw-manifest proof, immutable-replay policy, provenance/canary evidence, and runner-measurement gates are deliberately outside the refactored core acceptance. The older implementation modules may remain checked in for legacy/advanced use so previous engineering is not discarded, but the reusable core workflows do not depend on them.
+Mandatory pull-before-push, remote Helm pull read-back, Skopeo raw-manifest proof, immutable-replay policy, provenance/canary evidence, runner-measurement gates, and the global action-lock bootstrap are deliberately outside the refactored core acceptance. Older implementation modules may remain checked in for legacy/advanced use so previous engineering is not discarded, but the reusable core workflows do not depend on them.
 
 ## Runner, credentials, and cleanup
 
-`helm.validate` uses the semantic validation capacity selected by the runner contract. `helm.publish` uses the semantic trusted publication capacity currently mapped by Central; callers never choose concrete ARC labels.
+`helm.validate` uses semantic validation capacity selected by the runner contract. `helm.publish` uses semantic trusted publication capacity selected by Central; callers never choose concrete ARC labels.
 
 Neither workflow receives Kubernetes, Flux, SOPS, deployment, or Agent State authority. Publication receives only the two named registry credentials. Helm package/auth/cache/temp state is removed under terminal cleanup, workspace residue is checked, and routine GitHub Actions artifacts remain zero.
 
