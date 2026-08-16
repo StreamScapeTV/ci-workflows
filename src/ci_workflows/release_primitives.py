@@ -29,6 +29,7 @@ _ASSET_NAME = re.compile(r"^[^/\\\x00-\x1f\x7f]{1,255}$")
 _ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{2,95}$")
 _MAX_JSON_RESPONSE = 2_000_000
 _MAX_ASSET_BYTES = 2 * 1024 * 1024 * 1024
+_USER_AGENT = "StreamScapeTV-ci-workflows"
 
 
 class ReleasePrimitiveError(RuntimeError):
@@ -175,7 +176,7 @@ def _sha(value: Any, *, code: str) -> str:
 
 
 def derive_version_from_ref(ref_or_tag: str) -> VersionTag:
-    """Validate a Git tag/ref and derive its normalized SemVer without a leading ``v``."""
+    """Validate a Git tag/ref and derive normalized SemVer without a leading ``v``."""
 
     value = _single_line(ref_or_tag, code="release_ref_invalid", maximum=255)
     if value.startswith("refs/tags/"):
@@ -186,8 +187,11 @@ def derive_version_from_ref(ref_or_tag: str) -> VersionTag:
     match = _TAG_VERSION.fullmatch(tag)
     _require(match is not None, "release_version_invalid")
     assert match is not None
-    version = match.group("version")
-    return VersionTag(tag=tag, version=version, ref=f"refs/tags/{tag}")
+    return VersionTag(
+        tag=tag,
+        version=match.group("version"),
+        ref=f"refs/tags/{tag}",
+    )
 
 
 def _default_git_runner(arguments: Sequence[str], cwd: Path) -> GitProcessResult:
@@ -240,7 +244,7 @@ def inspect_git_tag(
     *,
     runner: GitRunner = _default_git_runner,
 ) -> GitTagMetadata:
-    """Inspect one lightweight or annotated SemVer tag and its commit metadata."""
+    """Inspect a lightweight or annotated SemVer tag and its fully peeled commit."""
 
     root = Path(repository_root)
     _require(root.is_absolute(), "git_repository_invalid")
@@ -272,11 +276,8 @@ def inspect_git_tag(
     _require(object_type in {"commit", "tag"}, "git_tag_object_type_invalid")
     object_sha = _sha(object_sha, code="git_tag_object_sha_invalid")
     annotated = object_type == "tag"
-    commit_sha = (
-        _sha(peeled_sha, code="git_tag_commit_sha_invalid")
-        if annotated
-        else object_sha
-    )
+    if peeled_sha:
+        _sha(peeled_sha, code="git_tag_peeled_sha_invalid")
     if annotated:
         _require(bool(tagger_name.strip()), "git_tag_metadata_invalid")
         _require(bool(_email(tagger_email)), "git_tag_metadata_invalid")
@@ -284,6 +285,18 @@ def inspect_git_tag(
     else:
         _require(not peeled_sha, "git_tag_metadata_invalid")
         tag_timestamp = None
+
+    commit_sha = _sha(
+        _git(
+            runner,
+            ("rev-parse", "--verify", f"{version_tag.ref}^{{commit}}"),
+            root,
+            code="git_tag_commit_missing",
+        ),
+        code="git_tag_commit_sha_invalid",
+    )
+    if not annotated:
+        _require(commit_sha == object_sha, "git_lightweight_tag_commit_mismatch")
 
     commit_line = _git(
         runner,
@@ -328,7 +341,12 @@ def _github_token(environment: Mapping[str, str], token_environment: str) -> str
         "github_token_environment_invalid",
     )
     token = environment.get(token_environment, "")
-    _require(isinstance(token, str) and bool(token) and "\x00" not in token, "github_token_required")
+    _require(
+        isinstance(token, str)
+        and bool(token)
+        and not any(character in token for character in ("\x00", "\r", "\n")),
+        "github_token_required",
+    )
     return token
 
 
@@ -355,6 +373,7 @@ def _github_headers(token: str) -> dict[str, str]:
     return {
         "Accept": "application/vnd.github+json",
         "Authorization": f"Bearer {token}",
+        "User-Agent": _USER_AGENT,
         "X-GitHub-Api-Version": "2022-11-28",
     }
 
@@ -404,13 +423,17 @@ def _github_json_request(
         raise ReleasePrimitiveError("github_request_failed") from None
 
 
-def _release_request(request: GitHubReleaseRequest) -> tuple[GitHubReleaseRequest, VersionTag]:
+def _release_request(request: GitHubReleaseRequest) -> GitHubReleaseRequest:
     _require(isinstance(request, GitHubReleaseRequest), "github_release_request_invalid")
     repository = _repository(request.repository)
     version_tag = derive_version_from_ref(request.tag)
     title = _single_line(request.title, code="github_release_title_invalid", maximum=256)
-    _require(isinstance(request.notes, str) and len(request.notes) <= 125_000, "github_release_notes_invalid")
-    _require("\x00" not in request.notes, "github_release_notes_invalid")
+    _require(
+        isinstance(request.notes, str)
+        and len(request.notes) <= 125_000
+        and "\x00" not in request.notes,
+        "github_release_notes_invalid",
+    )
     target = _optional_single_line(
         request.target_commitish,
         code="github_release_target_invalid",
@@ -419,18 +442,15 @@ def _release_request(request: GitHubReleaseRequest) -> tuple[GitHubReleaseReques
     _require(type(request.draft) is bool, "github_release_flags_invalid")
     _require(type(request.prerelease) is bool, "github_release_flags_invalid")
     _require(type(request.generate_release_notes) is bool, "github_release_flags_invalid")
-    return (
-        GitHubReleaseRequest(
-            repository=repository,
-            tag=version_tag.tag,
-            title=title,
-            notes=request.notes,
-            target_commitish=target,
-            draft=request.draft,
-            prerelease=request.prerelease,
-            generate_release_notes=request.generate_release_notes,
-        ),
-        version_tag,
+    return GitHubReleaseRequest(
+        repository=repository,
+        tag=version_tag.tag,
+        title=title,
+        notes=request.notes,
+        target_commitish=target,
+        draft=request.draft,
+        prerelease=request.prerelease,
+        generate_release_notes=request.generate_release_notes,
     )
 
 
@@ -447,7 +467,10 @@ def _release_result(
     _require(isinstance(title, str), "github_release_response_invalid")
     url = payload.get("html_url")
     upload_url = payload.get("upload_url")
-    _require(isinstance(url, str) and url.startswith("https://github.com/"), "github_release_url_invalid")
+    _require(
+        isinstance(url, str) and url.startswith("https://github.com/"),
+        "github_release_url_invalid",
+    )
     _require(isinstance(upload_url, str), "github_release_upload_url_invalid")
     upload_base = upload_url.split("{", 1)[0]
     parsed_upload = urllib.parse.urlsplit(upload_base)
@@ -482,7 +505,7 @@ def create_or_update_github_release(
 ) -> GitHubReleaseResult:
     """Create or update one GitHub Release using only a named token environment variable."""
 
-    request, _version_tag = _release_request(request)
+    request = _release_request(request)
     token = _github_token(environment, token_environment)
     api = _github_api_url(environment, api_url)
     owner, name = request.repository.split("/", 1)
@@ -522,6 +545,7 @@ def create_or_update_github_release(
         assert result is not None
         return _release_result(result, request=request, action="created")
 
+    _require(existing.get("tag_name") == request.tag, "github_release_tag_mismatch")
     release_id = existing.get("id")
     _require(type(release_id) is int and release_id > 0, "github_release_response_invalid")
     result = _github_json_request(
@@ -615,8 +639,15 @@ def upload_github_release_asset(
             url="",
         )
     name = asset_name if asset_name is not None else path.name
-    _require(isinstance(name, str) and _ASSET_NAME.fullmatch(name) is not None, "release_asset_name_invalid")
-    media_type = _single_line(content_type, code="release_asset_content_type_invalid", maximum=127)
+    _require(
+        isinstance(name, str) and _ASSET_NAME.fullmatch(name) is not None,
+        "release_asset_name_invalid",
+    )
+    media_type = _single_line(
+        content_type,
+        code="release_asset_content_type_invalid",
+        maximum=127,
+    )
     token = _github_token(environment, token_environment)
     base = release.upload_url.split("{", 1)[0]
     parsed = urllib.parse.urlsplit(base)
@@ -628,9 +659,14 @@ def upload_github_release_asset(
         and parsed.fragment == "",
         "github_release_upload_url_invalid",
     )
-    query = urllib.parse.urlencode({"name": name})
     upload_url = urllib.parse.urlunsplit(
-        (parsed.scheme, parsed.netloc, parsed.path, query, "")
+        (
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path,
+            urllib.parse.urlencode({"name": name}),
+            "",
+        )
     )
     payload = uploader(
         upload_url,
@@ -645,7 +681,10 @@ def upload_github_release_asset(
     size = payload.get("size")
     _require(type(size) is int and size == path.stat().st_size, "github_asset_size_mismatch")
     url = payload.get("browser_download_url")
-    _require(isinstance(url, str) and url.startswith("https://github.com/"), "github_asset_url_invalid")
+    _require(
+        isinstance(url, str) and url.startswith("https://github.com/"),
+        "github_asset_url_invalid",
+    )
     return GitHubAssetResult(
         present=True,
         uploaded=True,
