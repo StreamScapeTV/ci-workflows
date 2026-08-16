@@ -1,73 +1,62 @@
 from __future__ import annotations
 
-import shutil
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from ci_workflows.helm_contract import (
-    load_helm_contract,
-    request_from_environment,
-    resolve_validation_plan,
+from ci_workflows.helm_simple import _reject_latest_images, publish
+from ci_workflows.helm_types import (
+    HelmPlan,
+    HelmProduct,
+    HelmValidationError,
+    HelmValidationResult,
 )
-from ci_workflows.helm_registry import publish_and_read_back
-from ci_workflows.helm_types import HelmValidationError, HelmValidationResult
 
 
 ROOT = Path(__file__).resolve().parents[1]
-FIXTURE = ROOT / "tests/fixtures/helm-validation/backend"
-SHA = "a" * 40
 
 
-def _request_environment() -> dict[str, str]:
-    return {
-        "GITHUB_REPOSITORY": "StreamScapeTV/iptv-backend",
-        "INPUT_ADMITTED_SHA": SHA,
-        "INPUT_PRODUCT_ID": "iptv-backend-chart",
-        "INPUT_RELEASE_VERSION": "1.2.3",
-        "INPUT_VALUES_PROFILE": "default",
-        "INPUT_POLICY_PATH": "",
-        "INPUT_ARTIFACT_EXCEPTION_ID": "",
-        "INPUT_SOURCE_TRUST": "trusted-exact",
-    }
-
-
-def _fixture(root: Path):
-    source = root / "source"
-    shutil.copytree(FIXTURE, source)
-    state = root / "state"
-    state.mkdir()
-    plan = resolve_validation_plan(
-        source,
-        load_helm_contract(ROOT),
-        request_from_environment(_request_environment()),
+def _plan() -> HelmPlan:
+    product = HelmProduct(
+        product_id="iptv-backend-chart",
+        repository="StreamScapeTV/iptv-backend",
+        chart_name="iptv-backend",
+        chart_root="charts/iptv-backend",
+        values_profiles={"default": "values.yaml"},
+        policy_path=None,
+        registry_repository="oci://git.faruqi.dev/mimranfaruqi/helm-charts",
+        locked_dependencies=(),
+        required_image_references=(
+            "git.faruqi.dev/mimranfaruqi/iptv-backend@sha256:" + "a" * 64,
+        ),
     )
-    package = root / "package.tgz"
-    package.write_bytes(b"synthetic-package")
-    validation = HelmValidationResult(
-        "sha256:" + "b" * 64,
-        "b" * 64,
-        "{}",
-        package,
+    return HelmPlan(
+        product=product,
+        release_version="1.2.3",
+        values_profile="default",
+        values_path="charts/iptv-backend/values.yaml",
+        policy_path=None,
     )
-    runtime = {
-        "PATH": "/usr/bin",
-        "HOME": str(root),
-        "INPUT_REGISTRY_USERNAME": "user",
-        "INPUT_REGISTRY_TOKEN": "token",
-        "INPUT_RELEASE_MODE": "existing-tag",
-    }
-    return source, state, plan, validation, runtime
 
 
-class HelmVerifyOnlyTests(unittest.TestCase):
-    def test_manual_replay_missing_remote_never_pushes(self) -> None:
+def _validation(root: Path) -> HelmValidationResult:
+    package = root / "normalized.tgz"
+    package.write_bytes(b"chart")
+    return HelmValidationResult(
+        chart_digest="sha256:" + "b" * 64,
+        package_sha256="b" * 64,
+        summary="{}",
+        archive_path=package,
+    )
+
+
+class HelmSimplePublicationTests(unittest.TestCase):
+    def test_simple_publish_logs_in_and_pushes_without_read_back(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            source, state, plan, validation, runtime = _fixture(root)
-            calls: list[list[str]] = []
+            calls: list[tuple[list[str], str | None]] = []
 
             def fake_run(
                 argv,
@@ -79,92 +68,72 @@ class HelmVerifyOnlyTests(unittest.TestCase):
                 stdin=None,
                 check=True,
             ):
-                calls.append(list(argv))
-                if argv[:2] == ["helm", "pull"]:
-                    return subprocess.CompletedProcess(
-                        argv,
-                        1,
-                        "",
-                        "manifest unknown",
-                    )
+                calls.append((list(argv), stdin))
                 return subprocess.CompletedProcess(argv, 0, "", "")
 
-            with patch("ci_workflows.helm_registry._run", side_effect=fake_run):
+            runtime = {
+                "PATH": "/usr/bin",
+                "HOME": str(root),
+                "INPUT_REGISTRY_USERNAME": "user",
+                "INPUT_REGISTRY_TOKEN": "token-value",
+            }
+            with (
+                patch("ci_workflows.helm_simple._verify_no_kubernetes_authority"),
+                patch(
+                    "ci_workflows.helm_simple._runtime_environment",
+                    return_value={"PATH": "/usr/bin", "HOME": str(root)},
+                ),
+                patch("ci_workflows.helm_simple._registry_host", return_value="git.faruqi.dev"),
+                patch("ci_workflows.helm_simple._run", side_effect=fake_run),
+            ):
+                result = publish(root, root, _plan(), _validation(root), runtime)
+
+        self.assertTrue(result.published)
+        self.assertEqual([call[0][:2] for call in calls], [["helm", "registry"], ["helm", "push"]])
+        flattened = " ".join(token for argv, _stdin in calls for token in argv)
+        self.assertNotIn("token-value", flattened)
+        self.assertEqual(calls[0][1], "token-value\n")
+        self.assertIsNone(calls[1][1])
+        self.assertFalse(any("pull" in argv or "skopeo" in argv for argv, _ in calls))
+        self.assertIn("iptv-backend:1.2.3", result.immutable_references_json)
+
+    def test_simple_publish_requires_normal_registry_credentials(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch("ci_workflows.helm_simple._verify_no_kubernetes_authority"):
                 with self.assertRaisesRegex(
                     HelmValidationError,
-                    "remote_version_missing",
+                    "registry_auth_missing",
                 ):
-                    publish_and_read_back(
-                        source,
-                        state,
-                        plan,
-                        validation,
-                        runtime,
+                    publish(
+                        root,
+                        root,
+                        _plan(),
+                        _validation(root),
+                        {"PATH": "/usr/bin", "HOME": str(root)},
                     )
-            self.assertFalse(
-                any(command[:2] == ["helm", "push"] for command in calls)
-            )
 
-    def test_manual_replay_existing_identical_remote_is_read_back_only(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            source, state, plan, validation, runtime = _fixture(root)
-            calls: list[list[str]] = []
-
-            def fake_run(
-                argv,
-                *,
-                cwd,
-                environment,
-                timeout,
-                code,
-                stdin=None,
-                check=True,
-            ):
-                calls.append(list(argv))
-                if argv[:2] == ["helm", "pull"]:
-                    destination = Path(argv[argv.index("--destination") + 1])
-                    destination.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(
-                        validation.archive_path,
-                        destination / "iptv-backend-1.2.3.tgz",
-                    )
-                return subprocess.CompletedProcess(argv, 0, "", "")
-
-            with (
-                patch("ci_workflows.helm_registry._run", side_effect=fake_run),
-                patch(
-                    "ci_workflows.helm_registry.normalize_chart_archive",
-                    return_value="b" * 64,
-                ),
-            ):
-                result = publish_and_read_back(
-                    source,
-                    state,
-                    plan,
-                    validation,
-                    runtime,
-                )
-            self.assertFalse(result.published)
-            self.assertFalse(
-                any(command[:2] == ["helm", "push"] for command in calls)
-            )
-
-    def test_workflow_derives_manual_existing_tag_mode_and_propagates_it(self) -> None:
-        workflow = (
-            ROOT / ".github/workflows/reusable-helm-publish.yml"
-        ).read_text(encoding="utf-8")
-        action = (ROOT / "actions/publish-helm/action.yml").read_text(encoding="utf-8")
-        registry = (ROOT / "src/ci_workflows/helm_registry.py").read_text(
-            encoding="utf-8"
+    def test_generic_chart_validation_does_not_require_digest_pins(self) -> None:
+        _reject_latest_images(
+            'image: git.faruqi.dev/mimranfaruqi/iptv-backend:1.2.3\n'
         )
-        self.assertIn("github.event_name == 'workflow_dispatch'", workflow)
-        self.assertIn("'existing-tag'", workflow)
-        self.assertIn("release_mode: ${{ needs.plan.outputs.release_mode }}", workflow)
-        self.assertIn("release_mode:", action)
-        self.assertIn("INPUT_RELEASE_MODE", action)
-        self.assertIn('allow_publish = release_mode == "tag-push"', registry)
-        self.assertIn('require(allow_publish, "remote_version_missing")', registry)
+        _reject_latest_images(
+            'image: git.faruqi.dev/mimranfaruqi/iptv-backend@sha256:' + "a" * 64 + "\n"
+        )
+        with self.assertRaisesRegex(
+            HelmValidationError,
+            "image_reference_mismatch",
+        ):
+            _reject_latest_images(
+                "image: git.faruqi.dev/mimranfaruqi/iptv-backend:latest\n"
+            )
+
+    def test_core_action_no_longer_invokes_release_adapter(self) -> None:
+        action = (ROOT / "actions/publish-helm/action.yml").read_text(encoding="utf-8")
+        self.assertIn("helm publish --phase", action)
+        self.assertNotIn("scripts/ci/helm_release.py", action)
+        self.assertNotIn("INPUT_IMAGE_DIGEST", action)
+        self.assertNotIn("INPUT_IMMUTABLE_REFERENCES_JSON", action)
 
 
 if __name__ == "__main__":
