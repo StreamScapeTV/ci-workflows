@@ -1,39 +1,36 @@
 from __future__ import annotations
 
-import importlib.util
-import tempfile
+import argparse
+import io
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from ci_workflows import gradle_seed
+from ci_workflows import ciw_gradle_seed, gradle_seed
+from ci_workflows.ciw_types import CIWContext, CIWError
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTION = ROOT / "actions" / "upload-gradle-seed" / "action.yml"
 README = ROOT / "actions" / "upload-gradle-seed" / "README.md"
 MODULE = ROOT / "src" / "ci_workflows" / "gradle_seed.py"
-SCRIPT = ROOT / "scripts" / "ci" / "gradle_seed.py"
-
-
-def load_script_module():
-    spec = importlib.util.spec_from_file_location("ciw_gradle_seed_script", SCRIPT)
-    if spec is None or spec.loader is None:
-        raise AssertionError("unable to load Gradle seed script")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+HELPER_SHA = "b51754fcd9d2df0f4aa71f097287b019bc6bedcb"
 
 
 class GradleSeedActionContractTests(unittest.TestCase):
-    def test_action_is_thin_and_cannot_grant_oidc_or_event_authority(self) -> None:
+    def test_action_is_thin_ciw_delegate_without_trigger_or_permission_authority(self) -> None:
         source = ACTION.read_text(encoding="utf-8")
         input_block = source.split("inputs:\n", 1)[1].split("\noutputs:\n", 1)[0]
         self.assertIn("  source_sha:\n", input_block)
-        self.assertEqual(1, sum(
-            1
-            for line in input_block.splitlines()
-            if line.startswith("  ") and not line.startswith("    ") and line.endswith(":")
-        ))
+        self.assertEqual(
+            1,
+            sum(
+                1
+                for line in input_block.splitlines()
+                if line.startswith("  ")
+                and not line.startswith("    ")
+                and line.endswith(":")
+            ),
+        )
         self.assertNotIn("permissions:", source)
         self.assertNotIn("id-token: write", source)
         self.assertNotIn("\non:", source)
@@ -43,14 +40,10 @@ class GradleSeedActionContractTests(unittest.TestCase):
         self.assertNotIn("endpoint:", input_block)
         self.assertNotIn("audience:", input_block)
         self.assertNotIn("token:", input_block)
-        self.assertIn('scripts/ci/gradle_seed.py"', source)
-        self.assertNotIn("ciw.py", source)
+        self.assertIn('scripts/ci/ciw.py" gradle-seed upload', source)
 
     def test_fixed_client_contract_matches_reviewed_flux_protocol(self) -> None:
-        self.assertEqual(
-            "streamscapetv-gradle-seed-v1",
-            gradle_seed.OIDC_AUDIENCE,
-        )
+        self.assertEqual("streamscapetv-gradle-seed-v1", gradle_seed.OIDC_AUDIENCE)
         self.assertEqual(
             "arc-gradle-seed-promoter.github-actions-runners.svc.cluster.local",
             gradle_seed.FLUX_HOST,
@@ -67,18 +60,13 @@ class GradleSeedActionContractTests(unittest.TestCase):
         self.assertEqual("refs/heads/develop", gradle_seed.EXPECTED_REF)
         self.assertEqual("push", gradle_seed.EXPECTED_EVENT)
         self.assertEqual(
-            (
-                "StreamScapeTV/iptv-android/.github/workflows/"
-                "android-ci.yml@refs/heads/develop"
-            ),
+            "StreamScapeTV/iptv-android/.github/workflows/android-ci.yml@refs/heads/develop",
             gradle_seed.EXPECTED_WORKFLOW_REF,
         )
 
     def test_no_long_lived_or_fallback_cache_transport_is_present(self) -> None:
         combined = (
             ACTION.read_text(encoding="utf-8")
-            + "\n"
-            + SCRIPT.read_text(encoding="utf-8")
             + "\n"
             + MODULE.read_text(encoding="utf-8")
         ).lower()
@@ -134,55 +122,72 @@ class GradleSeedActionContractTests(unittest.TestCase):
         self.assertIn("profile: gradle", source)
         self.assertIn("cache_mode: disabled", source)
         self.assertIn(
-            "actions/upload-gradle-seed@b51754fcd9d2df0f4aa71f097287b019bc6bedcb",
+            f"actions/upload-gradle-seed@{HELPER_SHA}",
             source,
         )
         self.assertIn("source_sha: ${{ github.sha }}", source)
         self.assertIn("same job after execute and before cleanup", source)
         self.assertIn("No artifact/cache transports bridge jobs", source)
-        validate_block = source.split("  validate:\n", 1)[1].split("\n  warm_gradle_seed:\n", 1)[0]
+        validate_block = source.split("  validate:\n", 1)[1].split(
+            "\n  warm_gradle_seed:\n", 1
+        )[0]
         self.assertNotIn("id-token: write", validate_block)
         warm_block = source.split("  warm_gradle_seed:\n", 1)[1]
         self.assertLess(warm_block.index("- id: execute"), warm_block.index("- id: promote"))
-        self.assertLess(warm_block.index("- id: promote"), warm_block.index("- id: android_cleanup"))
+        self.assertLess(
+            warm_block.index("- id: promote"),
+            warm_block.index("- id: android_cleanup"),
+        )
 
-    def test_script_requires_registered_gradle_workspace_home(self) -> None:
-        script = load_script_module()
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            output = root / "output"
-            environment = {
-                "GITHUB_OUTPUT": str(output),
-                "INPUT_SOURCE_SHA": "a" * 40,
-                "CI_WORKFLOW_ROOT": str(root),
-                "GRADLE_USER_HOME": str(root / "gradle"),
-            }
-            result = mock.Mock()
-            result.output_values.return_value = {"result": "promoted"}
-            with mock.patch.object(
-                script,
-                "promote_gradle_seed",
-                return_value=result,
-            ) as promote:
-                code = script.main([], environment=environment)
-            self.assertEqual(0, code)
-            self.assertEqual("result=promoted\n", output.read_text(encoding="utf-8"))
-            promote.assert_called_once_with(
-                source_sha="a" * 40,
-                environment=environment,
+    def test_ciw_adapter_requires_registered_gradle_workspace_home(self) -> None:
+        environment = {
+            "GITHUB_OUTPUT": "/tmp/output",
+            "INPUT_SOURCE_SHA": "a" * 40,
+            "CI_WORKFLOW_ROOT": "/tmp/ciw-state",
+            "GRADLE_USER_HOME": "/tmp/ciw-state/gradle",
+        }
+        context = CIWContext(
+            root=ROOT,
+            environment=environment,
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+        result = mock.Mock()
+        result.output_values.return_value = {"result": "promoted"}
+        with mock.patch.object(
+            ciw_gradle_seed,
+            "promote_gradle_seed",
+            return_value=result,
+        ) as promote:
+            projected = ciw_gradle_seed.execute_gradle_seed_upload(
+                argparse.Namespace(source_sha=None),
+                context,
             )
+        self.assertEqual("promoted", projected.outputs["result"])
+        promote.assert_called_once_with(
+            source_sha="a" * 40,
+            environment=environment,
+        )
 
-            bad_environments = (
-                {**environment, "CI_WORKFLOW_ROOT": ""},
-                {**environment, "GRADLE_USER_HOME": str(root / "other")},
-                {**environment, "CI_WORKFLOW_ROOT": "relative-root"},
-            )
-            for bad_environment in bad_environments:
-                with self.subTest(environment=bad_environment):
-                    with mock.patch.object(script, "promote_gradle_seed") as promote_bad:
-                        code = script.main([], environment=bad_environment)
-                    self.assertEqual(2, code)
-                    promote_bad.assert_not_called()
+        bad_environments = (
+            {**environment, "CI_WORKFLOW_ROOT": ""},
+            {**environment, "GRADLE_USER_HOME": "/tmp/other"},
+            {**environment, "CI_WORKFLOW_ROOT": "relative-root"},
+        )
+        for bad_environment in bad_environments:
+            with self.subTest(environment=bad_environment):
+                bad_context = CIWContext(
+                    root=ROOT,
+                    environment=bad_environment,
+                    stdout=io.StringIO(),
+                    stderr=io.StringIO(),
+                )
+                with self.assertRaises(CIWError) as raised:
+                    ciw_gradle_seed.execute_gradle_seed_upload(
+                        argparse.Namespace(source_sha=None),
+                        bad_context,
+                    )
+                self.assertEqual("gradle_seed_home_rejected", raised.exception.code)
 
 
 if __name__ == "__main__":
