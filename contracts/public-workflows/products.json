@@ -138,8 +138,8 @@
       "supported_consumers": ["StreamScapeTV/iptv-backend"],
       "supported_products": ["iptv-backend-image", "iptv-backend-chart"],
       "repository_owned_hooks": ["dockerfile_path", "build_context", "values_profile", "policy_path"],
-      "implementation_components": ["reusable-release.yml", "buildah", "internal-release-helm-composition", "github-releases-api"],
-      "max_reusable_workflow_depth": 2
+      "implementation_components": ["reusable-release.yml", "actions/publish-helm"],
+      "max_reusable_workflow_depth": 1
     },
     {
       "file": ".github/workflows/reusable-flux-infrastructure-assets.yml",
