@@ -48,7 +48,8 @@ class OciPublicationWorkflowContractTests(unittest.TestCase):
     def test_mock_smoke_has_no_registry_credentials_or_artifacts(self) -> None:
         text = (ROOT / ".github/workflows/oci-publish-smoke.yml").read_text(encoding="utf-8")
         self.assertIn("pull_request:", text)
-        self.assertIn("[linux, amd64, general]", text)
+        self.assertIn("[linux, amd64, general, small]", text)
+        self.assertNotIn("[linux, amd64, general]", text)
         self.assertNotIn("registry_token", text)
         self.assertNotIn("registry_username", text)
         self.assertNotIn("upload-artifact", text)

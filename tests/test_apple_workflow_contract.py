@@ -11,7 +11,7 @@ from ci_workflows.apple_types import AppleProfile, AppleValidationRequest
 
 ROOT = Path(__file__).resolve().parents[1]
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-APPLE_HELPER_SHA = "293dee450e3464032d67f702b768f493abf65d7b"
+APPLE_HELPER_SHA = "702b950b6a5baf208e7b21f16e3f7df9b8f0f96e"
 
 
 class AppleWorkflowContractTests(unittest.TestCase):
@@ -81,9 +81,10 @@ class AppleWorkflowContractTests(unittest.TestCase):
         )
 
     def test_semantic_runner_selection_uses_protected_planner(self) -> None:
-        direct_general_selector = "runs-on: [linux, amd64, general]"
+        direct_general_selector = "runs-on: [linux, amd64, general, small]"
         self.assertIn(direct_general_selector, self.workflow)
         self.assertEqual(self.smoke.count(direct_general_selector), 2)
+        self.assertNotIn("runs-on: [linux, amd64, general]", self.workflow + self.smoke)
         self.assertNotIn("runs-on: portable", self.workflow + self.smoke)
         self.assertEqual(
             1,

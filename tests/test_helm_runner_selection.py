@@ -15,7 +15,7 @@ class HelmRunnerSelectionTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.contract = runners.load_runner_contract(ROOT)
 
-    def test_validation_stays_portable_and_publication_uses_buildah_tiny(self) -> None:
+    def test_validation_portable_alias_resolves_small_and_publication_uses_buildah_tiny(self) -> None:
         validation = runners.resolve_runner_profile(
             self.contract,
             workflow_api="helm.validate",
@@ -28,8 +28,11 @@ class HelmRunnerSelectionTests(unittest.TestCase):
             source_trust="trusted-exact",
             requested_profile="buildah-tiny",
         )
-        self.assertEqual(validation.profile, "portable")
-        self.assertEqual(validation.runs_on, ("linux", "amd64", "general"))
+        self.assertEqual(validation.profile, "general-small")
+        self.assertEqual(
+            validation.runs_on,
+            ("linux", "amd64", "general", "small"),
+        )
         self.assertEqual(publication.profile, "buildah-tiny")
         self.assertEqual(
             publication.runs_on,
@@ -71,9 +74,6 @@ class HelmRunnerSelectionTests(unittest.TestCase):
         self.assertEqual(actual, expected)
 
     def test_tiny_is_only_accepted_after_measured_capacity_fits(self) -> None:
-        # The selector helper proves the policy boundary independently of the
-        # final exact-head measurement values. Production evidence must supply
-        # real peaks before #18 is considered final-candidate ready.
         tiny = runners.select_buildah_tier(
             self.contract,
             peak_memory_bytes=256 * 1024 * 1024,

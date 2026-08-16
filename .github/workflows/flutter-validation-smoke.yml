@@ -30,7 +30,7 @@ permissions:
 jobs:
   source_audit:
     name: Flutter portable source-audit smoke
-    runs-on: [linux, amd64, general]
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 20
     steps:
       - name: Check out exact pull request source
@@ -100,7 +100,7 @@ jobs:
 
   focused_tests:
     name: Flutter focused contract tests
-    runs-on: [linux, amd64, general]
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 20
     env:
       PYTHONDONTWRITEBYTECODE: "1"
@@ -148,7 +148,7 @@ jobs:
 
   plan:
     name: Resolve Flutter mobile smoke selector and toolchain tuple
-    runs-on: [linux, amd64, general]
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 10
     outputs:
       runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
@@ -321,7 +321,7 @@ jobs:
     name: Verify mobile routine artifacts remain zero
     needs: [source_audit, focused_tests, plan, android]
     if: ${{ always() && !cancelled() }}
-    runs-on: [linux, amd64, general]
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 10
     steps:
       - name: Require mobile smoke paths and zero Actions artifacts

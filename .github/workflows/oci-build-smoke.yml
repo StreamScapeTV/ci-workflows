@@ -24,7 +24,7 @@ permissions:
 jobs:
   plan:
     name: Resolve bounded OCI smoke plan
-    runs-on: [linux, amd64, general]
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 10
     outputs:
       runner_profile: ${{ steps.plan.outputs.runner_profile }}
@@ -300,7 +300,7 @@ jobs:
     name: Verify OCI smoke routine artifacts remain zero
     needs: smoke
     if: ${{ always() && !cancelled() }}
-    runs-on: [linux, amd64, general]
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 10
     steps:
       - id: audit
