@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import unittest
 from pathlib import Path
 
@@ -44,11 +45,14 @@ class ReusableReleaseTests(unittest.TestCase):
         )
         self.assertEqual(self.workflow["permissions"], {"actions": "read", "contents": "write"})
 
-    def test_release_tag_is_source_of_truth_without_recovery_or_manifest_framework(self) -> None:
-        self.assertIn("ref: refs/tags/${{ inputs.release_tag }}", self.text)
-        self.assertIn('test "$(git -C source rev-parse HEAD)" = "${ADMITTED_SHA}"', self.text)
-        self.assertIn("persist-credentials: false", self.text)
-        self.assertIn("publish|publish-with-github-release", self.text)
+    def test_release_tag_is_validated_before_checkout_and_is_source_of_truth(self) -> None:
+        admit_steps = self.workflow["jobs"]["admit"]["steps"]
+        self.assertEqual(admit_steps[0]["name"], "Validate release request before checkout")
+        self.assertIn("RELEASE_TAG", admit_steps[0]["env"])
+        self.assertIn("publish-with-github-release", admit_steps[0]["run"])
+        self.assertEqual(admit_steps[1]["with"]["ref"], "refs/tags/${{ inputs.release_tag }}")
+        self.assertFalse(admit_steps[1]["with"]["persist-credentials"])
+        self.assertIn('test "$(git -C source rev-parse HEAD)" = "${ADMITTED_SHA}"', admit_steps[2]["run"])
         for retired in (
             "image_recovery_authority",
             "release_manifest",
@@ -123,6 +127,18 @@ class ReusableReleaseTests(unittest.TestCase):
             self.assertFalse(
                 isinstance(job, dict) and str(job.get("uses", "")).startswith("./.github/workflows/")
             )
+
+    def test_every_inline_run_block_stays_within_harness_readability_limit(self) -> None:
+        function_definition = re.compile(r"^\s*(?:function\s+)?[A-Za-z_][A-Za-z0-9_]*\s*\(\)\s*\{")
+        for job_name, job in self.workflow["jobs"].items():
+            for step in job.get("steps", []):
+                run = step.get("run")
+                if not isinstance(run, str):
+                    continue
+                lines = [line for line in run.splitlines() if line.strip()]
+                with self.subTest(job=job_name, step=step.get("name")):
+                    self.assertLessEqual(len(lines), 40)
+                    self.assertFalse(any(function_definition.match(line) for line in lines))
 
     def test_requested_publication_cannot_fail_silently(self) -> None:
         summary = self.workflow["jobs"]["summary"]
