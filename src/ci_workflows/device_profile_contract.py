@@ -22,7 +22,7 @@ from .device_contract_common import (
 )
 from .device_types import DeviceCommandProfile, DeviceFamily, DeviceProfile
 
-PROFILE_KEYS = {
+PROFILE_REQUIRED_KEYS = {
     "repositories",
     "products",
     "family",
@@ -41,7 +41,8 @@ PROFILE_KEYS = {
     "connection_states",
     "health_states",
 }
-COMMAND_KEYS = {
+PROFILE_OPTIONAL_KEYS = {"request_issue_numbers"}
+COMMAND_REQUIRED_KEYS = {
     "prepare_script",
     "test_script",
     "evidence_script",
@@ -50,6 +51,18 @@ COMMAND_KEYS = {
     "live_backend_profile",
     "state_restoration",
 }
+COMMAND_OPTIONAL_KEYS = {"retained_evidence_path", "retained_evidence_media_type"}
+FRAGMENT_KEYS = {
+    "schema_version",
+    "contract_version",
+    "retire_command_profiles",
+    "retire_profiles",
+    "command_profiles",
+    "profiles",
+}
+PROFILE_FRAGMENT_ROOT = Path("contracts/device-profiles")
+RETAINED_EVIDENCE_PREFIX = ".tmp/ci-retained/"
+RETAINED_EVIDENCE_MEDIA_TYPES = {"application/json", "text/plain"}
 REQUIRED_FORBIDDEN_INPUTS = {
     "arbitrary_command",
     "arguments",
@@ -89,15 +102,85 @@ REQUIRED_FORBIDDEN_INPUTS = {
 }
 
 
+def _profile_identifiers(value: object, code: str) -> tuple[str, ...]:
+    values = strings(value, code=code)
+    require(
+        all(IDENTIFIER.fullmatch(item) is not None for item in values),
+        code,
+    )
+    return tuple(values)
+
+
+def _merge_profile_fragments(root: Path, contract: Mapping[str, Any]) -> Mapping[str, Any]:
+    fragment_root = root / PROFILE_FRAGMENT_ROOT
+    if not fragment_root.exists():
+        return contract
+    require(
+        fragment_root.is_dir() and not fragment_root.is_symlink(),
+        "device_profile_rejected",
+    )
+
+    merged = dict(contract)
+    command_profiles = dict(contract.get("command_profiles", {}))
+    profiles = dict(contract.get("profiles", {}))
+    for path in sorted(fragment_root.glob("*.json")):
+        require(path.is_file() and not path.is_symlink(), "device_profile_rejected")
+        fragment = _read_json(path)
+        require(
+            set(fragment) == FRAGMENT_KEYS
+            and fragment.get("schema_version") == 1
+            and fragment.get("contract_version") == "1.0.0",
+            "device_profile_rejected",
+        )
+        retire_commands = _profile_identifiers(
+            fragment.get("retire_command_profiles"), "command_profile_rejected"
+        )
+        retire_profiles = _profile_identifiers(
+            fragment.get("retire_profiles"), "device_profile_rejected"
+        )
+        for profile_id in retire_commands:
+            require(profile_id in command_profiles, "command_profile_rejected")
+            command_profiles.pop(profile_id)
+        for profile_id in retire_profiles:
+            require(profile_id in profiles, "device_profile_rejected")
+            profiles.pop(profile_id)
+
+        commands = fragment.get("command_profiles")
+        additions = fragment.get("profiles")
+        require(isinstance(commands, Mapping), "command_profile_rejected")
+        require(isinstance(additions, Mapping), "device_profile_rejected")
+        for profile_id, raw in commands.items():
+            require(
+                isinstance(profile_id, str)
+                and profile_id not in command_profiles
+                and isinstance(raw, Mapping),
+                "command_profile_rejected",
+            )
+            command_profiles[profile_id] = dict(raw)
+        for profile_id, raw in additions.items():
+            require(
+                isinstance(profile_id, str)
+                and profile_id not in profiles
+                and isinstance(raw, Mapping),
+                "device_profile_rejected",
+            )
+            profiles[profile_id] = dict(raw)
+
+    merged["command_profiles"] = command_profiles
+    merged["profiles"] = profiles
+    return merged
+
+
 def _validate_command_profiles(contract: Mapping[str, Any]) -> None:
     profiles = contract.get("command_profiles")
     require(isinstance(profiles, Mapping) and profiles, "invalid_input")
     for profile_id, raw in profiles.items():
+        keys = set(raw) if isinstance(raw, Mapping) else set()
         require(
             isinstance(profile_id, str)
             and IDENTIFIER.fullmatch(profile_id) is not None
             and isinstance(raw, Mapping)
-            and set(raw) == COMMAND_KEYS,
+            and COMMAND_REQUIRED_KEYS <= keys <= COMMAND_REQUIRED_KEYS | COMMAND_OPTIONAL_KEYS,
             "command_profile_rejected",
         )
         for field in (
@@ -134,14 +217,48 @@ def _validate_command_profiles(contract: Mapping[str, Any]) -> None:
         )
         strings(raw.get("state_restoration"), nonempty=True)
 
+        retained_path = raw.get("retained_evidence_path")
+        retained_media = raw.get("retained_evidence_media_type")
+        if retained_path is None and retained_media is None:
+            continue
+        require(
+            isinstance(retained_path, str)
+            and isinstance(retained_media, str)
+            and retained_media in RETAINED_EVIDENCE_MEDIA_TYPES,
+            "evidence_policy_failed",
+        )
+        normalized = safe_relative(retained_path, "evidence_policy_failed")
+        require(
+            normalized == retained_path
+            and retained_path.startswith(RETAINED_EVIDENCE_PREFIX)
+            and len(retained_path) <= 240,
+            "evidence_policy_failed",
+        )
+
+
+def _request_issue_numbers(raw: Mapping[str, Any]) -> tuple[int, ...]:
+    value = raw.get("request_issue_numbers")
+    if value is None:
+        return ()
+    require(
+        isinstance(value, list)
+        and value
+        and all(type(item) is int and 1 <= item <= 2**31 - 1 for item in value)
+        and value == sorted(set(value)),
+        "request_identity_rejected",
+    )
+    return tuple(value)
+
 
 def _validate_profile(
     profile_id: str,
     raw: Mapping[str, Any],
     contract: Mapping[str, Any],
 ) -> None:
+    keys = set(raw)
     require(
-        IDENTIFIER.fullmatch(profile_id) is not None and set(raw) == PROFILE_KEYS,
+        IDENTIFIER.fullmatch(profile_id) is not None
+        and PROFILE_REQUIRED_KEYS <= keys <= PROFILE_REQUIRED_KEYS | PROFILE_OPTIONAL_KEYS,
         "device_profile_rejected",
     )
     repositories = strings(raw.get("repositories"), nonempty=True)
@@ -228,10 +345,11 @@ def _validate_profile(
     )
     strings(raw.get("connection_states"), nonempty=True)
     strings(raw.get("health_states"), nonempty=True)
+    _request_issue_numbers(raw)
 
 
 def load_device_contract(root: Path) -> Mapping[str, Any]:
-    contract = _read_json(root / PROFILE_CONTRACT_PATH)
+    contract = _merge_profile_fragments(root, _read_json(root / PROFILE_CONTRACT_PATH))
     require(
         (
             contract.get("schema_version"),
@@ -400,6 +518,16 @@ def _command_profile(
         fixed_arguments=tuple(raw["fixed_arguments"]),
         live_backend_profile=raw["live_backend_profile"],
         state_restoration=tuple(raw["state_restoration"]),
+        retained_evidence_path=(
+            str(raw["retained_evidence_path"])
+            if raw.get("retained_evidence_path") is not None
+            else None
+        ),
+        retained_evidence_media_type=(
+            str(raw["retained_evidence_media_type"])
+            if raw.get("retained_evidence_media_type") is not None
+            else None
+        ),
     )
 
 
@@ -431,4 +559,5 @@ def _profile(
         synthetic_only=bool(raw["synthetic_only"]),
         connection_states=tuple(raw["connection_states"]),
         health_states=tuple(raw["health_states"]),
+        request_issue_numbers=_request_issue_numbers(raw),
     )
