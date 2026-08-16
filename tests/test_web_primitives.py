@@ -73,13 +73,17 @@ class WebPrimitiveTests(unittest.TestCase):
             self.output,
             ("node", "verify-static.mjs", "--strict"),
             runner,
-            environment={"CI": "true"},
+            environment={
+                "CI": "true",
+                "CLOUDFLARE_API_TOKEN": "must-not-reach-verifier",
+            },
         )
         self.assertEqual(0, result.returncode)
         argv, cwd, env, timeout = runner.calls[0]
         self.assertEqual(("node", "verify-static.mjs", "--strict"), argv)
         self.assertEqual(self.output.resolve(), cwd)
         self.assertEqual("true", env["CI"])
+        self.assertNotIn("CLOUDFLARE_API_TOKEN", env)
         self.assertEqual(600, timeout)
 
     def test_verification_failure_and_mutation_fail_closed(self):
@@ -128,6 +132,8 @@ class WebPrimitiveTests(unittest.TestCase):
             self.assertEqual("token-value", env["CLOUDFLARE_API_TOKEN"])
             self.assertNotIn("CF_API_TOKEN", env)
             self.assertNotIn("CLOUDFLARE_API_KEY", env)
+            self.assertNotIn("OTHER_SECRET", env)
+            self.assertEqual("/usr/bin", env["PATH"])
             self.assertEqual("false", env["WRANGLER_SEND_METRICS"])
             self.assertEqual("true", env["WRANGLER_LOG_SANITIZE"])
             self.assertTrue(str(env["WRANGLER_CACHE_DIR"]).startswith(str(cwd)))
@@ -156,6 +162,8 @@ class WebPrimitiveTests(unittest.TestCase):
                 "CLOUDFLARE_API_TOKEN": "token-value",
                 "CF_API_TOKEN": "legacy",
                 "CLOUDFLARE_API_KEY": "legacy-key",
+                "OTHER_SECRET": "must-not-reach-wrangler",
+                "PATH": "/usr/bin",
             },
             state_parent=self.state,
         )
