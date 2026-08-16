@@ -9,7 +9,7 @@ DOCKERFILE = IMAGE_ROOT / "Dockerfile"
 PRODUCT = IMAGE_ROOT / "product.json"
 TOOLCHAIN = IMAGE_ROOT / "toolchain.lock.json"
 SMOKE = IMAGE_ROOT / "smoke.sh"
-INPUT_LOCK = ROOT / ".ciw/oci-build-inputs/runner-flux-control-linux-amd64.json"
+PREPARE_INPUTS = IMAGE_ROOT / "prepare_inputs.py"
 
 
 def test_flux_control_uses_official_actions_runner_directly() -> None:
@@ -24,17 +24,22 @@ def test_flux_control_uses_official_actions_runner_directly() -> None:
         assert token not in source.lower()
 
 
-def test_flux_control_product_has_no_baked_cluster_authority() -> None:
+def test_flux_control_product_has_no_baked_authority() -> None:
     product = json.loads(PRODUCT.read_text(encoding="utf-8"))
     assert product["image_repository"] == "git.faruqi.dev/mimranfaruqi/github-actions-runner-flux-control"
-    assert product["selection"]["direct_labels"] == ["linux", "amd64", "flux-control"]
+    assert product["selection"] == {
+        "semantic_profile": "flux-control",
+        "direct_labels": ["linux", "amd64", "flux-control"],
+    }
     assert product["authority"] == {
         "cluster_credentials_baked_in": False,
         "service_account_token_baked_in": False,
         "kubeconfig_baked_in": False,
         "registry_credentials_baked_in": False,
+        "sops_credentials_baked_in": False,
+        "github_credentials_baked_in": False,
     }
-    assert product["composition"]["inherits_streamscape_runner_image"] is False
+    assert product["composition"] == {"inherits_streamscape_runner_image": False}
 
 
 def test_flux_control_versions_are_explicit_and_compatible() -> None:
@@ -46,35 +51,82 @@ def test_flux_control_versions_are_explicit_and_compatible() -> None:
     assert toolchain["helm"]["version"] == "4.2.4"
     assert toolchain["kustomize"]["version"] == "5.8.1"
     assert toolchain["yq"]["version"] == "4.53.3"
+    for tool in ("flux", "kubectl", "helm", "kustomize", "yq"):
+        digest = toolchain[tool]["linux_amd64_sha256"]
+        assert len(digest) == 64
+        int(digest, 16)
 
 
-def test_flux_control_inputs_are_checksum_locked() -> None:
-    lock = json.loads(INPUT_LOCK.read_text(encoding="utf-8"))
-    assert lock["product_id"] == "runner-flux-control"
-    assert lock["platforms"] == ["linux/amd64"]
-    assert lock["input_policy_id"] == "runner-image-public-v1"
-    assert len(lock["bases"]) == 1
-    assert "@sha256:" in lock["bases"][0]["declared_reference"]
-    assert [item["input_id"] for item in lock["external_inputs"]] == [
-        "flux-linux-amd64",
-        "kubectl-linux-amd64",
-        "yq-linux-amd64",
-        "helm-linux-amd64",
-        "kustomize-linux-amd64",
-    ]
-    for item in lock["external_inputs"]:
-        assert item["url"].startswith("https://")
-        assert len(item["sha256"]) == 64
-        int(item["sha256"], 16)
-        assert item["maximum_bytes"] > 0
-        assert item["destination"].startswith(".ciw-build-inputs/")
+def test_flux_control_input_preparation_is_fixed_checksum_bounded_and_self_cleaning() -> None:
+    source = PREPARE_INPUTS.read_text(encoding="utf-8")
+    assert ".ciw/oci-build-inputs" not in source
+    assert 'TOOLCHAIN = IMAGE_ROOT / "toolchain.lock.json"' in source
+    for origin in (
+        "github.com/fluxcd/flux2/releases/download",
+        "dl.k8s.io/release",
+        "github.com/mikefarah/yq/releases/download",
+        "get.helm.sh/helm-v",
+        "github.com/kubernetes-sigs/kustomize/releases/download",
+    ):
+        assert origin in source
+    assert "hashlib.sha256(data).hexdigest()" in source
+    assert "response.read(maximum_bytes + 1)" in source
+    assert "DESTINATION.mkdir(exist_ok=False)" in source
+    assert "shutil.rmtree(DESTINATION, ignore_errors=True)" in source
+
+
+def test_flux_control_image_strips_inherited_runtime_and_credential_state() -> None:
+    source = DOCKERFILE.read_text(encoding="utf-8")
+    for path in (
+        "/usr/bin/containerd",
+        "/usr/bin/ctr",
+        "/usr/bin/docker",
+        "/usr/bin/dockerd",
+        "/usr/bin/runc",
+        "/etc/docker",
+        "/home/runner/.docker",
+        "/usr/libexec/docker",
+        "/usr/local/lib/docker",
+        "/var/lib/docker",
+        "/home/runner/.kube",
+        "/home/runner/.config/containers",
+        "/home/runner/.config/sops",
+    ):
+        assert path in source
+    assert "USER runner\nRUN /usr/local/bin/runner-image-smoke" in source
 
 
 def test_flux_control_smoke_requires_clients_and_rejects_authority() -> None:
     source = SMOKE.read_text(encoding="utf-8")
-    for token in ("flux --version", "kubectl version", "helm version", "kustomize version", "jq --version", "yq --version"):
+    assert 'test "$(id -un)" = runner' in source
+    for token in (
+        "flux --version",
+        "kubectl version",
+        "helm version",
+        "kustomize version",
+        "jq --version",
+        "yq --version",
+    ):
         assert token in source
-    assert "KUBECONFIG" in source
-    assert "serviceaccount/token" in source
-    for forbidden in ("command -v docker", "command -v dockerd", "command -v buildah", "command -v podman", "command -v skopeo"):
+    for forbidden in ("docker", "dockerd", "containerd", "ctr", "runc", "buildah", "podman", "skopeo"):
         assert forbidden in source
+    for state in (
+        "/var/run/docker.sock",
+        "/run/docker.sock",
+        "/home/runner/.docker/config.json",
+        "/home/runner/.config/containers/auth.json",
+        "/home/runner/.kube/config",
+        "/var/run/secrets/kubernetes.io/serviceaccount/token",
+        "/home/runner/.config/sops/age/keys.txt",
+    ):
+        assert state in source
+    for variable in (
+        "KUBECONFIG",
+        "SOPS_AGE_KEY",
+        "SOPS_AGE_KEY_FILE",
+        "GITHUB_TOKEN",
+        "GH_TOKEN",
+        "REGISTRY_AUTH_FILE",
+        "DOCKER_CONFIG",
+    ):
+        assert variable in source
