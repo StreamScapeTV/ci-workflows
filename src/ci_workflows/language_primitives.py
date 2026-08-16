@@ -1,21 +1,14 @@
-"""Product-neutral language and build execution primitives.
-
-The functions in this module intentionally stop at the process/tool boundary. Product
-repositories choose commands, tasks, paths, versions, and environment. Secret material
-must be supplied through the environment mapping rather than dedicated string
-parameters, and neither command arguments nor environment values are projected into
-errors.
-"""
+"""Product-neutral language and build primitives for shared CI functions."""
 from __future__ import annotations
 
 import os
 import re
 import shutil
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Mapping, Protocol, Sequence
 
+from .runtime_primitives import ProcessResult, RuntimePrimitiveError, run_process
 
 _SAFE_MODULE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$")
 _SAFE_PACKAGE_SCRIPT = re.compile(r"^[A-Za-z0-9_.:@/-]+$")
@@ -24,7 +17,7 @@ _JAVA_VERSION = re.compile(r'(?:openjdk|java)\s+version\s+"([^"]+)"', re.IGNOREC
 
 
 class LanguagePrimitiveError(RuntimeError):
-    """Stable, redacted failure raised by a language/build primitive."""
+    """Stable redacted language/build failure."""
 
     def __init__(
         self,
@@ -36,17 +29,10 @@ class LanguagePrimitiveError(RuntimeError):
         self.code = code
         self.operation = operation
         self.returncode = returncode
-        detail = f"{code}: {operation}"
+        message = f"{code}: {operation}"
         if returncode is not None:
-            detail += f" exited with status {returncode}"
-        super().__init__(detail)
-
-
-@dataclass(frozen=True, slots=True)
-class CommandOutcome:
-    returncode: int
-    stdout: str = ""
-    stderr: str = ""
+            message += f" exited with status {returncode}"
+        super().__init__(message)
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,11 +71,11 @@ class CommandRunner(Protocol):
         *,
         cwd: Path,
         env: Mapping[str, str],
-    ) -> CommandOutcome: ...
+    ) -> ProcessResult: ...
 
 
-class SubprocessCommandRunner:
-    """Default process boundary used by production callers."""
+class RuntimeCommandRunner:
+    """Adapt the generic runtime process primitive to this module's test boundary."""
 
     def run(
         self,
@@ -97,66 +83,50 @@ class SubprocessCommandRunner:
         *,
         cwd: Path,
         env: Mapping[str, str],
-    ) -> CommandOutcome:
-        completed = subprocess.run(
-            list(argv),
-            cwd=cwd,
-            env=dict(env),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=False,
-        )
-        return CommandOutcome(
-            returncode=completed.returncode,
-            stdout=completed.stdout,
-            stderr=completed.stderr,
-        )
+    ) -> ProcessResult:
+        return run_process(argv, cwd=cwd, environment=env)
 
 
-def _runner(runner: CommandRunner | None) -> CommandRunner:
-    return runner if runner is not None else SubprocessCommandRunner()
+def _fail(code: str, operation: str, *, returncode: int | None = None) -> None:
+    raise LanguagePrimitiveError(code, operation, returncode=returncode)
 
 
-def _environment(environment: Mapping[str, str] | None) -> dict[str, str]:
-    source = os.environ if environment is None else environment
-    result: dict[str, str] = {}
-    for key, value in source.items():
-        if not isinstance(key, str) or not isinstance(value, str):
-            raise LanguagePrimitiveError("environment_invalid", "environment")
-        if not key or any(character in key for character in "\x00\r\n="):
-            raise LanguagePrimitiveError("environment_invalid", "environment")
-        if "\x00" in value:
-            raise LanguagePrimitiveError("environment_invalid", "environment")
-        result[key] = value
-    return result
-
-
-def _safe_argument(value: str, field: str) -> str:
-    if (
-        not isinstance(value, str)
-        or not value
-        or any(character in value for character in "\x00\r\n")
-    ):
-        raise LanguagePrimitiveError("argument_invalid", field)
+def _argument(value: str, field: str) -> str:
+    if not isinstance(value, str) or not value or any(c in value for c in "\x00\r\n"):
+        _fail("argument_invalid", field)
     return value
 
 
-def _safe_arguments(values: Sequence[str], field: str) -> tuple[str, ...]:
-    return tuple(_safe_argument(value, field) for value in values)
+def _arguments(values: Sequence[str], field: str) -> tuple[str, ...]:
+    return tuple(_argument(value, field) for value in values)
 
 
-def _real_directory(path: Path, operation: str) -> Path:
+def _environment(value: Mapping[str, str] | None) -> dict[str, str]:
+    source = os.environ if value is None else value
+    result: dict[str, str] = {}
+    for name, item in source.items():
+        if (
+            not isinstance(name, str)
+            or not isinstance(item, str)
+            or not name
+            or any(c in name for c in "\x00\r\n=")
+            or "\x00" in item
+        ):
+            _fail("environment_invalid", "environment")
+        result[name] = item
+    return result
+
+
+def _directory(path: Path, operation: str) -> Path:
     candidate = Path(path)
     if candidate.is_symlink():
-        raise LanguagePrimitiveError("path_invalid", operation)
+        _fail("path_invalid", operation)
     try:
         resolved = candidate.resolve(strict=True)
     except OSError as error:
         raise LanguagePrimitiveError("path_invalid", operation) from error
     if not resolved.is_dir():
-        raise LanguagePrimitiveError("path_invalid", operation)
+        _fail("path_invalid", operation)
     return resolved
 
 
@@ -167,49 +137,45 @@ def _project_file(
     *,
     executable: bool = False,
 ) -> Path:
-    root = _real_directory(project_directory, operation)
+    root = _directory(project_directory, operation)
     candidate = Path(path)
     candidate = candidate if candidate.is_absolute() else root / candidate
     if candidate.is_symlink():
-        raise LanguagePrimitiveError("path_invalid", operation)
+        _fail("path_invalid", operation)
     try:
         resolved = candidate.resolve(strict=True)
     except OSError as error:
         raise LanguagePrimitiveError("path_invalid", operation) from error
-    if resolved != root and root not in resolved.parents:
-        raise LanguagePrimitiveError("path_invalid", operation)
-    if not resolved.is_file():
-        raise LanguagePrimitiveError("path_invalid", operation)
+    if (resolved != root and root not in resolved.parents) or not resolved.is_file():
+        _fail("path_invalid", operation)
     if executable and not os.access(resolved, os.X_OK):
-        raise LanguagePrimitiveError("path_not_executable", operation)
+        _fail("path_not_executable", operation)
     return resolved
 
 
-def _tool_path(path: Path, operation: str) -> Path:
-    candidate = Path(path)
+def _tool(path: Path, operation: str) -> Path:
     try:
-        resolved = candidate.resolve(strict=True)
+        resolved = Path(path).resolve(strict=True)
     except OSError as error:
         raise LanguagePrimitiveError("tool_unavailable", operation) from error
     if not resolved.is_file() or not os.access(resolved, os.X_OK):
-        raise LanguagePrimitiveError("tool_unavailable", operation)
+        _fail("tool_unavailable", operation)
     return resolved
 
 
-def _resolve_executable(
+def _resolve(
     candidates: Sequence[str],
     *,
     operation: str,
-    search_path: str | None = None,
+    search_path: str | None,
 ) -> Path:
     if not candidates:
-        raise LanguagePrimitiveError("tool_unavailable", operation)
+        _fail("tool_unavailable", operation)
     for candidate in candidates:
-        name = _safe_argument(candidate, operation)
-        resolved = shutil.which(name, path=search_path)
-        if resolved:
-            return _tool_path(Path(resolved), operation)
-    raise LanguagePrimitiveError("tool_unavailable", operation)
+        found = shutil.which(_argument(candidate, operation), path=search_path)
+        if found:
+            return _tool(Path(found), operation)
+    _fail("tool_unavailable", operation)
 
 
 def _execute(
@@ -220,30 +186,24 @@ def _execute(
     environment: Mapping[str, str] | None,
     runner: CommandRunner | None,
 ) -> OperationResult:
-    directory = _real_directory(cwd, operation)
-    arguments = _safe_arguments(tuple(argv), operation)
     try:
-        outcome = _runner(runner).run(
-            arguments,
-            cwd=directory,
+        outcome = (runner or RuntimeCommandRunner()).run(
+            _arguments(argv, operation),
+            cwd=_directory(cwd, operation),
             env=_environment(environment),
         )
+    except RuntimePrimitiveError as error:
+        code = "command_unavailable" if error.code == "process_start_failed" else "runtime_failed"
+        raise LanguagePrimitiveError(code, operation) from error
     except OSError as error:
         raise LanguagePrimitiveError("command_unavailable", operation) from error
-    if not isinstance(outcome, CommandOutcome):
-        raise LanguagePrimitiveError("runner_result_invalid", operation)
+    if not isinstance(outcome, ProcessResult):
+        _fail("runner_result_invalid", operation)
+    if outcome.timed_out:
+        _fail("command_timeout", operation)
     if outcome.returncode != 0:
-        raise LanguagePrimitiveError(
-            "command_failed",
-            operation,
-            returncode=outcome.returncode,
-        )
-    return OperationResult(
-        operation=operation,
-        returncode=outcome.returncode,
-        stdout=outcome.stdout,
-        stderr=outcome.stderr,
-    )
+        _fail("command_failed", operation, returncode=outcome.returncode)
+    return OperationResult(operation, 0, outcome.stdout, outcome.stderr)
 
 
 def resolve_python_interpreter(
@@ -251,13 +211,7 @@ def resolve_python_interpreter(
     *,
     search_path: str | None = None,
 ) -> Path:
-    """Resolve the first executable Python candidate without installing anything."""
-
-    return _resolve_executable(
-        candidates,
-        operation="python.resolve",
-        search_path=search_path,
-    )
+    return _resolve(candidates, operation="python.resolve", search_path=search_path)
 
 
 def create_python_venv(
@@ -271,31 +225,27 @@ def create_python_venv(
     environment: Mapping[str, str] | None = None,
     runner: CommandRunner | None = None,
 ) -> PythonVenv:
-    """Create a virtual environment using an already resolved interpreter."""
-
-    python = _tool_path(interpreter, "python.venv")
-    working = _real_directory(working_directory, "python.venv")
-    requested_root = Path(venv_directory)
-    root = requested_root if requested_root.is_absolute() else working / requested_root
+    operation = "python.venv"
+    python = _tool(interpreter, operation)
+    working = _directory(working_directory, operation)
+    requested = Path(venv_directory)
+    root = requested if requested.is_absolute() else working / requested
     if root.is_symlink():
-        raise LanguagePrimitiveError("path_invalid", "python.venv")
+        _fail("path_invalid", operation)
     argv = [str(python), "-m", "venv"]
-    if clear:
-        argv.append("--clear")
-    if system_site_packages:
-        argv.append("--system-site-packages")
-    if upgrade_deps:
-        argv.append("--upgrade-deps")
+    argv += [
+        flag
+        for enabled, flag in (
+            (clear, "--clear"),
+            (system_site_packages, "--system-site-packages"),
+            (upgrade_deps, "--upgrade-deps"),
+        )
+        if enabled
+    ]
     argv.append(str(root))
-    result = _execute(
-        "python.venv",
-        argv,
-        cwd=working,
-        environment=environment,
-        runner=runner,
-    )
-    interpreter_path = root / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-    return PythonVenv(root=root, interpreter=interpreter_path, result=result)
+    result = _execute(operation, argv, cwd=working, environment=environment, runner=runner)
+    suffix = Path("Scripts/python.exe") if os.name == "nt" else Path("bin/python")
+    return PythonVenv(root, root / suffix, result)
 
 
 def install_python_dependencies(
@@ -309,35 +259,27 @@ def install_python_dependencies(
     environment: Mapping[str, str] | None = None,
     runner: CommandRunner | None = None,
 ) -> OperationResult:
-    """Install dependencies from checked-in requirement files and/or the local project."""
-
-    python = _tool_path(interpreter, "python.install")
-    root = _real_directory(project_directory, "python.install")
+    operation = "python.install"
+    python = _tool(interpreter, operation)
+    root = _directory(project_directory, operation)
     if install_project and editable_project:
-        raise LanguagePrimitiveError("request_invalid", "python.install")
+        _fail("request_invalid", operation)
     if not requirement_files and not install_project and not editable_project:
-        raise LanguagePrimitiveError("request_invalid", "python.install")
-
-    argv = [str(python), "-m", "pip", "install"]
-    argv.extend(_safe_arguments(options, "python.install.options"))
+        _fail("request_invalid", operation)
+    argv = [
+        str(python),
+        "-m",
+        "pip",
+        "install",
+        *_arguments(options, f"{operation}.options"),
+    ]
     for requirement in requirement_files:
-        argv.extend(
-            (
-                "-r",
-                str(_project_file(root, Path(requirement), "python.install")),
-            )
-        )
+        argv += ["-r", str(_project_file(root, requirement, operation))]
     if editable_project:
-        argv.extend(("-e", str(root)))
+        argv += ["-e", str(root)]
     elif install_project:
         argv.append(str(root))
-    return _execute(
-        "python.install",
-        argv,
-        cwd=root,
-        environment=environment,
-        runner=runner,
-    )
+    return _execute(operation, argv, cwd=root, environment=environment, runner=runner)
 
 
 def run_python_module(
@@ -350,22 +292,11 @@ def run_python_module(
     runner: CommandRunner | None = None,
     operation: str = "python.module",
 ) -> OperationResult:
-    python = _tool_path(interpreter, operation)
+    python = _tool(interpreter, operation)
     if _SAFE_MODULE.fullmatch(module) is None:
-        raise LanguagePrimitiveError("module_invalid", operation)
-    argv = [
-        str(python),
-        "-m",
-        module,
-        *_safe_arguments(arguments, f"{operation}.arguments"),
-    ]
-    return _execute(
-        operation,
-        argv,
-        cwd=project_directory,
-        environment=environment,
-        runner=runner,
-    )
+        _fail("module_invalid", operation)
+    argv = [str(python), "-m", module, *_arguments(arguments, f"{operation}.arguments")]
+    return _execute(operation, argv, cwd=project_directory, environment=environment, runner=runner)
 
 
 def run_python_script(
@@ -377,20 +308,16 @@ def run_python_script(
     environment: Mapping[str, str] | None = None,
     runner: CommandRunner | None = None,
 ) -> OperationResult:
-    python = _tool_path(interpreter, "python.script")
-    root = _real_directory(project_directory, "python.script")
-    script_path = _project_file(root, script, "python.script")
-    return _execute(
-        "python.script",
-        [
-            str(python),
-            str(script_path),
-            *_safe_arguments(arguments, "python.script.arguments"),
-        ],
-        cwd=root,
-        environment=environment,
-        runner=runner,
-    )
+    operation = "python.script"
+    python = _tool(interpreter, operation)
+    root = _directory(project_directory, operation)
+    script_path = _project_file(root, script, operation)
+    argv = [
+        str(python),
+        str(script_path),
+        *_arguments(arguments, f"{operation}.arguments"),
+    ]
+    return _execute(operation, argv, cwd=root, environment=environment, runner=runner)
 
 
 def run_python_tests(
@@ -419,15 +346,9 @@ def resolve_node_runtime(
     *,
     search_path: str | None = None,
 ) -> NodeRuntime:
-    """Resolve Node and its caller-selected package-manager executable."""
-
     return NodeRuntime(
-        node=_resolve_executable(
-            node_candidates,
-            operation="node.resolve",
-            search_path=search_path,
-        ),
-        package_manager=_resolve_executable(
+        _resolve(node_candidates, operation="node.resolve", search_path=search_path),
+        _resolve(
             package_manager_candidates,
             operation="node.package_manager.resolve",
             search_path=search_path,
@@ -444,16 +365,12 @@ def install_node_dependencies(
     environment: Mapping[str, str] | None = None,
     runner: CommandRunner | None = None,
 ) -> OperationResult:
-    manager = _tool_path(package_manager, "node.install")
+    operation = "node.install"
+    manager = _tool(package_manager, operation)
     if mode not in ("ci", "install"):
-        raise LanguagePrimitiveError("request_invalid", "node.install")
-    return _execute(
-        "node.install",
-        [str(manager), mode, *_safe_arguments(options, "node.install.options")],
-        cwd=project_directory,
-        environment=environment,
-        runner=runner,
-    )
+        _fail("request_invalid", operation)
+    argv = [str(manager), mode, *_arguments(options, f"{operation}.options")]
+    return _execute(operation, argv, cwd=project_directory, environment=environment, runner=runner)
 
 
 def run_node_package_script(
@@ -465,20 +382,13 @@ def run_node_package_script(
     environment: Mapping[str, str] | None = None,
     runner: CommandRunner | None = None,
 ) -> OperationResult:
-    manager = _tool_path(package_manager, "node.script")
+    operation = "node.script"
+    manager = _tool(package_manager, operation)
     if _SAFE_PACKAGE_SCRIPT.fullmatch(script) is None:
-        raise LanguagePrimitiveError("package_script_invalid", "node.script")
-    argv = [str(manager), "run", script]
-    extra = _safe_arguments(arguments, "node.script.arguments")
-    if extra:
-        argv.extend(("--", *extra))
-    return _execute(
-        "node.script",
-        argv,
-        cwd=project_directory,
-        environment=environment,
-        runner=runner,
-    )
+        _fail("package_script_invalid", operation)
+    extra = _arguments(arguments, f"{operation}.arguments")
+    argv = [str(manager), "run", script, *(("--", *extra) if extra else ())]
+    return _execute(operation, argv, cwd=project_directory, environment=environment, runner=runner)
 
 
 def resolve_java_executable(
@@ -486,23 +396,15 @@ def resolve_java_executable(
     *,
     search_path: str | None = None,
 ) -> Path:
-    return _resolve_executable(
-        candidates,
-        operation="java.resolve",
-        search_path=search_path,
-    )
+    return _resolve(candidates, operation="java.resolve", search_path=search_path)
 
 
 def _java_major(version: str) -> int:
-    head = version.split(".", 1)[0]
-    if head == "1":
-        pieces = version.split(".")
-        if len(pieces) < 2 or not pieces[1].isdigit():
-            raise LanguagePrimitiveError("java_version_invalid", "java.inspect")
-        return int(pieces[1])
+    parts = version.split(".")
+    head = parts[1] if parts[0] == "1" and len(parts) > 1 else parts[0]
     match = re.match(r"^(\d+)", head)
     if match is None:
-        raise LanguagePrimitiveError("java_version_invalid", "java.inspect")
+        _fail("java_version_invalid", "java.inspect")
     return int(match.group(1))
 
 
@@ -513,9 +415,10 @@ def inspect_java_runtime(
     environment: Mapping[str, str] | None = None,
     runner: CommandRunner | None = None,
 ) -> JavaRuntime:
-    java = _tool_path(executable, "java.inspect")
+    operation = "java.inspect"
+    java = _tool(executable, operation)
     result = _execute(
-        "java.inspect",
+        operation,
         [str(java), "-version"],
         cwd=working_directory,
         environment=environment,
@@ -524,14 +427,9 @@ def inspect_java_runtime(
     output = "\n".join(part for part in (result.stderr, result.stdout) if part)
     match = _JAVA_VERSION.search(output)
     if match is None:
-        raise LanguagePrimitiveError("java_version_invalid", "java.inspect")
+        _fail("java_version_invalid", operation)
     version = match.group(1)
-    return JavaRuntime(
-        executable=java,
-        version=version,
-        major=_java_major(version),
-        result=result,
-    )
+    return JavaRuntime(java, version, _java_major(version), result)
 
 
 def validate_java_runtime(
@@ -540,21 +438,20 @@ def validate_java_runtime(
     expected_major: int,
     exact_version: str | None = None,
 ) -> JavaRuntime:
+    operation = "java.validate"
     if isinstance(expected_major, bool) or expected_major <= 0:
-        raise LanguagePrimitiveError("request_invalid", "java.validate")
+        _fail("request_invalid", operation)
     if runtime.major != expected_major:
-        raise LanguagePrimitiveError("java_version_mismatch", "java.validate")
-    if exact_version is not None:
-        _safe_argument(exact_version, "java.validate")
-        if runtime.version != exact_version:
-            raise LanguagePrimitiveError("java_version_mismatch", "java.validate")
+        _fail("java_version_mismatch", operation)
+    if exact_version is not None and runtime.version != _argument(exact_version, operation):
+        _fail("java_version_mismatch", operation)
     return runtime
 
 
-def _gradle_task(task: str, operation: str) -> str:
-    if _SAFE_GRADLE_TASK.fullmatch(task) is None or task.startswith("-"):
-        raise LanguagePrimitiveError("gradle_task_invalid", operation)
-    return task
+def _gradle_task(value: str, operation: str) -> str:
+    if _SAFE_GRADLE_TASK.fullmatch(value) is None or value.startswith("-"):
+        _fail("gradle_task_invalid", operation)
+    return value
 
 
 def run_gradle_tasks(
@@ -568,24 +465,18 @@ def run_gradle_tasks(
     operation: str = "gradle.tasks",
 ) -> OperationResult:
     if not tasks:
-        raise LanguagePrimitiveError("request_invalid", operation)
-    root = _real_directory(project_directory, operation)
+        _fail("request_invalid", operation)
+    root = _directory(project_directory, operation)
     wrapper = _project_file(root, wrapper_path, operation, executable=True)
-    selected_tasks = tuple(_gradle_task(task, operation) for task in tasks)
-    return _execute(
-        operation,
-        [
-            str(wrapper),
-            *selected_tasks,
-            *_safe_arguments(options, f"{operation}.options"),
-        ],
-        cwd=root,
-        environment=environment,
-        runner=runner,
-    )
+    argv = [
+        str(wrapper),
+        *(_gradle_task(task, operation) for task in tasks),
+        *_arguments(options, f"{operation}.options"),
+    ]
+    return _execute(operation, argv, cwd=root, environment=environment, runner=runner)
 
 
-def _run_android_task(
+def _android(
     operation: str,
     wrapper_path: Path,
     task: str,
@@ -615,7 +506,7 @@ def android_build(
     environment: Mapping[str, str] | None = None,
     runner: CommandRunner | None = None,
 ) -> OperationResult:
-    return _run_android_task(
+    return _android(
         "android.build",
         wrapper_path,
         task,
@@ -635,7 +526,7 @@ def android_assemble(
     environment: Mapping[str, str] | None = None,
     runner: CommandRunner | None = None,
 ) -> OperationResult:
-    return _run_android_task(
+    return _android(
         "android.assemble",
         wrapper_path,
         task,
@@ -655,7 +546,7 @@ def android_unit_test(
     environment: Mapping[str, str] | None = None,
     runner: CommandRunner | None = None,
 ) -> OperationResult:
-    return _run_android_task(
+    return _android(
         "android.unit_test",
         wrapper_path,
         task,
@@ -675,7 +566,7 @@ def android_lint(
     environment: Mapping[str, str] | None = None,
     runner: CommandRunner | None = None,
 ) -> OperationResult:
-    return _run_android_task(
+    return _android(
         "android.lint",
         wrapper_path,
         task,
@@ -696,8 +587,8 @@ def android_targeted_test(
     environment: Mapping[str, str] | None = None,
     runner: CommandRunner | None = None,
 ) -> OperationResult:
-    selector = _safe_argument(test_selector, "android.targeted_test.selector")
-    return _run_android_task(
+    selector = _argument(test_selector, "android.targeted_test.selector")
+    return _android(
         "android.targeted_test",
         wrapper_path,
         task,
@@ -716,7 +607,7 @@ def _pub_restore(
     environment: Mapping[str, str] | None,
     runner: CommandRunner | None,
 ) -> OperationResult:
-    tool = _tool_path(executable, operation)
+    tool = _tool(executable, operation)
     return _execute(
         operation,
         [str(tool), "pub", "get"],
@@ -768,19 +659,11 @@ def run_flutter_operation(
     runner: CommandRunner | None = None,
 ) -> OperationResult:
     if operation not in ("build", "test", "analyze"):
-        raise LanguagePrimitiveError("request_invalid", "flutter.operation")
-    tool = _tool_path(executable, f"flutter.{operation}")
-    return _execute(
-        f"flutter.{operation}",
-        [
-            str(tool),
-            operation,
-            *_safe_arguments(arguments, f"flutter.{operation}.arguments"),
-        ],
-        cwd=project_directory,
-        environment=environment,
-        runner=runner,
-    )
+        _fail("request_invalid", "flutter.operation")
+    name = f"flutter.{operation}"
+    tool = _tool(executable, name)
+    argv = [str(tool), operation, *_arguments(arguments, f"{name}.arguments")]
+    return _execute(name, argv, cwd=project_directory, environment=environment, runner=runner)
 
 
 def run_dart_operation(
@@ -793,16 +676,8 @@ def run_dart_operation(
     runner: CommandRunner | None = None,
 ) -> OperationResult:
     if operation not in ("test", "analyze"):
-        raise LanguagePrimitiveError("request_invalid", "dart.operation")
-    tool = _tool_path(executable, f"dart.{operation}")
-    return _execute(
-        f"dart.{operation}",
-        [
-            str(tool),
-            operation,
-            *_safe_arguments(arguments, f"dart.{operation}.arguments"),
-        ],
-        cwd=project_directory,
-        environment=environment,
-        runner=runner,
-    )
+        _fail("request_invalid", "dart.operation")
+    name = f"dart.{operation}"
+    tool = _tool(executable, name)
+    argv = [str(tool), operation, *_arguments(arguments, f"{name}.arguments")]
+    return _execute(name, argv, cwd=project_directory, environment=environment, runner=runner)
