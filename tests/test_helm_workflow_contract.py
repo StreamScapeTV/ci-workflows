@@ -14,7 +14,7 @@ VALIDATE_WORKFLOW = ROOT / ".github/workflows/reusable-helm-validate.yml"
 PUBLISH_WORKFLOW = ROOT / ".github/workflows/reusable-helm-publish.yml"
 VALIDATE_ACTION = ROOT / "actions/validate-helm/action.yml"
 PUBLISH_ACTION = ROOT / "actions/publish-helm/action.yml"
-HELM_CORE_SHA = "2db6c709c3faa4e99a67fe029628284cf0e60f80"
+HELM_CORE_SHA = "7b17879f21fbf029708d6a404a9dd12d75503a52"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 
 
@@ -73,7 +73,7 @@ class HelmWorkflowContractTests(unittest.TestCase):
         self.assertEqual(self.public_validate["status"], "implemented")
         self.assertEqual(self.public_publish["status"], "implemented")
 
-    def test_reusable_workflows_use_immutable_simple_helm_checkpoint(self) -> None:
+    def test_reusable_workflows_use_reviewed_simple_helm_checkpoint(self) -> None:
         for text in (self.validate_text, self.publish_text):
             self.assertNotIn("actions/checkout@", text)
             self.assertNotIn("${{ job.workflow_repository }}", text)
@@ -92,29 +92,29 @@ class HelmWorkflowContractTests(unittest.TestCase):
                 f"StreamScapeTV/ci-workflows/actions/cleanup-workspace@{FOUNDATION_SHA}",
                 text,
             )
-        self.assertIn(
-            f"StreamScapeTV/ci-workflows/actions/validate-helm@{HELM_CORE_SHA}",
-            self.validate_text,
+        self.assertEqual(
+            self.validate_text.count(
+                f"StreamScapeTV/ci-workflows/actions/validate-helm@{HELM_CORE_SHA}"
+            ),
+            4,
         )
-        self.assertIn(
-            f"StreamScapeTV/ci-workflows/actions/publish-helm@{HELM_CORE_SHA}",
-            self.publish_text,
+        self.assertEqual(
+            self.publish_text.count(
+                f"StreamScapeTV/ci-workflows/actions/publish-helm@{HELM_CORE_SHA}"
+            ),
+            4,
         )
 
-    def test_publication_policy_is_caller_owned_but_write_is_tag_push_only(self) -> None:
-        plan_steps = self.publish["jobs"]["plan"]["steps"]
-        guard = next(
-            step for step in plan_steps
-            if step.get("name") == "Require an exact product tag push"
-        )
-        run = guard["run"]
-        self.assertIn('test "${EVENT_NAME}" = push', run)
-        self.assertIn('test "${REF_TYPE}" = tag', run)
-        self.assertIn('test "${EVENT_SHA}" = "${ADMITTED_SHA}"', run)
+    def test_publication_event_and_version_policy_are_caller_owned(self) -> None:
+        self.assertNotIn("Require an exact product tag push", self.publish_text)
+        self.assertNotIn("github.ref_type", self.publish_text)
+        self.assertNotIn("github.event_name", self.publish_text)
         self.assertNotIn("resolve-release-tag", self.publish_text)
         self.assertNotIn("workflow_dispatch", self.publish_text)
         self.assertNotIn("existing-tag", self.publish_text)
         self.assertNotIn("release_mode:", self.publish_text)
+        self.assertIn("release_version: ${{ inputs.release_version }}", self.publish_text)
+        self.assertIn("admitted_sha: ${{ inputs.admitted_sha }}", self.publish_text)
 
     def test_core_publication_has_no_mandatory_image_evidence_or_read_back(self) -> None:
         lowered = self.publish_text.casefold()
@@ -154,7 +154,7 @@ class HelmWorkflowContractTests(unittest.TestCase):
             self.assertNotIn("self-hosted", text)
             self.assertIn("if: always()", text)
 
-    def test_actions_are_thin_and_publication_ignores_legacy_evidence_inputs(self) -> None:
+    def test_actions_are_thin_and_do_not_require_action_lock_bootstrap(self) -> None:
         for action, text, operation in (
             (self.validate_action, self.validate_action_text, "validate"),
             (self.publish_action, self.publish_action_text, "publish"),
@@ -163,8 +163,11 @@ class HelmWorkflowContractTests(unittest.TestCase):
             self.assertEqual(len(action["runs"]["steps"]), 1)
             run = action["runs"]["steps"][0]["run"]
             self.assertIn("scripts/ci/ciw.py", run)
+            self.assertIn("PYTHONPATH", run)
             self.assertIn("helm", run)
             self.assertIn(operation, run)
+            self.assertNotIn("bootstrap_validation_runtime.py", run)
+            self.assertNotIn("action-tool-lock.json", run)
             for token in ("eval ", "kubectl", "sops", "docker "):
                 self.assertNotIn(token, run.casefold())
             self.assertNotIn("runner", action["inputs"])
