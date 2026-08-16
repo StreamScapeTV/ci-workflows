@@ -81,16 +81,9 @@ def _plan(
     operation: str,
 ) -> dict[str, str]:
     from . import runners
-    from .helm_contract import (
-        load_helm_contract,
-        load_helm_publication_contract,
-        request_from_environment,
-        require,
-    )
+    from .helm_contract import load_helm_contract, request_from_environment, require
 
     contract = load_helm_contract(root)
-    if operation == "publish":
-        load_helm_publication_contract(root)
     request = request_from_environment(environment)
     _require_operation_trust(request, operation)
     template = contract["products"].get(request.product_id)
@@ -135,12 +128,10 @@ def execute(
     from .helm_archive import finalize_validation_archive
     from .helm_contract import load_helm_contract, request_from_environment, require
     from .helm_dependency_policy import resolve_validation_plan
-    from .helm_execution import (
-        cleanup_helm_state,
-        validate_and_package,
-        verify_no_helm_residue,
-    )
+    from .helm_execution import cleanup_helm_state, verify_no_helm_residue
     from .helm_policy import run_policy_hook
+    from .helm_simple import publish as publish_chart
+    from .helm_simple import validate_and_package
 
     require(operation in {"validate", "publish"}, "invalid_operation")
     if operation == "publish" and phase in {"measure-start", "measure-stop"}:
@@ -164,11 +155,10 @@ def execute(
             "cleanup_result": "success",
             "failure_code": "",
         }
-    if operation == "publish":
-        require(False, "release_adapter_required")
 
     contract = load_helm_contract(root)
     request = request_from_environment(environment)
+    _require_operation_trust(request, operation)
     source_root = _source_root(root, environment, source_relative)
     plan = resolve_validation_plan(source_root, contract, request)
     validation = validate_and_package(
@@ -189,6 +179,28 @@ def execute(
         validation,
         plan.product.chart_name,
     )
+
+    if operation == "publish":
+        publication = publish_chart(
+            source_root,
+            state_root,
+            plan,
+            validation,
+            environment,
+        )
+        values = publication.output_values()
+        values.update(
+            {
+                "artifact_exception_used": "false",
+                "failure_code": "",
+                "runner_profile": _runner_profile(operation),
+                "workspace_profile": "minimal",
+                "timeout_minutes": "90",
+                "source_trust": request.source_trust,
+            }
+        )
+        return values
+
     values = validation.output_values()
     values.update(
         {
