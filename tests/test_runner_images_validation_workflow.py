@@ -33,7 +33,7 @@ class GeneralRunnerImageValidationWorkflowTests(unittest.TestCase):
             ],
             triggers["pull_request"]["paths"],
         )
-        self.assertEqual({}, triggers["workflow_dispatch"])
+        self.assertEqual("", triggers["workflow_dispatch"])
         self.assertNotIn("push", triggers)
 
     def test_job_uses_only_reviewed_buildah_capacity_and_shared_action(self) -> None:
