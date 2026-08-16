@@ -145,10 +145,13 @@ def render(data: Mapping[str, Any]) -> str:
         "",
         (
             f"This navigation snapshot classifies **{data['workflow_total']} workflow files across "
-            f"{len(repositories)} repositories**. It is not a consumer/product compatibility allowlist. "
-            "Capture commits are evidence anchors; the live drift check compares workflow paths and available "
-            "Git blob identities without checking out or executing consumer source."
+            f"{len(repositories)} repositories**. It is generic organization-maintenance evidence, not a "
+            "consumer/product compatibility allowlist or reusable-API admission source."
         ),
+        "",
+        "The complete per-workflow ledger remains machine-readable in `contracts/workflow-inventory.json`. "
+        "Capture commits are evidence anchors; the live drift check compares workflow paths and available Git "
+        "blob identities without checking out or executing consumer source.",
         "",
         "## Summary",
         "",
@@ -178,40 +181,18 @@ def render(data: Mapping[str, Any]) -> str:
         for code, meaning in table.items():
             lines.append(f"| {dimension} | `{cell(code)}` | {cell(meaning)} | {data['counts'][count_key].get(code, 0)} |")
 
-    lines += ["", "## Repository workflow ledger", ""]
-    for repository in repositories:
-        lines += [
-            f"### {repository['repository']}",
-            "",
-            f"- Capture: `{repository['branch']}@{repository['commit']}`",
-            f"- Evidence basis: {repository['basis']}",
-            "",
-            "| Workflow | Name | Status | Disposition | Migration | Trust | Blob |",
-            "|---|---|---|---|---|---|---|",
-        ]
-        for path, name, status, disposition, migration, trust, blob in repository["workflows"]:
-            values = (
-                f"`{cell(path)}`",
-                cell(name),
-                f"`{cell(status)}`",
-                f"`{cell(disposition)}`",
-                f"`{cell(migration)}`",
-                f"`{cell(trust)}`",
-                f"`{cell(blob)}`" if blob else "—",
-            )
-            lines.append("| " + " | ".join(values) + " |")
-        lines.append("")
-
     lines += [
+        "",
         "## Drift and update contract",
         "",
         "- `python3 scripts/ci/inventory_contract.py validate` validates this generic workflow-navigation snapshot and generated-report agreement.",
         "- `python3 scripts/ci/inventory_contract.py render` regenerates this report deterministically.",
-        "- `python3 scripts/ci/inventory_live_check.py` compares the configured organization workflow trees using a read-only contents token.",
+        "- `python3 scripts/ci/inventory_live_check.py` compares configured organization workflow trees using a read-only contents token.",
         "- Live comparison never checks out or executes consumer source and needs no product, Agent State mutation, registry, signing, SOPS, Kubernetes, or device credential.",
-        "- This snapshot does not decide whether a repository or product may call a reusable workflow; ordinary compatibility is capability/trust/input based.",
+        "- A workflow add, removal, rename, or changed recorded blob requires an inventory update in the same reviewed change.",
+        "- This snapshot never decides whether a repository or product may call a reusable workflow; ordinary compatibility is capability/trust/input based.",
         "",
-        "Ownership decisions remain documented in `docs/architecture/ownership-boundaries.md`; navigation-only consumer/product metadata does not participate in public API validation.",
+        "Ownership decisions remain documented in `docs/architecture/ownership-boundaries.md`. Navigation-only repository/workflow discovery does not participate in public API validation.",
         "",
     ]
     return "\n".join(lines)
