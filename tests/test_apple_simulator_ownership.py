@@ -20,6 +20,7 @@ from ci_workflows.apple_execution import (  # noqa: E402
     _OWNERSHIP_DIRECTORY,
     _OWNERSHIP_LOCK,
     _OWNERSHIP_REGISTRY,
+    CommandOutcome,
     _ownership_record,
     _simulator_device_name,
     _simulator_ownership,
@@ -32,6 +33,10 @@ from tests.test_apple_validation import (  # noqa: E402
     SECOND_UDID,
     FakeRunner,
 )
+
+STALE_IOS_UDID = "11111111-2222-3333-4444-555555555555"
+STALE_TVOS_UDID = "66666666-7777-8888-9999-AAAAAAAAAAAA"
+UNRELATED_UDID = "99999999-8888-7777-6666-555555555555"
 
 
 class ForcedCancellation(BaseException):
@@ -64,6 +69,71 @@ class CancellationRunner(FakeRunner):
         if tuple(argv)[:3] == ("xcrun", "simctl", "create") and self.cancel_after_create:
             raise ForcedCancellation("cancelled immediately after simulator creation")
         return outcome
+
+
+class BootCancellationRunner(FakeRunner):
+    def __init__(
+        self,
+        *,
+        devices: Sequence[Mapping[str, object]] = (),
+    ) -> None:
+        super().__init__(devices=devices)
+        self.cancel_after_boot = True
+
+    def run(
+        self,
+        argv: Sequence[str],
+        *,
+        cwd: Path,
+        env: Mapping[str, str],
+        timeout_seconds: int,
+    ):
+        outcome = super().run(
+            argv,
+            cwd=cwd,
+            env=env,
+            timeout_seconds=timeout_seconds,
+        )
+        if tuple(argv)[:3] == ("xcrun", "simctl", "boot") and self.cancel_after_boot:
+            raise ForcedCancellation("cancelled after ownership transition during boot")
+        return outcome
+
+
+class TransientCleanupRunner(FakeRunner):
+    def __init__(
+        self,
+        *,
+        devices: Sequence[Mapping[str, object]] = (),
+        shutdown_failures: int = 0,
+        delete_failures: int = 0,
+    ) -> None:
+        super().__init__(devices=devices)
+        self.shutdown_failures = shutdown_failures
+        self.delete_failures = delete_failures
+
+    def run(
+        self,
+        argv: Sequence[str],
+        *,
+        cwd: Path,
+        env: Mapping[str, str],
+        timeout_seconds: int,
+    ) -> CommandOutcome:
+        command = tuple(argv)
+        if command[:3] == ("xcrun", "simctl", "shutdown") and self.shutdown_failures:
+            self.calls.append(command)
+            self.shutdown_failures -= 1
+            return CommandOutcome(1, "", "transient shutdown failure")
+        if command[:3] == ("xcrun", "simctl", "delete") and self.delete_failures:
+            self.calls.append(command)
+            self.delete_failures -= 1
+            return CommandOutcome(1, "", "transient delete failure")
+        return super().run(
+            argv,
+            cwd=cwd,
+            env=env,
+            timeout_seconds=timeout_seconds,
+        )
 
 
 class AppleSimulatorOwnershipTests(unittest.TestCase):
@@ -106,14 +176,18 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
             ),
         )
 
-    def scoped_plan(self, sha: str):
+    def scoped_plan(
+        self,
+        sha: str,
+        profile: AppleProfile = AppleProfile.IOS_SIMULATOR,
+    ):
         return apple.resolve_plan(
             self.contract,
             apple.AppleValidationRequest(
                 repository="StreamScapeTV/ci-workflows",
                 admitted_sha=sha,
                 consumer_contract="ciw-apple-smoke",
-                validation_profile=AppleProfile.IOS_SIMULATOR,
+                validation_profile=profile,
                 source_trust="trusted-pr",
             ),
         )
@@ -135,6 +209,17 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
             json.dumps({"schema_version": 1, "owners": rows}, sort_keys=True),
             encoding="utf-8",
         )
+
+    @staticmethod
+    def device(plan, udid: str, *, available: bool = True, state: str = "Shutdown"):
+        assert plan.simulator is not None
+        return {
+            "name": _simulator_device_name(plan),
+            "udid": udid,
+            "state": state,
+            "isAvailable": available,
+            "deviceTypeIdentifier": plan.simulator.device_type_identifier,
+        }
 
     def test_contract_owned_name_is_independent_of_ephemeral_state_root(self) -> None:
         plan = self.plan()
@@ -204,6 +289,46 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
             [],
         )
 
+    def test_boot_cancellation_recovers_owned_simulator_on_rerun(self) -> None:
+        temporary, source, sha = self.make_repo()
+        self.addCleanup(temporary.cleanup)
+        _, environment, workspace = self.host_environment()
+        plan = self.scoped_plan(sha)
+        runner = BootCancellationRunner()
+
+        with self.assertRaises(ForcedCancellation):
+            execute_apple_plan(
+                plan=plan,
+                source_root=source,
+                state_root=workspace.parent / "boot-cancelled",
+                runner=runner,
+                environment=environment,
+            )
+
+        registry_path = workspace / _OWNERSHIP_DIRECTORY / _OWNERSHIP_REGISTRY
+        registry = json.loads(registry_path.read_text(encoding="utf-8"))
+        self.assertEqual(registry["owners"][0]["status"], "owned")
+        self.assertEqual(registry["owners"][0]["udid"], GOOD_UDID)
+        runner.cancel_after_boot = False
+
+        result = execute_apple_plan(
+            plan=plan,
+            source_root=source,
+            state_root=workspace.parent / "boot-recovery",
+            runner=runner,
+            environment=environment,
+        )
+
+        self.assertEqual(result.status, "success")
+        self.assertGreaterEqual(
+            runner.calls.count(("xcrun", "simctl", "delete", GOOD_UDID)),
+            2,
+        )
+        self.assertEqual(
+            json.loads(registry_path.read_text(encoding="utf-8"))["owners"],
+            [],
+        )
+
     def test_prior_exact_head_stale_simulator_is_reconciled_before_selection(self) -> None:
         temporary, source, sha = self.make_repo()
         self.addCleanup(temporary.cleanup)
@@ -214,22 +339,15 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
         self.assertNotEqual(prior_name, current_name)
         assert prior_plan.simulator is not None
         assert current_plan.simulator is not None
-        unrelated_udid = "99999999-8888-7777-6666-555555555555"
 
         for status in ("pending-create", "owned"):
             with self.subTest(status=status):
                 _, environment, workspace = self.host_environment()
                 state_root = workspace.parent / f"state-{status}"
-                stale = {
-                    "name": prior_name,
-                    "udid": SECOND_UDID,
-                    "state": "Booted",
-                    "isAvailable": True,
-                    "deviceTypeIdentifier": prior_plan.simulator.device_type_identifier,
-                }
+                stale = self.device(prior_plan, SECOND_UDID, state="Booted")
                 unrelated = {
                     "name": "Personal Unrelated Simulator",
-                    "udid": unrelated_udid,
+                    "udid": UNRELATED_UDID,
                     "state": "Shutdown",
                     "isAvailable": True,
                     "deviceTypeIdentifier": prior_plan.simulator.device_type_identifier,
@@ -264,15 +382,15 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
                 self.assertLess(runner.calls.index(stale_shutdown), runner.calls.index(stale_delete))
                 self.assertLess(runner.calls.index(stale_delete), runner.calls.index(current_create))
                 self.assertNotIn(
-                    ("xcrun", "simctl", "shutdown", unrelated_udid),
+                    ("xcrun", "simctl", "shutdown", UNRELATED_UDID),
                     runner.calls,
                 )
                 self.assertNotIn(
-                    ("xcrun", "simctl", "delete", unrelated_udid),
+                    ("xcrun", "simctl", "delete", UNRELATED_UDID),
                     runner.calls,
                 )
                 self.assertTrue(
-                    any(row.get("udid") == unrelated_udid for row in runner.devices)
+                    any(row.get("udid") == UNRELATED_UDID for row in runner.devices)
                 )
                 self.assertFalse(any(row.get("name") == prior_name for row in runner.devices))
                 self.assertFalse(any(row.get("name") == current_name for row in runner.devices))
@@ -282,6 +400,57 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
                     [],
                 )
 
+    def test_multiple_prior_owner_keys_mixed_ios_tvos_are_reaped(self) -> None:
+        temporary, source, sha = self.make_repo()
+        self.addCleanup(temporary.cleanup)
+        _, environment, workspace = self.host_environment()
+        current_plan = self.scoped_plan(sha)
+        stale_ios = self.scoped_plan("b" * 40, AppleProfile.IOS_SIMULATOR)
+        stale_tvos = self.scoped_plan("c" * 40, AppleProfile.TVOS_SIMULATOR)
+        assert current_plan.simulator is not None
+        assert stale_ios.simulator is not None
+        assert stale_tvos.simulator is not None
+        rows = [
+            _ownership_record(stale_ios, status="owned", udid=STALE_IOS_UDID),
+            _ownership_record(stale_tvos, status="owned", udid=STALE_TVOS_UDID),
+        ]
+        self.write_registry(workspace, rows)
+        unrelated = {
+            "name": "Personal Unrelated Simulator",
+            "udid": UNRELATED_UDID,
+            "state": "Shutdown",
+            "isAvailable": True,
+            "deviceTypeIdentifier": stale_ios.simulator.device_type_identifier,
+        }
+        runner = FakeRunner(
+            devices=[
+                self.device(stale_ios, STALE_IOS_UDID, state="Booted"),
+                self.device(stale_tvos, STALE_TVOS_UDID, available=False),
+                unrelated,
+            ]
+        )
+
+        result = execute_apple_plan(
+            plan=current_plan,
+            source_root=source,
+            state_root=workspace.parent / "mixed-stale",
+            runner=runner,
+            environment=environment,
+        )
+
+        self.assertEqual(result.status, "success")
+        for udid in (STALE_IOS_UDID, STALE_TVOS_UDID):
+            self.assertIn(("xcrun", "simctl", "shutdown", udid), runner.calls)
+            self.assertIn(("xcrun", "simctl", "delete", udid), runner.calls)
+            self.assertFalse(any(row.get("udid") == udid for row in runner.devices))
+        self.assertTrue(any(row.get("udid") == UNRELATED_UDID for row in runner.devices))
+        self.assertNotIn(("xcrun", "simctl", "delete", UNRELATED_UDID), runner.calls)
+        registry_path = workspace / _OWNERSHIP_DIRECTORY / _OWNERSHIP_REGISTRY
+        self.assertEqual(
+            json.loads(registry_path.read_text(encoding="utf-8"))["owners"],
+            [],
+        )
+
     def test_prior_exact_head_missing_simulator_row_is_cleared_idempotently(self) -> None:
         temporary, source, sha = self.make_repo()
         self.addCleanup(temporary.cleanup)
@@ -289,10 +458,9 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
         current_plan = self.scoped_plan(sha)
         prior_plan = self.scoped_plan("b" * 40)
         assert prior_plan.simulator is not None
-        unrelated_udid = "99999999-8888-7777-6666-555555555555"
         unrelated = {
             "name": "Personal Unrelated Simulator",
-            "udid": unrelated_udid,
+            "udid": UNRELATED_UDID,
             "state": "Shutdown",
             "isAvailable": True,
             "deviceTypeIdentifier": prior_plan.simulator.device_type_identifier,
@@ -303,21 +471,151 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
         )
         runner = FakeRunner(devices=[unrelated])
 
-        result = execute_apple_plan(
+        first = execute_apple_plan(
             plan=current_plan,
             source_root=source,
             state_root=workspace.parent / "state-missing-stale",
             runner=runner,
             environment=environment,
         )
+        second = execute_apple_plan(
+            plan=current_plan,
+            source_root=source,
+            state_root=workspace.parent / "state-missing-stale-second",
+            runner=runner,
+            environment=environment,
+        )
 
-        self.assertEqual(result.status, "success")
+        self.assertEqual(first.status, "success")
+        self.assertEqual(second.status, "success")
         self.assertNotIn(("xcrun", "simctl", "delete", SECOND_UDID), runner.calls)
         self.assertNotIn(
-            ("xcrun", "simctl", "delete", unrelated_udid),
+            ("xcrun", "simctl", "delete", UNRELATED_UDID),
             runner.calls,
         )
-        self.assertTrue(any(row.get("udid") == unrelated_udid for row in runner.devices))
+        self.assertTrue(any(row.get("udid") == UNRELATED_UDID for row in runner.devices))
+        registry_path = workspace / _OWNERSHIP_DIRECTORY / _OWNERSHIP_REGISTRY
+        self.assertEqual(
+            json.loads(registry_path.read_text(encoding="utf-8"))["owners"],
+            [],
+        )
+
+    def test_transient_shutdown_and_delete_failures_are_retried_with_readback(self) -> None:
+        temporary, source, sha = self.make_repo()
+        self.addCleanup(temporary.cleanup)
+        _, environment, workspace = self.host_environment()
+        current_plan = self.scoped_plan(sha)
+        stale_plan = self.scoped_plan("b" * 40)
+        self.write_registry(
+            workspace,
+            [_ownership_record(stale_plan, status="owned", udid=SECOND_UDID)],
+        )
+        runner = TransientCleanupRunner(
+            devices=[self.device(stale_plan, SECOND_UDID, state="Booted")],
+            shutdown_failures=1,
+            delete_failures=1,
+        )
+
+        result = execute_apple_plan(
+            plan=current_plan,
+            source_root=source,
+            state_root=workspace.parent / "transient-cleanup",
+            runner=runner,
+            environment=environment,
+        )
+
+        self.assertEqual(result.status, "success")
+        self.assertEqual(
+            runner.calls.count(("xcrun", "simctl", "delete", SECOND_UDID)),
+            2,
+        )
+        self.assertGreaterEqual(
+            runner.calls.count(("xcrun", "simctl", "shutdown", SECOND_UDID)),
+            2,
+        )
+        registry_path = workspace / _OWNERSHIP_DIRECTORY / _OWNERSHIP_REGISTRY
+        self.assertEqual(
+            json.loads(registry_path.read_text(encoding="utf-8"))["owners"],
+            [],
+        )
+
+    def test_permanent_delete_failure_fails_closed_and_retains_registry_row(self) -> None:
+        temporary, source, sha = self.make_repo()
+        self.addCleanup(temporary.cleanup)
+        _, environment, workspace = self.host_environment()
+        current_plan = self.scoped_plan(sha)
+        stale_plan = self.scoped_plan("b" * 40)
+        stale_name = _simulator_device_name(stale_plan)
+        self.write_registry(
+            workspace,
+            [_ownership_record(stale_plan, status="owned", udid=SECOND_UDID)],
+        )
+        runner = TransientCleanupRunner(
+            devices=[self.device(stale_plan, SECOND_UDID, state="Booted")],
+            delete_failures=99,
+        )
+
+        with self.assertRaises(apple.AppleValidationError) as captured:
+            execute_apple_plan(
+                plan=current_plan,
+                source_root=source,
+                state_root=workspace.parent / "permanent-cleanup-failure",
+                runner=runner,
+                environment=environment,
+            )
+
+        self.assertEqual(captured.exception.code, "cleanup_failed")
+        self.assertTrue(captured.exception.cleanup_failed)
+        self.assertTrue(any(row.get("name") == stale_name for row in runner.devices))
+        assert current_plan.simulator is not None
+        self.assertNotIn(
+            (
+                "xcrun",
+                "simctl",
+                "create",
+                _simulator_device_name(current_plan),
+                current_plan.simulator.device_type_identifier,
+                current_plan.simulator.runtime_identifier,
+            ),
+            runner.calls,
+        )
+        registry_path = workspace / _OWNERSHIP_DIRECTORY / _OWNERSHIP_REGISTRY
+        owners = json.loads(registry_path.read_text(encoding="utf-8"))["owners"]
+        self.assertEqual(len(owners), 1)
+        self.assertEqual(owners[0]["udid"], SECOND_UDID)
+
+    def test_full_registry_of_stale_rows_is_recovered_before_current_claim(self) -> None:
+        temporary, source, sha = self.make_repo()
+        self.addCleanup(temporary.cleanup)
+        _, environment, workspace = self.host_environment()
+        current_plan = self.scoped_plan(sha)
+        stale_plans = [self.scoped_plan(f"{index + 1:040x}") for index in range(8)]
+        rows = [_ownership_record(plan, status="pending-create") for plan in stale_plans]
+        self.assertEqual(len({row["owner_key"] for row in rows}), 8)
+        self.write_registry(workspace, rows)
+        runner = FakeRunner()
+
+        result = execute_apple_plan(
+            plan=current_plan,
+            source_root=source,
+            state_root=workspace.parent / "capacity-recovery",
+            runner=runner,
+            environment=environment,
+        )
+
+        self.assertEqual(result.status, "success")
+        assert current_plan.simulator is not None
+        self.assertIn(
+            (
+                "xcrun",
+                "simctl",
+                "create",
+                _simulator_device_name(current_plan),
+                current_plan.simulator.device_type_identifier,
+                current_plan.simulator.runtime_identifier,
+            ),
+            runner.calls,
+        )
         registry_path = workspace / _OWNERSHIP_DIRECTORY / _OWNERSHIP_REGISTRY
         self.assertEqual(
             json.loads(registry_path.read_text(encoding="utf-8"))["owners"],
@@ -403,6 +701,21 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
         with self.assertRaises(apple.AppleValidationError) as captured:
             with _simulator_ownership(environment, state):
                 pass
+        self.assertEqual(captured.exception.code, "simulator_ownership_corrupt")
+
+    def test_non_ciw_registry_device_name_is_rejected(self) -> None:
+        _, environment, workspace = self.host_environment()
+        plan = self.plan()
+        row = _ownership_record(plan, status="pending-create")
+        row["device_name"] = f"Personal Simulator {row['owner_key'][:16]}"
+        self.write_registry(workspace, [row])
+        state = workspace.parent / "non-ciw-row"
+        state.mkdir()
+
+        with self.assertRaises(apple.AppleValidationError) as captured:
+            with _simulator_ownership(environment, state):
+                pass
+
         self.assertEqual(captured.exception.code, "simulator_ownership_corrupt")
 
     def test_stale_runtime_or_device_identity_is_rejected(self) -> None:
