@@ -13,6 +13,9 @@ grep -Fx 'VERSION_CODENAME=trixie' /etc/os-release
 /home/runner/bin/Runner.Listener --version | grep -F '2.336.0'
 test -e /usr/lib/x86_64-linux-gnu/libatomic.so.1
 
+test -s /etc/ssl/certs/ca-certificates.crt
+grep -Fq -- '-----BEGIN CERTIFICATE-----' /etc/ssl/certs/ca-certificates.crt
+
 python3 --version | grep -F 'Python 3.12.14'
 venv_root="$(mktemp -d)"
 trap 'rm -rf "${venv_root}"' EXIT
