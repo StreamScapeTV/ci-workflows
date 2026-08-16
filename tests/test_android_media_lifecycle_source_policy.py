@@ -128,6 +128,7 @@ class AndroidMediaLifecycleSourcePolicyTests(unittest.TestCase):
                     source_policy=source_policy,
                 )
 
+            self.assertEqual(caught.exception.instruction, "tracked_secret_detected")
             self.assertEqual(caught.exception.subject, LIFECYCLE_PATH)
             self.assertNotIn(real_shape, repr(caught.exception))
 
