@@ -33,16 +33,40 @@ class FakeRunner:
         env = dict(env)
         self.calls.append((argv, cwd, env, timeout_seconds))
         if argv == ("xcodebuild", "-version"):
-            if env.get("DEVELOPER_DIR", "").endswith("Xcode-B/Contents/Developer"):
-                return CommandOutcome(0, "Xcode 26.0\nBuild version 17A100\n")
+            if env.get("DEVELOPER_DIR", "").endswith(
+                "Xcode-B/Contents/Developer"
+            ):
+                return CommandOutcome(
+                    0,
+                    "Xcode 26.0\nBuild version 17A100\n",
+                )
             return CommandOutcome(0, "Xcode 26.1\nBuild version 17B42\n")
         if argv == ("swift", "--version"):
-            return CommandOutcome(0, "Apple Swift version 6.2 (swiftlang-6.2.0.1)\n")
+            return CommandOutcome(
+                0,
+                "Apple Swift version 6.2 (swiftlang-6.2.0.1)\n",
+            )
         if len(argv) == 4 and argv[:2] == ("xcrun", "--sdk"):
             return CommandOutcome(0, "26.0\n")
         if argv[:3] == ("xcrun", "simctl", "create"):
-            return CommandOutcome(0, "11111111-2222-3333-4444-555555555555\n")
+            return CommandOutcome(
+                0,
+                "11111111-2222-3333-4444-555555555555\n",
+            )
         return CommandOutcome(0)
+
+
+class BootFailureRunner(FakeRunner):
+    def run(self, argv, *, cwd, env, timeout_seconds):
+        outcome = super().run(
+            argv,
+            cwd=cwd,
+            env=env,
+            timeout_seconds=timeout_seconds,
+        )
+        if tuple(argv)[:3] == ("xcrun", "simctl", "bootstatus"):
+            return CommandOutcome(1, "", "boot failed")
+        return outcome
 
 
 class ApplePrimitivePlanTests(unittest.TestCase):
@@ -55,7 +79,10 @@ class ApplePrimitivePlanTests(unittest.TestCase):
         self.state.mkdir()
         (self.source / "App.xcodeproj").mkdir()
         (self.source / "App.xcworkspace").mkdir()
-        (self.source / "ExportOptions.plist").write_text("<plist/>", encoding="utf-8")
+        (self.source / "ExportOptions.plist").write_text(
+            "<plist/>",
+            encoding="utf-8",
+        )
         (self.source / "Build/App.app").mkdir(parents=True)
 
     def tearDown(self) -> None:
@@ -80,7 +107,10 @@ class ApplePrimitivePlanTests(unittest.TestCase):
         self.assertIn("iphonesimulator", spec.argv)
         self.assertIn("generic/platform=iOS Simulator", spec.argv)
         self.assertIn("build", spec.argv)
-        self.assertEqual(("CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO"), spec.argv[-2:])
+        self.assertEqual(
+            ("CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO"),
+            spec.argv[-2:],
+        )
 
     def test_tvos_test_plan_uses_caller_destination_plan_and_filters(self) -> None:
         spec = plan_xcodebuild(
@@ -90,7 +120,10 @@ class ApplePrimitivePlanTests(unittest.TestCase):
                 container_kind="workspace",
                 container_path="App.xcworkspace",
                 scheme="App TV",
-                destination="platform=tvOS Simulator,id=11111111-2222-3333-4444-555555555555",
+                destination=(
+                    "platform=tvOS Simulator,"
+                    "id=11111111-2222-3333-4444-555555555555"
+                ),
                 sdk="appletvsimulator",
                 derived_data_path="tvos/DerivedData",
                 result_bundle_path="tvos/Results.xcresult",
@@ -104,8 +137,14 @@ class ApplePrimitivePlanTests(unittest.TestCase):
         self.assertIn("-workspace", spec.argv)
         self.assertIn("-resultBundlePath", spec.argv)
         self.assertIn("-testPlan", spec.argv)
-        self.assertIn("-only-testing:AppTVTests/PlaybackTests", spec.argv)
-        self.assertIn("-skip-testing:AppTVTests/SlowNetworkTests", spec.argv)
+        self.assertIn(
+            "-only-testing:AppTVTests/PlaybackTests",
+            spec.argv,
+        )
+        self.assertIn(
+            "-skip-testing:AppTVTests/SlowNetworkTests",
+            spec.argv,
+        )
         self.assertIn("test", spec.argv)
 
     def test_macos_archive_and_authorized_export_plans(self) -> None:
@@ -170,7 +209,11 @@ class ApplePrimitivePlanTests(unittest.TestCase):
             state_root=self.state,
         )
         with self.assertRaises(ApplePrimitiveError) as raised:
-            run_command(spec, FakeRunner(), environment={"DEVELOPMENT_TEAM": "PRIVATE"})
+            run_command(
+                spec,
+                FakeRunner(),
+                environment={"DEVELOPMENT_TEAM": "PRIVATE"},
+            )
         self.assertEqual("signing_not_authorized", raised.exception.code)
 
 
@@ -194,7 +237,11 @@ class ApplePrimitiveRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(
             ("26.1", "17B42", "6.2"),
-            (identity.xcode_version, identity.xcode_build, identity.swift_version),
+            (
+                identity.xcode_version,
+                identity.xcode_build,
+                identity.swift_version,
+            ),
         )
         self.assertEqual(
             (("iphoneos", "26.0"), ("macosx", "26.0")),
@@ -222,21 +269,67 @@ class ApplePrimitiveRuntimeTests(unittest.TestCase):
             SimulatorRequest(
                 platform=ApplePlatform.IOS,
                 name="CI iPhone",
-                runtime_identifier="com.apple.CoreSimulator.SimRuntime.iOS-26-0",
-                device_type_identifier="com.apple.CoreSimulator.SimDeviceType.iPhone-17",
+                runtime_identifier=(
+                    "com.apple.CoreSimulator.SimRuntime.iOS-26-0"
+                ),
+                device_type_identifier=(
+                    "com.apple.CoreSimulator.SimDeviceType.iPhone-17"
+                ),
             ),
             self.runner,
             cwd=self.cwd,
             environment={},
         )
         self.assertEqual(
-            "platform=iOS Simulator,id=11111111-2222-3333-4444-555555555555",
+            "platform=iOS Simulator,"
+            "id=11111111-2222-3333-4444-555555555555",
             lease.destination,
         )
-        cleanup_simulator(lease, self.runner, cwd=self.cwd, environment={})
+        cleanup_simulator(
+            lease,
+            self.runner,
+            cwd=self.cwd,
+            environment={},
+        )
         commands = [call[0] for call in self.runner.calls]
-        self.assertIn(("xcrun", "simctl", "shutdown", lease.udid), commands)
-        self.assertIn(("xcrun", "simctl", "delete", lease.udid), commands)
+        self.assertIn(
+            ("xcrun", "simctl", "shutdown", lease.udid),
+            commands,
+        )
+        self.assertIn(
+            ("xcrun", "simctl", "delete", lease.udid),
+            commands,
+        )
+
+    def test_failed_simulator_boot_deletes_created_device(self) -> None:
+        runner = BootFailureRunner()
+        with self.assertRaises(ApplePrimitiveError):
+            create_boot_simulator(
+                SimulatorRequest(
+                    platform=ApplePlatform.TVOS,
+                    name="CI Apple TV",
+                    runtime_identifier=(
+                        "com.apple.CoreSimulator.SimRuntime.tvOS-26-0"
+                    ),
+                    device_type_identifier=(
+                        "com.apple.CoreSimulator.SimDeviceType."
+                        "Apple-TV-4K-3rd-generation"
+                    ),
+                ),
+                runner,
+                cwd=self.cwd,
+                environment={},
+            )
+        commands = [call[0] for call in runner.calls]
+        self.assertIn(
+            (
+                "xcrun",
+                "simctl",
+                "delete",
+                "11111111-2222-3333-4444-555555555555",
+            ),
+            commands,
+        )
 
     def test_cleanup_removes_state_but_never_follows_symlink(self) -> None:
         state = self.root / "state"
