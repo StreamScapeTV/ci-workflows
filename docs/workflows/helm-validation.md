@@ -7,7 +7,7 @@ The core Helm family has two public reusable workflows:
 
 ## Ownership boundary
 
-The product repository owns `.streamscape/helm-product.json`. That checked-in product metadata supplies the chart name/root, values profiles, optional product policy path, locked dependencies, and OCI registry repository. Product-specific assertions remain product-owned. Central CI admits the registered product/repository pair and supplies only common Helm mechanics.
+The product repository owns `.streamscape/helm-product.json`. That checked-in product metadata supplies the product identity, repository identity, chart name/root, values profiles, optional product policy path, locked dependencies, and OCI registry repository. Product-specific assertions remain product-owned. Central validates that exact caller metadata and supplies only common Helm mechanics; it does not require a per-product central allowlist.
 
 The public workflow keeps the older optional `image_digest` and `immutable_references_json` fields for compatibility, but the core Helm path does not require or consume them. Generic Helm validation does not require every rendered image to be digest-pinned; it rejects an explicit `latest` image while product release/image policy remains the product repository's responsibility.
 
@@ -27,7 +27,7 @@ No package is retained as a routine GitHub Actions artifact.
 
 ## Publication
 
-`helm.publish` is a thin tag-push publication path. The caller owns version/tag policy and registry destination/credentials. Central requires the invocation to be a `push` whose ref type is `tag`, and requires `github.sha` to equal `admitted_sha` before the publication job can proceed.
+`helm.publish` is an ordinary trusted publication path. The caller owns whether the release authority is a Git tag push, GitHub release, or another reviewed product release trigger; it also owns version policy and the registry destination/credentials. Central receives the exact admitted source SHA plus release version and does not inspect or enforce the caller event kind.
 
 The publication job then:
 
@@ -39,10 +39,10 @@ The publication job then:
 6. returns the normalized local package digest plus the published chart reference;
 7. removes Helm package/auth/workspace state and verifies residue is absent.
 
-Mandatory OCI pull/read-back, Skopeo manifest proof, provenance/canary evidence, Buildah measurement, and image-publication evidence binding are not part of the core path. The older helpers that implement those advanced checks may remain for legacy use, but the reusable core workflows do not depend on them.
+Mandatory OCI pull/read-back, Skopeo manifest proof, provenance/canary evidence, Buildah measurement, image-publication evidence binding, and the global action-lock bootstrap are not part of the core path. Older helpers may remain for legacy use, but the reusable core workflows do not depend on them.
 
 ## Security boundary
 
-Validation may run for ordinary admitted source according to the existing Helm trust model. Publication remains `trusted-exact` and cannot be selected by a pull request or branch run. The workflows do not accept runner labels, shell commands, Kubernetes/Flux targets, kubeconfigs, SOPS material, or cache backends. They never reconcile Flux or install a chart into Kubernetes.
+Validation may run for ordinary admitted source according to the existing Helm trust model. Publication requires `trusted-exact` source before registry credentials are used, but the caller decides which reviewed release event supplies that exact source. The workflows do not accept runner labels, shell commands, Kubernetes/Flux targets, kubeconfigs, SOPS material, or cache backends. They never reconcile Flux or install a chart into Kubernetes.
 
-The publish workflow uses the semantic runner selected by the central runner contract, but callers cannot choose the concrete runner. Registry authentication and temporary Helm state are removed under terminal cleanup, and routine Actions artifacts remain zero.
+The workflows use semantic runner capacity selected by the central runner contract; callers cannot choose concrete runner labels. Registry authentication and temporary Helm state are removed under terminal cleanup, and routine Actions artifacts remain zero.
