@@ -9,6 +9,7 @@ on:
       - "scripts/ci/device.py"
       - "src/ci_workflows/device*.py"
       - "contracts/device-*.json"
+      - "contracts/device-profiles/**"
       - "tests/test_device*.py"
       - "tests/fixtures/device-validation/**"
       - "docs/architecture/device-validation.md"
@@ -100,7 +101,7 @@ jobs:
 
       - id: synthetic
         name: Execute bounded synthetic device contract
-        uses: StreamScapeTV/ci-workflows/actions/validate-device@092d26777aebaf87a0a07d39a1660b4bc5cb658d # issue #14 complete CIW checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@b1448a2520a98618ed32d8af68b42a071397fa4e # issue #255 fixed Media iOS profile/evidence checkpoint
         with:
           phase: synthetic
           admitted_sha: ${{ github.event.pull_request.head.sha || github.sha }}
