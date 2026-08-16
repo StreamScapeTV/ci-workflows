@@ -37,11 +37,26 @@ class ReusableReleaseTests(unittest.TestCase):
         self.assertEqual(set(self.public["secrets"]), set(call["secrets"]))
         self.assertEqual(set(self.public["outputs"]), set(call["outputs"]))
         self.assertEqual(self.public["supported_consumers"], ["StreamScapeTV/iptv-backend"])
+        self.assertEqual(
+            self.public["supported_products"],
+            ["iptv-backend-image", "iptv-backend-chart"],
+        )
+        self.assertEqual(
+            self.public["implementation_components"],
+            [
+                "reusable-release.yml",
+                "buildah",
+                "internal-release-helm-composition",
+                "github-releases-api",
+            ],
+        )
+        self.assertEqual(self.workflow["permissions"], {"actions": "read", "contents": "write"})
 
     def test_release_tag_is_source_of_truth_without_recovery_or_manifest_framework(self) -> None:
         self.assertIn("ref: refs/tags/${{ inputs.release_tag }}", self.text)
         self.assertIn('test "$(git -C source rev-parse HEAD)" = "${ADMITTED_SHA}"', self.text)
         self.assertIn("persist-credentials: false", self.text)
+        self.assertIn("publish|publish-with-github-release", self.text)
         for retired in (
             "image_recovery_authority",
             "release_manifest",
@@ -64,7 +79,9 @@ class ReusableReleaseTests(unittest.TestCase):
     def test_image_publication_is_plain_buildah_push_with_no_remote_proof_gate(self) -> None:
         image = self.workflow["jobs"]["image"]
         self.assertEqual(image["runs-on"], ["linux", "amd64", "buildah", "high"])
+        self.assertEqual(image["permissions"], {"contents": "read"})
         source = self.text
+        self.assertIn('image_repository="git.faruqi.dev/mimranfaruqi/${IMAGE_NAME}"', source)
         self.assertIn("buildah bud --pull=always", source)
         self.assertIn("--platform linux/amd64,linux/arm64", source)
         self.assertIn("buildah manifest push --all", source)
@@ -78,8 +95,8 @@ class ReusableReleaseTests(unittest.TestCase):
         chart = self.workflow["jobs"]["chart"]
         self.assertEqual(chart["uses"], "./.github/workflows/reusable-helm-publish.yml")
         self.assertEqual(chart["with"]["admitted_sha"], "${{ needs.admit.outputs.source_sha }}")
-        self.assertEqual(chart["with"]["product_id"], "${{ inputs.helm_product_id }}")
-        self.assertEqual(chart["with"]["release_version"], "${{ needs.admit.outputs.release_version }}")
+        self.assertEqual(chart["with"]["product_id"], "${{ inputs.product_id }}")
+        self.assertEqual(chart["with"]["release_version"], "${{ needs.admit.outputs.version }}")
         self.assertEqual(
             set(chart["secrets"]),
             {"registry_username", "registry_token"},
@@ -88,20 +105,22 @@ class ReusableReleaseTests(unittest.TestCase):
     def test_github_release_is_optional_bounded_normal_api_write(self) -> None:
         release = self.workflow["jobs"]["github_release"]
         self.assertEqual(release["permissions"], {"contents": "write"})
-        self.assertIn("inputs.create_github_release", release["if"])
+        self.assertIn("inputs.operation == 'publish-with-github-release'", release["if"])
         self.assertIn('"POST"', self.text)
         self.assertIn('"PATCH"', self.text)
         self.assertIn("generate_release_notes", self.text)
         self.assertNotIn("gh release", self.text.casefold())
 
-    def test_no_requested_publication_can_fail_silently(self) -> None:
+    def test_requested_publication_cannot_fail_silently(self) -> None:
         summary = self.workflow["jobs"]["summary"]
         self.assertEqual(summary["if"], "always()")
         run = summary["steps"][0]["run"]
         self.assertIn('test "${ADMIT_RESULT}" = success', run)
-        self.assertIn('test "${IMAGE_RESULT}" = success -o "${IMAGE_RESULT}" = skipped', run)
-        self.assertIn('test "${CHART_RESULT}" = success -o "${CHART_RESULT}" = skipped', run)
+        self.assertIn('test "${IMAGE_RESULT}" = success', run)
+        self.assertIn('test "${CHART_RESULT}" = success', run)
+        self.assertIn('if test "${OPERATION}" = publish-with-github-release', run)
         self.assertIn('test "${RELEASE_RESULT}" = success', run)
+        self.assertIn('test "${RELEASE_RESULT}" = skipped', run)
 
 
 if __name__ == "__main__":
