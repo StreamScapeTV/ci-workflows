@@ -8,6 +8,7 @@ from unittest import mock
 
 from ci_workflows.runtime_primitives import ProcessResult, RuntimePrimitiveError
 from ci_workflows.service_compose_primitives import (
+    ComposeProject,
     ComposeReadinessCheck,
     ServiceComposeError,
     capture_compose_logs,
@@ -112,10 +113,40 @@ class ValidationTests(ComposeFixture):
     def test_reserved_identity_options_cannot_override_validated_project(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             project = self.make_project(Path(directory).resolve())
-            for option in ("-f", "--file=other.yml", "-p", "--project-name=other", "--env-file=x"):
+            for option in (
+                "-f",
+                "-fother.yml",
+                "--file=other.yml",
+                "-p",
+                "-pother",
+                "--project-name=other",
+                "--env-file=x",
+            ):
                 with self.subTest(option=option):
                     with self.assertRaisesRegex(ServiceComposeError, "compose_options_reserved"):
                         compose_up(project, environment={}, options=(option,), runner=RecordingRunner())
+
+    def test_direct_project_construction_cannot_bypass_path_fencing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            compose = root / "compose.yml"
+            compose.write_text("services: {}\n", encoding="utf-8")
+            outside = root.parent / "forged-compose.yml"
+            outside.write_text("services: {}\n", encoding="utf-8")
+            try:
+                forged = ComposeProject(
+                    project_name="ci-stack",
+                    tool="docker",
+                    compose_relative="compose.yml",
+                    env_file_count=0,
+                    root=root,
+                    compose_file=outside,
+                    env_files=(),
+                )
+                with self.assertRaisesRegex(ServiceComposeError, "compose_project_invalid"):
+                    compose_up(forged, environment={}, runner=RecordingRunner())
+            finally:
+                outside.unlink(missing_ok=True)
 
 
 class CommandTests(ComposeFixture):
@@ -191,6 +222,16 @@ class CommandTests(ComposeFixture):
         self.assertNotIn("secret=value", rendered)
         self.assertEqual(result.services[1].health, "healthy")
 
+    def test_ps_accepts_valid_empty_stack(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = self.make_project(Path(directory).resolve())
+            result = compose_ps(
+                project,
+                environment={},
+                runner=RecordingRunner([ProcessResult(0, "[]", "", False)]),
+            )
+        self.assertEqual(result.services, ())
+
     def test_logs_are_line_and_byte_bounded_and_raw_text_is_hidden_from_repr(self) -> None:
         secret_log = "prefix-" + "sensitive-log-text" * 20
         with tempfile.TemporaryDirectory() as directory:
@@ -232,6 +273,18 @@ class ReadinessAndLifecycleTests(ComposeFixture):
         self.assertEqual(wait_postgres.call_args.kwargs["environment"]["PGPASSWORD"], "top-secret")
         self.assertNotIn("top-secret", repr(checks))
         normalize.assert_called_once()
+
+    def test_runtime_readiness_failure_is_projected_as_compose_boundary_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = self.make_project(Path(directory).resolve())
+            check = ComposeReadinessCheck("api", "tcp", {"SERVICE_HOST": "api", "SERVICE_PORT": "1001"})
+            with mock.patch(
+                "ci_workflows.service_compose_primitives.wait_for_tcp_service",
+                side_effect=RuntimePrimitiveError("process_start_failed"),
+            ):
+                with self.assertRaises(ServiceComposeError) as caught:
+                    wait_for_compose_services(project, (check,), environment={})
+        self.assertEqual(caught.exception.code, "compose_readiness_boundary_failed")
 
     def test_failed_readiness_immediately_runs_down_for_exact_project(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
