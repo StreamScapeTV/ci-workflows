@@ -69,6 +69,7 @@
       {"path":".github/workflows/reusable-script.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/reusable-tag-image-chart.yml","trigger_classes":["authorized-publication-deployment-device-live-evidence"]},
       {"path":".github/workflows/runner-images-release.yml","trigger_classes":["authorized-publication-deployment-device-live-evidence"]},
+      {"path":".github/workflows/runner-images-validation.yml","trigger_classes":["final-pull-request-validation","maintenance-control"]},
       {"path":".github/workflows/self-check.yml","trigger_classes":["final-pull-request-validation","protected-integration-release-validation"]}
     ]},
     {"integration_branch":"main","repository":"StreamScapeTV/directus-front","workflows":[
