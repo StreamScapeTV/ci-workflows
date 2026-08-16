@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -83,6 +84,7 @@ class RunnerImageWorkflowTests(unittest.TestCase):
             "scripts/ci/runner_images.py",
             "prepare_inputs.py",
             ".ciw-build-inputs",
+            "Prepare isolated registry authentication state",
             "buildah bud",
             "buildah from",
             "buildah run",
@@ -93,6 +95,8 @@ class RunnerImageWorkflowTests(unittest.TestCase):
             "if: always()",
         ):
             self.assertIn(expected, self.action)
+        self.assertGreaterEqual(self.action.count('--authfile "${authfile}"'), 4)
+        self.assertNotIn(".config/containers/auth.json", self.action)
         for forbidden in ("actions/cache", "upload-artifact", "kubectl apply", "flux reconcile"):
             self.assertNotIn(forbidden, self.action)
 
@@ -132,6 +136,40 @@ class RunnerImageWorkflowTests(unittest.TestCase):
             )
             self.assertTrue((context / ".ciw-build-inputs").is_dir())
             self.assertFalse((context / ".ciw-build-inputs").is_symlink())
+
+    def test_isolated_authfile_is_created_private_and_cannot_be_reused(self) -> None:
+        script = self._action_step_run("Prepare isolated registry authentication state")
+        with tempfile.TemporaryDirectory() as temp:
+            environment = dict(os.environ)
+            environment.update(
+                {
+                    "RUNNER_TEMP": temp,
+                    "GITHUB_RUN_ID": "123",
+                    "GITHUB_RUN_ATTEMPT": "2",
+                    "IMAGE": "general",
+                }
+            )
+            subprocess.run(["bash", "-c", script], env=environment, check=True)
+            authfile = Path(temp) / "ciw-runner-auth-123-2-general.json"
+            self.assertEqual(authfile.read_text(encoding="utf-8"), "{}\n")
+            self.assertEqual(stat.S_IMODE(authfile.stat().st_mode), 0o600)
+            self.assertFalse(authfile.is_symlink())
+            failed = subprocess.run(["bash", "-c", script], env=environment, check=False)
+            self.assertNotEqual(failed.returncode, 0)
+
+    def test_all_registry_reads_use_the_isolated_authfile(self) -> None:
+        build = self._action_step_run("Build exact runner image")
+        smoke = self._action_step_run("Run image-owned smoke as the configured image user")
+        authenticate = self._action_step_run("Authenticate to the fixed runner registry")
+        publish = self._action_step_run("Publish and confirm the human-readable release tag")
+        for script in (build, smoke, authenticate, publish):
+            self.assertIn('test -f "${authfile}"', script)
+            self.assertIn('test ! -L "${authfile}"', script)
+            self.assertIn('--authfile "${authfile}"', script)
+        self.assertIn("buildah bud", build)
+        self.assertIn("buildah from", smoke)
+        self.assertIn("buildah login", authenticate)
+        self.assertIn("buildah push", publish)
 
     def test_internal_leaf_is_shallow_and_delegates_to_composite_action(self) -> None:
         self.assertIn("workflow_call:", self.internal)
