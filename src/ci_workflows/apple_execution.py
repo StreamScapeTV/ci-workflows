@@ -1295,6 +1295,8 @@ def _validate_container_files(source_root: Path, plan: AppleValidationPlan) -> N
     path = regular_path(source_root, container.path, "container_invalid")
     if container.kind in {"project", "workspace"} and not path.is_dir():
         fail("container_invalid")
+    if container.kind == "package" and not path.is_file():
+        fail("container_invalid")
     if container.test_plan:
         test_plan = regular_path(source_root, container.test_plan, "test_plan_rejected")
         if not test_plan.is_file():
