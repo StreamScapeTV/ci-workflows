@@ -150,7 +150,10 @@ def _relative_source_path(
     suffix: str | None = None,
     must_exist: bool = True,
 ) -> Path:
-    _require(isinstance(relative, str) and relative and not relative.startswith("/"), "path_rejected")
+    _require(
+        isinstance(relative, str) and relative and not relative.startswith("/"),
+        "path_rejected",
+    )
     _require("\\" not in relative and "\x00" not in relative, "path_rejected")
     parts = Path(relative).parts
     _require(".." not in parts, "path_rejected")
@@ -158,7 +161,10 @@ def _relative_source_path(
     _require(root_resolved.is_dir() and not root.is_symlink(), "path_rejected")
     target = root_resolved.joinpath(*parts)
     resolved = target.resolve(strict=False)
-    _require(resolved != root_resolved and root_resolved in resolved.parents, "path_rejected")
+    _require(
+        resolved != root_resolved and root_resolved in resolved.parents,
+        "path_rejected",
+    )
     current = root_resolved
     for part in parts:
         current /= part
@@ -174,7 +180,10 @@ def _relative_source_path(
 
 
 def _state_path(root: Path, relative: str) -> Path:
-    _require(isinstance(relative, str) and relative and not relative.startswith("/"), "path_rejected")
+    _require(
+        isinstance(relative, str) and relative and not relative.startswith("/"),
+        "path_rejected",
+    )
     _require("\\" not in relative and "\x00" not in relative, "path_rejected")
     parts = Path(relative).parts
     _require(".." not in parts, "path_rejected")
@@ -189,14 +198,20 @@ def _state_path(root: Path, relative: str) -> Path:
         if not current.exists():
             break
     resolved = target.resolve(strict=False)
-    _require(resolved != boundary and boundary in resolved.parents, "path_rejected")
+    _require(
+        resolved != boundary and boundary in resolved.parents,
+        "path_rejected",
+    )
     return target
 
 
 def _parse_xcode(output: str) -> tuple[str, str]:
     version = _XCODE_VERSION.search(output)
     build = _XCODE_BUILD.search(output)
-    _require(version is not None and build is not None, "toolchain_identity_invalid")
+    _require(
+        version is not None and build is not None,
+        "toolchain_identity_invalid",
+    )
     return version.group(1), build.group(1)
 
 
@@ -213,9 +228,16 @@ def run_command(
     environment: Mapping[str, str],
     check: bool = True,
 ) -> CommandOutcome:
-    _require(bool(spec.argv) and all(isinstance(item, str) and item for item in spec.argv), "invalid_input")
+    _require(
+        bool(spec.argv)
+        and all(isinstance(item, str) and item for item in spec.argv),
+        "invalid_input",
+    )
     if not spec.signing_authorized:
-        _require(not (_SIGNING_KEYS & set(environment)), "signing_not_authorized")
+        _require(
+            not (_SIGNING_KEYS & set(environment)),
+            "signing_not_authorized",
+        )
     outcome = runner.run(
         spec.argv,
         cwd=spec.cwd,
@@ -232,16 +254,36 @@ def inspect_toolchain(
     *,
     cwd: Path,
     environment: Mapping[str, str],
-    sdks: Sequence[str] = ("iphoneos", "iphonesimulator", "appletvos", "appletvsimulator", "macosx"),
+    sdks: Sequence[str] = (
+        "iphoneos",
+        "iphonesimulator",
+        "appletvos",
+        "appletvsimulator",
+        "macosx",
+    ),
 ) -> ToolchainIdentity:
     _require(cwd.is_dir() and not cwd.is_symlink(), "path_rejected")
-    xcode = run_command(CommandSpec(("xcodebuild", "-version"), cwd, 30), runner, environment=environment)
+    xcode = run_command(
+        CommandSpec(("xcodebuild", "-version"), cwd, 30),
+        runner,
+        environment=environment,
+    )
     xcode_version, xcode_build = _parse_xcode(xcode.stdout + xcode.stderr)
-    swift = run_command(CommandSpec(("swift", "--version"), cwd, 30), runner, environment=environment)
+    swift = run_command(
+        CommandSpec(("swift", "--version"), cwd, 30),
+        runner,
+        environment=environment,
+    )
     swift_version = _parse_swift(swift.stdout + swift.stderr)
     sdk_versions: list[tuple[str, str]] = []
     seen: set[str] = set()
-    allowed = {"iphoneos", "iphonesimulator", "appletvos", "appletvsimulator", "macosx"}
+    allowed = {
+        "iphoneos",
+        "iphonesimulator",
+        "appletvos",
+        "appletvsimulator",
+        "macosx",
+    }
     for sdk in sdks:
         _require(sdk in allowed and sdk not in seen, "sdk_rejected")
         seen.add(sdk)
@@ -253,7 +295,12 @@ def inspect_toolchain(
         version = outcome.stdout.strip()
         _require(_VERSION.fullmatch(version) is not None, "sdk_identity_invalid")
         sdk_versions.append((sdk, version))
-    return ToolchainIdentity(xcode_version, xcode_build, swift_version, tuple(sdk_versions))
+    return ToolchainIdentity(
+        xcode_version,
+        xcode_build,
+        swift_version,
+        tuple(sdk_versions),
+    )
 
 
 def select_xcode(
@@ -265,7 +312,10 @@ def select_xcode(
     environment: Mapping[str, str],
     expected_build: str | None = None,
 ) -> Path:
-    _require(_VERSION.fullmatch(expected_version) is not None, "toolchain_identity_invalid")
+    _require(
+        _VERSION.fullmatch(expected_version) is not None,
+        "toolchain_identity_invalid",
+    )
     _require(bool(candidates), "xcode_not_found")
     for candidate in candidates:
         path = candidate.resolve()
@@ -273,43 +323,79 @@ def select_xcode(
             continue
         env = dict(environment)
         env["DEVELOPER_DIR"] = str(path)
-        outcome = runner.run(("xcodebuild", "-version"), cwd=cwd, env=env, timeout_seconds=30)
+        outcome = runner.run(
+            ("xcodebuild", "-version"),
+            cwd=cwd,
+            env=env,
+            timeout_seconds=30,
+        )
         if outcome.returncode != 0:
             continue
         try:
             version, build = _parse_xcode(outcome.stdout + outcome.stderr)
         except ApplePrimitiveError:
             continue
-        if version == expected_version and (expected_build is None or build == expected_build):
+        if version == expected_version and (
+            expected_build is None or build == expected_build
+        ):
             return path
     raise ApplePrimitiveError("xcode_not_found")
 
 
-def plan_xcodebuild(request: XcodeBuildRequest, *, source_root: Path, state_root: Path) -> CommandSpec:
+def plan_xcodebuild(
+    request: XcodeBuildRequest,
+    *,
+    source_root: Path,
+    state_root: Path,
+) -> CommandSpec:
+    _require(isinstance(request.platform, ApplePlatform), "platform_rejected")
+    _require(isinstance(request.action, XcodeAction), "action_rejected")
     _require(request.container_kind in _CONTAINER_SUFFIX, "container_rejected")
-    container = _relative_source_path(source_root, request.container_path, suffix=_CONTAINER_SUFFIX[request.container_kind])
+    container = _relative_source_path(
+        source_root,
+        request.container_path,
+        suffix=_CONTAINER_SUFFIX[request.container_kind],
+    )
+    _require(container.is_dir(), "container_rejected")
     scheme = _safe_text(request.scheme, "scheme_rejected")
     configuration = _safe_text(request.configuration, "configuration_rejected")
     if request.sdk is not None:
-        _require(request.sdk in _PLATFORM_SDKS[request.platform.value], "sdk_rejected")
+        _require(
+            request.sdk in _PLATFORM_SDKS[request.platform.value],
+            "sdk_rejected",
+        )
     destination = None
     if request.destination is not None:
         destination = _safe_text(request.destination, "destination_rejected")
     if request.platform is ApplePlatform.MACOS:
-        _require(destination is None or "macOS" in destination, "destination_rejected")
+        _require(
+            destination is None or "macOS" in destination,
+            "destination_rejected",
+        )
     elif request.action is XcodeAction.TEST:
         _require(destination is not None, "destination_rejected")
 
     derived_data = _state_path(state_root, request.derived_data_path)
-    result_bundle = _state_path(state_root, request.result_bundle_path) if request.result_bundle_path is not None else None
-    archive_path = _state_path(state_root, request.archive_path) if request.archive_path is not None else None
+    result_bundle = (
+        _state_path(state_root, request.result_bundle_path)
+        if request.result_bundle_path is not None
+        else None
+    )
+    archive_path = (
+        _state_path(state_root, request.archive_path)
+        if request.archive_path is not None
+        else None
+    )
     if request.action is XcodeAction.ARCHIVE:
         _require(archive_path is not None, "archive_path_required")
     elif archive_path is not None:
         raise ApplePrimitiveError("archive_path_rejected")
 
     argv: list[str] = ["xcodebuild"]
-    argv += ["-project" if request.container_kind == "project" else "-workspace", str(container)]
+    argv += [
+        "-project" if request.container_kind == "project" else "-workspace",
+        str(container),
+    ]
     argv += ["-scheme", scheme, "-configuration", configuration]
     if request.sdk is not None:
         argv += ["-sdk", request.sdk]
@@ -320,11 +406,18 @@ def plan_xcodebuild(request: XcodeBuildRequest, *, source_root: Path, state_root
         argv += ["-resultBundlePath", str(result_bundle)]
     if request.test_plan is not None:
         _require(request.action is XcodeAction.TEST, "test_plan_rejected")
-        argv += ["-testPlan", _safe_text(request.test_plan, "test_plan_rejected")]
+        argv += [
+            "-testPlan",
+            _safe_text(request.test_plan, "test_plan_rejected"),
+        ]
     for value in request.only_testing:
-        argv += ["-only-testing:" + _safe_text(value, "test_filter_rejected")]
+        argv += [
+            "-only-testing:" + _safe_text(value, "test_filter_rejected")
+        ]
     for value in request.skip_testing:
-        argv += ["-skip-testing:" + _safe_text(value, "test_filter_rejected")]
+        argv += [
+            "-skip-testing:" + _safe_text(value, "test_filter_rejected")
+        ]
     if request.action is XcodeAction.ARCHIVE:
         assert archive_path is not None
         argv += ["-archivePath", str(archive_path), "archive"]
@@ -332,14 +425,33 @@ def plan_xcodebuild(request: XcodeBuildRequest, *, source_root: Path, state_root
         argv.append(request.action.value)
     if not request.signing_authorized:
         argv += ["CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO"]
-    return CommandSpec(tuple(argv), source_root.resolve(), 7200, request.signing_authorized)
+    return CommandSpec(
+        tuple(argv),
+        source_root.resolve(),
+        7200,
+        request.signing_authorized,
+    )
 
 
-def plan_unsigned_package(source_path: str, output_path: str, *, source_root: Path, state_root: Path) -> CommandSpec:
+def plan_unsigned_package(
+    source_path: str,
+    output_path: str,
+    *,
+    source_root: Path,
+    state_root: Path,
+) -> CommandSpec:
     source = _relative_source_path(source_root, source_path)
     output = _state_path(state_root, output_path)
     return CommandSpec(
-        ("ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", str(source), str(output)),
+        (
+            "ditto",
+            "-c",
+            "-k",
+            "--sequesterRsrc",
+            "--keepParent",
+            str(source),
+            str(output),
+        ),
         source_root.resolve(),
         900,
         False,
@@ -358,9 +470,23 @@ def plan_export_archive(
     _require(signing_authorized, "signing_not_authorized")
     archive = _state_path(state_root, archive_path)
     export = _state_path(state_root, export_path)
-    options = _relative_source_path(source_root, export_options_plist, suffix=".plist")
+    options = _relative_source_path(
+        source_root,
+        export_options_plist,
+        suffix=".plist",
+    )
+    _require(options.is_file(), "export_options_rejected")
     return CommandSpec(
-        ("xcodebuild", "-exportArchive", "-archivePath", str(archive), "-exportPath", str(export), "-exportOptionsPlist", str(options)),
+        (
+            "xcodebuild",
+            "-exportArchive",
+            "-archivePath",
+            str(archive),
+            "-exportPath",
+            str(export),
+            "-exportOptionsPlist",
+            str(options),
+        ),
         source_root.resolve(),
         3600,
         True,
@@ -374,16 +500,75 @@ def create_boot_simulator(
     cwd: Path,
     environment: Mapping[str, str],
 ) -> SimulatorLease:
-    _require(request.platform in {ApplePlatform.IOS, ApplePlatform.TVOS}, "simulator_platform_rejected")
+    _require(
+        isinstance(request.platform, ApplePlatform),
+        "simulator_platform_rejected",
+    )
+    _require(
+        request.platform in {ApplePlatform.IOS, ApplePlatform.TVOS},
+        "simulator_platform_rejected",
+    )
     name = _safe_text(request.name, "simulator_request_rejected")
-    runtime = _safe_text(request.runtime_identifier, "simulator_request_rejected")
-    device_type = _safe_text(request.device_type_identifier, "simulator_request_rejected")
-    create = run_command(CommandSpec(("xcrun", "simctl", "create", name, device_type, runtime), cwd, 60), runner, environment=environment)
+    runtime = _safe_text(
+        request.runtime_identifier,
+        "simulator_request_rejected",
+    )
+    device_type = _safe_text(
+        request.device_type_identifier,
+        "simulator_request_rejected",
+    )
+    create = run_command(
+        CommandSpec(
+            (
+                "xcrun",
+                "simctl",
+                "create",
+                name,
+                device_type,
+                runtime,
+            ),
+            cwd,
+            60,
+        ),
+        runner,
+        environment=environment,
+    )
     udid = create.stdout.strip()
     _require(_UDID.fullmatch(udid) is not None, "simulator_identity_invalid")
-    run_command(CommandSpec(("xcrun", "simctl", "boot", udid), cwd, 60), runner, environment=environment)
-    run_command(CommandSpec(("xcrun", "simctl", "bootstatus", udid, "-b"), cwd, 300), runner, environment=environment)
-    return SimulatorLease(request.platform, udid, f"platform={_SIMULATOR_DESTINATION[request.platform.value]},id={udid}")
+    try:
+        run_command(
+            CommandSpec(("xcrun", "simctl", "boot", udid), cwd, 60),
+            runner,
+            environment=environment,
+        )
+        run_command(
+            CommandSpec(
+                ("xcrun", "simctl", "bootstatus", udid, "-b"),
+                cwd,
+                300,
+            ),
+            runner,
+            environment=environment,
+        )
+    except ApplePrimitiveError:
+        run_command(
+            CommandSpec(("xcrun", "simctl", "shutdown", udid), cwd, 60),
+            runner,
+            environment=environment,
+            check=False,
+        )
+        run_command(
+            CommandSpec(("xcrun", "simctl", "delete", udid), cwd, 60),
+            runner,
+            environment=environment,
+            check=False,
+        )
+        raise
+    return SimulatorLease(
+        request.platform,
+        udid,
+        f"platform={_SIMULATOR_DESTINATION[request.platform.value]},id={udid}",
+    )
 
 
 def cleanup_simulator(
@@ -393,9 +578,21 @@ def cleanup_simulator(
     cwd: Path,
     environment: Mapping[str, str],
 ) -> None:
-    _require(_UDID.fullmatch(lease.udid) is not None, "simulator_identity_invalid")
-    run_command(CommandSpec(("xcrun", "simctl", "shutdown", lease.udid), cwd, 60), runner, environment=environment, check=False)
-    run_command(CommandSpec(("xcrun", "simctl", "delete", lease.udid), cwd, 60), runner, environment=environment)
+    _require(
+        _UDID.fullmatch(lease.udid) is not None,
+        "simulator_identity_invalid",
+    )
+    run_command(
+        CommandSpec(("xcrun", "simctl", "shutdown", lease.udid), cwd, 60),
+        runner,
+        environment=environment,
+        check=False,
+    )
+    run_command(
+        CommandSpec(("xcrun", "simctl", "delete", lease.udid), cwd, 60),
+        runner,
+        environment=environment,
+    )
 
 
 def _remove_no_follow(path: Path) -> None:
@@ -421,14 +618,23 @@ def _remove_no_follow(path: Path) -> None:
     raise ApplePrimitiveError("cleanup_failed")
 
 
-def cleanup_output_paths(state_root: Path, relative_paths: Sequence[str]) -> None:
+def cleanup_output_paths(
+    state_root: Path,
+    relative_paths: Sequence[str],
+) -> None:
     boundary = state_root.resolve()
-    _require(boundary.is_dir() and not state_root.is_symlink(), "cleanup_failed")
+    _require(
+        boundary.is_dir() and not state_root.is_symlink(),
+        "cleanup_failed",
+    )
     seen: set[Path] = set()
     for relative in relative_paths:
         target = _state_path(state_root, relative)
         resolved_parent = target.parent.resolve(strict=False)
-        _require(resolved_parent == boundary or boundary in resolved_parent.parents, "cleanup_failed")
+        _require(
+            resolved_parent == boundary or boundary in resolved_parent.parents,
+            "cleanup_failed",
+        )
         _require(target not in seen, "cleanup_failed")
         seen.add(target)
         _remove_no_follow(target)
