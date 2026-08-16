@@ -61,6 +61,8 @@ def test_flux_control_input_preparation_is_fixed_checksum_bounded_and_self_clean
     source = PREPARE_INPUTS.read_text(encoding="utf-8")
     assert ".ciw/oci-build-inputs" not in source
     assert 'TOOLCHAIN = IMAGE_ROOT / "toolchain.lock.json"' in source
+    assert 'raise RuntimeError(f"invalid toolchain row: {name}")' in source
+    assert 'raise RuntimeError("invalid Flux-control toolchain version")' in source
     for origin in (
         "github.com/fluxcd/flux2/releases/download",
         "dl.k8s.io/release",
@@ -108,8 +110,8 @@ def test_flux_control_smoke_requires_clients_and_rejects_authority() -> None:
         "yq --version",
     ):
         assert token in source
-    for forbidden in ("docker", "dockerd", "containerd", "ctr", "runc", "buildah", "podman", "skopeo"):
-        assert forbidden in source
+    assert "for forbidden in docker dockerd containerd ctr runc buildah podman skopeo; do" in source
+    assert '! command -v "${forbidden}"' in source
     for state in (
         "/var/run/docker.sock",
         "/run/docker.sock",
