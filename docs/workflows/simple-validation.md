@@ -15,7 +15,7 @@ The product repository owns the script, tool versions, build/test commands, sche
 - `working_directory`: optional repository-relative working directory, default `.`.
 - `script_path`: required repository-relative executable script. It must be a regular non-symlink file inside the checked-out repository.
 
-The reusable workflow does not accept arbitrary shell text or caller-provided arguments. If a product needs multiple behaviors, its checked-in script owns that bounded selection.
+The reusable workflow does not accept arbitrary shell text or caller-provided arguments: product scripts always receive zero injected arguments from Central. If a product needs multiple behaviors, its checked-in script owns that bounded selection.
 
 ## Semantic capacity
 
