@@ -3,24 +3,43 @@ from __future__ import annotations
 
 import hashlib
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Mapping
 
-from .device_contract_common import require, safe_relative
+from .device_contract_common import require
 from .device_types import DeviceValidationError
 from .foundation_types import FoundationError
 from .physical_log_policy import validate_durable_text
 
 MAX_RETAINED_EVIDENCE_BYTES = 1024 * 1024
 _ALLOWED_MEDIA_TYPES = {"application/json", "text/plain"}
+_RETAINED_PREFIX = ".tmp/ci-retained/"
+_RETAINED_SUFFIXES = (".json", ".txt")
+
+
+def _safe_retained_relative(value: str) -> str:
+    require(isinstance(value, str), "evidence_policy_failed")
+    candidate = value.strip()
+    path = PurePosixPath(candidate)
+    require(
+        bool(candidate)
+        and candidate == value
+        and candidate.startswith(_RETAINED_PREFIX)
+        and candidate.endswith(_RETAINED_SUFFIXES)
+        and not path.is_absolute()
+        and "\\" not in candidate
+        and ".." not in path.parts
+        and all(part not in {"", "."} for part in path.parts),
+        "evidence_policy_failed",
+    )
+    return path.as_posix()
 
 
 def _bounded_retained_path(source_root: Path, relative_path: str) -> Path:
-    normalized = safe_relative(relative_path, "evidence_policy_failed")
-    require(normalized == relative_path, "evidence_policy_failed")
-    target = source_root.joinpath(*Path(normalized).parts)
+    normalized = _safe_retained_relative(relative_path)
+    target = source_root.joinpath(*PurePosixPath(normalized).parts)
     current = source_root
-    for part in Path(normalized).parts:
+    for part in PurePosixPath(normalized).parts:
         current /= part
         require(not current.is_symlink(), "evidence_policy_failed")
     require(target.is_file() and not target.is_symlink(), "evidence_policy_failed")
