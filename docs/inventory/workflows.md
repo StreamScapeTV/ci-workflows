@@ -1,14 +1,16 @@
 # Organization workflow inventory
 
-Capture date: `2026-08-09`
+Capture date: `2026-08-16`
 
-This contract classifies **87 live workflow files across 11 repositories**. Capture commits are evidence anchors; the live drift check compares workflow paths and available Git blob identities without checking out or executing consumer source.
+This contract classifies **90 live workflow files across 13 repositories**. Capture commits are evidence anchors; the live drift check compares workflow paths and available Git blob identities without checking out or executing consumer source.
 
 ## Summary
 
 | Repository | Captured source | Workflows | Active | Retire | Publication | Device | Flux-authorized |
 |---|---|---:|---:|---:|---:|---:|---:|
 | StreamScapeTV/agent-state | `main@bf4b6122db1f248058a27b4b449cd1ecb9688a85` | 10 | 5 | 5 | 2 | 0 | 0 |
+| StreamScapeTV/agent-state-dashboard | `main@1a70b35e1cbdea127babb2a58e04ec052711bfda` | 1 | 1 | 0 | 0 | 0 | 0 |
+| StreamScapeTV/agent-state-supabase | `main@613ce3b3b5972c5e8324f33a61de762cd01fa5b4` | 2 | 2 | 0 | 0 | 0 | 0 |
 | StreamScapeTV/ci-workflows | `main@a92863f5e0ac2988b0216f934c0aa3d780a05dfd` | 2 | 2 | 0 | 1 | 0 | 0 |
 | StreamScapeTV/directus-front | `main@b7b21be7129859e45fdc57befcf85b86b82e7575` | 5 | 3 | 2 | 0 | 0 | 0 |
 | StreamScapeTV/finance-hub | `main@a549e610dee8f7f80b1a38ae4b709b8d2bd53461` | 4 | 2 | 2 | 0 | 0 | 0 |
@@ -27,10 +29,10 @@ This contract classifies **87 live workflow files across 11 repositories**. Capt
 | Disposition | `public` | central public reusable workflow | 4 |
 | Disposition | `internal` | central internal reusable workflow | 0 |
 | Disposition | `function` | central named function or composite action | 0 |
-| Disposition | `thin` | thin repository caller | 54 |
-| Disposition | `owned` | repository-owned product command/contract/policy/data | 0 |
+| Disposition | `thin` | thin repository caller | 56 |
+| Disposition | `owned` | repository-owned product command/contract/policy/data | 1 |
 | Disposition | `retire` | temporary/repair workflow to retire | 29 |
-| Trust | `read` | read-only-validation | 42 |
+| Trust | `read` | read-only-validation | 45 |
 | Trust | `publish` | trusted-publication | 8 |
 | Trust | `maintenance` | trusted-maintenance | 13 |
 | Trust | `device` | physical-device-validation | 5 |
@@ -42,14 +44,14 @@ This contract classifies **87 live workflow files across 11 repositories**. Capt
 | Migration | `branch-hygiene` | Central exact merged-branch hygiene. | 4 |
 | Migration | `device` | Explicitly authorized reusable physical-device/live validation. | 5 |
 | Migration | `flutter` | Reusable Flutter quality and unsigned build validation. | 4 |
-| Migration | `node` | Reusable Node/Next static-export validation. | 2 |
+| Migration | `node` | Reusable Node/Next static-export validation. | 3 |
 | Migration | `android` | Reusable Android/Gradle validation; no OCI/Jib/signing. | 5 |
 | Migration | `apple` | Reusable Apple simulator/macOS or bounded visual evidence orchestration; no signing. | 6 |
 | Migration | `flux-assets` | Reusable Flux runner-image/chart build, publish, read-back, canary, and manifest orchestration. | 8 |
 | Migration | `flux-reconcile` | Central trusted Flux wrapper executing exact Flux-owned policy and allowlist source. | 1 |
 | Migration | `gitops` | Reusable source-only YAML/Helm/Kustomize validation; retain Flux/product policy in owner. | 6 |
 | Migration | `conformance` | Central workflow/action/runner/security conformance; retain repository-specific assertions. | 6 |
-| Migration | `python` | Reusable exact-source Python/PostgreSQL validation and product-contract checks. | 2 |
+| Migration | `python` | Reusable exact-source Python/PostgreSQL validation and product-contract checks. | 4 |
 | Migration | `media` | Reusable Media Android/Apple/native validation or inventory-confirmed native release verification. | 3 |
 | Migration | `policy-validation` | Central source-only validation of organization-rules; policy remains owned there. | 0 |
 | Migration | `retire` | Remove after bounded recovery/fixture/one-shot evidence is preserved. | 30 |
@@ -75,6 +77,25 @@ This contract classifies **87 live workflow files across 11 repositories**. Capt
 | `.github/workflows/release.yml` | Agent State release | `current-but-trigger-must-change` | `thin` | `release` | `publish` | `f1cbb94d5491de0dc031047940a57c391533f95e` |
 | `.github/workflows/runner-infrastructure-retry-fixture.yml` | Runner infrastructure retry fixture | `fixture` | `retire` | `retire` | `maintenance` | `46bcb1d1bae63f8ef82c3335f19871ccfc52086d` |
 | `.github/workflows/test.yml` | Agent State Tests | `current` | `thin` | `python` | `read` | `1be79265c6ba21c8d023fd54f1bc22733d7f2ebf` |
+
+### StreamScapeTV/agent-state-dashboard
+
+- Capture: `main@1a70b35e1cbdea127babb2a58e04ec052711bfda`
+- Evidence basis: exact current workflow tree, repository instructions, and exact workflow read
+
+| Workflow | Name | Status | Disposition | Migration | Trust | Blob |
+|---|---|---|---|---|---|---|
+| `.github/workflows/validation.yml` | Node validation | `current` | `thin` | `node` | `read` | `349265a63db31b21f758305bb04ac06ea128a5fe` |
+
+### StreamScapeTV/agent-state-supabase
+
+- Capture: `main@613ce3b3b5972c5e8324f33a61de762cd01fa5b4`
+- Evidence basis: exact current workflow tree, repository instructions, and exact workflow reads
+
+| Workflow | Name | Status | Disposition | Migration | Trust | Blob |
+|---|---|---|---|---|---|---|
+| `.github/workflows/bootstrap-validation.yml` | Repository bootstrap validation | `current` | `thin` | `python` | `read` | `abed430a2e0d5451da6d24151e60f72ce1da58d8` |
+| `.github/workflows/postgres-reconstruction.yml` | PostgreSQL 17 reconstruction | `current-owned-validation` | `owned` | `python` | `read` | `970d11216018ac89552cabdaa77dd98bef70b8f9` |
 
 ### StreamScapeTV/ci-workflows
 

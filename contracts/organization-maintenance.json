@@ -17,6 +17,8 @@
     {"project_id":"directus-front","repository":"StreamScapeTV/directus-front","integration_branch":"main"},
     {"project_id":"finance-hub","repository":"StreamScapeTV/finance-hub","integration_branch":"main"},
     {"project_id":"agent-state","repository":"StreamScapeTV/agent-state","integration_branch":"main"},
+    {"project_id":"agent-state-dashboard","repository":"StreamScapeTV/agent-state-dashboard","integration_branch":"main"},
+    {"project_id":"agent-state-supabase","repository":"StreamScapeTV/agent-state-supabase","integration_branch":"main"},
     {"project_id":"flux","repository":"StreamScapeTV/flux","integration_branch":"main"},
     {"project_id":"organization-rules","repository":"StreamScapeTV/organization-rules","integration_branch":"main"}
   ],

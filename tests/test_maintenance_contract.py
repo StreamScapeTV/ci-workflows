@@ -40,7 +40,15 @@ class MaintenanceContractTests(unittest.TestCase):
             contract.project("agent-state").repository,
             "StreamScapeTV/agent-state",
         )
-        self.assertEqual(len(contract.selected_projects("")), 11)
+        self.assertEqual(
+            contract.project("agent-state-dashboard").repository,
+            "StreamScapeTV/agent-state-dashboard",
+        )
+        self.assertEqual(
+            contract.project("agent-state-supabase").repository,
+            "StreamScapeTV/agent-state-supabase",
+        )
+        self.assertEqual(len(contract.selected_projects("")), 13)
 
     def test_operation_metadata_records_reviewed_authority_exactly(self) -> None:
         contract = load_contract(ROOT)

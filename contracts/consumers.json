@@ -111,6 +111,30 @@
       "migration_status": "planned"
     },
     {
+      "repository": "StreamScapeTV/agent-state-dashboard",
+      "integration_branch": "main",
+      "agent_state_project": "agent-state-dashboard",
+      "agent_state_mapping_status": "established",
+      "technologies": ["node", "nextjs", "typescript"],
+      "products": ["agent-state-dashboard"],
+      "runner_capabilities": ["portable"],
+      "required_checks": [],
+      "required_checks_status": "not-confirmed",
+      "migration_status": "central-node-adopted"
+    },
+    {
+      "repository": "StreamScapeTV/agent-state-supabase",
+      "integration_branch": "main",
+      "agent_state_project": "agent-state-supabase",
+      "agent_state_mapping_status": "established",
+      "technologies": ["python", "postgresql", "supabase"],
+      "products": ["agent-state-database"],
+      "runner_capabilities": ["portable", "postgresql"],
+      "required_checks": [],
+      "required_checks_status": "not-confirmed",
+      "migration_status": "planned"
+    },
+    {
       "repository": "StreamScapeTV/flux",
       "integration_branch": "main",
       "agent_state_project": "flux",
