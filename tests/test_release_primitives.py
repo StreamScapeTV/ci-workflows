@@ -22,8 +22,16 @@ from ci_workflows.release_primitives import (
 
 
 class FakeGitRunner:
-    def __init__(self, *, tag_line: str, commit_line: str, fail_tag: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        tag_line: str,
+        commit_sha: str,
+        commit_line: str,
+        fail_tag: bool = False,
+    ) -> None:
         self.tag_line = tag_line
+        self.commit_sha = commit_sha
         self.commit_line = commit_line
         self.fail_tag = fail_tag
         self.calls: list[tuple[str, ...]] = []
@@ -34,6 +42,8 @@ class FakeGitRunner:
             if self.fail_tag:
                 return GitProcessResult(1, "", "sensitive stderr must not escape")
             return GitProcessResult(0, self.tag_line + "\n", "")
+        if arguments[0] == "rev-parse":
+            return GitProcessResult(0, self.commit_sha + "\n", "")
         if arguments[0] == "show":
             return GitProcessResult(0, self.commit_line + "\n", "")
         raise AssertionError(arguments)
@@ -100,6 +110,7 @@ class ReleasePrimitiveTests(unittest.TestCase):
         commit_sha = "a" * 40
         runner = FakeGitRunner(
             tag_line=f"commit\x00{commit_sha}\x00\x00\x00\x00\x00Release subject",
+            commit_sha=commit_sha,
             commit_line=(
                 f"{commit_sha}\x001700000000\x00Alice\x00alice@example.com"
                 "\x00Commit subject"
@@ -118,17 +129,18 @@ class ReleasePrimitiveTests(unittest.TestCase):
         self.assertEqual(result.commit.committed_at, 1_700_000_000)
         self.assertEqual(result.commit.author_name, "Alice")
         self.assertEqual(result.commit.subject, "Commit subject")
-        self.assertEqual(runner.calls[0][0], "for-each-ref")
-        self.assertEqual(runner.calls[1][0], "show")
+        self.assertEqual([call[0] for call in runner.calls], ["for-each-ref", "rev-parse", "show"])
 
-    def test_inspect_annotated_tag_returns_tagger_and_peeled_commit(self) -> None:
+    def test_inspect_annotated_tag_fully_peels_nested_tag_to_commit(self) -> None:
         tag_sha = "b" * 40
+        intermediate_sha = "d" * 40
         commit_sha = "c" * 40
         runner = FakeGitRunner(
             tag_line=(
-                f"tag\x00{tag_sha}\x00{commit_sha}\x00Release Bot"
+                f"tag\x00{tag_sha}\x00{intermediate_sha}\x00Release Bot"
                 "\x00<release@example.com>\x001700000001\x00Release v3"
             ),
+            commit_sha=commit_sha,
             commit_line=(
                 f"{commit_sha}\x001699999999\x00Bob\x00bob@example.com"
                 "\x00Prepare release"
@@ -143,9 +155,15 @@ class ReleasePrimitiveTests(unittest.TestCase):
         self.assertEqual(result.tagger_email, "release@example.com")
         self.assertEqual(result.tagged_at, 1_700_000_001)
         self.assertEqual(result.commit.sha, commit_sha)
+        self.assertIn("refs/tags/3.0.0^{commit}", runner.calls[1])
 
     def test_git_failure_is_sanitized(self) -> None:
-        runner = FakeGitRunner(tag_line="", commit_line="", fail_tag=True)
+        runner = FakeGitRunner(
+            tag_line="",
+            commit_sha="a" * 40,
+            commit_line="",
+            fail_tag=True,
+        )
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaises(ReleasePrimitiveError) as caught:
                 inspect_git_tag(Path(directory), "1.2.3", runner=runner)
@@ -191,6 +209,7 @@ class ReleasePrimitiveTests(unittest.TestCase):
         self.assertEqual(result.release_id, 7)
         self.assertEqual([request.get_method() for request in opener.requests], ["GET", "POST"])
         self.assertEqual(opener.requests[0].get_header("Authorization"), "Bearer top-secret")
+        self.assertEqual(opener.requests[0].get_header("User-agent"), "StreamScapeTV-ci-workflows")
         payload = json.loads(opener.requests[1].data.decode("utf-8"))
         self.assertEqual(payload["tag_name"], "v1.2.3")
         self.assertEqual(payload["target_commitish"], "a" * 40)
@@ -223,6 +242,19 @@ class ReleasePrimitiveTests(unittest.TestCase):
         payload = json.loads(opener.requests[1].data.decode("utf-8"))
         self.assertNotIn("generate_release_notes", payload)
 
+    def test_existing_release_tag_mismatch_fails_before_patch(self) -> None:
+        existing = self._release_payload(release_id=23)
+        existing["tag_name"] = "v9.9.9"
+        opener = FakeOpener([FakeResponse(200, existing)])
+        with self.assertRaises(ReleasePrimitiveError) as caught:
+            create_or_update_github_release(
+                GitHubReleaseRequest("example/repo", "v1.2.3", "Release"),
+                environment={"GITHUB_TOKEN": "secret"},
+                opener=opener,
+            )
+        self.assertEqual(caught.exception.code, "github_release_tag_mismatch")
+        self.assertEqual(len(opener.requests), 1)
+
     def test_github_release_requires_named_environment_token(self) -> None:
         opener = FakeOpener([])
         with self.assertRaises(ReleasePrimitiveError) as caught:
@@ -235,7 +267,7 @@ class ReleasePrimitiveTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "github_token_required")
         self.assertEqual(opener.requests, [])
 
-    def test_optional_asset_absence_is_a_structured_noop_without_token(self) -> None:
+    def test_optional_asset_absence_is_structured_noop_without_token(self) -> None:
         release = GitHubReleaseResult(
             action="created",
             release_id=7,
@@ -248,10 +280,7 @@ class ReleasePrimitiveTests(unittest.TestCase):
             prerelease=False,
         )
         result = upload_github_release_asset(release, None, environment={})
-        self.assertEqual(
-            result,
-            GitHubAssetResult(False, False, "", 0, None, ""),
-        )
+        self.assertEqual(result, GitHubAssetResult(False, False, "", 0, None, ""))
 
     def test_upload_asset_stream_boundary_returns_structured_result(self) -> None:
         release = GitHubReleaseResult(
@@ -292,6 +321,7 @@ class ReleasePrimitiveTests(unittest.TestCase):
         self.assertEqual(result.name, "bundle.zip")
         self.assertEqual(result.asset_id, 99)
         self.assertEqual(seen["headers"]["Authorization"], "Bearer asset-secret")
+        self.assertEqual(seen["headers"]["User-Agent"], "StreamScapeTV-ci-workflows")
         self.assertEqual(seen["content_type"], "application/zip")
         query = urllib.parse.parse_qs(urllib.parse.urlsplit(seen["url"]).query)
         self.assertEqual(query, {"name": ["bundle.zip"]})
@@ -337,6 +367,38 @@ class ReleasePrimitiveTests(unittest.TestCase):
                     },
                 )
             self.assertEqual(response_error.exception.code, "github_asset_size_mismatch")
+
+    def test_untrusted_upload_host_is_rejected_before_uploader(self) -> None:
+        release = GitHubReleaseResult(
+            action="created",
+            release_id=7,
+            repository="example/repo",
+            tag="v1.2.3",
+            title="Release",
+            url="https://github.com/example/repo/releases/tag/v1.2.3",
+            upload_url="https://attacker.example/upload",
+            draft=False,
+            prerelease=False,
+        )
+        called = False
+
+        def uploader(*_args: object) -> dict[str, Any]:
+            nonlocal called
+            called = True
+            return {}
+
+        with tempfile.TemporaryDirectory() as directory:
+            asset = Path(directory) / "asset.bin"
+            asset.write_bytes(b"x")
+            with self.assertRaises(ReleasePrimitiveError) as caught:
+                upload_github_release_asset(
+                    release,
+                    asset,
+                    environment={"GITHUB_TOKEN": "secret"},
+                    uploader=uploader,
+                )
+        self.assertEqual(caught.exception.code, "github_release_upload_url_invalid")
+        self.assertFalse(called)
 
     def test_module_contains_no_product_specific_release_policy(self) -> None:
         source = Path(__file__).resolve().parents[1] / "src/ci_workflows/release_primitives.py"
