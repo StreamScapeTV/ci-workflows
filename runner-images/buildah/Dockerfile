@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1.7
 
-# Independent daemonless OCI runner. The final image is based directly on the
-# official GitHub Actions runner and owns its Buildah/Skopeo/Podman versions.
-FROM ghcr.io/actions/actions-runner:2.336.0@sha256:0cfdcc701ce933c6d243c6b0b2da767366dc9f2e99961d4c3754b0b78084cdda AS actions-runner
+# Independent daemonless OCI runner. The image uses the reviewed GitHub Actions
+# runner release and owns the Buildah/Skopeo/Podman package versions below.
+FROM ghcr.io/actions/actions-runner:2.336.0 AS actions-runner
 
 USER root
 
@@ -48,9 +48,9 @@ RUN apt-get update \
     && apt-mark hold buildah skopeo podman podman-compose \
     && rm -rf /var/lib/apt/lists/*
 
-# The official Actions runner image currently includes Docker's static runtime
-# bundle. This product is deliberately daemonless: retain OCI client/runtime
-# tools required by Buildah/Podman, but remove Docker and containerd daemons and
+# The official Actions runner image includes Docker's static runtime bundle.
+# This product is deliberately daemonless: retain only the OCI client/runtime
+# tools required by Buildah/Podman and remove Docker/containerd daemons and
 # Docker CLI plugins inherited from the base.
 RUN rm -f \
       /usr/bin/docker \
