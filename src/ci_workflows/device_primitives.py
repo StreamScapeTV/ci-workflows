@@ -350,6 +350,10 @@ def lease_owner_hash(environment: Mapping[str, str]) -> str:
 
     explicit = str(environment.get("CIW_DEVICE_LEASE_OWNER", "")).strip()
     if explicit:
+        _require(
+            "\x00" not in explicit and "\r" not in explicit and "\n" not in explicit,
+            "device_lease_owner_invalid",
+        )
         material = explicit
     else:
         repository = str(environment.get("GITHUB_REPOSITORY", "")).strip()
@@ -359,7 +363,6 @@ def lease_owner_hash(environment: Mapping[str, str]) -> str:
         material = f"{repository}\0{run_id}\0{attempt}"
     _require(
         1 <= len(material.encode("utf-8")) <= 1024
-        and "\x00" not in material
         and "\r" not in material
         and "\n" not in material,
         "device_lease_owner_invalid",
