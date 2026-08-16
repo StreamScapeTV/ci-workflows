@@ -55,6 +55,9 @@ class GradleSeedError(RuntimeError):
 class SeedFile:
     relative_path: str
     source_path: Path
+    home_path: Path
+    home_device: int
+    home_inode: int
     size: int
     sha256: str
     device: int
@@ -143,7 +146,13 @@ def _safe_relative_path(parts: tuple[str, ...]) -> str:
     if not parts or _MODULE_CACHE.fullmatch(parts[0]) is None:
         raise GradleSeedError("gradle_seed_path_rejected")
     for part in parts:
-        if not part or part in {".", ".."} or "\\" in part or "\x00" in part:
+        if (
+            not part
+            or part in {".", ".."}
+            or "/" in part
+            or "\\" in part
+            or any(ord(character) < 32 or ord(character) == 127 for character in part)
+        ):
             raise GradleSeedError("gradle_seed_path_rejected")
     relative = "/".join(parts)
     if len(relative.encode("utf-8")) > 2048:
@@ -151,34 +160,152 @@ def _safe_relative_path(parts: tuple[str, ...]) -> str:
     return relative
 
 
-def _open_regular_nofollow(path: Path) -> tuple[int, os.stat_result]:
-    flags = os.O_RDONLY
-    flags |= getattr(os, "O_CLOEXEC", 0)
-    flags |= getattr(os, "O_NOFOLLOW", 0)
+def _directory_flags() -> int:
+    return (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+
+
+def _regular_flags() -> int:
+    return os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+
+
+def _open_absolute_directory_nofollow(
+    path: Path,
+    *,
+    code: str = "gradle_seed_path_rejected",
+) -> tuple[int, os.stat_result]:
+    """Open every absolute directory component relative to an already-open parent."""
+
+    if not path.is_absolute():
+        raise GradleSeedError(code)
+    parts = path.parts
+    if not parts or parts[0] != os.sep or any(part in {"", ".", ".."} for part in parts[1:]):
+        raise GradleSeedError(code)
     try:
-        fd = os.open(path, flags)
+        current_fd = os.open(os.sep, _directory_flags())
+    except OSError as error:
+        raise GradleSeedError(code) from error
+    try:
+        current_stat = os.fstat(current_fd)
+        if not stat.S_ISDIR(current_stat.st_mode):
+            raise GradleSeedError(code)
+        for part in parts[1:]:
+            try:
+                next_fd = os.open(part, _directory_flags(), dir_fd=current_fd)
+            except OSError as error:
+                raise GradleSeedError(code) from error
+            try:
+                next_stat = os.fstat(next_fd)
+                if not stat.S_ISDIR(next_stat.st_mode):
+                    raise GradleSeedError(code)
+            except BaseException:
+                os.close(next_fd)
+                raise
+            os.close(current_fd)
+            current_fd = next_fd
+            current_stat = next_stat
+        return current_fd, current_stat
+    except BaseException:
+        os.close(current_fd)
+        raise
+
+
+def _open_child_directory(
+    parent_fd: int,
+    name: str,
+    *,
+    expected: os.stat_result | None = None,
+    code: str = "gradle_seed_path_rejected",
+) -> tuple[int, os.stat_result]:
+    if not name or name in {".", ".."} or "/" in name or "\\" in name:
+        raise GradleSeedError(code)
+    try:
+        child_fd = os.open(name, _directory_flags(), dir_fd=parent_fd)
+    except OSError as error:
+        raise GradleSeedError(code) from error
+    try:
+        current = os.fstat(child_fd)
+        if not stat.S_ISDIR(current.st_mode):
+            raise GradleSeedError(code)
+        if expected is not None and (
+            current.st_dev != expected.st_dev or current.st_ino != expected.st_ino
+        ):
+            raise GradleSeedError("gradle_seed_path_changed")
+        return child_fd, current
+    except BaseException:
+        os.close(child_fd)
+        raise
+
+
+def _directory_entries(directory_fd: int) -> tuple[tuple[str, os.stat_result], ...]:
+    entries: list[tuple[str, os.stat_result]] = []
+    try:
+        with os.scandir(directory_fd) as iterator:
+            for entry in iterator:
+                try:
+                    entry_stat = os.stat(
+                        entry.name,
+                        dir_fd=directory_fd,
+                        follow_symlinks=False,
+                    )
+                except OSError as error:
+                    raise GradleSeedError("gradle_seed_path_rejected") from error
+                entries.append((entry.name, entry_stat))
+    except GradleSeedError:
+        raise
+    except OSError as error:
+        raise GradleSeedError("gradle_seed_path_rejected") from error
+    return tuple(sorted(entries, key=lambda item: item[0]))
+
+
+def _require_regular_identity(
+    current: os.stat_result,
+    expected: os.stat_result,
+) -> None:
+    if not stat.S_ISREG(expected.st_mode) or not stat.S_ISREG(current.st_mode):
+        raise GradleSeedError("gradle_seed_file_rejected")
+    if expected.st_nlink != 1 or current.st_nlink != 1:
+        raise GradleSeedError("gradle_seed_hardlink_rejected")
+    if (
+        current.st_dev != expected.st_dev
+        or current.st_ino != expected.st_ino
+        or current.st_size != expected.st_size
+        or current.st_mtime_ns != expected.st_mtime_ns
+    ):
+        raise GradleSeedError("gradle_seed_file_changed")
+
+
+def _open_regular_at(
+    parent_fd: int,
+    name: str,
+    expected: os.stat_result,
+) -> tuple[int, os.stat_result]:
+    if expected.st_nlink != 1:
+        raise GradleSeedError("gradle_seed_hardlink_rejected")
+    try:
+        fd = os.open(name, _regular_flags(), dir_fd=parent_fd)
     except OSError as error:
         raise GradleSeedError("gradle_seed_file_rejected") from error
     try:
         current = os.fstat(fd)
-        if not stat.S_ISREG(current.st_mode):
-            raise GradleSeedError("gradle_seed_file_rejected")
+        _require_regular_identity(current, expected)
         return fd, current
     except BaseException:
         os.close(fd)
         raise
 
 
-def _hash_regular_file(path: Path, expected: os.stat_result) -> str:
-    fd, current = _open_regular_nofollow(path)
+def _hash_open_regular_file(
+    parent_fd: int,
+    name: str,
+    expected: os.stat_result,
+) -> str:
+    fd, _current = _open_regular_at(parent_fd, name, expected)
     try:
-        if (
-            current.st_dev != expected.st_dev
-            or current.st_ino != expected.st_ino
-            or current.st_size != expected.st_size
-            or current.st_mtime_ns != expected.st_mtime_ns
-        ):
-            raise GradleSeedError("gradle_seed_file_changed")
         digest = hashlib.sha256()
         total = 0
         while True:
@@ -188,13 +315,8 @@ def _hash_regular_file(path: Path, expected: os.stat_result) -> str:
             digest.update(chunk)
             total += len(chunk)
         final = os.fstat(fd)
-        if (
-            total != expected.st_size
-            or final.st_dev != expected.st_dev
-            or final.st_ino != expected.st_ino
-            or final.st_size != expected.st_size
-            or final.st_mtime_ns != expected.st_mtime_ns
-        ):
+        _require_regular_identity(final, expected)
+        if total != expected.st_size:
             raise GradleSeedError("gradle_seed_file_changed")
         return digest.hexdigest()
     finally:
@@ -202,70 +324,40 @@ def _hash_regular_file(path: Path, expected: os.stat_result) -> str:
 
 
 def collect_seed_files(gradle_user_home: Path) -> tuple[SeedFile, ...]:
-    """Collect the deterministic writable ``modules-*`` delta without following links."""
+    """Collect deterministic writable ``modules-*`` files without following links."""
 
     home = gradle_user_home
-    if not home.is_absolute():
-        raise GradleSeedError("gradle_seed_home_rejected")
-    try:
-        home_stat = os.lstat(home)
-    except OSError as error:
-        raise GradleSeedError("gradle_seed_home_rejected") from error
-    if not stat.S_ISDIR(home_stat.st_mode) or stat.S_ISLNK(home_stat.st_mode):
-        raise GradleSeedError("gradle_seed_home_rejected")
-
-    caches = home / "caches"
-    try:
-        caches_stat = os.lstat(caches)
-    except OSError as error:
-        raise GradleSeedError("gradle_seed_cache_missing") from error
-    if not stat.S_ISDIR(caches_stat.st_mode) or stat.S_ISLNK(caches_stat.st_mode):
-        raise GradleSeedError("gradle_seed_cache_rejected")
-
-    module_roots: list[Path] = []
-    try:
-        top_entries = sorted(os.scandir(caches), key=lambda entry: entry.name)
-    except OSError as error:
-        raise GradleSeedError("gradle_seed_cache_rejected") from error
-    for entry in top_entries:
-        if _MODULE_CACHE.fullmatch(entry.name) is None:
-            continue
-        try:
-            entry_stat = entry.stat(follow_symlinks=False)
-        except OSError as error:
-            raise GradleSeedError("gradle_seed_path_rejected") from error
-        if stat.S_ISLNK(entry_stat.st_mode) or not stat.S_ISDIR(entry_stat.st_mode):
-            raise GradleSeedError("gradle_seed_path_rejected")
-        module_roots.append(Path(entry.path))
-
-    if not module_roots:
-        raise GradleSeedError("gradle_seed_delta_empty")
-
+    home_fd, home_stat = _open_absolute_directory_nofollow(
+        home,
+        code="gradle_seed_home_rejected",
+    )
     selected: list[SeedFile] = []
     total_bytes = 0
 
-    def visit(directory: Path, prefix: tuple[str, ...]) -> None:
+    def visit(directory_fd: int, prefix: tuple[str, ...]) -> None:
         nonlocal total_bytes
-        try:
-            entries = sorted(os.scandir(directory), key=lambda entry: entry.name)
-        except OSError as error:
-            raise GradleSeedError("gradle_seed_path_rejected") from error
-        for entry in entries:
-            parts = (*prefix, entry.name)
+        for name, entry_stat in _directory_entries(directory_fd):
+            parts = (*prefix, name)
             relative = _safe_relative_path(parts)
-            try:
-                entry_stat = entry.stat(follow_symlinks=False)
-            except OSError as error:
-                raise GradleSeedError("gradle_seed_path_rejected") from error
             if stat.S_ISLNK(entry_stat.st_mode):
                 raise GradleSeedError("gradle_seed_symlink_rejected")
             if stat.S_ISDIR(entry_stat.st_mode):
-                visit(Path(entry.path), parts)
+                child_fd, _child_stat = _open_child_directory(
+                    directory_fd,
+                    name,
+                    expected=entry_stat,
+                )
+                try:
+                    visit(child_fd, parts)
+                finally:
+                    os.close(child_fd)
                 continue
             if not stat.S_ISREG(entry_stat.st_mode):
                 raise GradleSeedError("gradle_seed_entry_unsupported")
-            if entry.name == "gc.properties" or entry.name.endswith(".lock"):
+            if name == "gc.properties" or name.endswith(".lock"):
                 continue
+            if entry_stat.st_nlink != 1:
+                raise GradleSeedError("gradle_seed_hardlink_rejected")
             if entry_stat.st_size > MAX_FILE_BYTES:
                 raise GradleSeedError("gradle_seed_file_too_large")
             if len(selected) >= MAX_FILE_COUNT:
@@ -273,11 +365,14 @@ def collect_seed_files(gradle_user_home: Path) -> tuple[SeedFile, ...]:
             total_bytes += entry_stat.st_size
             if total_bytes > MAX_UPLOAD_BYTES:
                 raise GradleSeedError("gradle_seed_payload_too_large")
-            sha256 = _hash_regular_file(Path(entry.path), entry_stat)
+            sha256 = _hash_open_regular_file(directory_fd, name, entry_stat)
             selected.append(
                 SeedFile(
                     relative_path=relative,
-                    source_path=Path(entry.path),
+                    source_path=home / "caches" / Path(*parts),
+                    home_path=home,
+                    home_device=home_stat.st_dev,
+                    home_inode=home_stat.st_ino,
                     size=entry_stat.st_size,
                     sha256=sha256,
                     device=entry_stat.st_dev,
@@ -286,8 +381,36 @@ def collect_seed_files(gradle_user_home: Path) -> tuple[SeedFile, ...]:
                 )
             )
 
-    for module_root in module_roots:
-        visit(module_root, (module_root.name,))
+    try:
+        caches_fd, _caches_stat = _open_child_directory(
+            home_fd,
+            "caches",
+            code="gradle_seed_cache_rejected",
+        )
+        try:
+            module_roots: list[tuple[str, os.stat_result]] = []
+            for name, entry_stat in _directory_entries(caches_fd):
+                if _MODULE_CACHE.fullmatch(name) is None:
+                    continue
+                if stat.S_ISLNK(entry_stat.st_mode) or not stat.S_ISDIR(entry_stat.st_mode):
+                    raise GradleSeedError("gradle_seed_path_rejected")
+                module_roots.append((name, entry_stat))
+            if not module_roots:
+                raise GradleSeedError("gradle_seed_delta_empty")
+            for name, entry_stat in module_roots:
+                module_fd, _module_stat = _open_child_directory(
+                    caches_fd,
+                    name,
+                    expected=entry_stat,
+                )
+                try:
+                    visit(module_fd, (name,))
+                finally:
+                    os.close(module_fd)
+        finally:
+            os.close(caches_fd)
+    finally:
+        os.close(home_fd)
 
     if not selected:
         raise GradleSeedError("gradle_seed_delta_empty")
@@ -295,16 +418,62 @@ def collect_seed_files(gradle_user_home: Path) -> tuple[SeedFile, ...]:
 
 
 def _open_selected_file(seed_file: SeedFile) -> int:
-    fd, current = _open_regular_nofollow(seed_file.source_path)
-    if (
-        current.st_dev != seed_file.device
-        or current.st_ino != seed_file.inode
-        or current.st_size != seed_file.size
-        or current.st_mtime_ns != seed_file.mtime_ns
-    ):
-        os.close(fd)
+    home_fd, home_stat = _open_absolute_directory_nofollow(
+        seed_file.home_path,
+        code="gradle_seed_home_rejected",
+    )
+    if home_stat.st_dev != seed_file.home_device or home_stat.st_ino != seed_file.home_inode:
+        os.close(home_fd)
         raise GradleSeedError("gradle_seed_file_changed")
-    return fd
+    opened_directories: list[int] = [home_fd]
+    try:
+        caches_fd, _caches_stat = _open_child_directory(home_fd, "caches")
+        opened_directories.append(caches_fd)
+        parts = tuple(seed_file.relative_path.split("/"))
+        _safe_relative_path(parts)
+        current_fd = caches_fd
+        for part in parts[:-1]:
+            child_fd, _child_stat = _open_child_directory(current_fd, part)
+            opened_directories.append(child_fd)
+            current_fd = child_fd
+        expected = os.stat_result(
+            (
+                stat.S_IFREG,
+                seed_file.inode,
+                seed_file.device,
+                1,
+                0,
+                0,
+                seed_file.size,
+                0,
+                seed_file.mtime_ns / 1_000_000_000,
+                seed_file.mtime_ns / 1_000_000_000,
+            )
+        )
+        # Constructing os.stat_result loses nanosecond precision on some runtimes;
+        # use the stored tuple only for identity/size/link checks below.
+        try:
+            file_fd = os.open(parts[-1], _regular_flags(), dir_fd=current_fd)
+        except OSError as error:
+            raise GradleSeedError("gradle_seed_file_rejected") from error
+        try:
+            current = os.fstat(file_fd)
+            if current.st_nlink != 1:
+                raise GradleSeedError("gradle_seed_hardlink_rejected")
+            if (
+                current.st_dev != seed_file.device
+                or current.st_ino != seed_file.inode
+                or current.st_size != seed_file.size
+                or current.st_mtime_ns != seed_file.mtime_ns
+            ):
+                raise GradleSeedError("gradle_seed_file_changed")
+        except BaseException:
+            os.close(file_fd)
+            raise
+        return file_fd
+    finally:
+        for directory_fd in reversed(opened_directories):
+            os.close(directory_fd)
 
 
 def framed_seed_stream(files: tuple[SeedFile, ...]) -> Iterator[bytes]:
@@ -330,6 +499,8 @@ def framed_seed_stream(files: tuple[SeedFile, ...]) -> Iterator[bytes]:
             final = os.fstat(fd)
         finally:
             os.close(fd)
+        if final.st_nlink != 1:
+            raise GradleSeedError("gradle_seed_hardlink_rejected")
         if (
             total != seed_file.size
             or digest.hexdigest() != seed_file.sha256
@@ -498,7 +669,11 @@ def _validated_response(
     if not isinstance(generation, str) or _GENERATION.fullmatch(generation) is None:
         raise GradleSeedError("gradle_seed_response_generation_invalid")
     expected_bytes = sum(item.size for item in files)
-    if payload.get("fileCount") != len(files) or payload.get("totalBytes") != expected_bytes:
+    file_count = payload.get("fileCount")
+    total_bytes = payload.get("totalBytes")
+    if type(file_count) is not int or type(total_bytes) is not int:
+        raise GradleSeedError("gradle_seed_response_counts_mismatch")
+    if file_count != len(files) or total_bytes != expected_bytes:
         raise GradleSeedError("gradle_seed_response_counts_mismatch")
     return generation, expected_bytes
 
