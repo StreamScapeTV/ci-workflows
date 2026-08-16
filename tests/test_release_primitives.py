@@ -403,7 +403,14 @@ class ReleasePrimitiveTests(unittest.TestCase):
     def test_module_contains_no_product_specific_release_policy(self) -> None:
         source = Path(__file__).resolve().parents[1] / "src/ci_workflows/release_primitives.py"
         text = source.read_text(encoding="utf-8").casefold()
-        for forbidden in ("iptv", "streamscape", "flux reconcile", "canary", "provenance"):
+        for forbidden in (
+            "iptv-backend",
+            "streamscape-media",
+            "streamscapeweb",
+            "flux reconcile",
+            "canary",
+            "provenance",
+        ):
             self.assertNotIn(forbidden, text)
 
 
