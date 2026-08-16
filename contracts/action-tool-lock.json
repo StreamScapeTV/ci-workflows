@@ -168,6 +168,13 @@
       "release": "issue #18 immutable Helm measurement CIW checkpoint",
       "runtime": "composite",
       "source": "https://github.com/StreamScapeTV/ci-workflows/tree/1f2c0ae5bec042adc9f94e87ebfbba1e7ba48994/actions/measure-helm"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/upload-gradle-seed",
+      "sha": "b51754fcd9d2df0f4aa71f097287b019bc6bedcb",
+      "release": "issue #251 immutable Gradle seed OIDC checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/b51754fcd9d2df0f4aa71f097287b019bc6bedcb/actions/upload-gradle-seed"
     }
   ],
   "approved_internal_actions": [
