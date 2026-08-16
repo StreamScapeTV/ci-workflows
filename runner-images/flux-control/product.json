@@ -13,11 +13,12 @@
     "cluster_credentials_baked_in": false,
     "service_account_token_baked_in": false,
     "kubeconfig_baked_in": false,
-    "registry_credentials_baked_in": false
+    "registry_credentials_baked_in": false,
+    "sops_credentials_baked_in": false,
+    "github_credentials_baked_in": false
   },
   "composition": {
-    "inherits_streamscape_runner_image": false,
-    "reason": "The preferred reviewed general-runner immutable digest is not yet published; this bounded source uses the official Actions runner base directly and remains independent."
+    "inherits_streamscape_runner_image": false
   },
   "compatibility": {
     "kubernetes_minor": "1.34",
