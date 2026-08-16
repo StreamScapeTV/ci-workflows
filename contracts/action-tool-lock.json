@@ -108,10 +108,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-python",
-      "sha": "d060c275570e07222969546acf988a2616a3bcc6",
-      "release": "issue #229 immutable portable host runtime checkpoint",
+      "sha": "aece8d01efdd5482a1c3d42db357aed87a7917e9",
+      "release": "issue #235 general-runner Python primitives checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/d060c275570e07222969546acf988a2616a3bcc6/actions/validate-python"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/aece8d01efdd5482a1c3d42db357aed87a7917e9/actions/validate-python"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/verify-toolchain",
