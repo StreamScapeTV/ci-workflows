@@ -33,6 +33,13 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Validate fixed Buildah execution selector through CIW
+      shell: bash
+      run: |
+        set -Eeuo pipefail
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
+          runners validate-selector linux amd64 buildah high >/dev/null
+
     - id: plan
       name: Resolve fixed image paths and destination
       shell: bash
