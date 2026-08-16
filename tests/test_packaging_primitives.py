@@ -8,6 +8,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from ci_workflows.packaging_primitives import (
+    REGISTRY_TOKEN_ENV,
+    REGISTRY_USERNAME_ENV,
     HelmPackage,
     ImageInspection,
     PackagingError,
@@ -34,20 +36,19 @@ def _completed(
 
 
 class PackagingPrimitivesTests(unittest.TestCase):
-    def test_registry_authentication_uses_named_environment_secrets_via_stdin(
+    def test_registry_authentication_uses_fixed_environment_secrets_via_stdin(
         self,
     ) -> None:
         environment = {
             "PATH": "/usr/bin",
-            "REGISTRY_USER": "alice",
-            "REGISTRY_TOKEN": "super-secret",
+            REGISTRY_USERNAME_ENV: "alice",
+            REGISTRY_TOKEN_ENV: "super-secret",
+            "CALLER_SELECTED_SECRET": "must-not-be-used",
         }
         with patch("ci_workflows.packaging_primitives.subprocess.run") as run:
             run.return_value = _completed(["docker"])
             registry_authenticate(
                 "registry.example.test",
-                username_env="REGISTRY_USER",
-                password_env="REGISTRY_TOKEN",
                 environment=environment,
                 tool="docker",
             )
@@ -64,10 +65,14 @@ class PackagingPrimitivesTests(unittest.TestCase):
             ],
         )
         self.assertNotIn("super-secret", argv)
+        self.assertNotIn("must-not-be-used", argv)
         self.assertEqual(run.call_args.kwargs["input"], "super-secret\n")
 
     def test_registry_login_and_logout_support_requested_tools(self) -> None:
-        environment = {"USER_ENV": "u", "TOKEN_ENV": "p"}
+        environment = {
+            REGISTRY_USERNAME_ENV: "u",
+            REGISTRY_TOKEN_ENV: "p",
+        }
         cases = {
             "buildah": (
                 [
@@ -122,8 +127,6 @@ class PackagingPrimitivesTests(unittest.TestCase):
                 run.return_value = _completed([tool])
                 registry_authenticate(
                     "r.example",
-                    username_env="USER_ENV",
-                    password_env="TOKEN_ENV",
                     environment=environment,
                     tool=tool,
                 )
@@ -131,15 +134,16 @@ class PackagingPrimitivesTests(unittest.TestCase):
                 self.assertEqual(run.call_args_list[0].args[0], login)
                 self.assertEqual(run.call_args_list[1].args[0], logout)
 
-    def test_registry_authentication_fails_closed_on_missing_named_secret(
+    def test_registry_authentication_fails_closed_on_missing_fixed_secret(
         self,
     ) -> None:
-        with self.assertRaisesRegex(PackagingError, "missing environment secret"):
+        with self.assertRaisesRegex(
+            PackagingError,
+            f"missing environment secret: {REGISTRY_TOKEN_ENV}",
+        ):
             registry_authenticate(
                 "registry.example.test",
-                username_env="REGISTRY_USER",
-                password_env="REGISTRY_TOKEN",
-                environment={"REGISTRY_USER": "alice"},
+                environment={REGISTRY_USERNAME_ENV: "alice"},
             )
 
     def test_image_build_tag_push_and_inspect_are_tool_neutral(self) -> None:
@@ -274,6 +278,18 @@ class PackagingPrimitivesTests(unittest.TestCase):
             ],
         )
 
+    def test_helm_primitives_reject_arbitrary_executable_names(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            chart = Path(directory)
+            (chart / "Chart.yaml").write_text(
+                "apiVersion: v2\nname: demo\nversion: 1.0.0\n",
+                encoding="utf-8",
+            )
+            with patch("ci_workflows.packaging_primitives.subprocess.run") as run:
+                with self.assertRaisesRegex(PackagingError, "unsupported tool: sh"):
+                    helm_lint(chart, tool="sh")
+                run.assert_not_called()
+
     def test_helm_package_and_oci_push_return_structured_results(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -367,7 +383,10 @@ class PackagingPrimitivesTests(unittest.TestCase):
             self.assertFalse(auth.exists())
 
     def test_tool_failure_does_not_echo_stderr_or_secret(self) -> None:
-        environment = {"USER_ENV": "u", "TOKEN_ENV": "secret-value"}
+        environment = {
+            REGISTRY_USERNAME_ENV: "u",
+            REGISTRY_TOKEN_ENV: "secret-value",
+        }
         with patch("ci_workflows.packaging_primitives.subprocess.run") as run:
             run.return_value = subprocess.CompletedProcess(
                 ["docker"],
@@ -381,8 +400,6 @@ class PackagingPrimitivesTests(unittest.TestCase):
             ):
                 registry_authenticate(
                     "r.example",
-                    username_env="USER_ENV",
-                    password_env="TOKEN_ENV",
                     environment=environment,
                 )
 
