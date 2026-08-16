@@ -5,6 +5,7 @@ import fcntl
 import hashlib
 import json
 import os
+import pwd
 import re
 import stat
 import subprocess
@@ -111,7 +112,7 @@ class SimulatorLease:
 
 @dataclass(slots=True)
 class SimulatorOwnership:
-    """One non-blocking runner-local lock and its validated registry rows."""
+    """One non-blocking host-user simulator lock and validated registry."""
 
     root: Path
     lock_fd: int
@@ -416,22 +417,48 @@ def _verify_absolute_directory_no_follow(path: Path, code: str) -> Path:
     return absolute
 
 
+def _ownership_base(
+    environment: Mapping[str, str],
+    state_root: Path | None = None,
+) -> Path:
+    raw_workspace = environment.get("RUNNER_WORKSPACE", "").strip()
+    github_actions = environment.get("GITHUB_ACTIONS") == "true"
+    if github_actions:
+        if not raw_workspace:
+            fail("simulator_ownership_invalid")
+        _verify_absolute_directory_no_follow(
+            Path(raw_workspace),
+            "simulator_ownership_invalid",
+        )
+        try:
+            account_home = Path(pwd.getpwuid(os.geteuid()).pw_dir)
+        except (KeyError, OSError) as error:
+            raise AppleValidationError("simulator_ownership_invalid") from error
+        return _verify_absolute_directory_no_follow(
+            account_home,
+            "simulator_ownership_invalid",
+        )
+    if raw_workspace:
+        return _verify_absolute_directory_no_follow(
+            Path(raw_workspace),
+            "simulator_ownership_invalid",
+        )
+    if environment.get("CI") == "true":
+        fail("simulator_ownership_invalid")
+    if state_root is None or not state_root.is_absolute():
+        fail("simulator_ownership_invalid")
+    return _verify_absolute_directory_no_follow(
+        state_root.parent,
+        "simulator_ownership_invalid",
+    )
+
+
 def _ownership_root(
     environment: Mapping[str, str],
     state_root: Path | None = None,
 ) -> Path:
-    raw = environment.get("RUNNER_WORKSPACE", "").strip()
-    if not raw:
-        if environment.get("GITHUB_ACTIONS") == "true" or environment.get("CI") == "true":
-            fail("simulator_ownership_invalid")
-        if state_root is None or not state_root.is_absolute():
-            fail("simulator_ownership_invalid")
-        raw = str(state_root.parent)
-    workspace = _verify_absolute_directory_no_follow(
-        Path(raw),
-        "simulator_ownership_invalid",
-    )
-    root = workspace / _OWNERSHIP_DIRECTORY
+    base = _ownership_base(environment, state_root)
+    root = base / _OWNERSHIP_DIRECTORY
     metadata = _lstat(root)
     if metadata is None:
         try:
@@ -439,7 +466,12 @@ def _ownership_root(
         except OSError as error:
             raise AppleValidationError("simulator_ownership_invalid") from error
         metadata = _lstat(root)
-    if metadata is None or stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+    if (
+        metadata is None
+        or stat.S_ISLNK(metadata.st_mode)
+        or not stat.S_ISDIR(metadata.st_mode)
+        or stat.S_IMODE(metadata.st_mode) & 0o077
+    ):
         fail("simulator_ownership_invalid")
     return root
 
@@ -1318,7 +1350,7 @@ def _xcodebuild_argv(
         "NO",
         "CODE_SIGNING_ALLOWED=NO",
         "CODE_SIGNING_REQUIRED=NO",
-        "CODE_SIGN_IDENTITY=",
+        "CODE_IDENTITY=",
     ]
     if container.test_plan:
         argv.extend(("-testPlan", Path(container.test_plan).stem))
