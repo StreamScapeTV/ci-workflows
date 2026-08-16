@@ -14,6 +14,8 @@ from ci_workflows import gradle_seed
 
 
 SOURCE_SHA = "a" * 40
+OIDC_CAPABILITY = "synthetic-oidc-capability"
+OIDC_TOKEN = ".".join(("synthetic-a", "synthetic-b", "synthetic-c"))
 
 
 def protected_environment(root: Path) -> dict[str, str]:
@@ -58,7 +60,7 @@ def parse_stream(payload: bytes) -> list[tuple[dict[str, object], bytes]]:
 
 
 class FakeOidcRequester:
-    def __init__(self, token: str = "header.payload.signature") -> None:
+    def __init__(self, token: str = OIDC_TOKEN) -> None:
         self.token = token
         self.environments: list[dict[str, str]] = []
 
@@ -221,7 +223,7 @@ class GithubOidcRequesterTests(unittest.TestCase):
     def test_requests_only_exact_audience_without_ambient_endpoint_authority(self) -> None:
         response = mock.Mock()
         response.status = 200
-        response.read.return_value = b'{"value":"header.payload.signature"}'
+        response.read.return_value = json.dumps({"value": OIDC_TOKEN}).encode()
         response.getheader.return_value = "application/json"
 
         connection = mock.Mock()
@@ -231,7 +233,7 @@ class GithubOidcRequesterTests(unittest.TestCase):
                 "https://vstoken.actions.githubusercontent.com/example"
                 "?api-version=2.0&audience=old"
             ),
-            "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "runner-oidc-capability",
+            "ACTIONS_ID_TOKEN_REQUEST_TOKEN": OIDC_CAPABILITY,
         }
         with mock.patch.object(
             gradle_seed.http.client,
@@ -240,7 +242,7 @@ class GithubOidcRequesterTests(unittest.TestCase):
         ) as factory:
             token = gradle_seed.GithubOidcRequester().request_token(environment)
 
-        self.assertEqual("header.payload.signature", token)
+        self.assertEqual(OIDC_TOKEN, token)
         factory.assert_called_once_with(
             "vstoken.actions.githubusercontent.com",
             443,
@@ -253,7 +255,7 @@ class GithubOidcRequesterTests(unittest.TestCase):
         self.assertEqual([gradle_seed.OIDC_AUDIENCE], query["audience"])
         self.assertEqual(["2.0"], query["api-version"])
         self.assertEqual(
-            "Bearer runner-oidc-capability",
+            f"Bearer {OIDC_CAPABILITY}",
             headers["Authorization"],
         )
         connection.close.assert_called_once()
@@ -272,7 +274,7 @@ class GithubOidcRequesterTests(unittest.TestCase):
             requester.request_token(
                 {
                     "ACTIONS_ID_TOKEN_REQUEST_URL": "https://attacker.example/token",
-                    "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "secret",
+                    "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "synthetic-capability",
                 }
             )
 
@@ -290,7 +292,7 @@ class GithubOidcRequesterTests(unittest.TestCase):
             return_value=connection,
         ) as factory:
             returned = gradle_seed.FluxSeedUploader().upload(
-                token="short-lived.jwt.token",
+                token=OIDC_TOKEN,
                 source_sha=SOURCE_SHA,
                 body=(b"one", b"two"),
             )
@@ -306,7 +308,7 @@ class GithubOidcRequesterTests(unittest.TestCase):
         self.assertEqual((b"one", b"two"), kwargs["body"])
         self.assertTrue(kwargs["encode_chunked"])
         self.assertEqual(
-            "Bearer short-lived.jwt.token",
+            f"Bearer {OIDC_TOKEN}",
             kwargs["headers"]["Authorization"],
         )
         self.assertEqual(
@@ -332,7 +334,7 @@ class GradleSeedPromotionTests(unittest.TestCase):
                 path.relative_to(home).as_posix()
                 for path in home.rglob("*")
             )
-            requester = FakeOidcRequester("secret.header.signature")
+            requester = FakeOidcRequester(OIDC_TOKEN)
             uploader = FakeUploader()
 
             result = gradle_seed.promote_gradle_seed(
@@ -353,10 +355,10 @@ class GradleSeedPromotionTests(unittest.TestCase):
             self.assertEqual(len(b"alpha") + len(b"beta"), result.total_bytes)
             self.assertRegex(result.evidence_id, r"^[a-f0-9]{64}$")
             outputs = result.output_values()
-            self.assertNotIn("secret", json.dumps(outputs))
+            self.assertNotIn(OIDC_TOKEN, json.dumps(outputs))
             self.assertNotIn("path", json.dumps(outputs).lower())
             self.assertEqual("clean", outputs["cleanup_result"])
-            self.assertEqual("secret.header.signature", uploader.calls[0]["token"])
+            self.assertEqual(OIDC_TOKEN, uploader.calls[0]["token"])
             self.assertEqual(SOURCE_SHA, uploader.calls[0]["source_sha"])
 
     def test_context_rejects_pr_dispatch_wrong_ref_workflow_and_source(self) -> None:
