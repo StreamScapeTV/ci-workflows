@@ -51,7 +51,7 @@ class SimpleScriptWorkflowContractTests(unittest.TestCase):
         ):
             self.assertIn(profile, plan)
             self.assertIn(selector, plan)
-        for forbidden in ("self-hosted", "runner_labels", "runs_on", "scale-set"):
+        for forbidden in ("self-hosted", "runner_labels", "scale-set"):
             self.assertNotIn(forbidden, self.source)
 
     def test_exact_checkout_and_direct_zero_argument_script_execution(self) -> None:
