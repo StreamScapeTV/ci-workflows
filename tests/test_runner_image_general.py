@@ -18,10 +18,10 @@ def test_general_runner_uses_pinned_debian_only_stages() -> None:
     from_lines = [line for line in source.splitlines() if line.startswith("FROM ")]
     assert len(from_lines) == 3
     assert all("docker.io/library/" in line and "@sha256:" in line for line in from_lines)
-    assert "gcc@sha256:" in from_lines[0]
+    assert "buildpack-deps@sha256:" in from_lines[0]
     assert "node@sha256:" in from_lines[1]
     assert "python@sha256:" in from_lines[2]
-    assert "gcc:15-trixie@" not in source
+    assert "buildpack-deps:trixie@" not in source
     assert "node:24.19.0-trixie-slim@" not in source
     assert "python:3.12.14-slim-trixie@" not in source
     assert "# syntax=" not in source.lower()
@@ -81,7 +81,7 @@ def test_general_runner_input_lock_matches_debian_stages() -> None:
         "final",
     ]
     assert [base["declared_reference"].split("@", 1)[0] for base in lock["bases"]] == [
-        "docker.io/library/gcc",
+        "docker.io/library/buildpack-deps",
         "docker.io/library/node",
         "docker.io/library/python",
     ]
@@ -141,7 +141,7 @@ def test_general_runner_toolchain_is_release_readable() -> None:
         "node_runtime",
         "final_python_debian",
     }
-    assert toolchain["oci_stages"]["build_tools"]["reference"] == "docker.io/library/gcc:15-trixie"
+    assert toolchain["oci_stages"]["build_tools"]["reference"] == "docker.io/library/buildpack-deps:trixie"
     assert toolchain["external_assets"]["actions_runner"] == (
         "sha256:04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d"
     )
