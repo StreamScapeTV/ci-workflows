@@ -36,6 +36,16 @@ class LanguagePrimitiveError(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
+class CommandOutcome:
+    """Compatibility result for injected test/process boundaries."""
+
+    returncode: int
+    stdout: str = ""
+    stderr: str = ""
+    timed_out: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class OperationResult:
     operation: str
     returncode: int
@@ -71,7 +81,7 @@ class CommandRunner(Protocol):
         *,
         cwd: Path,
         env: Mapping[str, str],
-    ) -> ProcessResult: ...
+    ) -> ProcessResult | CommandOutcome: ...
 
 
 class RuntimeCommandRunner:
@@ -197,7 +207,7 @@ def _execute(
         raise LanguagePrimitiveError(code, operation) from error
     except OSError as error:
         raise LanguagePrimitiveError("command_unavailable", operation) from error
-    if not isinstance(outcome, ProcessResult):
+    if not isinstance(outcome, (ProcessResult, CommandOutcome)):
         _fail("runner_result_invalid", operation)
     if outcome.timed_out:
         _fail("command_timeout", operation)
