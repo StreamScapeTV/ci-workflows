@@ -79,10 +79,6 @@ permissions:
   actions: read
   contents: write
 
-concurrency:
-  group: release-${{ github.repository }}-${{ inputs.release_tag }}
-  cancel-in-progress: false
-
 jobs:
   admit:
     name: Resolve caller Git tag
@@ -166,27 +162,31 @@ jobs:
           context="$(realpath -m "source/${BUILD_CONTEXT}")"
           case "${dockerfile}" in "${source_root}"/*) ;; *) exit 1 ;; esac
           case "${context}" in "${source_root}"|"${source_root}"/*) ;; *) exit 1 ;; esac
-          test -f "${dockerfile}"
-          test ! -L "${dockerfile}"
-          test -d "${context}"
-          test ! -L "${context}"
-
+          test -f "${dockerfile}" && test ! -L "${dockerfile}"
+          test -d "${context}" && test ! -L "${context}"
           state="$(mktemp -d "${RUNNER_TEMP}/release-image.XXXXXX")"
           chmod 700 "${state}"
           auth="${state}/auth.json"
           manifest="release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          image_ref="${image_repository}:${RELEASE_VERSION}"
-          cleanup() {
-            buildah manifest rm "${manifest}" >/dev/null 2>&1 || true
-            buildah rmi -a -f >/dev/null 2>&1 || true
-            rm -rf "${state}"
-          }
-          trap cleanup EXIT
+          printf 'state=%s\nmanifest=%s\n' "${state}" "${manifest}" >> "${GITHUB_OUTPUT}"
           printf '%s' "${REGISTRY_TOKEN}" | buildah login --authfile "${auth}" --username "${REGISTRY_USERNAME}" --password-stdin git.faruqi.dev
           unset REGISTRY_TOKEN
+          image_ref="${image_repository}:${RELEASE_VERSION}"
           buildah bud --pull=always --layers=false --platform linux/amd64,linux/arm64 --jobs 2 --manifest "${manifest}" -f "${dockerfile}" "${context}"
           buildah manifest push --all --authfile "${auth}" "${manifest}" "docker://${image_ref}"
           printf 'image_reference=%s\n' "${image_ref}" >> "${GITHUB_OUTPUT}"
+      - name: Remove image publication state
+        if: always()
+        shell: bash
+        env:
+          STATE: ${{ steps.publish.outputs.state }}
+          MANIFEST: ${{ steps.publish.outputs.manifest }}
+        run: |
+          set -Eeuo pipefail
+          test -z "${MANIFEST}" || buildah manifest rm "${MANIFEST}" >/dev/null 2>&1 || true
+          buildah rmi -a -f >/dev/null 2>&1 || true
+          test -z "${STATE}" || rm -rf "${STATE}"
+          test -z "${STATE}" || test ! -e "${STATE}"
       - name: Verify exact image source remained clean
         if: always()
         shell: bash
@@ -196,31 +196,97 @@ jobs:
           set -Eeuo pipefail
           test "$(git -C source rev-parse HEAD)" = "${ADMITTED_SHA}"
           test -z "$(git -C source status --porcelain --untracked-files=all)"
-          test -z "$(find "${RUNNER_TEMP}" -maxdepth 1 -name 'release-image.*' -print -quit)"
 
   chart:
     name: Release / Helm publication
     needs: admit
+    runs-on: [linux, amd64, buildah, tiny]
+    timeout-minutes: 90
     permissions:
       contents: read
-    uses: ./.github/workflows/reusable-helm-publish.yml
-    with:
-      admitted_sha: ${{ needs.admit.outputs.source_sha }}
-      product_id: ${{ inputs.product_id }}
-      release_version: ${{ needs.admit.outputs.version }}
-      values_profile: ${{ inputs.values_profile }}
-      policy_path: ${{ inputs.policy_path }}
-    secrets:
-      registry_username: ${{ secrets.registry_username }}
-      registry_token: ${{ secrets.registry_token }}
+    outputs:
+      chart_digest: ${{ steps.helm.outputs.chart_digest }}
+    steps:
+      - name: Check out exact tagged caller source
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        with:
+          repository: ${{ github.repository }}
+          admitted_sha: ${{ needs.admit.outputs.source_sha }}
+          path: source
+          fetch_depth: "1"
+      - name: Prepare isolated Helm publication state
+        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        with:
+          profile: minimal
+          cache_mode: disabled
+          source_sha: ${{ needs.admit.outputs.source_sha }}
+          trust_mode: trusted-exact
+      - id: helm
+        name: Validate, package, and publish caller Helm chart
+        continue-on-error: true
+        uses: StreamScapeTV/ci-workflows/actions/publish-helm@7b17879f21fbf029708d6a404a9dd12d75503a52 # issue #18 simplified Helm runtime checkpoint
+        with:
+          phase: execute
+          admitted_sha: ${{ needs.admit.outputs.source_sha }}
+          product_id: ${{ inputs.product_id }}
+          release_version: ${{ needs.admit.outputs.version }}
+          values_profile: ${{ inputs.values_profile }}
+          policy_path: ${{ inputs.policy_path }}
+          source_trust: trusted-exact
+          registry_username: ${{ secrets.registry_username }}
+          registry_token: ${{ secrets.registry_token }}
+      - id: helm_cleanup
+        name: Remove Helm publication state
+        if: always()
+        uses: StreamScapeTV/ci-workflows/actions/publish-helm@7b17879f21fbf029708d6a404a9dd12d75503a52 # issue #18 simplified Helm runtime checkpoint
+        with:
+          phase: cleanup
+          admitted_sha: ${{ needs.admit.outputs.source_sha }}
+          product_id: ${{ inputs.product_id }}
+          release_version: ${{ needs.admit.outputs.version }}
+          source_trust: trusted-exact
+      - id: residue
+        name: Verify zero Helm publication residue
+        if: always()
+        uses: StreamScapeTV/ci-workflows/actions/publish-helm@7b17879f21fbf029708d6a404a9dd12d75503a52 # issue #18 simplified Helm runtime checkpoint
+        with:
+          phase: residue
+          admitted_sha: ${{ needs.admit.outputs.source_sha }}
+          product_id: ${{ inputs.product_id }}
+          release_version: ${{ needs.admit.outputs.version }}
+          source_trust: trusted-exact
+      - id: workspace_cleanup
+        name: Remove registered Helm workspace state
+        if: always()
+        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+      - name: Verify exact chart source remained clean
+        if: always()
+        shell: bash
+        env:
+          ADMITTED_SHA: ${{ needs.admit.outputs.source_sha }}
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C source rev-parse HEAD)" = "${ADMITTED_SHA}"
+          test -z "$(git -C source status --porcelain --untracked-files=all)"
+      - name: Project terminal Helm publication status
+        if: always()
+        shell: bash
+        env:
+          HELM_OUTCOME: ${{ steps.helm.outcome }}
+          HELM_CLEANUP_OUTCOME: ${{ steps.helm_cleanup.outcome }}
+          RESIDUE_OUTCOME: ${{ steps.residue.outcome }}
+          WORKSPACE_CLEANUP_OUTCOME: ${{ steps.workspace_cleanup.outcome }}
+        run: |
+          set -Eeuo pipefail
+          test "${HELM_OUTCOME}" = success
+          test "${HELM_CLEANUP_OUTCOME}" = success
+          test "${RESIDUE_OUTCOME}" = success
+          test "${WORKSPACE_CLEANUP_OUTCOME}" = success
 
   github_release:
     name: Release / GitHub Release
     needs: [admit, image, chart]
-    if: >-
-      ${{ always() && inputs.operation == 'publish-with-github-release' &&
-          needs.admit.result == 'success' && needs.image.result == 'success' &&
-          needs.chart.result == 'success' }}
+    if: ${{ inputs.operation == 'publish-with-github-release' }}
     runs-on: [linux, amd64, general, small]
     timeout-minutes: 10
     permissions:
@@ -234,63 +300,24 @@ jobs:
           SOURCE_SHA: ${{ needs.admit.outputs.source_sha }}
         run: |
           set -Eeuo pipefail
-          python3 - <<'PY'
-          import json
-          import os
-          import urllib.error
-          import urllib.parse
-          import urllib.request
-
-          api = os.environ["GITHUB_API_URL"].rstrip("/")
-          repository = os.environ["GITHUB_REPOSITORY"]
-          tag = os.environ["RELEASE_TAG"]
-          token = os.environ["GITHUB_TOKEN"]
-          headers = {
-              "Accept": "application/vnd.github+json",
-              "Authorization": f"Bearer {token}",
-              "X-GitHub-Api-Version": "2022-11-28",
-          }
-
-          def request(method: str, path: str, payload=None):
-              data = None if payload is None else json.dumps(payload).encode("utf-8")
-              req = urllib.request.Request(f"{api}{path}", data=data, headers=headers, method=method)
-              with urllib.request.urlopen(req, timeout=20) as response:
-                  body = response.read(1_000_001)
-              if len(body) > 1_000_000:
-                  raise SystemExit("GitHub release response too large")
-              return json.loads(body.decode("utf-8")) if body else {}
-
-          encoded_tag = urllib.parse.quote(tag, safe="")
-          try:
-              current = request("GET", f"/repos/{repository}/releases/tags/{encoded_tag}")
-          except urllib.error.HTTPError as error:
-              if error.code != 404:
-                  raise
-              current = None
-
-          if current is None:
-              release = request(
-                  "POST",
-                  f"/repos/{repository}/releases",
-                  {
-                      "tag_name": tag,
-                      "target_commitish": os.environ["SOURCE_SHA"],
-                      "name": tag,
-                      "draft": False,
-                      "prerelease": False,
-                      "generate_release_notes": True,
-                  },
-              )
-          else:
-              release_id = current.get("id")
-              if not isinstance(release_id, int) or release_id <= 0:
-                  raise SystemExit("existing GitHub Release identity invalid")
-              request(
-                  "PATCH",
-                  f"/repos/{repository}/releases/{release_id}",
-                  {"tag_name": tag, "name": tag, "draft": False},
-              )
-          PY
+          response="${RUNNER_TEMP}/github-release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+          endpoint="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}"
+          code="$(curl --silent --show-error -o "${response}" -w '%{http_code}' -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer ${GITHUB_TOKEN}" -H 'X-GitHub-Api-Version: 2022-11-28' "${endpoint}/releases/tags/${RELEASE_TAG}")"
+          if test "${code}" = 404; then
+            payload="$(jq -nc --arg tag "${RELEASE_TAG}" --arg sha "${SOURCE_SHA}" '{tag_name:$tag,target_commitish:$sha,name:$tag,draft:false,prerelease:false,generate_release_notes:true}')"
+            curl --fail-with-body --silent --show-error -X POST -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer ${GITHUB_TOKEN}" -H 'X-GitHub-Api-Version: 2022-11-28' -H 'Content-Type: application/json' --data "${payload}" -o "${response}" "${endpoint}/releases"
+          elif test "${code}" = 200; then
+            release_id="$(jq -er '.id | numbers' "${response}")"
+            payload="$(jq -nc --arg tag "${RELEASE_TAG}" '{tag_name:$tag,name:$tag,draft:false}')"
+            curl --fail-with-body --silent --show-error -X PATCH -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer ${GITHUB_TOKEN}" -H 'X-GitHub-Api-Version: 2022-11-28' -H 'Content-Type: application/json' --data "${payload}" -o "${response}" "${endpoint}/releases/${release_id}"
+          else
+            exit 1
+          fi
+          jq -e '.html_url | strings | startswith("https://")' "${response}" >/dev/null
+      - name: Remove GitHub Release response state
+        if: always()
+        shell: bash
+        run: rm -f "${RUNNER_TEMP}/github-release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
 
   summary:
     name: Release / Summary
