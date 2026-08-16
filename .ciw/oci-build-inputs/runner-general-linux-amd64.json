@@ -64,6 +64,13 @@
       "destination": ".ciw-build-inputs/actions-runner-linux-x64-2.336.0.tar.gz"
     },
     {
+      "input_id": "node-26-compat-linux-amd64",
+      "url": "https://github.com/actions/node-versions/releases/download/26.7.0-31064755789/node-26.7.0-linux-x64.tar.gz",
+      "sha256": "e1ab5849f548df59f394a978a04dbbfae915c3b35ac6597d829c53dada7ed701",
+      "maximum_bytes": 83886080,
+      "destination": ".ciw-build-inputs/node-26.7.0-linux-x64.tar.gz"
+    },
+    {
       "input_id": "zstd-source",
       "url": "https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz",
       "sha256": "eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3",
