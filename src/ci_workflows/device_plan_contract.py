@@ -51,6 +51,10 @@ def build_plan(contract: Mapping[str, Any], request: DeviceRequest) -> DevicePla
             and request.command_profile == profile.command_profile.profile_id
             and request.script_path == profile.command_profile.test_script
             and request.device_alias in profile.aliases
+            and (
+                not profile.request_issue_numbers
+                or request.issue_number in profile.request_issue_numbers
+            )
         ):
             matches.append(profile)
     require(len(matches) == 1, "device_profile_rejected")
