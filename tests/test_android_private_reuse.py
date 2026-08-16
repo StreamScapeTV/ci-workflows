@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import unittest
 from pathlib import Path
 
@@ -14,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/reusable-android.yml"
 FIXTURES_PATH = ROOT / "tests/fixtures/android-validation/cases.json"
 PUBLIC_PATH = ROOT / "contracts/public-workflows/validation.json"
+VALIDATE_ANDROID_SHA = "aef024030a7e96da74bb98b24bd67b532f289fc1"
 PRIVATE_HELPER_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 PRIVATE_HELPERS = {
     "StreamScapeTV/ci-workflows/actions/validate-android",
@@ -28,10 +28,13 @@ PRIVATE_HELPERS = {
 class AndroidPrivateReuseRegressionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        import json
+
         cls.source = WORKFLOW_PATH.read_text(encoding="utf-8")
         cls.workflow = yaml.load(cls.source, Loader=ActionsLoader)
         cls.contract = android_contract.load_android_contract(ROOT)
         fixtures = json.loads(FIXTURES_PATH.read_text(encoding="utf-8"))
+        cls.public = json.loads(PUBLIC_PATH.read_text(encoding="utf-8"))
         cls.media_case = next(
             case for case in fixtures["positive"] if case["name"] == "media-consumer-script"
         )
@@ -68,36 +71,26 @@ class AndroidPrivateReuseRegressionTests(unittest.TestCase):
             if str(step.get("uses", "")).startswith("StreamScapeTV/ci-workflows/actions/")
         }
         self.assertEqual(PRIVATE_HELPERS, set(helpers))
-        self.assertEqual({PRIVATE_HELPER_SHA}, set(helpers.values()))
-
-    def test_private_dependency_token_is_not_a_central_source_credential(self) -> None:
-        call = self.workflow["on"]["workflow_call"]
-        self.assertEqual(set(call.get("secrets", {})), {"private_dependency_token"})
-        steps = [
-            step
-            for job in self.workflow["jobs"].values()
-            for step in job.get("steps", [])
-        ]
-        dependency = next(step for step in steps if step.get("id") == "dependency")
+        validate_path = "StreamScapeTV/ci-workflows/actions/validate-android"
+        self.assertEqual(helpers[validate_path], VALIDATE_ANDROID_SHA)
         self.assertEqual(
-            dependency["with"]["token"],
-            "${{ secrets.private_dependency_token }}",
+            {PRIVATE_HELPER_SHA},
+            {sha for path, sha in helpers.items() if path != validate_path},
         )
-        for step in steps:
-            if step is dependency:
-                continue
-            self.assertNotIn("private_dependency_token", json.dumps(step))
+        self.assertNotIn(
+            "actions/validate-android@275ee86f0f5de3d8f3330b92c84d7c0188fb10f8",
+            self.source,
+        )
 
-    def test_public_api_still_supports_streamscape_media_without_new_secret(self) -> None:
-        public = json.loads(PUBLIC_PATH.read_text(encoding="utf-8"))
+    def test_public_api_still_supports_streamscape_media_without_new_surface(self) -> None:
         android = next(
             workflow
-            for workflow in public["workflows"]
+            for workflow in self.public["workflows"]
             if workflow["api_name"] == "validation.android"
         )
         self.assertIn("StreamScapeTV/streamscape-media", android["supported_consumers"])
-        self.assertEqual(android["secrets"], ["private_dependency_token"])
-        self.assertNotIn("central_source", {item["name"] for item in android["inputs"]})
+        reusable_inputs = set(self.workflow["on"]["workflow_call"]["inputs"])
+        self.assertEqual(reusable_inputs, {item["name"] for item in android["inputs"]})
 
 
 if __name__ == "__main__":

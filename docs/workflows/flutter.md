@@ -131,10 +131,17 @@ requires a clean admitted source. Routine Actions artifacts remain zero.
 
 ## Caller example
 
+During active development/bootstrap, repository consumers call public reusable
+`ci-workflows` workflows at `@main`. Full-SHA and stable-tag references remain
+supported, but they are not the current default consumer channel; a later
+explicit stable-release/cutover decision may make an immutable channel preferred
+or required. This does not weaken internal/private helper pins, which remain
+exact immutable SHAs.
+
 ```yaml
 jobs:
   flutter:
-    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-flutter.yml@<full-sha>
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-flutter.yml@main
     with:
       admitted_sha: ${{ needs.source.outputs.admitted_sha }}
       validation_profile: canonical-gate

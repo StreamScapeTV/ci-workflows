@@ -44,6 +44,20 @@
       "source": "https://github.com/StreamScapeTV/ci-workflows/tree/87a7454aaa59cb680db8f580d22551b749ac4193/actions/resolve-source"
     },
     {
+      "uses": "StreamScapeTV/ci-workflows/actions/validate-device",
+      "sha": "092d26777aebaf87a0a07d39a1660b4bc5cb658d",
+      "release": "issue #14 complete CIW checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/092d26777aebaf87a0a07d39a1660b4bc5cb658d/actions/validate-device"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/device-lock",
+      "sha": "599c82201e6da6ca51c4f6247f1526a4ba03d550",
+      "release": "issue #136 exact-head checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/599c82201e6da6ca51c4f6247f1526a4ba03d550/actions/device-lock"
+    },
+    {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-node",
       "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
       "release": "issue #116 immutable private-action checkpoint",
@@ -80,10 +94,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-android",
-      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
-      "release": "issue #104 immutable private-action checkpoint",
+      "sha": "aef024030a7e96da74bb98b24bd67b532f289fc1",
+      "release": "issue #256 immutable Media lifecycle sentinel checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/validate-android"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/aef024030a7e96da74bb98b24bd67b532f289fc1/actions/validate-android"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/checkout-private-dependency",
@@ -94,10 +108,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-python",
-      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
-      "release": "issue #125 immutable private-action checkpoint",
+      "sha": "d060c275570e07222969546acf988a2616a3bcc6",
+      "release": "issue #229 immutable portable host runtime checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/validate-python"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/d060c275570e07222969546acf988a2616a3bcc6/actions/validate-python"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/verify-toolchain",
@@ -115,10 +129,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-apple",
-      "sha": "88d179740145ccea00b6986d78ceb67ea365face",
-      "release": "issue #131 immutable Release-aware Apple checkpoint",
+      "sha": "702b950b6a5baf208e7b21f16e3f7df9b8f0f96e",
+      "release": "issue #187 integrated Media tvOS consumer checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/88d179740145ccea00b6986d78ceb67ea365face/actions/validate-apple"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/702b950b6a5baf208e7b21f16e3f7df9b8f0f96e/actions/validate-apple"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-oci",
@@ -133,6 +147,27 @@
       "release": "issue #125 immutable private-action checkpoint",
       "runtime": "composite",
       "source": "https://github.com/StreamScapeTV/ci-workflows/tree/8445e63dd9fa9468b60b6d0c61e543da9681b47b/actions/validate-gitops"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/validate-helm",
+      "sha": "f867827a41174ea5a9ad554eeea91dbb2c2c0bfa",
+      "release": "issue #18 immutable Helm runtime checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/f867827a41174ea5a9ad554eeea91dbb2c2c0bfa/actions/validate-helm"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/publish-helm",
+      "sha": "f867827a41174ea5a9ad554eeea91dbb2c2c0bfa",
+      "release": "issue #18 immutable Helm runtime checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/f867827a41174ea5a9ad554eeea91dbb2c2c0bfa/actions/publish-helm"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/measure-helm",
+      "sha": "1f2c0ae5bec042adc9f94e87ebfbba1e7ba48994",
+      "release": "issue #18 immutable Helm measurement CIW checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/1f2c0ae5bec042adc9f94e87ebfbba1e7ba48994/actions/measure-helm"
     }
   ],
   "approved_internal_actions": [

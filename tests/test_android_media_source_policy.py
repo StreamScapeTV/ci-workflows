@@ -18,6 +18,21 @@ MEDIA_PATH = (
     "PlaybackLabBootstrapEvidenceTests.swift"
 )
 MEDIA_BLOB_SHA1 = "1770311f5b3998b5dbf3f8ee191acd419aa52a56"
+LIFECYCLE_PATH = (
+    "apple/Tests/StreamscapePlaybackLabSupportTests/"
+    "PlaybackLabLifecycleEvidenceTests.swift"
+)
+LIFECYCLE_BLOB_SHA1 = "5df889bbf613ee7f4dabd07ca931aa81fb4f71a3"
+GUIDED_ACCEPTANCE_PATH = (
+    "apple/Tests/StreamscapePlaybackLabSupportTests/"
+    "PlaybackLabGuidedAcceptanceRunFlowTests.swift"
+)
+GUIDED_ACCEPTANCE_BLOB_SHA1 = "2a9149b864bf59079099035c15af54234f54b452"
+REVIEWED_MEDIA_SENTINELS = {
+    MEDIA_PATH: MEDIA_BLOB_SHA1,
+    LIFECYCLE_PATH: LIFECYCLE_BLOB_SHA1,
+    GUIDED_ACCEPTANCE_PATH: GUIDED_ACCEPTANCE_BLOB_SHA1,
+}
 MEDIA_TASKS = {
     "compile": "media-compile",
     "unit-full": "media-unit-full",
@@ -44,7 +59,7 @@ class AndroidMediaSourcePolicyTests(unittest.TestCase):
             source_trust="trusted-pr",
         )
 
-    def test_current_media_sentinel_blob_is_exactly_profile_bounded(self) -> None:
+    def test_current_media_sentinel_blobs_are_exactly_profile_bounded(self) -> None:
         contract = android_policy.load_android_source_policy(ROOT)
 
         for profile in MEDIA_TASKS:
@@ -53,7 +68,7 @@ class AndroidMediaSourcePolicyTests(unittest.TestCase):
                     contract,
                     self.request(profile),
                 )
-                self.assertEqual(active, {MEDIA_PATH: MEDIA_BLOB_SHA1})
+                self.assertEqual(active, REVIEWED_MEDIA_SENTINELS)
 
         for profile in sorted(android_policy._ANDROID_PROFILES - set(MEDIA_TASKS)):
             with self.subTest(disallowed_profile=profile):
@@ -61,7 +76,8 @@ class AndroidMediaSourcePolicyTests(unittest.TestCase):
                     contract,
                     self.request(profile),
                 )
-                self.assertNotIn(MEDIA_PATH, active)
+                for path in REVIEWED_MEDIA_SENTINELS:
+                    self.assertNotIn(path, active)
 
     def test_changed_media_sentinel_blob_with_real_token_shape_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

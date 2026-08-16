@@ -1,0 +1,2 @@
+SYNTHETIC-ANDROID-C	online	model=synthetic-phone	api=37	connection=usb	capabilities=synthetic-android	personal=false	conflict=false
+SYNTHETIC-ANDROID-D	online	model=synthetic-tablet	api=36	connection=usb	capabilities=synthetic-android	personal=false	conflict=false

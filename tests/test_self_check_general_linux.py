@@ -19,7 +19,7 @@ assert SPEC and SPEC.loader
 BOOTSTRAP = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(BOOTSTRAP)
 ORIGINAL_READ_TEXT = BOOTSTRAP.read_text
-SELECTOR_LINE = "runs-on: [linux, amd64, general]"
+SELECTOR_LINE = "runs-on: [linux, amd64, general, small]"
 
 
 def workflow_source() -> str:
@@ -119,11 +119,12 @@ class GeneralLinuxSelfCheckTest(unittest.TestCase):
         workflow = yaml.safe_load(source)
         self.assertEqual(
             workflow["jobs"]["validate"]["runs-on"],
-            ["linux", "amd64", "general"],
+            ["linux", "amd64", "general", "small"],
         )
         self.assertEqual(1, source.count(SELECTOR_LINE))
         for forbidden in (
             "runs-on: portable",
+            "runs-on: [linux, amd64, general]",
             "runs-on: macOS",
             "runs-on: apple",
             "macos-latest",
@@ -143,6 +144,7 @@ class GeneralLinuxSelfCheckTest(unittest.TestCase):
             "runs-on: portable",
             "runs-on: [linux]",
             "runs-on: [linux, amd64]",
+            "runs-on: [linux, amd64, general]",
             "runs-on: [linux, amd64, general, mobile]",
             "runs-on: [linux, amd64, portable]",
             "runs-on: macOS",
@@ -217,14 +219,15 @@ class GeneralLinuxSelfCheckTest(unittest.TestCase):
         contract = json.loads(
             (ROOT / "contracts/runner-profiles.json").read_text()
         )
-        portable = next(
+        general_small = next(
             profile
             for profile in contract["profiles"]
-            if profile["id"] == "portable"
+            if profile["id"] == "general-small"
         )
+        self.assertIn("portable", general_small["public_labels"])
         self.assertEqual(
-            portable["default_internal_selector"],
-            ["linux", "amd64", "general"],
+            general_small["default_internal_selector"],
+            ["linux", "amd64", "general", "small"],
         )
 
     def test_absolute_interpreter_is_exported_before_identity_rejection(

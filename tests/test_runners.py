@@ -25,7 +25,9 @@ class RunnerContractTests(unittest.TestCase):
         self.assertEqual(
             set(self.profiles),
             {
-                "portable",
+                "general-tiny",
+                "general-small",
+                "general-medium",
                 "mobile",
                 "buildah-tiny",
                 "buildah-small",
@@ -118,6 +120,50 @@ class RunnerContractTests(unittest.TestCase):
         self.assertNotIn("docker", aliases)
         self.assertNotIn("dind", aliases)
 
+    def test_portable_compatibility_maps_only_to_general_small(self) -> None:
+        aliases = runners.profile_alias_index(self.contract)
+        self.assertEqual(aliases["portable"], "general-small")
+        resolved = runners.resolve_runner_profile(
+            self.contract,
+            workflow_api="validation.python",
+            source_trust="trusted-pr",
+            requested_profile="portable",
+        )
+        self.assertEqual(resolved.profile, "general-small")
+        self.assertEqual(resolved.execution_profile, "general-small")
+        self.assertEqual(
+            resolved.runs_on,
+            ("linux", "amd64", "general", "small"),
+        )
+        self.assertNotIn("portable", resolved.runs_on)
+
+    def test_general_selectors_are_exactly_sized(self) -> None:
+        expected = {
+            "general-tiny": ("linux", "amd64", "general", "tiny"),
+            "general-small": ("linux", "amd64", "general", "small"),
+            "general-medium": ("linux", "amd64", "general", "medium"),
+        }
+        for profile_id, selector in expected.items():
+            with self.subTest(profile=profile_id):
+                self.assertEqual(
+                    tuple(self.profiles[profile_id]["default_internal_selector"]),
+                    selector,
+                )
+                self.assertEqual(
+                    runners.validate_direct_selector(self.contract, selector),
+                    profile_id,
+                )
+        with self.assertRaisesRegex(runners.RunnerContractError, "ambiguous-general"):
+            runners.validate_direct_selector(
+                self.contract,
+                ["linux", "amd64", "general"],
+            )
+        with self.assertRaisesRegex(runners.RunnerContractError, "ambiguous-general"):
+            runners.validate_direct_selector(
+                self.contract,
+                ["linux", "amd64", "general", "tiny", "small"],
+            )
+
     def test_generic_buildah_semantic_profile_maps_only_to_small(self) -> None:
         self.assertEqual(
             runners.profile_alias_index(self.contract)["buildah"],
@@ -164,6 +210,13 @@ class RunnerContractTests(unittest.TestCase):
                 self.assertFalse(
                     any(label.startswith("homelab-") for label in flattened)
                 )
+
+    def test_flux_owned_arc_profiles_have_no_central_concurrency_cap(self) -> None:
+        for profile_id, profile in self.profiles.items():
+            if profile["capacity_owner"] != "flux-arc":
+                continue
+            with self.subTest(profile=profile_id):
+                self.assertIsNone(profile["concurrency_cap"])
 
     def test_apple_selector_matches_the_current_capability_contract(self) -> None:
         profile = self.profiles["apple"]
@@ -262,7 +315,12 @@ class RunnerContractTests(unittest.TestCase):
         for profile in self.contract["profiles"]:
             values = [profile["id"], *profile["public_labels"]]
             values.extend(tool["name"] for tool in profile["tools"])
-            self.assertFalse(any("docker" in value.lower() or "dind" in value.lower() for value in values))
+            self.assertFalse(
+                any(
+                    "docker" in value.lower() or "dind" in value.lower()
+                    for value in values
+                )
+            )
 
     def test_generated_outputs_are_current(self) -> None:
         runners.write_generated_outputs(ROOT, check=True)
@@ -285,11 +343,29 @@ class RunnerContractTests(unittest.TestCase):
 
     def test_unknown_inventory_migration_fails_closed(self) -> None:
         inventory = {
-            "workflow_columns": ["path", "name", "status", "disposition", "migration", "trust", "blob"],
+            "workflow_columns": [
+                "path",
+                "name",
+                "status",
+                "disposition",
+                "migration",
+                "trust",
+                "blob",
+            ],
             "repositories": [
                 {
                     "repository": "StreamScapeTV/example",
-                    "workflows": [[".github/workflows/ci.yml", "CI", "current", "thin", "new-class", "read", None]],
+                    "workflows": [
+                        [
+                            ".github/workflows/ci.yml",
+                            "CI",
+                            "current",
+                            "thin",
+                            "new-class",
+                            "read",
+                            None,
+                        ]
+                    ],
                 }
             ],
         }
@@ -309,11 +385,14 @@ class RunnerContractTests(unittest.TestCase):
             "No deprecated Linux ARC scheduling alias remains registered",
             source,
         )
+        self.assertIn("general-tiny", source)
+        self.assertIn("general-small", source)
+        self.assertIn("general-medium", source)
         self.assertIn("physical-device", source)
 
     def test_architecture_records_planner_and_flux_boundary(self) -> None:
         source = (ROOT / "docs/architecture/runners.md").read_text(encoding="utf-8")
-        self.assertIn("trusted `portable` planning job", source)
+        self.assertIn("trusted `general-tiny` planning job", source)
         self.assertIn("A composite action cannot safely resolve `runs-on`", source)
         self.assertIn("Flux owns", source)
         self.assertIn("generate --check", source)
