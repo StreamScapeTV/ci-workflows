@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/reusable-android.yml"
 FIXTURES_PATH = ROOT / "tests/fixtures/android-validation/cases.json"
 PUBLIC_PATH = ROOT / "contracts/public-workflows/validation.json"
-VALIDATE_ANDROID_SHA = "aef024030a7e96da74bb98b24bd67b532f289fc1"
+VALIDATE_ANDROID_SHA = "8c7e16003b56da9f6bd2e20b0b5b78e4bbfaceaf"
 PRIVATE_HELPER_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 PRIVATE_HELPERS = {
     "StreamScapeTV/ci-workflows/actions/validate-android",
@@ -78,7 +78,7 @@ class AndroidPrivateReuseRegressionTests(unittest.TestCase):
             {sha for path, sha in helpers.items() if path != validate_path},
         )
         self.assertNotIn(
-            "actions/validate-android@275ee86f0f5de3d8f3330b92c84d7c0188fb10f8",
+            "actions/validate-android@aef024030a7e96da74bb98b24bd67b532f289fc1",
             self.source,
         )
 
