@@ -6,13 +6,12 @@ issues:
   19:
     blocked_by:
       - 18
-      - 278
-      - 281
-      - 282
+      - 283
   21:
     blocked_by:
       - 283
       - 235
+      - 19
   22:
     blocked_by:
       - 283
@@ -102,7 +101,6 @@ issues:
     blocked_by: []
   283:
     blocked_by:
-      - 19
       - 265
       - 278
       - 279
