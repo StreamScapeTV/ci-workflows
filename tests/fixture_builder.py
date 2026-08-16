@@ -31,20 +31,13 @@ def minimal_public_record(**overrides: Any) -> dict[str, Any]:
         "trust_class": "read-only-validation",
         "permission_profile": "validation-read",
         "semantic_runner_profile": "portable",
-        "permitted_events": [
-            "pull_request",
-            "push",
-            "workflow_dispatch",
-            "workflow_call",
-        ],
+        "permitted_events": ["pull_request", "push", "workflow_dispatch", "workflow_call"],
         "inputs": [{"name": "admitted_sha", "required": True}],
         "secrets": [],
         "outputs": ["result"],
         "stable_check_name": "CI / Sample",
         "timeout_minutes": 20,
         "matrix_max_jobs": 4,
-        "supported_consumers": ["StreamScapeTV/example"],
-        "supported_products": [],
         "repository_owned_hooks": [],
         "implementation_components": ["ci_workflows.sample.validate"],
     }
@@ -93,11 +86,7 @@ jobs:
 """
 
 
-def create_repository(
-    root: Path,
-    *,
-    config_overrides: Mapping[str, Any] | None = None,
-) -> None:
+def create_repository(root: Path, *, config_overrides: Mapping[str, Any] | None = None) -> None:
     record = minimal_public_record()
     write_json(
         root / "contracts/public-workflows.json",
@@ -128,15 +117,8 @@ def create_repository(
             "defaults": {
                 "max_reusable_workflow_depth": 2,
                 "forbidden_caller_fields": [
-                    "runner",
-                    "runs_on",
-                    "container_engine",
-                    "registry_host",
-                    "cluster",
-                    "namespace",
-                    "arbitrary_command",
-                    "shell",
-                    "callback_url",
+                    "runner", "runs_on", "container_engine", "registry_host",
+                    "cluster", "namespace", "arbitrary_command", "shell", "callback_url",
                 ],
             },
         },
@@ -176,15 +158,8 @@ def create_repository(
                 {
                     "id": "general-small",
                     "public_labels": ["portable"],
-                    "default_internal_selector": [
-                        "linux",
-                        "amd64",
-                        "general",
-                        "small",
-                    ],
-                    "internal_selectors": [
-                        ["linux", "amd64", "general", "small"],
-                    ],
+                    "default_internal_selector": ["linux", "amd64", "general", "small"],
+                    "internal_selectors": [["linux", "amd64", "general", "small"]],
                 }
             ],
         },
@@ -215,10 +190,7 @@ def create_repository(
         },
     )
     write_text(root / "requirements/validation.lock", "PyYAML==6.0.3\n")
-    write_text(
-        root / "docs/validation.md",
-        "validation.sample .github/workflows/reusable-sample.yml\n",
-    )
+    write_text(root / "docs/validation.md", "validation.sample .github/workflows/reusable-sample.yml\n")
     write_text(root / ".github/workflows/reusable-sample.yml", valid_workflow())
     write_text(
         root / "src/ci_workflows/sample.py",
