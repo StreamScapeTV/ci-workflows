@@ -60,7 +60,10 @@ class MaintenanceWorkflowContractTests(unittest.TestCase):
                 )
                 self.assertEqual(len(workflow["jobs"]), 1)
                 job = next(iter(workflow["jobs"].values()))
-                self.assertEqual(job["runs-on"], ["linux", "amd64", "general"])
+                self.assertEqual(
+                    job["runs-on"],
+                    ["linux", "amd64", "general", "small"],
+                )
                 self.assertLessEqual(
                     job["timeout-minutes"],
                     record["timeout_minutes"],
@@ -159,7 +162,10 @@ class MaintenanceWorkflowContractTests(unittest.TestCase):
             {"actions": "read", "contents": "read"},
         )
         job = workflow["jobs"]["focused"]
-        self.assertEqual(job["runs-on"], ["linux", "amd64", "general"])
+        self.assertEqual(
+            job["runs-on"],
+            ["linux", "amd64", "general", "small"],
+        )
         self.assertIn("github.event.pull_request.head.sha", text)
         self.assertIn("zero Actions artifacts", text)
         self.assertNotIn("secrets.", text)

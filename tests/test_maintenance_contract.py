@@ -26,7 +26,7 @@ class MaintenanceContractTests(unittest.TestCase):
         )
         self.assertEqual(
             contract.maintenance_runner_selector,
-            ("linux", "amd64", "general"),
+            ("linux", "amd64", "general", "small"),
         )
         self.assertEqual(
             contract.flux_runner_selector,

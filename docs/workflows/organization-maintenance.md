@@ -12,7 +12,7 @@ Issue #20 centralizes domain-neutral GitHub maintenance and trusted Flux reconci
 | `maintenance.runner-retry` | `reusable-runner-infrastructure-retry.yml` | dry-run | rerun attempt-1 failed jobs only for proven self-hosted runner-infrastructure loss |
 | `flux.reconcile` | `reusable-flux-reconcile.yml` | dry-run | resolve a typed plan from exact Flux-owned policy and optionally apply it on `flux-control` capacity |
 
-Maintenance runs on `[linux, amd64, general]`; Flux reconciliation runs on `[linux, amd64, flux-control]`. Callers never choose runner labels, repositories, shell commands, callbacks, cluster targets, or secret names. The five private composite actions are thin adapters over the canonical typed `scripts/ci/ciw.py` registry (`maintenance artifacts`, `maintenance branches`, `maintenance conformance`, `maintenance runner-retry`, and `flux reconcile`); they do not bypass the command registry through bespoke script entry points.
+Maintenance runs on `[linux, amd64, general, small]`; Flux reconciliation runs on `[linux, amd64, flux-control]`. Callers never choose runner labels, repositories, shell commands, callbacks, cluster targets, or secret names. The five private composite actions are thin adapters over the canonical typed `scripts/ci/ciw.py` registry (`maintenance artifacts`, `maintenance branches`, `maintenance conformance`, `maintenance runner-retry`, and `flux reconcile`); they do not bypass the command registry through bespoke script entry points.
 
 ## GitHub transport and replay safety
 

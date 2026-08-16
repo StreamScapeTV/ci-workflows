@@ -20,7 +20,7 @@ permissions:
 jobs:
   retry:
     name: Maintenance / Runner retry
-    runs-on: [linux, amd64, general]
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 30
     outputs:
       result: ${{ steps.retry.outputs.result }}

@@ -4,7 +4,7 @@
   "contract_version": "1.0.0",
   "workflow_inventory_path": "contracts/workflow-inventory.json",
   "artifact_exceptions_path": "contracts/artifact-exceptions.json",
-  "maintenance_runner_selector": ["linux", "amd64", "general"],
+  "maintenance_runner_selector": ["linux", "amd64", "general", "small"],
   "flux_runner_selector": ["linux", "amd64", "flux-control"],
   "request_id_pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$",
   "projects": [
