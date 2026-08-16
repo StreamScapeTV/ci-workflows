@@ -14,7 +14,13 @@ class BackendPullRequestHostProfileTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.contract = python_validation.load_python_contract(ROOT)
 
-    def request(self, *, profile: str, command: str, trust: str) -> python_validation.PythonValidationRequest:
+    def request(
+        self,
+        *,
+        profile: str,
+        command: str,
+        trust: str,
+    ) -> python_validation.PythonValidationRequest:
         return python_validation.PythonValidationRequest(
             repository="StreamScapeTV/iptv-backend",
             admitted_sha=SHA,
@@ -22,7 +28,11 @@ class BackendPullRequestHostProfileTests(unittest.TestCase):
             command_profile=command,
             working_directory=".",
             version_file=None,
-            script_path="scripts/run_release_gates.sh" if command in {"locked-test", "full-test"} else None,
+            script_path=(
+                "scripts/run_release_gates.sh"
+                if command in {"locked-test", "full-test"}
+                else None
+            ),
             artifact_exception_id=None,
             source_trust=trust,
         )
@@ -30,11 +40,15 @@ class BackendPullRequestHostProfileTests(unittest.TestCase):
     def test_same_repository_pr_resolves_only_to_portable_host_validation(self) -> None:
         plan = python_validation.resolve_validation_plan(
             self.contract,
-            self.request(profile="host", command="locked-test", trust="trusted-pr"),
+            self.request(
+                profile="host",
+                command="locked-test",
+                trust="trusted-pr",
+            ),
         )
         self.assertEqual("portable", plan.runner_profile)
-        self.assertEqual("host-cpython-3.12.3", plan.runtime_id)
-        self.assertEqual("3.12.3", plan.python_version)
+        self.assertEqual("host-cpython-3.12", plan.runtime_id)
+        self.assertEqual("3.12", plan.python_version)
         self.assertIsNone(plan.postgres_runtime_reference)
         self.assertEqual(
             [command.argv for command in plan.commands],
@@ -56,7 +70,11 @@ class BackendPullRequestHostProfileTests(unittest.TestCase):
                 ):
                     python_validation.resolve_validation_plan(
                         self.contract,
-                        self.request(profile=profile, command=command, trust="trusted-pr"),
+                        self.request(
+                            profile=profile,
+                            command=command,
+                            trust="trusted-pr",
+                        ),
                     )
 
     def test_fork_source_cannot_use_backend_host_validation(self) -> None:
@@ -66,7 +84,11 @@ class BackendPullRequestHostProfileTests(unittest.TestCase):
         ):
             python_validation.resolve_validation_plan(
                 self.contract,
-                self.request(profile="host", command="locked-test", trust="untrusted-fork"),
+                self.request(
+                    profile="host",
+                    command="locked-test",
+                    trust="untrusted-fork",
+                ),
             )
 
 

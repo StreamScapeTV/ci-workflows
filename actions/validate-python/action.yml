@@ -78,7 +78,15 @@ runs:
         INPUT_ARTIFACT_EXCEPTION_ID: ${{ inputs.artifact_exception_id }}
       run: |
         set -Eeuo pipefail
-        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
+        interpreter="$(type -P python3.12 || true)"
+        if [[ -z "${interpreter}" ]]; then
+          interpreter="$(type -P python3 || true)"
+        fi
+        if [[ -z "${interpreter}" || "${interpreter}" != /* || ! -x "${interpreter}" ]]; then
+          echo '::error::Runner-provided CPython 3.12 is unavailable.' >&2
+          exit 2
+        fi
+        "${interpreter}" "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
           python validate \
           --phase "${{ inputs.phase }}" \
           --source-root source

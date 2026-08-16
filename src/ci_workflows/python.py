@@ -21,12 +21,12 @@ from .python_contract import (
 from .python_execution import (
     cleanup_podman,
     container_script,
-    execute_host_plan,
     execute_podman_plan,
     result_from_plan,
     run_command,
     verify_exact_source,
 )
+from .python_host_execution import execute_host_plan, result_from_host_plan
 from .python_types import (
     PythonCommand,
     PythonValidationError,
@@ -91,9 +91,10 @@ def validate(
 
     original_error: BaseException | None = None
     stage_count = 0
+    host_python_version: str | None = None
     try:
         if plan.isolation == "copied-host-source":
-            stage_count = execute_host_plan(
+            stage_count, host_python_version = execute_host_plan(
                 exact_source,
                 registered_state,
                 plan,
@@ -116,6 +117,8 @@ def validate(
     _verify_policy(exact_source, request, contract_root, "after")
     if original_error is not None:
         raise original_error
+    if host_python_version is not None:
+        return result_from_host_plan(plan, stage_count, host_python_version)
     return result_from_plan(plan, stage_count)
 
 

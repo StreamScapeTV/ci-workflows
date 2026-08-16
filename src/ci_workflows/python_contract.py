@@ -121,7 +121,8 @@ def runtime_reference(runtime: Mapping[str, Any]) -> str | None:
     if runtime.get("kind") == "host":
         require(runtime.get("implementation") == "cpython", "toolchain_mismatch")
         require(
-            EXACT_VERSION.fullmatch(str(runtime.get("python_version", ""))) is not None,
+            VERSION_FAMILY.fullmatch(str(runtime.get("python_version", "")))
+            is not None,
             "toolchain_mismatch",
         )
         return None
@@ -147,13 +148,25 @@ def _validate_profile_contract(payload: Mapping[str, Any]) -> None:
     require(set(profiles) == set(PROFILE_RUNNERS), "invalid_input")
     for name, profile in profiles.items():
         require(isinstance(profile, Mapping), "invalid_input")
-        require(profile.get("runner_profile") == PROFILE_RUNNERS[name], "invalid_input")
-        require(profile.get("timeout_minutes") == PROFILE_TIMEOUTS[name], "invalid_input")
+        require(
+            profile.get("runner_profile") == PROFILE_RUNNERS[name],
+            "invalid_input",
+        )
+        require(
+            profile.get("timeout_minutes") == PROFILE_TIMEOUTS[name],
+            "invalid_input",
+        )
         require(isinstance(profile.get("postgres"), bool), "invalid_input")
-        require(bool(_strings(profile.get("allowed_source_trust"), empty=False)), "invalid_input")
+        require(
+            bool(_strings(profile.get("allowed_source_trust"), empty=False)),
+            "invalid_input",
+        )
     require(profiles["podman-postgres"]["postgres"] is True, "invalid_input")
     require(
-        all(profiles[name]["postgres"] is False for name in ("audit", "host", "podman")),
+        all(
+            profiles[name]["postgres"] is False
+            for name in ("audit", "host", "podman")
+        ),
         "invalid_input",
     )
 
@@ -162,7 +175,7 @@ def _validate_runtime_contract(payload: Mapping[str, Any]) -> None:
     runtimes = payload.get("runtimes")
     require(isinstance(runtimes, Mapping), "toolchain_mismatch")
     expected = {
-        "host-cpython-3.12.3",
+        "host-cpython-3.12",
         "python-3.12.8-slim-amd64",
         "python-3.12.13-slim-amd64",
         "postgres-16.11-alpine-amd64",
@@ -171,12 +184,16 @@ def _validate_runtime_contract(payload: Mapping[str, Any]) -> None:
     for runtime in runtimes.values():
         require(isinstance(runtime, Mapping), "toolchain_mismatch")
         runtime_reference(runtime)
+    host = runtimes["host-cpython-3.12"]
+    require(host.get("python_version") == "3.12", "toolchain_mismatch")
+    require(host.get("platforms") == ["linux/x64"], "toolchain_mismatch")
     require(
         runtimes["python-3.12.8-slim-amd64"].get("python_version") == "3.12.8",
         "toolchain_mismatch",
     )
     require(
-        runtimes["python-3.12.13-slim-amd64"].get("python_version") == "3.12.13",
+        runtimes["python-3.12.13-slim-amd64"].get("python_version")
+        == "3.12.13",
         "toolchain_mismatch",
     )
     require(
@@ -195,7 +212,8 @@ def _validate_consumer_profile(
     require(command_profile in command_contracts, "invalid_input")
     require(validation_profile in payload["profiles"], "unsupported_profile")
     require(
-        validation_profile in command_contracts[command_profile]["allowed_profiles"],
+        validation_profile
+        in command_contracts[command_profile]["allowed_profiles"],
         "unsupported_profile",
     )
     require(value.get("runtime") in payload["runtimes"], "toolchain_mismatch")
@@ -225,10 +243,19 @@ def _validate_consumer_profile(
     rows = value.get("commands")
     require(isinstance(rows, list) and rows, "invalid_input")
     for row in rows:
-        require(isinstance(row, Mapping) and set(row) == {"stage", "argv"}, "invalid_input")
-        require(row.get("stage") in command_contracts[command_profile]["stages"], "invalid_input")
+        require(
+            isinstance(row, Mapping) and set(row) == {"stage", "argv"},
+            "invalid_input",
+        )
+        require(
+            row.get("stage") in command_contracts[command_profile]["stages"],
+            "invalid_input",
+        )
         argv = _strings(row.get("argv"), empty=False)
-        require(all("\n" not in item and "\r" not in item for item in argv), "invalid_input")
+        require(
+            all("\n" not in item and "\r" not in item for item in argv),
+            "invalid_input",
+        )
 
 
 def load_python_contract(root: Path) -> Mapping[str, Any]:
@@ -239,7 +266,10 @@ def load_python_contract(root: Path) -> Mapping[str, Any]:
     require(payload.get("contract_version") == "1.0.0", "invalid_input")
     require(payload.get("organization") == "StreamScapeTV", "invalid_input")
     require(payload.get("workflow_api") == "validation.python", "invalid_input")
-    require(payload.get("stable_check_name") == "CI / Python validation", "invalid_input")
+    require(
+        payload.get("stable_check_name") == "CI / Python validation",
+        "invalid_input",
+    )
     require(payload.get("hard_timeout_minutes") == 120, "invalid_input")
     require(payload.get("cache_mode") == "disabled", "invalid_input")
     require(payload.get("artifact_policy") == "zero-default", "invalid_input")
@@ -249,19 +279,36 @@ def load_python_contract(root: Path) -> Mapping[str, Any]:
     require(isinstance(command_profiles, Mapping), "invalid_input")
     require(
         set(command_profiles)
-        == {"source-audit", "locked-test", "full-test", "postgres-test", "release-contract"},
+        == {
+            "source-audit",
+            "locked-test",
+            "full-test",
+            "postgres-test",
+            "release-contract",
+        },
         "invalid_input",
     )
     for command in command_profiles.values():
         require(isinstance(command, Mapping), "invalid_input")
-        require(command.get("script_path_mode") == "contract-fixed-only", "invalid_input")
-        require(set(_strings(command.get("allowed_profiles"), empty=False)) <= set(PROFILE_RUNNERS), "invalid_input")
+        require(
+            command.get("script_path_mode") == "contract-fixed-only",
+            "invalid_input",
+        )
+        require(
+            set(_strings(command.get("allowed_profiles"), empty=False))
+            <= set(PROFILE_RUNNERS),
+            "invalid_input",
+        )
         _strings(command.get("stages"), empty=False)
     consumers = payload.get("consumers")
     require(isinstance(consumers, Mapping), "invalid_input")
     require(
         set(consumers)
-        == {"StreamScapeTV/iptv-backend", "StreamScapeTV/agent-state", "StreamScapeTV/flux"},
+        == {
+            "StreamScapeTV/iptv-backend",
+            "StreamScapeTV/agent-state",
+            "StreamScapeTV/flux",
+        },
         "invalid_input",
     )
     for repository, consumer in consumers.items():
@@ -272,8 +319,16 @@ def load_python_contract(root: Path) -> Mapping[str, Any]:
         for name, value in profiles.items():
             require(isinstance(value, Mapping), "invalid_input")
             _validate_consumer_profile(payload, str(name), value)
-    require(set(_strings(payload.get("failure_codes"), empty=False)) == FAILURE_CODES, "invalid_input")
-    require(REQUIRED_FORBIDDEN_INPUTS <= set(_strings(payload.get("forbidden_inputs"), empty=False)), "invalid_input")
+    require(
+        set(_strings(payload.get("failure_codes"), empty=False))
+        == FAILURE_CODES,
+        "invalid_input",
+    )
+    require(
+        REQUIRED_FORBIDDEN_INPUTS
+        <= set(_strings(payload.get("forbidden_inputs"), empty=False)),
+        "invalid_input",
+    )
     cleanup = payload.get("cleanup")
     require(
         isinstance(cleanup, Mapping)
@@ -299,15 +354,25 @@ def source_trust_from_environment(environment: Mapping[str, str]) -> str:
     if environment.get("GITHUB_EVENT_NAME") != "pull_request":
         return "trusted-exact"
     try:
-        payload = json.loads(Path(environment.get("GITHUB_EVENT_PATH", "")).read_text(encoding="utf-8"))
+        payload = json.loads(
+            Path(environment.get("GITHUB_EVENT_PATH", "")).read_text(
+                encoding="utf-8"
+            )
+        )
         head_repository = payload["pull_request"]["head"]["repo"]["full_name"]
     except (OSError, json.JSONDecodeError, KeyError, TypeError) as error:
         raise PythonValidationError("invalid_input") from error
     require(isinstance(head_repository, str) and head_repository, "invalid_input")
-    return "trusted-pr" if head_repository == environment.get("GITHUB_REPOSITORY") else "untrusted-fork"
+    return (
+        "trusted-pr"
+        if head_repository == environment.get("GITHUB_REPOSITORY")
+        else "untrusted-fork"
+    )
 
 
-def request_from_environment(environment: Mapping[str, str]) -> PythonValidationRequest:
+def request_from_environment(
+    environment: Mapping[str, str],
+) -> PythonValidationRequest:
     """Build a typed request from bounded action inputs and GitHub identity."""
 
     repository = environment.get("GITHUB_REPOSITORY", "").strip()
@@ -326,8 +391,12 @@ def request_from_environment(environment: Mapping[str, str]) -> PythonValidation
         validation_profile=validation_profile,
         command_profile=command_profile,
         working_directory="." if working == "." else safe_relative(working),
-        version_file=_optional_relative(environment.get("INPUT_VERSION_FILE", "").strip() or None),
-        script_path=_optional_relative(environment.get("INPUT_SCRIPT_PATH", "").strip() or None),
+        version_file=_optional_relative(
+            environment.get("INPUT_VERSION_FILE", "").strip() or None
+        ),
+        script_path=_optional_relative(
+            environment.get("INPUT_SCRIPT_PATH", "").strip() or None
+        ),
         artifact_exception_id=artifact,
         source_trust=source_trust_from_environment(environment),
     )
@@ -342,26 +411,43 @@ def resolve_validation_plan(
     profiles = contract["profiles"]
     require(request.validation_profile in profiles, "unsupported_profile")
     profile = profiles[request.validation_profile]
-    require(request.source_trust in profile["allowed_source_trust"], "unsupported_profile")
+    require(
+        request.source_trust in profile["allowed_source_trust"],
+        "unsupported_profile",
+    )
     command_profiles = contract["command_profiles"]
     require(request.command_profile in command_profiles, "unsupported_profile")
     require(
-        request.validation_profile in command_profiles[request.command_profile]["allowed_profiles"],
+        request.validation_profile
+        in command_profiles[request.command_profile]["allowed_profiles"],
         "unsupported_profile",
     )
     require(request.repository in contract["consumers"], "unsupported_profile")
     mappings = contract["consumers"][request.repository]["profiles"]
     require(request.command_profile in mappings, "unsupported_profile")
     consumer = mappings[request.command_profile]
-    require(consumer["validation_profile"] == request.validation_profile, "unsupported_profile")
-    require(request.working_directory == consumer.get("working_directory", "."), "invalid_input")
+    require(
+        consumer["validation_profile"] == request.validation_profile,
+        "unsupported_profile",
+    )
+    require(
+        request.working_directory == consumer.get("working_directory", "."),
+        "invalid_input",
+    )
     if request.version_file is not None:
-        require(request.version_file == consumer.get("version_file"), "invalid_input")
+        require(
+            request.version_file == consumer.get("version_file"),
+            "invalid_input",
+        )
     if request.script_path is not None:
-        require(request.script_path == consumer.get("script_path"), "invalid_input")
+        require(
+            request.script_path == consumer.get("script_path"),
+            "invalid_input",
+        )
     command_contract = command_profiles[request.command_profile]
     require(
-        bool(consumer.get("dependency_file")) == bool(command_contract["dependency_required"]),
+        bool(consumer.get("dependency_file"))
+        == bool(command_contract["dependency_required"]),
         "dependency_lock_drift",
     )
     require(
@@ -373,7 +459,9 @@ def resolve_validation_plan(
     runtime = contract["runtimes"][runtime_id]
     postgres_reference = None
     if profile["postgres"]:
-        postgres_reference = runtime_reference(contract["runtimes"][contract["postgres"]["runtime"]])
+        postgres_reference = runtime_reference(
+            contract["runtimes"][contract["postgres"]["runtime"]]
+        )
         require(postgres_reference is not None, "toolchain_mismatch")
     return PythonValidationPlan(
         repository=request.repository,
@@ -391,15 +479,22 @@ def resolve_validation_plan(
         version_file=consumer.get("version_file"),
         dependency_file=consumer.get("dependency_file"),
         script_path=consumer.get("script_path"),
-        database_environment_variable=consumer.get("database_environment_variable"),
+        database_environment_variable=consumer.get(
+            "database_environment_variable"
+        ),
         environment=dict(consumer["environment"]),
         commands=tuple(
-            PythonCommand(str(row["stage"]), tuple(str(item) for item in row["argv"]))
+            PythonCommand(
+                str(row["stage"]),
+                tuple(str(item) for item in row["argv"]),
+            )
             for row in consumer["commands"]
         ),
         postgres_runtime_reference=postgres_reference,
         readiness_attempts=int(contract["postgres"]["readiness_attempts"]),
-        readiness_interval_seconds=int(contract["postgres"]["readiness_interval_seconds"]),
+        readiness_interval_seconds=int(
+            contract["postgres"]["readiness_interval_seconds"]
+        ),
     )
 
 
@@ -407,12 +502,17 @@ def bounded_path(root: Path, relative: str) -> Path:
     resolved_root = root.resolve()
     if relative == ".":
         return resolved_root
-    target = (resolved_root / Path(*PurePosixPath(relative).parts)).resolve(strict=False)
+    target = (
+        resolved_root / Path(*PurePosixPath(relative).parts)
+    ).resolve(strict=False)
     require(resolved_root in target.parents, "invalid_input")
     current = resolved_root
     for part in target.relative_to(resolved_root).parts:
         current /= part
-        require(not (current.exists() and current.is_symlink()), "invalid_input")
+        require(
+            not (current.exists() and current.is_symlink()),
+            "invalid_input",
+        )
     return target
 
 
@@ -420,7 +520,9 @@ def resolve_python_version(source_root: Path, plan: PythonValidationPlan) -> str
     """Verify an optional consumer-owned exact or major/minor version file."""
 
     expected = plan.python_version
-    require(EXACT_VERSION.fullmatch(expected) is not None, "python_version_drift")
+    expected_exact = EXACT_VERSION.fullmatch(expected) is not None
+    expected_family = VERSION_FAMILY.fullmatch(expected) is not None
+    require(expected_exact or expected_family, "python_version_drift")
     if plan.version_file is None:
         return expected
     path = bounded_path(source_root, plan.version_file)
@@ -430,15 +532,18 @@ def resolve_python_version(source_root: Path, plan: PythonValidationPlan) -> str
     except OSError as error:
         raise PythonValidationError("python_version_drift") from error
     require("\n" not in value and "\r" not in value, "python_version_drift")
-    require(
-        EXACT_VERSION.fullmatch(value) is not None
-        or VERSION_FAMILY.fullmatch(value) is not None,
-        "python_version_drift",
-    )
-    if EXACT_VERSION.fullmatch(value):
-        require(value == expected, "python_version_drift")
+    value_exact = EXACT_VERSION.fullmatch(value) is not None
+    value_family = VERSION_FAMILY.fullmatch(value) is not None
+    require(value_exact or value_family, "python_version_drift")
+    if expected_exact:
+        if value_exact:
+            require(value == expected, "python_version_drift")
+        else:
+            require(expected.startswith(value + "."), "python_version_drift")
+    elif value_exact:
+        require(value.startswith(expected + "."), "python_version_drift")
     else:
-        require(expected.startswith(value + "."), "python_version_drift")
+        require(value == expected, "python_version_drift")
     return expected
 
 
@@ -464,7 +569,10 @@ def _lock_material(path: Path, source_root: Path, visited: set[Path]) -> str:
         if lowered.startswith("-r ") or lowered.startswith("--requirement "):
             parts = row.split(maxsplit=1)
             require(len(parts) == 2, "dependency_lock_drift")
-            include = bounded_path(path.parent, safe_relative(parts[1], "dependency_lock_drift"))
+            include = bounded_path(
+                path.parent,
+                safe_relative(parts[1], "dependency_lock_drift"),
+            )
             material.append(_lock_material(include, source_root, visited))
             continue
         require(
@@ -473,14 +581,20 @@ def _lock_material(path: Path, source_root: Path, visited: set[Path]) -> str:
             and not lowered.startswith("--editable")
             and (
                 "==" in row
-                or ("--hash=sha256:" in row and ("https://" in row or "http://" in row))
+                or (
+                    "--hash=sha256:" in row
+                    and ("https://" in row or "http://" in row)
+                )
             ),
             "dependency_lock_drift",
         )
     return "\n".join(material)
 
 
-def validate_dependency_lock(source_root: Path, plan: PythonValidationPlan) -> str | None:
+def validate_dependency_lock(
+    source_root: Path,
+    plan: PythonValidationPlan,
+) -> str | None:
     """Require exact pins, including bounded recursive requirements includes."""
 
     if plan.dependency_file is None:

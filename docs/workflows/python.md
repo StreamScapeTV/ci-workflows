@@ -20,51 +20,57 @@ The reusable Python workflow validates one exact source SHA through a checked-in
 
 ## Public outputs
 
-- `result`: `success` only when the bounded validation stage and terminal cleanup both succeed.
+- `result`: `success` only when bounded validation, registered-state cleanup, and the final exact clean-source check all succeed.
 - `test_summary`: deterministic compact JSON containing only profile, command-profile, status, and stage count.
 - `artifact_exception_used`: `false` for the initial zero-artifact API.
 
-No command output, database URL, generated credential, host path, image pull details, or container identity is exposed through outputs.
+No command output, database URL, generated credential, host path, image pull detail, or container identity is exposed through outputs.
 
 ## Profiles
 
 ### `audit`
 
-`audit` uses the semantic `portable` runner. It copies exact source into workflow-scoped state and executes only source-only reviewed checks. It is the only profile permitted for untrusted fork source. The current Flux issue-ledger validation shape is represented by the checked-in `source-audit` fixture.
+`audit` uses the semantic `portable` runner. It copies exact source into workflow-scoped state and executes only reviewed source checks. It is the only profile permitted for untrusted fork source. The current Flux issue-ledger validation shape is represented by the checked-in `source-audit` fixture.
 
 ### `host`
 
-`host` uses `portable`, verifies exact pre-provisioned CPython `3.12.3`, creates an isolated home, temporary directory, XDG roots, and optional virtual environment, and runs only the selected checked-in profile. It does not install or elevate a host interpreter when the runtime drifts. Current Agent State automation checks and the Backend same-repository pull-request gate use this shape.
+`host` also uses `portable`, which resolves to the reviewed general Linux capacity. It requires runner-provided CPython 3.12 on Linux/x64, accepts any actual `3.12.x` patch, and reports the resolved patch in the bounded result. A non-3.12 interpreter fails before dependency restore. The workflow never installs, downloads, or elevates a host interpreter.
+
+Host validation creates isolated `HOME`, `TMPDIR`, XDG roots, and an optional virtual environment beneath registered workflow state. The shared Python primitives resolve the interpreter, create the venv, install the product-owned exact requirements with `--no-input --no-cache-dir`, and run reviewed Python modules or tests. Non-Python product commands, such as the Backend release gate, remain exact checked-in argv from the compatibility contract.
+
+Current Agent State source checks and the Backend same-repository pull-request gate use this shape.
 
 ### `podman`
 
-`podman` requires `trusted-exact` source and resolves centrally to `buildah-high`. The caller cannot select labels or engines. The workflow verifies Podman availability, rejects Docker/DinD and Docker sockets, uses the `vfs` storage driver in marker-bound state, mounts caller source read-only, copies it into disposable work state, and runs an exact digest-pinned Python image. Current Backend full validation uses this shape.
+`podman` requires `trusted-exact` source and resolves centrally to `buildah-high`. The caller cannot select labels or engines. The existing path verifies Podman availability, rejects Docker/DinD and Docker sockets, uses the `vfs` storage driver in marker-bound state, mounts caller source read-only, copies it into disposable work state, and runs an exact digest-pinned Python image. Current Backend full validation uses this shape.
 
 ### `podman-postgres`
 
 `podman-postgres` requires `trusted-exact` source and resolves centrally to `buildah-medium`. It adds one exact digest-pinned PostgreSQL 16.11 service, generated per-run credentials, one isolated network, one isolated data volume, bounded readiness, and no remote database fallback. Current Backend and Agent State PostgreSQL validation shapes are represented by checked-in command fixtures.
 
-## Immutable private helper reuse
+## Code distribution and runtime authority
 
-Private consumers do not clone `StreamScapeTV/ci-workflows` with the caller-scoped token. The planner and executor invoke reviewed central composite actions directly through immutable full-SHA references. `validate-python` is pinned to `d060c275570e07222969546acf988a2616a3bcc6`, recorded in the action lock as `issue #229 immutable portable host runtime checkpoint`. `verify-toolchain` remains pinned to `70e08d4ddf8930046632a7135950e924b82e22bf`, recorded as `issue #125 immutable private-action checkpoint`. Exact checkout, workspace preparation, evidence rendering, and cleanup reuse the immutable foundation checkpoint established by #116.
+Private consumers do not clone `StreamScapeTV/ci-workflows` with caller-scoped credentials. The planner and executor invoke `validate-python` directly at immutable checkpoint `aece8d01efdd5482a1c3d42db357aed87a7917e9`, recorded in `contracts/action-tool-lock.json` as `issue #235 general-runner Python primitives checkpoint`.
 
-The `d060c275570e07222969546acf988a2616a3bcc6` checkpoint contains the corrected exact `host-cpython-3.12.3` validation contract and runtime assertions. The action archives resolve central scripts and libraries through `GITHUB_ACTION_PATH`; the workflow cannot silently fall back to the older 3.12.13 host identity.
+That SHA fixes the reviewed Central code bundle; it is not a product-facing immutable-runtime or provenance acceptance gate. Host runtime authority comes from the checked-in `host-cpython-3.12` family contract and the pre-provisioned general runner. Container and PostgreSQL profiles retain their exact image identities.
 
-No `.ciw` checkout, central PAT, caller secret, `secrets: inherit`, mutable helper ref, or caller-selected central version is exposed. Exact caller source remains separate: it is admitted by `source.resolve`, checked out through the immutable exact-checkout action, and verified clean after terminal cleanup.
+Exact checkout, marker-bound workspace preparation, and cleanup use the foundation checkpoint `70e08d4ddf8930046632a7135950e924b82e22bf`. The Python workflow does not run a separate toolchain-proof action or create a routine evidence manifest. It exposes no `.ciw` checkout, central PAT, caller secret, `secrets: inherit`, mutable helper ref, or caller-selected Central version.
 
 ## Execution sequence
 
-1. A portable planning job invokes the immutable private `validate-python` action directly; it does not clone the central repository.
+1. A general-Linux planning job calls the immutable `validate-python` code checkpoint with bounded intent.
 2. The planner validates caller identity, source trust, profile, command profile, and contract-owned runner intent.
 3. The dependent validation job is scheduled from the exact JSON selector emitted by the planner.
-4. The job checks out only the exact admitted caller source, then composes immutable private central helper actions by full SHA.
-5. Shared workspace and toolchain actions create marker-bound state, disable caching, and verify the semantic runtime.
-6. `ciw python validate --phase execute` verifies exact source, version and dependency locks, repository policy, and then executes the reviewed plan in copied host state or Podman VFS state.
-7. Deterministic redacted evidence is written beneath registered state.
+4. The job checks out only the exact admitted caller source and creates marker-bound state with cache mode disabled.
+5. `ciw python validate --phase execute` revalidates source, version and dependency contracts, and repository policy.
+6. A copied-host plan uses the runner-provided CPython 3.12 family through shared runtime/language primitives; Podman plans retain their existing VFS and PostgreSQL isolation.
+7. Product requirements, scripts, release gates, and test argv come from the product repository through the checked-in compatibility mapping, not from workflow-authored generic commands.
 8. `cleanup-workspace` runs under `if: always()`, removes all registered state, and fails on residue or unsafe targets.
-9. The workflow rechecks exact source equality and complete source cleanliness after cleanup.
+9. A final unconditional step proves exact source equality and a completely clean tree.
 
-## Consumer examples
+No Actions cache, workflow-owned persistent volume, routine artifact upload, runtime installation, privilege elevation, publication, or deployment operation is part of this path. Flux owns runner deployment, resources, and shared-volume caching.
+
+## Consumer example
 
 A consumer trigger remains responsible for exact source admission and passes only bounded intent:
 
@@ -74,13 +80,14 @@ jobs:
     uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-python.yml@main
     with:
       admitted_sha: ${{ needs.source.outputs.source_sha }}
-      validation_profile: podman-postgres
-      command_profile: postgres-test
+      validation_profile: host
+      command_profile: locked-test
       working_directory: .
+      script_path: scripts/run_release_gates.sh
 ```
 
-Backend, Agent State, and Flux keep product-specific commands, dependency files, scripts, test selections, and assertions in their own repositories. This workflow does not branch on product names outside the checked-in compatibility contract and issue #9 does not edit consumer repositories.
+Backend, Agent State, and Flux keep product-specific commands, dependency files, scripts, test selections, application configuration, and assertions in their own repositories. The compatibility contract records reviewed current shapes without moving that product authority into the reusable workflow.
 
 ## Failure and cleanup
 
-Expected rejection exits with code `2` and a stable `PythonValidationError.code`. The public `failure_code` field is available only inside the thin action contract and never includes arbitrary exception text. Podman cleanup removes and verifies validation/service containers, network, data volume, pulled images, storage/runroot state, environment files, and processes. Marker-bound workspace cleanup then removes all remaining registered paths. Routine Actions artifacts remain zero.
+Expected rejection exits with code `2` and a stable `PythonValidationError.code`. The internal `failure_code` projection never includes arbitrary exception text. Podman cleanup removes and verifies validation/service containers, network, data volume, pulled images, storage state, environment files, and processes. Marker-bound workspace cleanup then removes all remaining registered paths. Routine Actions artifacts remain zero.

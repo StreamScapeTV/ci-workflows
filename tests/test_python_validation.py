@@ -68,8 +68,8 @@ class PythonValidationTests(unittest.TestCase):
         for identifier, runtime in self.contract["runtimes"].items():
             with self.subTest(runtime=identifier):
                 if runtime["kind"] == "host":
-                    self.assertEqual(identifier, "host-cpython-3.12.3")
-                    self.assertEqual(runtime["python_version"], "3.12.3")
+                    self.assertEqual(identifier, "host-cpython-3.12")
+                    self.assertEqual(runtime["python_version"], "3.12")
                 else:
                     reference = (
                         f"{runtime['repository']}:{runtime['tag']}"
@@ -94,9 +94,7 @@ class PythonValidationTests(unittest.TestCase):
                 "agent-state-postgres",
             },
         )
-        repositories = {
-            row["repository"] for row in self.consumers["repositories"]
-        }
+        repositories = {row["repository"] for row in self.consumers["repositories"]}
         self.assertEqual(
             repositories,
             {
@@ -113,7 +111,7 @@ class PythonValidationTests(unittest.TestCase):
                 "audit",
                 "source-audit",
                 "portable",
-                "host-cpython-3.12.3",
+                "host-cpython-3.12",
                 False,
             ),
             (
@@ -121,7 +119,7 @@ class PythonValidationTests(unittest.TestCase):
                 "host",
                 "source-audit",
                 "portable",
-                "host-cpython-3.12.3",
+                "host-cpython-3.12",
                 False,
             ),
             (
@@ -241,9 +239,7 @@ class PythonValidationTests(unittest.TestCase):
                     "GITHUB_REPOSITORY": "StreamScapeTV/iptv-backend",
                 }
                 self.assertEqual(
-                    python_validation.source_trust_from_environment(
-                        environment
-                    ),
+                    python_validation.source_trust_from_environment(environment),
                     expected,
                 )
             self.assertEqual(
