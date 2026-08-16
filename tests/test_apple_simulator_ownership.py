@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import shutil
@@ -658,27 +659,36 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
                 "RUNNER_WORKSPACE": str(workspace_b),
             }
             account = SimpleNamespace(pw_dir=str(host_home))
+            real_flock = fcntl.flock
+            operations: list[int] = []
+
+            def recording_flock(fd: int, operation: int) -> None:
+                operations.append(operation)
+                real_flock(fd, operation)
 
             with patch(
                 "ci_workflows.apple_execution.pwd.getpwuid",
                 return_value=account,
+            ), patch(
+                "ci_workflows.apple_execution.fcntl.flock",
+                side_effect=recording_flock,
             ):
+                expected_root = host_home / _OWNERSHIP_DIRECTORY
                 with _simulator_ownership(environment_a, state_a) as first:
-                    expected_root = host_home / _OWNERSHIP_DIRECTORY
                     self.assertEqual(first.root, expected_root)
                     self.assertEqual(
                         stat.S_IMODE(os.stat(expected_root).st_mode),
                         0o700,
                     )
-                    with self.assertRaises(apple.AppleValidationError) as captured:
-                        with _simulator_ownership(environment_b, state_b):
-                            pass
-                    self.assertEqual(
-                        captured.exception.code,
-                        "simulator_ownership_locked",
-                    )
                 with _simulator_ownership(environment_b, state_b) as second:
                     self.assertEqual(second.root, expected_root)
+
+            acquisitions = [
+                operation
+                for operation in operations
+                if operation != fcntl.LOCK_UN
+            ]
+            self.assertEqual(acquisitions, [fcntl.LOCK_EX, fcntl.LOCK_EX])
 
     def test_registry_root_and_file_symlinks_are_rejected_without_following(self) -> None:
         for target_kind in ("root", "registry", "lock"):
