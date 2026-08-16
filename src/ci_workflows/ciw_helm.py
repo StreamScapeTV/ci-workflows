@@ -127,11 +127,10 @@ def execute(
 ) -> dict[str, str]:
     from .helm_archive import finalize_validation_archive
     from .helm_contract import load_helm_contract, request_from_environment, require
-    from .helm_dependency_policy import resolve_validation_plan
     from .helm_execution import cleanup_helm_state, verify_no_helm_residue
     from .helm_policy import run_policy_hook
     from .helm_simple import publish as publish_chart
-    from .helm_simple import validate_and_package
+    from .helm_simple import resolve_plan, validate_and_package
 
     require(operation in {"validate", "publish"}, "invalid_operation")
     if operation == "publish" and phase in {"measure-start", "measure-stop"}:
@@ -160,7 +159,7 @@ def execute(
     request = request_from_environment(environment)
     _require_operation_trust(request, operation)
     source_root = _source_root(root, environment, source_relative)
-    plan = resolve_validation_plan(source_root, contract, request)
+    plan = resolve_plan(source_root, contract, request)
     validation = validate_and_package(
         source_root,
         state_root,
