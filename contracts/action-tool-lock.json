@@ -150,17 +150,17 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-helm",
-      "sha": "f867827a41174ea5a9ad554eeea91dbb2c2c0bfa",
-      "release": "issue #18 immutable Helm runtime checkpoint",
+      "sha": "2db6c709c3faa4e99a67fe029628284cf0e60f80",
+      "release": "issue #18 caller-owned Helm metadata checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/f867827a41174ea5a9ad554eeea91dbb2c2c0bfa/actions/validate-helm"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/2db6c709c3faa4e99a67fe029628284cf0e60f80/actions/validate-helm"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/publish-helm",
-      "sha": "f867827a41174ea5a9ad554eeea91dbb2c2c0bfa",
-      "release": "issue #18 immutable Helm runtime checkpoint",
+      "sha": "2db6c709c3faa4e99a67fe029628284cf0e60f80",
+      "release": "issue #18 caller-owned Helm metadata checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/f867827a41174ea5a9ad554eeea91dbb2c2c0bfa/actions/publish-helm"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/2db6c709c3faa4e99a67fe029628284cf0e60f80/actions/publish-helm"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/measure-helm",
