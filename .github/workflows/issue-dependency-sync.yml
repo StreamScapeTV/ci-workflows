@@ -19,7 +19,7 @@ jobs:
       ${{ github.repository == 'StreamScapeTV/ci-workflows' &&
           github.ref == 'refs/heads/main' &&
           (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
-    runs-on: [linux, amd64, general]
+    runs-on: [linux, amd64, general, tiny]
     timeout-minutes: 20
     env:
       PYTHONDONTWRITEBYTECODE: "1"
@@ -41,7 +41,7 @@ jobs:
           esac
           [[ "${EXPECTED_SHA}" =~ ^[0-9a-f]{40}$ ]]
 
-      - name: Verify pre-provisioned portable CPython 3.12
+      - name: Verify pre-provisioned general-tiny CPython 3.12
         shell: bash
         run: |
           set -Eeuo pipefail

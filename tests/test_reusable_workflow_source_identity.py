@@ -11,18 +11,26 @@ from ci_workflows.validation_model import ActionsLoader
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_SHA = "87a7454aaa59cb680db8f580d22551b749ac4193"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-ANDROID_SHA = "5f503d419696e5bfae4ed5b11eca3b531dbdca0f"
-APPLE_SHA = "88d179740145ccea00b6986d78ceb67ea365face"
+PYTHON_SHA = "d060c275570e07222969546acf988a2616a3bcc6"
+ANDROID_SHA = "aef024030a7e96da74bb98b24bd67b532f289fc1"
+APPLE_SHA = "702b950b6a5baf208e7b21f16e3f7df9b8f0f96e"
 OCI_SHA = "3b401078d1167d7048281e3c3269556ce586dada"
 GITOPS_SHA = "8445e63dd9fa9468b60b6d0c61e543da9681b47b"
+HELM_SHA = "f867827a41174ea5a9ad554eeea91dbb2c2c0bfa"
+HELM_MEASURE_SHA = "1f2c0ae5bec042adc9f94e87ebfbba1e7ba48994"
+RELEASE_TAG_SHA = "2b0443fdad002d47625386a959ebe68545cfe022"
 
 FOUNDATION = "issue #116 immutable private-action checkpoint"
 ISSUE_132 = "issue #132 immutable mode-aware source checkpoint"
 ISSUE_104 = "issue #104 immutable private-action checkpoint"
-ISSUE_140 = "issue #140 immutable integrated source-policy checkpoint"
+ISSUE_256 = "issue #256 immutable Media lifecycle sentinel checkpoint"
 ISSUE_125 = "issue #125 immutable private-action checkpoint"
+ISSUE_229 = "issue #229 immutable portable host runtime checkpoint"
 ISSUE_150 = "issue #150 immutable OCI input checkpoint"
-ISSUE_131 = "issue #131 immutable Release-aware Apple checkpoint"
+ISSUE_187 = "issue #187 integrated Media tvOS consumer checkpoint"
+ISSUE_18 = "issue #18 immutable Helm runtime checkpoint"
+ISSUE_18_MEASURE = "issue #18 immutable Helm measurement CIW checkpoint"
+ISSUE_59 = "issue #59 immutable helper checkpoint"
 
 PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
     ".github/workflows/reusable-node.yml": {
@@ -33,7 +41,7 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
     },
     ".github/workflows/reusable-android.yml": {
-        "StreamScapeTV/ci-workflows/actions/validate-android": (ANDROID_SHA, ISSUE_140),
+        "StreamScapeTV/ci-workflows/actions/validate-android": (ANDROID_SHA, ISSUE_256),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/checkout-private-dependency": (FOUNDATION_SHA, ISSUE_104),
@@ -41,7 +49,7 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
     },
     ".github/workflows/reusable-python.yml": {
-        "StreamScapeTV/ci-workflows/actions/validate-python": (FOUNDATION_SHA, ISSUE_125),
+        "StreamScapeTV/ci-workflows/actions/validate-python": (PYTHON_SHA, ISSUE_229),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/verify-toolchain": (FOUNDATION_SHA, ISSUE_125),
@@ -55,7 +63,7 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
     },
     ".github/workflows/reusable-apple.yml": {
-        "StreamScapeTV/ci-workflows/actions/validate-apple": (APPLE_SHA, ISSUE_131),
+        "StreamScapeTV/ci-workflows/actions/validate-apple": (APPLE_SHA, ISSUE_187),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
@@ -72,6 +80,20 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/render-evidence": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
+    },
+    ".github/workflows/reusable-helm-validate.yml": {
+        "StreamScapeTV/ci-workflows/actions/validate-helm": (HELM_SHA, ISSUE_18),
+        "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
+    },
+    ".github/workflows/reusable-helm-publish.yml": {
+        "StreamScapeTV/ci-workflows/actions/resolve-release-tag": (RELEASE_TAG_SHA, ISSUE_59),
+        "StreamScapeTV/ci-workflows/actions/publish-helm": (HELM_SHA, ISSUE_18),
+        "StreamScapeTV/ci-workflows/actions/measure-helm": (HELM_MEASURE_SHA, ISSUE_18_MEASURE),
+        "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
     },
 }
@@ -126,6 +148,36 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
                     self.assertEqual(sha, locked[helper]["sha"])
                     self.assertEqual("composite", locked[helper]["runtime"])
                     self.assertEqual(release, locked[helper]["release"])
+
+    def test_android_private_action_checkpoint_contains_media_lifecycle_policy(self) -> None:
+        source, _ = self.load(ANDROID_WORKFLOW)
+        policy = json.loads(
+            (ROOT / "contracts/android-source-policy.json").read_text(encoding="utf-8")
+        )
+        exception = next(
+            item
+            for item in policy["tracked_secret_exceptions"]
+            if item["id"] == "streamscape_media_playback_lab_redaction_sentinels_v1"
+        )
+        self.assertIn(
+            {
+                "path": "apple/Tests/StreamscapePlaybackLabSupportTests/PlaybackLabLifecycleEvidenceTests.swift",
+                "git_blob_sha1": "5df889bbf613ee7f4dabd07ca931aa81fb4f71a3",
+            },
+            exception["paths"],
+        )
+        self.assertEqual(4, source.count(f"actions/validate-android@{ANDROID_SHA}"))
+        self.assertNotIn(
+            "actions/validate-android@275ee86f0f5de3d8f3330b92c84d7c0188fb10f8",
+            source,
+        )
+
+    def test_apple_private_action_checkpoint_contains_media_contract_in_current_tree(self) -> None:
+        source, _ = self.load(".github/workflows/reusable-apple.yml")
+        fragment = ROOT / "contracts/apple-validation-media-tvos-simulator-confidence.json"
+        self.assertTrue(fragment.is_file())
+        self.assertEqual(4, source.count(f"actions/validate-apple@{APPLE_SHA}"))
+        self.assertNotIn("actions/validate-apple@293dee450e3464032d67f702b768f493abf65d7b", source)
 
     def test_oci_public_input_evidence_projection_does_not_change_action_pins(self) -> None:
         source, workflow = self.load(".github/workflows/reusable-oci-build.yml")

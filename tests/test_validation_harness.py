@@ -104,7 +104,7 @@ class ValidationHarnessTest(unittest.TestCase):
         path = self.root / ".github/workflows/reusable-sample.yml"
         text = path.read_text()
         text = text.replace(
-            "runs-on: [linux, amd64, general]",
+            "runs-on: [linux, amd64, general, small]",
             "runs-on: [self-hosted, consumer-label]",
         )
         text = text.replace("    timeout-minutes: 20\n", "")
@@ -180,7 +180,7 @@ permissions:
 jobs:
   validate:
     name: Execute internal Flux assets fixture
-    runs-on: [linux, amd64, general]
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 20
     outputs:
       result: ${{{{ steps.execute.outputs.result }}}}
@@ -208,7 +208,7 @@ jobs:
         self.assertNotIn("invalid-reusable-job", rules)
 
         invalid_execution_keys = (
-            ("runs-on", "    runs-on: [linux, amd64, general]\n"),
+            ("runs-on", "    runs-on: [linux, amd64, general, small]\n"),
             (
                 "steps",
                 "    steps:\n"
