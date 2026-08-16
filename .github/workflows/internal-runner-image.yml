@@ -122,8 +122,7 @@ jobs:
           cleanup_container
           trap - EXIT HUP INT TERM
 
-      - id: auth
-        name: Authenticate to the fixed runner registry
+      - name: Authenticate to the fixed runner registry
         if: ${{ inputs.publish }}
         shell: bash
         env:
@@ -142,44 +141,46 @@ jobs:
             --password-stdin \
             "${REGISTRY_HOST}"
           chmod 0600 "${authfile}"
-          printf 'authfile=%s\n' "${authfile}" >> "${GITHUB_OUTPUT}"
 
       - name: Publish and confirm the human-readable release tag
         if: ${{ inputs.publish }}
         shell: bash
         env:
-          AUTHFILE: ${{ steps.auth.outputs.authfile }}
+          IMAGE: ${{ inputs.image }}
           LOCAL_REFERENCE: ${{ steps.plan.outputs.local_reference }}
           REMOTE_REFERENCE: ${{ steps.plan.outputs.remote_reference }}
         run: |
           set -Eeuo pipefail
+          authfile="${RUNNER_TEMP}/ciw-runner-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${IMAGE}.json"
+          test -f "${authfile}"
           test -n "${REMOTE_REFERENCE}"
           buildah push \
-            --authfile "${AUTHFILE}" \
+            --authfile "${authfile}" \
             "${LOCAL_REFERENCE}" \
             "docker://${REMOTE_REFERENCE}"
-          skopeo inspect --authfile "${AUTHFILE}" "docker://${REMOTE_REFERENCE}" >/dev/null
+          skopeo inspect --authfile "${authfile}" "docker://${REMOTE_REFERENCE}" >/dev/null
 
       - name: Remove exact runner-image build and authentication state
         if: always()
         shell: bash
         env:
-          AUTHFILE: ${{ steps.auth.outputs.authfile }}
+          IMAGE: ${{ inputs.image }}
           LOCAL_REFERENCE: ${{ steps.plan.outputs.local_reference }}
           REGISTRY_HOST: ${{ steps.plan.outputs.registry_host }}
         run: |
           set -Eeuo pipefail
-          if test -n "${AUTHFILE}" && test -e "${AUTHFILE}"; then
-            buildah logout --authfile "${AUTHFILE}" "${REGISTRY_HOST}" >/dev/null 2>&1 || true
-            rm -f "${AUTHFILE}"
+          authfile="${RUNNER_TEMP}/ciw-runner-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${IMAGE}.json"
+          if test -e "${authfile}"; then
+            if test -n "${REGISTRY_HOST}"; then
+              buildah logout --authfile "${authfile}" "${REGISTRY_HOST}" >/dev/null 2>&1 || true
+            fi
+            rm -f "${authfile}"
           fi
           if test -n "${LOCAL_REFERENCE}"; then
             buildah rmi "${LOCAL_REFERENCE}" >/dev/null 2>&1 || true
           fi
-          if test -n "${AUTHFILE}"; then
-            test ! -e "${AUTHFILE}"
-            test ! -L "${AUTHFILE}"
-          fi
+          test ! -e "${authfile}"
+          test ! -L "${authfile}"
 
       - name: Verify exact source remained clean
         if: ${{ always() && !cancelled() }}

@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "product_id": "runner-mobile",
+  "platform": "linux/amd64",
+  "policy": {
+    "final_distribution": "debian-trixie",
+    "release_authority": "ci-workflows-git-tag",
+    "independent_product": true
+  },
+  "base_images": {
+    "build_tools": "docker.io/library/gcc:15-trixie",
+    "java": "docker.io/library/eclipse-temurin:25-jdk-noble",
+    "node": "docker.io/library/node:24.19.0-trixie-slim",
+    "final_python_debian": "docker.io/library/python:3.12.14-slim-trixie"
+  },
+  "toolchain": {
+    "actions_runner": "2.336.0",
+    "java": "25.0.3+9",
+    "node": "24.19.0",
+    "python": "3.12.14",
+    "flutter": "3.44.8",
+    "dart": "3.12.2",
+    "android_command_line_tools": "15859902",
+    "android_platform_tools": "36.0.0",
+    "android_platforms": ["36", "37.0"],
+    "android_build_tools": ["36.0.0", "37.0.0"],
+    "android_ndk": "28.2.13676358"
+  },
+  "downloads": {
+    "actions_runner_linux_x64": {
+      "url": "https://github.com/actions/runner/releases/download/v2.336.0/actions-runner-linux-x64-2.336.0.tar.gz",
+      "sha256": "04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d"
+    },
+    "flutter_linux_x64": {
+      "url": "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.44.8-stable.tar.xz",
+      "sha256": "672089e001571a9fbb209a495c583580c0c6c73ef98999264ba07fa93ace332d"
+    },
+    "android_command_line_tools_linux": {
+      "url": "https://dl.google.com/android/repository/commandlinetools-linux-15859902_latest.zip",
+      "sha256": "4e4c464f145a7512b57d088ac6c278c03c9eea610886b35a5e0804e74eedf583"
+    },
+    "android_platform_tools_linux": {
+      "url": "https://dl.google.com/android/repository/platform-tools_r36.0.0-linux.zip",
+      "sha256": "0ead642c943ffe79701fccca8f5f1c69c4ce4f43df2eefee553f6ccb27cbfbe8"
+    },
+    "android_platform_36": {
+      "url": "https://dl.google.com/android/repository/platform-36_r02.zip",
+      "sha256": "37607369a28c5b640b3a7998868d45898ebcb777565a0e85f9acf36f29631d2e"
+    },
+    "android_platform_37": {
+      "url": "https://dl.google.com/android/repository/platform-37.0_r01.zip",
+      "sha256": "19bdcf42de0cb0e9500a27da6833fc30cdd49a7ec690aa5cabaa0ef893af9ebe"
+    },
+    "android_build_tools_36_linux": {
+      "url": "https://dl.google.com/android/repository/build-tools_r36_linux.zip",
+      "sha256": "5d9ac77fb6ff43d9da518a337b4fcf8f9097113df531d99ccefe80ef7ce8250b"
+    },
+    "android_build_tools_37_linux": {
+      "url": "https://dl.google.com/android/repository/build-tools_r37_linux.zip",
+      "sha256": "01af179347cbcd9c208b7f8171f7b21f6dd1d2f85bcd15e88caa51d5d7b86060"
+    },
+    "android_ndk_r28c_linux": {
+      "url": "https://dl.google.com/android/repository/android-ndk-r28c-linux.zip",
+      "sha256": "dfb20d396df28ca02a8c708314b814a4d961dc9074f9a161932746f815aa552f"
+    }
+  }
+}
