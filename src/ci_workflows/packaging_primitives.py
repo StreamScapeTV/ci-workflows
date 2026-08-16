@@ -479,3 +479,443 @@ def cleanup_packaging_state(paths: Sequence[Path]) -> None:
 
     for path in paths:
         _remove_no_follow(path)
+
+
+OCI_NATIVE_PLATFORM_ENV = "CIW_OCI_NATIVE_PLATFORM"
+OCI_EMULATED_PLATFORMS_ENV = "CIW_OCI_EMULATED_PLATFORMS"
+
+_PLATFORM_ALIASES = {
+    "linux/amd64": "linux/amd64",
+    "linux/x86_64": "linux/amd64",
+    "linux/arm64": "linux/arm64/v8",
+    "linux/arm64/v8": "linux/arm64/v8",
+    "linux/aarch64": "linux/arm64/v8",
+}
+_PLATFORM_ORDER = ("linux/amd64", "linux/arm64/v8")
+_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+_INDEX_MEDIA_TYPES = frozenset(
+    {
+        "application/vnd.oci.image.index.v1+json",
+        "application/vnd.docker.distribution.manifest.list.v2+json",
+    }
+)
+_MANIFEST_MEDIA_TYPES = frozenset(
+    {
+        "application/vnd.oci.image.manifest.v1+json",
+        "application/vnd.docker.distribution.manifest.v2+json",
+    }
+)
+
+
+@dataclass(frozen=True)
+class PlatformExecution:
+    """One requested platform and the runner execution strategy that can run it."""
+
+    platform: str
+    strategy: str
+    native_platform: str
+
+
+@dataclass(frozen=True)
+class PlatformBuildResult:
+    """Structured result of one platform-specific image build."""
+
+    platform: str
+    strategy: str
+    reference: str
+
+
+@dataclass(frozen=True)
+class OCIManifestDescriptor:
+    """Normalized descriptor in an OCI index or Docker manifest list."""
+
+    platform: str
+    digest: str
+    size: int
+    media_type: str
+
+
+@dataclass(frozen=True)
+class OCIIndexInspection:
+    """Structured local multi-platform manifest/index inspection."""
+
+    reference: str
+    platforms: tuple[str, ...]
+    descriptors: tuple[OCIManifestDescriptor, ...]
+    metadata: Mapping[str, object]
+
+
+@dataclass(frozen=True)
+class MultiPlatformBuildResult:
+    """Per-platform builds together with the assembled final index."""
+
+    builds: tuple[PlatformBuildResult, ...]
+    index: OCIIndexInspection
+
+
+def _normalize_platform(value: str) -> str:
+    raw = _text(value, "platform").casefold()
+    canonical = _PLATFORM_ALIASES.get(raw)
+    _require(canonical is not None, f"unsupported platform: {raw}")
+    assert canonical is not None
+    return canonical
+
+
+def normalize_platforms(platforms: Sequence[str]) -> tuple[str, ...]:
+    """Normalize a caller platform set into one deterministic canonical tuple."""
+
+    _require(
+        not isinstance(platforms, (str, bytes)) and bool(platforms),
+        "invalid platform set",
+    )
+    normalized = tuple(_normalize_platform(item) for item in platforms)
+    _require(len(set(normalized)) == len(normalized), "duplicate platform")
+    requested = set(normalized)
+    return tuple(platform for platform in _PLATFORM_ORDER if platform in requested)
+
+
+def _emulated_platforms(environment: Mapping[str, str]) -> tuple[str, ...]:
+    raw = environment.get(OCI_EMULATED_PLATFORMS_ENV, "").strip()
+    if not raw:
+        return ()
+    return normalize_platforms(tuple(part.strip() for part in raw.split(",")))
+
+
+def resolve_platform_execution(
+    platform: str,
+    *,
+    environment: Mapping[str, str] | None = None,
+) -> PlatformExecution:
+    """Resolve native versus explicit runner-provided emulation for one platform."""
+
+    values = _environment(environment)
+    target = _normalize_platform(platform)
+    native_raw = values.get(OCI_NATIVE_PLATFORM_ENV, "").strip()
+    _require(bool(native_raw), f"missing runner capability: {OCI_NATIVE_PLATFORM_ENV}")
+    native = _normalize_platform(native_raw)
+    emulated = _emulated_platforms(values)
+    _require(native not in emulated, "native platform cannot be declared emulated")
+    if target == native:
+        return PlatformExecution(target, "native", native)
+    _require(
+        target in emulated,
+        f"unsupported foreign platform execution: {target}",
+    )
+    return PlatformExecution(target, "emulated", native)
+
+
+def plan_platform_executions(
+    platforms: Sequence[str],
+    *,
+    environment: Mapping[str, str] | None = None,
+) -> tuple[PlatformExecution, ...]:
+    """Preflight every requested platform before any Dockerfile build starts."""
+
+    normalized = normalize_platforms(platforms)
+    values = _environment(environment)
+    return tuple(
+        resolve_platform_execution(platform, environment=values)
+        for platform in normalized
+    )
+
+
+def _platform_tags(platform_tags: Mapping[str, str]) -> dict[str, str]:
+    _require(isinstance(platform_tags, Mapping), "invalid platform image tags")
+    result: dict[str, str] = {}
+    for raw_platform, raw_tag in platform_tags.items():
+        platform = _normalize_platform(raw_platform)
+        _require(platform not in result, "duplicate platform image tag")
+        result[platform] = _text(raw_tag, "platform image tag")
+    return result
+
+
+def _platform_build_argv(
+    context: Path,
+    dockerfile: Path,
+    tag: str,
+    execution: PlatformExecution,
+    *,
+    build_args: Mapping[str, str] | None,
+    tool: str,
+) -> list[str]:
+    _require(context.is_dir() and not context.is_symlink(), "invalid build context")
+    _require(dockerfile.is_file() and not dockerfile.is_symlink(), "invalid dockerfile")
+    tag = _text(tag, "image tag")
+    tool = _tool(tool, _IMAGE_TOOLS)
+    command = "bud" if tool == "buildah" else "build"
+    argv = [
+        tool,
+        command,
+        "--platform",
+        execution.platform,
+        "--file",
+        str(dockerfile),
+        "--tag",
+        tag,
+    ]
+    for key, value in sorted((build_args or {}).items()):
+        _require(
+            _BUILD_ARG_NAME.fullmatch(_text(key, "build argument name")) is not None,
+            "invalid build argument name",
+        )
+        argv.extend(["--build-arg", f"{key}={_text(value, 'build argument value')}"])
+    argv.append(str(context))
+    return argv
+
+
+def _execute_platform_build(
+    context: Path,
+    dockerfile: Path,
+    tag: str,
+    execution: PlatformExecution,
+    *,
+    build_args: Mapping[str, str] | None,
+    environment: Mapping[str, str] | None,
+    tool: str,
+) -> PlatformBuildResult:
+    argv = _platform_build_argv(
+        context,
+        dockerfile,
+        tag,
+        execution,
+        build_args=build_args,
+        tool=tool,
+    )
+    _run(argv, cwd=context, environment=environment)
+    return PlatformBuildResult(
+        platform=execution.platform,
+        strategy=execution.strategy,
+        reference=_text(tag, "image tag"),
+    )
+
+
+def build_platform_image(
+    context: Path,
+    dockerfile: Path,
+    tag: str,
+    platform: str,
+    *,
+    build_args: Mapping[str, str] | None = None,
+    environment: Mapping[str, str] | None = None,
+    tool: str = "docker",
+) -> PlatformBuildResult:
+    """Build one platform only after the runner proves compatible execution capacity."""
+
+    execution = resolve_platform_execution(platform, environment=environment)
+    return _execute_platform_build(
+        context,
+        dockerfile,
+        tag,
+        execution,
+        build_args=build_args,
+        environment=environment,
+        tool=tool,
+    )
+
+
+def build_platform_images(
+    context: Path,
+    dockerfile: Path,
+    platforms: Sequence[str],
+    platform_tags: Mapping[str, str],
+    *,
+    build_args: Mapping[str, str] | None = None,
+    environment: Mapping[str, str] | None = None,
+    tool: str = "docker",
+) -> tuple[PlatformBuildResult, ...]:
+    """Preflight the full platform set, then build every platform in canonical order."""
+
+    executions = plan_platform_executions(platforms, environment=environment)
+    tags = _platform_tags(platform_tags)
+    expected = {execution.platform for execution in executions}
+    _require(set(tags) == expected, "platform image tags do not match platform set")
+    return tuple(
+        _execute_platform_build(
+            context,
+            dockerfile,
+            tags[execution.platform],
+            execution,
+            build_args=build_args,
+            environment=environment,
+            tool=tool,
+        )
+        for execution in executions
+    )
+
+
+def _descriptor_platform(value: Mapping[str, object]) -> str:
+    operating_system = value.get("os")
+    architecture = value.get("architecture")
+    variant = value.get("variant")
+    _require(
+        isinstance(operating_system, str) and isinstance(architecture, str),
+        "invalid manifest platform",
+    )
+    if variant is not None:
+        _require(isinstance(variant, str), "invalid manifest platform")
+    raw = f"{operating_system}/{architecture}"
+    if variant:
+        raw += f"/{variant}"
+    return _normalize_platform(raw)
+
+
+def inspect_multi_platform_index(
+    reference: str,
+    expected_platforms: Sequence[str],
+    *,
+    environment: Mapping[str, str] | None = None,
+    tool: str = "buildah",
+    cwd: Path | None = None,
+) -> OCIIndexInspection:
+    """Inspect and normalize one local OCI index or Docker manifest list."""
+
+    reference = _text(reference, "manifest reference")
+    tool = _tool(tool, _IMAGE_TOOLS)
+    expected = normalize_platforms(expected_platforms)
+    result = _run(
+        [tool, "manifest", "inspect", reference],
+        cwd=cwd,
+        environment=environment,
+    )
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise PackagingError("invalid manifest inspection output") from error
+    _require(isinstance(payload, dict), "invalid manifest inspection output")
+    _require(payload.get("schemaVersion") == 2, "invalid manifest schema")
+    media_type = payload.get("mediaType")
+    if media_type is not None:
+        _require(media_type in _INDEX_MEDIA_TYPES, "invalid manifest index media type")
+    raw_manifests = payload.get("manifests")
+    _require(isinstance(raw_manifests, list), "invalid manifest inspection output")
+    descriptors: list[OCIManifestDescriptor] = []
+    seen: set[str] = set()
+    for raw_descriptor in raw_manifests:
+        _require(isinstance(raw_descriptor, dict), "invalid manifest descriptor")
+        platform_value = raw_descriptor.get("platform")
+        _require(isinstance(platform_value, dict), "invalid manifest platform")
+        platform = _descriptor_platform(platform_value)
+        _require(platform not in seen, "duplicate manifest platform")
+        seen.add(platform)
+        digest = raw_descriptor.get("digest")
+        size = raw_descriptor.get("size")
+        descriptor_media_type = raw_descriptor.get("mediaType")
+        _require(
+            isinstance(digest, str) and _DIGEST.fullmatch(digest) is not None,
+            "invalid manifest digest",
+        )
+        _require(type(size) is int and size > 0, "invalid manifest size")
+        _require(
+            descriptor_media_type in _MANIFEST_MEDIA_TYPES,
+            "invalid manifest media type",
+        )
+        descriptors.append(
+            OCIManifestDescriptor(
+                platform=platform,
+                digest=digest,
+                size=size,
+                media_type=str(descriptor_media_type),
+            )
+        )
+    _require(seen == set(expected), "manifest platform set mismatch")
+    descriptor_by_platform = {item.platform: item for item in descriptors}
+    ordered = tuple(descriptor_by_platform[platform] for platform in expected)
+    return OCIIndexInspection(
+        reference=reference,
+        platforms=expected,
+        descriptors=ordered,
+        metadata=dict(payload),
+    )
+
+
+def assemble_multi_platform_index(
+    reference: str,
+    builds: Sequence[PlatformBuildResult],
+    *,
+    environment: Mapping[str, str] | None = None,
+    tool: str = "buildah",
+    cwd: Path | None = None,
+) -> OCIIndexInspection:
+    """Assemble successful platform images and verify the final local index shape."""
+
+    _require(
+        not isinstance(builds, (str, bytes)) and len(builds) >= 2,
+        "multi-platform index requires at least two builds",
+    )
+    platforms = normalize_platforms(tuple(build.platform for build in builds))
+    _require(len(platforms) == len(builds), "duplicate platform build")
+    by_platform: dict[str, PlatformBuildResult] = {}
+    for build in builds:
+        _require(isinstance(build, PlatformBuildResult), "invalid platform build result")
+        _require(build.strategy in {"native", "emulated"}, "invalid execution strategy")
+        platform = _normalize_platform(build.platform)
+        _require(platform not in by_platform, "duplicate platform build")
+        _text(build.reference, "platform image reference")
+        by_platform[platform] = build
+    ordered = tuple(by_platform[platform] for platform in platforms)
+    reference = _text(reference, "manifest reference")
+    tool = _tool(tool, _IMAGE_TOOLS)
+    if tool == "docker":
+        _run(
+            [tool, "manifest", "create", reference, *(item.reference for item in ordered)],
+            cwd=cwd,
+            environment=environment,
+        )
+    else:
+        _run(
+            [tool, "manifest", "create", reference],
+            cwd=cwd,
+            environment=environment,
+        )
+        for build in ordered:
+            _run(
+                [tool, "manifest", "add", reference, build.reference],
+                cwd=cwd,
+                environment=environment,
+            )
+    return inspect_multi_platform_index(
+        reference,
+        platforms,
+        environment=environment,
+        tool=tool,
+        cwd=cwd,
+    )
+
+
+def build_multi_platform_image(
+    context: Path,
+    dockerfile: Path,
+    index_reference: str,
+    platforms: Sequence[str],
+    platform_tags: Mapping[str, str],
+    *,
+    build_args: Mapping[str, str] | None = None,
+    environment: Mapping[str, str] | None = None,
+    tool: str = "buildah",
+    cwd: Path | None = None,
+) -> MultiPlatformBuildResult:
+    """Build every compatible platform and return the verified assembled index."""
+
+    builds = build_platform_images(
+        context,
+        dockerfile,
+        platforms,
+        platform_tags,
+        build_args=build_args,
+        environment=environment,
+        tool=tool,
+    )
+    index = assemble_multi_platform_index(
+        index_reference,
+        builds,
+        environment=environment,
+        tool=tool,
+        cwd=cwd,
+    )
+    return MultiPlatformBuildResult(builds=builds, index=index)
+
+
+def cleanup_multi_platform_state(paths: Sequence[Path]) -> None:
+    """Remove caller-designated per-platform OCI layouts/build state no-follow."""
+
+    cleanup_packaging_state(paths)
