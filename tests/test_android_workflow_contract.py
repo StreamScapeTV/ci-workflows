@@ -23,7 +23,7 @@ DOC = ROOT / "docs/workflows/android.md"
 ARCH = ROOT / "docs/architecture/android-validation.md"
 CASES = ROOT / "tests/fixtures/android-validation/cases.json"
 SOURCE_POLICY = ROOT / "contracts/android-source-policy.json"
-VALIDATE_ANDROID_SHA = "275ee86f0f5de3d8f3330b92c84d7c0188fb10f8"
+VALIDATE_ANDROID_SHA = "aef024030a7e96da74bb98b24bd67b532f289fc1"
 PRIVATE_HELPER_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 PRIVATE_HELPERS = {
     "validate-android",
@@ -175,10 +175,16 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         )
         self.assertEqual(
             exception["paths"],
-            [{
-                "path": "apple/Tests/StreamscapePlaybackLabSupportTests/PlaybackLabBootstrapEvidenceTests.swift",
-                "git_blob_sha1": "1770311f5b3998b5dbf3f8ee191acd419aa52a56",
-            }],
+            [
+                {
+                    "path": "apple/Tests/StreamscapePlaybackLabSupportTests/PlaybackLabBootstrapEvidenceTests.swift",
+                    "git_blob_sha1": "1770311f5b3998b5dbf3f8ee191acd419aa52a56",
+                },
+                {
+                    "path": "apple/Tests/StreamscapePlaybackLabSupportTests/PlaybackLabLifecycleEvidenceTests.swift",
+                    "git_blob_sha1": "5df889bbf613ee7f4dabd07ca931aa81fb4f71a3",
+                },
+            ],
         )
         self.assertIn(
             'python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py"',
@@ -189,6 +195,10 @@ class AndroidWorkflowContractTests(unittest.TestCase):
                 f"StreamScapeTV/ci-workflows/actions/validate-android@{VALIDATE_ANDROID_SHA}"
             ),
             4,
+        )
+        self.assertNotIn(
+            "actions/validate-android@275ee86f0f5de3d8f3330b92c84d7c0188fb10f8",
+            self.reusable,
         )
 
     def test_smoke_is_direct_mobile_plan_execute_not_nested_reuse(self) -> None:
