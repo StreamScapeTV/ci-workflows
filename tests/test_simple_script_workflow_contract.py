@@ -13,6 +13,8 @@ WORKFLOW = ROOT / ".github/workflows/reusable-script.yml"
 INDEX = ROOT / "contracts/public-workflows.json"
 VALIDATION = ROOT / "contracts/public-workflows/validation.json"
 OPERATIONS = ROOT / "contracts/public-workflows/operations.json"
+RUNNER_PROFILES = ROOT / "contracts/runner-profiles.json"
+RUNNERS_DOC = ROOT / "RUNNERS.md"
 DOC = ROOT / "docs/workflows/simple-validation.md"
 
 
@@ -47,12 +49,33 @@ class SimpleScriptWorkflowContractTests(unittest.TestCase):
         for profile, selector in (
             ("general", '["linux","amd64","general","small"]'),
             ("mobile", '["linux","amd64","mobile"]'),
-            ("apple", '["macOS","ARM64","apple"]'),
+            ("apple", '["macOS","ARM64"]'),
         ):
             self.assertIn(profile, plan)
             self.assertIn(selector, plan)
         for forbidden in ("self-hosted", "runner_labels", "scale-set"):
             self.assertNotIn(forbidden, self.source)
+
+    def test_apple_profile_uses_runner_authority_selector_not_semantic_label(self) -> None:
+        contract = json.loads(RUNNER_PROFILES.read_text(encoding="utf-8"))
+        profiles = {row["id"]: row for row in contract["profiles"]}
+        apple = profiles["apple"]
+        selector = apple["default_internal_selector"]
+        encoded = json.dumps(selector, separators=(",", ":"))
+
+        plan = next(
+            step
+            for step in self.workflow["jobs"]["plan"]["steps"]
+            if step.get("id") == "plan"
+        )["run"]
+        self.assertEqual(["macOS", "ARM64"], selector)
+        self.assertEqual([selector], apple["internal_selectors"])
+        self.assertNotIn("apple", selector)
+        self.assertIn(f"apple) runs_on='{encoded}'", plan)
+
+        guide = RUNNERS_DOC.read_text(encoding="utf-8")
+        self.assertIn("Semantic profile IDs are not GitHub runner labels", guide)
+        self.assertIn("runs-on: [macOS, ARM64]", guide)
 
     def test_specialized_capacity_fails_closed_before_runner_selection(self) -> None:
         steps = self.workflow["jobs"]["plan"]["steps"]
