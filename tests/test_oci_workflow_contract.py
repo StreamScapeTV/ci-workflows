@@ -35,7 +35,8 @@ class OciWorkflowContractTests(unittest.TestCase):
         self.assertIn("buildah\":\"1.33.7\"", self.workflow)
 
     def test_dynamic_build_job_consumes_exact_trusted_planner_output(self) -> None:
-        self.assertIn("runs-on: [linux, amd64, general]", self.workflow)
+        self.assertIn("runs-on: [linux, amd64, general, small]", self.workflow)
+        self.assertNotIn("runs-on: [linux, amd64, general]", self.workflow)
         self.assertIn("runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}", self.workflow)
         self.assertNotIn("runs-on: portable", self.workflow)
         self.assertNotRegex(self.workflow, r"runs-on:\s*\[.*buildah")
@@ -144,7 +145,8 @@ class OciWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("uses: ./.github/workflows/reusable-oci-build.yml", self.smoke)
         self.assertIn("plan:\n    name: Resolve bounded OCI smoke plan", self.smoke)
         self.assertIn("smoke:\n    name: Non-publishing Buildah smoke", self.smoke)
-        self.assertIn("runs-on: [linux, amd64, general]", self.smoke)
+        self.assertIn("runs-on: [linux, amd64, general, small]", self.smoke)
+        self.assertNotIn("runs-on: [linux, amd64, general]", self.smoke)
         self.assertIn("runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}", self.smoke)
         self.assertIn("timeout-minutes: 180", self.smoke)
         self.assertIn("uses: ./.ciw/actions/validate-oci", self.smoke)

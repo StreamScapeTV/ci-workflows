@@ -70,11 +70,11 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertEqual(set(smoke["jobs"]), {"plan", "execute_android"})
         self.assertEqual(
             smoke["jobs"]["plan"]["runs-on"],
-            ["linux", "amd64", "general"],
+            ["linux", "amd64", "general", "small"],
         )
         self.assertEqual(
             reusable["jobs"]["plan"]["runs-on"],
-            ["linux", "amd64", "general"],
+            ["linux", "amd64", "general", "small"],
         )
         self.assertEqual(smoke["jobs"]["plan"]["timeout-minutes"], 10)
         self.assertEqual(smoke["jobs"]["execute_android"]["timeout-minutes"], 30)
@@ -86,8 +86,9 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("workflow_dispatch", reusable[True])
 
     def test_semantic_runner_and_exact_source_primitives(self) -> None:
-        self.assertIn("runs-on: [linux, amd64, general]", self.reusable)
-        self.assertIn("runs-on: [linux, amd64, general]", self.smoke)
+        self.assertIn("runs-on: [linux, amd64, general, small]", self.reusable)
+        self.assertIn("runs-on: [linux, amd64, general, small]", self.smoke)
+        self.assertNotIn("runs-on: [linux, amd64, general]", self.reusable + self.smoke)
         self.assertNotIn("runs-on: portable", self.reusable)
         self.assertNotIn("runs-on: portable", self.smoke)
         self.assertIn("fromJSON(needs.plan.outputs.runs_on_json)", self.reusable)

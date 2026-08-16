@@ -22,7 +22,7 @@ permissions:
 jobs:
   synthetic:
     name: Synthetic device contract smoke
-    runs-on: [linux, amd64, general]
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -163,7 +163,7 @@ jobs:
 
   unauthorized:
     name: Unauthorized physical plan fails closed
-    runs-on: [linux, amd64, general]
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 10
     steps:
       - name: Remove stale source-only smoke checkout without following links
@@ -292,7 +292,7 @@ jobs:
     name: Verify device contract smoke artifacts remain zero
     if: ${{ always() && !cancelled() }}
     needs: [synthetic, unauthorized]
-    runs-on: [linux, amd64, general]
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 10
     steps:
       - name: Assert prerequisite jobs passed

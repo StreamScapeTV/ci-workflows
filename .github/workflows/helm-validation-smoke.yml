@@ -42,7 +42,7 @@ permissions:
 jobs:
   contracts:
     name: CI / Helm workflow contract smoke
-    runs-on: [linux, amd64, general]
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 20
     env:
       PYTHONDONTWRITEBYTECODE: "1"

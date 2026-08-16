@@ -55,7 +55,7 @@ permissions:
 jobs:
   plan:
     name: Resolve bounded Helm publication plan
-    runs-on: [linux, amd64, general]
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 10
     outputs:
       runs_on_json: ${{ steps.plan.outputs.runs_on_json }}

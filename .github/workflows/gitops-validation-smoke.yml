@@ -27,7 +27,7 @@ jobs:
   plan:
     name: Resolve exact synthetic GitOps smoke
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: [linux, amd64, general]
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 10
     outputs:
       runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
@@ -230,7 +230,7 @@ jobs:
     name: Verify GitOps smoke retained zero artifacts
     if: ${{ always() && !cancelled() && needs.plan.result != 'skipped' }}
     needs: [plan, execute]
-    runs-on: [linux, amd64, general]
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 10
     steps:
       - name: Require successful smoke and zero Actions artifacts

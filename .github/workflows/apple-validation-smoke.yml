@@ -51,7 +51,7 @@ jobs:
   plan:
     name: Resolve exact Apple smoke selectors
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: [linux, amd64, general]
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 10
     outputs:
       runs_on_json: ${{ steps.ios.outputs.runs_on_json }}
@@ -458,7 +458,7 @@ jobs:
     name: Verify Apple routine artifacts remain zero
     needs: [plan, ios, tvos, macos]
     if: ${{ always() && !cancelled() }}
-    runs-on: [linux, amd64, general]
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 10
     steps:
       - name: Require all Apple smoke paths and zero Actions artifacts

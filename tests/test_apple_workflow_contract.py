@@ -81,9 +81,10 @@ class AppleWorkflowContractTests(unittest.TestCase):
         )
 
     def test_semantic_runner_selection_uses_protected_planner(self) -> None:
-        direct_general_selector = "runs-on: [linux, amd64, general]"
+        direct_general_selector = "runs-on: [linux, amd64, general, small]"
         self.assertIn(direct_general_selector, self.workflow)
         self.assertEqual(self.smoke.count(direct_general_selector), 2)
+        self.assertNotIn("runs-on: [linux, amd64, general]", self.workflow + self.smoke)
         self.assertNotIn("runs-on: portable", self.workflow + self.smoke)
         self.assertEqual(
             1,
