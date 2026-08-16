@@ -34,6 +34,14 @@ This private repository owns reusable GitHub Actions orchestration for supported
 - Public inputs and outputs must match checked-in contracts and generated reference documentation. Inputs must be bounded and may not accept arbitrary shell commands, callbacks, registry hosts, runner labels, container engines, cluster targets, namespaces, service accounts, secret names, or unrestricted matrices.
 - Public and internal workflow calls and composite-action calls must remain acyclic, accessible, shallow, and compatible with the supported consumer and product inventory.
 
+### Function-first implementation rule
+
+- Python functions under `src/ci_workflows/` are the implementation layer. Workflow YAML owns orchestration only; composite actions and CLI adapters stay thin and delegate reusable behavior to named tested functions.
+- Central function/workflow/action names describe technologies or capabilities, not product identities. Product paths, tasks, scripts, and options remain bounded caller inputs and product-owned behavior.
+- Secrets are read only from fixed named environment variables chosen by the central implementation. Never log secret values or accept a caller-selected secret-variable name as a public input.
+- Ordinary validation must not depend on immutable-digest, remote read-back, provenance-ledger, canary, or rollback machinery unless the bounded workflow actually requires publication/deployment semantics. Publication-specific safeguards in this repository remain authoritative where explicitly required.
+- Do not add GitHub Actions cache as a workflow feature for local runners. Flux owns runner-side caching, persistent/shared storage, and deployed runner infrastructure.
+
 ## Authority boundaries
 
 - Flux remains the sole authority for desired state, target and product allowlists, SOPS data, Kubernetes credentials, reconciliation policy, canary selection, live health, and rollback acceptance. This repository owns only reviewed orchestration around exact Flux-owned policy source.
