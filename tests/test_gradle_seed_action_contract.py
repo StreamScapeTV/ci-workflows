@@ -1,19 +1,27 @@
 from __future__ import annotations
 
-import argparse
-import io
+import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from ci_workflows import ciw_gradle_seed, gradle_seed
-from ci_workflows.ciw_types import CIWContext, CIWError
+from ci_workflows import gradle_seed
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTION = ROOT / "actions" / "upload-gradle-seed" / "action.yml"
 README = ROOT / "actions" / "upload-gradle-seed" / "README.md"
 MODULE = ROOT / "src" / "ci_workflows" / "gradle_seed.py"
+SCRIPT = ROOT / "scripts" / "ci" / "gradle_seed.py"
+
+
+def load_script_module():
+    spec = importlib.util.spec_from_file_location("ciw_gradle_seed_script", SCRIPT)
+    if spec is None or spec.loader is None:
+        raise AssertionError("unable to load Gradle seed script")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class GradleSeedActionContractTests(unittest.TestCase):
@@ -35,7 +43,8 @@ class GradleSeedActionContractTests(unittest.TestCase):
         self.assertNotIn("endpoint:", input_block)
         self.assertNotIn("audience:", input_block)
         self.assertNotIn("token:", input_block)
-        self.assertIn('scripts/ci/ciw.py" gradle-seed upload', source)
+        self.assertIn('scripts/ci/gradle_seed.py"', source)
+        self.assertNotIn("ciw.py", source)
 
     def test_fixed_client_contract_matches_reviewed_flux_protocol(self) -> None:
         self.assertEqual(
@@ -68,6 +77,8 @@ class GradleSeedActionContractTests(unittest.TestCase):
     def test_no_long_lived_or_fallback_cache_transport_is_present(self) -> None:
         combined = (
             ACTION.read_text(encoding="utf-8")
+            + "\n"
+            + SCRIPT.read_text(encoding="utf-8")
             + "\n"
             + MODULE.read_text(encoding="utf-8")
         ).lower()
@@ -132,33 +143,27 @@ class GradleSeedActionContractTests(unittest.TestCase):
         self.assertLess(warm_block.index("- id: execute"), warm_block.index("- id: promote"))
         self.assertLess(warm_block.index("- id: promote"), warm_block.index("- id: android_cleanup"))
 
-    def test_ciw_adapter_requires_registered_gradle_workspace_home(self) -> None:
+    def test_script_requires_registered_gradle_workspace_home(self) -> None:
+        script = load_script_module()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            output = root / "output"
             environment = {
-                "GITHUB_OUTPUT": str(root / "output"),
+                "GITHUB_OUTPUT": str(output),
                 "INPUT_SOURCE_SHA": "a" * 40,
                 "CI_WORKFLOW_ROOT": str(root),
                 "GRADLE_USER_HOME": str(root / "gradle"),
             }
-            context = CIWContext(
-                root=ROOT,
-                environment=environment,
-                stdout=io.StringIO(),
-                stderr=io.StringIO(),
-            )
             result = mock.Mock()
             result.output_values.return_value = {"result": "promoted"}
             with mock.patch.object(
-                ciw_gradle_seed,
+                script,
                 "promote_gradle_seed",
                 return_value=result,
             ) as promote:
-                projected = ciw_gradle_seed.execute_gradle_seed_upload(
-                    argparse.Namespace(source_sha=None),
-                    context,
-                )
-            self.assertEqual("promoted", projected.outputs["result"])
+                code = script.main([], environment=environment)
+            self.assertEqual(0, code)
+            self.assertEqual("result=promoted\n", output.read_text(encoding="utf-8"))
             promote.assert_called_once_with(
                 source_sha="a" * 40,
                 environment=environment,
@@ -171,18 +176,10 @@ class GradleSeedActionContractTests(unittest.TestCase):
             )
             for bad_environment in bad_environments:
                 with self.subTest(environment=bad_environment):
-                    bad_context = CIWContext(
-                        root=ROOT,
-                        environment=bad_environment,
-                        stdout=io.StringIO(),
-                        stderr=io.StringIO(),
-                    )
-                    with self.assertRaises(CIWError) as raised:
-                        ciw_gradle_seed.execute_gradle_seed_upload(
-                            argparse.Namespace(source_sha=None),
-                            bad_context,
-                        )
-                    self.assertEqual("gradle_seed_home_rejected", raised.exception.code)
+                    with mock.patch.object(script, "promote_gradle_seed") as promote_bad:
+                        code = script.main([], environment=bad_environment)
+                    self.assertEqual(2, code)
+                    promote_bad.assert_not_called()
 
 
 if __name__ == "__main__":
