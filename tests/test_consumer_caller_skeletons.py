@@ -111,13 +111,16 @@ class ConsumerCallerSkeletonTests(unittest.TestCase):
             "Exact source SHA is evidence identity, not concurrency identity.",
             "`[skip ci]`",
             "`[ci skip]`",
-            "Until #66 is merged, the current shared rules remain the operating authority.",
+            "merged shared\n`organization-rules@main/RULES.md` policy is authoritative",
+            "A skipped HEAD is\ncheckpoint-only",
             "#283, #322, and #323",
             "not introduce a planner, queue, database, custom CI command language",
             "issue-dependency synchronization remains",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, source)
+        self.assertNotIn("Until #66 is merged", source)
+        self.assertNotIn("[skip push ci]", source)
 
 
 if __name__ == "__main__":

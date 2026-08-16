@@ -36,15 +36,15 @@ The consumer repository owns and must review all of these fields:
 
 These skeletons intentionally use GitHub-native branch/path/ref structure and do
 not introduce a planner, queue, database, custom CI command language, or
-organization-specific run protocol. The owner-approved lifecycle transition is
-tracked by `StreamScapeTV/organization-rules#66` and is still a dependency of
-#323 while this scaffold is being built. Final publication must reconcile to the
-merged shared policy before consumers treat these examples as authoritative.
+organization-specific run protocol. The owner-approved lifecycle decision in
+`StreamScapeTV/organization-rules#66` is complete; the merged shared
+`organization-rules@main/RULES.md` policy is authoritative.
 
-The owner-approved target lifecycle in #66 permits native GitHub `[skip ci]` or
-`[ci skip]` markers on coherent intermediate checkpoints when CI is not wanted; a
-coherent non-skipped branch commit intentionally requests any configured push CI.
-Until #66 is merged, the current shared rules remain the operating authority.
+Native GitHub `[skip ci]` or `[ci skip]` markers may be used on coherent
+intermediate checkpoints when CI is not wanted. A coherent non-skipped branch
+commit intentionally requests any configured push CI. A skipped HEAD is
+checkpoint-only whenever required pull-request validation applies, so the final
+candidate must be a non-skipped exact head.
 
 A finalized pull request should receive the repository-defined relevant
 validation, and the protected integration branch should run the repository-defined
