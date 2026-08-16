@@ -36,6 +36,29 @@ jobs:
     outputs:
       runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
     steps:
+      - name: Admit specialized runner trust
+        shell: bash
+        env:
+          ADMITTED_SHA: ${{ inputs.admitted_sha }}
+          CALLER_REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || '' }}
+          VALIDATION_PROFILE: ${{ inputs.validation_profile }}
+        run: |
+          set -Eeuo pipefail
+          [[ "${ADMITTED_SHA}" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::admitted_sha must be an exact lowercase commit SHA' >&2; exit 2; }
+          case "${VALIDATION_PROFILE}" in
+            general) ;;
+            mobile|apple)
+              case "${EVENT_NAME}" in
+                pull_request) [[ -n "${PR_HEAD_REPOSITORY}" && "${PR_HEAD_REPOSITORY}" == "${CALLER_REPOSITORY}" ]] || { echo '::error::specialized script validation rejects fork pull requests' >&2; exit 2; } ;;
+                push|workflow_dispatch) ;;
+                *) echo '::error::specialized script validation requires same-repository PR or exact non-PR source' >&2; exit 2 ;;
+              esac
+              ;;
+            *) echo '::error::validation_profile must be general, mobile, or apple' >&2; exit 2 ;;
+          esac
+
       - id: plan
         name: Resolve bounded semantic runner
         shell: bash
@@ -46,7 +69,7 @@ jobs:
           case "${VALIDATION_PROFILE}" in
             general) runs_on='["linux","amd64","general","small"]' ;;
             mobile) runs_on='["linux","amd64","mobile"]' ;;
-            apple) runs_on='["macOS","ARM64"]' ;;
+            apple) runs_on='["macOS","ARM64","apple"]' ;;
             *) echo '::error::validation_profile must be general, mobile, or apple' >&2; exit 2 ;;
           esac
           printf 'runs_on_json=%s\n' "${runs_on}" >> "${GITHUB_OUTPUT}"
