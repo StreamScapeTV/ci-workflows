@@ -1,6 +1,6 @@
 # Build-only stage for common Debian utilities, GCC's runtime libraries, the
 # setup-node compatibility probe, and the zstd binary. Every network asset is
-# materialized and checksum-verified by the central OCI input contract before
+# materialized and checksum-verified by the product-local input preparer before
 # Buildah starts; Dockerfile execution itself is networkless.
 FROM docker.io/library/buildpack-deps@sha256:3c55df66bea98808f842d6d59aa498012888f4cf82874c4a7f2b3a42a2c9c82e AS build-tools
 
