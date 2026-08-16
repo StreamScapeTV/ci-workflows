@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_SHA = "87a7454aaa59cb680db8f580d22551b749ac4193"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 PYTHON_SHA = "d060c275570e07222969546acf988a2616a3bcc6"
-ANDROID_SHA = "aef024030a7e96da74bb98b24bd67b532f289fc1"
+ANDROID_SHA = "8c7e16003b56da9f6bd2e20b0b5b78e4bbfaceaf"
 APPLE_SHA = "702b950b6a5baf208e7b21f16e3f7df9b8f0f96e"
 OCI_SHA = "3b401078d1167d7048281e3c3269556ce586dada"
 GITOPS_SHA = "8445e63dd9fa9468b60b6d0c61e543da9681b47b"
@@ -23,7 +23,7 @@ RELEASE_TAG_SHA = "2b0443fdad002d47625386a959ebe68545cfe022"
 FOUNDATION = "issue #116 immutable private-action checkpoint"
 ISSUE_132 = "issue #132 immutable mode-aware source checkpoint"
 ISSUE_104 = "issue #104 immutable private-action checkpoint"
-ISSUE_256 = "issue #256 immutable Media lifecycle sentinel checkpoint"
+ISSUE_262 = "issue #262 immutable Media audio-output sentinel checkpoint"
 ISSUE_125 = "issue #125 immutable private-action checkpoint"
 ISSUE_229 = "issue #229 immutable portable host runtime checkpoint"
 ISSUE_150 = "issue #150 immutable OCI input checkpoint"
@@ -41,7 +41,7 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
     },
     ".github/workflows/reusable-android.yml": {
-        "StreamScapeTV/ci-workflows/actions/validate-android": (ANDROID_SHA, ISSUE_256),
+        "StreamScapeTV/ci-workflows/actions/validate-android": (ANDROID_SHA, ISSUE_262),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/checkout-private-dependency": (FOUNDATION_SHA, ISSUE_104),
@@ -149,7 +149,7 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
                     self.assertEqual("composite", locked[helper]["runtime"])
                     self.assertEqual(release, locked[helper]["release"])
 
-    def test_android_private_action_checkpoint_contains_media_lifecycle_policy(self) -> None:
+    def test_android_private_action_checkpoint_contains_media_audio_output_policy(self) -> None:
         source, _ = self.load(ANDROID_WORKFLOW)
         policy = json.loads(
             (ROOT / "contracts/android-source-policy.json").read_text(encoding="utf-8")
@@ -157,18 +157,20 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
         exception = next(
             item
             for item in policy["tracked_secret_exceptions"]
-            if item["id"] == "streamscape_media_playback_lab_redaction_sentinels_v1"
+            if item["id"] == "streamscape_media_audio_output_redaction_sentinels_v1"
         )
-        self.assertIn(
-            {
-                "path": "apple/Tests/StreamscapePlaybackLabSupportTests/PlaybackLabLifecycleEvidenceTests.swift",
-                "git_blob_sha1": "5df889bbf613ee7f4dabd07ca931aa81fb4f71a3",
-            },
+        self.assertEqual(
             exception["paths"],
+            [
+                {
+                    "path": "scripts/ci/test-derive-ios-audio-output-evidence.py",
+                    "git_blob_sha1": "dca798a49adf036b34132b0435dd70d0791bfa7a",
+                }
+            ],
         )
         self.assertEqual(4, source.count(f"actions/validate-android@{ANDROID_SHA}"))
         self.assertNotIn(
-            "actions/validate-android@275ee86f0f5de3d8f3330b92c84d7c0188fb10f8",
+            "actions/validate-android@aef024030a7e96da74bb98b24bd67b532f289fc1",
             source,
         )
 
