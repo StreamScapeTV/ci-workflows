@@ -5,7 +5,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCKERFILE = ROOT / "runner-images/docker/Dockerfile"
-INPUT_LOCK = ROOT / ".ciw/oci-build-inputs/runner-docker-linux-amd64.json"
 TOOLCHAIN_LOCK = ROOT / "runner-images/docker/toolchain.lock.json"
 SMOKE = ROOT / "runner-images/docker/smoke.sh"
 
@@ -22,7 +21,7 @@ def test_docker_runner_derives_only_from_official_upstream_images() -> None:
 
 def test_docker_runner_contains_client_tooling_only() -> None:
     source = DOCKERFILE.read_text(encoding="utf-8")
-    assert "/usr/local/bin/docker" in source
+    assert "COPY --from=docker-cli --chmod=0755 /usr/local/bin/docker /usr/local/bin/docker" in source
     assert "docker-buildx" in source
     assert "docker-compose" in source
     assert "docker:dind" not in source
@@ -37,19 +36,16 @@ def test_docker_runner_contains_client_tooling_only() -> None:
         "/usr/bin/runc",
     ):
         assert inherited_runtime in source
-
-
-def test_docker_runner_input_lock_is_immutable() -> None:
-    lock = json.loads(INPUT_LOCK.read_text(encoding="utf-8"))
-    assert lock["product_id"] == "runner-docker"
-    assert lock["target_id"] == "linux-amd64"
-    assert lock["platforms"] == ["linux/amd64"]
-    assert lock["external_inputs"] == []
-    assert [item["stage_id"] for item in lock["bases"]] == ["docker-cli", "actions-runner"]
-    for base in lock["bases"]:
-        assert "@sha256:" in base["declared_reference"]
-        assert base["platform_identities"][0]["manifest_digest"].startswith("sha256:")
-        assert base["platform_identities"][0]["config_digest"].startswith("sha256:")
+    for inherited_state in (
+        "/etc/docker",
+        "/root/.docker",
+        "/home/runner/.docker",
+        "/usr/libexec/docker",
+        "/usr/local/lib/docker",
+        "/var/lib/docker",
+    ):
+        assert inherited_state in source
+    assert "USER runner\nRUN /usr/local/bin/runner-image-smoke" in source
 
 
 def test_docker_runner_tool_versions_are_explicit() -> None:
@@ -58,11 +54,26 @@ def test_docker_runner_tool_versions_are_explicit() -> None:
     assert lock["docker_cli_image"]["version"] == "29.7.2"
     assert lock["docker_buildx"]["version"] == "0.36.1"
     assert lock["docker_compose"]["version"] == "5.4.0"
+    assert lock["policy"] == {
+        "inherits_streamscape_runner_image": False,
+        "daemon_in_image": False,
+        "host_socket_baked_in": False,
+        "kubernetes_credentials_baked_in": False,
+    }
 
 
-def test_docker_runner_smoke_is_checked_in() -> None:
+def test_docker_runner_smoke_fails_closed_on_runtime_authority_leakage() -> None:
     source = SMOKE.read_text(encoding="utf-8")
-    assert "/home/runner/run.sh" in source
-    assert "docker --version" in source
-    assert "docker buildx version" in source
-    assert "docker compose version" in source
+    assert 'test "$(id -un)" = runner' in source
+    assert "test -x /home/runner/run.sh" in source
+    assert "Docker version 29.7.2" in source
+    assert "v0.36.1" in source
+    assert "v5.4.0" in source
+    assert "for forbidden in dockerd containerd ctr runc docker-proxy docker-init; do" in source
+    assert "! command -v" in source
+    assert "test ! -e /var/run/docker.sock" in source
+    assert "test ! -e /run/docker.sock" in source
+    assert "test ! -e /home/runner/.docker/config.json" in source
+    assert "test ! -e /home/runner/.kube/config" in source
+    assert "test ! -e /var/run/secrets/kubernetes.io/serviceaccount/token" in source
+    assert 'test -z "${KUBECONFIG:-}"' in source
