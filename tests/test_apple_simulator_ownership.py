@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Mapping, Sequence
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -204,7 +208,7 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
     @staticmethod
     def write_registry(workspace: Path, rows: list[dict[str, str]]) -> None:
         root = workspace / _OWNERSHIP_DIRECTORY
-        root.mkdir(exist_ok=True)
+        root.mkdir(mode=0o700, exist_ok=True)
         (root / _OWNERSHIP_REGISTRY).write_text(
             json.dumps({"schema_version": 1, "owners": rows}, sort_keys=True),
             encoding="utf-8",
@@ -632,6 +636,50 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
                     pass
         self.assertEqual(captured.exception.code, "simulator_ownership_locked")
 
+    def test_github_actions_sibling_runner_workspaces_share_host_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            host_home = base / "host-home"
+            host_home.mkdir(mode=0o700)
+            workspace_a = base / "actions-runner" / "_work"
+            workspace_b = base / "actions-runner2" / "_work"
+            workspace_a.mkdir(parents=True)
+            workspace_b.mkdir(parents=True)
+            state_a = base / "state-a"
+            state_b = base / "state-b"
+            state_a.mkdir()
+            state_b.mkdir()
+            environment_a = {
+                "GITHUB_ACTIONS": "true",
+                "RUNNER_WORKSPACE": str(workspace_a),
+            }
+            environment_b = {
+                "GITHUB_ACTIONS": "true",
+                "RUNNER_WORKSPACE": str(workspace_b),
+            }
+            account = SimpleNamespace(pw_dir=str(host_home))
+
+            with patch(
+                "ci_workflows.apple_execution.pwd.getpwuid",
+                return_value=account,
+            ):
+                with _simulator_ownership(environment_a, state_a) as first:
+                    expected_root = host_home / _OWNERSHIP_DIRECTORY
+                    self.assertEqual(first.root, expected_root)
+                    self.assertEqual(
+                        stat.S_IMODE(os.stat(expected_root).st_mode),
+                        0o700,
+                    )
+                    with self.assertRaises(apple.AppleValidationError) as captured:
+                        with _simulator_ownership(environment_b, state_b):
+                            pass
+                    self.assertEqual(
+                        captured.exception.code,
+                        "simulator_ownership_locked",
+                    )
+                with _simulator_ownership(environment_b, state_b) as second:
+                    self.assertEqual(second.root, expected_root)
+
     def test_registry_root_and_file_symlinks_are_rejected_without_following(self) -> None:
         for target_kind in ("root", "registry", "lock"):
             with self.subTest(target_kind=target_kind):
@@ -648,7 +696,7 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
                     if target_kind == "root":
                         root.symlink_to(outside, target_is_directory=True)
                     else:
-                        root.mkdir()
+                        root.mkdir(mode=0o700)
                         target = outside / target_kind
                         target.write_text("outside\n", encoding="utf-8")
                         name = (
@@ -694,7 +742,7 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
     def test_corrupted_registry_fails_closed(self) -> None:
         _, environment, workspace = self.host_environment()
         root = workspace / _OWNERSHIP_DIRECTORY
-        root.mkdir()
+        root.mkdir(mode=0o700)
         (root / _OWNERSHIP_REGISTRY).write_text("{not-json", encoding="utf-8")
         state = workspace.parent / "state"
         state.mkdir()
