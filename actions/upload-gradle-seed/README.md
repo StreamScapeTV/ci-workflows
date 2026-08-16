@@ -58,7 +58,7 @@ jobs:
           # checkout step omitted above for brevity.
 
       - id: promote
-        uses: StreamScapeTV/ci-workflows/actions/upload-gradle-seed@<issue-251-immutable-sha>
+        uses: StreamScapeTV/ci-workflows/actions/upload-gradle-seed@b51754fcd9d2df0f4aa71f097287b019bc6bedcb
         with:
           source_sha: ${{ github.sha }}
 
