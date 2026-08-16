@@ -1,4 +1,4 @@
-name: General runner image validation
+name: Runner image validation
 
 on:
   pull_request:
@@ -7,9 +7,13 @@ on:
       - ".github/workflows/runner-images-validation.yml"
       - "actions/runner-image/**"
       - "runner-images/general/**"
+      - "runner-images/docker/**"
+      - "runner-images/flux-control/**"
       - "scripts/ci/runner_images.py"
       - "src/ci_workflows/runner_images.py"
       - "tests/test_runner_image_general.py"
+      - "tests/test_runner_image_docker.py"
+      - "tests/test_runner_image_flux_control.py"
       - "tests/test_runner_images_validation_workflow.py"
   workflow_dispatch:
 
@@ -21,14 +25,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  general:
-    name: Build and smoke the general runner image
+  images:
+    name: Build and smoke ${{ matrix.image }} runner image
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - general
+          - docker
+          - flux-control
     runs-on: [linux, amd64, buildah, high]
     timeout-minutes: 180
     env:
       SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
     steps:
-      - name: Check out exact general-image source
+      - name: Check out exact runner-image source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: StreamScapeTV/ci-workflows
@@ -38,7 +49,7 @@ jobs:
           persist-credentials: false
           set-safe-directory: false
 
-      - name: Verify exact general-image source
+      - name: Verify exact runner-image source
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -48,16 +59,18 @@ jobs:
       - name: Build and smoke through the shared runner-image action
         uses: ./actions/runner-image
         with:
-          image: general
+          image: ${{ matrix.image }}
           source_sha: ${{ env.SOURCE_SHA }}
           publish: "false"
 
       - name: Verify runner-image credential cleanup
         if: always()
         shell: bash
+        env:
+          IMAGE: ${{ matrix.image }}
         run: |
           set -Eeuo pipefail
-          authfile="${RUNNER_TEMP}/ciw-runner-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-general.json"
+          authfile="${RUNNER_TEMP}/ciw-runner-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${IMAGE}.json"
           test ! -e "${authfile}"
           test ! -L "${authfile}"
 
