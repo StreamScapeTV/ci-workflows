@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import argparse
+import io
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from ci_workflows import gradle_seed
+from ci_workflows import ciw_gradle_seed, gradle_seed
+from ci_workflows.ciw_types import CIWContext, CIWError
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTION = ROOT / "actions" / "upload-gradle-seed" / "action.yml"
@@ -126,6 +131,58 @@ class GradleSeedActionContractTests(unittest.TestCase):
         warm_block = source.split("  warm_gradle_seed:\n", 1)[1]
         self.assertLess(warm_block.index("- id: execute"), warm_block.index("- id: promote"))
         self.assertLess(warm_block.index("- id: promote"), warm_block.index("- id: android_cleanup"))
+
+    def test_ciw_adapter_requires_registered_gradle_workspace_home(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            environment = {
+                "GITHUB_OUTPUT": str(root / "output"),
+                "INPUT_SOURCE_SHA": "a" * 40,
+                "CI_WORKFLOW_ROOT": str(root),
+                "GRADLE_USER_HOME": str(root / "gradle"),
+            }
+            context = CIWContext(
+                root=ROOT,
+                environment=environment,
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+            result = mock.Mock()
+            result.output_values.return_value = {"result": "promoted"}
+            with mock.patch.object(
+                ciw_gradle_seed,
+                "promote_gradle_seed",
+                return_value=result,
+            ) as promote:
+                projected = ciw_gradle_seed.execute_gradle_seed_upload(
+                    argparse.Namespace(source_sha=None),
+                    context,
+                )
+            self.assertEqual("promoted", projected.outputs["result"])
+            promote.assert_called_once_with(
+                source_sha="a" * 40,
+                environment=environment,
+            )
+
+            bad_environments = (
+                {**environment, "CI_WORKFLOW_ROOT": ""},
+                {**environment, "GRADLE_USER_HOME": str(root / "other")},
+                {**environment, "CI_WORKFLOW_ROOT": "relative-root"},
+            )
+            for bad_environment in bad_environments:
+                with self.subTest(environment=bad_environment):
+                    bad_context = CIWContext(
+                        root=ROOT,
+                        environment=bad_environment,
+                        stdout=io.StringIO(),
+                        stderr=io.StringIO(),
+                    )
+                    with self.assertRaises(CIWError) as raised:
+                        ciw_gradle_seed.execute_gradle_seed_upload(
+                            argparse.Namespace(source_sha=None),
+                            bad_context,
+                        )
+                    self.assertEqual("gradle_seed_home_rejected", raised.exception.code)
 
 
 if __name__ == "__main__":
