@@ -1,6 +1,6 @@
 # Public workflow API architecture
 
-The public workflow registry is the design authority for organization-facing reusable workflows before implementation. It describes technologies, processes, trust classes, permissions, bounded inputs, outputs, and cleanup. **Application identity is not a compatibility dimension:** ordinary APIs do not contain a central allowlist of application repositories or products.
+The public workflow registry is the design authority for organization-facing reusable workflows before implementation. It describes technologies, processes, trust classes, permissions, bounded inputs, outputs, and cleanup. Concrete **application identity** is not a compatibility dimension: ordinary APIs do not contain a central allowlist of application repositories or products.
 
 ## Shallow call graph
 
