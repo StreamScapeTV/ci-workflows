@@ -13,39 +13,103 @@ permissions:
 
 jobs:
   probe:
-    runs-on: [self-hosted, linux, amd64, buildah, medium]
-    timeout-minutes: 20
+    runs-on: [self-hosted, linux, amd64, general, small]
+    timeout-minutes: 10
     steps:
       - name: Resolve exact upstream image identity
         shell: bash
         run: |
           set -Eeuo pipefail
-          image='quay.io/containers/aio:latest'
-          root_digest="$(skopeo inspect --format '{{.Digest}}' "docker://${image}")"
-          skopeo --debug inspect --raw "docker://${image}" >/tmp/aio-root.json 2>/tmp/aio-debug.log
-          amd64_digest="$(jq -er '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest' /tmp/aio-root.json)"
-          skopeo inspect --raw "docker://quay.io/containers/aio@${amd64_digest}" > /tmp/aio-amd64.json
-          config_digest="$(jq -er '.config.digest' /tmp/aio-amd64.json)"
-          printf 'root_digest=%s\n' "${root_digest}"
-          printf 'amd64_manifest_digest=%s\n' "${amd64_digest}"
-          printf 'amd64_config_digest=%s\n' "${config_digest}"
-          printf '%s\n' 'observed_registry_hosts:'
-          grep -Eo 'https://[A-Za-z0-9.-]+' /tmp/aio-debug.log | sed 's#https://##' | sort -u
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import re
+          import urllib.error
+          import urllib.parse
+          import urllib.request
 
-      - name: Probe required toolchain
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          image='quay.io/containers/aio:latest'
-          container="$(buildah from --pull=always "${image}")"
-          cleanup() { buildah rm -f "${container}" >/dev/null 2>&1 || true; }
-          trap cleanup EXIT
-          buildah run "${container}" -- buildah --version
-          buildah run "${container}" -- podman --version
-          buildah run "${container}" -- skopeo --version
-          buildah run "${container}" -- crun --version | head -n1
-          buildah run "${container}" -- bash --version | head -n1
-          buildah run "${container}" -- git --version
-          buildah run "${container}" -- curl --version | head -n1
-          buildah run "${container}" -- python3 --version
-          buildah run "${container}" -- sh -c 'test -s /etc/ssl/certs/ca-bundle.crt || test -s /etc/pki/tls/certs/ca-bundle.crt'
+          repository = "containers/aio"
+          registry = "https://quay.io"
+          accept = ", ".join(
+              (
+                  "application/vnd.oci.image.index.v1+json",
+                  "application/vnd.oci.image.manifest.v1+json",
+                  "application/vnd.docker.distribution.manifest.list.v2+json",
+                  "application/vnd.docker.distribution.manifest.v2+json",
+              )
+          )
+
+          def get(url: str, *, token: str | None = None, headers: dict[str, str] | None = None):
+              request_headers = {"Accept": accept, **(headers or {})}
+              if token:
+                  request_headers["Authorization"] = f"Bearer {token}"
+              request = urllib.request.Request(url, headers=request_headers)
+              try:
+                  return urllib.request.urlopen(request, timeout=60)
+              except urllib.error.HTTPError as error:
+                  if error.code != 401 or token is not None:
+                      raise
+                  challenge = error.headers.get("WWW-Authenticate", "")
+                  if not challenge.startswith("Bearer "):
+                      raise
+                  values = dict(re.findall(r'(\w+)="([^"]*)"', challenge))
+                  realm = values["realm"]
+                  query = urllib.parse.urlencode(
+                      {
+                          "service": values.get("service", "quay.io"),
+                          "scope": values.get("scope", f"repository:{repository}:pull"),
+                      }
+                  )
+                  with urllib.request.urlopen(f"{realm}?{query}", timeout=60) as token_response:
+                      payload = json.load(token_response)
+                  bearer = payload.get("token") or payload.get("access_token")
+                  if not isinstance(bearer, str) or not bearer:
+                      raise RuntimeError("missing_bearer_token")
+                  return get(url, token=bearer, headers=headers)
+
+          root_url = f"{registry}/v2/{repository}/manifests/latest"
+          with get(root_url) as response:
+              root_raw = response.read()
+              root_header = response.headers.get("Docker-Content-Digest", "")
+          root_digest = "sha256:" + hashlib.sha256(root_raw).hexdigest()
+          if root_header and root_header != root_digest:
+              raise RuntimeError("root_digest_header_mismatch")
+          root = json.loads(root_raw)
+
+          manifests = root.get("manifests")
+          if not isinstance(manifests, list):
+              raise RuntimeError("latest_is_not_multi_platform")
+          matches = [
+              item
+              for item in manifests
+              if item.get("platform", {}).get("os") == "linux"
+              and item.get("platform", {}).get("architecture") == "amd64"
+          ]
+          if len(matches) != 1:
+              raise RuntimeError("amd64_manifest_not_unique")
+          amd64_digest = matches[0]["digest"]
+
+          manifest_url = f"{registry}/v2/{repository}/manifests/{amd64_digest}"
+          with get(manifest_url) as response:
+              manifest_raw = response.read()
+          if "sha256:" + hashlib.sha256(manifest_raw).hexdigest() != amd64_digest:
+              raise RuntimeError("amd64_manifest_digest_mismatch")
+          manifest = json.loads(manifest_raw)
+          config_digest = manifest["config"]["digest"]
+
+          config_url = f"{registry}/v2/{repository}/blobs/{config_digest}"
+          with get(config_url, headers={"Accept": "application/octet-stream"}) as response:
+              config_raw = response.read()
+              final_host = urllib.parse.urlsplit(response.geturl()).hostname
+          if "sha256:" + hashlib.sha256(config_raw).hexdigest() != config_digest:
+              raise RuntimeError("config_digest_mismatch")
+          config = json.loads(config_raw)
+
+          print(f"root_digest={root_digest}")
+          print(f"amd64_manifest_digest={amd64_digest}")
+          print(f"amd64_config_digest={config_digest}")
+          print(f"config_blob_final_host={final_host}")
+          print(f"user={config.get('config', {}).get('User', '')}")
+          print(f"working_dir={config.get('config', {}).get('WorkingDir', '')}")
+          print("env=" + json.dumps(config.get("config", {}).get("Env", []), separators=(",", ":")))
+          PY
