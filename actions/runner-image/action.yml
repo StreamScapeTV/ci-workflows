@@ -56,6 +56,24 @@ runs:
           --release-tag "${RELEASE_TAG}" \
           --github-output "${GITHUB_OUTPUT}"
 
+    - name: Prepare optional image-owned build inputs
+      shell: bash
+      env:
+        CONTEXT_PATH: ${{ steps.plan.outputs.context_path }}
+      run: |
+        set -Eeuo pipefail
+        preparer="${CONTEXT_PATH}/prepare_inputs.py"
+        build_inputs="${CONTEXT_PATH}/.ciw-build-inputs"
+        if test -e "${preparer}" || test -L "${preparer}"; then
+          test -f "${preparer}"
+          test ! -L "${preparer}"
+          test ! -e "${build_inputs}"
+          test ! -L "${build_inputs}"
+          python3 "${preparer}"
+          test -d "${build_inputs}"
+          test ! -L "${build_inputs}"
+        fi
+
     - name: Require publication credentials only in publish mode
       if: ${{ inputs.publish == 'true' }}
       shell: bash
@@ -138,6 +156,7 @@ runs:
       shell: bash
       env:
         IMAGE: ${{ inputs.image }}
+        CONTEXT_PATH: ${{ steps.plan.outputs.context_path }}
         LOCAL_REFERENCE: ${{ steps.plan.outputs.local_reference }}
         REGISTRY_HOST: ${{ steps.plan.outputs.registry_host }}
       run: |
@@ -150,6 +169,12 @@ runs:
             buildah logout --authfile "${authfile}" "${REGISTRY_HOST}" >/dev/null 2>&1 || true
           fi
           rm -f "${authfile}"
+        fi
+        if test -n "${CONTEXT_PATH}"; then
+          build_inputs="${CONTEXT_PATH}/.ciw-build-inputs"
+          rm -rf -- "${build_inputs}"
+          test ! -e "${build_inputs}"
+          test ! -L "${build_inputs}"
         fi
         if test -n "${LOCAL_REFERENCE}"; then
           buildah rmi "${LOCAL_REFERENCE}" >/dev/null 2>&1 || true

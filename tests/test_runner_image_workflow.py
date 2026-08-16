@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+
+import yaml
 
 from ci_workflows.runner_images import (
     IMAGE_IDS,
@@ -62,23 +66,72 @@ class RunnerImageWorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.action = (ROOT / "actions/runner-image/action.yml").read_text(encoding="utf-8")
+        cls.action_document = yaml.safe_load(cls.action)
         cls.internal = (ROOT / ".github/workflows/internal-runner-image.yml").read_text(encoding="utf-8")
         cls.release = (ROOT / ".github/workflows/runner-images-release.yml").read_text(encoding="utf-8")
 
+    @classmethod
+    def _action_step_run(cls, name: str) -> str:
+        for step in cls.action_document["runs"]["steps"]:
+            if step.get("name") == name:
+                return str(step["run"])
+        raise AssertionError(f"missing composite action step: {name}")
+
     def test_composite_action_is_the_single_build_smoke_publish_path(self) -> None:
         for expected in (
+            "scripts/ci/ciw.py",
             "scripts/ci/runner_images.py",
+            "prepare_inputs.py",
+            ".ciw-build-inputs",
             "buildah bud",
             "buildah from",
             "buildah run",
             "buildah push",
             "skopeo inspect",
+            'rm -rf -- "${build_inputs}"',
             "Remove exact runner-image build and authentication state",
             "if: always()",
         ):
             self.assertIn(expected, self.action)
         for forbidden in ("actions/cache", "upload-artifact", "kubectl apply", "flux reconcile"):
             self.assertNotIn(forbidden, self.action)
+
+    def test_optional_product_preparer_runs_only_when_present(self) -> None:
+        script = self._action_step_run("Prepare optional image-owned build inputs")
+        with tempfile.TemporaryDirectory() as temp:
+            context = Path(temp) / "runner-images/flux-control"
+            context.mkdir(parents=True)
+            environment = dict(os.environ)
+            environment["CONTEXT_PATH"] = str(context)
+
+            subprocess.run(
+                ["bash", "-c", script],
+                cwd=ROOT,
+                env=environment,
+                check=True,
+            )
+            self.assertFalse((context / ".ciw-build-inputs").exists())
+            self.assertFalse((context / "prepare-marker").exists())
+
+            (context / "prepare_inputs.py").write_text(
+                "from pathlib import Path\n"
+                "root = Path(__file__).resolve().parent\n"
+                "(root / '.ciw-build-inputs').mkdir()\n"
+                "(root / 'prepare-marker').write_text('invoked', encoding='utf-8')\n",
+                encoding="utf-8",
+            )
+            subprocess.run(
+                ["bash", "-c", script],
+                cwd=ROOT,
+                env=environment,
+                check=True,
+            )
+            self.assertEqual(
+                "invoked",
+                (context / "prepare-marker").read_text(encoding="utf-8"),
+            )
+            self.assertTrue((context / ".ciw-build-inputs").is_dir())
+            self.assertFalse((context / ".ciw-build-inputs").is_symlink())
 
     def test_internal_leaf_is_shallow_and_delegates_to_composite_action(self) -> None:
         self.assertIn("workflow_call:", self.internal)
