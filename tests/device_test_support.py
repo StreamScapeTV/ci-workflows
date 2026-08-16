@@ -37,10 +37,11 @@ def real_environment(
     *,
     repository: str = "StreamScapeTV/streamscape-media",
     family: str = "ios",
-    capability: str = "native-failover",
-    command_profile: str = "streamscape-media-ios-device",
-    script_path: str = "scripts/ci/run-ios-device-packet.sh",
+    capability: str = "native-video-output-frame-rates",
+    command_profile: str = "streamscape-media-ios-central-device",
+    script_path: str = "scripts/ci/run-ios-central-device-test.sh",
     alias: str = "media-primary",
+    request_id: str = "issue-527-media-ios-packet",
     secret: bool = False,
 ) -> dict[str, str]:
     environment = {
@@ -60,7 +61,7 @@ def real_environment(
         "INPUT_SCRIPT_PATH": script_path,
         "INPUT_MAX_DURATION_MINUTES": "60",
         "INPUT_EVIDENCE_EXCEPTION_ID": "",
-        "INPUT_REQUEST_ID": "issue-14-physical-request",
+        "INPUT_REQUEST_ID": request_id,
     }
     if secret:
         environment["CIW_DEVICE_LIVE_BACKEND_PRESENT"] = "true"
