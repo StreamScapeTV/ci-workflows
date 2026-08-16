@@ -106,6 +106,18 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
             ),
         )
 
+    def scoped_plan(self, sha: str):
+        return apple.resolve_plan(
+            self.contract,
+            apple.AppleValidationRequest(
+                repository="StreamScapeTV/ci-workflows",
+                admitted_sha=sha,
+                consumer_contract="ciw-apple-smoke",
+                validation_profile=AppleProfile.IOS_SIMULATOR,
+                source_trust="trusted-pr",
+            ),
+        )
+
     def host_environment(
         self,
     ) -> tuple[tempfile.TemporaryDirectory[str], dict[str, str], Path]:
@@ -187,6 +199,126 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
             runner.calls.count(("xcrun", "simctl", "delete", GOOD_UDID)),
             2,
         )
+        self.assertEqual(
+            json.loads(registry_path.read_text(encoding="utf-8"))["owners"],
+            [],
+        )
+
+    def test_prior_exact_head_stale_simulator_is_reconciled_before_selection(self) -> None:
+        temporary, source, sha = self.make_repo()
+        self.addCleanup(temporary.cleanup)
+        current_plan = self.scoped_plan(sha)
+        prior_plan = self.scoped_plan("b" * 40)
+        current_name = _simulator_device_name(current_plan)
+        prior_name = _simulator_device_name(prior_plan)
+        self.assertNotEqual(prior_name, current_name)
+        assert prior_plan.simulator is not None
+        assert current_plan.simulator is not None
+        unrelated_udid = "99999999-8888-7777-6666-555555555555"
+
+        for status in ("pending-create", "owned"):
+            with self.subTest(status=status):
+                _, environment, workspace = self.host_environment()
+                state_root = workspace.parent / f"state-{status}"
+                stale = {
+                    "name": prior_name,
+                    "udid": SECOND_UDID,
+                    "state": "Booted",
+                    "isAvailable": True,
+                    "deviceTypeIdentifier": prior_plan.simulator.device_type_identifier,
+                }
+                unrelated = {
+                    "name": "Personal Unrelated Simulator",
+                    "udid": unrelated_udid,
+                    "state": "Shutdown",
+                    "isAvailable": True,
+                    "deviceTypeIdentifier": prior_plan.simulator.device_type_identifier,
+                }
+                row = _ownership_record(
+                    prior_plan,
+                    status=status,
+                    udid=SECOND_UDID if status == "owned" else "",
+                )
+                self.write_registry(workspace, [row])
+                runner = FakeRunner(devices=[stale, unrelated])
+
+                result = execute_apple_plan(
+                    plan=current_plan,
+                    source_root=source,
+                    state_root=state_root,
+                    runner=runner,
+                    environment=environment,
+                )
+
+                self.assertEqual(result.status, "success")
+                stale_shutdown = ("xcrun", "simctl", "shutdown", SECOND_UDID)
+                stale_delete = ("xcrun", "simctl", "delete", SECOND_UDID)
+                current_create = (
+                    "xcrun",
+                    "simctl",
+                    "create",
+                    current_name,
+                    current_plan.simulator.device_type_identifier,
+                    current_plan.simulator.runtime_identifier,
+                )
+                self.assertLess(runner.calls.index(stale_shutdown), runner.calls.index(stale_delete))
+                self.assertLess(runner.calls.index(stale_delete), runner.calls.index(current_create))
+                self.assertNotIn(
+                    ("xcrun", "simctl", "shutdown", unrelated_udid),
+                    runner.calls,
+                )
+                self.assertNotIn(
+                    ("xcrun", "simctl", "delete", unrelated_udid),
+                    runner.calls,
+                )
+                self.assertTrue(
+                    any(row.get("udid") == unrelated_udid for row in runner.devices)
+                )
+                self.assertFalse(any(row.get("name") == prior_name for row in runner.devices))
+                self.assertFalse(any(row.get("name") == current_name for row in runner.devices))
+                registry_path = workspace / _OWNERSHIP_DIRECTORY / _OWNERSHIP_REGISTRY
+                self.assertEqual(
+                    json.loads(registry_path.read_text(encoding="utf-8"))["owners"],
+                    [],
+                )
+
+    def test_prior_exact_head_missing_simulator_row_is_cleared_idempotently(self) -> None:
+        temporary, source, sha = self.make_repo()
+        self.addCleanup(temporary.cleanup)
+        _, environment, workspace = self.host_environment()
+        current_plan = self.scoped_plan(sha)
+        prior_plan = self.scoped_plan("b" * 40)
+        assert prior_plan.simulator is not None
+        unrelated_udid = "99999999-8888-7777-6666-555555555555"
+        unrelated = {
+            "name": "Personal Unrelated Simulator",
+            "udid": unrelated_udid,
+            "state": "Shutdown",
+            "isAvailable": True,
+            "deviceTypeIdentifier": prior_plan.simulator.device_type_identifier,
+        }
+        self.write_registry(
+            workspace,
+            [_ownership_record(prior_plan, status="owned", udid=SECOND_UDID)],
+        )
+        runner = FakeRunner(devices=[unrelated])
+
+        result = execute_apple_plan(
+            plan=current_plan,
+            source_root=source,
+            state_root=workspace.parent / "state-missing-stale",
+            runner=runner,
+            environment=environment,
+        )
+
+        self.assertEqual(result.status, "success")
+        self.assertNotIn(("xcrun", "simctl", "delete", SECOND_UDID), runner.calls)
+        self.assertNotIn(
+            ("xcrun", "simctl", "delete", unrelated_udid),
+            runner.calls,
+        )
+        self.assertTrue(any(row.get("udid") == unrelated_udid for row in runner.devices))
+        registry_path = workspace / _OWNERSHIP_DIRECTORY / _OWNERSHIP_REGISTRY
         self.assertEqual(
             json.loads(registry_path.read_text(encoding="utf-8"))["owners"],
             [],
