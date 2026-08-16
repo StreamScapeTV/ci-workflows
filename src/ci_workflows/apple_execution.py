@@ -93,7 +93,9 @@ class SubprocessCommandRunner:
                 timeout=timeout_seconds,
                 check=False,
             )
-        except (OSError, subprocess.TimeoutExpired) as error:
+        except subprocess.TimeoutExpired:
+            raise
+        except OSError as error:
             raise AppleValidationError("command_failed") from error
         return CommandOutcome(
             completed.returncode,
@@ -112,7 +114,7 @@ class SimulatorLease:
 
 @dataclass(slots=True)
 class SimulatorOwnership:
-    """One non-blocking host-user simulator lock and validated registry."""
+    """One host-user simulator lock and its validated ownership registry."""
 
     root: Path
     lock_fd: int
@@ -640,8 +642,11 @@ def _simulator_ownership(
         metadata = os.fstat(lock_fd)
         if not stat.S_ISREG(metadata.st_mode):
             fail("simulator_ownership_invalid")
+        operation = fcntl.LOCK_EX
+        if environment.get("GITHUB_ACTIONS") != "true":
+            operation |= fcntl.LOCK_NB
         try:
-            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(lock_fd, operation)
         except BlockingIOError as error:
             raise AppleValidationError("simulator_ownership_locked") from error
         ownership = SimulatorOwnership(
@@ -1290,8 +1295,6 @@ def _validate_container_files(source_root: Path, plan: AppleValidationPlan) -> N
     path = regular_path(source_root, container.path, "container_invalid")
     if container.kind in {"project", "workspace"} and not path.is_dir():
         fail("container_invalid")
-    if container.kind == "package" and not path.is_file():
-        fail("container_invalid")
     if container.test_plan:
         test_plan = regular_path(source_root, container.test_plan, "test_plan_rejected")
         if not test_plan.is_file():
@@ -1350,7 +1353,7 @@ def _xcodebuild_argv(
         "NO",
         "CODE_SIGNING_ALLOWED=NO",
         "CODE_SIGNING_REQUIRED=NO",
-        "CODE_IDENTITY=",
+        "CODE_SIGN_IDENTITY=",
     ]
     if container.test_plan:
         argv.extend(("-testPlan", Path(container.test_plan).stem))
