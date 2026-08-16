@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Mapping
 
 from .device_contract_common import require, safe_relative
+from .device_types import DeviceValidationError
+from .foundation_types import FoundationError
 from .physical_log_policy import validate_durable_text
 
 MAX_RETAINED_EVIDENCE_BYTES = 1024 * 1024
@@ -46,23 +48,18 @@ def inspect_retained_evidence(
         size = target.stat().st_size
         require(0 < size <= MAX_RETAINED_EVIDENCE_BYTES, "evidence_policy_failed")
         payload = target.read_bytes()
-    except OSError as error:
-        raise RuntimeError("evidence_policy_failed") from error
-    require(len(payload) == size, "evidence_policy_failed")
-    try:
+        require(len(payload) == size, "evidence_policy_failed")
         text = payload.decode("utf-8")
-    except UnicodeDecodeError as error:
-        raise RuntimeError("evidence_policy_failed") from error
-    validate_durable_text(text, contract_root=contract_root)
-
-    if media_type == "application/json":
-        try:
+        validate_durable_text(text, contract_root=contract_root)
+        if media_type == "application/json":
             document = json.loads(text)
-        except json.JSONDecodeError as error:
-            raise RuntimeError("evidence_policy_failed") from error
-        require(isinstance(document, Mapping), "evidence_policy_failed")
-    else:
-        require("\x00" not in text, "evidence_policy_failed")
+            require(isinstance(document, Mapping), "evidence_policy_failed")
+        else:
+            require("\x00" not in text, "evidence_policy_failed")
+    except DeviceValidationError:
+        raise
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, FoundationError) as error:
+        raise DeviceValidationError("evidence_policy_failed") from error
 
     return {
         "name": target.name,
