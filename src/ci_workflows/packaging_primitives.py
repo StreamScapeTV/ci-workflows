@@ -10,10 +10,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Sequence
 
-_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+REGISTRY_USERNAME_ENV = "CIW_REGISTRY_USERNAME"
+REGISTRY_TOKEN_ENV = "CIW_REGISTRY_TOKEN"
+
 _BUILD_ARG_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")
 _IMAGE_TOOLS = frozenset({"buildah", "docker", "podman"})
 _REGISTRY_TOOLS = frozenset({"buildah", "docker", "helm", "podman"})
+_HELM_TOOLS = frozenset({"helm"})
 
 
 class PackagingError(RuntimeError):
@@ -109,10 +112,6 @@ def _run(
 
 
 def _secret(environment: Mapping[str, str], name: str) -> str:
-    _require(
-        _ENV_NAME.fullmatch(_text(name, "secret environment name")) is not None,
-        "invalid secret environment name",
-    )
     value = environment.get(name, "")
     _require(bool(value), f"missing environment secret: {name}")
     return value
@@ -121,18 +120,16 @@ def _secret(environment: Mapping[str, str], name: str) -> str:
 def registry_authenticate(
     registry: str,
     *,
-    username_env: str,
-    password_env: str,
     environment: Mapping[str, str],
     tool: str = "docker",
     cwd: Path | None = None,
 ) -> None:
-    """Authenticate a supported registry client using named environment secrets."""
+    """Authenticate using the fixed central registry credential environment names."""
 
     registry = _text(registry, "registry")
     tool = _tool(tool, _REGISTRY_TOOLS)
-    username = _secret(environment, username_env)
-    password = _secret(environment, password_env)
+    username = _secret(environment, REGISTRY_USERNAME_ENV)
+    token = _secret(environment, REGISTRY_TOKEN_ENV)
     if tool == "helm":
         argv = [
             "helm",
@@ -165,7 +162,7 @@ def registry_authenticate(
         argv,
         cwd=cwd,
         environment=environment,
-        stdin=f"{password}\n",
+        stdin=f"{token}\n",
         timeout=60,
     )
 
@@ -339,7 +336,7 @@ def helm_dependency_build(
 ) -> None:
     """Run ``helm dependency build`` for a caller-owned chart."""
 
-    tool = _text(tool, "helm tool")
+    tool = _tool(tool, _HELM_TOOLS)
     chart = _chart(chart)
     _run(
         [tool, "dependency", "build", str(chart)],
@@ -358,7 +355,7 @@ def helm_lint(
 ) -> None:
     """Lint a caller-owned chart with optional values files."""
 
-    tool = _text(tool, "helm tool")
+    tool = _tool(tool, _HELM_TOOLS)
     chart = _chart(chart)
     argv = [tool, "lint"]
     if strict:
@@ -379,7 +376,7 @@ def helm_template(
 ) -> str:
     """Render a caller-owned chart and return the rendered manifest."""
 
-    tool = _text(tool, "helm tool")
+    tool = _tool(tool, _HELM_TOOLS)
     release_name = _text(release_name, "release name")
     chart = _chart(chart)
     argv = [tool, "template", release_name, str(chart)]
@@ -404,7 +401,7 @@ def helm_package(
     _require(not destination.is_symlink(), "invalid package destination")
     destination.mkdir(parents=True, exist_ok=True)
     _require(destination.is_dir(), "invalid package destination")
-    tool = _text(tool, "helm tool")
+    tool = _tool(tool, _HELM_TOOLS)
     before = {path.resolve() for path in destination.glob("*.tgz")}
     argv = [tool, "package", str(chart), "--destination", str(destination)]
     if version is not None:
@@ -453,7 +450,7 @@ def helm_push(
         repository.startswith("oci://"),
         "helm repository must use oci://",
     )
-    tool = _text(tool, "helm tool")
+    tool = _tool(tool, _HELM_TOOLS)
     _run(
         [tool, "push", str(archive), repository],
         cwd=archive.parent,
