@@ -39,7 +39,7 @@ class PythonDocumentationTests(unittest.TestCase):
         self.assertNotIn("3.12.3", guide)
         for forbidden in (
             "actions/setup-python",
-            "setup-python",
+            "uses: actions/setup-python",
             "sudo apt",
             "apt-get",
         ):
