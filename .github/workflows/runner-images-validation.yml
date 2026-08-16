@@ -1,0 +1,30 @@
+name: General runner image validation
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+    paths:
+      - ".github/workflows/runner-images-validation.yml"
+      - "actions/runner-image/**"
+      - "runner-images/general/**"
+      - "scripts/ci/runner_images.py"
+      - "src/ci_workflows/runner_images.py"
+      - "tests/test_runner_image_general.py"
+      - "tests/test_runner_images_validation_workflow.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runner-images-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  general:
+    name: Build and smoke the general runner image
+    uses: ./.github/workflows/internal-runner-image.yml
+    with:
+      image: general
+      source_sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      publish: false
