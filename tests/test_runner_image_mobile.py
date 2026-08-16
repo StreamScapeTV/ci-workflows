@@ -77,6 +77,7 @@ def test_mobile_runner_locks_compatible_toolchain() -> None:
         "DART_VERSION": toolchain["dart"],
         "ANDROID_CMDLINE_TOOLS_VERSION": toolchain["android_command_line_tools"],
         "ANDROID_COMPAT_PLATFORM_VERSION": toolchain["android_platforms"][0],
+        "ANDROID_PLATFORM_VERSION": toolchain["android_platforms"][1].split(".")[0],
         "ANDROID_PLATFORM_PACKAGE_VERSION": toolchain["android_platforms"][1],
         "ANDROID_COMPAT_BUILD_TOOLS_VERSION": toolchain["android_build_tools"][0],
         "ANDROID_BUILD_TOOLS_VERSION": toolchain["android_build_tools"][1],
