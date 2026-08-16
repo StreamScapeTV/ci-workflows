@@ -15,25 +15,23 @@ on:
         description: Exact commit that the release tag must resolve to
         required: true
         type: string
-      image_repository:
-        description: Optional full private OCI image repository; empty skips image publication
-        required: false
-        default: ""
+      image_name:
+        description: Caller-owned private image name below git.faruqi.dev/mimranfaruqi
+        required: true
+        type: string
+      product_id:
+        description: Caller-owned Helm product identity from .streamscape/helm-product.json
+        required: true
         type: string
       dockerfile_path:
-        description: Caller-repository Dockerfile path used when image publication is enabled
+        description: Caller-repository Dockerfile path
         required: false
         default: Dockerfile
         type: string
       build_context:
-        description: Caller-repository build context used when image publication is enabled
+        description: Caller-repository build context
         required: false
         default: .
-        type: string
-      helm_product_id:
-        description: Optional caller-owned Helm product id; empty skips chart publication
-        required: false
-        default: ""
         type: string
       values_profile:
         description: Optional caller-owned Helm values profile
@@ -45,11 +43,11 @@ on:
         required: false
         default: ""
         type: string
-      create_github_release:
-        description: Create or update the normal GitHub Release for release_tag
+      operation:
+        description: publish or publish-with-github-release
         required: false
-        default: false
-        type: boolean
+        default: publish
+        type: string
     secrets:
       registry_username:
         description: Private OCI registry username used only by publication jobs
@@ -59,29 +57,27 @@ on:
         required: true
     outputs:
       result:
-        description: Success after all requested publication jobs and terminal summary
+        description: Success after image, chart, optional GitHub Release, and terminal summary
         value: ${{ jobs.summary.outputs.result }}
-      release_tag:
+      tag_name:
         description: Exact caller Git tag used as release authority
-        value: ${{ jobs.summary.outputs.release_tag }}
-      release_version:
+        value: ${{ jobs.summary.outputs.tag_name }}
+      version:
         description: Caller-owned release version
-        value: ${{ jobs.summary.outputs.release_version }}
+        value: ${{ jobs.summary.outputs.version }}
       source_sha:
         description: Exact commit resolved from release_tag
         value: ${{ jobs.summary.outputs.source_sha }}
       image_reference:
-        description: Published image version reference, or empty when image publication is skipped
+        description: Published versioned image reference
         value: ${{ jobs.summary.outputs.image_reference }}
       chart_digest:
-        description: Local normalized Helm package digest, or empty when chart publication is skipped
+        description: Local normalized Helm package digest used for publication
         value: ${{ jobs.summary.outputs.chart_digest }}
-      github_release_url:
-        description: GitHub Release URL, or empty when GitHub Release creation is skipped
-        value: ${{ jobs.summary.outputs.github_release_url }}
 
 permissions:
-  contents: read
+  actions: read
+  contents: write
 
 concurrency:
   group: release-${{ github.repository }}-${{ inputs.release_tag }}
@@ -92,10 +88,12 @@ jobs:
     name: Resolve caller Git tag
     runs-on: [linux, amd64, general, small]
     timeout-minutes: 10
+    permissions:
+      contents: read
     outputs:
       source_sha: ${{ steps.verify.outputs.source_sha }}
-      release_tag: ${{ steps.verify.outputs.release_tag }}
-      release_version: ${{ steps.verify.outputs.release_version }}
+      tag_name: ${{ steps.verify.outputs.tag_name }}
+      version: ${{ steps.verify.outputs.version }}
     steps:
       - name: Check out exact caller Git tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -113,21 +111,25 @@ jobs:
           RELEASE_TAG: ${{ inputs.release_tag }}
           RELEASE_VERSION: ${{ inputs.release_version }}
           ADMITTED_SHA: ${{ inputs.admitted_sha }}
+          OPERATION: ${{ inputs.operation }}
         run: |
           set -Eeuo pipefail
           [[ "${ADMITTED_SHA}" =~ ^[0-9a-f]{40}$ ]]
-          [[ "${RELEASE_TAG}" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$ ]]
+          [[ "${RELEASE_TAG}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]
           [[ "${RELEASE_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]
+          case "${OPERATION}" in
+            publish|publish-with-github-release) ;;
+            *) exit 1 ;;
+          esac
           test "$(git -C source rev-parse HEAD)" = "${ADMITTED_SHA}"
           test -z "$(git -C source status --porcelain --untracked-files=all)"
           printf 'source_sha=%s\n' "${ADMITTED_SHA}" >> "${GITHUB_OUTPUT}"
-          printf 'release_tag=%s\n' "${RELEASE_TAG}" >> "${GITHUB_OUTPUT}"
-          printf 'release_version=%s\n' "${RELEASE_VERSION}" >> "${GITHUB_OUTPUT}"
+          printf 'tag_name=%s\n' "${RELEASE_TAG}" >> "${GITHUB_OUTPUT}"
+          printf 'version=%s\n' "${RELEASE_VERSION}" >> "${GITHUB_OUTPUT}"
 
   image:
     name: Release / Image publication
     needs: admit
-    if: ${{ inputs.image_repository != '' }}
     runs-on: [linux, amd64, buildah, high]
     timeout-minutes: 180
     permissions:
@@ -146,8 +148,8 @@ jobs:
         name: Build and publish version image
         shell: bash
         env:
-          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
-          RELEASE_VERSION: ${{ needs.admit.outputs.release_version }}
+          IMAGE_NAME: ${{ inputs.image_name }}
+          RELEASE_VERSION: ${{ needs.admit.outputs.version }}
           DOCKERFILE_PATH: ${{ inputs.dockerfile_path }}
           BUILD_CONTEXT: ${{ inputs.build_context }}
           REGISTRY_USERNAME: ${{ secrets.registry_username }}
@@ -157,7 +159,8 @@ jobs:
           test "$(id -u)" -ne 0
           command -v buildah >/dev/null
           ! command -v docker >/dev/null 2>&1
-          [[ "${IMAGE_REPOSITORY}" =~ ^git\.faruqi\.dev/[a-z0-9][a-z0-9._/-]*$ ]]
+          [[ "${IMAGE_NAME}" =~ ^[a-z][a-z0-9-]{1,63}$ ]]
+          image_repository="git.faruqi.dev/mimranfaruqi/${IMAGE_NAME}"
           source_root="$(realpath source)"
           dockerfile="$(realpath -m "source/${DOCKERFILE_PATH}")"
           context="$(realpath -m "source/${BUILD_CONTEXT}")"
@@ -172,7 +175,7 @@ jobs:
           chmod 700 "${state}"
           auth="${state}/auth.json"
           manifest="release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          image_ref="${IMAGE_REPOSITORY}:${RELEASE_VERSION}"
+          image_ref="${image_repository}:${RELEASE_VERSION}"
           cleanup() {
             buildah manifest rm "${manifest}" >/dev/null 2>&1 || true
             buildah rmi -a -f >/dev/null 2>&1 || true
@@ -198,14 +201,13 @@ jobs:
   chart:
     name: Release / Helm publication
     needs: admit
-    if: ${{ inputs.helm_product_id != '' }}
     permissions:
       contents: read
     uses: ./.github/workflows/reusable-helm-publish.yml
     with:
       admitted_sha: ${{ needs.admit.outputs.source_sha }}
-      product_id: ${{ inputs.helm_product_id }}
-      release_version: ${{ needs.admit.outputs.release_version }}
+      product_id: ${{ inputs.product_id }}
+      release_version: ${{ needs.admit.outputs.version }}
       values_profile: ${{ inputs.values_profile }}
       policy_path: ${{ inputs.policy_path }}
     secrets:
@@ -216,22 +218,19 @@ jobs:
     name: Release / GitHub Release
     needs: [admit, image, chart]
     if: >-
-      ${{ always() && inputs.create_github_release && needs.admit.result == 'success' &&
-          (needs.image.result == 'success' || needs.image.result == 'skipped') &&
-          (needs.chart.result == 'success' || needs.chart.result == 'skipped') }}
+      ${{ always() && inputs.operation == 'publish-with-github-release' &&
+          needs.admit.result == 'success' && needs.image.result == 'success' &&
+          needs.chart.result == 'success' }}
     runs-on: [linux, amd64, general, small]
     timeout-minutes: 10
     permissions:
       contents: write
-    outputs:
-      url: ${{ steps.release.outputs.url }}
     steps:
-      - id: release
-        name: Create or update normal GitHub Release
+      - name: Create or update normal GitHub Release
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.admit.outputs.release_tag }}
+          RELEASE_TAG: ${{ needs.admit.outputs.tag_name }}
           SOURCE_SHA: ${{ needs.admit.outputs.source_sha }}
         run: |
           set -Eeuo pipefail
@@ -286,16 +285,11 @@ jobs:
               release_id = current.get("id")
               if not isinstance(release_id, int) or release_id <= 0:
                   raise SystemExit("existing GitHub Release identity invalid")
-              release = request(
+              request(
                   "PATCH",
                   f"/repos/{repository}/releases/{release_id}",
                   {"tag_name": tag, "name": tag, "draft": False},
               )
-          url = release.get("html_url")
-          if not isinstance(url, str) or not url.startswith("https://"):
-              raise SystemExit("GitHub Release URL invalid")
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              output.write(f"url={url}\n")
           PY
 
   summary:
@@ -304,14 +298,15 @@ jobs:
     if: always()
     runs-on: [linux, amd64, general, small]
     timeout-minutes: 10
+    permissions:
+      contents: read
     outputs:
       result: ${{ steps.summary.outputs.result }}
-      release_tag: ${{ steps.summary.outputs.release_tag }}
-      release_version: ${{ steps.summary.outputs.release_version }}
+      tag_name: ${{ steps.summary.outputs.tag_name }}
+      version: ${{ steps.summary.outputs.version }}
       source_sha: ${{ steps.summary.outputs.source_sha }}
       image_reference: ${{ steps.summary.outputs.image_reference }}
       chart_digest: ${{ steps.summary.outputs.chart_digest }}
-      github_release_url: ${{ steps.summary.outputs.github_release_url }}
     steps:
       - id: summary
         name: Project requested publication results
@@ -321,27 +316,25 @@ jobs:
           IMAGE_RESULT: ${{ needs.image.result }}
           CHART_RESULT: ${{ needs.chart.result }}
           RELEASE_RESULT: ${{ needs.github_release.result }}
-          CREATE_GITHUB_RELEASE: ${{ inputs.create_github_release }}
-          RELEASE_TAG: ${{ needs.admit.outputs.release_tag }}
-          RELEASE_VERSION: ${{ needs.admit.outputs.release_version }}
+          OPERATION: ${{ inputs.operation }}
+          RELEASE_TAG: ${{ needs.admit.outputs.tag_name }}
+          RELEASE_VERSION: ${{ needs.admit.outputs.version }}
           SOURCE_SHA: ${{ needs.admit.outputs.source_sha }}
           IMAGE_REFERENCE: ${{ needs.image.outputs.image_reference }}
           CHART_DIGEST: ${{ needs.chart.outputs.chart_digest }}
-          GITHUB_RELEASE_URL: ${{ needs.github_release.outputs.url }}
         run: |
           set -Eeuo pipefail
           test "${ADMIT_RESULT}" = success
-          test "${IMAGE_RESULT}" = success -o "${IMAGE_RESULT}" = skipped
-          test "${CHART_RESULT}" = success -o "${CHART_RESULT}" = skipped
-          if test "${CREATE_GITHUB_RELEASE}" = true; then
+          test "${IMAGE_RESULT}" = success
+          test "${CHART_RESULT}" = success
+          if test "${OPERATION}" = publish-with-github-release; then
             test "${RELEASE_RESULT}" = success
           else
             test "${RELEASE_RESULT}" = skipped
           fi
           printf 'result=success\n' >> "${GITHUB_OUTPUT}"
-          printf 'release_tag=%s\n' "${RELEASE_TAG}" >> "${GITHUB_OUTPUT}"
-          printf 'release_version=%s\n' "${RELEASE_VERSION}" >> "${GITHUB_OUTPUT}"
+          printf 'tag_name=%s\n' "${RELEASE_TAG}" >> "${GITHUB_OUTPUT}"
+          printf 'version=%s\n' "${RELEASE_VERSION}" >> "${GITHUB_OUTPUT}"
           printf 'source_sha=%s\n' "${SOURCE_SHA}" >> "${GITHUB_OUTPUT}"
           printf 'image_reference=%s\n' "${IMAGE_REFERENCE}" >> "${GITHUB_OUTPUT}"
           printf 'chart_digest=%s\n' "${CHART_DIGEST}" >> "${GITHUB_OUTPUT}"
-          printf 'github_release_url=%s\n' "${GITHUB_RELEASE_URL}" >> "${GITHUB_OUTPUT}"
