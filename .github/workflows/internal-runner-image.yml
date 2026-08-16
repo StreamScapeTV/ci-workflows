@@ -40,7 +40,7 @@ jobs:
     runs-on: [linux, amd64, buildah, high]
     timeout-minutes: 180
     outputs:
-      image_reference: ${{ steps.plan.outputs.remote_reference }}
+      image_reference: ${{ steps.runner_image.outputs.image_reference }}
     steps:
       - name: Check out exact runner-image source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -61,124 +61,25 @@ jobs:
           [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
 
-      - id: plan
-        name: Resolve fixed image paths and destination
-        shell: bash
-        env:
-          IMAGE: ${{ inputs.image }}
-          SOURCE_SHA: ${{ inputs.source_sha }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
-        run: |
-          set -Eeuo pipefail
-          python3 scripts/ci/runner_images.py plan \
-            --image "${IMAGE}" \
-            --source-sha "${SOURCE_SHA}" \
-            --source-root . \
-            --release-tag "${RELEASE_TAG}" \
-            --github-output "${GITHUB_OUTPUT}"
+      - id: runner_image
+        name: Build smoke and optionally publish fixed runner image
+        uses: ./actions/runner-image
+        with:
+          image: ${{ inputs.image }}
+          source_sha: ${{ inputs.source_sha }}
+          release_tag: ${{ inputs.release_tag }}
+          publish: ${{ inputs.publish }}
+          registry_username: ${{ secrets.registry_username }}
+          registry_token: ${{ secrets.registry_token }}
 
-      - name: Require publication inputs only in publish mode
-        if: ${{ inputs.publish }}
-        shell: bash
-        env:
-          RELEASE_TAG: ${{ inputs.release_tag }}
-          REGISTRY_USERNAME: ${{ secrets.registry_username }}
-          REGISTRY_TOKEN: ${{ secrets.registry_token }}
-        run: |
-          set -Eeuo pipefail
-          test -n "${RELEASE_TAG}"
-          test -n "${REGISTRY_USERNAME}"
-          test -n "${REGISTRY_TOKEN}"
-
-      - name: Build exact runner image
-        shell: bash
-        env:
-          CONTEXT_PATH: ${{ steps.plan.outputs.context_path }}
-          DOCKERFILE_PATH: ${{ steps.plan.outputs.dockerfile_path }}
-          LOCAL_REFERENCE: ${{ steps.plan.outputs.local_reference }}
-        run: |
-          set -Eeuo pipefail
-          buildah bud \
-            --layers=false \
-            --tag "${LOCAL_REFERENCE}" \
-            --file "${DOCKERFILE_PATH}" \
-            "${CONTEXT_PATH}"
-
-      - name: Run image-owned smoke as the configured image user
-        shell: bash
-        env:
-          IMAGE: ${{ inputs.image }}
-          LOCAL_REFERENCE: ${{ steps.plan.outputs.local_reference }}
-          SMOKE_COMMAND: ${{ steps.plan.outputs.smoke_command }}
-        run: |
-          set -Eeuo pipefail
-          container="ciw-${IMAGE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          buildah from --name "${container}" "${LOCAL_REFERENCE}" >/dev/null
-          cleanup_container() {
-            buildah rm "${container}" >/dev/null 2>&1 || true
-          }
-          trap cleanup_container EXIT HUP INT TERM
-          buildah run "${container}" -- "${SMOKE_COMMAND}"
-          cleanup_container
-          trap - EXIT HUP INT TERM
-
-      - name: Authenticate to the fixed runner registry
-        if: ${{ inputs.publish }}
-        shell: bash
-        env:
-          IMAGE: ${{ inputs.image }}
-          REGISTRY_HOST: ${{ steps.plan.outputs.registry_host }}
-          REGISTRY_USERNAME: ${{ secrets.registry_username }}
-          REGISTRY_TOKEN: ${{ secrets.registry_token }}
-        run: |
-          set -Eeuo pipefail
-          authfile="${RUNNER_TEMP}/ciw-runner-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${IMAGE}.json"
-          test ! -e "${authfile}"
-          umask 077
-          printf '%s' "${REGISTRY_TOKEN}" | buildah login \
-            --authfile "${authfile}" \
-            --username "${REGISTRY_USERNAME}" \
-            --password-stdin \
-            "${REGISTRY_HOST}"
-          chmod 0600 "${authfile}"
-
-      - name: Publish and confirm the human-readable release tag
-        if: ${{ inputs.publish }}
-        shell: bash
-        env:
-          IMAGE: ${{ inputs.image }}
-          LOCAL_REFERENCE: ${{ steps.plan.outputs.local_reference }}
-          REMOTE_REFERENCE: ${{ steps.plan.outputs.remote_reference }}
-        run: |
-          set -Eeuo pipefail
-          authfile="${RUNNER_TEMP}/ciw-runner-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${IMAGE}.json"
-          test -f "${authfile}"
-          test -n "${REMOTE_REFERENCE}"
-          buildah push \
-            --authfile "${authfile}" \
-            "${LOCAL_REFERENCE}" \
-            "docker://${REMOTE_REFERENCE}"
-          skopeo inspect --authfile "${authfile}" "docker://${REMOTE_REFERENCE}" >/dev/null
-
-      - name: Remove exact runner-image build and authentication state
+      - name: Verify runner-image credential cleanup
         if: always()
         shell: bash
         env:
           IMAGE: ${{ inputs.image }}
-          LOCAL_REFERENCE: ${{ steps.plan.outputs.local_reference }}
-          REGISTRY_HOST: ${{ steps.plan.outputs.registry_host }}
         run: |
           set -Eeuo pipefail
           authfile="${RUNNER_TEMP}/ciw-runner-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${IMAGE}.json"
-          if test -e "${authfile}"; then
-            if test -n "${REGISTRY_HOST}"; then
-              buildah logout --authfile "${authfile}" "${REGISTRY_HOST}" >/dev/null 2>&1 || true
-            fi
-            rm -f "${authfile}"
-          fi
-          if test -n "${LOCAL_REFERENCE}"; then
-            buildah rmi "${LOCAL_REFERENCE}" >/dev/null 2>&1 || true
-          fi
           test ! -e "${authfile}"
           test ! -L "${authfile}"
 

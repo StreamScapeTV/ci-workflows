@@ -69,12 +69,54 @@ jobs:
           - buildah
           - docker
           - flux-control
-    uses: ./.github/workflows/internal-runner-image.yml
-    with:
-      image: ${{ matrix.image }}
-      source_sha: ${{ needs.resolve.outputs.source_sha }}
-      release_tag: ${{ needs.resolve.outputs.release_tag }}
-      publish: true
-    secrets:
-      registry_username: ${{ secrets.RUNNER_REGISTRY_USERNAME }}
-      registry_token: ${{ secrets.RUNNER_REGISTRY_TOKEN }}
+    runs-on: [linux, amd64, buildah, high]
+    timeout-minutes: 180
+    steps:
+      - name: Check out exact tagged runner-image source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact tagged source
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+
+      - name: Build smoke and publish fixed runner image
+        uses: ./actions/runner-image
+        with:
+          image: ${{ matrix.image }}
+          source_sha: ${{ needs.resolve.outputs.source_sha }}
+          release_tag: ${{ needs.resolve.outputs.release_tag }}
+          publish: "true"
+          registry_username: ${{ secrets.RUNNER_REGISTRY_USERNAME }}
+          registry_token: ${{ secrets.RUNNER_REGISTRY_TOKEN }}
+
+      - name: Verify runner-image credential cleanup
+        if: always()
+        shell: bash
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: |
+          set -Eeuo pipefail
+          authfile="${RUNNER_TEMP}/ciw-runner-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${IMAGE}.json"
+          test ! -e "${authfile}"
+          test ! -L "${authfile}"
+
+      - name: Verify exact tagged source remained clean
+        if: ${{ always() && !cancelled() }}
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+          test -z "$(git status --porcelain --untracked-files=all)"

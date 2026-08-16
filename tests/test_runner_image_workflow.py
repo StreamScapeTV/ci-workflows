@@ -59,34 +59,50 @@ class RunnerImageContractTests(unittest.TestCase):
 
 
 class RunnerImageWorkflowTests(unittest.TestCase):
-    def test_internal_leaf_uses_one_build_smoke_publish_path(self) -> None:
-        source = (ROOT / ".github/workflows/internal-runner-image.yml").read_text(encoding="utf-8")
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.action = (ROOT / "actions/runner-image/action.yml").read_text(encoding="utf-8")
+        cls.internal = (ROOT / ".github/workflows/internal-runner-image.yml").read_text(encoding="utf-8")
+        cls.release = (ROOT / ".github/workflows/runner-images-release.yml").read_text(encoding="utf-8")
+
+    def test_composite_action_is_the_single_build_smoke_publish_path(self) -> None:
         for expected in (
-            "workflow_call:",
-            "runs-on: [linux, amd64, buildah, high]",
-            "python3 scripts/ci/runner_images.py plan",
+            "scripts/ci/runner_images.py",
             "buildah bud",
+            "buildah from",
             "buildah run",
             "buildah push",
             "skopeo inspect",
             "Remove exact runner-image build and authentication state",
+            "if: always()",
         ):
-            self.assertIn(expected, source)
+            self.assertIn(expected, self.action)
         for forbidden in ("actions/cache", "upload-artifact", "kubectl apply", "flux reconcile"):
-            self.assertNotIn(forbidden, source)
+            self.assertNotIn(forbidden, self.action)
 
-    def test_release_has_fixed_repository_tag_matrix(self) -> None:
-        source = (ROOT / ".github/workflows/runner-images-release.yml").read_text(encoding="utf-8")
-        self.assertIn("push:\n    tags:", source)
-        self.assertIn("workflow_dispatch:", source)
-        self.assertIn("Existing ci-workflows Git tag to rebuild", source)
-        self.assertIn("refs/tags/${RELEASE_TAG}^{commit}", source)
-        self.assertIn("uses: ./.github/workflows/internal-runner-image.yml", source)
-        self.assertIn("publish: true", source)
+    def test_internal_leaf_is_shallow_and_delegates_to_composite_action(self) -> None:
+        self.assertIn("workflow_call:", self.internal)
+        self.assertNotIn("workflow_dispatch:", self.internal)
+        self.assertNotIn("pull_request:", self.internal)
+        self.assertIn("runs-on: [linux, amd64, buildah, high]", self.internal)
+        self.assertIn("uses: ./actions/runner-image", self.internal)
+        self.assertIn("Verify runner-image credential cleanup\n        if: always()", self.internal)
+        self.assertNotIn("uses: ./.github/workflows/", self.internal)
+        self.assertNotIn("buildah bud", self.internal)
+
+    def test_release_has_fixed_repository_tag_matrix_without_reusable_nesting(self) -> None:
+        self.assertIn("push:\n    tags:", self.release)
+        self.assertIn("workflow_dispatch:", self.release)
+        self.assertIn("Existing ci-workflows Git tag to rebuild", self.release)
+        self.assertIn("refs/tags/${RELEASE_TAG}^{commit}", self.release)
+        self.assertIn("uses: ./actions/runner-image", self.release)
+        self.assertIn("publish: \"true\"", self.release)
+        self.assertIn("Verify runner-image credential cleanup\n        if: always()", self.release)
+        self.assertNotIn("uses: ./.github/workflows/internal-runner-image.yml", self.release)
         for image in IMAGE_IDS:
-            self.assertEqual(source.count(f"          - {image}"), 1)
+            self.assertEqual(self.release.count(f"          - {image}"), 1)
         for forbidden in ("actions/cache", "upload-artifact", "kubectl", "flux reconcile"):
-            self.assertNotIn(forbidden, source)
+            self.assertNotIn(forbidden, self.release)
 
 
 if __name__ == "__main__":
