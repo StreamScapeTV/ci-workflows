@@ -4,11 +4,11 @@ on:
   workflow_call:
     inputs:
       admitted_sha:
-        description: Exact lowercase source SHA admitted by source.resolve
+        description: Exact lowercase source SHA admitted by the caller
         required: true
         type: string
       product_id:
-        description: Approved Helm product identity
+        description: Caller-owned Helm product identity
         required: true
         type: string
       release_version:
@@ -16,11 +16,11 @@ on:
         required: false
         type: string
       values_profile:
-        description: Optional checked-in product values profile
+        description: Optional caller-owned product values profile
         required: false
         type: string
       policy_path:
-        description: Optional fixed product policy path
+        description: Optional caller-owned product policy path
         required: false
         type: string
       artifact_exception_id:
@@ -52,8 +52,8 @@ jobs:
       source_trust: ${{ steps.plan.outputs.source_trust }}
     steps:
       - id: plan
-        name: Resolve caller-owned Helm product metadata
-        uses: StreamScapeTV/ci-workflows/actions/validate-helm@2db6c709c3faa4e99a67fe029628284cf0e60f80 # issue #18 caller-owned Helm metadata checkpoint
+        name: Resolve shared Helm runner mechanics
+        uses: StreamScapeTV/ci-workflows/actions/validate-helm@7b17879f21fbf029708d6a404a9dd12d75503a52 # issue #18 simplified Helm runtime checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -91,7 +91,7 @@ jobs:
       - id: helm
         name: Lint, render, and package caller Helm chart
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/validate-helm@2db6c709c3faa4e99a67fe029628284cf0e60f80 # issue #18 caller-owned Helm metadata checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-helm@7b17879f21fbf029708d6a404a9dd12d75503a52 # issue #18 simplified Helm runtime checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -104,7 +104,7 @@ jobs:
       - id: helm_cleanup
         name: Remove Helm package and temporary state
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-helm@2db6c709c3faa4e99a67fe029628284cf0e60f80 # issue #18 caller-owned Helm metadata checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-helm@7b17879f21fbf029708d6a404a9dd12d75503a52 # issue #18 simplified Helm runtime checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -113,7 +113,7 @@ jobs:
       - id: residue
         name: Verify zero Helm-specific residue
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-helm@2db6c709c3faa4e99a67fe029628284cf0e60f80 # issue #18 caller-owned Helm metadata checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-helm@7b17879f21fbf029708d6a404a9dd12d75503a52 # issue #18 simplified Helm runtime checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
