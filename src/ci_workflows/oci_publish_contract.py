@@ -193,11 +193,11 @@ def runner_rebuild_decision(
     version_digest: str | None,
     source_digest: str | None,
 ) -> tuple[bool, bool, bool]:
-    """Return runner tag writes for an exact Git-tag rebuild.
+    """Return safe runner-tag writes for an exact Git-tag rebuild.
 
-    Runner release tags are cacheable projections of the immutable ci-workflows Git
-    tag/commit. A rerun may replace differing OCI tag contents; generic products
-    continue using the stricter issue-#17 immutable-reference conflict policy.
+    The human-readable version tag is a replaceable projection of the authoritative
+    ci-workflows Git tag. The source-SHA tag is immutable provenance: publish it
+    once, accept an equal replay, and reject any conflicting digest.
     """
 
     _runtime._require(
@@ -209,9 +209,11 @@ def runner_rebuild_decision(
             remote is None or _runtime._DIGEST.fullmatch(remote) is not None,
             "registry_inspection_failed",
         )
+    if source_digest is not None and source_digest != local_digest:
+        raise OciPublishError("immutable_reference_conflict")
     return (
         version_digest != local_digest,
-        source_digest != local_digest,
+        source_digest is None,
         version_digest is not None or source_digest is not None,
     )
 
