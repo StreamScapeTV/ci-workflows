@@ -14,7 +14,7 @@ VALIDATE_WORKFLOW = ROOT / ".github/workflows/reusable-helm-validate.yml"
 PUBLISH_WORKFLOW = ROOT / ".github/workflows/reusable-helm-publish.yml"
 VALIDATE_ACTION = ROOT / "actions/validate-helm/action.yml"
 PUBLISH_ACTION = ROOT / "actions/publish-helm/action.yml"
-HELM_CORE_SHA = "d9adf587a6275c165ddcd0eec37b33c09b3ec149"
+HELM_CORE_SHA = "2db6c709c3faa4e99a67fe029628284cf0e60f80"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 
 
