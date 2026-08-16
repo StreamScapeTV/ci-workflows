@@ -36,6 +36,10 @@ def _safe_retained_relative(value: str) -> str:
 
 
 def _bounded_retained_path(source_root: Path, relative_path: str) -> Path:
+    require(
+        source_root.is_dir() and not source_root.is_symlink(),
+        "evidence_policy_failed",
+    )
     normalized = _safe_retained_relative(relative_path)
     target = source_root.joinpath(*PurePosixPath(normalized).parts)
     current = source_root
