@@ -63,8 +63,8 @@ jobs:
       source_trust: ${{ steps.plan.outputs.source_trust }}
     steps:
       - id: plan
-        name: Resolve caller-owned Helm product metadata
-        uses: StreamScapeTV/ci-workflows/actions/publish-helm@2db6c709c3faa4e99a67fe029628284cf0e60f80 # issue #18 caller-owned Helm metadata checkpoint
+        name: Resolve shared Helm runner mechanics
+        uses: StreamScapeTV/ci-workflows/actions/publish-helm@7b17879f21fbf029708d6a404a9dd12d75503a52 # issue #18 simplified Helm runtime checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -101,7 +101,7 @@ jobs:
       - id: helm
         name: Lint, render, package, and publish caller Helm chart
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/publish-helm@2db6c709c3faa4e99a67fe029628284cf0e60f80 # issue #18 caller-owned Helm metadata checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/publish-helm@7b17879f21fbf029708d6a404a9dd12d75503a52 # issue #18 simplified Helm runtime checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -115,7 +115,7 @@ jobs:
       - id: helm_cleanup
         name: Remove Helm package, registry, and credential state
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/publish-helm@2db6c709c3faa4e99a67fe029628284cf0e60f80 # issue #18 caller-owned Helm metadata checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/publish-helm@7b17879f21fbf029708d6a404a9dd12d75503a52 # issue #18 simplified Helm runtime checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -125,7 +125,7 @@ jobs:
       - id: residue
         name: Verify zero Helm publication residue
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/publish-helm@2db6c709c3faa4e99a67fe029628284cf0e60f80 # issue #18 caller-owned Helm metadata checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/publish-helm@7b17879f21fbf029708d6a404a9dd12d75503a52 # issue #18 simplified Helm runtime checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
