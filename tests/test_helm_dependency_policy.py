@@ -6,7 +6,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ci_workflows import helm
 from ci_workflows.helm_contract import load_helm_contract, request_from_environment
 from ci_workflows.helm_dependency_policy import (
     load_dependency_policy,
@@ -179,15 +178,19 @@ class HelmDependencyPolicyTests(unittest.TestCase):
             ):
                 load_dependency_policy(root)
 
-    def test_public_planners_use_central_dependency_policy_wrapper(self) -> None:
-        self.assertIs(helm.resolve_validation_plan, resolve_validation_plan)
+    def test_simple_public_path_does_not_require_central_dependency_wrapper(self) -> None:
         ciw_source = (ROOT / "src/ci_workflows/ciw_helm.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn(
+        self.assertNotIn(
             "from .helm_dependency_policy import resolve_validation_plan",
             ciw_source,
         )
+        self.assertIn("from .helm_simple import resolve_plan", ciw_source)
+        self.assertIn("_caller_manifest_contract(request)", ciw_source)
+
+        # Preserve the mature legacy helper for optional/advanced consumers; the
+        # refactor removes it only from the required public Helm path.
         release_script = (ROOT / "scripts/ci/helm_release.py").read_text(
             encoding="utf-8"
         )

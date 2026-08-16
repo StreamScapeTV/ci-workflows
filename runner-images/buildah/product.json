@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "product_id": "runner-buildah",
+  "image_repository": "git.faruqi.dev/mimranfaruqi/github-actions-runner-buildah",
+  "platform": "linux/amd64",
+  "dockerfile": "runner-images/buildah/Dockerfile",
+  "smoke": "runner-images/buildah/smoke.sh",
+  "release_authority": "ci-workflows-git-tag"
+}

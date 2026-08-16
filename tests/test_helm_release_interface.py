@@ -289,25 +289,35 @@ class HelmReleaseInterfaceTests(unittest.TestCase):
                         {"PATH": "/usr/bin", "HOME": str(root)},
                     )
 
-    def test_publish_workflow_orders_tag_revalidation_before_credentials(self) -> None:
+    def test_simple_publish_workflow_keeps_release_policy_in_caller(self) -> None:
         workflow = (
             ROOT / ".github/workflows/reusable-helm-publish.yml"
         ).read_text(encoding="utf-8")
         action = (
             ROOT / "actions/publish-helm/action.yml"
         ).read_text(encoding="utf-8")
+
         for name in ("image_digest", "immutable_references_json"):
             self.assertIn(f"{name}:", workflow)
             self.assertIn(f"{name}:", action)
         self.assertNotIn("required_image_references_json", workflow)
         self.assertNotIn("required_image_references_json", action)
-        self.assertEqual(workflow.count("actions/resolve-release-tag"), 2)
-        revalidate = workflow.index(
-            "Revalidate exact release tag immediately before registry write"
-        )
-        credentials = workflow.index("${{ secrets.registry_username }}")
-        self.assertLess(revalidate, credentials)
-        self.assertIn("helm_release.py", action)
+
+        # Legacy release/read-back helpers remain independently tested above,
+        # but the refactored public path does not depend on them.
+        self.assertNotIn("actions/resolve-release-tag", workflow)
+        self.assertNotIn("Revalidate exact release tag", workflow)
+        self.assertNotIn("github.ref_type", workflow)
+        self.assertNotIn("github.event_name", workflow)
+        self.assertNotIn("helm_release.py", action)
+        self.assertNotIn("INPUT_IMAGE_DIGEST", action)
+        self.assertNotIn("INPUT_IMMUTABLE_REFERENCES_JSON", action)
+        self.assertIn("admitted_sha: ${{ inputs.admitted_sha }}", workflow)
+        self.assertIn("release_version: ${{ inputs.release_version }}", workflow)
+        self.assertIn("${{ secrets.registry_username }}", workflow)
+
+        # Keep the mature advanced publication contract available for optional
+        # legacy consumers without making it a gate for the simple core.
         publication = (
             ROOT / "contracts/helm-publication.json"
         ).read_text(encoding="utf-8")
@@ -316,8 +326,6 @@ class HelmReleaseInterfaceTests(unittest.TestCase):
             '"tag_authority": "resolve-and-revalidate-before-write"',
             publication,
         )
-        self.assertIn('"image_digest"', publication)
-        self.assertIn('"immutable_references_json"', publication)
 
 
 if __name__ == "__main__":

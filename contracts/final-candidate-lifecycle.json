@@ -50,6 +50,7 @@
       {"path":".github/workflows/flutter-validation-smoke.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/gitops-validation-smoke.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/helm-validation-smoke.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/internal-runner-image.yml","trigger_classes":["authorized-publication-deployment-device-live-evidence"]},
       {"path":".github/workflows/issue-dependency-sync.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/oci-build-smoke.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/oci-publish-smoke.yml","trigger_classes":["maintenance-control"]},
@@ -66,6 +67,7 @@
       {"path":".github/workflows/reusable-python.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/reusable-resolve-source.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/reusable-tag-image-chart.yml","trigger_classes":["authorized-publication-deployment-device-live-evidence"]},
+      {"path":".github/workflows/runner-images-release.yml","trigger_classes":["authorized-publication-deployment-device-live-evidence"]},
       {"path":".github/workflows/self-check.yml","trigger_classes":["final-pull-request-validation","protected-integration-release-validation"]}
     ]},
     {"integration_branch":"main","repository":"StreamScapeTV/directus-front","workflows":[
