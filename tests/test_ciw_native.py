@@ -21,6 +21,8 @@ class NativeCIWAdapterTests(unittest.TestCase):
         self.state = root / "state"
         self.project.mkdir(parents=True)
         self.state.mkdir()
+        (self.state / "generated").mkdir()
+        (self.state / "artifacts").mkdir()
         self.context = CIWContext(
             root=self.workspace,
             environment={
@@ -85,7 +87,6 @@ class NativeCIWAdapterTests(unittest.TestCase):
                 self.args(
                     phase="cmake-configure",
                     source_directory=".",
-                    state_directory="native/build",
                     definitions_json='{"BUILD_TESTING":"ON","MODE":"Release"}',
                     generator="Ninja",
                     options_json='["--fresh"]',
@@ -94,7 +95,7 @@ class NativeCIWAdapterTests(unittest.TestCase):
             )
         call = primitive.call_args.kwargs
         self.assertEqual(call["source_dir"], self.project.resolve())
-        self.assertEqual(call["build_dir"], self.state / "native" / "build")
+        self.assertEqual(call["build_dir"], self.state / "generated" / "native-build")
         self.assertEqual(call["definitions"], {"BUILD_TESTING": "ON", "MODE": "Release"})
         self.assertEqual(call["generator"], "Ninja")
         self.assertEqual(call["options"], ("--fresh",))
@@ -131,10 +132,10 @@ class NativeCIWAdapterTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, "cwd_invalid")
 
     def test_archive_and_inspection_return_only_stable_metadata(self) -> None:
-        install = self.state / "native" / "install"
-        install.mkdir(parents=True)
+        install = self.state / "generated" / "native-install"
+        install.mkdir()
         archive = NativeArchive(
-            path=str(self.state / "native-output.tar.gz"),
+            path=str(self.state / "artifacts" / "native-output.tar.gz"),
             format="tar.gz",
             size_bytes=42,
             sha256="a" * 64,
@@ -144,7 +145,6 @@ class NativeCIWAdapterTests(unittest.TestCase):
             result = execute_native(
                 self.args(
                     phase="archive",
-                    install_directory="native/install",
                     members_json='["lib/libsample.a"]',
                 ),
                 self.context,
@@ -156,7 +156,6 @@ class NativeCIWAdapterTests(unittest.TestCase):
             result = execute_native(
                 self.args(
                     phase="inspect",
-                    install_directory="native/install",
                     outputs_json='["lib/libsample.a"]',
                 ),
                 self.context,
@@ -165,11 +164,11 @@ class NativeCIWAdapterTests(unittest.TestCase):
         self.assertIn('"sha256":"' + "b" * 64 + '"', result.outputs["native_result_json"])
 
     def test_cleanup_is_confined_to_existing_workflow_state_root(self) -> None:
-        generated = self.state / "native" / "build"
-        generated.mkdir(parents=True)
+        generated = self.state / "generated" / "native-build"
+        generated.mkdir()
         with patch("ci_workflows.ciw_native.cleanup_native_state", return_value=1) as primitive:
             result = execute_native(
-                self.args(phase="cleanup", cleanup_paths_json='["native/build"]'),
+                self.args(phase="cleanup", cleanup_paths_json='["generated/native-build"]'),
                 self.context,
             )
         self.assertEqual(primitive.call_args.kwargs["root"], self.state.resolve())
@@ -180,6 +179,17 @@ class NativeCIWAdapterTests(unittest.TestCase):
                 self.args(phase="cleanup", cleanup_paths_json='["../workspace/source"]'),
                 self.context,
             )
+
+    def test_jobs_input_fails_closed_before_primitive_execution(self) -> None:
+        (self.state / "generated" / "native-build").mkdir()
+        with patch("ci_workflows.ciw_native.cmake_build") as primitive:
+            with self.assertRaises(CIWError) as raised:
+                execute_native(
+                    self.args(phase="cmake-build", jobs=0),
+                    self.context,
+                )
+        self.assertEqual(raised.exception.code, "jobs_invalid")
+        primitive.assert_not_called()
 
 
 if __name__ == "__main__":
