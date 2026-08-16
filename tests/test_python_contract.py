@@ -66,16 +66,16 @@ class PythonValidationContractTests(unittest.TestCase):
         self.assertEqual(
             set(runtimes),
             {
-                "host-cpython-3.12.3",
+                "host-cpython-3.12",
                 "python-3.12.8-slim-amd64",
                 "python-3.12.13-slim-amd64",
                 "postgres-16.11-alpine-amd64",
             },
         )
-        host = runtimes["host-cpython-3.12.3"]
+        host = runtimes["host-cpython-3.12"]
         self.assertEqual("host", host["kind"])
         self.assertEqual("cpython", host["implementation"])
-        self.assertEqual("3.12.3", host["python_version"])
+        self.assertEqual("3.12", host["python_version"])
         self.assertEqual(["linux/x64"], host["platforms"])
         container_runtimes = {
             identifier: runtime
@@ -118,9 +118,7 @@ class PythonValidationContractTests(unittest.TestCase):
         self.assertNotIn("production", serialized.casefold())
 
     def test_public_surface_has_no_command_runner_engine_service_or_deployment_input(self) -> None:
-        public_inputs = {
-            item["name"] for item in self.public_record["inputs"]
-        }
+        public_inputs = {item["name"] for item in self.public_record["inputs"]}
         forbidden = set(self.contract["forbidden_inputs"])
         self.assertTrue(public_inputs.isdisjoint(forbidden))
         self.assertEqual(
