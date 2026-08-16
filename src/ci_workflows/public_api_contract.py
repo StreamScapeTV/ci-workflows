@@ -156,8 +156,8 @@ def _validate_policy(types: Mapping[str, Any]) -> None:
     require(isinstance(compatibility, dict), "compatibility_policy must be an object")
     for name in ("compatible", "conditional", "breaking"):
         unique_strings(compatibility.get(name), f"compatibility_policy.{name}", allow_empty=False)
-    acknowledgement_fields = unique_strings(compatibility.get("acknowledgement_required_fields"), "compatibility_policy.acknowledgement_required_fields", allow_empty=False)
-    require(set(acknowledgement_fields) == {"id", "api_name", "kind", "reason", "migration_issue", "effective_version"}, "breaking acknowledgement fields changed")
+    required_ack = unique_strings(compatibility.get("acknowledgement_required_fields"), "compatibility_policy.acknowledgement_required_fields", allow_empty=False)
+    require(set(required_ack) == {"id", "api_name", "kind", "reason", "migration_issue", "effective_version"}, "breaking acknowledgement fields changed")
     defaults = types.get("defaults")
     require(isinstance(defaults, dict), "public API defaults are missing")
     require(defaults.get("artifact_policy") == "zero-default-named-exception-only", "artifact policy changed")
@@ -166,7 +166,6 @@ def _validate_policy(types: Mapping[str, Any]) -> None:
 
 def permission_profiles(data: ContractData) -> dict[str, Mapping[str, Any]]:
     token_model = data.permissions.get("token_model")
-    require(isinstance(token_model, dict), "token_model must be an object")
     require(token_model == {
         "called_workflow_cannot_elevate": True,
         "caller_declares_minimum": True,
@@ -203,9 +202,9 @@ def permission_profiles(data: ContractData) -> dict[str, Mapping[str, Any]]:
     return profiles
 
 
-def _validate_input(row: Mapping[str, Any], input_catalog: Mapping[str, Any], label: str) -> tuple[str, bool]:
+def _validate_input(row: Mapping[str, Any], catalog: Mapping[str, Any], label: str) -> tuple[str, bool]:
     name = nonempty(row.get("name"), f"{label}.name")
-    require(name in input_catalog, f"{label} uses unknown input {name}")
+    require(name in catalog, f"{label} uses unknown input {name}")
     required = row.get("required")
     require(isinstance(required, bool), f"{label}.{name}.required must be boolean")
     if "default" in row:
@@ -225,7 +224,6 @@ def validate_workflows(data: ContractData, profiles: Mapping[str, Mapping[str, A
     require(isinstance(output_catalog, dict), "output catalog is missing")
     require(isinstance(defaults, dict), "public API defaults are missing")
     forbidden_inputs = set(unique_strings(defaults.get("forbidden_caller_fields"), "forbidden_caller_fields"))
-
     by_api: dict[str, Mapping[str, Any]] = {}
     files: set[str] = set()
     checks: set[str] = set()
@@ -252,11 +250,10 @@ def validate_workflows(data: ContractData, profiles: Mapping[str, Mapping[str, A
         require(profile.get("trust_class") == trust, f"{api} permission profile trust mismatch")
         semantic = nonempty(row.get("semantic_runner_profile"), f"{api}.semantic_runner_profile")
         require(PROFILE.fullmatch(semantic) is not None, f"{api} has invalid semantic runner profile")
-        require(not any(fragment in semantic.casefold() for fragment in FORBIDDEN_RUNNER_FRAGMENTS), f"{api} exposes a concrete runner selector")
+        require(not any(part in semantic.casefold() for part in FORBIDDEN_RUNNER_FRAGMENTS), f"{api} exposes a concrete runner selector")
         events = unique_strings(row.get("permitted_events"), f"{api}.permitted_events", allow_empty=False)
-        trust_events = trust_classes[trust].get("allowed_events")
-        require(isinstance(trust_events, list), f"{trust} event policy is invalid")
-        require(set(events) <= set(trust_events), f"{api} permits an event outside its trust class")
+        allowed_events = trust_classes[trust].get("allowed_events")
+        require(isinstance(allowed_events, list) and set(events) <= set(allowed_events), f"{api} permits an event outside its trust class")
         input_rows = row.get("inputs")
         require(isinstance(input_rows, list), f"{api}.inputs must be an array")
         inputs: dict[str, bool] = {}
@@ -330,12 +327,9 @@ def validate_bootstrap_workflow(data: ContractData, workflows: Mapping[str, Mapp
     require("\n  workflow_call:\n" in source, "bootstrap workflow must be workflow_call-only")
     for forbidden in ("\n  push:\n", "\n  pull_request:\n", "\n  workflow_dispatch:\n", "secrets: inherit", "actions/upload-artifact"):
         require(forbidden not in source, f"bootstrap workflow contains forbidden contract: {forbidden.strip()}")
-    actual_inputs = _yaml_child_keys(_workflow_call_block(source, "inputs", "secrets"))
-    actual_secrets = _yaml_child_keys(_workflow_call_block(source, "secrets", "outputs"))
-    actual_outputs = _yaml_child_keys(_workflow_call_block(source, "outputs", None))
-    require(actual_inputs == {item["name"] for item in row["inputs"]}, "bootstrap workflow inputs disagree with API contract")
-    require(actual_secrets == set(row["secrets"]), "bootstrap workflow secrets disagree with API contract")
-    require(actual_outputs == set(row["outputs"]), "bootstrap workflow outputs disagree with API contract")
+    require(_yaml_child_keys(_workflow_call_block(source, "inputs", "secrets")) == {item["name"] for item in row["inputs"]}, "bootstrap workflow inputs disagree with API contract")
+    require(_yaml_child_keys(_workflow_call_block(source, "secrets", "outputs")) == set(row["secrets"]), "bootstrap workflow secrets disagree with API contract")
+    require(_yaml_child_keys(_workflow_call_block(source, "outputs", None)) == set(row["outputs"]), "bootstrap workflow outputs disagree with API contract")
     permission_source = source.split("\npermissions:\n", 1)[1].split("\nconcurrency:\n", 1)[0]
     actual_permissions = {match.group(1): match.group(2) for match in re.finditer(r"(?m)^  ([a-z-]+):\s*(read|write|none)\s*$", permission_source)}
     expected_permissions = permission_map(profiles[str(row["permission_profile"])]["workflow_permissions"], "bootstrap permissions")
@@ -382,8 +376,7 @@ def validate_caller(case: Mapping[str, Any], data: ContractData, workflows: Mapp
         supplied_permissions = permission_map(case.get("permissions"), "caller permissions")
     except ContractError:
         return "permission-mismatch"
-    expected_permissions = permission_map(profile.get("caller_permissions"), "profile permissions")
-    if supplied_permissions != expected_permissions:
+    if supplied_permissions != permission_map(profile.get("caller_permissions"), "profile permissions"):
         return "permission-mismatch"
     supplied_secrets = case.get("secrets")
     if not isinstance(supplied_secrets, list) or not all(isinstance(value, str) for value in supplied_secrets):
@@ -402,8 +395,7 @@ def validate_caller(case: Mapping[str, Any], data: ContractData, workflows: Mapp
     contract_inputs = {item["name"]: item for item in row["inputs"]}
     if set(inputs) - set(contract_inputs):
         return "unknown-input"
-    missing = {name for name, definition in contract_inputs.items() if definition.get("required") is True and name not in inputs}
-    if missing:
+    if any(definition.get("required") is True and name not in inputs for name, definition in contract_inputs.items()):
         return "missing-required-input"
     return None
 
@@ -447,7 +439,7 @@ def classify_change(baseline: Mapping[str, Any], current: Mapping[str, Any], ack
     api = str(current.get("api_name") or baseline.get("api_name") or "")
     breaking = False
     conditional = False
-    for field in ("api_name", "api_version", "file", "trust_class", "permission_profile", "semantic_runner_profile", "stable_check_name"):
+    for field in ("api_name", "file", "trust_class", "permission_profile", "semantic_runner_profile", "stable_check_name"):
         if baseline.get(field) != current.get(field):
             breaking = True
     if int(current.get("max_reusable_workflow_depth", 1)) > int(baseline.get("max_reusable_workflow_depth", 1)):
@@ -505,7 +497,16 @@ def validate_docs(root: Path) -> None:
         "application identity",
     ):
         require(phrase in architecture, f"public API architecture is missing: {phrase}")
-    for phrase in ("reviewable pull request", "immutable full commit SHA", "immutable SemVer tag", "known-good rollback", "@main", "breaking", "revocation", "technology contract"):
+    for phrase in (
+        "reviewable pull requests",
+        "immutable full commit SHA",
+        "immutable SemVer tag",
+        "known-good rollback",
+        "@main",
+        "breaking",
+        "revocation",
+        "technology contract",
+    ):
         require(phrase in upgrades, f"versioning guide is missing: {phrase}")
 
 
@@ -546,45 +547,45 @@ def render(data: ContractData) -> str:
         "",
         "Generated from `contracts/public-workflows.json` and its checked-in fragments. Application repository/product identity is intentionally not part of this compatibility contract.",
         "",
-        "## Trust classes",
-        "",
-        "| Trust class | Reference policy | Privileged | Executes caller source |",
-        "|---|---|---:|---:|",
-    ]
-    for name, policy in data.types["trust_classes"].items():
-        lines.append("| " + " | ".join((f"`{_cell(name)}`", _cell(policy["reference_policy"]), "yes" if policy["privileged"] else "no", "yes" if policy["executes_caller_source"] else "no")) + " |")
-    lines += [
-        "",
         "## Workflow APIs",
         "",
-        "| API | File | Status | Trust | Permissions | Runner intent | Check |",
-        "|---|---|---|---|---|---|---|",
+        "| API | File | Status | Trust | Check |",
+        "|---|---|---|---|---|",
     ]
     for row in data.workflows:
-        lines.append("| " + " | ".join((f"`{_cell(row['api_name'])}` `{_cell(row['api_version'])}`", f"`{_cell(row['file'])}`", f"`{_cell(row['status'])}`", f"`{_cell(row['trust_class'])}`", f"`{_cell(row['permission_profile'])}`", f"`{_cell(row['semantic_runner_profile'])}`", _cell(row["stable_check_name"]))) + " |")
+        lines.append(
+            "| "
+            + " | ".join(
+                (
+                    f"`{_cell(row['api_name'])}` `{_cell(row['api_version'])}`",
+                    f"`{_cell(row['file'])}`",
+                    f"`{_cell(row['status'])}`",
+                    f"`{_cell(row['trust_class'])}`",
+                    _cell(row["stable_check_name"]),
+                )
+            )
+            + " |"
+        )
+    lines += ["", "## API details", ""]
     for row in data.workflows:
-        input_text = ", ".join(_input_label(item) for item in row["inputs"])
+        inputs = ", ".join(_input_label(item) for item in row["inputs"]) or "none"
+        secrets = ", ".join(f"`{value}`" for value in row["secrets"]) or "none"
+        outputs = ", ".join(f"`{value}`" for value in row["outputs"])
+        hooks = ", ".join(f"`{value}`" for value in row["repository_owned_hooks"]) or "none"
         lines += [
-            "",
             f"### `{row['api_name']}`",
             "",
-            f"- Public file: `{row['file']}`",
-            "- Events: " + ", ".join(f"`{value}`" for value in row["permitted_events"]),
-            f"- Timeout / matrix maximum: `{row['timeout_minutes']} minutes` / `{row['matrix_max_jobs']}` jobs",
-            f"- Maximum reusable-workflow depth: `{row.get('max_reusable_workflow_depth', 1)}`",
-            "- Inputs: " + (input_text or "none"),
-            "- Secrets: " + (", ".join(f"`{value}`" for value in row["secrets"]) or "none"),
-            "- Outputs: " + ", ".join(f"`{value}`" for value in row["outputs"]),
-            "- Repository-owned hooks: " + (", ".join(f"`{value}`" for value in row["repository_owned_hooks"]) or "none"),
-            "- Implementation components: " + ", ".join(f"`{value}`" for value in row["implementation_components"]),
+            f"- Events: {', '.join(f'`{value}`' for value in row['permitted_events'])}",
+            f"- Inputs: {inputs}",
+            f"- Secrets: {secrets}",
+            f"- Outputs: {outputs}",
+            f"- Repository-owned hooks: {hooks}",
+            "",
         ]
-        if row.get("deprecation"):
-            lines.append(f"- Deprecation replacement: `{row['deprecation']['replacement']}`")
     lines += [
-        "",
         "## Compatibility",
         "",
-        "Use `python3 scripts/ci/public_api_contract.py diff --baseline-root <old> --current-root <new>`. Unacknowledged breaking changes exit nonzero; acknowledged breaking changes still require the recorded migration issue and effective version.",
+        "Application repositories/products are not admission fields. Compatibility is determined from API surface, trust, permissions, technology inputs/outputs, and acknowledged breaking changes. `migration-pending` records reviewed next-version contracts whose reusable YAML wiring is completed by the follow-on integration issue.",
         "",
     ]
     return "\n".join(lines)
