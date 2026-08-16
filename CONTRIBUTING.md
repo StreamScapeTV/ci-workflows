@@ -32,7 +32,9 @@ A change is breaking when it removes or renames an input, output, secret, check 
 
 Run focused tests while developing and the complete self-check on the exact final head. The canonical self-check validates repository structure, workflow YAML shape, policy contracts, clean-tree behavior, and zero routine artifacts without product credentials.
 
-A changed head or base invalidates older evidence. Merge only the unchanged validated head, normally by squash.
+A changed pull-request head invalidates exact-head evidence for requirements affected by that change. Integration-branch movement does not by itself invalidate a clean candidate: when later base movement is demonstrably disjoint, refresh the complete current-base self-review without gratuitously changing the candidate SHA. Reconcile and revalidate when actual conflicts, semantic compatibility, or an explicit current-base requirement demands it.
+
+Merge only the unchanged validated head with expected-head protection and the repository-approved merge method. Do not rewrite published history merely to make a clean candidate match a moving base.
 
 ## Releases
 

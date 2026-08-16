@@ -18,7 +18,14 @@ from ci_workflows.validation_policy import _validate_runner  # noqa: E402
 class ValidationRunnerSelectorTests(unittest.TestCase):
     def test_harness_loads_exact_contract_owned_selector_arrays(self) -> None:
         config = load_harness_config(ROOT)
-        self.assertIn(
+        for selector in (
+            ("linux", "amd64", "general", "tiny"),
+            ("linux", "amd64", "general", "small"),
+            ("linux", "amd64", "general", "medium"),
+        ):
+            with self.subTest(selector=selector):
+                self.assertIn(selector, config.allowed_runner_selectors)
+        self.assertNotIn(
             ("linux", "amd64", "general"),
             config.allowed_runner_selectors,
         )
@@ -44,7 +51,9 @@ class ValidationRunnerSelectorTests(unittest.TestCase):
         config = load_harness_config(ROOT)
         findings: list[Finding] = []
         for selector in (
-            ["linux", "amd64", "general"],
+            ["linux", "amd64", "general", "tiny"],
+            ["linux", "amd64", "general", "small"],
+            ["linux", "amd64", "general", "medium"],
             ["linux", "amd64", "buildah", "high"],
             ["macOS", "ARM64"],
         ):
@@ -62,6 +71,8 @@ class ValidationRunnerSelectorTests(unittest.TestCase):
         for selector in (
             ["linux"],
             ["linux", "amd64"],
+            ["linux", "amd64", "general"],
+            ["linux", "amd64", "general", "tiny", "small"],
             ["linux", "amd64", "general", "mobile"],
             ["linux", "amd64", "portable"],
         ):
@@ -92,7 +103,7 @@ class ValidationRunnerSelectorTests(unittest.TestCase):
             required_service_scenarios={},
             exceptions={},
             allowed_runner_selectors=frozenset(
-                {("linux", "amd64", "general")}
+                {("linux", "amd64", "general", "small")}
             ),
         )
         for selector in (
@@ -123,7 +134,7 @@ class ValidationRunnerSelectorTests(unittest.TestCase):
             required_service_scenarios={},
             exceptions={},
             allowed_runner_selectors=frozenset(
-                {("linux", "amd64", "general")}
+                {("linux", "amd64", "general", "small")}
             ),
         )
         for selector in (

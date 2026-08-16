@@ -16,8 +16,10 @@ central or infrastructure-owned workflows.
 
 ## Semantic profile IDs are not GitHub runner labels
 
-The resolver keeps stable semantic API names such as `portable`, `mobile`,
-`buildah-tiny`, and `buildah-small`. These values describe requested workflow
+The resolver exposes first-class general profiles `general-tiny`,
+`general-small`, and `general-medium`, plus domain profiles such as `mobile`,
+`buildah-tiny`, and `buildah-small`. `portable` remains a compatibility semantic
+request and maps only to `general-small`. Semantic values describe workflow
 intent. They are not copied into `runs-on` and do not need to exist as live
 GitHub runner labels.
 
@@ -28,12 +30,13 @@ A runner row in GitHub contains different concepts:
 - **GitHub-managed system label:** for example `self-hosted`. It can appear on a
   runner without being a safe or sufficient selector.
 - **Capability label:** one independent property such as `linux`, `amd64`,
-  `android`, `buildah`, or `tiny`.
+  `android`, `buildah`, `general`, `tiny`, or `small`.
 
 Every Linux ARC custom label is lowercase. GitHub requires one runner to contain
 **all** labels listed by a job. Platform labels alone, such as
 `[linux, amd64]`, are intentionally ambiguous because several classes share
-them.
+them. Bare `[linux, amd64, general]` is also ambiguous because all three general
+scale sets share `general`.
 
 Never copy an internal ARC scale-set, pod, or runner name into workflow
 selection.
@@ -51,30 +54,58 @@ the platform labels:
 
 | Purpose | Semantic profile API | Direct selector for central/infrastructure workflows | Main tools and resources | Trust boundary |
 |---|---|---|---|---|
-| Ordinary source checks, policy, lint, Python/Node scripts, Helm, and GitOps validation | `portable` | `[linux, amd64, general]` | Actions runner 2.336.0; 256 Mi / 1 Gi memory; 4 Gi local storage; 2 Gi disposable workspace | Tokenless, one job, ephemeral; may run untrusted source only when the workflow exposes no secret or privileged authority |
+| Minimal source admission and lightweight maintenance/control | `general-tiny` | `[linux, amd64, general, tiny]` | Actions runner 2.336.0; 256 Mi / 1 Gi memory; 4 Gi local storage; 2 Gi disposable workspace | Tokenless, one job, ephemeral; may run untrusted source only when the workflow exposes no secret or privileged authority |
+| Ordinary policy, lint, Python/Node scripts, Helm, GitOps, and Central conformance | `general-small`; compatibility request `portable` | `[linux, amd64, general, small]` | Actions runner 2.336.0; 512 Mi / 2 Gi memory; 8 Gi local storage; 4 Gi disposable workspace | Same tokenless general boundary; `portable` is intent only and never a label |
+| Measured larger general work | `general-medium` | `[linux, amd64, general, medium]` | Actions runner 2.336.0; 1 / 4 Gi memory; 16 Gi local storage; 8 Gi disposable workspace | Opt in only through an API that explicitly permits the measured medium tier |
 | Android, Gradle, Flutter-on-Linux, JDK 25, or Node 24 validation | `mobile` | `[linux, amd64, mobile]`; narrower installed-tool selectors are listed below | JDK/Javac 25; Flutter 3.44.8; Dart 3.12.2; Node 24.18.0; Android API/Build Tools 36 and 37; NDK 28.2.13676358; 2 / 4 Gi memory; 6 Gi workspace; 20 Gi scratch; managed 20 Gi dependency cache | Tokenless, one job; trusted PR or exact source because the managed cache is shared; does not prove a physical Android device is attached |
-| Very small daemonless OCI work | `buildah-tiny` | `[linux, amd64, buildah, tiny]` | Buildah 1.33.7, Skopeo 1.13.3, Podman 4.9.3; 512 Mi / 1 Gi memory; 6 Gi local storage; cap 10 | Privileged Buildah pod; trusted exact source only; no Docker daemon, DinD, Kubernetes token, or Agent State credential |
-| Small daemonless OCI work | `buildah-small` | `[linux, amd64, buildah, small]` | Same OCI tools; 512 Mi / 2 Gi memory; 16 Gi local storage; cap 6 | Same trusted exact-source boundary |
-| Medium daemonless OCI work | `buildah-medium` | `[linux, amd64, buildah, medium]` | Same OCI tools; 2 / 4 Gi memory; 32 Gi local storage; cap 3 | Same trusted exact-source boundary |
-| High-memory or high-storage daemonless OCI work | `buildah-high` | `[linux, amd64, buildah, high]` | Same OCI tools; 4 / 8 Gi memory; 44 Gi local storage; cap 1 | Same trusted exact-source boundary; use only with measured need |
+| Very small daemonless OCI work | `buildah-tiny` | `[linux, amd64, buildah, tiny]` | Buildah 1.33.7, Skopeo 1.13.3, Podman 4.9.3; 512 Mi / 1 Gi memory; 6 Gi local storage | Privileged Buildah pod; trusted exact source only; no Docker daemon, DinD, Kubernetes token, or Agent State credential |
+| Small daemonless OCI work | `buildah-small` | `[linux, amd64, buildah, small]` | Same OCI tools; 512 Mi / 2 Gi memory; 16 Gi local storage | Same trusted exact-source boundary |
+| Medium daemonless OCI work | `buildah-medium` | `[linux, amd64, buildah, medium]` | Same OCI tools; 2 / 4 Gi memory; 32 Gi local storage | Same trusted exact-source boundary |
+| High-memory or high-storage daemonless OCI work | `buildah-high` | `[linux, amd64, buildah, high]` | Same OCI tools; 4 / 8 Gi memory; 44 Gi local storage | Same trusted exact-source boundary; use only with measured need |
 | Protected Flux and Kubernetes reconciliation | `flux-control` | `[linux, amd64, flux-control]` | Actions runner plus Flux/Kubernetes tooling and a restricted service account | Repository-scoped to Flux; protected source only; never product pull-request source or general builds |
+
+Central does **not** encode Linux ARC runner-count ceilings. `concurrency_cap` is
+`null` for Flux-owned ARC profiles. Flux/Kubernetes owns live `maxRunners`, Pod
+resource requests/limits, node admission, storage placement, and other concrete
+capacity policy. A Central semantic selector describes capability and size, not
+how many runners may exist.
 
 ### General Linux
 
-The semantic profile remains `portable` for API compatibility. Its resolved
-GitHub selector is:
+General Linux has three independent size properties:
 
 ```yaml
-runs-on: [linux, amd64, general]
+runs-on: [linux, amd64, general, tiny]
 ```
 
-Do not use `runs-on: portable`. `portable` is no longer a registered Linux ARC
-scheduling label.
+```yaml
+runs-on: [linux, amd64, general, small]
+```
 
-The repository Central self-check requests the semantic `portable` profile. It
-verifies its pre-provisioned Linux runtime before checkout and does not install,
-elevate, or persist a host runtime. The former emergency macOS exception is
-retired and must not be restored.
+```yaml
+runs-on: [linux, amd64, general, medium]
+```
+
+A direct general selector must contain **exactly one** of `tiny`, `small`, or
+`medium`. Bare `[linux, amd64, general]` is forbidden because it can match more
+than one live ARC scale set.
+
+`portable` remains a semantic compatibility request only. It resolves exactly
+to `general-small` and therefore emits:
+
+```yaml
+runs-on: [linux, amd64, general, small]
+```
+
+Do not use `runs-on: portable`. `portable` is not a registered Linux ARC
+scheduling label. Source admission and other contract-proven lightweight
+maintenance paths use `general-tiny`; ordinary validation defaults to
+`general-small`; `general-medium` requires an API that explicitly permits it.
+
+The repository Central self-check runs on `general-small`. It verifies its
+pre-provisioned Linux runtime before checkout and does not install, elevate, or
+persist a host runtime. The former emergency macOS exception is retired and
+must not be restored.
 
 ### Android and mobile tools
 
@@ -189,6 +220,7 @@ pull-request source, arbitrary caller commands, or general build work.
 No deprecated Linux ARC scheduling alias remains registered. Do not use:
 
 - `portable` as a `runs-on` label;
+- bare `[linux, amd64, general]` without exactly one size;
 - `buildah-tiny`, `buildah-small`, `buildah-medium`, or `buildah-high` as
   combined labels;
 - any internal ARC infrastructure identity as a label;
@@ -278,7 +310,9 @@ The full receipt and cleanup contract is documented in
 
 | Intent | Semantic request |
 |---|---|
-| Policy, lint, source admission, ordinary Python/Node, Helm, or GitOps validation | `portable`, resolved to `[linux, amd64, general]` |
+| Source admission and lightweight maintenance | `general-tiny`, resolved to `[linux, amd64, general, tiny]` |
+| Ordinary policy, lint, Python/Node, Helm, GitOps, or conformance | `general-small`; compatibility `portable` resolves to `[linux, amd64, general, small]` |
+| Measured larger general work | `general-medium`, resolved to `[linux, amd64, general, medium]` only where the API permits it |
 | Android or Gradle validation | `mobile`, resolved to `[linux, amd64, mobile]` |
 | Flutter on Linux | `mobile` |
 | Flutter or native Apple validation on macOS | `apple` |
@@ -294,9 +328,12 @@ change the runner after a job is scheduled.
 ## Mandatory rules
 
 - Never use bare `self-hosted`.
+- Never use bare `[linux, amd64, general]`; include exactly one general size.
 - Never use bare `buildah` as a complete direct selector.
 - Never use deprecated combined or internal ARC infrastructure labels.
-- Never introduce Docker-capable or DinD selection for Linux ARC.
+- Never introduce Docker-capable or DinD selection for Linux ARC until a
+  separately reviewed live Docker class is proven and the runner contract is
+  updated.
 - Never combine incompatible semantic profiles in one job.
 - Never accept runner labels from a workflow caller, issue, pull request,
   arbitrary matrix, or untrusted JSON input.
@@ -304,8 +341,9 @@ change the runner after a job is scheduled.
 - Untrusted source receives no registry-write, Agent State, signing,
   physical-device, SOPS, Kubernetes, production-database, or deployment
   credential.
-- Flux owns concrete ARC infrastructure and Kubernetes authority.
-  `ci-workflows` owns semantic workflow selection and resolver policy.
+- Flux owns concrete ARC infrastructure, live runner-count policy, resource
+  requests/limits, storage, and Kubernetes authority. `ci-workflows` owns
+  semantic workflow selection and resolver policy.
 - Stable outputs describe results, digests, receipts, evidence IDs, and cleanup;
   they do not expose host identity or private infrastructure details.
 

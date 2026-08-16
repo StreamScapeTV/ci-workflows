@@ -49,7 +49,7 @@ permissions:
 jobs:
   plan:
     name: Resolve bounded Python validation plan
-    runs-on: [linux, amd64, general]
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 10
     outputs:
       runner_profile: ${{ steps.plan.outputs.runner_profile }}
@@ -60,7 +60,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve contract-owned command and runner plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-python@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-python@d060c275570e07222969546acf988a2616a3bcc6 # issue #229 immutable portable host runtime checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -114,7 +114,7 @@ jobs:
 
       - id: python
         name: Execute bounded Python validation
-        uses: StreamScapeTV/ci-workflows/actions/validate-python@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-python@d060c275570e07222969546acf988a2616a3bcc6 # issue #229 immutable portable host runtime checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}

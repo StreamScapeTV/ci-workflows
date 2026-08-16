@@ -33,7 +33,8 @@ class SourceWorkflowContractTests(unittest.TestCase):
             self.workflow,
             r"uses: StreamScapeTV/ci-workflows/actions/resolve-source@[0-9a-f]{40}",
         )
-        self.assertIn("runs-on: [linux, amd64, general]", self.workflow)
+        self.assertIn("runs-on: [linux, amd64, general, tiny]", self.workflow)
+        self.assertNotIn("runs-on: [linux, amd64, general]", self.workflow)
         self.assertNotIn("runs-on: portable", self.workflow)
         self.assertNotIn("run: |", self.workflow)
 

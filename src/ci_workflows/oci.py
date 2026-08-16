@@ -1,4 +1,4 @@
-"""Engine-neutral public OCI build and inspection facade."""
+"""Engine-neutral public OCI build, inspection, publication, and read-back facade."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -6,6 +6,11 @@ from typing import Mapping
 
 from .oci_execution import inspect_layout as _inspect_layout
 from .oci_execution_safe import execute_plan as _execute_plan
+from .oci_publish_contract import (
+    PublishPlan as OciPublishPlan,
+    publish as _publish,
+    read_back as _read_back,
+)
 from .oci_types import (
     OciBuildPlan,
     OciBuildResult,
@@ -40,3 +45,21 @@ def inspect(
     """Strictly inspect one local OCI layout against its target contract."""
 
     return _inspect_layout(layout, target, labels)
+
+
+def publish(
+    plan: OciPublishPlan,
+    environment: Mapping[str, str],
+) -> dict[str, str]:
+    """Publish or verify exact immutable OCI identities under the trusted event boundary."""
+
+    return _publish(plan, environment)
+
+
+def read_back(
+    plan: OciPublishPlan,
+    environment: Mapping[str, str],
+) -> dict[str, str]:
+    """Independently pull and verify exact registry bytes for one publication plan."""
+
+    return _read_back(plan, environment)

@@ -59,12 +59,12 @@ The initial contract records reviewed immutable identities:
 
 | ID | Identity |
 |---|---|
-| `host-cpython-3.12.13` | exact CPython `3.12.13`, verified before host execution |
+| `host-cpython-3.12.3` | exact CPython `3.12.3`, verified before host execution on the reviewed portable Linux runtime |
 | `python-3.12.8-slim-amd64` | `docker.io/library/python:3.12.8-slim@sha256:d0af71d7d6d1b7bb018395aca582e4d270d090ca41312ae5318341f122fec6b8` |
 | `python-3.12.13-slim-amd64` | `docker.io/library/python:3.12.13-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de` |
 | `postgres-16.11-alpine-amd64` | `docker.io/library/postgres:16.11-alpine@sha256:63cf43b1a12b5b9d1f7a576f8f5852d7ce0792618661969135ac6c276237eec9` |
 
-Mutable tags without these exact digests are rejected. The caller cannot replace or override any runtime identity.
+Mutable tags without these exact digests are rejected. The caller cannot replace or override any runtime identity. Host validation similarly fails closed when the pre-provisioned interpreter differs from the exact reviewed CPython version; it never installs or elevates a host runtime to repair drift.
 
 ## Dependency restore
 
@@ -79,7 +79,7 @@ Host profiles copy the complete exact source tree into registered temporary stat
 Podman profiles require the central Buildah classes and:
 
 - reject Docker, `dockerd`, and Docker sockets;
-- use Podman with explicit `vfs`, marker-bound `--root`, and marker-bound `--runroot`;
+- use Podman with explicit `vfs` and marker-bound private graph storage through `--root`; `--runroot` is deliberately left unset so Podman uses the semantic Buildah runner's job-isolated default runroot, because Podman 4.9 rejects custom runroot paths longer than 50 characters;
 - pull exact digest-pinned linux/amd64 images;
 - mount caller source read-only at `/src`;
 - copy source into disposable `/work/source` before installing or running commands;

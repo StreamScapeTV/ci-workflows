@@ -66,7 +66,7 @@ permissions:
 jobs:
   plan:
     name: Resolve bounded Apple validation plan
-    runs-on: [linux, amd64, general]
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 10
     outputs:
       runner_profile: ${{ steps.plan.outputs.runner_profile }}
@@ -77,7 +77,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve contract-owned Apple plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@88d179740145ccea00b6986d78ceb67ea365face # issue #131 immutable Release-aware Apple checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@702b950b6a5baf208e7b21f16e3f7df9b8f0f96e # issue #187 integrated Media tvOS consumer checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -197,7 +197,7 @@ jobs:
       - id: execute
         name: Execute bounded Apple validation
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@88d179740145ccea00b6986d78ceb67ea365face # issue #131 immutable Release-aware Apple checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@702b950b6a5baf208e7b21f16e3f7df9b8f0f96e # issue #187 integrated Media tvOS consumer checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -216,7 +216,7 @@ jobs:
         name: Remove Apple-specific state
         if: always()
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@88d179740145ccea00b6986d78ceb67ea365face # issue #131 immutable Release-aware Apple checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@702b950b6a5baf208e7b21f16e3f7df9b8f0f96e # issue #187 integrated Media tvOS consumer checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -235,7 +235,7 @@ jobs:
         name: Verify zero Apple-specific residue
         if: always()
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@88d179740145ccea00b6986d78ceb67ea365face # issue #131 immutable Release-aware Apple checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@702b950b6a5baf208e7b21f16e3f7df9b8f0f96e # issue #187 integrated Media tvOS consumer checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}

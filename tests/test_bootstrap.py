@@ -41,10 +41,14 @@ class BootstrapContractTests(unittest.TestCase):
             [
                 ".github/workflows/reusable-android.yml",
                 ".github/workflows/reusable-apple.yml",
+                ".github/workflows/reusable-device.yml",
                 ".github/workflows/reusable-flutter.yml",
                 ".github/workflows/reusable-gitops-validation.yml",
+                ".github/workflows/reusable-helm-publish.yml",
+                ".github/workflows/reusable-helm-validate.yml",
                 ".github/workflows/reusable-node.yml",
                 ".github/workflows/reusable-oci-build.yml",
+                ".github/workflows/reusable-oci-publish.yml",
                 ".github/workflows/reusable-python.yml",
                 ".github/workflows/reusable-resolve-source.yml",
                 ".github/workflows/reusable-tag-image-chart.yml",
@@ -69,25 +73,31 @@ class BootstrapContractTests(unittest.TestCase):
         runner_contract = json.loads(
             (ROOT / "contracts/runner-profiles.json").read_text()
         )
-        portable = next(
+        general_small = next(
             profile
             for profile in runner_contract["profiles"]
-            if profile["id"] == "portable"
+            if profile["id"] == "general-small"
         )
         self.assertEqual(
-            source.count("runs-on: [linux, amd64, general]"),
+            source.count("runs-on: [linux, amd64, general, small]"),
             1,
         )
+        self.assertNotIn("runs-on: [linux, amd64, general]", source)
         self.assertNotIn("runs-on: portable", source)
         self.assertNotIn("runs-on: macOS", source)
         self.assertEqual(harness["allowed_runner_profiles"], ["portable"])
         self.assertEqual(
-            portable["default_internal_selector"],
-            ["linux", "amd64", "general"],
+            runner_contract["direct_selection_policy"]["portable_maps_only_to"],
+            "general-small",
+        )
+        self.assertIn("portable", general_small["public_labels"])
+        self.assertEqual(
+            general_small["default_internal_selector"],
+            ["linux", "amd64", "general", "small"],
         )
         self.assertEqual(
-            portable["internal_selectors"],
-            [["linux", "amd64", "general"]],
+            general_small["internal_selectors"],
+            [["linux", "amd64", "general", "small"]],
         )
         exception = [
             item

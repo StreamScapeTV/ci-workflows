@@ -97,9 +97,11 @@ class NodeWorkflowContractTests(unittest.TestCase):
     def test_jobs_use_only_general_linux_capabilities_and_no_caller_matrix(self) -> None:
         jobs = self.workflow["jobs"]
         self.assertEqual(set(jobs), {"plan", "validate"})
-        self.assertEqual(jobs["plan"]["runs-on"], ["linux", "amd64", "general"])
         self.assertEqual(
-            jobs["validate"]["runs-on"], ["linux", "amd64", "general"]
+            jobs["plan"]["runs-on"], ["linux", "amd64", "general", "small"]
+        )
+        self.assertEqual(
+            jobs["validate"]["runs-on"], ["linux", "amd64", "general", "small"]
         )
         self.assertEqual(jobs["validate"]["name"], "CI / Node validation")
         self.assertEqual(jobs["validate"]["timeout-minutes"], 90)
@@ -107,6 +109,7 @@ class NodeWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("strategy", jobs["validate"])
         self.assertNotIn("self-hosted", self.workflow_text)
         self.assertNotIn("runs-on: portable", self.workflow_text)
+        self.assertNotIn("runs-on: [linux, amd64, general]", self.workflow_text)
         self.assertNotIn("fromJSON(needs.plan.outputs.runs_on", self.workflow_text)
 
     def test_setup_node_is_exact_locked_and_cache_disabled(self) -> None:
