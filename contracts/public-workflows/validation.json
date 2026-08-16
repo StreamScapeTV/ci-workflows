@@ -26,8 +26,6 @@
       "stable_check_name": "CI / Python validation",
       "timeout_minutes": 120,
       "matrix_max_jobs": 1,
-      "supported_consumers": ["StreamScapeTV/iptv-backend", "StreamScapeTV/agent-state", "StreamScapeTV/flux"],
-      "supported_products": [],
       "repository_owned_hooks": ["command_profile", "script_path"],
       "implementation_components": ["ci_workflows.python.validate", "actions/validate-python"]
     },
@@ -55,25 +53,10 @@
         {"name": "artifact_exception_id", "required": false}
       ],
       "secrets": [],
-      "outputs": [
-        "result",
-        "node_version",
-        "npm_version",
-        "install_result",
-        "test_summary",
-        "build_result",
-        "output_verified",
-        "output_digest",
-        "clean_tree",
-        "cleanup_result",
-        "artifact_exception_used",
-        "evidence_id"
-      ],
+      "outputs": ["result", "node_version", "npm_version", "install_result", "test_summary", "build_result", "output_verified", "output_digest", "clean_tree", "cleanup_result", "artifact_exception_used", "evidence_id"],
       "stable_check_name": "CI / Node validation",
       "timeout_minutes": 90,
       "matrix_max_jobs": 1,
-      "supported_consumers": ["StreamScapeTV/StreamScapeWeb", "StreamScapeTV/agent-state", "StreamScapeTV/finance-hub"],
-      "supported_products": [],
       "repository_owned_hooks": ["command_profile", "script_path", "static_output_directory", "output_verifier_path"],
       "implementation_components": ["ci_workflows.node.validate", "actions/validate-node"]
     },
@@ -105,8 +88,6 @@
       "stable_check_name": "CI / Android validation",
       "timeout_minutes": 120,
       "matrix_max_jobs": 1,
-      "supported_consumers": ["StreamScapeTV/iptv-android", "StreamScapeTV/streamscape-media"],
-      "supported_products": [],
       "repository_owned_hooks": ["task_profile", "consumer_script_profile"],
       "implementation_components": ["ci_workflows.android.validate", "actions/validate-android"]
     },
@@ -134,8 +115,6 @@
       "stable_check_name": "CI / Flutter validation",
       "timeout_minutes": 180,
       "matrix_max_jobs": 8,
-      "supported_consumers": ["StreamScapeTV/directus-front", "StreamScapeTV/finance-hub"],
-      "supported_products": [],
       "repository_owned_hooks": ["command_profile", "script_path"],
       "implementation_components": ["ci_workflows.flutter.validate"]
     },
@@ -165,8 +144,6 @@
       "stable_check_name": "CI / Apple validation",
       "timeout_minutes": 180,
       "matrix_max_jobs": 12,
-      "supported_consumers": ["StreamScapeTV/iptv-apple", "StreamScapeTV/streamscape-media"],
-      "supported_products": [],
       "repository_owned_hooks": ["command_profile", "script_path"],
       "implementation_components": ["ci_workflows.apple.validate"]
     },
@@ -195,8 +172,6 @@
       "stable_check_name": "CI / Physical device validation",
       "timeout_minutes": 240,
       "matrix_max_jobs": 1,
-      "supported_consumers": ["StreamScapeTV/iptv-android", "StreamScapeTV/iptv-apple", "StreamScapeTV/streamscape-media", "StreamScapeTV/finance-hub"],
-      "supported_products": [],
       "repository_owned_hooks": ["command_profile", "script_path"],
       "implementation_components": ["ci_workflows.ciw_device.execute_device_validate", "ci_workflows.ciw_device_lock.execute_device_lock", "actions/validate-device", "actions/device-lock"],
       "concurrency_policy": "resource-locked"
@@ -223,8 +198,6 @@
       "stable_check_name": "CI / GitOps validation",
       "timeout_minutes": 120,
       "matrix_max_jobs": 1,
-      "supported_consumers": ["StreamScapeTV/flux", "StreamScapeTV/iptv-backend", "StreamScapeTV/agent-state"],
-      "supported_products": [],
       "repository_owned_hooks": ["policy_script_profile"],
       "implementation_components": ["ci_workflows.gitops.validate", "actions/validate-gitops"]
     },
@@ -248,8 +221,6 @@
       "stable_check_name": "CI / Script validation",
       "timeout_minutes": 120,
       "matrix_max_jobs": 1,
-      "supported_consumers": ["StreamScapeTV/*"],
-      "supported_products": [],
       "repository_owned_hooks": ["script_path", "working_directory"],
       "implementation_components": ["reusable-script.yml"]
     }
