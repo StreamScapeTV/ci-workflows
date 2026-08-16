@@ -11,13 +11,19 @@ on:
       - scripts/ci/apple_checkout_cleanup.py
       - src/ci_workflows/apple.py
       - src/ci_workflows/apple_contract.py
+      - src/ci_workflows/apple_contract_fragments.py
       - src/ci_workflows/apple_execution.py
       - src/ci_workflows/apple_types.py
       - src/ci_workflows/ciw_apple.py
       - contracts/apple-validation.json
+      - contracts/apple-validation-*.json
       - docs/architecture/apple-validation.md
       - tests/fixtures/apple-validation/**
+      - tests/test_apple_contract_fragments.py
+      - tests/test_apple_contract_fragment_path_safety.py
+      - tests/test_apple_fragment_loader_isolation.py
       - tests/test_apple_release_profiles.py
+      - tests/test_apple_smoke_trigger_contract.py
 
 permissions:
   actions: read
@@ -31,7 +37,7 @@ jobs:
   plan:
     name: Resolve exact Apple Release selectors
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: [linux, amd64, general]
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 10
     outputs:
       runs_on_json: ${{ steps.ios.outputs.runs_on_json }}
@@ -264,7 +270,7 @@ jobs:
     name: Verify Apple Release smoke remains zero-artifact
     needs: [plan, release]
     if: ${{ always() && !cancelled() }}
-    runs-on: [linux, amd64, general]
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 10
     steps:
       - name: Require all Release platforms and zero Actions artifacts

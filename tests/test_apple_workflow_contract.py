@@ -5,9 +5,13 @@ import re
 import unittest
 from pathlib import Path
 
+from ci_workflows.apple_contract import build_plan
+from ci_workflows.apple_contract_fragments import load_apple_contract
+from ci_workflows.apple_types import AppleProfile, AppleValidationRequest
+
 ROOT = Path(__file__).resolve().parents[1]
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-APPLE_HELPER_SHA = "88d179740145ccea00b6986d78ceb67ea365face"
+APPLE_HELPER_SHA = "702b950b6a5baf208e7b21f16e3f7df9b8f0f96e"
 
 
 class AppleWorkflowContractTests(unittest.TestCase):
@@ -77,9 +81,10 @@ class AppleWorkflowContractTests(unittest.TestCase):
         )
 
     def test_semantic_runner_selection_uses_protected_planner(self) -> None:
-        direct_general_selector = "runs-on: [linux, amd64, general]"
+        direct_general_selector = "runs-on: [linux, amd64, general, small]"
         self.assertIn(direct_general_selector, self.workflow)
         self.assertEqual(self.smoke.count(direct_general_selector), 2)
+        self.assertNotIn("runs-on: [linux, amd64, general]", self.workflow + self.smoke)
         self.assertNotIn("runs-on: portable", self.workflow + self.smoke)
         self.assertEqual(
             1,
@@ -209,6 +214,56 @@ class AppleWorkflowContractTests(unittest.TestCase):
         self.assertIn("admitted_sha: ${{ inputs.admitted_sha }}", self.workflow)
         self.assertIn('test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"', self.workflow)
 
+    def test_media_vlc_tvos_native_contract_is_bounded_and_distinct_from_mpv(self) -> None:
+        merged = load_apple_contract(ROOT)
+        consumers = merged["consumer_contracts"]
+        self.assertEqual(
+            consumers["streamscape-media-apple"]["profiles"][
+                "native-dependency-preparation"
+            ],
+            "media-native-dependency",
+        )
+        self.assertEqual(
+            consumers["streamscape-media-vlc-tvos-apple"]["repository"],
+            "StreamScapeTV/streamscape-media",
+        )
+        self.assertEqual(
+            consumers["streamscape-media-vlc-tvos-apple"]["profiles"],
+            {
+                "native-dependency-preparation":
+                    "media-vlc-tvos-native-dependency"
+            },
+        )
+        request = AppleValidationRequest(
+            repository="StreamScapeTV/streamscape-media",
+            admitted_sha="a" * 40,
+            consumer_contract="streamscape-media-vlc-tvos-apple",
+            validation_profile=AppleProfile.NATIVE_DEPENDENCY_PREPARATION,
+            source_trust="trusted-exact",
+            platform="apple-native",
+        )
+        plan = build_plan(merged, request)
+        self.assertEqual(plan.task_profile, "media-vlc-tvos-native-dependency")
+        self.assertEqual(plan.runner_profile.value, "apple")
+        self.assertEqual(plan.planner_runner_profile.value, "portable")
+        self.assertEqual(len(plan.commands), 1)
+        self.assertEqual(
+            plan.commands[0].script_path,
+            "scripts/ci/build-private-tvos-vlc-candidate.sh",
+        )
+        self.assertEqual(plan.commands[0].fixed_arguments, ())
+        self.assertIsNone(plan.simulator)
+        self.assertEqual(plan.artifact_exception_id, None)
+        self.assertIn("native/vlc/root-intake.lock.json", plan.protected_paths)
+        self.assertIn(
+            "native/vlc/apple-tvos-build-support-inventory.json",
+            plan.protected_paths,
+        )
+        self.assertEqual(
+            plan.environment_bindings,
+            (("STREAMSCAPE_ARTIFACT_DIR", "native-output"),),
+        )
+
     def test_checkout_cleanup_is_fixed_and_no_follow(self) -> None:
         workflows = self.workflow + self.smoke
         self.assertNotIn(
@@ -306,6 +361,9 @@ class AppleWorkflowContractTests(unittest.TestCase):
                 self.execution,
                 self.types,
                 (ROOT / "src/ci_workflows/ciw_apple.py").read_text(encoding="utf-8"),
+                (ROOT / "src/ci_workflows/apple_contract_fragments.py").read_text(
+                    encoding="utf-8"
+                ),
             )
         ).lower()
         for product in ("streamscapetv/iptv-apple", "streamscapetv/streamscape-media"):

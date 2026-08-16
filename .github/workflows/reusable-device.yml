@@ -1,0 +1,389 @@
+name: CI / Physical device validation
+
+on:
+  workflow_call:
+    inputs:
+      admitted_sha:
+        description: Exact lowercase source SHA admitted by current source admission
+        required: true
+        type: string
+      device_family:
+        description: Bounded Android, iOS, or tvOS family
+        required: true
+        type: string
+      device_capability:
+        description: Reviewed capability selected by the checked-in profile
+        required: true
+        type: string
+      device_alias:
+        description: Bounded opaque alias resolved to host inventory only after admission
+        required: true
+        type: string
+      command_profile:
+        description: Reviewed product-owned command-profile identifier
+        required: true
+        type: string
+      script_path:
+        description: Exact contract-matching checked-in test script
+        required: true
+        type: string
+      max_duration_minutes:
+        description: Bounded duration within the selected profile
+        required: false
+        default: 60
+        type: number
+      evidence_exception_id:
+        description: Optional named bounded redacted evidence exception
+        required: false
+        type: string
+      request_id:
+        description: Exact issue-scoped request identity
+        required: true
+        type: string
+    secrets:
+      device_authorization_receipt:
+        description: Optional exact owner authorization receipt; absence fails closed before device scheduling
+        required: false
+      live_test_credentials:
+        description: Optional fixed non-production test secret contract
+        required: false
+    outputs:
+      result:
+        description: Success only after explicitly authorized physical execution and cleanup
+        value: ${{ jobs.device.outputs.result || jobs.authorization_denied.outputs.result }}
+      device_evidence_id:
+        description: Deterministic redacted evidence identity for the exact tested source
+        value: ${{ jobs.device.outputs.device_evidence_id || jobs.authorization_denied.outputs.device_evidence_id }}
+      artifact_exception_used:
+        description: Whether one named bounded evidence exception was used
+        value: ${{ jobs.device.outputs.artifact_exception_used || jobs.authorization_denied.outputs.artifact_exception_used }}
+      request_id:
+        description: Exact issue-scoped request identity
+        value: ${{ jobs.plan.outputs.request_id }}
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Derive bounded device plan from current GitHub source admission
+    runs-on: [linux, amd64, general, small]
+    timeout-minutes: 10
+    outputs:
+      admitted_sha: ${{ steps.plan.outputs.admitted_sha }}
+      request_id: ${{ steps.plan.outputs.request_id }}
+      runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
+      workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
+      execution_authorized: ${{ steps.plan.outputs.execution_authorized }}
+      authorization_failure: ${{ steps.plan.outputs.authorization_failure }}
+      concurrency_group: ${{ steps.plan.outputs.concurrency_group }}
+      validated_plan: ${{ steps.plan.outputs.validated_plan }}
+      validated_plan_sha256: ${{ steps.plan.outputs.validated_plan_sha256 }}
+    steps:
+      - id: plan
+        name: Resolve contract-owned typed device plan
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@092d26777aebaf87a0a07d39a1660b4bc5cb658d # issue #14 complete CIW checkpoint
+        env:
+          CIW_DEVICE_AUTHORIZATION_PRESENT: ${{ secrets.device_authorization_receipt != '' && 'true' || 'false' }}
+          CIW_DEVICE_AUTHORIZATION_RECEIPT: ${{ secrets.device_authorization_receipt }}
+          CIW_DEVICE_LIVE_BACKEND_PRESENT: ${{ secrets.live_test_credentials != '' && 'true' || 'false' }}
+        with:
+          phase: plan
+          admitted_sha: ${{ inputs.admitted_sha }}
+          device_family: ${{ inputs.device_family }}
+          device_capability: ${{ inputs.device_capability }}
+          device_alias: ${{ inputs.device_alias }}
+          command_profile: ${{ inputs.command_profile }}
+          script_path: ${{ inputs.script_path }}
+          max_duration_minutes: ${{ inputs.max_duration_minutes }}
+          evidence_exception_id: ${{ inputs.evidence_exception_id }}
+          request_id: ${{ inputs.request_id }}
+
+  authorization_denied:
+    name: Fail closed when physical authorization is absent
+    needs: plan
+    if: ${{ needs.plan.outputs.execution_authorized != 'true' }}
+    runs-on: [linux, amd64, general, small]
+    timeout-minutes: 5
+    outputs:
+      result: ${{ steps.denied.outputs.result }}
+      device_evidence_id: ${{ steps.denied.outputs.device_evidence_id }}
+      artifact_exception_used: ${{ steps.denied.outputs.artifact_exception_used }}
+    steps:
+      - id: denied
+        name: Report stable physical authorization denial
+        shell: bash
+        env:
+          AUTHORIZATION_FAILURE: ${{ needs.plan.outputs.authorization_failure }}
+        run: |
+          set -Eeuo pipefail
+          test "${AUTHORIZATION_FAILURE}" = "physical_authorization_required"
+          {
+            echo "result=failure"
+            echo "device_evidence_id="
+            echo "artifact_exception_used=false"
+          } >> "${GITHUB_OUTPUT}"
+          echo "physical_authorization_required" >&2
+          exit 1
+
+  device:
+    name: Execute explicitly authorized physical-device validation
+    needs: plan
+    if: ${{ needs.plan.outputs.execution_authorized == 'true' }}
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
+    timeout-minutes: 240
+    concurrency:
+      group: ${{ needs.plan.outputs.concurrency_group }}
+      cancel-in-progress: false
+    outputs:
+      result: ${{ steps.execute.outputs.result }}
+      device_evidence_id: ${{ steps.execute.outputs.device_evidence_id }}
+      artifact_exception_used: ${{ steps.execute.outputs.artifact_exception_used }}
+    steps:
+      - name: Clear fixed admitted-source checkout root without following links
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@092d26777aebaf87a0a07d39a1660b4bc5cb658d # issue #14 complete CIW checkpoint
+        with:
+          phase: cleanup-checkout
+          source_root: source
+
+      - name: Check out exact admitted caller source
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        with:
+          repository: ${{ github.repository }}
+          admitted_sha: ${{ needs.plan.outputs.admitted_sha }}
+          path: source
+          fetch_depth: "1"
+
+      - name: Revalidate exact admitted caller source in executor
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ needs.plan.outputs.admitted_sha }}
+        run: |
+          set -Eeuo pipefail
+          (
+            cd source
+            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+            test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          )
+
+      - id: workspace
+        name: Prepare isolated physical-device state
+        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        with:
+          profile: ${{ needs.plan.outputs.workspace_profile }}
+          cache_mode: disabled
+          source_sha: ${{ needs.plan.outputs.admitted_sha }}
+          trust_mode: trusted-exact
+
+      - id: discover
+        name: Deterministically discover one eligible physical device
+        continue-on-error: true
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@092d26777aebaf87a0a07d39a1660b4bc5cb658d # issue #14 complete CIW checkpoint
+        env:
+          CIW_DEVICE_AUTHORIZATION_PRESENT: "true"
+          CIW_DEVICE_AUTHORIZATION_RECEIPT: ${{ secrets.device_authorization_receipt }}
+          CIW_DEVICE_LIVE_BACKEND_PRESENT: ${{ secrets.live_test_credentials != '' && 'true' || 'false' }}
+        with:
+          phase: discover
+          admitted_sha: ${{ needs.plan.outputs.admitted_sha }}
+          device_family: ${{ inputs.device_family }}
+          device_capability: ${{ inputs.device_capability }}
+          device_alias: ${{ inputs.device_alias }}
+          command_profile: ${{ inputs.command_profile }}
+          script_path: ${{ inputs.script_path }}
+          max_duration_minutes: ${{ inputs.max_duration_minutes }}
+          evidence_exception_id: ${{ inputs.evidence_exception_id }}
+          request_id: ${{ inputs.request_id }}
+          validated_plan: ${{ needs.plan.outputs.validated_plan }}
+          validated_plan_sha256: ${{ needs.plan.outputs.validated_plan_sha256 }}
+          source_root: source
+
+      - id: acquire_lock
+        name: Acquire production cross-run device fencing receipt
+        if: ${{ steps.discover.outcome == 'success' }}
+        continue-on-error: true
+        uses: StreamScapeTV/ci-workflows/actions/device-lock@599c82201e6da6ca51c4f6247f1526a4ba03d550 # issue #136 exact-head checkpoint
+        with:
+          phase: acquire
+          device_family: ${{ inputs.device_family }}
+          device_capability: ${{ inputs.device_capability }}
+          device_identity_hash: ${{ steps.discover.outputs.selected_device_hash }}
+          tested_source_sha: ${{ needs.plan.outputs.admitted_sha }}
+          authorization_receipt: ${{ secrets.device_authorization_receipt }}
+          request_id: ${{ inputs.request_id }}
+          lease_seconds: "18000"
+
+      - id: verify_lock
+        name: Verify exact fencing receipt before physical mutation
+        if: ${{ steps.acquire_lock.outcome == 'success' }}
+        continue-on-error: true
+        uses: StreamScapeTV/ci-workflows/actions/device-lock@599c82201e6da6ca51c4f6247f1526a4ba03d550 # issue #136 exact-head checkpoint
+        with:
+          phase: verify
+          device_family: ${{ inputs.device_family }}
+          device_capability: ${{ inputs.device_capability }}
+          device_identity_hash: ${{ steps.discover.outputs.selected_device_hash }}
+          tested_source_sha: ${{ needs.plan.outputs.admitted_sha }}
+          authorization_receipt: ${{ secrets.device_authorization_receipt }}
+          request_id: ${{ inputs.request_id }}
+          lease_seconds: "18000"
+          resource_lock_receipt: ${{ steps.acquire_lock.outputs.resource_lock_receipt }}
+          minimum_remaining_seconds: "60"
+
+      - id: execute
+        name: Execute only the exact typed plan emitted by the planner
+        if: ${{ steps.verify_lock.outcome == 'success' }}
+        continue-on-error: true
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@092d26777aebaf87a0a07d39a1660b4bc5cb658d # issue #14 complete CIW checkpoint
+        env:
+          CIW_DEVICE_AUTHORIZATION_PRESENT: "true"
+          CIW_DEVICE_AUTHORIZATION_RECEIPT: ${{ secrets.device_authorization_receipt }}
+          CIW_DEVICE_LIVE_BACKEND_PRESENT: ${{ secrets.live_test_credentials != '' && 'true' || 'false' }}
+          CIW_DEVICE_LIVE_TEST_CREDENTIALS: ${{ secrets.live_test_credentials }}
+        with:
+          phase: execute
+          admitted_sha: ${{ needs.plan.outputs.admitted_sha }}
+          device_family: ${{ inputs.device_family }}
+          device_capability: ${{ inputs.device_capability }}
+          device_alias: ${{ inputs.device_alias }}
+          command_profile: ${{ inputs.command_profile }}
+          script_path: ${{ inputs.script_path }}
+          max_duration_minutes: ${{ inputs.max_duration_minutes }}
+          evidence_exception_id: ${{ inputs.evidence_exception_id }}
+          request_id: ${{ inputs.request_id }}
+          validated_plan: ${{ needs.plan.outputs.validated_plan }}
+          validated_plan_sha256: ${{ needs.plan.outputs.validated_plan_sha256 }}
+          selected_device_hash: ${{ steps.discover.outputs.selected_device_hash }}
+          resource_lock_receipt: ${{ steps.acquire_lock.outputs.resource_lock_receipt }}
+          source_root: source
+
+      - id: restore
+        name: Restore product-owned physical-device state before releasing lock
+        if: ${{ always() && steps.acquire_lock.outcome == 'success' && steps.discover.outcome == 'success' }}
+        continue-on-error: true
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@092d26777aebaf87a0a07d39a1660b4bc5cb658d # issue #14 complete CIW checkpoint
+        env:
+          CIW_DEVICE_AUTHORIZATION_PRESENT: "true"
+          CIW_DEVICE_AUTHORIZATION_RECEIPT: ${{ secrets.device_authorization_receipt }}
+          CIW_DEVICE_LIVE_BACKEND_PRESENT: ${{ secrets.live_test_credentials != '' && 'true' || 'false' }}
+          CIW_DEVICE_LIVE_TEST_CREDENTIALS: ${{ secrets.live_test_credentials }}
+        with:
+          phase: restore
+          admitted_sha: ${{ needs.plan.outputs.admitted_sha }}
+          device_family: ${{ inputs.device_family }}
+          device_capability: ${{ inputs.device_capability }}
+          device_alias: ${{ inputs.device_alias }}
+          command_profile: ${{ inputs.command_profile }}
+          script_path: ${{ inputs.script_path }}
+          max_duration_minutes: ${{ inputs.max_duration_minutes }}
+          evidence_exception_id: ${{ inputs.evidence_exception_id }}
+          request_id: ${{ inputs.request_id }}
+          validated_plan: ${{ needs.plan.outputs.validated_plan }}
+          validated_plan_sha256: ${{ needs.plan.outputs.validated_plan_sha256 }}
+          selected_device_hash: ${{ steps.discover.outputs.selected_device_hash }}
+          resource_lock_receipt: ${{ steps.acquire_lock.outputs.resource_lock_receipt }}
+          source_root: source
+
+      - id: release_lock
+        name: Expected-state release exact production fencing receipt
+        if: ${{ always() && steps.acquire_lock.outcome == 'success' }}
+        continue-on-error: true
+        uses: StreamScapeTV/ci-workflows/actions/device-lock@599c82201e6da6ca51c4f6247f1526a4ba03d550 # issue #136 exact-head checkpoint
+        with:
+          phase: release
+          device_family: ${{ inputs.device_family }}
+          device_capability: ${{ inputs.device_capability }}
+          device_identity_hash: ${{ steps.discover.outputs.selected_device_hash }}
+          tested_source_sha: ${{ needs.plan.outputs.admitted_sha }}
+          authorization_receipt: ${{ secrets.device_authorization_receipt }}
+          request_id: ${{ inputs.request_id }}
+          lease_seconds: "18000"
+          resource_lock_receipt: ${{ steps.acquire_lock.outputs.resource_lock_receipt }}
+
+      - id: lock_residue
+        name: Verify production fencing receipt has no live residue
+        if: ${{ always() && steps.acquire_lock.outcome == 'success' }}
+        continue-on-error: true
+        uses: StreamScapeTV/ci-workflows/actions/device-lock@599c82201e6da6ca51c4f6247f1526a4ba03d550 # issue #136 exact-head checkpoint
+        with:
+          phase: residue
+          device_family: ${{ inputs.device_family }}
+          device_capability: ${{ inputs.device_capability }}
+          device_identity_hash: ${{ steps.discover.outputs.selected_device_hash }}
+          tested_source_sha: ${{ needs.plan.outputs.admitted_sha }}
+          authorization_receipt: ${{ secrets.device_authorization_receipt }}
+          request_id: ${{ inputs.request_id }}
+          lease_seconds: "18000"
+          resource_lock_receipt: ${{ steps.acquire_lock.outputs.resource_lock_receipt }}
+
+      - id: device_cleanup
+        name: Remove physical-device-specific Central state
+        if: always()
+        continue-on-error: true
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@092d26777aebaf87a0a07d39a1660b4bc5cb658d # issue #14 complete CIW checkpoint
+        env:
+          CIW_DEVICE_AUTHORIZATION_PRESENT: "true"
+          CIW_DEVICE_LIVE_BACKEND_PRESENT: ${{ secrets.live_test_credentials != '' && 'true' || 'false' }}
+        with:
+          phase: cleanup
+          admitted_sha: ${{ needs.plan.outputs.admitted_sha }}
+          validated_plan: ${{ needs.plan.outputs.validated_plan }}
+          validated_plan_sha256: ${{ needs.plan.outputs.validated_plan_sha256 }}
+
+      - id: device_residue
+        name: Verify zero physical-device-specific Central residue
+        if: always()
+        continue-on-error: true
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@092d26777aebaf87a0a07d39a1660b4bc5cb658d # issue #14 complete CIW checkpoint
+        env:
+          CIW_DEVICE_AUTHORIZATION_PRESENT: "true"
+          CIW_DEVICE_LIVE_BACKEND_PRESENT: ${{ secrets.live_test_credentials != '' && 'true' || 'false' }}
+        with:
+          phase: residue
+          admitted_sha: ${{ needs.plan.outputs.admitted_sha }}
+          validated_plan: ${{ needs.plan.outputs.validated_plan }}
+          validated_plan_sha256: ${{ needs.plan.outputs.validated_plan_sha256 }}
+
+      - id: source_cleanup
+        name: Remove exact admitted source without following links
+        if: always()
+        continue-on-error: true
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@092d26777aebaf87a0a07d39a1660b4bc5cb658d # issue #14 complete CIW checkpoint
+        with:
+          phase: cleanup-checkout
+          source_root: source
+
+      - id: workspace_cleanup
+        name: Remove and verify all registered workflow state
+        if: always()
+        continue-on-error: true
+        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+
+      - name: Project terminal physical-device result after restore, release, and cleanup
+        if: always()
+        shell: bash
+        env:
+          DISCOVER_OUTCOME: ${{ steps.discover.outcome }}
+          ACQUIRE_LOCK_OUTCOME: ${{ steps.acquire_lock.outcome }}
+          VERIFY_LOCK_OUTCOME: ${{ steps.verify_lock.outcome }}
+          EXECUTE_OUTCOME: ${{ steps.execute.outcome }}
+          RESTORE_OUTCOME: ${{ steps.restore.outcome }}
+          RELEASE_LOCK_OUTCOME: ${{ steps.release_lock.outcome }}
+          LOCK_RESIDUE_OUTCOME: ${{ steps.lock_residue.outcome }}
+          DEVICE_CLEANUP_OUTCOME: ${{ steps.device_cleanup.outcome }}
+          DEVICE_RESIDUE_OUTCOME: ${{ steps.device_residue.outcome }}
+          SOURCE_CLEANUP_OUTCOME: ${{ steps.source_cleanup.outcome }}
+          WORKSPACE_CLEANUP_OUTCOME: ${{ steps.workspace_cleanup.outcome }}
+        run: |
+          set -Eeuo pipefail
+          test "${DISCOVER_OUTCOME}" = "success"
+          test "${ACQUIRE_LOCK_OUTCOME}" = "success"
+          test "${VERIFY_LOCK_OUTCOME}" = "success"
+          test "${EXECUTE_OUTCOME}" = "success"
+          test "${RESTORE_OUTCOME}" = "success"
+          test "${RELEASE_LOCK_OUTCOME}" = "success"
+          test "${LOCK_RESIDUE_OUTCOME}" = "success"
+          test "${DEVICE_CLEANUP_OUTCOME}" = "success"
+          test "${DEVICE_RESIDUE_OUTCOME}" = "success"
+          test "${SOURCE_CLEANUP_OUTCOME}" = "success"
+          test "${WORKSPACE_CLEANUP_OUTCOME}" = "success"

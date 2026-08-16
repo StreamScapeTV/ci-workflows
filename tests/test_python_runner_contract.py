@@ -22,7 +22,12 @@ class PythonRunnerContractTests(unittest.TestCase):
         self.assertEqual(binding["strategy"], "profile-contract")
         self.assertEqual(
             binding["profiles"],
-            ["portable", "buildah-medium", "buildah-high"],
+            [
+                "general-small",
+                "general-medium",
+                "buildah-medium",
+                "buildah-high",
+            ],
         )
         for profile_id in binding["profiles"]:
             self.assertIn(
@@ -35,32 +40,43 @@ class PythonRunnerContractTests(unittest.TestCase):
             (
                 "portable",
                 "untrusted-fork",
-                ["linux", "amd64", "general"],
+                "general-small",
+                ["linux", "amd64", "general", "small"],
             ),
             (
                 "portable",
                 "trusted-pr",
-                ["linux", "amd64", "general"],
+                "general-small",
+                ["linux", "amd64", "general", "small"],
+            ),
+            (
+                "general-medium",
+                "trusted-exact",
+                "general-medium",
+                ["linux", "amd64", "general", "medium"],
             ),
             (
                 "buildah-medium",
                 "trusted-exact",
+                "buildah-medium",
                 ["linux", "amd64", "buildah", "medium"],
             ),
             (
                 "buildah-high",
                 "trusted-exact",
+                "buildah-high",
                 ["linux", "amd64", "buildah", "high"],
             ),
         )
-        for profile, trust, expected in cases:
-            with self.subTest(profile=profile, trust=trust):
+        for requested, trust, expected_profile, expected in cases:
+            with self.subTest(profile=requested, trust=trust):
                 resolution = runners.resolve_runner_profile(
                     self.contract,
                     workflow_api="validation.python",
                     source_trust=trust,
-                    requested_profile=profile,
+                    requested_profile=requested,
                 )
+                self.assertEqual(resolution.profile, expected_profile)
                 self.assertEqual(list(resolution.runs_on), expected)
 
     def test_privileged_python_profiles_reject_pull_request_source(self) -> None:
@@ -83,11 +99,13 @@ class PythonRunnerContractTests(unittest.TestCase):
                 encoding="utf-8"
             )
         )
+        self.assertEqual(mapping["aliases"]["portable"], "general-small")
         self.assertEqual(
             mapping["workflow_bindings"]["validation.python"],
             {
                 "profiles": [
-                    "portable",
+                    "general-small",
+                    "general-medium",
                     "buildah-medium",
                     "buildah-high",
                 ],
@@ -103,7 +121,7 @@ class PythonRunnerContractTests(unittest.TestCase):
         ):
             self.assertIn(
                 f"| `{repository}` | `{workflow}` | `python` | "
-                "`portable`, `buildah-medium`, `buildah-high` |",
+                "`general-small`, `general-medium`, `buildah-medium`, `buildah-high` |",
                 report,
             )
         runners.write_generated_outputs(ROOT, check=True)

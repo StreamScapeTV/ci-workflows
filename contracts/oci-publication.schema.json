@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://streamscape.tv/contracts/oci-publication.schema.json",
+  "title": "StreamScapeTV trusted OCI publication public request and result",
+  "type": "object",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/request"
+    },
+    {
+      "$ref": "#/$defs/result"
+    }
+  ],
+  "$defs": {
+    "sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "stableSemver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "productId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "admitted_sha",
+        "product_id",
+        "release_version"
+      ],
+      "properties": {
+        "admitted_sha": {
+          "$ref": "#/$defs/sha"
+        },
+        "product_id": {
+          "$ref": "#/$defs/productId"
+        },
+        "release_version": {
+          "$ref": "#/$defs/stableSemver"
+        },
+        "platform_set": {
+          "$ref": "#/$defs/productId"
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result",
+        "image_digest",
+        "platform_digests",
+        "immutable_references"
+      ],
+      "properties": {
+        "result": {
+          "const": "success"
+        },
+        "image_digest": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/digest"
+          }
+        },
+        "platform_digests": {
+          "type": "object"
+        },
+        "immutable_references": {
+          "type": "object",
+          "required": [
+            "targets",
+            "release"
+          ],
+          "properties": {
+            "targets": {
+              "type": "object"
+            },
+            "release": {
+              "type": "object",
+              "required": [
+                "source_sha",
+                "version"
+              ],
+              "properties": {
+                "source_sha": {
+                  "$ref": "#/$defs/sha"
+                },
+                "version": {
+                  "$ref": "#/$defs/stableSemver"
+                }
+              },
+              "additionalProperties": false
+            },
+            "flux": {
+              "type": "object"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  }
+}

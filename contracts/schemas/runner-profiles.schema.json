@@ -21,7 +21,7 @@
   ],
   "properties": {
     "schema_version": {"const": 1},
-    "contract_version": {"const": "2.0.0"},
+    "contract_version": {"const": "2.2.0"},
     "organization": {"const": "StreamScapeTV"},
     "authority": {
       "type": "object",
@@ -40,7 +40,7 @@
       "required": ["kind", "planner_profile", "description", "composite_action_can_change_runs_on", "caller_supplied_selectors", "generated_mapping"],
       "properties": {
         "kind": {"const": "trusted-planning-job"},
-        "planner_profile": {"const": "portable"},
+        "planner_profile": {"const": "general-tiny"},
         "description": {"type": "string", "minLength": 1},
         "composite_action_can_change_runs_on": {"const": false},
         "caller_supplied_selectors": {"const": false},
@@ -50,12 +50,13 @@
     "direct_selection_policy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["migration_only", "bare_self_hosted_forbidden", "docker_and_dind_retired", "generic_buildah_maps_only_to", "consumer_infrastructure_identity_forbidden"],
+      "required": ["migration_only", "bare_self_hosted_forbidden", "docker_and_dind_retired", "generic_buildah_maps_only_to", "portable_maps_only_to", "consumer_infrastructure_identity_forbidden"],
       "properties": {
         "migration_only": {"const": true},
         "bare_self_hosted_forbidden": {"const": true},
         "docker_and_dind_retired": {"const": true},
         "generic_buildah_maps_only_to": {"const": "buildah-small"},
+        "portable_maps_only_to": {"const": "general-small"},
         "consumer_infrastructure_identity_forbidden": {"const": true}
       }
     },
@@ -67,8 +68,8 @@
     },
     "profiles": {
       "type": "array",
-      "minItems": 10,
-      "maxItems": 10,
+      "minItems": 11,
+      "maxItems": 11,
       "items": {"$ref": "#/$defs/profile"}
     },
     "workflow_bindings": {
@@ -80,7 +81,7 @@
         "required": ["api", "strategy", "profiles"],
         "properties": {
           "api": {"type": "string", "minLength": 1},
-          "strategy": {"enum": ["fixed", "platform", "guarded-overlay", "measured-tier", "product-contract-tier", "internal-multi-job"]},
+          "strategy": {"enum": ["fixed", "platform", "guarded-overlay", "measured-tier", "product-contract-tier", "internal-multi-job", "profile-contract"]},
           "profiles": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"}}
         }
       }

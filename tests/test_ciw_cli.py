@@ -25,13 +25,14 @@ class CIWCLITests(unittest.TestCase):
                 "linux",
                 "amd64",
                 "general",
+                "small",
             ],
             environment={},
             stdout=output,
             stderr=errors,
         )
         self.assertEqual(0, code)
-        self.assertEqual("portable\n", output.getvalue())
+        self.assertEqual("general-small\n", output.getvalue())
         self.assertEqual("", errors.getvalue())
 
         output = io.StringIO()
@@ -70,6 +71,25 @@ class CIWCLITests(unittest.TestCase):
         self.assertEqual(2, code)
         self.assertIn("bare-self-hosted", errors.getvalue())
 
+    def test_bare_general_runner_is_rejected_as_ambiguous(self) -> None:
+        errors = io.StringIO()
+        code = ciw.main(
+            [
+                "--root",
+                str(ROOT),
+                "runners",
+                "validate-selector",
+                "linux",
+                "amd64",
+                "general",
+            ],
+            environment={},
+            stdout=io.StringIO(),
+            stderr=errors,
+        )
+        self.assertEqual(2, code)
+        self.assertIn("ambiguous-general", errors.getvalue())
+
     def test_python_plan_dispatch_resolves_contract_owned_runner(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "output"
@@ -105,7 +125,7 @@ class CIWCLITests(unittest.TestCase):
             self.assertEqual(values["runner_profile"], "portable")
             self.assertEqual(
                 values["runs_on_json"],
-                '["linux","amd64","general"]',
+                '["linux","amd64","general","small"]',
             )
             self.assertEqual(values["artifact_exception_used"], "false")
             self.assertNotIn("callback", output.read_text(encoding="utf-8"))
@@ -143,7 +163,10 @@ class CIWCLITests(unittest.TestCase):
             )
             self.assertEqual(values["result"], "planned")
             self.assertEqual(values["runner_profile"], "portable")
-            self.assertEqual(values["runs_on_json"], '["linux","amd64","general"]')
+            self.assertEqual(
+                values["runs_on_json"],
+                '["linux","amd64","general","small"]',
+            )
             self.assertNotIn("callback", output.read_text(encoding="utf-8"))
 
     def test_flutter_plan_dispatch_resolves_contract_owned_mobile_runner(self) -> None:
@@ -262,7 +285,7 @@ class CIWCLITests(unittest.TestCase):
             self.assertEqual(values["runner_profile"], "portable")
             self.assertEqual(
                 values["runs_on_json"],
-                '["linux","amd64","general"]',
+                '["linux","amd64","general","small"]',
             )
             self.assertEqual(values["artifact_exception_used"], "false")
             serialized = output.read_text(encoding="utf-8")

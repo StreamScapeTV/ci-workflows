@@ -7,16 +7,9 @@
     "noncompliant-unprotected-feature-branch-product-validation",
     "retired-stale"
   ],
-  "audited_on": "2026-08-13",
+  "audited_on": "2026-08-14",
   "checkpoint_prefix": "[skip push ci] ",
-  "native_skip_markers": [
-    "[skip ci]",
-    "[ci skip]",
-    "[no ci]",
-    "[skip actions]",
-    "[actions skip]",
-    "skip-checks:"
-  ],
+  "native_skip_markers": ["[skip ci]","[ci skip]","[no ci]","[skip actions]","[actions skip]","skip-checks:"],
   "organization": "StreamScapeTV",
   "prefix_contract": {
     "manual_publication_deployment_device_live": "explicit-authority-only",
@@ -41,9 +34,7 @@
       {"path":".github/workflows/runner-infrastructure-retry-fixture.yml","trigger_classes":["retired-stale"]},
       {"finding":"canonical runner routing/runtime remediation","path":".github/workflows/test.yml","remediation_issue":"https://github.com/StreamScapeTV/agent-state/issues/195","trigger_classes":["final-pull-request-validation","protected-integration-release-validation"]}
     ]},
-    {"integration_branch":"main","repository":"StreamScapeTV/agent-state-dashboard","workflows":[
-      {"path":".github/workflows/validation.yml","trigger_classes":["final-pull-request-validation","protected-integration-release-validation"]}
-    ]},
+    {"integration_branch":"main","repository":"StreamScapeTV/agent-state-dashboard","workflows":[{"path":".github/workflows/validation.yml","trigger_classes":["final-pull-request-validation","protected-integration-release-validation"]}]},
     {"integration_branch":"main","repository":"StreamScapeTV/agent-state-supabase","workflows":[
       {"path":".github/workflows/bootstrap-validation.yml","trigger_classes":["final-pull-request-validation"]},
       {"path":".github/workflows/postgres-reconstruction.yml","trigger_classes":["final-pull-request-validation"]}
@@ -51,19 +42,27 @@
     {"integration_branch":"main","repository":"StreamScapeTV/ci-workflows","workflows":[
       {"path":".github/workflows/android-validation-smoke.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/apple-certification-smoke.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/apple-physical-device-lock-smoke.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/apple-validation-smoke.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/device-lock-contract-smoke.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/device-validation-contract-smoke.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/flutter-apple-validation-smoke.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/flutter-validation-smoke.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/gitops-validation-smoke.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/helm-validation-smoke.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/issue-dependency-sync.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/oci-build-smoke.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/oci-publish-smoke.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/reusable-android.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/reusable-apple.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/reusable-device.yml","trigger_classes":["authorized-publication-deployment-device-live-evidence"]},
       {"path":".github/workflows/reusable-flutter.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/reusable-gitops-validation.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/reusable-helm-publish.yml","trigger_classes":["authorized-publication-deployment-device-live-evidence"]},
+      {"path":".github/workflows/reusable-helm-validate.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/reusable-node.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/reusable-oci-build.yml","trigger_classes":["maintenance-control"]},
+      {"path":".github/workflows/reusable-oci-publish.yml","trigger_classes":["authorized-publication-deployment-device-live-evidence"]},
       {"path":".github/workflows/reusable-python.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/reusable-resolve-source.yml","trigger_classes":["maintenance-control"]},
       {"path":".github/workflows/reusable-tag-image-chart.yml","trigger_classes":["authorized-publication-deployment-device-live-evidence"]},

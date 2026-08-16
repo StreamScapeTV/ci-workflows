@@ -124,10 +124,11 @@ class FlutterWorkflowContractTests(unittest.TestCase):
 
         for source in (self.reusable, self.mobile_smoke, self.apple_smoke):
             self.assertNotIn("runs-on: portable", source)
+            self.assertNotIn("runs-on: [linux, amd64, general]", source)
 
         for job in ("plan", "validate"):
             self.assertIn(
-                "runs-on: [linux, amd64, general]",
+                "runs-on: [linux, amd64, general, small]",
                 job_block(self.reusable, job),
             )
         for job in ("portable", "mobile", "apple"):
@@ -137,12 +138,12 @@ class FlutterWorkflowContractTests(unittest.TestCase):
             )
         for job in ("source_audit", "focused_tests", "plan", "zero_artifacts"):
             self.assertIn(
-                "runs-on: [linux, amd64, general]",
+                "runs-on: [linux, amd64, general, small]",
                 job_block(self.mobile_smoke, job),
             )
         for job in ("plan", "zero_artifacts"):
             self.assertIn(
-                "runs-on: [linux, amd64, general]",
+                "runs-on: [linux, amd64, general, small]",
                 job_block(self.apple_smoke, job),
             )
         for source, job in ((self.mobile_smoke, "android"), (self.apple_smoke, "ios")):
