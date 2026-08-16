@@ -53,7 +53,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve caller-owned Helm product metadata
-        uses: StreamScapeTV/ci-workflows/actions/validate-helm@d9adf587a6275c165ddcd0eec37b33c09b3ec149 # issue #18 simple Helm core checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-helm@2db6c709c3faa4e99a67fe029628284cf0e60f80 # issue #18 caller-owned Helm metadata checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -91,7 +91,7 @@ jobs:
       - id: helm
         name: Lint, render, and package caller Helm chart
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/validate-helm@d9adf587a6275c165ddcd0eec37b33c09b3ec149 # issue #18 simple Helm core checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-helm@2db6c709c3faa4e99a67fe029628284cf0e60f80 # issue #18 caller-owned Helm metadata checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -104,7 +104,7 @@ jobs:
       - id: helm_cleanup
         name: Remove Helm package and temporary state
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-helm@d9adf587a6275c165ddcd0eec37b33c09b3ec149 # issue #18 simple Helm core checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-helm@2db6c709c3faa4e99a67fe029628284cf0e60f80 # issue #18 caller-owned Helm metadata checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -113,7 +113,7 @@ jobs:
       - id: residue
         name: Verify zero Helm-specific residue
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-helm@d9adf587a6275c165ddcd0eec37b33c09b3ec149 # issue #18 simple Helm core checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-helm@2db6c709c3faa4e99a67fe029628284cf0e60f80 # issue #18 caller-owned Helm metadata checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
