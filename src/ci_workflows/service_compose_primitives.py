@@ -213,6 +213,11 @@ def _options(values: Sequence[str]) -> tuple[str, ...]:
                 option != reserved and not option.startswith(reserved + "="),
                 "compose_options_reserved",
             )
+        _require(
+            not (option.startswith("-f") and not option.startswith("--"))
+            and not (option.startswith("-p") and not option.startswith("--")),
+            "compose_options_reserved",
+        )
     return result
 
 
@@ -314,7 +319,32 @@ def validate_compose_project(
     )
 
 
+def _validated_project(project: ComposeProject) -> ComposeProject:
+    _require(isinstance(project, ComposeProject), "compose_project_invalid")
+    root = _project_root(project.root)
+    _require(root == project.root, "compose_project_invalid")
+    _require(_PROJECT_NAME.fullmatch(project.project_name) is not None, "compose_project_invalid")
+    _require(project.tool in ("docker", "podman"), "compose_project_invalid")
+    compose, relative = _bounded_file(
+        root,
+        project.compose_file,
+        code="compose_project_invalid",
+        suffixes=(".yml", ".yaml"),
+    )
+    _require(compose == project.compose_file, "compose_project_invalid")
+    _require(relative == project.compose_relative, "compose_project_invalid")
+    _require(project.env_file_count == len(project.env_files), "compose_project_invalid")
+    _require(project.env_file_count <= _MAX_ENV_FILES, "compose_project_invalid")
+    seen: set[Path] = set()
+    for env_file in project.env_files:
+        bounded, _relative = _bounded_file(root, env_file, code="compose_project_invalid")
+        _require(bounded == env_file and bounded not in seen, "compose_project_invalid")
+        seen.add(bounded)
+    return project
+
+
 def _base_argv(project: ComposeProject) -> tuple[str, ...]:
+    project = _validated_project(project)
     prefix = ("docker", "compose") if project.tool == "docker" else ("podman", "compose")
     arguments: list[str] = [
         *prefix,
@@ -365,7 +395,7 @@ def _command_result(operation: str, result: ProcessResult, *, service: str = "")
         returncode=int(result.returncode),
         timed_out=False,
         output_sha256=hashlib.sha256(payload).hexdigest(),
-        output_bytes=len(payload),
+        output_bytes=len(stdout.encode("utf-8", errors="replace")) + len(stderr.encode("utf-8", errors="replace")),
         service=service,
     )
 
@@ -452,7 +482,7 @@ def _json_rows(text: str) -> list[Mapping[str, object]]:
         return rows
     if isinstance(payload, Mapping):
         return [payload]
-    _require(isinstance(payload, list) and payload, "compose_ps_invalid")
+    _require(isinstance(payload, list), "compose_ps_invalid")
     _require(all(isinstance(item, Mapping) for item in payload), "compose_ps_invalid")
     return list(payload)
 
@@ -552,6 +582,7 @@ def wait_for_compose_services(
     *,
     environment: Mapping[str, str],
 ) -> tuple[ComposeReadinessStatus, ...]:
+    _validated_project(project)
     _require(
         isinstance(checks, Sequence)
         and not isinstance(checks, (str, bytes))
@@ -589,7 +620,7 @@ def wait_for_compose_services(
                     timeout_seconds=check.timeout_seconds,
                     interval_seconds=check.interval_seconds,
                 )
-        except ServicePrimitiveError as error:
+        except (ServicePrimitiveError, RuntimePrimitiveError) as error:
             raise ServiceComposeError("compose_readiness_boundary_failed") from error
         _require(isinstance(result, ServiceReadinessResult), "compose_readiness_result_invalid")
         statuses.append(
