@@ -106,6 +106,18 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
             ),
         )
 
+    def scoped_plan(self, sha: str):
+        return apple.resolve_plan(
+            self.contract,
+            apple.AppleValidationRequest(
+                repository="StreamScapeTV/ci-workflows",
+                admitted_sha=sha,
+                consumer_contract="ciw-apple-smoke",
+                validation_profile=AppleProfile.IOS_SIMULATOR,
+                source_trust="trusted-pr",
+            ),
+        )
+
     def host_environment(
         self,
     ) -> tuple[tempfile.TemporaryDirectory[str], dict[str, str], Path]:
@@ -195,8 +207,8 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
     def test_prior_exact_head_stale_simulator_is_reconciled_before_selection(self) -> None:
         temporary, source, sha = self.make_repo()
         self.addCleanup(temporary.cleanup)
-        current_plan = self.plan(sha)
-        prior_plan = self.plan("b" * 40)
+        current_plan = self.scoped_plan(sha)
+        prior_plan = self.scoped_plan("b" * 40)
         current_name = _simulator_device_name(current_plan)
         prior_name = _simulator_device_name(prior_plan)
         self.assertNotEqual(prior_name, current_name)
@@ -274,8 +286,8 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
         temporary, source, sha = self.make_repo()
         self.addCleanup(temporary.cleanup)
         _, environment, workspace = self.host_environment()
-        current_plan = self.plan(sha)
-        prior_plan = self.plan("b" * 40)
+        current_plan = self.scoped_plan(sha)
+        prior_plan = self.scoped_plan("b" * 40)
         assert prior_plan.simulator is not None
         unrelated_udid = "99999999-8888-7777-6666-555555555555"
         unrelated = {
