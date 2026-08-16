@@ -43,16 +43,32 @@ class SimpleScriptWorkflowContractTests(unittest.TestCase):
             "${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
             jobs["validate"]["runs-on"],
         )
-        plan = jobs["plan"]["steps"][0]["run"]
+        plan = next(step for step in jobs["plan"]["steps"] if step.get("id") == "plan")["run"]
         for profile, selector in (
             ("general", '["linux","amd64","general","small"]'),
             ("mobile", '["linux","amd64","mobile"]'),
-            ("apple", '["macOS","ARM64"]'),
+            ("apple", '["macOS","ARM64","apple"]'),
         ):
             self.assertIn(profile, plan)
             self.assertIn(selector, plan)
         for forbidden in ("self-hosted", "runner_labels", "scale-set"):
             self.assertNotIn(forbidden, self.source)
+
+    def test_specialized_capacity_fails_closed_before_runner_selection(self) -> None:
+        steps = self.workflow["jobs"]["plan"]["steps"]
+        trust = steps[0]
+        self.assertEqual("Admit specialized runner trust", trust["name"])
+        self.assertEqual("${{ github.repository }}", trust["env"]["CALLER_REPOSITORY"])
+        self.assertEqual("${{ github.event_name }}", trust["env"]["EVENT_NAME"])
+        self.assertIn("pull_request.head.repo.full_name", trust["env"]["PR_HEAD_REPOSITORY"])
+        script = trust["run"]
+        self.assertIn('^[[0-9a-f]{40}$'.replace('[[', '['), script)
+        self.assertIn("mobile|apple", script)
+        self.assertIn('"${PR_HEAD_REPOSITORY}" == "${CALLER_REPOSITORY}"', script)
+        self.assertIn("push|workflow_dispatch", script)
+        self.assertIn("rejects fork pull requests", script)
+        self.assertIn("same-repository PR or exact non-PR source", script)
+        self.assertLess(self.source.index("Admit specialized runner trust"), self.source.index("Resolve bounded semantic runner"))
 
     def test_exact_checkout_and_direct_zero_argument_script_execution(self) -> None:
         steps = self.workflow["jobs"]["validate"]["steps"]
@@ -122,6 +138,8 @@ class SimpleScriptWorkflowContractTests(unittest.TestCase):
         text = DOC.read_text(encoding="utf-8")
         self.assertIn("product trigger -> reusable-script.yml -> checked-in product script", text)
         self.assertIn("zero injected arguments", text)
+        self.assertIn("same-repository pull requests", text)
+        self.assertIn("general", text)
         self.assertIn("They are not prerequisites", text)
         self.assertIn("@main", text)
 
