@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from ci_workflows import ciw_helm
+from ci_workflows.helm_simple import resolve_plan
 from ci_workflows.helm_types import (
     HelmPlan,
     HelmProduct,
@@ -49,7 +51,7 @@ def _plan() -> HelmPlan:
         product=product,
         release_version="1.2.3",
         values_profile="default",
-        values_path="charts/iptv-backend/values.yaml",
+        values_path="values.yaml",
         policy_path=None,
     )
 
@@ -78,7 +80,7 @@ class HelmCiwPublishBoundaryTests(unittest.TestCase):
                 patch("ci_workflows.ciw_helm._source_root", return_value=source),
                 patch("ci_workflows.helm_contract.load_helm_contract", return_value={}),
                 patch("ci_workflows.helm_contract.request_from_environment", return_value=_request()),
-                patch("ci_workflows.helm_dependency_policy.resolve_validation_plan", return_value=plan),
+                patch("ci_workflows.helm_simple.resolve_plan", return_value=plan),
                 patch("ci_workflows.helm_simple.validate_and_package", return_value=validation) as validate,
                 patch("ci_workflows.helm_policy.run_policy_hook") as policy,
                 patch("ci_workflows.helm_archive.finalize_validation_archive", return_value=validation),
@@ -98,6 +100,49 @@ class HelmCiwPublishBoundaryTests(unittest.TestCase):
         self.assertEqual(values["published"], "true")
         self.assertEqual(values["chart_digest"], validation.chart_digest)
         self.assertEqual(values["source_trust"], "trusted-exact")
+
+    def test_simple_plan_keeps_product_layout_and_registry_in_caller_source(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory)
+            manifest = source / ".streamscape" / "helm-product.json"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "product_id": "iptv-backend-chart",
+                        "repository": "StreamScapeTV/iptv-backend",
+                        "chart_name": "backend-owned-name",
+                        "chart_root": "deploy/chart",
+                        "values_profiles": {"default": "values-ci.yaml"},
+                        "policy_path": None,
+                        "registry_repository": "oci://registry.example.test/team/charts",
+                        "locked_dependencies": [],
+                        "required_image_references": ["caller-owned-image-policy"],
+                        "upstream_assets": [],
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+            contract = {
+                "products": {
+                    "iptv-backend-chart": {
+                        "repository": "StreamScapeTV/iptv-backend",
+                        "chart_name": "central-old-name",
+                        "registry_repository": "oci://central-old.example/charts",
+                    }
+                }
+            }
+            plan = resolve_plan(source, contract, _request())
+        self.assertEqual(plan.product.chart_name, "backend-owned-name")
+        self.assertEqual(plan.product.chart_root, "deploy/chart")
+        self.assertEqual(plan.values_path, "values-ci.yaml")
+        self.assertEqual(
+            plan.product.registry_repository,
+            "oci://registry.example.test/team/charts",
+        )
+        self.assertEqual(plan.product.required_image_references, ())
 
     def test_generic_publish_still_rejects_untrusted_source(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
