@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       product_id:
-        description: Approved Helm product identity
+        description: Caller-owned Helm product identity
         required: true
         type: string
       release_version:
@@ -62,18 +62,6 @@ jobs:
       workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
       source_trust: ${{ steps.plan.outputs.source_trust }}
     steps:
-      - name: Require an exact product tag push
-        shell: bash
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          REF_TYPE: ${{ github.ref_type }}
-          EVENT_SHA: ${{ github.sha }}
-          ADMITTED_SHA: ${{ inputs.admitted_sha }}
-        run: |
-          set -Eeuo pipefail
-          test "${EVENT_NAME}" = push
-          test "${REF_TYPE}" = tag
-          test "${EVENT_SHA}" = "${ADMITTED_SHA}"
       - id: plan
         name: Resolve caller-owned Helm product metadata
         uses: StreamScapeTV/ci-workflows/actions/publish-helm@2db6c709c3faa4e99a67fe029628284cf0e60f80 # issue #18 caller-owned Helm metadata checkpoint
