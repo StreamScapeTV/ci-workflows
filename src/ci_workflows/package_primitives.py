@@ -5,7 +5,6 @@ import email.parser
 import json
 import os
 import re
-import stat
 import tarfile
 import urllib.parse
 import xml.etree.ElementTree as ET
@@ -23,7 +22,6 @@ from .runtime_primitives import (
 )
 
 _ECOSYSTEMS = frozenset({"python", "npm", "jvm"})
-_PACKAGE_NAME = re.compile(r"^[A-Za-z0-9@][A-Za-z0-9@._~:/+-]{0,126}$")
 _JVM_NAME = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,126}[A-Za-z0-9])?$")
 _JVM_GROUP = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,254}[A-Za-z0-9])?$")
 _PACKAGE_VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+!~-]{0,126}$")
