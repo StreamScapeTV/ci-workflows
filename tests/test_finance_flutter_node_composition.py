@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -15,6 +17,9 @@ from ci_workflows.node_contract import (
     request_from_environment,
     resolve_validation_plan,
 )
+
+VALIDATE_FLUTTER_ACTION = "StreamScapeTV/ci-workflows/actions/validate-flutter"
+FINANCE_PUBLICATION_CHECKPOINT = "d2e1c7a7601e1caeeb976311fb13cf41fef94d4a"
 
 
 class FinanceFlutterNodeCompositionTests(unittest.TestCase):
@@ -61,6 +66,34 @@ class FinanceFlutterNodeCompositionTests(unittest.TestCase):
                 checked += 1
 
         self.assertEqual(4, checked)
+
+    def test_reusable_flutter_executes_the_finance_contract_publication(self) -> None:
+        workflow = (ROOT / ".github/workflows/reusable-flutter.yml").read_text(
+            encoding="utf-8"
+        )
+        pins = re.findall(
+            re.escape(VALIDATE_FLUTTER_ACTION) + r"@([0-9a-f]{40})",
+            workflow,
+        )
+        self.assertTrue(pins, "reusable Flutter workflow must invoke validate-flutter")
+        self.assertEqual({FINANCE_PUBLICATION_CHECKPOINT}, set(pins))
+
+        action_lock = json.loads(
+            (ROOT / "contracts/action-tool-lock.json").read_text(encoding="utf-8")
+        )
+        locked = [
+            item
+            for item in action_lock["third_party_actions"]
+            if item["uses"] == VALIDATE_FLUTTER_ACTION
+        ]
+        self.assertEqual(1, len(locked))
+        self.assertEqual(FINANCE_PUBLICATION_CHECKPOINT, locked[0]["sha"])
+        self.assertIn("issue #27", locked[0]["release"])
+        self.assertTrue(
+            locked[0]["source"].startswith(
+                f"https://github.com/StreamScapeTV/ci-workflows/tree/{FINANCE_PUBLICATION_CHECKPOINT}/"
+            )
+        )
 
 
 if __name__ == "__main__":

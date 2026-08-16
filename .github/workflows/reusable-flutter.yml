@@ -73,7 +73,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve contract-owned Flutter Dart Gradle and JDK tuple
-        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@d2e1c7a7601e1caeeb976311fb13cf41fef94d4a # issue #27 Finance composition publication checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -120,7 +120,7 @@ jobs:
           trust_mode: ${{ needs.plan.outputs.source_trust }}
       - id: execute
         name: Execute bounded Flutter validation
-        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@d2e1c7a7601e1caeeb976311fb13cf41fef94d4a # issue #27 Finance composition publication checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -135,7 +135,7 @@ jobs:
       - id: flutter_cleanup
         name: Remove Flutter-specific state and preserve primary failure
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@d2e1c7a7601e1caeeb976311fb13cf41fef94d4a # issue #27 Finance composition publication checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -146,7 +146,7 @@ jobs:
       - id: flutter_residue
         name: Verify zero Flutter-specific residue
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@d2e1c7a7601e1caeeb976311fb13cf41fef94d4a # issue #27 Finance composition publication checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -193,7 +193,7 @@ jobs:
           trust_mode: ${{ needs.plan.outputs.source_trust }}
       - id: persistent_cache_snapshot
         name: Snapshot persistent host pub cache before Flutter setup
-        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@d2e1c7a7601e1caeeb976311fb13cf41fef94d4a # issue #27 Finance composition publication checkpoint
         with:
           phase: persistent-cache-snapshot
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -214,7 +214,7 @@ jobs:
           pub-cache-path: ${{ format('{0}/tmp/flutter-validation/pub-cache', env.CI_WORKFLOW_ROOT) }}
       - id: pub_cache_bind
         name: Force Flutter pub cache beneath registered workflow state
-        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@d2e1c7a7601e1caeeb976311fb13cf41fef94d4a # issue #27 Finance composition publication checkpoint
         with:
           phase: pub-cache-bind
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -223,7 +223,7 @@ jobs:
           source_trust: ${{ needs.plan.outputs.source_trust }}
       - id: toolchain
         name: Verify exact Java Javac Flutter and Dart identities
-        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@d2e1c7a7601e1caeeb976311fb13cf41fef94d4a # issue #27 Finance composition publication checkpoint
         with:
           phase: verify-toolchain
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -233,7 +233,7 @@ jobs:
           source_trust: ${{ needs.plan.outputs.source_trust }}
       - id: execute
         name: Execute bounded Flutter validation
-        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@d2e1c7a7601e1caeeb976311fb13cf41fef94d4a # issue #27 Finance composition publication checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -248,7 +248,7 @@ jobs:
       - id: persistent_cache_verify
         name: Prove persistent host pub cache is unchanged
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@d2e1c7a7601e1caeeb976311fb13cf41fef94d4a # issue #27 Finance composition publication checkpoint
         with:
           phase: persistent-cache-verify
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -258,7 +258,7 @@ jobs:
       - id: flutter_cleanup
         name: Remove registered Flutter and pub state and preserve primary failure
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@d2e1c7a7601e1caeeb976311fb13cf41fef94d4a # issue #27 Finance composition publication checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -269,7 +269,7 @@ jobs:
       - id: flutter_residue
         name: Verify zero Flutter-specific and pub-cache residue
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@d2e1c7a7601e1caeeb976311fb13cf41fef94d4a # issue #27 Finance composition publication checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -316,7 +316,7 @@ jobs:
           trust_mode: ${{ needs.plan.outputs.source_trust }}
       - id: persistent_cache_snapshot
         name: Snapshot persistent host pub cache before Flutter setup
-        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@d2e1c7a7601e1caeeb976311fb13cf41fef94d4a # issue #27 Finance composition publication checkpoint
         with:
           phase: persistent-cache-snapshot
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -332,7 +332,7 @@ jobs:
           pub-cache-path: ${{ format('{0}/tmp/flutter-validation/pub-cache', env.CI_WORKFLOW_ROOT) }}
       - id: pub_cache_bind
         name: Force Flutter pub cache beneath registered workflow state
-        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@d2e1c7a7601e1caeeb976311fb13cf41fef94d4a # issue #27 Finance composition publication checkpoint
         with:
           phase: pub-cache-bind
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -341,7 +341,7 @@ jobs:
           source_trust: ${{ needs.plan.outputs.source_trust }}
       - id: toolchain
         name: Verify exact Flutter and Dart identities
-        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@d2e1c7a7601e1caeeb976311fb13cf41fef94d4a # issue #27 Finance composition publication checkpoint
         with:
           phase: verify-toolchain
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -351,7 +351,7 @@ jobs:
           source_trust: ${{ needs.plan.outputs.source_trust }}
       - id: execute
         name: Execute bounded Flutter validation
-        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@d2e1c7a7601e1caeeb976311fb13cf41fef94d4a # issue #27 Finance composition publication checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -366,7 +366,7 @@ jobs:
       - id: persistent_cache_verify
         name: Prove persistent host pub cache is unchanged
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@d2e1c7a7601e1caeeb976311fb13cf41fef94d4a # issue #27 Finance composition publication checkpoint
         with:
           phase: persistent-cache-verify
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -376,7 +376,7 @@ jobs:
       - id: flutter_cleanup
         name: Remove registered Flutter and pub state and preserve primary failure
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@d2e1c7a7601e1caeeb976311fb13cf41fef94d4a # issue #27 Finance composition publication checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -387,7 +387,7 @@ jobs:
       - id: flutter_residue
         name: Verify zero Flutter-specific and pub-cache residue
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-flutter@d2e1c7a7601e1caeeb976311fb13cf41fef94d4a # issue #27 Finance composition publication checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}

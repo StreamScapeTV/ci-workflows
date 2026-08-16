@@ -15,7 +15,6 @@ from ci_workflows import flutter
 
 PRIVATE_HELPER_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 PRIVATE_HELPERS = (
-    "validate-flutter",
     "exact-checkout",
     "prepare-workspace",
     "cleanup-workspace",
@@ -76,6 +75,12 @@ class FlutterWorkflowContractTests(unittest.TestCase):
                 f"StreamScapeTV/ci-workflows/actions/{helper}@{PRIVATE_HELPER_SHA}",
                 self.reusable,
             )
+        validator_pins = re.findall(
+            r"StreamScapeTV/ci-workflows/actions/validate-flutter@([0-9a-f]{40})",
+            self.reusable,
+        )
+        self.assertTrue(validator_pins)
+        self.assertEqual(1, len(set(validator_pins)))
         self.assertEqual(
             3,
             self.reusable.count(

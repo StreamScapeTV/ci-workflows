@@ -122,10 +122,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-flutter",
-      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
-      "release": "issue #125 immutable private-action checkpoint",
+      "sha": "d2e1c7a7601e1caeeb976311fb13cf41fef94d4a",
+      "release": "issue #27 Finance composition publication checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/validate-flutter"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/d2e1c7a7601e1caeeb976311fb13cf41fef94d4a/actions/validate-flutter"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-apple",
