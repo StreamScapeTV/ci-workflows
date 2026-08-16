@@ -9,6 +9,7 @@ issues:
   21:
     blocked_by:
       - 265
+      - 235
   22:
     blocked_by:
       - 265
@@ -50,8 +51,7 @@ issues:
       - 24
       - 25
   33:
-    blocked_by:
-      - 265
+    blocked_by: []
   143:
     blocked_by:
       - 33
