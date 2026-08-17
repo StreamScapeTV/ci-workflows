@@ -189,22 +189,28 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, self.action["inputs"])
 
-    def test_smoke_calls_protected_full_once_without_nested_mobile_jobs(self) -> None:
-        self.assertEqual(set(self.smoke["jobs"]), {"reusable_android"})
-        job = self.smoke["jobs"]["reusable_android"]
-        self.assertEqual(job["uses"], "./.github/workflows/reusable-android.yml")
-        self.assertEqual(job["with"]["validation_scope"], "protected-full")
-        self.assertEqual(
-            job["with"]["working_directory"],
-            "tests/fixtures/android-validation/smoke-project",
-        )
-        plan = json.loads(job["with"]["validation_plan_json"])
+    def test_smoke_directly_exercises_one_protected_full_mobile_executor(self) -> None:
+        self.assertEqual(set(self.smoke["jobs"]), {"android"})
+        job = self.smoke["jobs"]["android"]
+        self.assertEqual(job["name"], "Android reusable-workflow smoke")
+        self.assertEqual(job["runs-on"], ["linux", "amd64", "mobile"])
+        self.assertNotIn("strategy", job)
+        self.assertNotIn("uses", job)
+        self.assertNotIn("./.github/workflows/reusable-android.yml", self.smoke_source)
+        steps = job["steps"]
+        self.assertEqual(sum(step.get("id") == "execute" for step in steps), 1)
+        self.assertEqual(sum(step.get("id") == "workspace" for step in steps), 1)
+        self.assertEqual(sum(step.get("id") == "android_cleanup" for step in steps), 1)
+        execute = next(step for step in steps if step.get("id") == "execute")
+        self.assertEqual(execute["with"]["validation_scope"], "protected-full")
+        plan = json.loads(execute["with"]["validation_plan_json"])
         self.assertEqual(plan["unit_tasks"], ["help"])
         self.assertEqual(plan["lint_tasks"], ["tasks"])
         self.assertEqual(plan["assemble_tasks"], ["verifyToolchainSmoke"])
         self.assertEqual(plan["schema"], {"mode": "none"})
         self.assertNotIn("compile", json.dumps(plan).casefold())
-        self.assertNotIn("uses: ./.ciw/actions/", self.smoke_source)
+        self.assertIn("uses: ./.ciw/actions/validate-android", self.smoke_source)
+        self.assertIn("Verify zero Actions artifacts", self.smoke_source)
         self.assertNotIn("adb ", self.smoke_source.casefold())
         self.assertNotIn("physical-device", self.smoke_source.casefold())
 
