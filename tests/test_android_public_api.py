@@ -103,7 +103,8 @@ class AndroidPublicApiTests(unittest.TestCase):
             set(self.android["implementation_components"]),
             {
                 "ci_workflows.ciw_android.execute_android_validate",
-                "ci_workflows.language_primitives",
+                "ci_workflows.language_primitives.run_gradle_tasks",
+                "ci_workflows.language_primitives.android_targeted_test",
                 "actions/validate-android",
             },
         )
