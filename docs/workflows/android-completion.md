@@ -51,7 +51,7 @@ dependency. The plan contains:
 - one checked-in size-budget script plus bounded APK/AAB/budget/baseline/output
   paths;
 - bounded artifact patterns, kinds, required flags and maximum counts;
-- a bounded artifact name and 1–30 day retention.
+- a bounded artifact name and 1–7 day retention.
 
 This preserves the existing Android release-validation order without hard-coding
 product tasks in Central. A product caller can request its historical unit,
@@ -86,17 +86,22 @@ dependency token, and its workflow contains no service credentials or
 ## Acceptance smoke
 
 `.github/workflows/android-completion-smoke.yml` is the repository-owned
-exact-head acceptance caller. It runs two independent opt-in mobile jobs because
-live-service and release are distinct gates:
+exact-head acceptance caller. It uses one serial semantic `mobile` job so the
+live-service and unsigned-release gates do not create a cold-runner fan-out.
+The job:
 
-- the live job passes synthetic generic credentials to a product-neutral checked-
-  in fixture, verifies legacy credential variables and `GITHUB_TOKEN` are absent,
-  and executes a Gradle toolchain probe;
-- the release job executes pre-policy, four ordered Gradle groups, post-policy,
-  size-budget verification, validates four small synthetic unsigned evidence
-  files, and uploads exactly one short-retention artifact.
+- validates both bounded plans and proves an artifact traversal request is rejected;
+- stages the exact candidate implementation, checks out the admitted source once,
+  and prepares one Gradle workspace;
+- runs the live-service fixture with synthetic generic credentials, verifies legacy
+  credential aliases and `GITHUB_TOKEN` are absent, then performs live copied-state
+  cleanup/residue;
+- runs the unsigned-release fixture on the same runner/workspace, executing the
+  checked-in pre-policy, Gradle toolchain probe, post-policy and size-budget steps;
+- verifies the selected APK/AAB/JSON evidence paths remain inside the registered
+  state root without uploading those synthetic files; and
+- performs release copied-state cleanup, one workspace cleanup, exact-source
+  clean verification, and a zero-Actions-artifacts assertion.
 
-A general-small finalizer verifies both mobile jobs succeeded and that the smoke
-run retained exactly that one release artifact. No product repository name,
-backend hostname, application ID, real credential or signing material appears in
-the smoke contract.
+No product repository name, backend hostname, application ID, real credential or
+signing material appears in the smoke contract.
