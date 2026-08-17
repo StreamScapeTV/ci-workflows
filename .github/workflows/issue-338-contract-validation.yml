@@ -1,0 +1,59 @@
+name: Issue 338 public contract validation
+
+on:
+  push:
+    branches:
+      - agent1/issue-338-android-live-release
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue-338-public-contract-validation
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    name: Android completion public contract
+    runs-on: [linux, amd64, general, small]
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact branch head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Validate contract rows below the generated-doc check
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -Eeuo pipefail
+          PYTHONPATH=src python3 - <<'PY'
+          import base64
+          from pathlib import Path
+          from ci_workflows import public_api as contract
+
+          root = Path.cwd()
+          data = contract.load_contract(root)
+          contract.validate_reference_policy(data.types)
+          profiles = contract.permission_profiles(data)
+          workflows = contract.validate_workflows(data, profiles)
+          assert 'validation.android-live-service' in workflows
+          assert 'validation.android-release' in workflows
+          rendered = contract.render(data)
+          print('CIW_PUBLIC_REFERENCE_BASE64=' + base64.b64encode(rendered.encode('utf-8')).decode('ascii'))
+          PY
+
+      - name: Run public API tests except generated-reference freshness
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -Eeuo pipefail
+          PYTHONPATH=src python3 -m unittest -v \
+            tests.test_android_completion
