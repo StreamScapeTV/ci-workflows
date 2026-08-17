@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import json
 import os
 import shutil
 import tempfile
@@ -38,7 +39,8 @@ class AndroidCIWDispatchTests(unittest.TestCase):
         self.assertEqual(row["handler"], spec.qualified_handler)
         ciw.validate_runtime_contract(ROOT)
 
-    def test_parser_exposes_typed_android_fields_without_shell_or_runner(self) -> None:
+    def test_parser_exposes_plan_json_without_shell_runner_or_legacy_profiles(self) -> None:
+        plan = '{"tasks":["assembleDebug","testDebugUnitTest"]}'
         arguments = ciw.parser().parse_args(
             [
                 "android",
@@ -49,27 +51,38 @@ class AndroidCIWDispatchTests(unittest.TestCase):
                 SHA,
                 "--validation-scope",
                 "gradle",
-                "--gradle-tasks-json",
-                '["assembleDebug","testDebugUnitTest"]',
+                "--validation-plan-json",
+                plan,
             ]
         )
         self.assertEqual(arguments.phase, "plan")
         self.assertEqual(arguments.validation_scope, "gradle")
-        self.assertEqual(arguments.gradle_tasks_json, '["assembleDebug","testDebugUnitTest"]')
-        for forbidden in ("shell", "runner", "runs_on", "product_id", "command"):
+        self.assertEqual(arguments.validation_plan_json, plan)
+        for forbidden in (
+            "shell",
+            "runner",
+            "runs_on",
+            "product_id",
+            "command",
+            "task_profile",
+            "validation_profile",
+            "gradle_tasks_json",
+            "targeted_test_selector",
+            "script_path",
+        ):
             self.assertFalse(hasattr(arguments, forbidden))
         with self.assertRaises(SystemExit):
             ciw.parser().parse_args(["android", "arbitrary"])
 
-    def test_plan_is_product_neutral_and_derives_mobile_and_dependency_metadata(self) -> None:
+    def test_protected_full_plan_is_product_neutral_single_executor(self) -> None:
         context = CIWContext(
             root=ROOT,
             environment={
                 "INPUT_ADMITTED_SHA": SHA,
-                "INPUT_VALIDATION_SCOPE": "unit",
+                "INPUT_VALIDATION_SCOPE": "protected-full",
                 "INPUT_WORKING_DIRECTORY": "android",
                 "INPUT_GRADLE_WRAPPER_PATH": "gradlew",
-                "INPUT_GRADLE_TASKS_JSON": '["testDebugUnitTest"]',
+                "INPUT_VALIDATION_PLAN_JSON": self._full_plan(),
                 "INPUT_PRIVATE_DEPENDENCY_REPOSITORY": "StreamScapeTV/shared-lib",
                 "INPUT_PRIVATE_DEPENDENCY_SHA": "b" * 40,
                 "INPUT_PRIVATE_DEPENDENCY_SUBDIRECTORY": "android",
@@ -82,6 +95,7 @@ class AndroidCIWDispatchTests(unittest.TestCase):
         self.assertEqual(result.outputs["runner_profile"], "mobile")
         self.assertEqual(result.outputs["runs_on_json"], '["linux","amd64","mobile"]')
         self.assertEqual(result.outputs["workspace_profile"], "gradle")
+        self.assertEqual(result.outputs["execution_model"], "single-executor")
         self.assertEqual(result.outputs["private_dependency_used"], "true")
         self.assertEqual(
             result.outputs["private_dependency_repository"],
@@ -89,39 +103,44 @@ class AndroidCIWDispatchTests(unittest.TestCase):
         )
         self.assertNotIn("product", " ".join(result.outputs).casefold())
 
-    def test_plan_rejects_partial_dependency_and_unbounded_scope_shapes(self) -> None:
-        context = CIWContext(
-            ROOT,
-            {
-                "INPUT_ADMITTED_SHA": SHA,
-                "INPUT_VALIDATION_SCOPE": "script",
-                "INPUT_SCRIPT_PATH": "ci/verify-schema.sh",
-                "INPUT_SCRIPT_ARGUMENTS_JSON": "[]",
-                "INPUT_GRADLE_TASKS_JSON": "[]",
-                "INPUT_PRIVATE_DEPENDENCY_SHA": "b" * 40,
-            },
-            io.StringIO(),
-            io.StringIO(),
+    def test_protected_full_rejects_compile_leg_duplicates_and_duplicate_json_keys(self) -> None:
+        invalid_plans = (
+            json.dumps(
+                {
+                    "unit_tasks": ["testDebugUnitTest"],
+                    "lint_tasks": ["lintDebug"],
+                    "assemble_tasks": ["assembleDebug"],
+                    "schema": {"mode": "none"},
+                    "compile_tasks": ["compileDebugKotlin"],
+                }
+            ),
+            json.dumps(
+                {
+                    "unit_tasks": ["check"],
+                    "lint_tasks": ["check"],
+                    "assemble_tasks": ["assembleDebug"],
+                    "schema": {"mode": "none"},
+                }
+            ),
+            '{"unit_tasks":["testDebugUnitTest"],"unit_tasks":["other"],"lint_tasks":["lintDebug"],"assemble_tasks":["assembleDebug"],"schema":{"mode":"none"}}',
         )
-        with self.assertRaises(CIWError) as failure:
-            execute_android_validate(self._args("plan"), context)
-        self.assertEqual(failure.exception.code, "private_dependency_invalid")
+        for plan in invalid_plans:
+            with self.subTest(plan=plan):
+                context = CIWContext(
+                    ROOT,
+                    {
+                        "INPUT_ADMITTED_SHA": SHA,
+                        "INPUT_VALIDATION_SCOPE": "protected-full",
+                        "INPUT_VALIDATION_PLAN_JSON": plan,
+                    },
+                    io.StringIO(),
+                    io.StringIO(),
+                )
+                with self.assertRaises(CIWError) as failure:
+                    execute_android_validate(self._args("plan"), context)
+                self.assertEqual(failure.exception.code, "validation_plan_invalid")
 
-        context = CIWContext(
-            ROOT,
-            {
-                "INPUT_ADMITTED_SHA": SHA,
-                "INPUT_VALIDATION_SCOPE": "compile",
-                "INPUT_GRADLE_TASKS_JSON": '["assembleDebug","lintDebug"]',
-            },
-            io.StringIO(),
-            io.StringIO(),
-        )
-        with self.assertRaises(CIWError) as failure:
-            execute_android_validate(self._args("plan"), context)
-        self.assertEqual(failure.exception.code, "validation_plan_invalid")
-
-    def test_compile_executes_copy_with_no_secret_authority(self) -> None:
+    def test_protected_full_executes_unit_lint_assemble_and_schema_in_one_gradle_invocation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             workspace, _source, state = self._filesystem(root)
@@ -130,39 +149,135 @@ class AndroidCIWDispatchTests(unittest.TestCase):
                 state,
                 {
                     "INPUT_ADMITTED_SHA": SHA,
-                    "INPUT_VALIDATION_SCOPE": "compile",
-                    "INPUT_WORKING_DIRECTORY": ".",
-                    "INPUT_GRADLE_WRAPPER_PATH": "gradlew",
-                    "INPUT_GRADLE_TASKS_JSON": '["assembleDebug"]',
+                    "INPUT_VALIDATION_SCOPE": "protected-full",
+                    "INPUT_VALIDATION_PLAN_JSON": self._full_plan(schema_mode="gradle"),
                     "GITHUB_TOKEN": "must-not-reach-product",
                     "PRIVATE_DEPENDENCY_TOKEN": "also-secret",
+                    "LANG": "untrusted-locale",
                 },
             )
-            runtime = JavaRuntime(
-                Path("/runner/java"),
-                "25.0.1",
-                25,
-                OperationResult("java.inspect", 0, "", ""),
-            )
-            operation = OperationResult("android.build", 0, "", "")
+            runtime = self._runtime()
             with (
                 mock.patch("ci_workflows.ciw_android.resolve_state_root", return_value=state),
                 mock.patch("ci_workflows.ciw_android.android_execution.verify_exact_source") as exact,
                 mock.patch("ci_workflows.ciw_android.resolve_java_executable", return_value=Path("/runner/java")),
                 mock.patch("ci_workflows.ciw_android.inspect_java_runtime", return_value=runtime),
-                mock.patch("ci_workflows.ciw_android.android_build", return_value=operation) as build,
+                mock.patch(
+                    "ci_workflows.ciw_android.run_gradle_tasks",
+                    return_value=OperationResult("android.protected_full", 0, "", ""),
+                ) as gradle,
             ):
                 result = execute_android_validate(self._args("execute"), context)
+
             self.assertEqual(exact.call_count, 2)
-            kwargs = build.call_args.kwargs
-            self.assertEqual(build.call_args.args[:2], (Path("gradlew"), "assembleDebug"))
-            self.assertEqual(kwargs["project_directory"], state / "tmp/android-source")
-            self.assertEqual(kwargs["options"], ("--no-daemon",))
-            self.assertNotIn("GITHUB_TOKEN", kwargs["environment"])
-            self.assertNotIn("PRIVATE_DEPENDENCY_TOKEN", kwargs["environment"])
-            self.assertEqual(result.outputs["result"], "success")
-            self.assertEqual(result.outputs["clean_tree"], "true")
-            self.assertIn('"java_major":25', result.outputs["test_summary"])
+            gradle.assert_called_once()
+            self.assertEqual(gradle.call_args.args[0], Path("gradlew"))
+            self.assertEqual(
+                gradle.call_args.args[1],
+                (
+                    "testDebugUnitTest",
+                    "lintDebug",
+                    "assembleDebug",
+                    "kspDebugKotlin",
+                    "verifySchema",
+                ),
+            )
+            self.assertEqual(gradle.call_args.kwargs["operation"], "android.protected_full")
+            environment = gradle.call_args.kwargs["environment"]
+            self.assertEqual(environment["LANG"], "C.UTF-8")
+            self.assertEqual(environment["LC_ALL"], "C.UTF-8")
+            self.assertNotIn("GITHUB_TOKEN", environment)
+            self.assertNotIn("PRIVATE_DEPENDENCY_TOKEN", environment)
+            summary = json.loads(result.outputs["test_summary"])
+            self.assertEqual(summary["execution_model"], "single-executor")
+            self.assertEqual(summary["gradle_invocations"], 1)
+            self.assertEqual(summary["script_invocations"], 0)
+            self.assertEqual(summary["schema_mode"], "gradle")
+            self.assertEqual(summary["task_count"], 5)
+
+    def test_protected_full_schema_script_reuses_same_copied_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace, source, state = self._filesystem(root)
+            script = source / "ci/verify-schema.sh"
+            script.parent.mkdir()
+            script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            script.chmod(0o700)
+            context = self._context(
+                workspace,
+                state,
+                {
+                    "INPUT_ADMITTED_SHA": SHA,
+                    "INPUT_VALIDATION_SCOPE": "protected-full",
+                    "INPUT_VALIDATION_PLAN_JSON": self._full_plan(schema_mode="script"),
+                },
+            )
+            with (
+                mock.patch("ci_workflows.ciw_android.resolve_state_root", return_value=state),
+                mock.patch("ci_workflows.ciw_android.android_execution.verify_exact_source"),
+                mock.patch("ci_workflows.ciw_android.resolve_java_executable", return_value=Path("/runner/java")),
+                mock.patch("ci_workflows.ciw_android.inspect_java_runtime", return_value=self._runtime()),
+                mock.patch(
+                    "ci_workflows.ciw_android.run_gradle_tasks",
+                    return_value=OperationResult("android.protected_full", 0, "", ""),
+                ) as gradle,
+                mock.patch(
+                    "ci_workflows.ciw_android.run_process",
+                    return_value=ProcessResult(0, "", "", False),
+                ) as process,
+            ):
+                result = execute_android_validate(self._args("execute"), context)
+
+            gradle.assert_called_once()
+            self.assertEqual(
+                gradle.call_args.args[1],
+                ("testDebugUnitTest", "lintDebug", "assembleDebug"),
+            )
+            process.assert_called_once()
+            argv = process.call_args.args[0]
+            self.assertTrue(str(argv[0]).endswith("/tmp/android-source/ci/verify-schema.sh"))
+            self.assertEqual(argv[1:], ("--check",))
+            self.assertEqual(process.call_args.kwargs["cwd"], state / "tmp/android-source")
+            summary = json.loads(result.outputs["test_summary"])
+            self.assertEqual(summary["gradle_invocations"], 1)
+            self.assertEqual(summary["script_invocations"], 1)
+            self.assertEqual(summary["schema_mode"], "script")
+
+    def test_targeted_unit_is_one_bounded_task_and_selector(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace, _source, state = self._filesystem(root)
+            context = self._context(
+                workspace,
+                state,
+                {
+                    "INPUT_ADMITTED_SHA": SHA,
+                    "INPUT_VALIDATION_SCOPE": "targeted-unit",
+                    "INPUT_VALIDATION_PLAN_JSON": json.dumps(
+                        {
+                            "tasks": ["testDebugUnitTest"],
+                            "test_selector": "com.example.FeatureTest.testCase",
+                        }
+                    ),
+                },
+            )
+            with (
+                mock.patch("ci_workflows.ciw_android.resolve_state_root", return_value=state),
+                mock.patch("ci_workflows.ciw_android.android_execution.verify_exact_source"),
+                mock.patch("ci_workflows.ciw_android.resolve_java_executable", return_value=Path("/runner/java")),
+                mock.patch("ci_workflows.ciw_android.inspect_java_runtime", return_value=self._runtime()),
+                mock.patch(
+                    "ci_workflows.ciw_android.android_targeted_test",
+                    return_value=OperationResult("android.targeted_test", 0, "", ""),
+                ) as targeted,
+            ):
+                result = execute_android_validate(self._args("execute"), context)
+            targeted.assert_called_once()
+            self.assertEqual(
+                targeted.call_args.args[:3],
+                (Path("gradlew"), "testDebugUnitTest", "com.example.FeatureTest.testCase"),
+            )
+            self.assertEqual(result.outputs["validation_scope"], "targeted-unit")
 
     def test_dependency_execution_requires_exact_checkout_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -177,7 +292,7 @@ class AndroidCIWDispatchTests(unittest.TestCase):
                 {
                     "INPUT_ADMITTED_SHA": SHA,
                     "INPUT_VALIDATION_SCOPE": "gradle",
-                    "INPUT_GRADLE_TASKS_JSON": '["check"]',
+                    "INPUT_VALIDATION_PLAN_JSON": '{"tasks":["check"]}',
                     "INPUT_PRIVATE_DEPENDENCY_REPOSITORY": "StreamScapeTV/shared-lib",
                     "INPUT_PRIVATE_DEPENDENCY_SHA": "b" * 40,
                     "INPUT_PRIVATE_DEPENDENCY_SUBDIRECTORY": "android",
@@ -192,17 +307,11 @@ class AndroidCIWDispatchTests(unittest.TestCase):
                     "CI_PRIVATE_DEPENDENCY_PATH": str(dependency),
                 },
             )
-            runtime = JavaRuntime(
-                Path("/runner/java"),
-                "25",
-                25,
-                OperationResult("java.inspect", 0, "", ""),
-            )
             with (
                 mock.patch("ci_workflows.ciw_android.resolve_state_root", return_value=state),
                 mock.patch("ci_workflows.ciw_android.android_execution.verify_exact_source"),
                 mock.patch("ci_workflows.ciw_android.resolve_java_executable", return_value=Path("/runner/java")),
-                mock.patch("ci_workflows.ciw_android.inspect_java_runtime", return_value=runtime),
+                mock.patch("ci_workflows.ciw_android.inspect_java_runtime", return_value=self._runtime()),
                 mock.patch(
                     "ci_workflows.ciw_android.run_gradle_tasks",
                     return_value=OperationResult("android.gradle", 0, "", ""),
@@ -237,22 +346,16 @@ class AndroidCIWDispatchTests(unittest.TestCase):
                 {
                     "INPUT_ADMITTED_SHA": SHA,
                     "INPUT_VALIDATION_SCOPE": "script",
-                    "INPUT_GRADLE_TASKS_JSON": "[]",
-                    "INPUT_SCRIPT_PATH": "ci/verify-schema.sh",
-                    "INPUT_SCRIPT_ARGUMENTS_JSON": '["--check","room"]',
+                    "INPUT_VALIDATION_PLAN_JSON": json.dumps(
+                        {"path": "ci/verify-schema.sh", "arguments": ["--check", "room"]}
+                    ),
                 },
-            )
-            runtime = JavaRuntime(
-                Path("/runner/java"),
-                "25",
-                25,
-                OperationResult("java.inspect", 0, "", ""),
             )
             with (
                 mock.patch("ci_workflows.ciw_android.resolve_state_root", return_value=state),
                 mock.patch("ci_workflows.ciw_android.android_execution.verify_exact_source"),
                 mock.patch("ci_workflows.ciw_android.resolve_java_executable", return_value=Path("/runner/java")),
-                mock.patch("ci_workflows.ciw_android.inspect_java_runtime", return_value=runtime),
+                mock.patch("ci_workflows.ciw_android.inspect_java_runtime", return_value=self._runtime()),
                 mock.patch(
                     "ci_workflows.ciw_android.run_process",
                     return_value=ProcessResult(0, "", "", False),
@@ -298,10 +401,7 @@ class AndroidCIWDispatchTests(unittest.TestCase):
             validation_scope=None,
             working_directory=None,
             gradle_wrapper_path=None,
-            gradle_tasks_json=None,
-            targeted_test_selector=None,
-            script_path=None,
-            script_arguments_json=None,
+            validation_plan_json=None,
             private_dependency_repository=None,
             private_dependency_sha=None,
             private_dependency_subdirectory=None,
@@ -313,6 +413,35 @@ class AndroidCIWDispatchTests(unittest.TestCase):
             private_dependency_checkout_repository=None,
             private_dependency_checkout_id=None,
             private_dependency_expected_subpath=None,
+        )
+
+    @staticmethod
+    def _runtime() -> JavaRuntime:
+        return JavaRuntime(
+            Path("/runner/java"),
+            "25.0.1",
+            25,
+            OperationResult("java.inspect", 0, "", ""),
+        )
+
+    @staticmethod
+    def _full_plan(schema_mode: str = "none") -> str:
+        schema: dict[str, object]
+        if schema_mode == "gradle":
+            schema = {"mode": "gradle", "tasks": ["kspDebugKotlin", "verifySchema"]}
+        elif schema_mode == "script":
+            schema = {"mode": "script", "path": "ci/verify-schema.sh", "arguments": ["--check"]}
+        else:
+            schema = {"mode": "none"}
+        return json.dumps(
+            {
+                "unit_tasks": ["testDebugUnitTest"],
+                "lint_tasks": ["lintDebug"],
+                "assemble_tasks": ["assembleDebug"],
+                "schema": schema,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
         )
 
     @staticmethod
