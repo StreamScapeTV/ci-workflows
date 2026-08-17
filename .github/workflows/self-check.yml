@@ -103,10 +103,10 @@ jobs:
           test ! -e "${validation_root}"
           test ! -L "${validation_root}"
           mkdir -m 0700 "${validation_root}"
-          chmod 0700 "${validation_root}"
+          chmod 00700 "${validation_root}"
           test "$(stat -c '%a' "${validation_root}")" = "700"
           mkdir -p "${validation_root}/python" "${validation_root}/tmp"
-          chmod 0700 "${validation_root}/tmp"
+          chmod 00700 "${validation_root}/tmp"
           test "$(stat -c '%a' "${validation_root}/tmp")" = "700"
           "${VERIFIED_PYTHON}" scripts/ci/bootstrap_validation_runtime.py \
             --lock contracts/action-tool-lock.json \
