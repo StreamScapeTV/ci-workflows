@@ -95,9 +95,14 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          validation_root="${RUNNER_TEMP}/ci-workflows-validation-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          rm -rf "${validation_root}"
-          mkdir "${validation_root}"
+          test -n "${HOME:-}"
+          test -d "${HOME}"
+          test ! -L "${HOME}"
+          test "$(stat -c '%u' "${HOME}")" = "$(id -u)"
+          validation_root="${HOME}/.ciw-self-check-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          test ! -e "${validation_root}"
+          test ! -L "${validation_root}"
+          mkdir -m 0700 "${validation_root}"
           chmod 0700 "${validation_root}"
           test "$(stat -c '%a' "${validation_root}")" = "700"
           mkdir -p "${validation_root}/python" "${validation_root}/tmp"
