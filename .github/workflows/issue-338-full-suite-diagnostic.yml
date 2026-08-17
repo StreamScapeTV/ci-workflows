@@ -1,0 +1,69 @@
+name: Issue 338 exact full-suite diagnostic
+
+on:
+  push:
+    branches:
+      - agent1/issue-338-full-suite-diagnostic
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: [linux, amd64, general, small]
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - name: Check out exact diagnostic source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Prepare exact Central locked Python runtime
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python_bin="$(type -P python3.12 || type -P python3)"
+          validation_root="${HOME}/.ciw-issue-338-diagnostic-${GITHUB_RUN_ID}"
+          test ! -e "${validation_root}"
+          mkdir -m 0700 "${validation_root}"
+          chmod 00700 "${validation_root}"
+          mkdir -p "${validation_root}/python" "${validation_root}/tmp"
+          chmod 00700 "${validation_root}/tmp"
+          "${python_bin}" scripts/ci/bootstrap_validation_runtime.py \
+            --lock contracts/action-tool-lock.json \
+            --target "${validation_root}/python"
+          {
+            printf 'VERIFIED_PYTHON=%s\n' "${python_bin}"
+            printf 'VALIDATION_ROOT=%s\n' "${validation_root}"
+            printf 'PYTHONPATH=%s:%s/src\n' "${validation_root}/python" "${GITHUB_WORKSPACE}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Run full discovered suite and print only failure tail
+        shell: bash
+        run: |
+          set +e
+          TMPDIR="${VALIDATION_ROOT}/tmp" \
+            "${VERIFIED_PYTHON}" -m unittest discover -s tests -p 'test_*.py' -v \
+            > "${VALIDATION_ROOT}/full-suite.log" 2>&1
+          status=$?
+          if [[ ${status} -ne 0 ]]; then
+            echo '--- FULL SUITE FAILURE TAIL ---'
+            tail -n 260 "${VALIDATION_ROOT}/full-suite.log"
+            echo '--- END FAILURE TAIL ---'
+          fi
+          exit "${status}"
+
+      - name: Remove diagnostic state
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          rm -rf "${VALIDATION_ROOT:-/nonexistent}"
+          find . -type d -name __pycache__ -prune -exec rm -rf {} +
+          find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
