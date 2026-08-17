@@ -98,6 +98,22 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         self.assertTrue(all(len(sha) == 40 for _path, sha in refs))
         validate_refs = {sha for path, sha in refs if path == "actions/validate-device"}
         self.assertEqual({DEVICE_ACTION_SHA}, validate_refs)
+        action_lock = json.loads((ROOT / "contracts/action-tool-lock.json").read_text())
+        validate_lock = next(
+            row
+            for row in action_lock["third_party_actions"]
+            if row["uses"] == "StreamScapeTV/ci-workflows/actions/validate-device"
+        )
+        self.assertEqual(
+            {
+                "uses": "StreamScapeTV/ci-workflows/actions/validate-device",
+                "sha": DEVICE_ACTION_SHA,
+                "release": "issue #341 product-neutral device v2 checkpoint",
+                "runtime": "composite",
+                "source": f"https://github.com/StreamScapeTV/ci-workflows/tree/{DEVICE_ACTION_SHA}/actions/validate-device",
+            },
+            validate_lock,
+        )
         self.assertIn(
             f"actions/device-lock@{DEVICE_LOCK_ACTION_SHA}",
             {f"{path}@{sha}" for path, sha in refs},
