@@ -42,6 +42,23 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         ):
             self.assertNotRegex(inputs, rf"^      {retired}:$", msg=retired)
 
+    def test_shared_public_registration_matches_device_v2(self) -> None:
+        index = json.loads((ROOT / "contracts/public-workflows.json").read_text())
+        validation = json.loads((ROOT / "contracts/public-workflows/validation.json").read_text())
+        permissions = json.loads((ROOT / "contracts/permission-profiles.json").read_text())
+        indexed = next(row for row in index["workflows"] if row["api_name"] == "validation.device")
+        registered = next(row for row in validation["workflows"] if row["api_name"] == "validation.device")
+        profile = next(row for row in permissions["profiles"] if row["id"] == "device-validation")
+        self.assertEqual("2.0.0", indexed["api_version"])
+        self.assertEqual("2.0.0", registered["api_version"])
+        self.assertEqual(set(self.contract["public_inputs"]), {item["name"] for item in registered["inputs"]})
+        self.assertEqual(["device_authorization_receipt"], registered["secrets"])
+        self.assertEqual(["device_authorization_receipt"], profile["named_secrets_allowed"])
+        self.assertEqual(
+            {"prepare_script_path", "test_script_path", "evidence_script_path", "cleanup_script_path"},
+            set(registered["repository_owned_hooks"]),
+        )
+
     def test_only_authorization_receipt_is_public_secret(self) -> None:
         secrets = self.workflow.split("secrets:", 1)[1].split("outputs:", 1)[0]
         actual = set(re.findall(r"^      ([a-z_]+):$", secrets, re.M))
