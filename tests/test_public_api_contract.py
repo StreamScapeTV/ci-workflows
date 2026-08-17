@@ -22,7 +22,7 @@ class PublicApiContractTests(unittest.TestCase):
         cls.workflows = contract.validate_workflows(cls.data, cls.profiles)
 
     def test_registry_is_complete_and_deterministic(self) -> None:
-        self.assertEqual(len(self.data.workflows), 20)
+        self.assertEqual(len(self.data.workflows), 22)
         self.assertEqual(len(self.profiles), 12)
         self.assertEqual(len(self.data.types["trust_classes"]), 6)
         self.assertEqual("3.0.0", self.data.index["contract_version"])
@@ -105,6 +105,49 @@ class PublicApiContractTests(unittest.TestCase):
             inputs = {item["name"] for item in row["inputs"]}
             self.assertTrue(inputs.isdisjoint(forbidden), f"{row['api_name']} exposes {sorted(inputs & forbidden)}")
             self.assertNotIn("self-hosted", row["semantic_runner_profile"])
+
+    def test_android_completion_apis_are_canonical_and_secret_scoped(self) -> None:
+        routine = self.workflows["validation.android"]
+        live = self.workflows["validation.android-live-service"]
+        release = self.workflows["validation.android-release"]
+        self.assertEqual(".github/workflows/reusable-android.yml", routine["file"])
+        self.assertEqual(
+            ".github/workflows/reusable-android-live-service.yml",
+            live["file"],
+        )
+        self.assertEqual(
+            ".github/workflows/reusable-android-release.yml",
+            release["file"],
+        )
+        self.assertEqual("2.0.0", routine["api_version"])
+        self.assertEqual("1.0.0", live["api_version"])
+        self.assertEqual("1.0.0", release["api_version"])
+        self.assertEqual("mobile", live["semantic_runner_profile"])
+        self.assertEqual("mobile", release["semantic_runner_profile"])
+        self.assertEqual(1, live["matrix_max_jobs"])
+        self.assertEqual(1, release["matrix_max_jobs"])
+        self.assertEqual(["private_dependency_token"], routine["secrets"])
+        self.assertEqual(
+            ["service_username", "service_password", "private_dependency_token"],
+            live["secrets"],
+        )
+        self.assertEqual(["private_dependency_token"], release["secrets"])
+        self.assertEqual(
+            {"type": "json-object", "nullable": True},
+            self.data.types["output_catalog"]["artifact_manifest_json"],
+        )
+        for secret in ("service_username", "service_password"):
+            self.assertEqual(
+                "test-environment",
+                self.data.types["secret_catalog"][secret]["required_scope"],
+            )
+            self.assertTrue(
+                self.data.types["secret_catalog"][secret]["exposed_to_product_source"]
+            )
+        for row in (live, release):
+            self.assertNotIn("v1", row["file"])
+            self.assertNotIn("v2", row["file"])
+            self.assertNotIn("v3", row["file"])
 
     def test_publication_contracts_use_caller_owned_paths_and_names(self) -> None:
         expected = {
@@ -191,6 +234,8 @@ class PublicApiContractTests(unittest.TestCase):
         self.assertIn("`image_name` (required)", rendered)
         self.assertIn("`workflow_dispatch-existing-tag`", rendered)
         self.assertIn("`validation_scope` (required)", rendered)
+        self.assertIn("`validation.android-live-service` `1.0.0`", rendered)
+        self.assertIn("`validation.android-release` `1.0.0`", rendered)
 
     def test_breaking_changes_fail_without_a_complete_acknowledgement(self) -> None:
         baseline = copy.deepcopy(self.workflows["validation.python"])
@@ -232,6 +277,7 @@ class PublicApiContractTests(unittest.TestCase):
             "pr_number": 1,
             "validation_profile": "default",
             "validation_scope": "unit",
+            "validation_plan_json": {"stages": []},
             "command_profile": "full",
             "platform": "ios",
             "device_family": "ios",
