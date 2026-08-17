@@ -39,6 +39,7 @@ jobs:
           script = textwrap.dedent(body)
           namespace = {'__name__': '__main__'}
           exec(compile(script, 'issue-338-central-fix-v2-patch.py', 'exec'), namespace, namespace)
+          Path('.github/workflows/issue-338-central-fix-v3.yml').unlink(missing_ok=True)
           PY
 
       - name: Revalidate the exact patch tree
