@@ -27,7 +27,7 @@ jobs:
     uses: ./.github/workflows/reusable-android.yml
     with:
       admitted_sha: ${{ github.event.pull_request.head.sha || github.sha }}
-      validation_scope: gradle
+      validation_scope: protected-full
       working_directory: tests/fixtures/android-validation/smoke-project
       gradle_wrapper_path: gradlew
-      gradle_tasks_json: '["verifyToolchainSmoke"]'
+      validation_plan_json: '{"unit_tasks":["help"],"lint_tasks":["tasks"],"assemble_tasks":["verifyToolchainSmoke"],"schema":{"mode":"none"}}'
