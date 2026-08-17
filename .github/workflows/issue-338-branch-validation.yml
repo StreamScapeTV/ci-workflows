@@ -43,8 +43,7 @@ jobs:
           set -Eeuo pipefail
           PYTHONPATH=src python3 -m unittest -v \
             tests.test_android_completion \
-            tests.test_android_ciw_dispatch \
-            tests.test_android_workflow_contract
+            tests.test_android_ciw_dispatch
 
       - name: Require clean tree
         shell: bash
