@@ -38,11 +38,53 @@ jobs:
         run: |
           set -Eeuo pipefail
           runner_home="${HOME}"
-          java_home="$(/usr/libexec/java_home -v 25)"
-          test -x "${java_home}/bin/java"
-          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-${runner_home}/Library/Android/sdk}}"
-          test -f "${sdk_root}/platforms/android-37/android.jar"
-          test -f "${sdk_root}/build-tools/37.0.0/aapt2"
+
+          java_home=""
+          for candidate in \
+            "$(/usr/libexec/java_home -v 25 2>/dev/null || true)" \
+            "/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home" \
+            "/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home"; do
+            test -n "${candidate}" || continue
+            test -x "${candidate}/bin/java" || continue
+            major="$("${candidate}/bin/java" -version 2>&1 | head -n 1 | sed -E 's/.*version "([0-9]+).*/\1/')"
+            if test "${major}" = "25"; then
+              java_home="${candidate}"
+              break
+            fi
+          done
+          if test -z "${java_home}"; then
+            echo "JDK 25 not found on macOS Android runner" >&2
+            /usr/libexec/java_home -V 2>&1 || true
+            exit 1
+          fi
+
+          sdk_root=""
+          for candidate in \
+            "${ANDROID_SDK_ROOT:-}" \
+            "${ANDROID_HOME:-}" \
+            "${runner_home}/Library/Android/sdk" \
+            "/Users/mimranfaruqi/Library/Android/sdk" \
+            "/opt/android-sdk"; do
+            test -n "${candidate}" || continue
+            if test -f "${candidate}/platforms/android-37/android.jar" \
+              && test -f "${candidate}/build-tools/37.0.0/aapt2"; then
+              sdk_root="${candidate}"
+              break
+            fi
+          done
+          if test -z "${sdk_root}"; then
+            echo "Android API 37 / Build Tools 37.0.0 not found on macOS Android runner" >&2
+            for root in "${runner_home}/Library/Android/sdk" "/Users/mimranfaruqi/Library/Android/sdk" "/opt/android-sdk"; do
+              test -d "${root}" || continue
+              echo "SDK candidate: ${root}" >&2
+              ls -1 "${root}/platforms" 2>/dev/null | tail -n 10 >&2 || true
+              ls -1 "${root}/build-tools" 2>/dev/null | tail -n 10 >&2 || true
+            done
+            exit 1
+          fi
+
+          echo "Resolved JDK 25: ${java_home}"
+          echo "Resolved Android SDK: ${sdk_root}"
           {
             echo "JAVA_HOME=${java_home}"
             echo "ANDROID_HOME=${sdk_root}"
@@ -107,7 +149,7 @@ jobs:
 
       - id: workspace_cleanup
         name: Remove and verify the one registered workspace
-        if: always()
+        if: always() && steps.workspace.outcome == 'success'
         uses: ./.ciw/actions/cleanup-workspace
 
       - id: clean
@@ -116,8 +158,11 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          test "$(git -C source rev-parse HEAD)" = "${CANDIDATE_SHA}"
-          test -z "$(git -C source status --porcelain=v1 --untracked-files=all)"
+          test "$(git -C .ciw rev-parse HEAD)" = "${CANDIDATE_SHA}"
+          if test -d source/.git; then
+            test "$(git -C source rev-parse HEAD)" = "${CANDIDATE_SHA}"
+            test -z "$(git -C source status --porcelain=v1 --untracked-files=all)"
+          fi
 
       - name: Project terminal macOS Android diagnostic status
         if: always()
