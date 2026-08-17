@@ -1,21 +1,95 @@
 # Apple validation workflow
 
-`validation.apple` version `1.0.0` is the product-neutral reusable workflow at
-`.github/workflows/reusable-apple.yml`. Its stable public check is
+`validation.apple` version `2.0.0` is the product-neutral reusable workflow at
+`.github/workflows/reusable-apple.yml`. Its stable public check remains
 `CI / Apple validation`.
 
-The workflow accepts one exact admitted source SHA, one bounded validation
-profile, one required bounded platform, and one reviewed consumer-contract
-identifier. Optional version-file, working-directory, checked-in script, scheme,
-destination-profile, and diagnostic-exception inputs are accepted only when
-they exactly match the selected checked-in task. Project/workspace/package
-paths, build configuration, test plans, simulator runtime/device identity, and
-command arguments are never caller inputs; they remain contract-owned. Callers cannot select a runner, host, architecture, Xcode
-path, destination, device, command, arbitrary argument list, signing identity,
-provisioning profile, keychain, archive/export/store operation, dependency URL,
-secret, registry, Kubernetes target, or deployment operation.
+Version 2 adds a protected-full multi-stage path while retaining the legacy
+profile API for existing callers. New protected-full callers provide one exact
+admitted source SHA plus one strict caller-owned `validation_plan_json`. The
+plan contains only bounded Apple technology fields: stage identifier, platform,
+operation, working directory, Xcode project/workspace, scheme, configuration,
+optional checked-in test plan, SwiftPM resolution mode and lock files, bounded
+Xcode arguments, bounded test selectors, expected outputs, cleanup paths, or a
+checked-in bash/Python script. At most eight stages are accepted.
 
-## Profiles
+Callers cannot select a runner, host, architecture, Xcode installation, raw
+destination, simulator identity, signing identity, provisioning profile,
+keychain, archive/export/store operation, arbitrary command, secret name,
+registry, Kubernetes target, deployment target, DerivedData path, SwiftPM state
+path, or result-bundle path. Signing, destination construction, toolchain
+identity, simulator ownership, workspace state and cleanup remain centrally
+fenced.
+
+## Protected-full single-executor model
+
+A protected `portable` planner validates the bounded stage plan and resolves one
+semantic `apple` executor. The heavy path then:
+
+1. checks out the exact admitted product source once;
+2. prepares one isolated Apple workspace once;
+3. optionally checks out one exact private dependency once, after exact SHA,
+   checkout identity, remote erasure and credential erasure are verified;
+4. verifies Xcode, Swift, SDK and required simulator-runtime identities once;
+5. executes requested Apple stages sequentially in that same workspace;
+6. shares SwiftPM and DerivedData state across stages while giving each stage a
+   separate result-bundle directory;
+7. performs Apple-specific cleanup/residue once at the terminal boundary,
+   followed by source and registered-workspace cleanup.
+
+The public workflow allocates exactly one heavy macOS job for protected-full.
+Separate iOS, tvOS and macOS stage summaries therefore do not imply separate
+cold runner jobs or repeated source/dependency/workspace setup.
+
+## Compile and test destination behavior
+
+Apple platforms remain distinct validations. iOS, tvOS and macOS stages each
+run against the requested SDK/platform; the workflow never claims that one
+platform binary satisfies another platform.
+
+Compile-only iOS/tvOS stages use the bounded generic simulator-platform
+Xcode destination. They do **not** select, create, boot, or consume a concrete
+simulator. A `test` stage is different: it acquires only the reviewed simulator
+for that platform through the existing ownership registry, runs the requested
+bounded test work, then shuts down/reclaims that simulator before a later test
+stage can acquire another one. This prevents multiple simulators from being
+launched concurrently by one protected-full gate.
+
+macOS remains unsigned and uses the centrally constructed macOS destination.
+All Xcode stages force `CODE_SIGNING_ALLOWED=NO`,
+`CODE_SIGNING_REQUIRED=NO`, and an empty `CODE_SIGN_IDENTITY`.
+
+## Targeted and legacy scopes
+
+The existing checked-in Apple consumer/profile contracts remain available
+through the default `validation_scope: legacy` path. Existing bounded profiles
+such as `ios-simulator`, `tvos-simulator`, `macos`, Swift package,
+native-dependency preparation and repository recovery therefore retain their
+reviewed task mappings and behavior while callers migrate.
+
+Protected-full itself executes exactly the stages present in the supplied plan.
+A caller that needs only one platform build or one bounded test supplies only
+that stage. Source-only recovery/policy work is intentionally not accepted as a
+protected-full Apple plan; it stays on the existing legacy/source path so it can
+continue using appropriately sized general capacity rather than consuming a
+Mac solely to inspect source.
+
+## Optional exact private dependency
+
+Protected-full may request at most one private dependency using an exact
+repository, full SHA, bounded dependency identifier and bounded subdirectory.
+The reusable workflow checks it out once through the immutable
+`checkout-private-dependency` helper. Execution accepts the dependency only
+when the exact checkout receipts prove repository identity, SHA, expected
+subpath, remote erasure and credential erasure. The private dependency token is
+transient, fixed-purpose `contents:read` authority and is never exposed to
+product commands.
+
+No product repository allowlist or application product identifier exists in the
+shared protected-full implementation. Product repositories decide whether a
+private dependency is required and supply its exact coordinates.
+
+## Legacy profiles
 
 | Profile | Purpose | Execution boundary |
 |---|---|---|
@@ -27,52 +101,35 @@ secret, registry, Kubernetes target, or deployment operation.
 | `native-dependency-preparation` | Invoke one checked-in dependency-preparation script with fixed arguments and registered state | semantic `apple` |
 | `repository-recovery` | Invoke checked-in recovery/audit scripts with fixed arguments | semantic `apple` |
 
-A protected `portable` planner validates the contract and resolves the semantic
-runner mapping. All source execution occurs on semantic `apple`; the caller
-never supplies a concrete label.
-
 ## Bounded iptv-apple Release certification
 
 The existing `iptv-apple` consumer contract remains the Debug validation
 mapping. `iptv-apple-release` is a separate checked-in consumer contract for
 exact-SHA certification and exposes only the existing `ios-simulator`,
-`tvos-simulator`, and `macos` profiles. Those three mappings select fixed tasks
-with `configuration: Release` and compile-only `xcodebuild build` actions.
+`tvos-simulator`, and `macos` legacy profiles. Those three mappings select fixed
+tasks with `configuration: Release` and compile-only `xcodebuild build`
+actions.
 
-Release configuration is not a workflow input. The caller selects the reviewed
-consumer contract and bounded platform profile; a supplied configuration field
-or other unregistered input fails closed. iOS/tvOS simulator destinations remain
-contract-owned and macOS remains unsigned. Every execution still forces
-`CODE_SIGNING_ALLOWED=NO`, `CODE_SIGNING_REQUIRED=NO`, and an empty
-`CODE_SIGN_IDENTITY`; Release certification adds no signing, provisioning,
-archive/export, notarization, store, physical-device, registry, or deployment
-authority.
+Release configuration is not a public protected-full privilege. A supplied
+stage configuration remains a bounded ordinary Xcode configuration and cannot
+turn validation into signing, archive/export, notarization, store,
+physical-device, registry, or deployment authority.
 
 ## Immutable private helper reuse
 
-Private same-organization consumers do not clone the private central repository
-with their caller-scoped token. The planner and Apple execution job invoke the
-reviewed `validate-apple` composite action through immutable integrated Media
-tvOS consumer checkpoint `702b950b6a5baf208e7b21f16e3f7df9b8f0f96e`,
-recorded in the action lock as
-`issue #187 integrated Media tvOS consumer checkpoint`. Exact caller checkout,
-workspace preparation, and registered-state cleanup use the already reviewed
-immutable foundation helpers.
+The reusable workflow invokes the protected-full-aware `validate-apple`
+composite action through immutable checkpoint
+`db50df67a34672502ab0fe9815af0a88ea2f475c`, recorded in the action lock as
+`issue #336 single-executor Apple checkpoint`. Exact caller checkout, optional
+private dependency checkout, workspace preparation, evidence rendering and
+registered-state cleanup use already reviewed immutable foundation helpers.
 
-The private action archive supplies Apple scripts and Python modules relative to
-`GITHUB_ACTION_PATH`; no `.ciw` action checkout, central PAT input,
-`secrets: inherit`, mutable helper ref, or caller-selected helper version is
-required. Product source authority remains separate and exact.
+The public workflow does not clone a mutable `.ciw` helper checkout and does not
+accept a caller-selected helper version. Product source authority remains
+separate and exact. Fixed source checkout roots are removed through inline
+`lstat`-based no-follow cleanup before or after execution as appropriate.
 
-Persistent macOS cleanup remains fail closed. The reusable workflow removes any
-stale fixed `.ciw` root and the fixed `source` checkout through inline
-`lstat`-based no-follow removal before or after execution as appropriate. This
-preserves the old fixed-root safety boundary without depending on a checked-out
-central script. Apple-specific state, simulator ownership, registered workspace
-state, source checkout, and stale central-checkout residue all remain part of
-the terminal failure projection.
-
-## Exact toolchain
+## Exact toolchain and package resolution
 
 The contract verifies the full reviewed Xcode version and build, Swift version,
 required iOS/tvOS/macOS SDK versions, and required iOS/tvOS simulator runtime
@@ -80,81 +137,67 @@ identities before build or test execution. `DEVELOPER_DIR` and other
 caller-selected Xcode-path controls are removed from the execution environment.
 A mismatch fails before product commands run.
 
-Project/workspace commands use explicit container, scheme, configuration,
-destination, timeout, isolated DerivedData, isolated cloned Swift packages, and
-an isolated result bundle. Signing is disabled with
-`CODE_SIGNING_ALLOWED=NO`, `CODE_SIGNING_REQUIRED=NO`, and an empty
-`CODE_SIGN_IDENTITY`. The validator never archives, exports, notarizes, uploads,
-or contacts a store.
+Protected-full Xcode commands use explicit container, scheme, configuration,
+centrally constructed destination, timeout, shared isolated DerivedData and
+SwiftPM state, plus a stage-local isolated result bundle. Locked package mode
+requires exact checked-in resolved files and passes both automatic-resolution
+rejection flags. Any protected lock or source mutation fails closed.
 
-## Deterministic simulators
+## Deterministic simulators and stale-state reconciliation
 
-An iOS or tvOS profile binds to a reviewed runtime, product family, device type,
-and device-type identifier. The job derives a unique job-owned simulator name,
-rejects malformed or ambiguous matches, rejects every matching simulator not
-registered by the current job, and creates a simulator only when the profile
-allows creation. Existing booted state is accepted only when it is already
-registered to the same job. Public outputs contain only a hashed simulator
-identity; a simulator is never reported as physical-device evidence.
+Test stages reuse the existing Apple simulator ownership implementation. An iOS
+or tvOS simulator binds to a reviewed runtime, product family, device type and
+device-type identifier. The job derives a job-owned simulator identity, rejects
+malformed or ambiguous matches, rejects unowned matching simulators, registers
+created simulators before boot, and uses the ownership registry to reclaim
+stale job-owned state safely.
 
-Every created simulator is registered before boot. Terminal cleanup shuts down
-and deletes only registered simulator IDs, rereads the simulator inventory, and
-fails if any registered ID remains.
+Per-test shutdown/reclamation prevents overlap between sequential simulator
+tests. Terminal cleanup runs the same reconciliation again and fails if any
+registered simulator or exact job-owned simulator remains. A simulator result
+is never represented as physical-device evidence.
 
-## Package, script, and additive contract authority
+## Additive legacy contract authority
 
-SwiftPM resolution mode is contract-owned. Locked mode requires exact checked-in
-resolved files and passes both automatic-resolution rejection flags. Any lock or
-source mutation fails. Checked-in Python or shell scripts must be regular,
-repository-tracked files and receive only fixed contract arguments. Consumer
-specific environment names, schemes, commands, media preparation, and recovery
-rules remain in the validated base `contracts/apple-validation.json`, in bounded
-additive `contracts/apple-validation-*.json` fragments, or in consumer-owned
+Legacy consumer-specific schemes, commands, media preparation and recovery
+rules remain in the validated base `contracts/apple-validation.json`, bounded
+additive `contracts/apple-validation-*.json` fragments, or consumer-owned
 scripts; the shared Python implementation contains no product-name branch.
 
 An additive fragment may contain only `tasks` and `consumer_contracts`. Added
-tasks pass the same checked-in Apple task validator as the base contract,
-including profile, simulator, artifact-exception, environment, path, command,
-and fixed-argument checks. Added consumer mappings pass the same identifier,
-repository, profile, and task-compatibility checks. Existing task or consumer
-identifiers cannot be replaced: any collision or malformed fragment fails
-closed before a plan is produced. When no additive fragment exists, the base
-contract resolves unchanged.
+tasks and consumer mappings pass the same checked-in Apple validators, and any
+identifier collision or malformed fragment fails closed. Protected-full does
+not add a second product/task registry: its stage plan is caller-owned and
+strictly technology-bounded.
 
-## Outputs and artifacts
+## Outputs, artifacts and cleanup
 
-The workflow returns deterministic result, stage summary, exact verified
-runtime versions, redacted simulator identity, evidence ID, clean-tree state,
-cleanup state, and diagnostic-exception state. Routine runs upload no GitHub
-Actions artifact. A non-empty diagnostic exception is accepted only when the
-selected task already registers that exact named exception; absence remains the
-default.
+The v2 public workflow returns `result`, bounded `test_summary`,
+`cleanup_result`, and `artifact_exception_used`. Internal execution evidence
+also records exact verified runtime versions, evidence identity, source-clean
+state and bounded per-stage results.
 
-## Cleanup
+Routine runs upload zero GitHub Actions artifacts. No GitHub Actions cache is
+used; persistent runner-side caching/storage remains infrastructure-owned.
 
-The validator registers state below the prepared workflow root and removes, in
-an `always()` path, DerivedData, result bundles, SwiftPM and CocoaPods state,
-logs, reports, native output, caches, generated source output, and job-created
-simulators. Cleanup uses lexical contract paths and `lstat`-based no-follow
-removal. A symlink is unlinked rather than traversed, caller deletion paths are
-not accepted, outside sentinels are preserved, and residue is a terminal
-failure. Fixed source and stale central-checkout roots are also removed without
-following links and participate in the combined cleanup outcome.
+Apple-specific state includes DerivedData, result bundles, SwiftPM/CocoaPods
+state, logs, reports, native output, generated output and job-owned simulators.
+Cleanup uses lexical contract paths and `lstat`-based no-follow removal. A
+symlink is unlinked rather than traversed, outside sentinels are preserved, and
+residue is a terminal failure. Source checkout and marker-bound workspace
+cleanup also participate in the terminal status projection.
 
 ## Smoke workflows
 
-`.github/workflows/apple-validation-smoke.yml` checks out the exact
-pull-request implementation and executes the same planner, composite action,
-contract, workspace isolation, and cleanup path directly for a product-neutral
-Debug fixture on iOS simulator, tvOS simulator, and unsigned macOS.
+`.github/workflows/apple-validation-smoke.yml` is the protected-full acceptance
+smoke. It validates the exact PR implementation, plans a three-stage iOS/tvOS/
+macOS compile sequence, asserts semantic `[macOS, ARM64]` resolution, and runs
+all three builds sequentially in **one** real Mac job with one exact source
+checkout and one Apple workspace. Because those stages are compile-only, the
+smoke proves that no simulator boot is necessary for compile coverage. It then
+runs Apple cleanup, residue, source-clean verification, source removal,
+workspace cleanup and a zero-routine-artifact finalizer.
 
-`.github/workflows/apple-certification-smoke.yml` independently proves the
-Release path. Its fixed three-row, non-fail-fast matrix resolves
-`ciw-apple-release-smoke`, runs iOS simulator, tvOS simulator, and macOS Release
-compile jobs on the exact same pull-request SHA, verifies Apple-specific and
-workspace cleanup/residue, and requires zero routine Actions artifacts.
-
-Both smoke workflows are direct repository-owned callers rather than nested
-calls to `reusable-apple.yml`; this preserves the repository's maximum reusable
-depth of one. Simulator smoke is not physical-device, signing, release
-publication, or store proof.
+`.github/workflows/apple-certification-smoke.yml` independently preserves the
+legacy Release-certification contract. Simulator smoke/certification is not
+physical-device, signing, publication, notarization or store proof.
