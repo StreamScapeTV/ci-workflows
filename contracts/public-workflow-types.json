@@ -177,6 +177,7 @@
     {"id": "issue-322-release", "api_name": "release.orchestrate", "kind": "technology-input-decoupling", "reason": "Use a caller-owned bounded release manifest instead of a central application release profile.", "migration_issue": "#322", "effective_version": "2.0.0"},
     {"id": "issue-322-flux-assets", "api_name": "flux.assets", "kind": "technology-input-decoupling", "reason": "Use a caller-owned bounded asset manifest instead of a central application product ID.", "migration_issue": "#322", "effective_version": "2.0.0"},
     {"id": "issue-322-flux-reconcile", "api_name": "flux.reconcile", "kind": "technology-input-decoupling", "reason": "Keep Flux authorization capability-based without a central application product ID.", "migration_issue": "#322", "effective_version": "2.0.0"},
-    {"id": "issue-332-android", "api_name": "validation.android", "kind": "technology-input-decoupling", "reason": "Replace central Android product/task profiles with one caller-owned bounded validation plan.", "migration_issue": "#332", "effective_version": "2.0.0"}
+    {"id": "issue-332-android", "api_name": "validation.android", "kind": "technology-input-decoupling", "reason": "Replace central Android product/task profiles with one caller-owned bounded validation plan.", "migration_issue": "#332", "effective_version": "2.0.0"},
+    {"id": "issue-336-apple", "api_name": "validation.apple", "kind": "technology-input-decoupling", "reason": "Add a caller-owned bounded Apple stage plan and single-executor protected-full path while preserving legacy profile calls.", "migration_issue": "#336", "effective_version": "2.0.0"}
   ]
 }
