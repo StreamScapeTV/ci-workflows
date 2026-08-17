@@ -20,8 +20,7 @@ issues:
       - 324
   23:
     blocked_by:
-      - 332
-      - https://github.com/StreamScapeTV/iptv-android/issues/859
+      - https://github.com/StreamScapeTV/iptv-android/issues/914
   24:
     blocked_by:
       - 283
