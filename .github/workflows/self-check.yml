@@ -97,7 +97,12 @@ jobs:
           set -Eeuo pipefail
           validation_root="${RUNNER_TEMP}/ci-workflows-validation-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           rm -rf "${validation_root}"
-          mkdir -p "${validation_root}/python"
+          mkdir "${validation_root}"
+          chmod 0700 "${validation_root}"
+          test "$(stat -c '%a' "${validation_root}")" = "700"
+          mkdir -p "${validation_root}/python" "${validation_root}/tmp"
+          chmod 0700 "${validation_root}/tmp"
+          test "$(stat -c '%a' "${validation_root}/tmp")" = "700"
           "${VERIFIED_PYTHON}" scripts/ci/bootstrap_validation_runtime.py \
             --lock contracts/action-tool-lock.json \
             --target "${validation_root}/python"
@@ -155,7 +160,8 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          "${VERIFIED_PYTHON}" -m unittest discover -s tests -p 'test_*.py' -v
+          TMPDIR="${VALIDATION_ROOT}/tmp" \
+            "${VERIFIED_PYTHON}" -m unittest discover -s tests -p 'test_*.py' -v
           test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
 
       - name: Verify clean tracked tree
