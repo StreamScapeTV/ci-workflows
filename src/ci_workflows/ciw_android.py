@@ -6,6 +6,7 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from typing import Mapping
 
 from . import android_execution
 from .android_types import AndroidValidationError
@@ -13,11 +14,7 @@ from .ciw_types import CIWContext, CIWError, CIWResult, input_value, project_err
 from .foundation_types import FoundationError
 from .language_primitives import (
     LanguagePrimitiveError,
-    android_assemble,
-    android_build,
-    android_lint,
     android_targeted_test,
-    android_unit_test,
     inspect_java_runtime,
     resolve_java_executable,
     run_gradle_tasks,
@@ -27,13 +24,48 @@ from .runtime_primitives import RuntimePrimitiveError, run_process
 from .workspace import resolve_state_root
 
 _DOMAIN = "android"
-_SCOPES = ("compile", "unit", "assemble", "lint", "targeted-test", "gradle", "script")
+_SCOPES = (
+    "protected-full",
+    "compile",
+    "unit",
+    "assemble",
+    "lint",
+    "targeted-unit",
+    "gradle",
+    "script",
+)
 _FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 _REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _IDENTIFIER = re.compile(r"^[a-z][a-z0-9-]{1,63}$")
 _GRADLE_TASK = re.compile(r"^:?[-A-Za-z0-9_.]+(?::[-A-Za-z0-9_.]+)*$")
 _TEST_SELECTOR = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*(?:\.[A-Za-z_][A-Za-z0-9_$]*){2,31}$")
 _COPY_RELATIVE = "tmp/android-source"
+_MAX_PLAN_BYTES = 16 * 1024
+
+
+@dataclass(frozen=True, slots=True)
+class ScriptPlan:
+    path: str
+    arguments: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ProtectedFullPlan:
+    unit_tasks: tuple[str, ...]
+    lint_tasks: tuple[str, ...]
+    assemble_tasks: tuple[str, ...]
+    schema_mode: str
+    schema_tasks: tuple[str, ...] = ()
+    schema_script: ScriptPlan | None = None
+
+    @property
+    def gradle_tasks(self) -> tuple[str, ...]:
+        return (
+            *self.unit_tasks,
+            *self.lint_tasks,
+            *self.assemble_tasks,
+            *self.schema_tasks,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,8 +76,8 @@ class AndroidPrimitiveRequest:
     gradle_wrapper_path: str
     gradle_tasks: tuple[str, ...]
     targeted_test_selector: str
-    script_path: str
-    script_arguments: tuple[str, ...]
+    script: ScriptPlan | None
+    protected_full: ProtectedFullPlan | None
     private_dependency_repository: str
     private_dependency_sha: str
     private_dependency_subdirectory: str
@@ -64,10 +96,7 @@ def configure_android_validate(parser: argparse.ArgumentParser) -> None:
         "validation-scope",
         "working-directory",
         "gradle-wrapper-path",
-        "gradle-tasks-json",
-        "targeted-test-selector",
-        "script-path",
-        "script-arguments-json",
+        "validation-plan-json",
         "private-dependency-repository",
         "private-dependency-sha",
         "private-dependency-subdirectory",
@@ -117,14 +146,127 @@ def _relative_path(value: object, code: str, *, allow_dot: bool) -> str:
     return pure.as_posix()
 
 
-def _json_strings(raw: str, code: str, *, maximum_items: int) -> tuple[str, ...]:
+def _json_object(raw: str, code: str) -> dict[str, object]:
+    text = _plain(raw, code, maximum=_MAX_PLAN_BYTES)
+
+    def pairs_hook(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if not isinstance(key, str) or key in result:
+                raise CIWError(_DOMAIN, code)
+            result[key] = value
+        return result
+
     try:
-        value = json.loads(raw)
+        value = json.loads(text, object_pairs_hook=pairs_hook)
     except json.JSONDecodeError as error:
         raise CIWError(_DOMAIN, code) from error
-    if not isinstance(value, list) or len(value) > maximum_items:
+    if not isinstance(value, dict):
         raise CIWError(_DOMAIN, code)
-    return tuple(_plain(item, code, maximum=2048) for item in value)
+    return value
+
+
+def _exact_keys(value: Mapping[str, object], keys: set[str], code: str) -> None:
+    if set(value) != keys:
+        raise CIWError(_DOMAIN, code)
+
+
+def _strings(
+    value: object,
+    code: str,
+    *,
+    maximum_items: int,
+    allow_empty: bool = False,
+    maximum_item_bytes: int = 2048,
+) -> tuple[str, ...]:
+    if not isinstance(value, list) or len(value) > maximum_items or (not allow_empty and not value):
+        raise CIWError(_DOMAIN, code)
+    return tuple(
+        _plain(item, code, maximum=maximum_item_bytes)
+        for item in value
+    )
+
+
+def _tasks(value: object, code: str, *, maximum_items: int = 32) -> tuple[str, ...]:
+    tasks = _strings(value, code, maximum_items=maximum_items)
+    if (
+        any(_GRADLE_TASK.fullmatch(task) is None or task.startswith("-") for task in tasks)
+        or len(set(tasks)) != len(tasks)
+    ):
+        raise CIWError(_DOMAIN, code)
+    return tasks
+
+
+def _script_plan(value: Mapping[str, object], code: str) -> ScriptPlan:
+    _exact_keys(value, {"path", "arguments"}, code)
+    path = _relative_path(value["path"], code, allow_dot=False)
+    arguments = _strings(
+        value["arguments"],
+        code,
+        maximum_items=64,
+        allow_empty=True,
+    )
+    return ScriptPlan(path, arguments)
+
+
+def _protected_full_plan(value: Mapping[str, object], code: str) -> ProtectedFullPlan:
+    _exact_keys(value, {"unit_tasks", "lint_tasks", "assemble_tasks", "schema"}, code)
+    unit_tasks = _tasks(value["unit_tasks"], code, maximum_items=16)
+    lint_tasks = _tasks(value["lint_tasks"], code, maximum_items=16)
+    assemble_tasks = _tasks(value["assemble_tasks"], code, maximum_items=16)
+    schema = value["schema"]
+    if not isinstance(schema, dict):
+        raise CIWError(_DOMAIN, code)
+    mode = schema.get("mode")
+    schema_tasks: tuple[str, ...] = ()
+    schema_script: ScriptPlan | None = None
+    if mode == "none":
+        _exact_keys(schema, {"mode"}, code)
+    elif mode == "gradle":
+        _exact_keys(schema, {"mode", "tasks"}, code)
+        schema_tasks = _tasks(schema["tasks"], code, maximum_items=16)
+    elif mode == "script":
+        _exact_keys(schema, {"mode", "path", "arguments"}, code)
+        schema_script = _script_plan(
+            {"path": schema["path"], "arguments": schema["arguments"]},
+            code,
+        )
+    else:
+        raise CIWError(_DOMAIN, code)
+    combined = (*unit_tasks, *lint_tasks, *assemble_tasks, *schema_tasks)
+    if len(set(combined)) != len(combined):
+        raise CIWError(_DOMAIN, code)
+    return ProtectedFullPlan(
+        unit_tasks,
+        lint_tasks,
+        assemble_tasks,
+        str(mode),
+        schema_tasks,
+        schema_script,
+    )
+
+
+def _validation_plan(
+    scope: str,
+    raw: str,
+) -> tuple[tuple[str, ...], str, ScriptPlan | None, ProtectedFullPlan | None]:
+    code = "validation_plan_invalid"
+    value = _json_object(raw, code)
+    if scope == "protected-full":
+        return (), "", None, _protected_full_plan(value, code)
+    if scope in {"compile", "unit", "assemble", "lint", "gradle"}:
+        _exact_keys(value, {"tasks"}, code)
+        return _tasks(value["tasks"], code), "", None, None
+    if scope == "targeted-unit":
+        _exact_keys(value, {"tasks", "test_selector"}, code)
+        tasks = _tasks(value["tasks"], code, maximum_items=1)
+        selector = _plain(value["test_selector"], code, maximum=1024)
+        if _TEST_SELECTOR.fullmatch(selector) is None:
+            raise CIWError(_DOMAIN, code)
+        return tasks, selector, None, None
+    if scope == "script":
+        return (), "", _script_plan(value, code), None
+    raise CIWError(_DOMAIN, "validation_scope_invalid")
 
 
 def _request(args: argparse.Namespace, context: CIWContext) -> AndroidPrimitiveRequest:
@@ -144,48 +286,10 @@ def _request(args: argparse.Namespace, context: CIWContext) -> AndroidPrimitiveR
         "gradle_wrapper_path_invalid",
         allow_dot=False,
     )
-    tasks = _json_strings(
-        _value(args, context, "gradle_tasks_json", "[]"),
-        "gradle_tasks_invalid",
-        maximum_items=32,
+    tasks, selector, script, protected_full = _validation_plan(
+        scope,
+        _value(args, context, "validation_plan_json"),
     )
-    if any(_GRADLE_TASK.fullmatch(task) is None or task.startswith("-") for task in tasks):
-        raise CIWError(_DOMAIN, "gradle_tasks_invalid")
-    selector = _plain(
-        _value(args, context, "targeted_test_selector"),
-        "targeted_test_selector_invalid",
-        allow_empty=True,
-        maximum=1024,
-    )
-    script_raw = _value(args, context, "script_path")
-    script_path = (
-        _relative_path(script_raw, "script_path_invalid", allow_dot=False)
-        if script_raw
-        else ""
-    )
-    script_arguments = _json_strings(
-        _value(args, context, "script_arguments_json", "[]"),
-        "script_arguments_invalid",
-        maximum_items=64,
-    )
-
-    if scope in {"compile", "unit", "assemble", "lint"}:
-        if len(tasks) != 1 or selector or script_path or script_arguments:
-            raise CIWError(_DOMAIN, "validation_plan_invalid")
-    elif scope == "targeted-test":
-        if (
-            len(tasks) != 1
-            or _TEST_SELECTOR.fullmatch(selector) is None
-            or script_path
-            or script_arguments
-        ):
-            raise CIWError(_DOMAIN, "validation_plan_invalid")
-    elif scope == "gradle":
-        if not tasks or selector or script_path or script_arguments:
-            raise CIWError(_DOMAIN, "validation_plan_invalid")
-    elif scope == "script":
-        if tasks or selector or not script_path:
-            raise CIWError(_DOMAIN, "validation_plan_invalid")
 
     dependency_repository = _plain(
         _value(args, context, "private_dependency_repository"),
@@ -226,8 +330,8 @@ def _request(args: argparse.Namespace, context: CIWContext) -> AndroidPrimitiveR
         gradle_wrapper_path,
         tasks,
         selector,
-        script_path,
-        script_arguments,
+        script,
+        protected_full,
         dependency_repository,
         dependency_sha,
         dependency_subdirectory,
@@ -385,8 +489,8 @@ def _runtime_environment(
         "TMPDIR": required_directories["TMPDIR"],
         "ANDROID_SDK_ROOT": str(sdk),
         "ANDROID_HOME": str(sdk),
-        "LANG": source.get("LANG", "C.UTF-8"),
-        "LC_ALL": source.get("LC_ALL", "C.UTF-8"),
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
         "TZ": "UTC",
         "CI": "true",
         "GITHUB_ACTIONS": "true",
@@ -414,6 +518,7 @@ def _plan_result(request: AndroidPrimitiveRequest) -> CIWResult:
             "runner_profile": "mobile",
             "runs_on_json": '["linux","amd64","mobile"]',
             "workspace_profile": "gradle",
+            "execution_model": "single-executor",
             "private_dependency_used": str(request.private_dependency_used).lower(),
             "private_dependency_repository": request.private_dependency_repository,
             "private_dependency_sha": request.private_dependency_sha,
@@ -423,6 +528,33 @@ def _plan_result(request: AndroidPrimitiveRequest) -> CIWResult:
             "failure_code": "",
         },
     )
+
+
+def _execute_script(
+    plan: ScriptPlan,
+    *,
+    project: Path,
+    environment: Mapping[str, str],
+) -> None:
+    script = _bounded_existing_file(
+        project,
+        plan.path,
+        "script_path_invalid",
+        executable=True,
+    )
+    try:
+        process = run_process(
+            (str(script), *plan.arguments),
+            cwd=project,
+            environment=environment,
+            timeout_seconds=120 * 60,
+        )
+    except RuntimePrimitiveError as error:
+        raise CIWError(_DOMAIN, "script_process_failed") from error
+    if process.timed_out:
+        raise CIWError(_DOMAIN, "script_timeout")
+    if process.returncode != 0:
+        raise CIWError(_DOMAIN, "script_failed")
 
 
 def _execute_request(
@@ -438,7 +570,9 @@ def _execute_request(
         raise CIWError(_DOMAIN, "android_state_exists")
     android_execution.copy_source(source, copy)
     project = _bounded_existing_directory(
-        copy, request.working_directory, "working_directory_invalid"
+        copy,
+        request.working_directory,
+        "working_directory_invalid",
     )
     dependency = _dependency_path(request, args, context, state_root)
     environment = _runtime_environment(context, dependency)
@@ -453,54 +587,62 @@ def _execute_request(
         "environment": environment,
     }
     scope = request.validation_scope
-    if scope == "compile":
-        android_build(wrapper, request.gradle_tasks[0], **common)
-    elif scope == "unit":
-        android_unit_test(wrapper, request.gradle_tasks[0], **common)
-    elif scope == "assemble":
-        android_assemble(wrapper, request.gradle_tasks[0], **common)
-    elif scope == "lint":
-        android_lint(wrapper, request.gradle_tasks[0], **common)
-    elif scope == "targeted-test":
+    gradle_invocations = 0
+    script_invocations = 0
+    schema_mode = "not-applicable"
+    task_count = len(request.gradle_tasks)
+
+    if scope == "protected-full":
+        full = request.protected_full
+        if full is None:
+            raise CIWError(_DOMAIN, "validation_plan_invalid")
+        run_gradle_tasks(
+            wrapper,
+            full.gradle_tasks,
+            operation="android.protected_full",
+            **common,
+        )
+        gradle_invocations = 1
+        task_count = len(full.gradle_tasks)
+        schema_mode = full.schema_mode
+        if full.schema_script is not None:
+            _execute_script(full.schema_script, project=project, environment=environment)
+            script_invocations = 1
+    elif scope == "targeted-unit":
         android_targeted_test(
             wrapper,
             request.gradle_tasks[0],
             request.targeted_test_selector,
             **common,
         )
-    elif scope == "gradle":
+        gradle_invocations = 1
+    elif scope == "script":
+        if request.script is None:
+            raise CIWError(_DOMAIN, "validation_plan_invalid")
+        _execute_script(request.script, project=project, environment=environment)
+        script_invocations = 1
+        task_count = 0
+    else:
         run_gradle_tasks(
             wrapper,
             request.gradle_tasks,
-            operation="android.gradle",
+            operation=f"android.{scope.replace('-', '_')}",
             **common,
         )
-    else:
-        script = _bounded_existing_file(
-            project, request.script_path, "script_path_invalid", executable=True
-        )
-        try:
-            process = run_process(
-                (str(script), *request.script_arguments),
-                cwd=project,
-                environment=environment,
-                timeout_seconds=120 * 60,
-            )
-        except RuntimePrimitiveError as error:
-            raise CIWError(_DOMAIN, "script_process_failed") from error
-        if process.timed_out:
-            raise CIWError(_DOMAIN, "script_timeout")
-        if process.returncode != 0:
-            raise CIWError(_DOMAIN, "script_failed")
+        gradle_invocations = 1
 
     android_execution.verify_exact_source(source, request.admitted_sha, context.environment)
     summary = json.dumps(
         {
+            "execution_model": "single-executor",
+            "gradle_invocations": gradle_invocations,
             "java_major": runtime.major,
             "private_dependency_used": request.private_dependency_used,
+            "schema_mode": schema_mode,
             "scope": scope,
+            "script_invocations": script_invocations,
             "status": "success",
-            "task_count": len(request.gradle_tasks),
+            "task_count": task_count,
         },
         sort_keys=True,
         separators=(",", ":"),
