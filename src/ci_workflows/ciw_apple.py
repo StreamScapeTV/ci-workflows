@@ -10,6 +10,7 @@ from typing import Mapping, Sequence
 
 from . import apple as apple_validation
 from . import apple_multistage
+from . import apple_plan_guard
 from .apple_contract_fragments import load_apple_contract
 from .apple_simulator_script import SimulatorLeaseArgumentRunner
 
@@ -160,8 +161,10 @@ def _protected_plan(
     contract: Mapping[str, object],
 ) -> apple_multistage.ProtectedApplePlan:
     environment = context.environment
+    raw_plan = environment.get("INPUT_VALIDATION_PLAN_JSON", "")
+    apple_plan_guard.validate_protected_full_plan_json(raw_plan)
     return apple_multistage.build_protected_full_plan(
-        environment.get("INPUT_VALIDATION_PLAN_JSON", ""),
+        raw_plan,
         repository=environment.get("GITHUB_REPOSITORY", ""),
         admitted_sha=environment.get("INPUT_ADMITTED_SHA", ""),
         source_trust=_source_trust(environment),
