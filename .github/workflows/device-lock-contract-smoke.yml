@@ -84,12 +84,18 @@ jobs:
           validation_root="${RUNNER_TEMP}/ciw-device-lock-validation-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           trap 'rm -rf -- "${validation_root}"' EXIT
           rm -rf -- "${validation_root}"
-          mkdir -p "${validation_root}/python"
+          mkdir "${validation_root}"
+          chmod 0700 "${validation_root}"
+          test "$(stat -c '%a' "${validation_root}")" = "700"
+          mkdir -p "${validation_root}/python" "${validation_root}/tmp"
+          chmod 0700 "${validation_root}/tmp"
+          test "$(stat -c '%a' "${validation_root}/tmp")" = "700"
           PYTHONDONTWRITEBYTECODE=1 python3 .ciw/scripts/ci/bootstrap_validation_runtime.py \
             --lock .ciw/contracts/action-tool-lock.json \
             --target "${validation_root}/python"
           test -f "${validation_root}/python/yaml/__init__.py"
-          PYTHONDONTWRITEBYTECODE=1 \
+          TMPDIR="${validation_root}/tmp" \
+            PYTHONDONTWRITEBYTECODE=1 \
             PYTHONPATH="${validation_root}/python:.ciw/src" \
             python3 -m unittest discover -s .ciw/tests -p 'test_device_lock*.py' -v
           rm -rf -- "${validation_root}"
