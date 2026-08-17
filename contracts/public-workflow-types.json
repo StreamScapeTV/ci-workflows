@@ -45,6 +45,8 @@
     "pr_number": {"type": "integer", "minimum": 1, "nullable": true},
     "request_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"},
     "validation_profile": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$"},
+    "validation_scope": {"type": "string", "enum": ["protected-full", "compile", "unit", "assemble", "lint", "targeted-unit", "gradle", "script"]},
+    "validation_plan_json": {"type": "json-object", "max_bytes": 16384},
     "consumer_contract": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$"},
     "change_base_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$", "nullable": true},
     "policy_script_profile": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$", "nullable": true},
@@ -62,6 +64,7 @@
     "public_environment": {"type": "json-object", "nullable": true},
     "artifact_exception_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$", "nullable": true},
     "private_dependency_contract_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$", "nullable": true},
+    "private_dependency_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$", "nullable": true},
     "private_dependency_repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", "nullable": true},
     "private_dependency_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$", "nullable": true},
     "private_dependency_subdirectory": {"type": "path", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$", "nullable": true},
@@ -173,6 +176,7 @@
     {"id": "issue-322-helm-publish", "api_name": "helm.publish", "kind": "technology-input-decoupling", "reason": "Replace central application product lookup with caller-owned chart paths and names.", "migration_issue": "#322", "effective_version": "2.0.0"},
     {"id": "issue-322-release", "api_name": "release.orchestrate", "kind": "technology-input-decoupling", "reason": "Use a caller-owned bounded release manifest instead of a central application release profile.", "migration_issue": "#322", "effective_version": "2.0.0"},
     {"id": "issue-322-flux-assets", "api_name": "flux.assets", "kind": "technology-input-decoupling", "reason": "Use a caller-owned bounded asset manifest instead of a central application product ID.", "migration_issue": "#322", "effective_version": "2.0.0"},
-    {"id": "issue-322-flux-reconcile", "api_name": "flux.reconcile", "kind": "technology-input-decoupling", "reason": "Keep Flux authorization capability-based without a central application product ID.", "migration_issue": "#322", "effective_version": "2.0.0"}
+    {"id": "issue-322-flux-reconcile", "api_name": "flux.reconcile", "kind": "technology-input-decoupling", "reason": "Keep Flux authorization capability-based without a central application product ID.", "migration_issue": "#322", "effective_version": "2.0.0"},
+    {"id": "issue-332-android", "api_name": "validation.android", "kind": "technology-input-decoupling", "reason": "Replace central Android product/task profiles with one caller-owned bounded validation plan.", "migration_issue": "#332", "effective_version": "2.0.0"}
   ]
 }
