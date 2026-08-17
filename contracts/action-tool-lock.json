@@ -94,10 +94,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-android",
-      "sha": "aef024030a7e96da74bb98b24bd67b532f289fc1",
-      "release": "issue #256 immutable Media lifecycle sentinel checkpoint",
+      "sha": "0b1be616b4a03891b6b31918001320f09726ed93",
+      "release": "issue #332 primitive-backed Android checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/aef024030a7e96da74bb98b24bd67b532f289fc1/actions/validate-android"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/0b1be616b4a03891b6b31918001320f09726ed93/actions/validate-android"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/checkout-private-dependency",

@@ -20,7 +20,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 | `release.orchestrate` `2.0.0` | `.github/workflows/reusable-release.yml` | `planned` | `trusted-publication` | Release / Verified outputs |
 | `release.tag-image-chart-bootstrap` `1.2.0` | `.github/workflows/reusable-tag-image-chart.yml` | `deprecated-bootstrap-exception` | `trusted-publication` | Release / Bootstrap image and chart |
 | `source.resolve` `1.0.0` | `.github/workflows/reusable-resolve-source.yml` | `implemented` | `source-admission` | Shared / Source admission |
-| `validation.android` `1.0.0` | `.github/workflows/reusable-android.yml` | `implemented` | `read-only-validation` | CI / Android validation |
+| `validation.android` `2.0.0` | `.github/workflows/reusable-android.yml` | `implemented` | `read-only-validation` | CI / Android validation |
 | `validation.apple` `1.0.0` | `.github/workflows/reusable-apple.yml` | `implemented` | `read-only-validation` | CI / Apple validation |
 | `validation.device` `1.0.0` | `.github/workflows/reusable-device.yml` | `implemented` | `physical-device-validation` | CI / Physical device validation |
 | `validation.flutter` `1.0.0` | `.github/workflows/reusable-flutter.yml` | `implemented` | `read-only-validation` | CI / Flutter validation |
@@ -130,10 +130,10 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 ### `validation.android`
 
 - Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
-- Inputs: `admitted_sha` (required), `validation_profile` (required), `task_profile` (required), `working_directory` (default `.`), `gradle_wrapper_path` (default `gradlew`), `targeted_test_selector`, `consumer_script_profile`, `private_dependency_contract_id`, `private_dependency_sha`, `artifact_exception_id`, `device_family`, `device_request_id`
+- Inputs: `admitted_sha` (required), `validation_scope` (required), `working_directory` (default `.`), `gradle_wrapper_path` (default `gradlew`), `gradle_tasks_json` (default `[]`), `targeted_test_selector` (default ``), `script_path` (default ``), `script_arguments_json` (default `[]`), `private_dependency_repository` (default ``), `private_dependency_sha` (default ``), `private_dependency_subdirectory` (default `.`), `private_dependency_id` (default ``)
 - Secrets: `private_dependency_token`
-- Outputs: `result`, `test_summary`, `artifact_exception_used`
-- Repository-owned hooks: `task_profile`, `consumer_script_profile`
+- Outputs: `result`, `test_summary`, `cleanup_result`
+- Repository-owned hooks: `gradle_tasks_json`, `script_path`, `script_arguments_json`
 
 ### `validation.apple`
 

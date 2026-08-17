@@ -130,12 +130,30 @@ class PublicApiContractTests(unittest.TestCase):
         baseline["outputs"].remove("resolved_inputs_json")
         self.assertEqual("compatible", contract.classify_change(baseline, current))
         acknowledgements = self.data.types["breaking_change_acknowledgements"]
-        self.assertEqual(7, len(acknowledgements))
+        self.assertEqual(8, len(acknowledgements))
+        by_api = {item["api_name"]: item for item in acknowledgements}
         self.assertEqual(
-            {"oci.build", "oci.publish", "helm.validate", "helm.publish", "release.orchestrate", "flux.assets", "flux.reconcile"},
-            {item["api_name"] for item in acknowledgements},
+            {
+                "oci.build",
+                "oci.publish",
+                "helm.validate",
+                "helm.publish",
+                "release.orchestrate",
+                "flux.assets",
+                "flux.reconcile",
+                "validation.android",
+            },
+            set(by_api),
         )
-        self.assertTrue(all(item["migration_issue"] == "#322" for item in acknowledgements))
+        self.assertTrue(
+            all(
+                item["migration_issue"] == "#322"
+                for api, item in by_api.items()
+                if api != "validation.android"
+            )
+        )
+        self.assertEqual("#332", by_api["validation.android"]["migration_issue"])
+        self.assertEqual("2.0.0", by_api["validation.android"]["effective_version"])
 
     def test_existing_bootstrap_workflow_matches_its_versioned_api_record(self) -> None:
         row = self.workflows["release.tag-image-chart-bootstrap"]
@@ -172,6 +190,7 @@ class PublicApiContractTests(unittest.TestCase):
         self.assertIn("`release_manifest_path` (required)", rendered)
         self.assertIn("`image_name` (required)", rendered)
         self.assertIn("`workflow_dispatch-existing-tag`", rendered)
+        self.assertIn("`validation_scope` (required)", rendered)
 
     def test_breaking_changes_fail_without_a_complete_acknowledgement(self) -> None:
         baseline = copy.deepcopy(self.workflows["validation.python"])
@@ -212,6 +231,7 @@ class PublicApiContractTests(unittest.TestCase):
             "request_id": "request-12345678",
             "pr_number": 1,
             "validation_profile": "default",
+            "validation_scope": "unit",
             "command_profile": "full",
             "platform": "ios",
             "device_family": "ios",
