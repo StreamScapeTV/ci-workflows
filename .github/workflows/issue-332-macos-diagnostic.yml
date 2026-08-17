@@ -33,7 +33,7 @@ jobs:
           set -Eeuo pipefail
           test "$(git -C .ciw rev-parse HEAD)" = "${CANDIDATE_SHA}"
 
-      - name: Resolve macOS JDK 25 and Android SDK 37
+      - name: Resolve macOS JDK 25 and mirror mobile Android SDK aliases
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -52,13 +52,13 @@ jobs:
               break
             fi
           done
-          if test -z "${java_home}"; then
+          test -n "${java_home}" || {
             echo "JDK 25 not found on macOS Android runner" >&2
             /usr/libexec/java_home -V 2>&1 || true
             exit 1
-          fi
+          }
 
-          sdk_root=""
+          real_sdk=""
           for candidate in \
             "${ANDROID_SDK_ROOT:-}" \
             "${ANDROID_HOME:-}" \
@@ -66,29 +66,33 @@ jobs:
             "/Users/mimranfaruqi/Library/Android/sdk" \
             "/opt/android-sdk"; do
             test -n "${candidate}" || continue
-            if test -f "${candidate}/platforms/android-37/android.jar" \
+            if test -f "${candidate}/platforms/android-37.0/android.jar" \
               && test -f "${candidate}/build-tools/37.0.0/aapt2"; then
-              sdk_root="${candidate}"
+              real_sdk="${candidate}"
               break
             fi
           done
-          if test -z "${sdk_root}"; then
-            echo "Android API 37 / Build Tools 37.0.0 not found on macOS Android runner" >&2
-            for root in "${runner_home}/Library/Android/sdk" "/Users/mimranfaruqi/Library/Android/sdk" "/opt/android-sdk"; do
-              test -d "${root}" || continue
-              echo "SDK candidate: ${root}" >&2
-              ls -1 "${root}/platforms" 2>/dev/null | tail -n 10 >&2 || true
-              ls -1 "${root}/build-tools" 2>/dev/null | tail -n 10 >&2 || true
-            done
+          test -n "${real_sdk}" || {
+            echo "Android platform 37.0 / Build Tools 37.0.0 not found on macOS Android runner" >&2
             exit 1
-          fi
+          }
+
+          overlay="${RUNNER_TEMP}/issue-332-android-sdk"
+          rm -rf "${overlay}"
+          mkdir -p "${overlay}/platforms" "${overlay}/build-tools"
+          ln -s "${real_sdk}/platforms/android-37.0" "${overlay}/platforms/android-37"
+          ln -s "${real_sdk}/build-tools/37.0.0" "${overlay}/build-tools/37.0.0"
+          test -f "${overlay}/platforms/android-37/android.jar"
+          test -f "${overlay}/build-tools/37.0.0/aapt2"
 
           echo "Resolved JDK 25: ${java_home}"
-          echo "Resolved Android SDK: ${sdk_root}"
+          echo "Resolved Android SDK source: ${real_sdk}"
+          echo "Diagnostic SDK overlay: ${overlay}"
           {
             echo "JAVA_HOME=${java_home}"
-            echo "ANDROID_HOME=${sdk_root}"
-            echo "ANDROID_SDK_ROOT=${sdk_root}"
+            echo "ANDROID_HOME=${overlay}"
+            echo "ANDROID_SDK_ROOT=${overlay}"
+            echo "ISSUE_332_SDK_OVERLAY=${overlay}"
           } >> "${GITHUB_ENV}"
 
       - id: plan
@@ -164,6 +168,21 @@ jobs:
             test -z "$(git -C source status --porcelain=v1 --untracked-files=all)"
           fi
 
+      - id: sdk_cleanup
+        name: Remove temporary Android SDK overlay
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if test -n "${ISSUE_332_SDK_OVERLAY:-}"; then
+            case "${ISSUE_332_SDK_OVERLAY}" in
+              "${RUNNER_TEMP}/issue-332-android-sdk") ;;
+              *) echo "Unexpected diagnostic SDK overlay path" >&2; exit 1 ;;
+            esac
+            rm -rf "${ISSUE_332_SDK_OVERLAY}"
+            test ! -e "${ISSUE_332_SDK_OVERLAY}"
+          fi
+
       - name: Project terminal macOS Android diagnostic status
         if: always()
         shell: bash
@@ -174,6 +193,7 @@ jobs:
           RESIDUE_OUTCOME: ${{ steps.residue.outcome }}
           WORKSPACE_CLEANUP_OUTCOME: ${{ steps.workspace_cleanup.outcome }}
           CLEAN_OUTCOME: ${{ steps.clean.outcome }}
+          SDK_CLEANUP_OUTCOME: ${{ steps.sdk_cleanup.outcome }}
         run: |
           set -Eeuo pipefail
           test "${PLAN_OUTCOME}" = success
@@ -182,3 +202,4 @@ jobs:
           test "${RESIDUE_OUTCOME}" = success
           test "${WORKSPACE_CLEANUP_OUTCOME}" = success
           test "${CLEAN_OUTCOME}" = success
+          test "${SDK_CLEANUP_OUTCOME}" = success
