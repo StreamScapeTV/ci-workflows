@@ -1,65 +1,44 @@
-"""Validation and typed loading for device profile/evidence contracts."""
+"""Validation and typed loading for the generic physical-device contract."""
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Any, Mapping
 
 from .device_contract_common import (
-    ALIAS,
-    CAPABILITY,
     EVIDENCE_CONTRACT_PATH,
-    IDENTIFIER,
     PROFILE_CONTRACT_PATH,
-    REPOSITORY,
     REQUEST_ID,
     RUN_ID,
     _read_json,
     require,
-    safe_relative,
     strings,
     version_tuple,
 )
-from .device_types import DeviceCommandProfile, DeviceFamily, DeviceProfile
+from .device_types import DeviceCommandProfile, DeviceFamily, DeviceProfile, DeviceRequest
 
-PROFILE_KEYS = {
-    "repositories",
-    "products",
-    "family",
-    "capabilities",
+POLICY_KEYS = {
     "models",
     "version_policy",
-    "aliases",
     "selection_policy",
-    "base_runner_profile",
-    "workspace_profile",
-    "command_profile",
+    "allowed_host_capacities",
+    "workspace_profiles",
     "timeout_minutes",
     "artifact_exception_ids",
-    "live_backend_profiles",
-    "synthetic_only",
     "connection_states",
     "health_states",
-}
-COMMAND_KEYS = {
-    "prepare_script",
-    "test_script",
-    "evidence_script",
-    "cleanup_script",
-    "fixed_arguments",
-    "live_backend_profile",
-    "state_restoration",
 }
 REQUIRED_FORBIDDEN_INPUTS = {
     "arbitrary_command",
     "arguments",
     "callback",
     "command",
+    "command_profile",
     "concurrency_group",
     "cancel_in_progress",
     "database_url",
     "deletion_path",
     "deployment",
+    "device_alias",
     "device_identifier",
     "device_selector",
     "environment_dump",
@@ -77,6 +56,7 @@ REQUIRED_FORBIDDEN_INPUTS = {
     "runner",
     "runner_labels",
     "runs_on",
+    "script_path",
     "secret_name",
     "serial",
     "shell",
@@ -89,81 +69,16 @@ REQUIRED_FORBIDDEN_INPUTS = {
 }
 
 
-def _validate_command_profiles(contract: Mapping[str, Any]) -> None:
-    profiles = contract.get("command_profiles")
-    require(isinstance(profiles, Mapping) and profiles, "invalid_input")
-    for profile_id, raw in profiles.items():
-        require(
-            isinstance(profile_id, str)
-            and IDENTIFIER.fullmatch(profile_id) is not None
-            and isinstance(raw, Mapping)
-            and set(raw) == COMMAND_KEYS,
-            "command_profile_rejected",
-        )
-        for field in (
-            "prepare_script",
-            "test_script",
-            "evidence_script",
-            "cleanup_script",
-        ):
-            safe_relative(raw.get(field), "command_profile_rejected")
-        arguments = strings(
-            raw.get("fixed_arguments"),
-            unique=False,
-            code="command_profile_rejected",
-        )
-        require(
-            len(arguments) <= 16
-            and all(
-                len(item) <= 128
-                and "\n" not in item
-                and "\r" not in item
-                and re.search(r"[;&|`$<>]", item) is None
-                for item in arguments
-            ),
-            "command_profile_rejected",
-        )
-        backend = raw.get("live_backend_profile")
-        require(
-            backend is None
-            or (
-                isinstance(backend, str)
-                and IDENTIFIER.fullmatch(backend) is not None
-            ),
-            "live_backend_rejected",
-        )
-        strings(raw.get("state_restoration"), nonempty=True)
-
-
-def _validate_profile(
-    profile_id: str,
+def _validate_family_policy(
+    family: DeviceFamily,
     raw: Mapping[str, Any],
     contract: Mapping[str, Any],
 ) -> None:
-    require(
-        IDENTIFIER.fullmatch(profile_id) is not None and set(raw) == PROFILE_KEYS,
-        "device_profile_rejected",
-    )
-    repositories = strings(raw.get("repositories"), nonempty=True)
-    require(
-        all(REPOSITORY.fullmatch(value) is not None for value in repositories),
-        "device_profile_rejected",
-    )
-    strings(raw.get("products"), nonempty=True)
-    require(
-        raw.get("family") in {item.value for item in DeviceFamily},
-        "unsupported_family",
-    )
-    capabilities = strings(raw.get("capabilities"), nonempty=True)
-    require(
-        all(CAPABILITY.fullmatch(value) is not None for value in capabilities),
-        "device_profile_rejected",
-    )
-    strings(raw.get("models"), nonempty=True)
+    require(set(raw) == POLICY_KEYS, "device_profile_rejected")
+    strings(raw.get("models"), nonempty=True, code="device_profile_rejected")
     policy = raw.get("version_policy")
     require(isinstance(policy, Mapping) and policy, "device_profile_rejected")
-    family = str(raw["family"])
-    if family == "android":
+    if family is DeviceFamily.ANDROID:
         require(set(policy) == {"api_min", "api_max"}, "device_profile_rejected")
         require(
             isinstance(policy["api_min"], int)
@@ -178,56 +93,46 @@ def _validate_profile(
             <= version_tuple(str(policy["os_max"])),
             "device_profile_rejected",
         )
-    aliases = raw.get("aliases")
-    require(isinstance(aliases, Mapping) and aliases, "device_profile_rejected")
-    require(
-        all(
-            isinstance(alias, str)
-            and ALIAS.fullmatch(alias) is not None
-            and isinstance(alias_class, str)
-            and ALIAS.fullmatch(alias_class) is not None
-            for alias, alias_class in aliases.items()
-        ),
-        "device_profile_rejected",
-    )
+
     require(
         raw.get("selection_policy") in {"unique", "identity-hash"},
         "device_profile_rejected",
     )
-    expected_base = "mobile" if family == "android" else "apple"
+    capacities = strings(
+        raw.get("allowed_host_capacities"),
+        nonempty=True,
+        code="device_profile_rejected",
+    )
+    require(set(capacities) <= {"mobile", "apple"}, "device_profile_rejected")
+    if family is DeviceFamily.ANDROID:
+        require(set(capacities) == {"mobile", "apple"}, "device_profile_rejected")
+    else:
+        require(capacities == ["apple"], "device_profile_rejected")
+
+    workspaces = raw.get("workspace_profiles")
     require(
-        raw.get("base_runner_profile") == expected_base,
+        isinstance(workspaces, Mapping)
+        and set(workspaces) == set(capacities)
+        and all(value in {"native", "apple"} for value in workspaces.values()),
         "device_profile_rejected",
     )
     require(
-        raw.get("workspace_profile") in {"native", "apple"},
+        workspaces.get("apple", "apple") == "apple"
+        and (family is not DeviceFamily.ANDROID or workspaces.get("mobile") == "native"),
         "device_profile_rejected",
-    )
-    require(
-        raw.get("command_profile") in contract["command_profiles"],
-        "command_profile_rejected",
     )
     require(
         isinstance(raw.get("timeout_minutes"), int)
-        and 1 <= raw["timeout_minutes"] <= contract["hard_timeout_minutes"],
+        and 1 <= int(raw["timeout_minutes"]) <= int(contract["hard_timeout_minutes"]),
         "device_profile_rejected",
     )
     require(
-        set(strings(raw.get("artifact_exception_ids")))
+        set(strings(raw.get("artifact_exception_ids"), code="artifact_exception_rejected"))
         <= set(contract["artifact_exceptions"]),
         "artifact_exception_rejected",
     )
-    require(
-        set(strings(raw.get("live_backend_profiles")))
-        <= set(contract["live_backend_profiles"]),
-        "live_backend_rejected",
-    )
-    require(
-        isinstance(raw.get("synthetic_only"), bool),
-        "device_profile_rejected",
-    )
-    strings(raw.get("connection_states"), nonempty=True)
-    strings(raw.get("health_states"), nonempty=True)
+    strings(raw.get("connection_states"), nonempty=True, code="device_profile_rejected")
+    strings(raw.get("health_states"), nonempty=True, code="device_profile_rejected")
 
 
 def load_device_contract(root: Path) -> Mapping[str, Any]:
@@ -242,7 +147,7 @@ def load_device_contract(root: Path) -> Mapping[str, Any]:
         )
         == (
             1,
-            "1.1.0",
+            "2.0.0",
             "StreamScapeTV",
             "validation.device",
             "CI / Physical device validation",
@@ -256,26 +161,24 @@ def load_device_contract(root: Path) -> Mapping[str, Any]:
     )
     require(contract.get("hard_timeout_minutes") == 240, "invalid_input")
     require(contract.get("artifact_policy") == "zero-default", "invalid_input")
-    require(
-        contract.get("request_id_regex") == REQUEST_ID.pattern,
-        "request_identity_rejected",
-    )
-    require(
-        contract.get("run_id_regex") == RUN_ID.pattern,
-        "request_identity_rejected",
-    )
+    require(contract.get("request_id_regex") == REQUEST_ID.pattern, "request_identity_rejected")
+    require(contract.get("run_id_regex") == RUN_ID.pattern, "request_identity_rejected")
     require(
         set(strings(contract.get("public_inputs"), nonempty=True))
         == {
             "admitted_sha",
-            "command_profile",
-            "device_alias",
+            "arguments_json",
+            "cleanup_script_path",
             "device_capability",
             "device_family",
+            "environment_json",
             "evidence_exception_id",
+            "evidence_script_path",
+            "host_capacity",
             "max_duration_minutes",
+            "prepare_script_path",
             "request_id",
-            "script_path",
+            "test_script_path",
         },
         "invalid_input",
     )
@@ -286,7 +189,7 @@ def load_device_contract(root: Path) -> Mapping[str, Any]:
     )
     require(
         strings(contract.get("public_secrets"), nonempty=True)
-        == ["device_authorization_receipt", "live_test_credentials"],
+        == ["device_authorization_receipt"],
         "invalid_input",
     )
     require(
@@ -295,9 +198,14 @@ def load_device_contract(root: Path) -> Mapping[str, Any]:
         "unsupported_family",
     )
     require(
-        REQUIRED_FORBIDDEN_INPUTS
-        <= set(strings(contract.get("forbidden_inputs"), nonempty=True)),
+        REQUIRED_FORBIDDEN_INPUTS <= set(strings(contract.get("forbidden_inputs"), nonempty=True)),
         "forbidden_input",
+    )
+    require(
+        "profiles" not in contract
+        and "command_profiles" not in contract
+        and "live_backend_profiles" not in contract,
+        "device_profile_rejected",
     )
     serialization = contract.get("serialization_contract")
     require(
@@ -306,8 +214,7 @@ def load_device_contract(root: Path) -> Mapping[str, Any]:
         and serialization.get("cancel_in_progress") is False
         and serialization.get("caller_override") is False
         and serialization.get("fencing_token") is True
-        and serialization.get("group_scope")
-        == ["device_profile", "device_family", "alias_class"],
+        and serialization.get("group_scope") == ["device_family", "device_capability", "host_capacity"],
         "group_injection_rejected",
     )
     authorization = contract.get("owner_authorization")
@@ -322,30 +229,23 @@ def load_device_contract(root: Path) -> Mapping[str, Any]:
     lock = contract.get("lock_contract")
     require(
         isinstance(lock, Mapping)
-        and lock.get("production_adapter")
-        == "device-lock/1:posix-shared-root-v1"
+        and lock.get("production_adapter") == "device-lock/1:posix-shared-root-v1"
         and lock.get("temporary_reference_adapter") == "in-memory-tests-only"
         and lock.get("cross_run_fencing_claimed") is True
         and lock.get("agent_state_transport_used") is False,
         "invalid_input",
     )
-    _validate_command_profiles(contract)
+    require(isinstance(contract.get("artifact_exceptions"), Mapping), "invalid_input")
+    policies = contract.get("family_policies")
     require(
-        isinstance(contract.get("artifact_exceptions"), Mapping),
-        "invalid_input",
-    )
-    require(
-        isinstance(contract.get("live_backend_profiles"), Mapping),
-        "invalid_input",
-    )
-    profiles = contract.get("profiles")
-    require(
-        isinstance(profiles, Mapping) and profiles,
+        isinstance(policies, Mapping)
+        and set(policies) == {item.value for item in DeviceFamily},
         "device_profile_rejected",
     )
-    for profile_id, raw in profiles.items():
+    for family in DeviceFamily:
+        raw = policies[family.value]
         require(isinstance(raw, Mapping), "device_profile_rejected")
-        _validate_profile(str(profile_id), raw, contract)
+        _validate_family_policy(family, raw, contract)
     require(
         isinstance(contract.get("cleanup"), Mapping)
         and all(value is True for value in contract["cleanup"].values()),
@@ -361,8 +261,7 @@ def load_evidence_contract(root: Path) -> Mapping[str, Any]:
             contract.get("schema_version"),
             contract.get("contract_version"),
             contract.get("packet_version"),
-        )
-        == (1, "1.1.0", "device-evidence/1"),
+        ) == (1, "1.1.0", "device-evidence/1"),
         "evidence_policy_failed",
     )
     required = set(strings(contract.get("required_fields"), nonempty=True))
@@ -374,11 +273,7 @@ def load_evidence_contract(root: Path) -> Mapping[str, Any]:
         "evidence_policy_failed",
     )
     strings(contract.get("required_limitations"), nonempty=True)
-    assertions = strings(
-        contract.get("allowed_assertions"),
-        nonempty=True,
-        code="evidence_policy_failed",
-    )
+    assertions = strings(contract.get("allowed_assertions"), nonempty=True, code="evidence_policy_failed")
     require(
         assertions == sorted(assertions)
         and len(assertions) <= int(contract["maximum_assertions"]),
@@ -387,48 +282,39 @@ def load_evidence_contract(root: Path) -> Mapping[str, Any]:
     return contract
 
 
-def _command_profile(
-    profile_id: str,
-    raw: Mapping[str, Any],
-) -> DeviceCommandProfile:
-    return DeviceCommandProfile(
-        profile_id=profile_id,
-        prepare_script=str(raw["prepare_script"]),
-        test_script=str(raw["test_script"]),
-        evidence_script=str(raw["evidence_script"]),
-        cleanup_script=str(raw["cleanup_script"]),
-        fixed_arguments=tuple(raw["fixed_arguments"]),
-        live_backend_profile=raw["live_backend_profile"],
-        state_restoration=tuple(raw["state_restoration"]),
+def profile_for_request(contract: Mapping[str, Any], request: DeviceRequest) -> DeviceProfile:
+    """Combine one generic family policy with caller-owned bounded command data."""
+
+    raw = contract["family_policies"][request.family.value]
+    capacities = tuple(raw["allowed_host_capacities"])
+    require(request.host_capacity in capacities, "device_profile_rejected")
+    workspace_profile = str(raw["workspace_profiles"][request.host_capacity])
+    command_profile = DeviceCommandProfile(
+        profile_id="caller-plan",
+        prepare_script=request.prepare_script_path,
+        test_script=request.test_script_path,
+        evidence_script=request.evidence_script_path,
+        cleanup_script=request.cleanup_script_path,
+        fixed_arguments=request.arguments,
+        environment=dict(request.environment),
+        state_restoration=(
+            "caller-cleanup-script",
+            "central-device-state",
+            "production-lock-release",
+        ),
     )
-
-
-def _profile(
-    profile_id: str,
-    raw: Mapping[str, Any],
-    contract: Mapping[str, Any],
-) -> DeviceProfile:
-    command_id = str(raw["command_profile"])
     return DeviceProfile(
-        profile_id=profile_id,
-        repositories=tuple(raw["repositories"]),
-        products=tuple(raw["products"]),
-        family=DeviceFamily(raw["family"]),
-        capabilities=tuple(raw["capabilities"]),
+        profile_id=request.family.value,
+        family=request.family,
         models=tuple(raw["models"]),
         version_policy=dict(raw["version_policy"]),
-        aliases=dict(raw["aliases"]),
         selection_policy=str(raw["selection_policy"]),
-        base_runner_profile=str(raw["base_runner_profile"]),
-        workspace_profile=str(raw["workspace_profile"]),
-        command_profile=_command_profile(
-            command_id,
-            contract["command_profiles"][command_id],
-        ),
+        base_runner_profile=request.host_capacity,
+        workspace_profile=workspace_profile,
+        command_profile=command_profile,
         timeout_minutes=int(raw["timeout_minutes"]),
         artifact_exception_ids=tuple(raw["artifact_exception_ids"]),
-        live_backend_profiles=tuple(raw["live_backend_profiles"]),
-        synthetic_only=bool(raw["synthetic_only"]),
+        synthetic_only=request.source_trust == "trusted-pr",
         connection_states=tuple(raw["connection_states"]),
         health_states=tuple(raw["health_states"]),
     )

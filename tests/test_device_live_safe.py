@@ -9,16 +9,14 @@ from device_test_support import ROOT, real_environment
 
 
 class LiveDeviceSafetyTests(unittest.TestCase):
-    def test_product_environment_does_not_receive_central_authority_material(self) -> None:
+    def test_product_environment_is_secret_minimized_and_merges_only_validated_caller_env(self) -> None:
         contract = load_device_contract(ROOT)
         environment = real_environment(
-            repository="StreamScapeTV/iptv-android",
+            repository="StreamScapeTV/streamscape-media",
             family="android",
-            capability="instrumentation",
-            command_profile="iptv-android-device",
-            script_path="build.sh",
-            alias="acceptance-primary",
-            secret=True,
+            capability="vlc",
+            host_capacity="apple",
+            caller_environment={"STREAMSCAPE_VLC_PACKET": "all"},
         )
         environment.update(
             {
@@ -29,8 +27,9 @@ class LiveDeviceSafetyTests(unittest.TestCase):
                 "INPUT_RESOURCE_LOCK_RECEIPT": "public-action-lock-secret",
                 "CHECKOUT_TOKEN": "checkout-secret",
                 "GITHUB_TOKEN": "github-secret",
+                "UNRELATED_SECRET": "should-not-pass",
                 "PATH": "/usr/bin",
-                "CIW_DEVICE_LIVE_TEST_CREDENTIALS": "reviewed-live-secret",
+                "HOME": "/runner/home",
             }
         )
         plan = build_plan(contract, request_from_environment(environment, contract))
@@ -40,7 +39,7 @@ class LiveDeviceSafetyTests(unittest.TestCase):
             model_class="phone",
             connection_class="usb",
             os_or_api="api-37",
-            capabilities=("instrumentation",),
+            capabilities=("vlc",),
             _raw_identifier="private-device-identifier",
         )
 
@@ -57,13 +56,15 @@ class LiveDeviceSafetyTests(unittest.TestCase):
             "INPUT_RESOURCE_LOCK_RECEIPT",
             "CHECKOUT_TOKEN",
             "GITHUB_TOKEN",
+            "UNRELATED_SECRET",
         ):
             self.assertNotIn(key, product)
         self.assertEqual("/usr/bin", product["PATH"])
-        self.assertEqual(
-            "reviewed-live-secret",
-            product["CIW_DEVICE_LIVE_TEST_CREDENTIALS"],
-        )
+        self.assertEqual("/runner/home", product["HOME"])
+        self.assertEqual("all", product["STREAMSCAPE_VLC_PACKET"])
+        self.assertEqual("apple", product["CIW_DEVICE_HOST_CAPACITY"])
+        self.assertEqual("vlc", product["CIW_DEVICE_CAPABILITY"])
+        self.assertEqual("private-device-identifier", product["CIW_DEVICE_IDENTIFIER"])
         self.assertEqual("private-device-identifier", product["ANDROID_SERIAL"])
 
 

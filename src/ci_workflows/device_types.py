@@ -33,9 +33,13 @@ class DeviceRequest:
     admitted_sha: str
     family: DeviceFamily
     capability: str
-    device_alias: str
-    command_profile: str
-    script_path: str
+    host_capacity: str
+    prepare_script_path: str
+    test_script_path: str
+    evidence_script_path: str
+    cleanup_script_path: str
+    arguments: tuple[str, ...]
+    environment: Mapping[str, str]
     max_duration_minutes: int
     evidence_exception_id: str | None
     request_id: str
@@ -43,39 +47,41 @@ class DeviceRequest:
     source_trust: str
     event_name: str
     run_id: str
-    live_backend_secret_present: bool = False
     authorization_receipt_present: bool = False
 
 
 @dataclass(frozen=True, slots=True)
 class DeviceCommandProfile:
+    """Validated caller-owned checked-in command plan.
+
+    The historic class name remains internal compatibility only. ``profile_id``
+    is always ``caller-plan`` and never selects a product or repository.
+    """
+
     profile_id: str
     prepare_script: str
     test_script: str
     evidence_script: str
     cleanup_script: str
     fixed_arguments: tuple[str, ...]
-    live_backend_profile: str | None
+    environment: Mapping[str, str]
     state_restoration: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
 class DeviceProfile:
+    """Generic family policy combined with one semantic host-capacity request."""
+
     profile_id: str
-    repositories: tuple[str, ...]
-    products: tuple[str, ...]
     family: DeviceFamily
-    capabilities: tuple[str, ...]
     models: tuple[str, ...]
     version_policy: Mapping[str, object]
-    aliases: Mapping[str, str]
     selection_policy: str
     base_runner_profile: str
     workspace_profile: str
     command_profile: DeviceCommandProfile
     timeout_minutes: int
     artifact_exception_ids: tuple[str, ...]
-    live_backend_profiles: tuple[str, ...]
     synthetic_only: bool
     connection_states: tuple[str, ...]
     health_states: tuple[str, ...]
@@ -120,7 +126,6 @@ class SelectedDevice:
 class DevicePlan:
     request: DeviceRequest
     profile: DeviceProfile
-    alias_class: str
     execution_authorized: bool
     authorization_failure: str
     planner_runner_profile: str
@@ -131,8 +136,16 @@ class DevicePlan:
     def packet(self, *, runs_on_json: str) -> dict[str, object]:
         """Return the complete bounded plan passed from planner to executor."""
 
+        command_plan = {
+            "prepare_script_path": self.request.prepare_script_path,
+            "test_script_path": self.request.test_script_path,
+            "evidence_script_path": self.request.evidence_script_path,
+            "cleanup_script_path": self.request.cleanup_script_path,
+            "arguments": list(self.request.arguments),
+            "environment": dict(sorted(self.request.environment.items())),
+        }
         return {
-            "packet_version": "device-plan/1",
+            "packet_version": "device-plan/2",
             "repository": self.request.repository,
             "admitted_sha": self.request.admitted_sha,
             "source_trust": self.request.source_trust,
@@ -142,18 +155,14 @@ class DevicePlan:
             "issue_number": self.request.issue_number,
             "device_family": self.request.family.value,
             "device_capability": self.request.capability,
-            "device_alias": self.request.device_alias,
-            "alias_class": self.alias_class,
-            "device_profile": self.profile.profile_id,
-            "command_profile": self.profile.command_profile.profile_id,
-            "script_path": self.request.script_path,
+            "host_capacity": self.request.host_capacity,
+            "command_plan": command_plan,
             "max_duration_minutes": min(
                 self.request.max_duration_minutes, self.profile.timeout_minutes
             ),
             "evidence_exception_id": self.request.evidence_exception_id or "",
             "planner_runner_profile": self.planner_runner_profile,
             "execution_overlay_profile": self.execution_overlay_profile,
-            "base_runner_profile": self.profile.base_runner_profile,
             "runs_on_json": runs_on_json,
             "workspace_profile": self.profile.workspace_profile,
             "serialization_backend": self.serialization_backend,
@@ -169,10 +178,10 @@ class DevicePlan:
         packet_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
         summary = canonical_json(
             {
-                "alias_class": self.alias_class,
+                "device_capability": self.request.capability,
                 "device_family": self.request.family.value,
-                "device_profile": self.profile.profile_id,
                 "execution_authorized": self.execution_authorized,
+                "host_capacity": self.request.host_capacity,
                 "status": "planned",
             }
         )
@@ -184,7 +193,7 @@ class DevicePlan:
             "device_evidence_id": "",
             "artifact_exception_used": "false",
             "runner_profile": self.execution_overlay_profile,
-            "base_runner_profile": self.profile.base_runner_profile,
+            "host_capacity": self.request.host_capacity,
             "runs_on_json": runs_on_json,
             "workspace_profile": self.profile.workspace_profile,
             "timeout_minutes": str(packet["max_duration_minutes"]),
