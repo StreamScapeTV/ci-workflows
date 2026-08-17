@@ -138,6 +138,8 @@
       "stable_check_name": "CI / Android unsigned release validation",
       "timeout_minutes": 120,
       "matrix_max_jobs": 1,
+      "artifact_policy": "bounded-evidence",
+      "artifact_retention_max_days": 7,
       "repository_owned_hooks": ["validation_plan_json"],
       "implementation_components": ["ci_workflows.ciw_android_completion.execute_android_release_validate", "actions/validate-android-release"]
     },
