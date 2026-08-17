@@ -1,0 +1,311 @@
+name: Issue 338 Central contract fix v2
+
+on:
+  push:
+    branches:
+      - agent1/issue-338-android-live-release
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: ${{ github.event.head_commit.message == '[#338] Run Central contract fixes' }}
+    runs-on: [linux, amd64, general, small]
+    timeout-minutes: 40
+    steps:
+      - name: Check out exact fix source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Apply bounded Central contract fixes locally
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import re
+          from pathlib import Path
+
+          LIVE_ACTION = 'StreamScapeTV/ci-workflows/actions/validate-android-live-service'
+          RELEASE_ACTION = 'StreamScapeTV/ci-workflows/actions/validate-android-release'
+          FOUNDATION_SHA = '70e08d4ddf8930046632a7135950e924b82e22bf'
+          COMPLETION_SHA = '2ecbe22ac6d10aa25d79bc046cc205e4df1e08cc'
+
+          def read(path: str) -> str:
+              return Path(path).read_text(encoding='utf-8')
+
+          def write(path: str, text: str) -> None:
+              Path(path).write_text(text, encoding='utf-8')
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              text = read(path)
+              if old not in text:
+                  raise SystemExit(f'expected replacement anchor missing: {path}: {old[:80]!r}')
+              write(path, text.replace(old, new, 1))
+
+          def pin_comments(path: str, action: str, sha: str, comment: str) -> None:
+              text = read(path)
+              pattern = re.compile(
+                  rf'(?m)^(\s*uses:\s*{re.escape(action)}@{re.escape(sha)})(?:\s+#.*)?$'
+              )
+              text, count = pattern.subn(rf'\1 # {comment}', text)
+              if count == 0:
+                  raise SystemExit(f'no action references updated: {path}: {action}')
+              write(path, text)
+
+          live_path = '.github/workflows/reusable-android-live-service.yml'
+          release_path = '.github/workflows/reusable-android-release.yml'
+
+          replace_once(
+              live_path,
+              '      - id: plan\n        uses:',
+              '      - id: plan\n        name: Resolve bounded Android live-service plan\n        uses:',
+          )
+          replace_once(
+              release_path,
+              '      - id: plan\n        uses:',
+              '      - id: plan\n        name: Resolve bounded unsigned Android release plan\n        uses:',
+          )
+
+          for path, action in ((live_path, LIVE_ACTION), (release_path, RELEASE_ACTION)):
+              pin_comments(path, action, COMPLETION_SHA, 'issue #338 Android completion checkpoint')
+              pin_comments(
+                  path,
+                  'StreamScapeTV/ci-workflows/actions/exact-checkout',
+                  FOUNDATION_SHA,
+                  'issue #116 immutable private-action checkpoint',
+              )
+              pin_comments(
+                  path,
+                  'StreamScapeTV/ci-workflows/actions/prepare-workspace',
+                  FOUNDATION_SHA,
+                  'issue #116 immutable private-action checkpoint',
+              )
+              pin_comments(
+                  path,
+                  'StreamScapeTV/ci-workflows/actions/checkout-private-dependency',
+                  FOUNDATION_SHA,
+                  'issue #104 immutable private-action checkpoint',
+              )
+              pin_comments(
+                  path,
+                  'StreamScapeTV/ci-workflows/actions/cleanup-workspace',
+                  FOUNDATION_SHA,
+                  'issue #116 immutable private-action checkpoint',
+              )
+
+          replace_once(
+              '.github/workflows/android-completion-smoke.yml',
+              'test "$(git -C .ciw rev-parse HEAD)" = "${EXPECTED_SHA}"',
+              'test "$(cd .ciw && git rev-parse HEAD)" = "${EXPECTED_SHA}"',
+          )
+
+          replace_once(
+              'src/ci_workflows/ciw_android_completion.py',
+              'not 1 <= retention <= 30',
+              'not 1 <= retention <= 7',
+          )
+          replace_once(
+              'tests/test_android_completion.py',
+              'release_json(retention=31)',
+              'release_json(retention=8)',
+          )
+
+          fragment_path = 'contracts/public-workflows/validation.json'
+          replace_once(
+              fragment_path,
+              '      "matrix_max_jobs": 1,\n      "repository_owned_hooks": ["validation_plan_json"],\n      "implementation_components": ["ci_workflows.ciw_android_completion.execute_android_release_validate", "actions/validate-android-release"]',
+              '      "matrix_max_jobs": 1,\n      "artifact_policy": "bounded-evidence",\n      "artifact_retention_max_days": 7,\n      "repository_owned_hooks": ["validation_plan_json"],\n      "implementation_components": ["ci_workflows.ciw_android_completion.execute_android_release_validate", "actions/validate-android-release"]',
+          )
+
+          public_path = 'src/ci_workflows/public_api_contract.py'
+          replace_once(
+              public_path,
+              '        require(isinstance(matrix, int) and 1 <= matrix <= 16, f"{api} matrix maximum is invalid")\n        depth = row.get("max_reusable_workflow_depth", 1)',
+              '        require(isinstance(matrix, int) and 1 <= matrix <= 16, f"{api} matrix maximum is invalid")\n        artifact_policy = row.get("artifact_policy", "zero-default")\n        require(artifact_policy in {"zero-default", "bounded-evidence"}, f"{api} artifact policy is invalid")\n        if artifact_policy == "bounded-evidence":\n            retention_max = row.get("artifact_retention_max_days")\n            require(type(retention_max) is int and 1 <= retention_max <= 7, f"{api} artifact retention maximum is invalid")\n            require("artifact_manifest_json" in outputs, f"{api} bounded artifact policy requires artifact_manifest_json output")\n        else:\n            require("artifact_retention_max_days" not in row, f"{api} zero-artifact policy may not declare artifact retention")\n        depth = row.get("max_reusable_workflow_depth", 1)',
+          )
+
+          policy_path = 'src/ci_workflows/validation_policy.py'
+          old = '''            if isinstance(uses, str) and uses.startswith(\n                "actions/upload-artifact@"\n            ):\n                retention = (\n                    step.get("with", {}).get("retention-days")\n                    if isinstance(step.get("with"), Mapping)\n                    else None\n                )\n                _finding(\n                    findings,\n                    config,\n                    "unregistered-artifact",\n                    path,\n                    "routine workflow artifact upload is forbidden",\n                )\n                if not isinstance(retention, int) or retention > 7:\n                    _finding(\n                        findings,\n                        config,\n                        "excessive-artifact-retention",\n                        path,\n                        "artifact retention must be explicit and no more than "\n                        "seven days",\n                    )\n'''
+          new = '''            if isinstance(uses, str) and uses.startswith(\n                "actions/upload-artifact@"\n            ):\n                retention = (\n                    step.get("with", {}).get("retention-days")\n                    if isinstance(step.get("with"), Mapping)\n                    else None\n                )\n                record = public_contract.records_by_file.get(path)\n                artifact_policy = (\n                    str(record.get("artifact_policy", "zero-default"))\n                    if record is not None\n                    else "zero-default"\n                )\n                retention_limit = (\n                    record.get("artifact_retention_max_days")\n                    if record is not None\n                    else None\n                )\n                registered = (\n                    artifact_policy == "bounded-evidence"\n                    and type(retention_limit) is int\n                    and 1 <= retention_limit <= 7\n                )\n                if not registered:\n                    _finding(\n                        findings,\n                        config,\n                        "unregistered-artifact",\n                        path,\n                        "routine workflow artifact upload is forbidden",\n                    )\n                if type(retention) is int:\n                    retention_valid = (\n                        1 <= retention <= 7\n                        and (not registered or retention <= retention_limit)\n                    )\n                else:\n                    retention_valid = (\n                        registered\n                        and isinstance(retention, str)\n                        and retention.startswith("$" + "{{")\n                    )\n                if not retention_valid:\n                    _finding(\n                        findings,\n                        config,\n                        "excessive-artifact-retention",\n                        path,\n                        "artifact retention must be explicit and no more than "\n                        "seven days",\n                    )\n'''
+          replace_once(policy_path, old, new)
+
+          public_test_path = 'tests/test_public_api_contract.py'
+          replace_once(
+              public_test_path,
+              '        self.assertEqual(["private_dependency_token"], release["secrets"])\n        self.assertEqual(\n            {"type": "json-array", "nullable": True},',
+              '        self.assertEqual(["private_dependency_token"], release["secrets"])\n        self.assertEqual("bounded-evidence", release["artifact_policy"])\n        self.assertEqual(7, release["artifact_retention_max_days"])\n        for api, row in self.workflows.items():\n            if api != "validation.android-release":\n                self.assertNotIn("artifact_policy", row)\n                self.assertNotIn("artifact_retention_max_days", row)\n        self.assertEqual(\n            {"type": "json-array", "nullable": True},',
+          )
+
+          harness_test_path = 'tests/test_validation_harness.py'
+          marker = '    def test_public_contract_shape_permissions_components_and_docs_drift(self) -> None:\n'
+          harness = read(harness_test_path)
+          if marker not in harness:
+              raise SystemExit('validation harness insertion marker missing')
+          dynamic_retention = '$' + '{{ 7 }}'
+          method = f'''    def test_registered_bounded_artifact_policy_allows_dynamic_retention(self) -> None:\n        upload_sha = "c" * 40\n        lock_path = self.root / "contracts/action-tool-lock.json"\n        lock = json.loads(lock_path.read_text(encoding="utf-8"))\n        lock["third_party_actions"].append(\n            {{\n                "uses": "actions/upload-artifact",\n                "sha": upload_sha,\n                "release": "v4.6.2",\n                "runtime": "node20",\n            }}\n        )\n        write_json(lock_path, lock)\n\n        fragment_path = self.root / "contracts/public-workflows/validation.json"\n        fragment = json.loads(fragment_path.read_text(encoding="utf-8"))\n        record = fragment["workflows"][0]\n        record["artifact_policy"] = "bounded-evidence"\n        record["artifact_retention_max_days"] = 7\n        record["outputs"].append("artifact_manifest_json")\n        write_json(fragment_path, fragment)\n\n        path = self.root / ".github/workflows/reusable-sample.yml"\n        text = path.read_text(encoding="utf-8")\n        text += "\\n      - name: Upload bounded evidence\\n"\n        text += f"        uses: actions/upload-artifact@{{upload_sha}} # v4.6.2\\n"\n        text += "        with:\\n"\n        text += "          name: bounded-evidence\\n"\n        text += "          path: result.json\\n"\n        text += "          retention-days: {dynamic_retention}\\n"\n        path.write_text(text, encoding="utf-8")\n        rules = self.rules()\n        self.assertNotIn("unregistered-artifact", rules)\n        self.assertNotIn("excessive-artifact-retention", rules)\n\n        fragment["workflows"][0]["artifact_retention_max_days"] = 8\n        write_json(fragment_path, fragment)\n        rules = self.rules()\n        self.assertIn("unregistered-artifact", rules)\n        self.assertIn("excessive-artifact-retention", rules)\n\n'''
+          write(harness_test_path, harness.replace(marker, method + marker, 1))
+
+          docs_path = 'docs/workflows/android-completion.md'
+          docs = read(docs_path).replace('a bounded artifact name and 1–30 day retention.', 'a bounded artifact name and 1–7 day retention.')
+          heading = '## Acceptance smoke\n'
+          if heading not in docs:
+              raise SystemExit('acceptance smoke docs heading missing')
+          docs = docs.split(heading, 1)[0] + heading + '''\n`.github/workflows/android-completion-smoke.yml` is the repository-owned\nexact-head acceptance caller. It uses one serial semantic `mobile` job so the\nlive-service and unsigned-release gates do not create a cold-runner fan-out.\nThe job:\n\n- validates both bounded plans and proves an artifact traversal request is rejected;\n- stages the exact candidate implementation, checks out the admitted source once,\n  and prepares one Gradle workspace;\n- runs the live-service fixture with synthetic generic credentials, verifies legacy\n  credential aliases and `GITHUB_TOKEN` are absent, then performs live copied-state\n  cleanup/residue;\n- runs the unsigned-release fixture on the same runner/workspace, executing the\n  checked-in pre-policy, Gradle toolchain probe, post-policy and size-budget steps;\n- verifies the selected APK/AAB/JSON evidence paths remain inside the registered\n  state root without uploading those synthetic files; and\n- performs release copied-state cleanup, one workspace cleanup, exact-source\n  clean verification, and a zero-Actions-artifacts assertion.\n\nNo product repository name, backend hostname, application ID, real credential or\nsigning material appears in the smoke contract.\n'''
+          write(docs_path, docs)
+
+          for temp in (
+              '.github/workflows/issue-338-central-fix.yml',
+              '.github/workflows/issue-338-central-fix-v2.yml',
+          ):
+              path = Path(temp)
+              if path.exists():
+                  path.unlink()
+          PY
+
+      - name: Run the canonical harness and focused tests
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -Eeuo pipefail
+          python_bin="$(type -P python3.12 || type -P python3)"
+          validation_root="${RUNNER_TEMP}/issue-338-central-fix-${GITHUB_RUN_ID}"
+          test ! -e "${validation_root}"
+          mkdir -m 0700 "${validation_root}"
+          "${python_bin}" scripts/ci/bootstrap_validation_runtime.py \
+            --lock contracts/action-tool-lock.json \
+            --target "${validation_root}/python"
+          export PYTHONPATH="${validation_root}/python:${GITHUB_WORKSPACE}/src"
+          "${python_bin}" scripts/ci/validation_harness.py \
+            --root . \
+            --summary "${validation_root}/summary.json"
+          "${python_bin}" scripts/ci/public_api_contract.py validate
+          "${python_bin}" scripts/ci/public_api_contract.py render --check
+          "${python_bin}" -m unittest -v \
+            tests.test_android_completion \
+            tests.test_public_api_contract \
+            tests.test_validation_harness \
+            tests.test_android_ciw_dispatch
+          git diff --check
+          rm -rf "${validation_root}"
+
+      - name: Persist fixes, remove temporary workflows, and create a non-skipped head
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          BRANCH_NAME: agent1/issue-338-android-live-release
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          import base64
+          import json
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          api = os.environ['GITHUB_API_URL'].rstrip('/')
+          repo = os.environ['GITHUB_REPOSITORY']
+          branch = os.environ['BRANCH_NAME']
+          token = os.environ['GITHUB_TOKEN']
+          paths = (
+              '.github/workflows/reusable-android-live-service.yml',
+              '.github/workflows/reusable-android-release.yml',
+              '.github/workflows/android-completion-smoke.yml',
+              'src/ci_workflows/ciw_android_completion.py',
+              'src/ci_workflows/public_api_contract.py',
+              'src/ci_workflows/validation_policy.py',
+              'contracts/public-workflows/validation.json',
+              'tests/test_android_completion.py',
+              'tests/test_public_api_contract.py',
+              'tests/test_validation_harness.py',
+              'docs/workflows/android-completion.md',
+          )
+
+          def request(method: str, url: str, payload=None):
+              data = None if payload is None else json.dumps(payload).encode('utf-8')
+              req = urllib.request.Request(
+                  url,
+                  data=data,
+                  method=method,
+                  headers={
+                      'Accept': 'application/vnd.github+json',
+                      'Authorization': f'Bearer {token}',
+                      'Content-Type': 'application/json',
+                      'X-GitHub-Api-Version': '2022-11-28',
+                  },
+              )
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  raw = response.read()
+                  return {} if not raw else json.loads(raw)
+
+          def get(path: str):
+              return request(
+                  'GET',
+                  f'{api}/repos/{repo}/contents/{urllib.parse.quote(path, safe="/")}?ref={urllib.parse.quote(branch, safe="")}',
+              )
+
+          for path in paths:
+              current = get(path)
+              content = Path(path).read_text(encoding='utf-8')
+              request(
+                  'PUT',
+                  f'{api}/repos/{repo}/contents/{urllib.parse.quote(path, safe="/")}',
+                  {
+                      'message': f'[skip ci] #338 Central contract fix: {Path(path).name}',
+                      'content': base64.b64encode(content.encode('utf-8')).decode('ascii'),
+                      'sha': current['sha'],
+                      'branch': branch,
+                  },
+              )
+
+          for workflow in (
+              '.github/workflows/issue-338-central-fix.yml',
+              '.github/workflows/issue-338-central-fix-v2.yml',
+          ):
+              try:
+                  current = get(workflow)
+              except urllib.error.HTTPError as error:
+                  if error.code == 404:
+                      continue
+                  raise
+              request(
+                  'DELETE',
+                  f'{api}/repos/{repo}/contents/{urllib.parse.quote(workflow, safe="/")}',
+                  {
+                      'message': f'[skip ci] #338 remove {Path(workflow).name}',
+                      'sha': current['sha'],
+                      'branch': branch,
+                  },
+              )
+
+          ref = request('GET', f'{api}/repos/{repo}/git/ref/heads/{urllib.parse.quote(branch, safe="/")}')
+          parent = ref['object']['sha']
+          commit = request('GET', f'{api}/repos/{repo}/git/commits/{parent}')
+          final = request(
+              'POST',
+              f'{api}/repos/{repo}/git/commits',
+              {
+                  'message': '[#338] Fix Central contract findings',
+                  'tree': commit['tree']['sha'],
+                  'parents': [parent],
+              },
+          )
+          request(
+              'PATCH',
+              f'{api}/repos/{repo}/git/refs/heads/{urllib.parse.quote(branch, safe="/")}',
+              {'sha': final['sha'], 'force': False},
+          )
+          PY
