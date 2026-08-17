@@ -75,6 +75,13 @@
     "device_family": {"type": "string", "enum": ["android", "android-phone", "android-tv", "ios", "tvos"], "nullable": true},
     "device_request_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$", "nullable": true},
     "device_capability": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$", "nullable": true},
+    "host_capacity": {"type": "string", "enum": ["mobile", "apple"]},
+    "prepare_script_path": {"type": "path", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$"},
+    "test_script_path": {"type": "path", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$"},
+    "evidence_script_path": {"type": "path", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$"},
+    "cleanup_script_path": {"type": "path", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$"},
+    "arguments_json": {"type": "json-array", "max_items": 16},
+    "environment_json": {"type": "json-object", "max_bytes": 16384},
     "device_alias": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$"},
     "max_duration_minutes": {"type": "integer", "minimum": 1, "maximum": 240, "default": 60},
     "release_mode": {"type": "string", "enum": ["tag-push", "existing-tag"], "default": "tag-push"},
@@ -180,6 +187,7 @@
     {"id": "issue-322-release", "api_name": "release.orchestrate", "kind": "technology-input-decoupling", "reason": "Use a caller-owned bounded release manifest instead of a central application release profile.", "migration_issue": "#322", "effective_version": "2.0.0"},
     {"id": "issue-322-flux-assets", "api_name": "flux.assets", "kind": "technology-input-decoupling", "reason": "Use a caller-owned bounded asset manifest instead of a central application product ID.", "migration_issue": "#322", "effective_version": "2.0.0"},
     {"id": "issue-322-flux-reconcile", "api_name": "flux.reconcile", "kind": "technology-input-decoupling", "reason": "Keep Flux authorization capability-based without a central application product ID.", "migration_issue": "#322", "effective_version": "2.0.0"},
-    {"id": "issue-332-android", "api_name": "validation.android", "kind": "technology-input-decoupling", "reason": "Replace central Android product/task profiles with one caller-owned bounded validation plan.", "migration_issue": "#332", "effective_version": "2.0.0"}
+    {"id": "issue-332-android", "api_name": "validation.android", "kind": "technology-input-decoupling", "reason": "Replace central Android product/task profiles with one caller-owned bounded validation plan.", "migration_issue": "#332", "effective_version": "2.0.0"},
+    {"id": "issue-341-device", "api_name": "validation.device", "kind": "technology-input-decoupling", "reason": "Replace product-coupled device aliases and profiles with semantic host capacity and caller-owned bounded command plans.", "migration_issue": "#341", "effective_version": "2.0.0"}
   ]
 }
