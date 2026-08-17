@@ -23,8 +23,7 @@ issues:
       - https://github.com/StreamScapeTV/iptv-android/issues/914
   24:
     blocked_by:
-      - 283
-      - 324
+      - https://github.com/StreamScapeTV/iptv-apple/issues/1468
   25:
     blocked_by:
       - 283
@@ -110,6 +109,7 @@ issues:
       - 322
       - 323
       - 332
+      - 336
   284:
     blocked_by: []
   285:
@@ -150,4 +150,6 @@ issues:
       - 322
       - 323
   332:
+    blocked_by: []
+  336:
     blocked_by: []
