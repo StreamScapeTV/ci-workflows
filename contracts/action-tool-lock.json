@@ -94,10 +94,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-android",
-      "sha": "e48b383e51137d5d8b1a9b2b6f3e5ba2fba74394",
+      "sha": "474c707bfcfe77b0d36bd0e4c76691359e8dc4ad",
       "release": "issue #332 single-executor Android checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/e48b383e51137d5d8b1a9b2b6f3e5ba2fba74394/actions/validate-android"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/474c707bfcfe77b0d36bd0e4c76691359e8dc4ad/actions/validate-android"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/checkout-private-dependency",
