@@ -642,6 +642,7 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
             base = Path(directory).resolve()
             host_home = base / "host-home"
             host_home.mkdir(mode=0o700)
+            host_home.chmod(0o700)
             workspace_a = base / "actions-runner" / "_work"
             workspace_b = base / "actions-runner2" / "_work"
             workspace_a.mkdir(parents=True)
