@@ -72,6 +72,7 @@ jobs:
           set -Eeuo pipefail
           test ! -e "${CIW_DEVICE_LOCK_ROOT}"
           mkdir -m 0700 "${CIW_DEVICE_LOCK_ROOT}"
+          chmod 0700 "${CIW_DEVICE_LOCK_ROOT}"
           test "$(stat -c '%a' "${CIW_DEVICE_LOCK_ROOT}")" = "700"
 
       - id: focused
