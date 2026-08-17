@@ -108,6 +108,6 @@ runs:
         CIW_SERVICE_PASSWORD: ${{ inputs.service_password }}
       run: |
         set -Eeuo pipefail
-        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/android_completion.py" live \
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" android-live validate \
           --phase "${{ inputs.phase }}" \
           --source-root source
