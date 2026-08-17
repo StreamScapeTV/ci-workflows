@@ -107,6 +107,8 @@
   },
   "secret_catalog": {
     "private_dependency_token": {"required_scope": "contents:read", "exposed_to_product_source": false},
+    "service_username": {"required_scope": "test-environment", "exposed_to_product_source": true},
+    "service_password": {"required_scope": "test-environment", "exposed_to_product_source": true},
     "registry_username": {"required_scope": "registry-write", "exposed_to_product_source": false},
     "registry_token": {"required_scope": "registry-write", "exposed_to_product_source": false},
     "device_authorization_receipt": {"required_scope": "physical-device-authorization", "exposed_to_product_source": false},
@@ -126,6 +128,7 @@
     "request_id": {"type": "string"},
     "result": {"type": "string", "enum": ["success", "failure", "skipped"]},
     "test_summary": {"type": "json-object", "nullable": true},
+    "artifact_manifest_json": {"type": "json-array", "nullable": true},
     "render_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$", "nullable": true},
     "artifact_exception_used": {"type": "boolean"},
     "node_version": {"type": "string", "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$"},

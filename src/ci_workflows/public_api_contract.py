@@ -275,6 +275,14 @@ def validate_workflows(data: ContractData, profiles: Mapping[str, Mapping[str, A
         matrix = row.get("matrix_max_jobs")
         require(isinstance(timeout, int) and 1 <= timeout <= 240, f"{api} timeout is invalid")
         require(isinstance(matrix, int) and 1 <= matrix <= 16, f"{api} matrix maximum is invalid")
+        artifact_policy = row.get("artifact_policy", "zero-default")
+        require(artifact_policy in {"zero-default", "bounded-evidence"}, f"{api} artifact policy is invalid")
+        if artifact_policy == "bounded-evidence":
+            retention_max = row.get("artifact_retention_max_days")
+            require(type(retention_max) is int and 1 <= retention_max <= 7, f"{api} artifact retention maximum is invalid")
+            require("artifact_manifest_json" in outputs, f"{api} bounded artifact policy requires artifact_manifest_json output")
+        else:
+            require("artifact_retention_max_days" not in row, f"{api} zero-artifact policy may not declare artifact retention")
         depth = row.get("max_reusable_workflow_depth", 1)
         require(isinstance(depth, int) and 1 <= depth <= MAX_PUBLIC_DEPTH, f"{api} call depth is invalid")
         components = unique_strings(row.get("implementation_components"), f"{api}.implementation_components", allow_empty=False)
@@ -294,7 +302,7 @@ def validate_workflows(data: ContractData, profiles: Mapping[str, Mapping[str, A
             require(replacement != api, f"{api} cannot replace itself")
         by_api[api] = row
     require(set(trust_classes) <= represented_trust, "not every trust class has a public API")
-    require(len(by_api) == 20, f"public API registry must contain 20 workflows, found {len(by_api)}")
+    require(len(by_api) == 22, f"public API registry must contain 22 workflows, found {len(by_api)}")
     for api, row in by_api.items():
         deprecation = row.get("deprecation")
         if isinstance(deprecation, dict):

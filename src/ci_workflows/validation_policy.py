@@ -365,14 +365,42 @@ def _validate_workflow(
                     if isinstance(step.get("with"), Mapping)
                     else None
                 )
-                _finding(
-                    findings,
-                    config,
-                    "unregistered-artifact",
-                    path,
-                    "routine workflow artifact upload is forbidden",
+                record = public_contract.records_by_file.get(path)
+                artifact_policy = (
+                    str(record.get("artifact_policy", "zero-default"))
+                    if record is not None
+                    else "zero-default"
                 )
-                if not isinstance(retention, int) or retention > 7:
+                retention_limit = (
+                    record.get("artifact_retention_max_days")
+                    if record is not None
+                    else None
+                )
+                registered = (
+                    artifact_policy == "bounded-evidence"
+                    and type(retention_limit) is int
+                    and 1 <= retention_limit <= 7
+                )
+                if not registered:
+                    _finding(
+                        findings,
+                        config,
+                        "unregistered-artifact",
+                        path,
+                        "routine workflow artifact upload is forbidden",
+                    )
+                if type(retention) is int:
+                    retention_valid = (
+                        1 <= retention <= 7
+                        and (not registered or retention <= retention_limit)
+                    )
+                else:
+                    retention_valid = (
+                        registered
+                        and isinstance(retention, str)
+                        and retention.startswith("$" + "{{")
+                    )
+                if not retention_valid:
                     _finding(
                         findings,
                         config,

@@ -1,0 +1,113 @@
+name: Validate Android live-service acceptance
+description: Plan, execute, clean, or residue-check one product-neutral credentialed Android service gate
+
+inputs:
+  phase:
+    required: false
+    default: execute
+  admitted_sha:
+    required: true
+  working_directory:
+    required: false
+    default: .
+  validation_plan_json:
+    required: true
+  private_dependency_repository:
+    required: false
+    default: ""
+  private_dependency_sha:
+    required: false
+    default: ""
+  private_dependency_subdirectory:
+    required: false
+    default: .
+  private_dependency_id:
+    required: false
+    default: ""
+  private_dependency_verified:
+    required: false
+    default: ""
+  private_dependency_remotes_erased:
+    required: false
+    default: ""
+  private_dependency_credentials_erased:
+    required: false
+    default: ""
+  private_dependency_head_sha:
+    required: false
+    default: ""
+  private_dependency_checkout_repository:
+    required: false
+    default: ""
+  private_dependency_checkout_id:
+    required: false
+    default: ""
+  private_dependency_expected_subpath:
+    required: false
+    default: ""
+  service_username:
+    description: Transient generic service username exposed only to execution
+    required: false
+    default: ""
+  service_password:
+    description: Transient generic service password exposed only to execution
+    required: false
+    default: ""
+
+outputs:
+  result:
+    value: ${{ steps.validate.outputs.result }}
+  source_sha:
+    value: ${{ steps.validate.outputs.source_sha }}
+  test_summary:
+    value: ${{ steps.validate.outputs.test_summary }}
+  runner_profile:
+    value: ${{ steps.validate.outputs.runner_profile }}
+  runs_on_json:
+    value: ${{ steps.validate.outputs.runs_on_json }}
+  workspace_profile:
+    value: ${{ steps.validate.outputs.workspace_profile }}
+  private_dependency_used:
+    value: ${{ steps.validate.outputs.private_dependency_used }}
+  private_dependency_repository:
+    value: ${{ steps.validate.outputs.private_dependency_repository }}
+  private_dependency_sha:
+    value: ${{ steps.validate.outputs.private_dependency_sha }}
+  private_dependency_subdirectory:
+    value: ${{ steps.validate.outputs.private_dependency_subdirectory }}
+  private_dependency_id:
+    value: ${{ steps.validate.outputs.private_dependency_id }}
+  cleanup_result:
+    value: ${{ steps.validate.outputs.cleanup_result }}
+  failure_code:
+    value: ${{ steps.validate.outputs.failure_code }}
+
+runs:
+  using: composite
+  steps:
+    - id: validate
+      name: Dispatch bounded Android live-service validation
+      shell: bash
+      env:
+        PYTHONDONTWRITEBYTECODE: "1"
+        INPUT_ADMITTED_SHA: ${{ inputs.admitted_sha }}
+        INPUT_WORKING_DIRECTORY: ${{ inputs.working_directory }}
+        INPUT_VALIDATION_PLAN_JSON: ${{ inputs.validation_plan_json }}
+        INPUT_PRIVATE_DEPENDENCY_REPOSITORY: ${{ inputs.private_dependency_repository }}
+        INPUT_PRIVATE_DEPENDENCY_SHA: ${{ inputs.private_dependency_sha }}
+        INPUT_PRIVATE_DEPENDENCY_SUBDIRECTORY: ${{ inputs.private_dependency_subdirectory }}
+        INPUT_PRIVATE_DEPENDENCY_ID: ${{ inputs.private_dependency_id }}
+        INPUT_PRIVATE_DEPENDENCY_VERIFIED: ${{ inputs.private_dependency_verified }}
+        INPUT_PRIVATE_DEPENDENCY_REMOTES_ERASED: ${{ inputs.private_dependency_remotes_erased }}
+        INPUT_PRIVATE_DEPENDENCY_CREDENTIALS_ERASED: ${{ inputs.private_dependency_credentials_erased }}
+        INPUT_PRIVATE_DEPENDENCY_HEAD_SHA: ${{ inputs.private_dependency_head_sha }}
+        INPUT_PRIVATE_DEPENDENCY_CHECKOUT_REPOSITORY: ${{ inputs.private_dependency_checkout_repository }}
+        INPUT_PRIVATE_DEPENDENCY_CHECKOUT_ID: ${{ inputs.private_dependency_checkout_id }}
+        INPUT_PRIVATE_DEPENDENCY_EXPECTED_SUBPATH: ${{ inputs.private_dependency_expected_subpath }}
+        CIW_SERVICE_USERNAME: ${{ inputs.service_username }}
+        CIW_SERVICE_PASSWORD: ${{ inputs.service_password }}
+      run: |
+        set -Eeuo pipefail
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/android_completion.py" live \
+          --phase "${{ inputs.phase }}" \
+          --source-root source
