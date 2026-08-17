@@ -288,6 +288,47 @@ jobs:
         self.assertIn("missing-publication-readback", rules)
         self.assertIn("missing-always-cleanup", rules)
 
+    def test_registered_bounded_artifact_policy_allows_dynamic_retention(self) -> None:
+        upload_sha = "c" * 40
+        lock_path = self.root / "contracts/action-tool-lock.json"
+        lock = json.loads(lock_path.read_text(encoding="utf-8"))
+        lock["third_party_actions"].append(
+            {
+                "uses": "actions/upload-artifact",
+                "sha": upload_sha,
+                "release": "v4.6.2",
+                "runtime": "node20",
+            }
+        )
+        write_json(lock_path, lock)
+
+        fragment_path = self.root / "contracts/public-workflows/validation.json"
+        fragment = json.loads(fragment_path.read_text(encoding="utf-8"))
+        record = fragment["workflows"][0]
+        record["artifact_policy"] = "bounded-evidence"
+        record["artifact_retention_max_days"] = 7
+        record["outputs"].append("artifact_manifest_json")
+        write_json(fragment_path, fragment)
+
+        path = self.root / ".github/workflows/reusable-sample.yml"
+        text = path.read_text(encoding="utf-8")
+        text += "\n      - name: Upload bounded evidence\n"
+        text += f"        uses: actions/upload-artifact@{upload_sha} # v4.6.2\n"
+        text += "        with:\n"
+        text += "          name: bounded-evidence\n"
+        text += "          path: result.json\n"
+        text += "          retention-days: ${{ 7 }}\n"
+        path.write_text(text, encoding="utf-8")
+        rules = self.rules()
+        self.assertNotIn("unregistered-artifact", rules)
+        self.assertNotIn("excessive-artifact-retention", rules)
+
+        fragment["workflows"][0]["artifact_retention_max_days"] = 8
+        write_json(fragment_path, fragment)
+        rules = self.rules()
+        self.assertIn("unregistered-artifact", rules)
+        self.assertIn("excessive-artifact-retention", rules)
+
     def test_public_contract_shape_permissions_components_and_docs_drift(self) -> None:
         path = self.root / ".github/workflows/reusable-sample.yml"
         text = path.read_text()
