@@ -133,7 +133,7 @@ class PublicApiContractTests(unittest.TestCase):
         )
         self.assertEqual(["private_dependency_token"], release["secrets"])
         self.assertEqual(
-            {"type": "json-object", "nullable": True},
+            {"type": "json-array", "nullable": True},
             self.data.types["output_catalog"]["artifact_manifest_json"],
         )
         for secret in ("service_username", "service_password"):
