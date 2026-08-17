@@ -134,12 +134,12 @@ def _relative_path(value: object, code: str, *, allow_dot: bool) -> str:
     text = _plain(value, code, maximum=1024)
     if "\\" in text or text.startswith("/"):
         raise CIWError(_DOMAIN, code)
-    pure = PurePosixPath(text)
-    if not pure.parts or ".." in pure.parts:
-        raise CIWError(_DOMAIN, code)
-    if pure == PurePosixPath("."):
+    if text == ".":
         if allow_dot:
             return "."
+        raise CIWError(_DOMAIN, code)
+    pure = PurePosixPath(text)
+    if not pure.parts or ".." in pure.parts:
         raise CIWError(_DOMAIN, code)
     if any(part in {"", ".", ".."} for part in pure.parts):
         raise CIWError(_DOMAIN, code)
