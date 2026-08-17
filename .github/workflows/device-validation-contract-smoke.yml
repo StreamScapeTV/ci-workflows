@@ -60,7 +60,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           cd source
-          PYTHONPATH=src python3 -m unittest \
+          PYTHONPATH=src:tests python3 -m unittest \
             tests.test_device_admission_plan \
             tests.test_device_denied_plan \
             tests.test_device_fixture_completeness \
