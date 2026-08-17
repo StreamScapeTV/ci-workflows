@@ -14,6 +14,7 @@ on:
       - src/ci_workflows/apple_contract_fragments.py
       - src/ci_workflows/apple_execution.py
       - src/ci_workflows/apple_multistage.py
+      - src/ci_workflows/apple_plan_guard.py
       - src/ci_workflows/apple_types.py
       - src/ci_workflows/ciw.py
       - src/ci_workflows/ciw_apple.py
