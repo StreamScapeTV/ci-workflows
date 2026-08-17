@@ -63,7 +63,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out exact source
-        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           repository: ${{ github.repository }}
           admitted_sha: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -84,7 +84,7 @@ jobs:
             tests.test_public_api_contract
       - name: Remove exact source
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-device@47afb4b6f14742bdddd3998095d719011c3ef549
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@47afb4b6f14742bdddd3998095d719011c3ef549 # issue #341 product-neutral device v2 checkpoint
         with:
           phase: cleanup-checkout
           source_root: source
@@ -111,7 +111,7 @@ jobs:
             inventory: tests/fixtures/device-validation/tvos.json
     steps:
       - name: Check out exact source
-        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           repository: ${{ github.repository }}
           admitted_sha: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -119,7 +119,7 @@ jobs:
           fetch_depth: "1"
       - id: synthetic
         name: Execute synthetic product-neutral device contract
-        uses: StreamScapeTV/ci-workflows/actions/validate-device@47afb4b6f14742bdddd3998095d719011c3ef549
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@47afb4b6f14742bdddd3998095d719011c3ef549 # issue #341 product-neutral device v2 checkpoint
         env:
           CIW_DEVICE_AUTHORIZATION_PRESENT: "false"
         with:
@@ -154,7 +154,7 @@ jobs:
           [[ "$EVIDENCE_ID" =~ ^[0-9a-f]{64}$ ]]
       - name: Remove exact source
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-device@47afb4b6f14742bdddd3998095d719011c3ef549
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@47afb4b6f14742bdddd3998095d719011c3ef549 # issue #341 product-neutral device v2 checkpoint
         with:
           phase: cleanup-checkout
           source_root: source
