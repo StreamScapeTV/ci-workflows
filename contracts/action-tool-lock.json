@@ -9,6 +9,13 @@
       "source": "https://github.com/actions/checkout"
     },
     {
+      "uses": "actions/upload-artifact",
+      "sha": "ea165f8d65b6e75b540449e92b4886f43607fa02",
+      "release": "v4.6.2",
+      "runtime": "node20",
+      "source": "https://github.com/actions/upload-artifact"
+    },
+    {
       "uses": "actions/setup-node",
       "sha": "249970729cb0ef3589644e2896645e5dc5ba9c38",
       "release": "v6.5.0",
@@ -98,6 +105,20 @@
       "release": "issue #332 single-executor Android checkpoint",
       "runtime": "composite",
       "source": "https://github.com/StreamScapeTV/ci-workflows/tree/474c707bfcfe77b0d36bd0e4c76691359e8dc4ad/actions/validate-android"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/validate-android-live-service",
+      "sha": "2ecbe22ac6d10aa25d79bc046cc205e4df1e08cc",
+      "release": "issue #338 Android completion checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/2ecbe22ac6d10aa25d79bc046cc205e4df1e08cc/actions/validate-android-live-service"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/validate-android-release",
+      "sha": "2ecbe22ac6d10aa25d79bc046cc205e4df1e08cc",
+      "release": "issue #338 Android completion checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/2ecbe22ac6d10aa25d79bc046cc205e4df1e08cc/actions/validate-android-release"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/checkout-private-dependency",
