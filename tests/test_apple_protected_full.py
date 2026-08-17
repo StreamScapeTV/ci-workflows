@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from ci_workflows import apple_execution
+from ci_workflows import apple_execution, apple_plan_guard
 from ci_workflows.apple_contract_fragments import load_apple_contract
 from ci_workflows.apple_multistage import (
     build_protected_full_plan,
@@ -114,6 +114,26 @@ class AppleProtectedFullPlanTests(unittest.TestCase):
             with self.subTest(value=value):
                 with self.assertRaises(AppleValidationError):
                     self.build([stage("ios-build", "ios", arguments=[value])])
+
+    def test_public_guard_rejects_output_redirection_and_arbitrary_cleanup(self) -> None:
+        safe = stage("ios-build", "ios", arguments=["ENABLE_TESTABILITY=YES"])
+        apple_plan_guard.validate_protected_full_plan_json(raw_plan([safe]))
+        for value in (
+            "SYMROOT=/tmp/redirect",
+            "CONFIGURATION_BUILD_DIR=/tmp/redirect",
+            "OBJROOT=/tmp/redirect",
+        ):
+            with self.subTest(argument=value):
+                with self.assertRaisesRegex(AppleValidationError, "forbidden_operation"):
+                    apple_plan_guard.validate_protected_full_plan_json(
+                        raw_plan([stage("ios-build", "ios", arguments=[value])])
+                    )
+        for value in (".git", "Sources", "App.xcodeproj"):
+            guarded = stage("ios-build", "ios")
+            guarded["cleanup_paths"] = [value]
+            with self.subTest(cleanup=value):
+                with self.assertRaisesRegex(AppleValidationError, "cleanup_failed"):
+                    apple_plan_guard.validate_protected_full_plan_json(raw_plan([guarded]))
 
     def test_duplicate_stage_ids_and_oversized_plan_fail_closed(self) -> None:
         with self.assertRaisesRegex(AppleValidationError, "validation_plan_invalid"):
@@ -322,6 +342,7 @@ class AppleProtectedFullWorkflowShapeTests(unittest.TestCase):
 
     def test_reusable_has_one_checkout_workspace_dependency_and_terminal_cleanup(self) -> None:
         reusable = (ROOT / ".github/workflows/reusable-apple.yml").read_text(encoding="utf-8")
+        adapter = (ROOT / "src/ci_workflows/ciw_apple.py").read_text(encoding="utf-8")
         self.assertEqual(reusable.count("actions/exact-checkout@"), 1)
         self.assertEqual(reusable.count("actions/prepare-workspace@"), 1)
         self.assertEqual(reusable.count("actions/checkout-private-dependency@"), 1)
@@ -329,6 +350,7 @@ class AppleProtectedFullWorkflowShapeTests(unittest.TestCase):
         self.assertEqual(reusable.count("phase: execute"), 1)
         self.assertEqual(reusable.count("phase: cleanup"), 1)
         self.assertEqual(reusable.count("phase: residue"), 1)
+        self.assertIn("apple_plan_guard.validate_protected_full_plan_json", adapter)
         self.assertNotIn("actions/cache", reusable.lower())
         self.assertNotIn("upload-artifact", reusable.lower())
 
