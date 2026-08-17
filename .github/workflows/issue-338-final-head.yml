@@ -1,0 +1,102 @@
+name: Issue 338 final-head preparation
+
+on:
+  push:
+    branches:
+      - agent1/issue-338-android-live-release
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: ${{ github.event.head_commit.message == '[#338] Prepare final candidate head' }}
+    runs-on: [linux, amd64, general, small]
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact preparation head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Validate exact final feature tree
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -Eeuo pipefail
+          PYTHONPATH=src python3 scripts/ci/public_api_contract.py validate
+          PYTHONPATH=src python3 scripts/ci/public_api_contract.py render --check
+          PYTHONPATH=src python3 -m unittest -v tests.test_public_api_contract tests.test_android_completion tests.test_android_ciw_dispatch
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+      - name: Remove preparation workflow and create non-skipped tree-preserving head
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          BRANCH_NAME: agent1/issue-338-android-live-release
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+
+          api = os.environ['GITHUB_API_URL'].rstrip('/')
+          repo = os.environ['GITHUB_REPOSITORY']
+          branch = os.environ['BRANCH_NAME']
+          token = os.environ['GITHUB_TOKEN']
+
+          def request(method, url, payload=None):
+              data = None if payload is None else json.dumps(payload).encode('utf-8')
+              req = urllib.request.Request(
+                  url,
+                  data=data,
+                  method=method,
+                  headers={
+                      'Accept': 'application/vnd.github+json',
+                      'Authorization': f'Bearer {token}',
+                      'Content-Type': 'application/json',
+                      'X-GitHub-Api-Version': '2022-11-28',
+                  },
+              )
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  raw = response.read()
+                  return {} if not raw else json.loads(raw)
+
+          workflow = '.github/workflows/issue-338-final-head.yml'
+          encoded = urllib.parse.quote(workflow, safe='/')
+          current = request('GET', f'{api}/repos/{repo}/contents/{encoded}?ref={urllib.parse.quote(branch, safe="")}')
+          request(
+              'DELETE',
+              f'{api}/repos/{repo}/contents/{encoded}',
+              {
+                  'message': '[skip ci] #338 remove final-head preparation workflow',
+                  'sha': current['sha'],
+                  'branch': branch,
+              },
+          )
+
+          ref = request('GET', f'{api}/repos/{repo}/git/ref/heads/{urllib.parse.quote(branch, safe="/")}')
+          parent = ref['object']['sha']
+          commit = request('GET', f'{api}/repos/{repo}/git/commits/{parent}')
+          final = request(
+              'POST',
+              f'{api}/repos/{repo}/git/commits',
+              {
+                  'message': '[#338] Final Android completion candidate',
+                  'tree': commit['tree']['sha'],
+                  'parents': [parent],
+              },
+          )
+          request(
+              'PATCH',
+              f'{api}/repos/{repo}/git/refs/heads/{urllib.parse.quote(branch, safe="/")}',
+              {'sha': final['sha'], 'force': False},
+          )
+          PY
