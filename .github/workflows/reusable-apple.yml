@@ -120,7 +120,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve one Apple executor plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@0d0b35882ae1d9e6171a3d01bf4cc28522e21c60 # issue #336 protected-full checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@db50df67a34672502ab0fe9815af0a88ea2f475c # issue #336 protected-full checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -213,7 +213,7 @@ jobs:
 
       - id: execute
         name: Execute one sequential Apple validation plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@0d0b35882ae1d9e6171a3d01bf4cc28522e21c60 # issue #336 protected-full checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@db50df67a34672502ab0fe9815af0a88ea2f475c # issue #336 protected-full checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -256,7 +256,7 @@ jobs:
       - id: apple_cleanup
         name: Remove Apple-specific state once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@0d0b35882ae1d9e6171a3d01bf4cc28522e21c60 # issue #336 protected-full checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@db50df67a34672502ab0fe9815af0a88ea2f475c # issue #336 protected-full checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -280,7 +280,7 @@ jobs:
       - id: residue
         name: Verify zero Apple-specific residue once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@0d0b35882ae1d9e6171a3d01bf4cc28522e21c60 # issue #336 protected-full checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@db50df67a34672502ab0fe9815af0a88ea2f475c # issue #336 protected-full checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
