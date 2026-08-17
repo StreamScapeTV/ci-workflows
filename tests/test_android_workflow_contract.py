@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REUSABLE = ROOT / ".github/workflows/reusable-android.yml"
 SMOKE = ROOT / ".github/workflows/android-validation-smoke.yml"
 ACTION = ROOT / "actions/validate-android/action.yml"
-ANDROID_SHA = "0b1be616b4a03891b6b31918001320f09726ed93"
+ANDROID_SHA = "e48b383e51137d5d8b1a9b2b6f3e5ba2fba74394"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 
 PUBLIC_INPUTS = {
@@ -21,10 +21,7 @@ PUBLIC_INPUTS = {
     "validation_scope",
     "working_directory",
     "gradle_wrapper_path",
-    "gradle_tasks_json",
-    "targeted_test_selector",
-    "script_path",
-    "script_arguments_json",
+    "validation_plan_json",
     "private_dependency_repository",
     "private_dependency_sha",
     "private_dependency_subdirectory",
@@ -47,6 +44,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertEqual(set(call["inputs"]), PUBLIC_INPUTS)
         self.assertEqual(set(call["secrets"]), {"private_dependency_token"})
         self.assertEqual(set(call["outputs"]), {"result", "test_summary", "cleanup_result"})
+        self.assertTrue(call["inputs"]["validation_plan_json"]["required"])
         for forbidden in (
             "validation_profile",
             "task_profile",
@@ -55,6 +53,10 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             "artifact_exception_id",
             "device_family",
             "device_request_id",
+            "gradle_tasks_json",
+            "targeted_test_selector",
+            "script_path",
+            "script_arguments_json",
             "runner",
             "runs_on",
             "product_id",
@@ -62,13 +64,16 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, call["inputs"])
 
-    def test_execution_uses_semantic_mobile_and_fixed_step_order(self) -> None:
+    def test_protected_full_is_one_heavy_mobile_executor_and_one_workspace_boundary(self) -> None:
+        self.assertEqual(set(self.workflow["jobs"]), {"validate"})
         job = self.workflow["jobs"]["validate"]
         self.assertEqual(job["name"], "CI / Android validation")
         self.assertEqual(job["runs-on"], ["linux", "amd64", "mobile"])
         self.assertEqual(job["timeout-minutes"], 120)
+        self.assertNotIn("strategy", job)
+        steps = job["steps"]
         self.assertEqual(
-            [step["id"] for step in job["steps"]],
+            [step["id"] for step in steps],
             [
                 "plan",
                 "checkout",
@@ -83,8 +88,15 @@ class AndroidWorkflowContractTests(unittest.TestCase):
                 "terminal",
             ],
         )
+        self.assertEqual(sum(step["id"] == "checkout" for step in steps), 1)
+        self.assertEqual(sum(step["id"] == "dependency" for step in steps), 1)
+        self.assertEqual(sum(step["id"] == "workspace" for step in steps), 1)
+        self.assertEqual(sum(step["id"] == "execute" for step in steps), 1)
+        self.assertEqual(sum(step["id"] == "android_cleanup" for step in steps), 1)
+        self.assertEqual(sum(step["id"] == "residue" for step in steps), 1)
         self.assertNotIn("self-hosted", self.source)
         self.assertNotIn("fromJSON(needs.", self.source)
+        self.assertNotIn("matrix:", self.source)
 
     def test_every_central_helper_is_immutable_and_android_pin_is_exact(self) -> None:
         uses = [
@@ -98,7 +110,13 @@ class AndroidWorkflowContractTests(unittest.TestCase):
                 f"StreamScapeTV/ci-workflows/actions/validate-android@{ANDROID_SHA}"
             ),
         )
-        for helper in ("exact-checkout", "prepare-workspace", "checkout-private-dependency", "render-evidence", "cleanup-workspace"):
+        for helper in (
+            "exact-checkout",
+            "prepare-workspace",
+            "checkout-private-dependency",
+            "render-evidence",
+            "cleanup-workspace",
+        ):
             self.assertIn(
                 f"StreamScapeTV/ci-workflows/actions/{helper}@{FOUNDATION_SHA}",
                 uses,
@@ -107,7 +125,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             revision = item.rsplit("@", 1)[1]
             self.assertRegex(revision, r"^[0-9a-f]{40}$")
 
-    def test_private_token_is_confined_to_dependency_checkout(self) -> None:
+    def test_private_token_is_confined_to_the_single_dependency_checkout(self) -> None:
         steps = self.workflow["jobs"]["validate"]["steps"]
         dependency = next(step for step in steps if step["id"] == "dependency")
         self.assertEqual(
@@ -119,17 +137,20 @@ class AndroidWorkflowContractTests(unittest.TestCase):
                 continue
             self.assertNotIn("private_dependency_token", json.dumps(step))
 
-    def test_workspace_is_cache_free_exact_source_and_always_cleaned(self) -> None:
+    def test_workspace_is_cache_free_exact_source_and_always_cleaned_once(self) -> None:
         self.assertNotIn("actions/cache", self.source)
         self.assertNotIn("upload-artifact", self.source)
         self.assertNotIn("download-artifact", self.source)
         self.assertIn("cache_mode: disabled", self.source)
-        self.assertIn("Check out exact admitted caller source", self.source)
+        self.assertIn("Check out exact admitted caller source once", self.source)
+        self.assertIn("Prepare one isolated marker-bound Gradle state", self.source)
+        self.assertIn("Check out exact private dependency at most once", self.source)
+        self.assertIn("Execute one primitive-backed Android validation plan", self.source)
         self.assertIn("Verify exact admitted source remained clean", self.source)
         self.assertIn("if: always()", self.source)
-        self.assertIn("Remove Android-specific copied source state", self.source)
-        self.assertIn("Verify zero Android-specific residue", self.source)
-        self.assertIn("Remove and verify all registered Android state", self.source)
+        self.assertIn("Remove Android-specific copied source state once", self.source)
+        self.assertIn("Verify zero Android-specific residue once", self.source)
+        self.assertIn("Remove and verify the one registered Android workspace", self.source)
         self.assertIn("Project terminal Android validation status", self.source)
 
     def test_workflow_yaml_contains_no_product_commands_or_identity(self) -> None:
@@ -137,6 +158,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         for forbidden in (
             "iptv-android",
             "streamscape-media",
+            "compiledebugkotlin",
             "sdkmanager ",
             "adb ",
             "gradlew ",
@@ -150,24 +172,38 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("actions/checkout@", self.source)
         self.assertNotIn("secrets: inherit", self.source)
 
-    def test_composite_action_dispatches_only_bounded_ciw_phases(self) -> None:
+    def test_composite_action_dispatches_only_bounded_ciw_phases_and_plan_json(self) -> None:
         self.assertEqual(self.action["runs"]["using"], "composite")
         self.assertIn("ciw.py", self.action_source)
         self.assertIn("android validate", self.action_source)
         self.assertIn("--source-root source", self.action_source)
-        for forbidden in ("arbitrary_command", "container_engine", "runner_labels"):
+        self.assertIn("validation_plan_json", self.action["inputs"])
+        for forbidden in (
+            "gradle_tasks_json",
+            "targeted_test_selector",
+            "script_path",
+            "script_arguments_json",
+            "arbitrary_command",
+            "container_engine",
+            "runner_labels",
+        ):
             self.assertNotIn(forbidden, self.action["inputs"])
 
-    def test_smoke_calls_the_reusable_workflow_and_real_gradle_fixture(self) -> None:
+    def test_smoke_calls_protected_full_once_without_nested_mobile_jobs(self) -> None:
         self.assertEqual(set(self.smoke["jobs"]), {"reusable_android"})
         job = self.smoke["jobs"]["reusable_android"]
         self.assertEqual(job["uses"], "./.github/workflows/reusable-android.yml")
-        self.assertEqual(job["with"]["validation_scope"], "gradle")
+        self.assertEqual(job["with"]["validation_scope"], "protected-full")
         self.assertEqual(
             job["with"]["working_directory"],
             "tests/fixtures/android-validation/smoke-project",
         )
-        self.assertEqual(job["with"]["gradle_tasks_json"], '["verifyToolchainSmoke"]')
+        plan = json.loads(job["with"]["validation_plan_json"])
+        self.assertEqual(plan["unit_tasks"], ["help"])
+        self.assertEqual(plan["lint_tasks"], ["tasks"])
+        self.assertEqual(plan["assemble_tasks"], ["verifyToolchainSmoke"])
+        self.assertEqual(plan["schema"], {"mode": "none"})
+        self.assertNotIn("compile", json.dumps(plan).casefold())
         self.assertNotIn("uses: ./.ciw/actions/", self.smoke_source)
         self.assertNotIn("adb ", self.smoke_source.casefold())
         self.assertNotIn("physical-device", self.smoke_source.casefold())
