@@ -74,10 +74,7 @@
         {"name": "validation_scope", "required": true},
         {"name": "working_directory", "required": false, "default": "."},
         {"name": "gradle_wrapper_path", "required": false, "default": "gradlew"},
-        {"name": "gradle_tasks_json", "required": false, "default": "[]"},
-        {"name": "targeted_test_selector", "required": false, "default": ""},
-        {"name": "script_path", "required": false, "default": ""},
-        {"name": "script_arguments_json", "required": false, "default": "[]"},
+        {"name": "validation_plan_json", "required": true},
         {"name": "private_dependency_repository", "required": false, "default": ""},
         {"name": "private_dependency_sha", "required": false, "default": ""},
         {"name": "private_dependency_subdirectory", "required": false, "default": "."},
@@ -88,7 +85,7 @@
       "stable_check_name": "CI / Android validation",
       "timeout_minutes": 120,
       "matrix_max_jobs": 1,
-      "repository_owned_hooks": ["gradle_tasks_json", "script_path", "script_arguments_json"],
+      "repository_owned_hooks": ["validation_plan_json"],
       "implementation_components": ["ci_workflows.ciw_android.execute_android_validate", "ci_workflows.language_primitives", "actions/validate-android"]
     },
     {
