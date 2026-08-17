@@ -123,28 +123,15 @@ jobs:
           PYTHONDONTWRITEBYTECODE: "1"
         run: |
           set -Eeuo pipefail
-          validation_root="${RUNNER_TEMP}/ciw-apple-repair-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          trap 'rm -rf -- "${validation_root}"' EXIT
-          rm -rf -- "${validation_root}"
-          mkdir "${validation_root}"
-          chmod 0700 "${validation_root}"
-          test "$(stat -c '%a' "${validation_root}")" = "700"
-          mkdir "${validation_root}/tmp"
-          chmod 0700 "${validation_root}/tmp"
-          test "$(stat -c '%a' "${validation_root}/tmp")" = "700"
           (
             cd .ciw
-            TMPDIR="${validation_root}/tmp" \
-              PYTHONPATH=src python3 -m unittest -v \
+            PYTHONPATH=src python3 -m unittest -v \
               tests.test_apple_validation \
               tests.test_apple_simulator_ownership \
               tests.test_apple_terminal_cleanup \
               tests.test_apple_workflow_contract
             test -z "$(git status --porcelain=v1 --untracked-files=all)"
           )
-          rm -rf -- "${validation_root}"
-          test ! -e "${validation_root}"
-          trap - EXIT
 
   ios:
     name: Real iOS simulator smoke
