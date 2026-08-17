@@ -39,21 +39,31 @@ jobs:
           from ci_workflows import public_api as contract
 
           root = Path.cwd()
-          data = contract.load_contract(root)
-          contract.validate_reference_policy(data.types)
-          profiles = contract.permission_profiles(data)
-          workflows = contract.validate_workflows(data, profiles)
-          assert 'validation.android-live-service' in workflows
-          assert 'validation.android-release' in workflows
-          rendered = contract.render(data)
-          print('CIW_PUBLIC_REFERENCE_BASE64=' + base64.b64encode(rendered.encode('utf-8')).decode('ascii'))
+          stage = 'load_contract'
+          try:
+              data = contract.load_contract(root)
+              stage = 'validate_reference_policy'
+              contract.validate_reference_policy(data.types)
+              stage = 'permission_profiles'
+              profiles = contract.permission_profiles(data)
+              stage = 'validate_workflows'
+              workflows = contract.validate_workflows(data, profiles)
+              stage = 'new_api_presence'
+              assert 'validation.android-live-service' in workflows
+              assert 'validation.android-release' in workflows
+              stage = 'render'
+              rendered = contract.render(data)
+              print('CIW_PUBLIC_REFERENCE_BASE64=' + base64.b64encode(rendered.encode('utf-8')).decode('ascii'))
+          except Exception as error:
+              message = str(error).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print(f'::error title=Public contract {stage}::{message}')
+              raise
           PY
 
-      - name: Run public API tests except generated-reference freshness
+      - name: Run completion contract tests
         shell: bash
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: |
           set -Eeuo pipefail
-          PYTHONPATH=src python3 -m unittest -v \
-            tests.test_android_completion
+          PYTHONPATH=src python3 -m unittest -v tests.test_android_completion
