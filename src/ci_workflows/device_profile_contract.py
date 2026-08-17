@@ -67,6 +67,11 @@ REQUIRED_FORBIDDEN_INPUTS = {
     "udid",
     "workspace_root",
 }
+SYNTHETIC_MODELS = {
+    DeviceFamily.ANDROID: ("synthetic-phone", "synthetic-tablet"),
+    DeviceFamily.IOS: ("synthetic-iphone",),
+    DeviceFamily.TVOS: ("synthetic-apple-tv",),
+}
 
 
 def _validate_family_policy(
@@ -283,12 +288,17 @@ def load_evidence_contract(root: Path) -> Mapping[str, Any]:
 
 
 def profile_for_request(contract: Mapping[str, Any], request: DeviceRequest) -> DeviceProfile:
-    """Combine one generic family policy with caller-owned bounded command data."""
+    """Combine generic production family policy with caller-owned bounded commands.
+
+    Synthetic source uses test-only model classes so permanent smoke can exercise
+    selection without adding synthetic or product identities to the public contract.
+    """
 
     raw = contract["family_policies"][request.family.value]
     capacities = tuple(raw["allowed_host_capacities"])
     require(request.host_capacity in capacities, "device_profile_rejected")
     workspace_profile = str(raw["workspace_profiles"][request.host_capacity])
+    synthetic = request.source_trust == "trusted-pr"
     command_profile = DeviceCommandProfile(
         profile_id="caller-plan",
         prepare_script=request.prepare_script_path,
@@ -306,15 +316,19 @@ def profile_for_request(contract: Mapping[str, Any], request: DeviceRequest) -> 
     return DeviceProfile(
         profile_id=request.family.value,
         family=request.family,
-        models=tuple(raw["models"]),
+        models=SYNTHETIC_MODELS[request.family] if synthetic else tuple(raw["models"]),
         version_policy=dict(raw["version_policy"]),
-        selection_policy=str(raw["selection_policy"]),
+        selection_policy=(
+            "identity-hash"
+            if synthetic and request.family is DeviceFamily.ANDROID
+            else str(raw["selection_policy"])
+        ),
         base_runner_profile=request.host_capacity,
         workspace_profile=workspace_profile,
         command_profile=command_profile,
         timeout_minutes=int(raw["timeout_minutes"]),
         artifact_exception_ids=tuple(raw["artifact_exception_ids"]),
-        synthetic_only=request.source_trust == "trusted-pr",
+        synthetic_only=synthetic,
         connection_states=tuple(raw["connection_states"]),
         health_states=tuple(raw["health_states"]),
     )
