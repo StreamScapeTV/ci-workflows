@@ -11,7 +11,7 @@ from ci_workflows.apple_types import AppleProfile, AppleValidationRequest
 
 ROOT = Path(__file__).resolve().parents[1]
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-APPLE_HELPER_SHA = "db50df67a34672502ab0fe9815af0a88ea2f475c"
+APPLE_HELPER_SHA = "478b04651245d6d7d06bd3df74221278b74dd13b"
 
 
 class AppleWorkflowContractTests(unittest.TestCase):
@@ -42,6 +42,9 @@ class AppleWorkflowContractTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.multistage = (
             ROOT / "src/ci_workflows/apple_multistage.py"
+        ).read_text(encoding="utf-8")
+        self.guard = (
+            ROOT / "src/ci_workflows/apple_plan_guard.py"
         ).read_text(encoding="utf-8")
         self.types = (
             ROOT / "src/ci_workflows/apple_types.py"
@@ -158,6 +161,7 @@ class AppleWorkflowContractTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertIn(f"      - {path}", self.smoke)
         self.assertIn("      - src/ci_workflows/apple_multistage.py", self.smoke)
+        self.assertIn("      - src/ci_workflows/apple_plan_guard.py", self.smoke)
         self.assertIn("      - tests/test_apple_*.py", self.smoke)
 
     def test_external_actions_are_full_sha_pinned(self) -> None:
@@ -305,6 +309,8 @@ class AppleWorkflowContractTests(unittest.TestCase):
         self.assertIn("code_signing_required=no", source)
         self.assertIn("code_sign_identity=", source)
         self.assertNotIn("archive_path", source)
+        self.assertIn("_SAFE_BOOLEAN_BUILD_SETTINGS", self.guard)
+        self.assertIn("_SAFE_CLEANUP_LEAVES", self.guard)
 
     def test_deterministic_simulator_creation_and_owned_cleanup_are_present(self) -> None:
         self.assertIn(
@@ -360,6 +366,7 @@ class AppleWorkflowContractTests(unittest.TestCase):
                 self.planner,
                 self.execution,
                 self.multistage,
+                self.guard,
                 self.types,
                 (ROOT / "src/ci_workflows/ciw_apple.py").read_text(encoding="utf-8"),
                 (ROOT / "src/ci_workflows/apple_contract_fragments.py").read_text(
