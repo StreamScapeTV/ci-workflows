@@ -67,7 +67,7 @@ jobs:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -Eeuo pipefail
-          test "$(git -C .ciw rev-parse HEAD)" = "${EXPECTED_SHA}"
+          test "$(cd .ciw && git rev-parse HEAD)" = "${EXPECTED_SHA}"
 
       - id: live_plan
         name: Validate bounded live-service plan
