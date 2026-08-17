@@ -28,6 +28,6 @@ The public API has no GitHub Actions cache. The workflow retains **zero routine 
 
 ## Synthetic contract smoke
 
-Central's permanent smoke runs the same generic request parser and typed plan for Android, iOS, and tvOS using checked-in synthetic fixtures. Synthetic mode is restricted to the `StreamScapeTV/ci-workflows` repository, remains non-physical, and cannot authorize the physical executor even on a trusted branch push or manual smoke dispatch.
+Central's permanent smoke runs the same generic request parser and typed plan for Android, iOS, and tvOS using checked-in synthetic fixtures. Synthetic mode is restricted to the `StreamScapeTV/ci-workflows` repository, remains non-physical, and cannot authorize the physical executor even on a trusted branch push or manual smoke dispatch. Focused branch smoke intentionally excludes the separately owned `device-lock/1` implementation suites, which retain their own dedicated validation lanes.
 
 Consumers pin the final reviewed Central merge SHA while keeping their product commands, packet names, paths, trigger policy, and secret names in the consumer repository.
