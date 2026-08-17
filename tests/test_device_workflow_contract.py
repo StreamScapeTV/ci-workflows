@@ -73,13 +73,23 @@ class DeviceWorkflowContractTests(unittest.TestCase):
             self.assertIn(required, input_block)
 
     def test_all_private_actions_are_immutable(self) -> None:
-        refs = re.findall(r"uses: StreamScapeTV/ci-workflows/([^@\s]+)@([0-9a-f]{40})", self.workflow + "\n" + self.smoke)
+        refs = re.findall(
+            r"uses: StreamScapeTV/ci-workflows/([^@\s]+)@([0-9a-f]{40})",
+            self.workflow + "\n" + self.smoke,
+        )
         self.assertTrue(refs)
         self.assertTrue(all(len(sha) == 40 for _path, sha in refs))
-        self.assertIn(f"actions/validate-device@{DEVICE_ACTION_SHA}", {f"{path}@{sha}" for path, sha in refs})
-        self.assertIn(f"actions/device-lock@{DEVICE_LOCK_ACTION_SHA}", {f"{path}@{sha}" for path, sha in refs})
+        validate_refs = {sha for path, sha in refs if path == "actions/validate-device"}
+        self.assertEqual({DEVICE_ACTION_SHA}, validate_refs)
+        self.assertIn(
+            f"actions/device-lock@{DEVICE_LOCK_ACTION_SHA}",
+            {f"{path}@{sha}" for path, sha in refs},
+        )
         for action in ("exact-checkout", "prepare-workspace", "cleanup-workspace"):
-            self.assertIn(f"actions/{action}@{FOUNDATION_ACTION_SHA}", {f"{path}@{sha}" for path, sha in refs})
+            self.assertIn(
+                f"actions/{action}@{FOUNDATION_ACTION_SHA}",
+                {f"{path}@{sha}" for path, sha in refs},
+            )
 
     def test_planner_selects_semantic_host_and_executor_consumes_typed_plan(self) -> None:
         self.assertIn("host_capacity: ${{ inputs.host_capacity }}", self.workflow)
@@ -111,7 +121,10 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         self.assertEqual(positions, sorted(positions))
         self.assertEqual(1, device_job.count("Restore caller-owned device state exactly once"))
         self.assertIn("cancel-in-progress: false", device_job)
-        self.assertNotIn("concurrency_group:", self.workflow.split("inputs:", 1)[1].split("secrets:", 1)[0])
+        self.assertNotIn(
+            "concurrency_group:",
+            self.workflow.split("inputs:", 1)[1].split("secrets:", 1)[0],
+        )
 
     def test_zero_actions_cache_and_routine_artifacts(self) -> None:
         text = (self.workflow + self.smoke).casefold()
