@@ -23,6 +23,8 @@ issues:
       - https://github.com/StreamScapeTV/iptv-android/issues/914
       - https://github.com/StreamScapeTV/iptv-android/issues/927
       - https://github.com/StreamScapeTV/iptv-android/issues/926
+      - https://github.com/StreamScapeTV/streamscape-media/issues/594
+      - https://github.com/StreamScapeTV/streamscape-media/issues/587
   24:
     blocked_by:
       - https://github.com/StreamScapeTV/iptv-apple/issues/1468
