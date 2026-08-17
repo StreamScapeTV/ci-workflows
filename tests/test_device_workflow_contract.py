@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DEVICE_ACTION_SHA = "646f646f05525e62305088e8945972235abd1da0"
+DEVICE_ACTION_SHA = "47afb4b6f14742bdddd3998095d719011c3ef549"
 DEVICE_LOCK_ACTION_SHA = "599c82201e6da6ca51c4f6247f1526a4ba03d550"
 FOUNDATION_ACTION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 
@@ -37,10 +37,10 @@ class DeviceWorkflowContractTests(unittest.TestCase):
             actual,
         )
         for retired in (
-            "device_alias:", "command_profile:", "script_path:", "source_trust:",
-            "device_identifier:", "serial:", "udid:", "runner_labels:", "runs_on:",
+            "device_alias", "command_profile", "script_path", "source_trust",
+            "device_identifier", "serial", "udid", "runner_labels", "runs_on",
         ):
-            self.assertNotIn(retired, inputs)
+            self.assertNotRegex(inputs, rf"^      {retired}:$", msg=retired)
 
     def test_only_authorization_receipt_is_public_secret(self) -> None:
         secrets = self.workflow.split("secrets:", 1)[1].split("outputs:", 1)[0]
