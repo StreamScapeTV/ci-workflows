@@ -18,6 +18,7 @@ on:
       - tests/test_device_*.py
       - tests/test_public_api_contract.py
       - tests/fixtures/device-validation/**
+      - tests/fixtures/public-api/callers.json
       - docs/workflows/devices.md
       - docs/workflows/public-api-reference.md
       - docs/architecture/device-validation.md
@@ -42,6 +43,7 @@ on:
       - tests/test_device_*.py
       - tests/test_public_api_contract.py
       - tests/fixtures/device-validation/**
+      - tests/fixtures/public-api/callers.json
       - docs/workflows/devices.md
       - docs/workflows/public-api-reference.md
       - docs/architecture/device-validation.md
