@@ -95,6 +95,18 @@ jobs:
             echo "ISSUE_332_SDK_OVERLAY=${overlay}"
           } >> "${GITHUB_ENV}"
 
+      - name: Reset run-owned exact-checkout path
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          source_path="${GITHUB_WORKSPACE}/source"
+          case "${source_path}" in
+            "${GITHUB_WORKSPACE}/source") ;;
+            *) echo "Unexpected checkout cleanup path" >&2; exit 1 ;;
+          esac
+          rm -rf "${source_path}"
+          test ! -e "${source_path}"
+
       - id: plan
         name: Validate protected-full single-executor plan
         uses: ./.ciw/actions/validate-android
