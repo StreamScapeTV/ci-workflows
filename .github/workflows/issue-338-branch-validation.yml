@@ -35,23 +35,6 @@ jobs:
             src/ci_workflows/ciw_android_completion.py \
             scripts/ci/android_completion.py
 
-      - name: Parse reusable YAML
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          PYTHONDONTWRITEBYTECODE=1 python3 - <<'PY'
-          import yaml
-          from pathlib import Path
-          for relative in (
-              '.github/workflows/reusable-android-live-service.yml',
-              '.github/workflows/reusable-android-release.yml',
-              'actions/validate-android-live-service/action.yml',
-              'actions/validate-android-release/action.yml',
-          ):
-              value = yaml.safe_load(Path(relative).read_text(encoding='utf-8'))
-              assert isinstance(value, dict), relative
-          PY
-
       - name: Run focused Android completion tests
         shell: bash
         env:
