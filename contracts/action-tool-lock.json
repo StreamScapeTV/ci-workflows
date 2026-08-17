@@ -10,7 +10,7 @@
     },
     {
       "uses": "actions/setup-node",
-      "sha": "249970729cb0ef3589644ae4d4f8c696479add0b2",
+      "sha": "249970729cb0ef3589644e2896645e5dc5ba9c38",
       "release": "v6.5.0",
       "runtime": "node24",
       "source": "https://github.com/actions/setup-node"
@@ -129,10 +129,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-apple",
-      "sha": "db50df67a34672502ab0fe9815af0a88ea2f475c",
-      "release": "issue #336 single-executor Apple checkpoint",
+      "sha": "478b04651245d6d7d06bd3df74221278b74dd13b",
+      "release": "issue #336 guarded single-executor Apple checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/db50df67a34672502ab0fe9815af0a88ea2f475c/actions/validate-apple"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/478b04651245d6d7d06bd3df74221278b74dd13b/actions/validate-apple"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-oci",
