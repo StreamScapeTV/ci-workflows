@@ -39,9 +39,9 @@ class BootstrapContractTests(unittest.TestCase):
         self.assertEqual(
             MODULE.allowed_bootstrap_workflows(),
             [
-                ".github/workflows/reusable-android.yml",
                 ".github/workflows/reusable-android-live-service.yml",
                 ".github/workflows/reusable-android-release.yml",
+                ".github/workflows/reusable-android.yml",
                 ".github/workflows/reusable-apple.yml",
                 ".github/workflows/reusable-device.yml",
                 ".github/workflows/reusable-flutter.yml",
