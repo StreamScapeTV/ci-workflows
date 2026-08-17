@@ -52,10 +52,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-device",
-      "sha": "092d26777aebaf87a0a07d39a1660b4bc5cb658d",
-      "release": "issue #14 complete CIW checkpoint",
+      "sha": "47afb4b6f14742bdddd3998095d719011c3ef549",
+      "release": "issue #341 product-neutral device v2 checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/092d26777aebaf87a0a07d39a1660b4bc5cb658d/actions/validate-device"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/47afb4b6f14742bdddd3998095d719011c3ef549/actions/validate-device"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/device-lock",

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 from ci_workflows.ciw_device import _runs_on_json
@@ -22,31 +22,17 @@ class AdmissionAndPlanTests(unittest.TestCase):
     def setUp(self) -> None:
         self.contract = load_device_contract(ROOT)
 
-    def test_contract_identity_and_authorization_boundary(self) -> None:
-        self.assertEqual("1.1.0", self.contract["contract_version"])
-        self.assertEqual(
-            "exact-family-runtime-receipt",
-            self.contract["owner_authorization"]["mode"],
-        )
-        self.assertEqual([], self.contract["owner_authorization"]["authorized_families"])
-        self.assertFalse(
-            self.contract["owner_authorization"]["runner_or_secret_is_authorization"]
-        )
+    def test_contract_is_product_neutral_and_authorization_is_separate(self) -> None:
+        self.assertEqual("2.0.0", self.contract["contract_version"])
+        self.assertEqual(["device_authorization_receipt"], self.contract["public_secrets"])
+        for retired in ("profiles", "command_profiles", "live_backend_profiles"):
+            self.assertNotIn(retired, self.contract)
+        serialized = json.dumps(self.contract, sort_keys=True).casefold()
+        for product in ("iptv-android", "iptv-apple", "streamscape-media", "vlc"):
+            self.assertNotIn(product, serialized)
+        self.assertEqual("exact-family-runtime-receipt", self.contract["owner_authorization"]["mode"])
+        self.assertFalse(self.contract["owner_authorization"]["runner_or_secret_is_authorization"])
         self.assertTrue(self.contract["lock_contract"]["cross_run_fencing_claimed"])
-        self.assertEqual(
-            "device-lock/1:posix-shared-root-v1",
-            self.contract["lock_contract"]["production_adapter"],
-        )
-        self.assertEqual(
-            "in-memory-tests-only",
-            self.contract["lock_contract"]["temporary_reference_adapter"],
-        )
-        self.assertFalse(self.contract["lock_contract"]["agent_state_transport_used"])
-        self.assertEqual(
-            ["device_authorization_receipt", "live_test_credentials"],
-            self.contract["public_secrets"],
-        )
-        self.assertTrue(self.contract["serialization_contract"]["fencing_token"])
 
     def test_source_trust_is_derived_and_not_an_input(self) -> None:
         request = request_from_environment(synthetic_environment(), self.contract)
@@ -66,9 +52,7 @@ class AdmissionAndPlanTests(unittest.TestCase):
             with self.subTest(key=key):
                 environment = synthetic_environment()
                 environment[key] = value
-                with self.assertRaisesRegex(
-                    DeviceValidationError, "source_admission_rejected"
-                ):
+                with self.assertRaisesRegex(DeviceValidationError, "source_admission_rejected"):
                     request_from_environment(environment, self.contract)
 
     def test_moved_sha_is_rejected(self) -> None:
@@ -77,14 +61,11 @@ class AdmissionAndPlanTests(unittest.TestCase):
         with self.assertRaisesRegex(DeviceValidationError, "source_mismatch"):
             request_from_environment(environment, self.contract)
 
-    def test_raw_identifier_and_group_injection_are_rejected(self) -> None:
+    def test_raw_identifier_runner_and_retired_profile_inputs_are_rejected(self) -> None:
         for name in (
-            "INPUT_DEVICE_IDENTIFIER",
-            "INPUT_SERIAL",
-            "INPUT_UDID",
-            "INPUT_RAW_IDENTIFIER",
-            "INPUT_CONCURRENCY_GROUP",
-            "INPUT_CANCEL_IN_PROGRESS",
+            "INPUT_DEVICE_IDENTIFIER", "INPUT_SERIAL", "INPUT_UDID", "INPUT_RAW_IDENTIFIER",
+            "INPUT_RUNS_ON", "INPUT_RUNNER_LABELS", "INPUT_DEVICE_ALIAS", "INPUT_COMMAND_PROFILE",
+            "INPUT_SCRIPT_PATH", "INPUT_CONCURRENCY_GROUP", "INPUT_CANCEL_IN_PROGRESS",
         ):
             with self.subTest(name=name):
                 environment = synthetic_environment()
@@ -92,107 +73,87 @@ class AdmissionAndPlanTests(unittest.TestCase):
                 with self.assertRaisesRegex(DeviceValidationError, "forbidden_input"):
                     request_from_environment(environment, self.contract)
 
-    def test_opaque_alias_resolves_to_contract_class(self) -> None:
-        plan = build_plan(
-            self.contract,
-            request_from_environment(synthetic_environment(), self.contract),
-        )
-        self.assertEqual("synthetic-android-class", plan.alias_class)
-        self.assertEqual(
-            "device-validation-ciw-synthetic-android-android-synthetic-android-class",
-            plan.concurrency_group,
-        )
-        self.assertNotIn("SYNTHETIC-ANDROID", plan.concurrency_group)
-
-    def test_unknown_or_injected_alias_fails_closed(self) -> None:
-        for alias in (
-            "not-reviewed",
-            "synthetic-primary-${{github.sha}}",
-            "../../raw",
-        ):
-            with self.subTest(alias=alias):
-                environment = synthetic_environment()
-                environment["INPUT_DEVICE_ALIAS"] = alias
-                try:
-                    request = request_from_environment(environment, self.contract)
-                except DeviceValidationError as error:
-                    self.assertIn(
-                        error.code,
-                        {"device_profile_rejected", "invalid_input"},
-                    )
-                else:
-                    with self.assertRaisesRegex(
-                        DeviceValidationError, "device_profile_rejected"
-                    ):
-                        build_plan(self.contract, request)
-
-    def test_concurrency_is_contract_owned_and_immutable(self) -> None:
-        plan = build_plan(
-            self.contract,
-            request_from_environment(synthetic_environment(), self.contract),
-        )
-        outputs = plan.planning_outputs(runs_on_json='["mobile"]')
-        packet = json.loads(outputs["validated_plan"])
-        self.assertEqual(plan.concurrency_group, packet["concurrency_group"])
-        self.assertFalse(packet["cancel_in_progress"])
-        self.assertEqual("false", outputs["cancel_in_progress"])
-        self.assertFalse(self.contract["serialization_contract"]["caller_override"])
-
-    def test_synthetic_runner_selection_uses_approved_concrete_selectors(self) -> None:
+    def test_android_host_capacity_can_select_mobile_or_apple_semantically(self) -> None:
         expected = {
-            "android": ["linux", "amd64", "mobile"],
-            "ios": ["macOS", "ARM64"],
-            "tvos": ["macOS", "ARM64"],
+            "mobile": ["linux", "amd64", "mobile"],
+            "apple": ["macOS", "ARM64"],
         }
         with patch.dict(os.environ, {"CIW_DEVICE_FOCUSED_TEST": "false"}):
-            for family, selector in expected.items():
-                with self.subTest(family=family):
-                    plan = build_plan(
-                        self.contract,
-                        request_from_environment(
-                            synthetic_environment(family), self.contract
-                        ),
+            for host_capacity, selector in expected.items():
+                with self.subTest(host_capacity=host_capacity):
+                    environment = real_environment(
+                        repository="StreamScapeTV/streamscape-media",
+                        family="android",
+                        capability="full",
+                        host_capacity=host_capacity,
                     )
+                    plan = build_plan(self.contract, request_from_environment(environment, self.contract))
+                    self.assertEqual(host_capacity, plan.request.host_capacity)
                     self.assertEqual(selector, json.loads(_runs_on_json(ROOT, plan)))
+
+    def test_apple_families_reject_mobile_host_capacity(self) -> None:
+        for family in ("ios", "tvos"):
+            environment = real_environment(family=family, host_capacity="mobile")
+            with self.assertRaisesRegex(DeviceValidationError, "device_profile_rejected"):
+                build_plan(self.contract, request_from_environment(environment, self.contract))
+
+    def test_bounded_arguments_and_non_secret_environment_are_typed(self) -> None:
+        environment = real_environment(
+            family="android",
+            capability="vlc",
+            host_capacity="apple",
+            arguments=("vlc-all",),
+            caller_environment={"STREAMSCAPE_VLC_PACKET": "all"},
+        )
+        request = request_from_environment(environment, self.contract)
+        self.assertEqual(("vlc-all",), request.arguments)
+        self.assertEqual({"STREAMSCAPE_VLC_PACKET": "all"}, dict(request.environment))
+        plan = build_plan(self.contract, request)
+        packet = plan.packet(runs_on_json='["macOS","ARM64"]')
+        self.assertEqual(["vlc-all"], packet["command_plan"]["arguments"])
+        self.assertEqual({"STREAMSCAPE_VLC_PACKET": "all"}, packet["command_plan"]["environment"])
+
+    def test_secret_or_authority_environment_keys_are_rejected(self) -> None:
+        for key in ("SERVICE_PASSWORD", "BACKEND_TOKEN", "CIW_DEVICE_REQUEST_ID", "GITHUB_TOKEN", "ANDROID_SERIAL"):
+            with self.subTest(key=key):
+                environment = real_environment()
+                environment["INPUT_ENVIRONMENT_JSON"] = json.dumps({key: "value"})
+                with self.assertRaisesRegex(DeviceValidationError, "command_profile_rejected"):
+                    request_from_environment(environment, self.contract)
+
+    def test_repository_name_no_longer_selects_a_central_profile(self) -> None:
+        environment = real_environment(
+            repository="Acme/example",
+            family="android",
+            capability="instrumentation",
+            host_capacity="mobile",
+        )
+        plan = build_plan(self.contract, request_from_environment(environment, self.contract))
+        self.assertEqual("Acme/example", plan.request.repository)
+        self.assertEqual("android", plan.profile.profile_id)
 
     def _authorized_real_plan(self):
         environment = real_environment(
-            repository="StreamScapeTV/iptv-android",
+            repository="StreamScapeTV/streamscape-media",
             family="android",
-            capability="instrumentation",
-            command_profile="iptv-android-device",
-            script_path="build.sh",
-            alias="acceptance-primary",
-            secret=True,
+            capability="vlc",
+            host_capacity="apple",
+            test_script_path="scripts/ci/run-central-android-vlc-packet.sh",
+            arguments=("vlc-all",),
+            caller_environment={"STREAMSCAPE_VLC_PACKET": "all"},
         )
         environment["CIW_DEVICE_AUTHORIZATION_PRESENT"] = "true"
-        plan = build_plan(
-            self.contract,
-            request_from_environment(environment, self.contract),
-        )
+        plan = build_plan(self.contract, request_from_environment(environment, self.contract))
         return environment, plan
 
-    def test_generic_live_backend_secret_never_authorizes_execution(self) -> None:
-        environment = real_environment(
-            repository="StreamScapeTV/iptv-android",
-            family="android",
-            capability="instrumentation",
-            command_profile="iptv-android-device",
-            script_path="build.sh",
-            alias="acceptance-primary",
-            secret=True,
-        )
-        plan = build_plan(
-            self.contract,
-            request_from_environment(environment, self.contract),
-        )
+    def test_receipt_presence_is_the_only_planning_authority(self) -> None:
+        environment = real_environment(family="android", capability="vlc")
+        plan = build_plan(self.contract, request_from_environment(environment, self.contract))
         self.assertFalse(plan.execution_authorized)
         self.assertEqual("physical_authorization_required", plan.authorization_failure)
-
-    def test_dedicated_owner_receipt_presence_is_the_only_planning_authority(self) -> None:
-        _environment, plan = self._authorized_real_plan()
-        self.assertTrue(plan.execution_authorized)
-        self.assertEqual("", plan.authorization_failure)
+        _environment, authorized = self._authorized_real_plan()
+        self.assertTrue(authorized.execution_authorized)
+        self.assertEqual("", authorized.authorization_failure)
 
     def test_exact_owner_receipt_is_bound_to_request_and_expiry(self) -> None:
         _environment, plan = self._authorized_real_plan()
@@ -211,105 +172,51 @@ class AdmissionAndPlanTests(unittest.TestCase):
         wrong = dict(receipt)
         wrong["source_sha"] = "b" * 40
         with self.assertRaisesRegex(DeviceValidationError, "authorization_rejected"):
-            validate_authorization_receipt(
-                json.dumps(wrong, sort_keys=True, separators=(",", ":")),
-                plan=plan,
-                now_epoch=1000,
-            )
+            validate_authorization_receipt(json.dumps(wrong, sort_keys=True, separators=(",", ":")), plan=plan, now_epoch=1000)
         with self.assertRaisesRegex(DeviceValidationError, "authorization_rejected"):
             validate_authorization_receipt(raw, plan=plan, now_epoch=2001)
 
-    def test_backend_profile_requires_secret_but_secret_is_not_authority(self) -> None:
-        environment = real_environment(
-            repository="StreamScapeTV/iptv-android",
-            family="android",
-            capability="instrumentation",
-            command_profile="iptv-android-device",
-            script_path="build.sh",
-            alias="acceptance-primary",
+    def test_concurrency_is_generic_and_contract_owned(self) -> None:
+        environment = real_environment(family="android", capability="vlc", host_capacity="apple")
+        plan = build_plan(self.contract, request_from_environment(environment, self.contract))
+        self.assertEqual("device-validation-android-vlc-apple", plan.concurrency_group)
+        packet = plan.packet(runs_on_json='["macOS","ARM64"]')
+        self.assertFalse(packet["cancel_in_progress"])
+        self.assertEqual(
+            ["device_family", "device_capability", "host_capacity"],
+            self.contract["serialization_contract"]["group_scope"],
         )
-        request = request_from_environment(environment, self.contract)
-        with self.assertRaisesRegex(DeviceValidationError, "live_backend_rejected"):
-            build_plan(self.contract, request)
-        environment["CIW_DEVICE_LIVE_BACKEND_PRESENT"] = "true"
-        plan = build_plan(
-            self.contract,
-            request_from_environment(environment, self.contract),
-        )
-        self.assertFalse(plan.execution_authorized)
 
-    def test_typed_plan_exact_replay_and_tamper_rejection(self) -> None:
-        environment = synthetic_environment()
-        plan = build_plan(
-            self.contract,
-            request_from_environment(environment, self.contract),
-        )
-        outputs = plan.planning_outputs(runs_on_json='["mobile"]')
+    def test_typed_plan_exact_replay_and_command_tamper_rejection(self) -> None:
+        environment, plan = self._authorized_real_plan()
+        outputs = plan.planning_outputs(runs_on_json='["macOS","ARM64"]')
         packet = validate_typed_plan(
-            outputs["validated_plan"],
-            outputs["validated_plan_sha256"],
-            contract=self.contract,
-            environment=environment,
+            outputs["validated_plan"], outputs["validated_plan_sha256"],
+            contract=self.contract, environment=environment,
         )
         self.assertEqual(plan.concurrency_group, packet["concurrency_group"])
         tampered = json.loads(outputs["validated_plan"])
-        tampered["concurrency_group"] = "caller-group"
+        tampered["command_plan"]["arguments"] = ["different"]
         raw = json.dumps(tampered, sort_keys=True, separators=(",", ":"))
-        digest = __import__("hashlib").sha256(raw.encode()).hexdigest()
-        with self.assertRaisesRegex(DeviceValidationError, "group_injection_rejected"):
-            validate_typed_plan(
-                raw,
-                digest,
-                contract=self.contract,
-                environment=environment,
-            )
-        with self.assertRaisesRegex(
-            DeviceValidationError, "typed_plan_hash_mismatch"
-        ):
-            validate_typed_plan(
-                outputs["validated_plan"],
-                "0" * 64,
-                contract=self.contract,
-                environment=environment,
-            )
+        digest = hashlib.sha256(raw.encode()).hexdigest()
+        with self.assertRaisesRegex(DeviceValidationError, "typed_plan_rejected"):
+            validate_typed_plan(raw, digest, contract=self.contract, environment=environment)
+        with self.assertRaisesRegex(DeviceValidationError, "typed_plan_hash_mismatch"):
+            validate_typed_plan(outputs["validated_plan"], "0" * 64, contract=self.contract, environment=environment)
 
     def test_authorized_typed_plan_rebuilds_runtime_receipt_presence(self) -> None:
         environment, plan = self._authorized_real_plan()
-        outputs = plan.planning_outputs(runs_on_json='["linux","amd64","mobile"]')
-        packet = validate_typed_plan(
-            outputs["validated_plan"],
-            outputs["validated_plan_sha256"],
-            contract=self.contract,
-            environment=environment,
+        outputs = plan.planning_outputs(runs_on_json='["macOS","ARM64"]')
+        validate_typed_plan(
+            outputs["validated_plan"], outputs["validated_plan_sha256"],
+            contract=self.contract, environment=environment,
         )
-        self.assertTrue(packet["execution_authorized"])
         missing = dict(environment)
         missing["CIW_DEVICE_AUTHORIZATION_PRESENT"] = "false"
         with self.assertRaisesRegex(DeviceValidationError, "typed_plan_rejected"):
             validate_typed_plan(
-                outputs["validated_plan"],
-                outputs["validated_plan_sha256"],
-                contract=self.contract,
-                environment=missing,
-            )
-
-    def test_typed_plan_rebuilds_contract_owned_profile_fields(self) -> None:
-        environment = synthetic_environment()
-        plan = build_plan(
-            self.contract,
-            request_from_environment(environment, self.contract),
-        )
-        outputs = plan.planning_outputs(runs_on_json='["mobile"]')
-        tampered = json.loads(outputs["validated_plan"])
-        tampered["script_path"] = "build.sh"
-        raw = json.dumps(tampered, sort_keys=True, separators=(",", ":"))
-        digest = __import__("hashlib").sha256(raw.encode()).hexdigest()
-        with self.assertRaisesRegex(DeviceValidationError, "device_profile_rejected"):
-            validate_typed_plan(
-                raw,
-                digest,
-                contract=self.contract,
-                environment=environment,
+                outputs["validated_plan"], outputs["validated_plan_sha256"],
+                contract=self.contract, environment=missing,
             )
 
 

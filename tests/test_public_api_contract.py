@@ -155,6 +155,64 @@ class PublicApiContractTests(unittest.TestCase):
             self.assertNotIn("v2", row["file"])
             self.assertNotIn("v3", row["file"])
 
+    def test_device_api_v2_is_product_neutral_and_secret_minimized(self) -> None:
+        row = self.workflows["validation.device"]
+        self.assertEqual(".github/workflows/reusable-device.yml", row["file"])
+        self.assertEqual("2.0.0", row["api_version"])
+        self.assertEqual("device-validation", row["permission_profile"])
+        self.assertEqual(["device_authorization_receipt"], row["secrets"])
+        self.assertEqual(
+            ["device_authorization_receipt"],
+            self.profiles["device-validation"]["named_secrets_allowed"],
+        )
+        names = {item["name"] for item in row["inputs"]}
+        self.assertEqual(
+            {
+                "admitted_sha",
+                "device_family",
+                "device_capability",
+                "host_capacity",
+                "prepare_script_path",
+                "test_script_path",
+                "evidence_script_path",
+                "cleanup_script_path",
+                "arguments_json",
+                "environment_json",
+                "max_duration_minutes",
+                "evidence_exception_id",
+                "request_id",
+            },
+            names,
+        )
+        self.assertTrue(
+            {
+                "host_capacity",
+                "prepare_script_path",
+                "test_script_path",
+                "evidence_script_path",
+                "cleanup_script_path",
+                "arguments_json",
+                "environment_json",
+            }
+            <= set(self.data.types["input_catalog"])
+        )
+        self.assertEqual(
+            ["android", "ios", "tvos"],
+            self.data.types["input_catalog"]["device_family"]["enum"],
+        )
+        self.assertNotIn("device_alias", self.data.types["input_catalog"])
+        self.assertNotIn("live_test_credentials", self.data.types["secret_catalog"])
+        self.assertEqual(
+            {
+                "prepare_script_path",
+                "test_script_path",
+                "evidence_script_path",
+                "cleanup_script_path",
+            },
+            set(row["repository_owned_hooks"]),
+        )
+        self.assertTrue(names.isdisjoint({"device_alias", "command_profile", "script_path"}))
+
     def test_publication_contracts_use_caller_owned_paths_and_names(self) -> None:
         expected = {
             "oci.build": {"image_name", "dockerfile_path", "build_context"},
@@ -179,7 +237,7 @@ class PublicApiContractTests(unittest.TestCase):
         baseline["outputs"].remove("resolved_inputs_json")
         self.assertEqual("compatible", contract.classify_change(baseline, current))
         acknowledgements = self.data.types["breaking_change_acknowledgements"]
-        self.assertEqual(8, len(acknowledgements))
+        self.assertEqual(9, len(acknowledgements))
         by_api = {item["api_name"]: item for item in acknowledgements}
         self.assertEqual(
             {
@@ -191,6 +249,7 @@ class PublicApiContractTests(unittest.TestCase):
                 "flux.assets",
                 "flux.reconcile",
                 "validation.android",
+                "validation.device",
             },
             set(by_api),
         )
@@ -198,11 +257,13 @@ class PublicApiContractTests(unittest.TestCase):
             all(
                 item["migration_issue"] == "#322"
                 for api, item in by_api.items()
-                if api != "validation.android"
+                if api not in {"validation.android", "validation.device"}
             )
         )
         self.assertEqual("#332", by_api["validation.android"]["migration_issue"])
         self.assertEqual("2.0.0", by_api["validation.android"]["effective_version"])
+        self.assertEqual("#341", by_api["validation.device"]["migration_issue"])
+        self.assertEqual("2.0.0", by_api["validation.device"]["effective_version"])
 
     def test_existing_bootstrap_workflow_matches_its_versioned_api_record(self) -> None:
         row = self.workflows["release.tag-image-chart-bootstrap"]
@@ -242,6 +303,8 @@ class PublicApiContractTests(unittest.TestCase):
         self.assertIn("`validation_scope` (required)", rendered)
         self.assertIn("`validation.android-live-service` `1.0.0`", rendered)
         self.assertIn("`validation.android-release` `1.0.0`", rendered)
+        self.assertIn("`validation.device` `2.0.0`", rendered)
+        self.assertIn("`host_capacity` (required)", rendered)
 
     def test_breaking_changes_fail_without_a_complete_acknowledgement(self) -> None:
         baseline = copy.deepcopy(self.workflows["validation.python"])
@@ -288,7 +351,13 @@ class PublicApiContractTests(unittest.TestCase):
             "platform": "ios",
             "device_family": "ios",
             "device_capability": "physical",
-            "device_alias": "primary",
+            "host_capacity": "apple",
+            "prepare_script_path": "scripts/ci/device-prepare.sh",
+            "test_script_path": "scripts/ci/device-test.sh",
+            "evidence_script_path": "scripts/ci/device-evidence.sh",
+            "cleanup_script_path": "scripts/ci/device-cleanup.sh",
+            "arguments_json": [],
+            "environment_json": {},
             "script_path": "scripts/validate.sh",
             "release_mode": "tag-push",
             "release_version": "1.2.3",
