@@ -315,7 +315,7 @@ def _release_plan(args: argparse.Namespace, context: CIWContext) -> ReleasePlan:
     if _ARTIFACT_NAME.fullmatch(artifact_name) is None:
         raise CIWError(_RELEASE_DOMAIN, "artifact_name_invalid")
     retention = value["retention_days"]
-    if isinstance(retention, bool) or not isinstance(retention, int) or not 1 <= retention <= 30:
+    if isinstance(retention, bool) or not isinstance(retention, int) or not 1 <= retention <= 7:
         raise CIWError(_RELEASE_DOMAIN, "artifact_retention_invalid")
     return ReleasePlan(
         admitted_sha,
