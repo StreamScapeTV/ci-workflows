@@ -72,7 +72,7 @@ jobs:
           set -Eeuo pipefail
           test ! -e "${CIW_DEVICE_LOCK_ROOT}"
           mkdir -m 0700 "${CIW_DEVICE_LOCK_ROOT}"
-          chmod 0700 "${CIW_DEVICE_LOCK_ROOT}"
+          chmod 00700 "${CIW_DEVICE_LOCK_ROOT}"
           test "$(stat -c '%a' "${CIW_DEVICE_LOCK_ROOT}")" = "700"
 
       - id: focused
@@ -85,10 +85,10 @@ jobs:
           trap 'rm -rf -- "${validation_root}"' EXIT
           rm -rf -- "${validation_root}"
           mkdir "${validation_root}"
-          chmod 0700 "${validation_root}"
+          chmod 00700 "${validation_root}"
           test "$(stat -c '%a' "${validation_root}")" = "700"
           mkdir -p "${validation_root}/python" "${validation_root}/tmp"
-          chmod 0700 "${validation_root}/tmp"
+          chmod 00700 "${validation_root}/tmp"
           test "$(stat -c '%a' "${validation_root}/tmp")" = "700"
           PYTHONDONTWRITEBYTECODE=1 python3 .ciw/scripts/ci/bootstrap_validation_runtime.py \
             --lock .ciw/contracts/action-tool-lock.json \
