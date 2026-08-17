@@ -132,6 +132,12 @@ class PublicApiContractTests(unittest.TestCase):
             live["secrets"],
         )
         self.assertEqual(["private_dependency_token"], release["secrets"])
+        self.assertEqual("bounded-evidence", release["artifact_policy"])
+        self.assertEqual(7, release["artifact_retention_max_days"])
+        for api, row in self.workflows.items():
+            if api != "validation.android-release":
+                self.assertNotIn("artifact_policy", row)
+                self.assertNotIn("artifact_retention_max_days", row)
         self.assertEqual(
             {"type": "json-array", "nullable": True},
             self.data.types["output_catalog"]["artifact_manifest_json"],
