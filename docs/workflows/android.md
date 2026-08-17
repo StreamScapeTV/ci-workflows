@@ -24,7 +24,7 @@ The reusable workflow has no matrix and no nested reusable mobile jobs. Separate
 
 Private callers do not clone the central repository with caller-scoped credentials. The workflow invokes central composite actions at immutable full commit SHAs:
 
-- `StreamScapeTV/ci-workflows/actions/validate-android` is pinned to `e48b383e51137d5d8b1a9b2b6f3e5ba2fba74394`, recorded as `issue #332 single-executor Android checkpoint`.
+- `StreamScapeTV/ci-workflows/actions/validate-android` is pinned to `474c707bfcfe77b0d36bd0e4c76691359e8dc4ad`, recorded as `issue #332 single-executor Android checkpoint`.
 - `StreamScapeTV/ci-workflows/actions/exact-checkout`, `prepare-workspace`, `render-evidence`, and `cleanup-workspace` remain pinned to `70e08d4ddf8930046632a7135950e924b82e22bf`, recorded as `issue #116 immutable private-action checkpoint`.
 - `StreamScapeTV/ci-workflows/actions/checkout-private-dependency` is pinned to `70e08d4ddf8930046632a7135950e924b82e22bf`, recorded as `issue #104 immutable private-action checkpoint`.
 
