@@ -35,9 +35,13 @@ class DeviceLockSmokeContractTests(unittest.TestCase):
             if step.get("name") == "Initialize synthetic private backend path"
         )
         initialize_run = initialize["run"]
-        self.assertIn("RUNNER_TEMP", initialize_run)
+        self.assertIn("HOME", initialize_run)
+        self.assertIn('test ! -L "${HOME}"', initialize_run)
+        self.assertIn("stat -c '%u'", initialize_run)
+        self.assertIn("id -u", initialize_run)
         self.assertIn("GITHUB_ENV", initialize_run)
         self.assertIn("CIW_DEVICE_LOCK_ROOT=", initialize_run)
+        self.assertNotIn("RUNNER_TEMP", initialize_run)
         self.assertNotIn("${{ runner.temp }}", self.source)
         action = yaml.load(
             (ROOT / "actions/device-lock/action.yml").read_text(encoding="utf-8"),
