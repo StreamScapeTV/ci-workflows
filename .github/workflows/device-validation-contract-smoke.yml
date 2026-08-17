@@ -60,10 +60,16 @@ jobs:
         run: |
           set -Eeuo pipefail
           cd source
-          PYTHONPATH=src python3 -m unittest discover -s tests -p 'test_device_*.py'
+          PYTHONPATH=src python3 -m unittest \
+            tests.test_device_admission_plan \
+            tests.test_device_denied_plan \
+            tests.test_device_fixture_completeness \
+            tests.test_device_inventory_evidence \
+            tests.test_device_live_safe \
+            tests.test_device_workflow_contract
       - name: Remove exact source
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-device@646f646f05525e62305088e8945972235abd1da0
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@47afb4b6f14742bdddd3998095d719011c3ef549
         with:
           phase: cleanup-checkout
           source_root: source
@@ -98,7 +104,7 @@ jobs:
           fetch_depth: "1"
       - id: synthetic
         name: Execute synthetic product-neutral device contract
-        uses: StreamScapeTV/ci-workflows/actions/validate-device@646f646f05525e62305088e8945972235abd1da0
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@47afb4b6f14742bdddd3998095d719011c3ef549
         env:
           CIW_DEVICE_AUTHORIZATION_PRESENT: "false"
         with:
@@ -133,7 +139,7 @@ jobs:
           [[ "$EVIDENCE_ID" =~ ^[0-9a-f]{64}$ ]]
       - name: Remove exact source
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-device@646f646f05525e62305088e8945972235abd1da0
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@47afb4b6f14742bdddd3998095d719011c3ef549
         with:
           phase: cleanup-checkout
           source_root: source
