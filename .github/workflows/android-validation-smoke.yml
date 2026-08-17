@@ -35,7 +35,7 @@ permissions:
 jobs:
   android:
     name: Android reusable-workflow smoke
-    runs-on: [linux, amd64, mobile]
+    runs-on: [macOS, ARM64]
     timeout-minutes: 45
     steps:
       - name: Admit exact same-repository smoke source
