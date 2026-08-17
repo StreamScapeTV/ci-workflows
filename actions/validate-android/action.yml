@@ -10,7 +10,7 @@ inputs:
     description: Exact admitted caller source SHA
     required: true
   validation_scope:
-    description: compile, unit, assemble, lint, targeted-test, gradle, or script
+    description: protected-full, compile, unit, assemble, lint, targeted-unit, gradle, or script
     required: true
   working_directory:
     description: Bounded relative Android project directory
@@ -20,20 +20,10 @@ inputs:
     description: Bounded checked-in Gradle wrapper path relative to the project directory
     required: false
     default: gradlew
-  gradle_tasks_json:
-    description: Bounded JSON array of Gradle task names
+  validation_plan_json:
+    description: Strict bounded JSON plan containing only caller-owned Gradle tasks, selector, or checked-in script data for the selected scope
     required: false
-    default: "[]"
-  targeted_test_selector:
-    description: Optional exact JVM test selector used only by targeted-test
-    required: false
-  script_path:
-    description: Optional checked-in executable script used only by script scope
-    required: false
-  script_arguments_json:
-    description: Bounded JSON array of argv values for the checked-in script
-    required: false
-    default: "[]"
+    default: "{}"
   private_dependency_repository:
     description: Optional exact private dependency repository
     required: false
@@ -84,6 +74,8 @@ outputs:
     value: ${{ steps.android.outputs.runs_on_json }}
   workspace_profile:
     value: ${{ steps.android.outputs.workspace_profile }}
+  execution_model:
+    value: ${{ steps.android.outputs.execution_model }}
   private_dependency_used:
     value: ${{ steps.android.outputs.private_dependency_used }}
   private_dependency_repository:
@@ -113,10 +105,7 @@ runs:
         INPUT_VALIDATION_SCOPE: ${{ inputs.validation_scope }}
         INPUT_WORKING_DIRECTORY: ${{ inputs.working_directory }}
         INPUT_GRADLE_WRAPPER_PATH: ${{ inputs.gradle_wrapper_path }}
-        INPUT_GRADLE_TASKS_JSON: ${{ inputs.gradle_tasks_json }}
-        INPUT_TARGETED_TEST_SELECTOR: ${{ inputs.targeted_test_selector }}
-        INPUT_SCRIPT_PATH: ${{ inputs.script_path }}
-        INPUT_SCRIPT_ARGUMENTS_JSON: ${{ inputs.script_arguments_json }}
+        INPUT_VALIDATION_PLAN_JSON: ${{ inputs.validation_plan_json }}
         INPUT_PRIVATE_DEPENDENCY_REPOSITORY: ${{ inputs.private_dependency_repository }}
         INPUT_PRIVATE_DEPENDENCY_SHA: ${{ inputs.private_dependency_sha }}
         INPUT_PRIVATE_DEPENDENCY_SUBDIRECTORY: ${{ inputs.private_dependency_subdirectory }}
