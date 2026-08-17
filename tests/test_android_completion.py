@@ -133,7 +133,7 @@ class AndroidCompletionPlanTests(unittest.TestCase):
         cases = (
             release_json(artifact_path="../escape.apk"),
             release_json(artifact_path="build/outputs/release/*.aab"),
-            release_json(retention=31),
+            release_json(retention=8),
         )
         for raw in cases:
             with self.subTest(raw=raw):
