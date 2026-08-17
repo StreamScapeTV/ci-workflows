@@ -8,12 +8,18 @@ on:
       - .github/workflows/device-validation-contract-smoke.yml
       - actions/validate-device/**
       - contracts/device-*.json
+      - contracts/public-workflows.json
+      - contracts/public-workflows/validation.json
+      - contracts/public-workflow-types.json
+      - contracts/permission-profiles.json
       - src/ci_workflows/device*.py
       - src/ci_workflows/ciw_device.py
       - tests/device_test_support.py
       - tests/test_device_*.py
+      - tests/test_public_api_contract.py
       - tests/fixtures/device-validation/**
       - docs/workflows/devices.md
+      - docs/workflows/public-api-reference.md
       - docs/architecture/device-validation.md
   push:
     branches:
@@ -26,12 +32,18 @@ on:
       - .github/workflows/device-validation-contract-smoke.yml
       - actions/validate-device/**
       - contracts/device-*.json
+      - contracts/public-workflows.json
+      - contracts/public-workflows/validation.json
+      - contracts/public-workflow-types.json
+      - contracts/permission-profiles.json
       - src/ci_workflows/device*.py
       - src/ci_workflows/ciw_device.py
       - tests/device_test_support.py
       - tests/test_device_*.py
+      - tests/test_public_api_contract.py
       - tests/fixtures/device-validation/**
       - docs/workflows/devices.md
+      - docs/workflows/public-api-reference.md
       - docs/architecture/device-validation.md
   workflow_dispatch:
 
@@ -55,7 +67,7 @@ jobs:
           admitted_sha: ${{ github.event.pull_request.head.sha || github.sha }}
           path: source
           fetch_depth: "1"
-      - name: Run focused device regressions
+      - name: Run focused device and public API regressions
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -66,7 +78,8 @@ jobs:
             tests.test_device_fixture_completeness \
             tests.test_device_inventory_evidence \
             tests.test_device_live_safe \
-            tests.test_device_workflow_contract
+            tests.test_device_workflow_contract \
+            tests.test_public_api_contract
       - name: Remove exact source
         if: always()
         uses: StreamScapeTV/ci-workflows/actions/validate-device@47afb4b6f14742bdddd3998095d719011c3ef549
