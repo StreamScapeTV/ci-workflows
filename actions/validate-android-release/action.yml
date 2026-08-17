@@ -110,6 +110,6 @@ runs:
         INPUT_PRIVATE_DEPENDENCY_EXPECTED_SUBPATH: ${{ inputs.private_dependency_expected_subpath }}
       run: |
         set -Eeuo pipefail
-        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/android_completion.py" release \
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" android-release validate \
           --phase "${{ inputs.phase }}" \
           --source-root source
