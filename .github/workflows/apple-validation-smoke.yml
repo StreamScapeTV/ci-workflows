@@ -28,6 +28,10 @@ on:
       - docs/workflows/public-api-reference.md
       - tests/fixtures/apple-validation/**
       - tests/test_apple_*.py
+      - tests/test_apple_contract_fragments.py
+      - tests/test_apple_contract_fragment_path_safety.py
+      - tests/test_apple_fragment_loader_isolation.py
+      - tests/test_apple_smoke_trigger_contract.py
       - tests/test_bootstrap.py
       - tests/test_ciw_cli.py
       - tests/test_ciw_contracts.py
