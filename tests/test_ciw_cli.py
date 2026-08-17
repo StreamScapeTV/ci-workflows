@@ -461,9 +461,18 @@ class CIWCLITests(unittest.TestCase):
             )
         actions = sorted((ROOT / "actions").glob("*/action.yml"))
         self.assertTrue(actions)
+        completion_actions = {
+            "validate-android-live-service",
+            "validate-android-release",
+        }
         for action in actions:
             source = action.read_text(encoding="utf-8")
-            self.assertIn("scripts/ci/ciw.py", source, action.as_posix())
+            expected_adapter = (
+                "scripts/ci/android_completion.py"
+                if action.parent.name in completion_actions
+                else "scripts/ci/ciw.py"
+            )
+            self.assertIn(expected_adapter, source, action.as_posix())
 
     def test_unknown_command_is_rejected_by_argparse(self) -> None:
         with self.assertRaises(SystemExit) as caught:
