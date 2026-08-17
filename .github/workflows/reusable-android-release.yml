@@ -1,0 +1,245 @@
+name: CI / Android unsigned release validation
+
+on:
+  workflow_call:
+    inputs:
+      admitted_sha:
+        description: Exact lowercase Android source SHA admitted by source.resolve
+        required: true
+        type: string
+      working_directory:
+        description: Bounded relative Android project directory
+        required: false
+        default: .
+        type: string
+      gradle_wrapper_path:
+        description: Bounded checked-in Gradle wrapper path
+        required: false
+        default: gradlew
+        type: string
+      validation_plan_json:
+        description: Strict caller-owned unsigned release build, policy, size, and artifact plan
+        required: true
+        type: string
+      private_dependency_repository:
+        required: false
+        default: ""
+        type: string
+      private_dependency_sha:
+        required: false
+        default: ""
+        type: string
+      private_dependency_subdirectory:
+        required: false
+        default: .
+        type: string
+      private_dependency_id:
+        required: false
+        default: ""
+        type: string
+    secrets:
+      private_dependency_token:
+        description: Optional transient contents-read dependency token
+        required: false
+    outputs:
+      result:
+        value: ${{ jobs.release.outputs.result }}
+      test_summary:
+        value: ${{ jobs.release.outputs.test_summary }}
+      cleanup_result:
+        value: ${{ jobs.release.outputs.cleanup_result }}
+      artifact_manifest_json:
+        value: ${{ jobs.release.outputs.artifact_manifest_json }}
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Validate unsigned Android release request
+    runs-on: [linux, amd64, general, small]
+    timeout-minutes: 10
+    outputs:
+      runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
+      workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
+      private_dependency_used: ${{ steps.plan.outputs.private_dependency_used }}
+      private_dependency_repository: ${{ steps.plan.outputs.private_dependency_repository }}
+      private_dependency_sha: ${{ steps.plan.outputs.private_dependency_sha }}
+      private_dependency_subdirectory: ${{ steps.plan.outputs.private_dependency_subdirectory }}
+      private_dependency_id: ${{ steps.plan.outputs.private_dependency_id }}
+      artifact_name: ${{ steps.plan.outputs.artifact_name }}
+      retention_days: ${{ steps.plan.outputs.retention_days }}
+    steps:
+      - id: plan
+        uses: StreamScapeTV/ci-workflows/actions/validate-android-release@2ecbe22ac6d10aa25d79bc046cc205e4df1e08cc # issue #338 initial completion checkpoint
+        with:
+          phase: plan
+          admitted_sha: ${{ inputs.admitted_sha }}
+          working_directory: ${{ inputs.working_directory }}
+          gradle_wrapper_path: ${{ inputs.gradle_wrapper_path }}
+          validation_plan_json: ${{ inputs.validation_plan_json }}
+          private_dependency_repository: ${{ inputs.private_dependency_repository }}
+          private_dependency_sha: ${{ inputs.private_dependency_sha }}
+          private_dependency_subdirectory: ${{ inputs.private_dependency_subdirectory }}
+          private_dependency_id: ${{ inputs.private_dependency_id }}
+
+  release:
+    name: Execute unsigned Android release validation
+    needs: plan
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
+    timeout-minutes: 120
+    outputs:
+      result: ${{ steps.terminal.outputs.result }}
+      test_summary: ${{ steps.execute.outputs.test_summary }}
+      cleanup_result: ${{ steps.android_cleanup.outcome == 'success' && steps.residue.outcome == 'success' && steps.workspace_cleanup.outcome == 'success' && 'success' || 'failure' }}
+      artifact_manifest_json: ${{ steps.execute.outputs.artifact_manifest_json }}
+    steps:
+      - id: checkout
+        name: Check out exact admitted Android source once
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf
+        with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          admitted_sha: ${{ inputs.admitted_sha }}
+          path: source
+          fetch_depth: "1"
+
+      - id: workspace
+        name: Prepare one isolated Gradle workspace
+        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf
+        with:
+          profile: gradle
+          cache_mode: disabled
+          source_sha: ${{ inputs.admitted_sha }}
+
+      - id: dependency
+        name: Check out exact private dependency at most once
+        if: needs.plan.outputs.private_dependency_used == 'true'
+        uses: StreamScapeTV/ci-workflows/actions/checkout-private-dependency@70e08d4ddf8930046632a7135950e924b82e22bf
+        with:
+          repository: ${{ needs.plan.outputs.private_dependency_repository }}
+          admitted_sha: ${{ needs.plan.outputs.private_dependency_sha }}
+          dependency_id: ${{ needs.plan.outputs.private_dependency_id }}
+          expected_subpath: ${{ needs.plan.outputs.private_dependency_subdirectory }}
+          fetch_depth: "1"
+          token: ${{ secrets.private_dependency_token }}
+
+      - id: execute
+        name: Execute one unsigned release plan in the shared Gradle workspace
+        uses: StreamScapeTV/ci-workflows/actions/validate-android-release@2ecbe22ac6d10aa25d79bc046cc205e4df1e08cc # issue #338 initial completion checkpoint
+        with:
+          phase: execute
+          admitted_sha: ${{ inputs.admitted_sha }}
+          working_directory: ${{ inputs.working_directory }}
+          gradle_wrapper_path: ${{ inputs.gradle_wrapper_path }}
+          validation_plan_json: ${{ inputs.validation_plan_json }}
+          private_dependency_repository: ${{ inputs.private_dependency_repository }}
+          private_dependency_sha: ${{ inputs.private_dependency_sha }}
+          private_dependency_subdirectory: ${{ inputs.private_dependency_subdirectory }}
+          private_dependency_id: ${{ inputs.private_dependency_id }}
+          private_dependency_verified: ${{ steps.dependency.outputs.verified }}
+          private_dependency_remotes_erased: ${{ steps.dependency.outputs.remotes_erased }}
+          private_dependency_credentials_erased: ${{ steps.dependency.outputs.credentials_erased }}
+          private_dependency_head_sha: ${{ steps.dependency.outputs.head_sha }}
+          private_dependency_checkout_repository: ${{ steps.dependency.outputs.repository }}
+          private_dependency_checkout_id: ${{ steps.dependency.outputs.dependency_id }}
+          private_dependency_expected_subpath: ${{ steps.dependency.outputs.expected_subpath }}
+
+      - id: upload_paths
+        name: Convert only validated artifact identities into upload paths
+        if: steps.execute.outcome == 'success'
+        shell: bash
+        env:
+          ARTIFACT_PATHS_JSON: ${{ steps.execute.outputs.artifact_paths_json }}
+        run: |
+          set -Eeuo pipefail
+          {
+            echo 'paths<<CIW_ARTIFACT_PATHS'
+            python3 - <<'PY'
+          import json
+          import os
+
+          values = json.loads(os.environ["ARTIFACT_PATHS_JSON"])
+          if not isinstance(values, list) or not values or len(values) > 250:
+              raise SystemExit("validated artifact path list is invalid")
+          for value in values:
+              if not isinstance(value, str) or not value or "\n" in value or "\r" in value:
+                  raise SystemExit("validated artifact path is invalid")
+              print(value)
+          PY
+            echo 'CIW_ARTIFACT_PATHS'
+          } >> "${GITHUB_OUTPUT}"
+
+      - id: upload
+        name: Upload bounded unsigned Android release evidence
+        if: steps.execute.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ steps.execute.outputs.artifact_name }}
+          path: ${{ steps.upload_paths.outputs.paths }}
+          if-no-files-found: error
+          retention-days: ${{ steps.execute.outputs.retention_days }}
+          compression-level: 0
+
+      - id: android_cleanup
+        name: Remove unsigned-release copied source state once
+        if: always() && steps.workspace.outcome == 'success'
+        uses: StreamScapeTV/ci-workflows/actions/validate-android-release@2ecbe22ac6d10aa25d79bc046cc205e4df1e08cc
+        with:
+          phase: cleanup
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_plan_json: ${{ inputs.validation_plan_json }}
+
+      - id: residue
+        name: Verify zero unsigned-release copied-source residue
+        if: always() && steps.workspace.outcome == 'success'
+        uses: StreamScapeTV/ci-workflows/actions/validate-android-release@2ecbe22ac6d10aa25d79bc046cc205e4df1e08cc
+        with:
+          phase: residue
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_plan_json: ${{ inputs.validation_plan_json }}
+
+      - id: workspace_cleanup
+        name: Remove and verify the registered Gradle workspace
+        if: always()
+        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf
+
+      - id: clean
+        name: Verify admitted Android source remained exact and clean
+        if: always() && steps.checkout.outcome == 'success'
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.admitted_sha }}
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C source rev-parse HEAD)" = "${EXPECTED_SHA}"
+          test -z "$(git -C source status --porcelain=v1 --untracked-files=all)"
+
+      - id: terminal
+        name: Project terminal unsigned-release result
+        if: always()
+        shell: bash
+        env:
+          PLAN: ${{ needs.plan.result }}
+          CHECKOUT: ${{ steps.checkout.outcome }}
+          WORKSPACE: ${{ steps.workspace.outcome }}
+          DEPENDENCY_REQUIRED: ${{ needs.plan.outputs.private_dependency_used }}
+          DEPENDENCY: ${{ steps.dependency.outcome }}
+          EXECUTE: ${{ steps.execute.outcome }}
+          UPLOAD_PATHS: ${{ steps.upload_paths.outcome }}
+          UPLOAD: ${{ steps.upload.outcome }}
+          ANDROID_CLEANUP: ${{ steps.android_cleanup.outcome }}
+          RESIDUE: ${{ steps.residue.outcome }}
+          WORKSPACE_CLEANUP: ${{ steps.workspace_cleanup.outcome }}
+          CLEAN: ${{ steps.clean.outcome }}
+        run: |
+          set -Eeuo pipefail
+          dependency_ok=true
+          if [[ "${DEPENDENCY_REQUIRED}" == true ]]; then
+            test "${DEPENDENCY}" = success || dependency_ok=false
+          fi
+          if [[ "${PLAN}" == success && "${CHECKOUT}" == success && "${WORKSPACE}" == success && "${dependency_ok}" == true && "${EXECUTE}" == success && "${UPLOAD_PATHS}" == success && "${UPLOAD}" == success && "${ANDROID_CLEANUP}" == success && "${RESIDUE}" == success && "${WORKSPACE_CLEANUP}" == success && "${CLEAN}" == success ]]; then
+            echo 'result=success' >> "${GITHUB_OUTPUT}"
+          else
+            echo 'result=failure' >> "${GITHUB_OUTPUT}"
+            exit 1
+          fi
