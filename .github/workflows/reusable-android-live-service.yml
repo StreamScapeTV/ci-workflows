@@ -68,7 +68,8 @@ jobs:
       private_dependency_id: ${{ steps.plan.outputs.private_dependency_id }}
     steps:
       - id: plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-android-live-service@2ecbe22ac6d10aa25d79bc046cc205e4df1e08cc # issue #338 initial completion checkpoint
+        name: Resolve bounded Android live-service plan
+        uses: StreamScapeTV/ci-workflows/actions/validate-android-live-service@2ecbe22ac6d10aa25d79bc046cc205e4df1e08cc # issue #338 Android completion checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -91,7 +92,7 @@ jobs:
     steps:
       - id: checkout
         name: Check out exact admitted Android source once
-        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -100,7 +101,7 @@ jobs:
 
       - id: workspace
         name: Prepare one isolated Gradle workspace
-        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf
+        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           profile: gradle
           cache_mode: disabled
@@ -109,7 +110,7 @@ jobs:
       - id: dependency
         name: Check out exact private dependency at most once
         if: needs.plan.outputs.private_dependency_used == 'true'
-        uses: StreamScapeTV/ci-workflows/actions/checkout-private-dependency@70e08d4ddf8930046632a7135950e924b82e22bf
+        uses: StreamScapeTV/ci-workflows/actions/checkout-private-dependency@70e08d4ddf8930046632a7135950e924b82e22bf # issue #104 immutable private-action checkpoint
         with:
           repository: ${{ needs.plan.outputs.private_dependency_repository }}
           admitted_sha: ${{ needs.plan.outputs.private_dependency_sha }}
@@ -120,7 +121,7 @@ jobs:
 
       - id: execute
         name: Execute only the checked-in live-service gate
-        uses: StreamScapeTV/ci-workflows/actions/validate-android-live-service@2ecbe22ac6d10aa25d79bc046cc205e4df1e08cc # issue #338 initial completion checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android-live-service@2ecbe22ac6d10aa25d79bc046cc205e4df1e08cc # issue #338 Android completion checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -143,7 +144,7 @@ jobs:
       - id: android_cleanup
         name: Remove live-service copied source state once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-android-live-service@2ecbe22ac6d10aa25d79bc046cc205e4df1e08cc
+        uses: StreamScapeTV/ci-workflows/actions/validate-android-live-service@2ecbe22ac6d10aa25d79bc046cc205e4df1e08cc # issue #338 Android completion checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -152,7 +153,7 @@ jobs:
       - id: residue
         name: Verify zero live-service copied-source residue
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-android-live-service@2ecbe22ac6d10aa25d79bc046cc205e4df1e08cc
+        uses: StreamScapeTV/ci-workflows/actions/validate-android-live-service@2ecbe22ac6d10aa25d79bc046cc205e4df1e08cc # issue #338 Android completion checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -161,7 +162,7 @@ jobs:
       - id: workspace_cleanup
         name: Remove and verify the registered Gradle workspace
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf
+        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
 
       - id: clean
         name: Verify admitted Android source remained exact and clean
