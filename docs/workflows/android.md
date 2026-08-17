@@ -1,66 +1,47 @@
 # Android validation workflow
 
-`validation.android` version `1.0.0` is the public, product-neutral Android and Gradle validation API implemented by `.github/workflows/reusable-android.yml`. Its stable required-check name is **CI / Android validation**.
+`validation.android` version `2.0.0` is the public product-neutral Android/Gradle validation API implemented by `.github/workflows/reusable-android.yml`. Its stable required-check name is **CI / Android validation**.
 
-## Invocation boundary
+## Public technology boundary
 
-A caller supplies an exact admitted source SHA and chooses only checked-in identifiers: a validation profile, repository task profile, reviewed working directory, reviewed Gradle wrapper path, and the profile-specific bounded fields. The API accepts no arbitrary Gradle task, command, arguments, shell, callback, runtime download URL, runner label, engine, registry, signing identity, keystore, store operation, database or backend URL, device selector, mutable ref, release, deployment, Helm, or Flux input.
+The reusable workflow accepts only technology-level caller data: an exact admitted source SHA, a validation scope, a bounded working directory, a checked-in Gradle wrapper path, a bounded JSON list of Gradle tasks, an optional exact targeted-test selector, or a checked-in executable script plus bounded argv values. Optional private dependency coordinates are an exact repository, full SHA, bounded identity, and bounded subdirectory. There is no central product ID, repository-specific task registry, runner-label input, shell string, callback, container engine, registry host, signing identity, keystore, release, Helm, Flux, or physical-device input.
 
-Planning runs on protected semantic `portable` capacity and resolves the checked-in contract. Android execution runs only on the semantic `mobile` profile selected by the protected planner. Callers never select labels, hosts, architectures, or engines. Same-repository trusted PRs and exact trusted source are admitted; fork source is rejected before mobile or private dependency execution.
+Supported validation scopes are `compile`, `unit`, `assemble`, `lint`, `targeted-test`, `gradle`, and `script`. The first four accept exactly one caller-owned Gradle task. `targeted-test` adds one grammar-bounded JVM selector. `gradle` accepts up to 32 validated Gradle task names. `script` executes only one bounded checked-in executable path with at most 64 single-line argv values; it never accepts a shell command string.
 
-Private same-organization callers do not provide a credential for `StreamScapeTV/ci-workflows`, and the reusable workflow does not clone the private central repository with the caller-scoped Actions token. Instead it invokes reviewed central composite actions directly through immutable full-SHA references. `validate-android` is pinned to `aef024030a7e96da74bb98b24bd67b532f289fc1`, recorded as the `issue #256 immutable Media lifecycle sentinel checkpoint`. Exact checkout, workspace preparation, evidence rendering, and cleanup remain pinned to `70e08d4ddf8930046632a7135950e924b82e22bf`, recorded as `issue #116 immutable private-action checkpoint`; `checkout-private-dependency` currently uses the same SHA but retains its separate `issue #104 immutable private-action checkpoint` lock identity. The caller cannot select any of those revisions, and no `central_source`, generic checkout token, PAT, mutable helper ref, or `secrets: inherit` surface exists.
+The execution job runs directly on semantic `mobile` capacity (`[linux, amd64, mobile]`). Callers cannot select runner labels or hosts. The runner-provided Android SDK is required and Java is resolved and validated as JDK major 25 before Android work executes.
 
-The current bounded profiles are:
+## Immutable central helpers
 
-- `toolchain-smoke`: verifies JDK/Javac 25, Android API 37, build-tools 37, the exact SDK package inventory, locale, isolated state, and the reviewed Gradle distribution, then executes one fixed synthetic Gradle verification task without claiming a product build;
-- `compile`: runs one reviewed compile task profile;
-- `unit-targeted`: runs one reviewed JVM unit task with one exact selector matching the checked-in grammar;
-- `unit-full`: runs the reviewed full JVM unit task set;
-- `performance`: runs only checked-in deterministic performance tests;
-- `lint`: runs reviewed Android lint tasks;
-- `assemble-debug`: builds unsigned debug output, validates its shape, rejects AAB/release/signed output, and removes it;
-- `room-schema`: runs reviewed Room schema generation/integrity commands and rejects committed Room history drift;
-- `consumer-script`: invokes one checked-in script profile with fixed contract-owned arguments;
-- `device-handoff`: emits only a bounded request packet for a separate device workflow. It never runs ADB, acquires a device, starts an emulator, uses a live backend, or claims physical acceptance.
+Private callers do not clone the central repository with caller-scoped credentials. The workflow invokes central composite actions at immutable full commit SHAs:
 
-Product commands and product assertions remain in the consumer repositories and are represented only by reviewed task data in `contracts/android-validation.json`. Shared orchestration contains no repository-name branches.
+- `StreamScapeTV/ci-workflows/actions/validate-android` is pinned to `0b1be616b4a03891b6b31918001320f09726ed93`, recorded as `issue #332 primitive-backed Android checkpoint`.
+- `StreamScapeTV/ci-workflows/actions/exact-checkout`, `prepare-workspace`, `render-evidence`, and `cleanup-workspace` remain pinned to `70e08d4ddf8930046632a7135950e924b82e22bf`, recorded as `issue #116 immutable private-action checkpoint`.
+- `StreamScapeTV/ci-workflows/actions/checkout-private-dependency` is pinned to `70e08d4ddf8930046632a7135950e924b82e22bf`, recorded as `issue #104 immutable private-action checkpoint`.
 
-## Exact private dependency
+The caller cannot select any helper revision, central-source token, mutable helper ref, or `secrets: inherit` surface.
 
-Current IPTV Android composite builds may use the named contract `streamscape-media-android-v1`. The reusable workflow composes the merged `checkout-private-dependency` primitive. The contract binds the exact `StreamScapeTV/streamscape-media` repository, an approved full lowercase SHA, expected `android` subdirectory, expected Gradle paths, detached checkout, credential-free Git state, erased remotes, and complete registered-state cleanup. There is no generic private repository input and no checkout or authentication implementation in Android workflow YAML.
+## Exact source and isolated execution
 
-The optional `private_dependency_token` is not a central-source credential. When required, it is passed only to the exact `checkout-private-dependency` primitive selected by the protected plan. It is never passed to Android planning, caller-source checkout, Android execution, evidence rendering, or cleanup. Fork source cannot request the dependency, and ordinary toolchain smoke uses no private token.
+The admitted caller SHA is checked out exactly into `source`. Workspace preparation uses the `gradle` profile with cache mode `disabled`; no GitHub Actions cache is used. Before execution, the adapter revalidates the exact source SHA and clean tree, then copies the admitted source through the symlink-rejecting Android copy primitive into marker-bound workflow state. Gradle, checked-in scripts, generated code, Room/schema verification, and build output therefore operate on the isolated copy rather than dirtying the admitted checkout.
 
-## Toolchain and Gradle execution
+Only a fixed non-secret runtime environment is forwarded to product execution: isolated `HOME`, `TMPDIR`, `GRADLE_USER_HOME`, runner `PATH`, JDK/Android SDK locations, locale, UTC, and an optional verified private-dependency path. GitHub tokens, private dependency checkout tokens, arbitrary caller environment, workflow metadata, and secret-bearing variables are not forwarded. Gradle always receives `--no-daemon`.
 
-The contract requires JDK and Javac major 25, Android platform API 37, command-line tools revision `22.0`, `platform-tools`, `platforms;android-37`, and `build-tools;37.0.0`. The runner must already provide those identities; this workflow does not silently downgrade them. The installed-package listing may report the reviewed equivalent `platforms;android-37.0`, but validation still requires the canonical on-disk `platforms/android-37/android.jar` path.
+The checked-in script mode is the repository-owned escape hatch for technology-specific verification such as Room/schema integrity. The central workflow owns only path/argv validation and execution mechanics; the consumer repository owns the script content and assertions.
 
-Every Gradle-capable profile verifies three explicit contract-owned wrapper components relative to the reviewed working directory: the executable launcher, wrapper properties, and, for a standard Gradle wrapper, the wrapper JAR. The launcher, properties, and JAR each have their own path and Git-blob identity; a JAR digest is never compared to the launcher. Verification also requires the exact distribution URL, the declared distribution checksum when available, and the expected Gradle version. It invokes only the reviewed launcher with fixed `--no-daemon --console=plain --warning-mode=all --stacktrace` arguments. A targeted selector is appended only after strict grammar validation. Caller property injection, init scripts, project/system properties, arbitrary tasks, and caller Gradle state paths are rejected.
+## Exact private dependency boundary
 
-The central synthetic fixture is the only wrapper mode that installs its own Gradle runtime. Its launcher contains one fixed official HTTPS URL for Gradle `9.6.1`, verifies SHA-256 `9c0f7faeeb306cb14e4279a3e084ca6b596894089a0638e68a07c945a32c9e14` before extraction, rejects traversal, duplicate destinations, unsupported archive members, excessive members, and excessive expanded size, and installs only beneath isolated `GRADLE_USER_HOME`. It then executes the fixed `:verifyToolchainSmoke` task, which rechecks JDK 25 plus the API-37 and build-tools-37 files through real Gradle execution. The archive, installation, generated state, and logs are deleted by the normal Android cleanup contract.
+Private dependency coordinates are all-or-none. When requested, the reusable workflow passes `private_dependency_token` only to the immutable `checkout-private-dependency` action. That action checks out the exact SHA into registered workspace state, detaches HEAD, erases remotes and credential-bearing Git configuration, verifies the bounded expected subdirectory, and writes only the verified dependency path to subsequent execution state.
 
-Execution uses isolated `HOME`, `TMPDIR`, `GRADLE_USER_HOME`, Android user state, logs, caches, and temporary dependency state beneath the marker-bound workflow workspace. The same isolated paths apply to Java, Javac, SDK-manager, wrapper, and task execution; inherited host home or temporary paths are not used. Strict `C.UTF-8` locale and UTC are applied. Protected Gradle configuration, lock, version-catalog, wrapper, schema, and consumer-script paths are hashed before execution and reverified after it. Tracked mutation and unexpected untracked source fail closed.
+The Android adapter refuses the dependency unless the checkout reports matching repository, dependency identity, exact head SHA, expected subdirectory, verified state, erased remotes, and erased credentials. Product execution receives only the verified subdirectory path. The checkout token never reaches planning, caller-source checkout, Gradle/script execution, evidence rendering, or cleanup.
 
-## Repository source-policy projection
+## Outputs, cleanup, and artifacts
 
-The shared repository policy remains the default authority for tracked-file, token-shaped content, generated-output, clean-tree, path, and artifact checks. Android adds only the reviewed projection in `contracts/android-source-policy.json`; it does not disable or weaken the shared scanner.
+The public workflow exposes `result`, bounded `test_summary`, and `cleanup_result`. The summary contains only technology-level status, scope, task count, JDK major, and whether an exact private dependency was used. Raw command stdout/stderr, environment values, tokens, host paths, and application identifiers are not public outputs.
 
-A synthetic protocol or redaction marker is accepted only when all reviewed fields match: exact repository, exact Android validation profile, exact repository-relative path, exact rule, and exact Git blob digest. There is no extension-wide or directory-wide exception. The reviewed Streamscape Media playback-lab bootstrap and lifecycle sentinels are each exact path/blob bindings within one playback-lab exception, while the guided-acceptance sentinel remains a separate named, digest-bound entry. A content change, path move, profile mismatch, repository mismatch, or real credential-shaped replacement therefore fails closed.
+Android-specific cleanup runs after execution under `if: always()` whenever workspace preparation succeeded. It removes only the known marker-bound copied-source path, then a residue check proves that path is absent. Registered workspace cleanup runs under `if: always()` and removes private dependency state, credentials, Gradle state, temporary files, and evidence. A final exact-source check proves the admitted checkout SHA and worktree remained unchanged. Terminal projection fails the job unless execution and every applicable cleanup/residue check succeed.
 
-Policy failures are classified before entering the public facade. `dirty_tree` is reserved for a real tracked or untracked worktree mutation. Separate codes cover tracked secret-shaped content, forbidden tracked files, symlink or path escape, generated-output drift, artifact policy, and policy-contract failure. Diagnostics contain only a stable rule ID plus one normalized repository-relative path, contract-relative path, or SHA-256 status digest. File content, credential text, absolute host paths, and broad scan output are never projected.
-
-## Outputs and artifacts
-
-The reusable workflow emits bounded outputs for result, exact source SHA, selected profiles, test summary, resolved Java/API/Gradle identities, private-dependency use, unsigned-debug and schema verification, device-handoff JSON, clean-tree state, cleanup result, and deterministic evidence identity.
-
-Routine runs retain zero GitHub Actions artifacts. A diagnostic artifact can be requested only through the reviewed name `android-redacted-diagnostics-v1`; it is bounded, excludes APK/AAB/keystore material, is absent by default, and must use the central action lock and artifact policy. APK, AAB, build output, reports, logs, caches, Gradle state, temporary Media source, generated schemas, Android state, SDK probes, and the synthetic Gradle distribution are always removed after verification.
-
-## Cleanup and failure projection
-
-Android-specific cleanup and marker-bound workspace cleanup run under `if: always()`. Android cleanup removes copied source, build output, Gradle/Android state, logs, SDK probes, and synthetic Gradle download/install state; the registered workspace cleanup separately removes the exact private dependency checkout, Git state, and credentials. Neither cleanup accepts a deletion path or follows symlinks, and any process, output, cache, or path residue fails closed without hiding the original validation failure. A final terminal step fails the workflow unless execution, Android cleanup, residue verification, and workspace cleanup all succeed.
-
-Failures are projected through stable contract codes such as `toolchain_mismatch`, `sdk_package_missing`, `wrapper_distribution_drift`, `test_filter_rejected`, `private_dependency_rejected`, `compile_failed`, `tests_failed`, `lint_failed`, `schema_drift`, `dirty_tree`, `tracked_secret_detected`, `forbidden_tracked_file`, `symlink_path_escape`, `generated_output_drift`, `artifact_policy_failed`, `policy_contract_failed`, and `cleanup_failed`. Stored diagnostic output is bounded and redacts credentials and credential-bearing URLs.
+Routine runs retain zero GitHub Actions artifacts. There is no `actions/cache`, artifact upload, APK/AAB retention, signing, publication, ADB, emulator, or physical-device authority in this workflow.
 
 ## Repository-owned smoke
 
-`.github/workflows/android-validation-smoke.yml` stages the exact local Android action on same-repository pull-request heads. Its protected portable planner resolves the synthetic `central-toolchain-smoke` fixture, and the dependent execution job uses the resulting semantic `mobile` selector. The mobile job performs real checksum-pinned Gradle distribution installation and `:verifyToolchainSmoke` execution against the synthetic project, then proves registered-state cleanup, zero residue, and zero Actions artifacts. The smoke certifies only the fixed Android toolchain, wrapper/distribution contract, workflow wiring, and cleanup; it is not product certification and does not produce physical-device evidence.
+`.github/workflows/android-validation-smoke.yml` calls the reusable workflow itself on pull requests that change the Android reusable surface. It uses the checked-in synthetic Gradle project under `tests/fixtures/android-validation/smoke-project` and executes its `verifyToolchainSmoke` task through the public `gradle` scope. The fixture performs real Gradle execution and verifies JDK 25, Android API 37, and Android Build Tools 37. The smoke proves reusable-workflow wiring, semantic mobile capacity, exact source handling, and terminal cleanup; it is not application or physical-device certification.

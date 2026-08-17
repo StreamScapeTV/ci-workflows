@@ -1,88 +1,67 @@
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
 
-import yaml
-
-from ci_workflows import android_contract
 from ci_workflows.validation_model import ActionsLoader
-
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/reusable-android.yml"
-FIXTURES_PATH = ROOT / "tests/fixtures/android-validation/cases.json"
 PUBLIC_PATH = ROOT / "contracts/public-workflows/validation.json"
-VALIDATE_ANDROID_SHA = "aef024030a7e96da74bb98b24bd67b532f289fc1"
-PRIVATE_HELPER_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-PRIVATE_HELPERS = {
-    "StreamScapeTV/ci-workflows/actions/validate-android",
-    "StreamScapeTV/ci-workflows/actions/exact-checkout",
-    "StreamScapeTV/ci-workflows/actions/prepare-workspace",
-    "StreamScapeTV/ci-workflows/actions/checkout-private-dependency",
-    "StreamScapeTV/ci-workflows/actions/render-evidence",
-    "StreamScapeTV/ci-workflows/actions/cleanup-workspace",
-}
+ANDROID_SHA = "0b1be616b4a03891b6b31918001320f09726ed93"
+FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 
 
 class AndroidPrivateReuseRegressionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        import json
-
         cls.source = WORKFLOW_PATH.read_text(encoding="utf-8")
         cls.workflow = yaml.load(cls.source, Loader=ActionsLoader)
-        cls.contract = android_contract.load_android_contract(ROOT)
-        fixtures = json.loads(FIXTURES_PATH.read_text(encoding="utf-8"))
         cls.public = json.loads(PUBLIC_PATH.read_text(encoding="utf-8"))
-        cls.media_case = next(
-            case for case in fixtures["positive"] if case["name"] == "media-consumer-script"
-        )
 
-    def test_streamscape_media_contract_reaches_protected_android_plan(self) -> None:
-        environment = dict(self.media_case["environment"])
-        self.assertEqual(environment["GITHUB_REPOSITORY"], "StreamScapeTV/streamscape-media")
-        request = android_contract.request_from_environment(environment, self.contract)
-        plan = android_contract.resolve_validation_plan(self.contract, request)
-
-        self.assertEqual(plan.admitted_sha, environment["INPUT_ADMITTED_SHA"])
-        self.assertEqual(plan.validation_profile, "consumer-script")
-        self.assertEqual(plan.task_profile, "media-android-build-script")
-        self.assertEqual(plan.planner_runner_profile, "portable")
-        self.assertEqual(plan.runner_profile, "mobile")
-        self.assertFalse(plan.requires_private_dependency)
-
-    def test_private_consumer_never_clones_central_repository(self) -> None:
+    def test_private_consumer_uses_only_immutable_central_helpers(self) -> None:
         self.assertNotIn("actions/checkout@", self.source)
         self.assertNotIn("job.workflow_repository", self.source)
         self.assertNotIn("job.workflow_sha", self.source)
         self.assertNotIn("path: .ciw", self.source)
         self.assertNotIn("./.ciw/actions/", self.source)
         self.assertNotIn("secrets: inherit", self.source)
-
-        steps = [
-            step
-            for job in self.workflow["jobs"].values()
-            for step in job.get("steps", [])
-        ]
         helpers = {
             str(step["uses"]).split("@", 1)[0]: str(step["uses"]).split("@", 1)[1]
-            for step in steps
+            for step in self.workflow["jobs"]["validate"]["steps"]
             if str(step.get("uses", "")).startswith("StreamScapeTV/ci-workflows/actions/")
         }
-        self.assertEqual(PRIVATE_HELPERS, set(helpers))
-        validate_path = "StreamScapeTV/ci-workflows/actions/validate-android"
-        self.assertEqual(helpers[validate_path], VALIDATE_ANDROID_SHA)
         self.assertEqual(
-            {PRIVATE_HELPER_SHA},
-            {sha for path, sha in helpers.items() if path != validate_path},
+            helpers["StreamScapeTV/ci-workflows/actions/validate-android"],
+            ANDROID_SHA,
         )
-        self.assertNotIn(
-            "actions/validate-android@275ee86f0f5de3d8f3330b92c84d7c0188fb10f8",
-            self.source,
-        )
+        for helper in (
+            "exact-checkout",
+            "prepare-workspace",
+            "checkout-private-dependency",
+            "render-evidence",
+            "cleanup-workspace",
+        ):
+            self.assertEqual(
+                helpers[f"StreamScapeTV/ci-workflows/actions/{helper}"],
+                FOUNDATION_SHA,
+            )
 
-    def test_public_android_api_is_repository_identity_free_without_new_surface(self) -> None:
+    def test_private_dependency_token_reaches_only_checkout_boundary(self) -> None:
+        steps = self.workflow["jobs"]["validate"]["steps"]
+        dependency = next(step for step in steps if step["id"] == "dependency")
+        self.assertEqual(
+            dependency["with"]["token"],
+            "${{ secrets.private_dependency_token }}",
+        )
+        for step in steps:
+            if step is dependency:
+                continue
+            self.assertNotIn("private_dependency_token", json.dumps(step))
+
+    def test_public_android_api_is_repository_identity_free(self) -> None:
         android = next(
             workflow
             for workflow in self.public["workflows"]
@@ -92,6 +71,17 @@ class AndroidPrivateReuseRegressionTests(unittest.TestCase):
         self.assertNotIn("supported_products", android)
         reusable_inputs = set(self.workflow["on"]["workflow_call"]["inputs"])
         self.assertEqual(reusable_inputs, {item["name"] for item in android["inputs"]})
+        for forbidden in (
+            "validation_profile",
+            "task_profile",
+            "consumer_script_profile",
+            "private_dependency_contract_id",
+            "product_id",
+        ):
+            self.assertNotIn(forbidden, reusable_inputs)
+        self.assertIn("private_dependency_repository", reusable_inputs)
+        self.assertIn("private_dependency_sha", reusable_inputs)
+        self.assertIn("private_dependency_subdirectory", reusable_inputs)
 
 
 if __name__ == "__main__":
