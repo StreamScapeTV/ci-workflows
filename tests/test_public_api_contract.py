@@ -197,6 +197,12 @@ class PublicApiContractTests(unittest.TestCase):
             <= set(self.data.types["input_catalog"])
         )
         self.assertEqual(
+            ["android", "ios", "tvos"],
+            self.data.types["input_catalog"]["device_family"]["enum"],
+        )
+        self.assertNotIn("device_alias", self.data.types["input_catalog"])
+        self.assertNotIn("live_test_credentials", self.data.types["secret_catalog"])
+        self.assertEqual(
             {
                 "prepare_script_path",
                 "test_script_path",
@@ -352,7 +358,6 @@ class PublicApiContractTests(unittest.TestCase):
             "cleanup_script_path": "scripts/ci/device-cleanup.sh",
             "arguments_json": [],
             "environment_json": {},
-            "device_alias": "primary",
             "script_path": "scripts/validate.sh",
             "release_mode": "tag-push",
             "release_version": "1.2.3",
