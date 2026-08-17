@@ -38,11 +38,13 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          test -n "${RUNNER_TEMP:-}"
-          test -d "${RUNNER_TEMP}"
+          test -n "${HOME:-}"
+          test -d "${HOME}"
+          test ! -L "${HOME}"
+          test "$(stat -c '%u' "${HOME}")" = "$(id -u)"
           test -n "${GITHUB_ENV:-}"
-          printf 'CIW_DEVICE_LOCK_ROOT=%s/ciw-device-lock-%s-%s\n' \
-            "${RUNNER_TEMP}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}" >> "${GITHUB_ENV}"
+          printf 'CIW_DEVICE_LOCK_ROOT=%s/.ciw-device-lock-%s-%s\n' \
+            "${HOME}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}" >> "${GITHUB_ENV}"
 
       - name: Check out exact pull request source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -71,8 +73,9 @@ jobs:
         run: |
           set -Eeuo pipefail
           test ! -e "${CIW_DEVICE_LOCK_ROOT}"
+          test ! -L "${CIW_DEVICE_LOCK_ROOT}"
           mkdir -m 0700 "${CIW_DEVICE_LOCK_ROOT}"
-          chmod 00700 "${CIW_DEVICE_LOCK_ROOT}"
+          chmod 0700 "${CIW_DEVICE_LOCK_ROOT}"
           test "$(stat -c '%a' "${CIW_DEVICE_LOCK_ROOT}")" = "700"
 
       - id: focused
@@ -81,14 +84,15 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          validation_root="${RUNNER_TEMP}/ciw-device-lock-validation-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          validation_root="${HOME}/.ciw-device-lock-validation-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           trap 'rm -rf -- "${validation_root}"' EXIT
-          rm -rf -- "${validation_root}"
-          mkdir "${validation_root}"
-          chmod 00700 "${validation_root}"
+          test ! -e "${validation_root}"
+          test ! -L "${validation_root}"
+          mkdir -m 0700 "${validation_root}"
+          chmod 0700 "${validation_root}"
           test "$(stat -c '%a' "${validation_root}")" = "700"
           mkdir -p "${validation_root}/python" "${validation_root}/tmp"
-          chmod 00700 "${validation_root}/tmp"
+          chmod 0700 "${validation_root}/tmp"
           test "$(stat -c '%a' "${validation_root}/tmp")" = "700"
           PYTHONDONTWRITEBYTECODE=1 python3 .ciw/scripts/ci/bootstrap_validation_runtime.py \
             --lock .ciw/contracts/action-tool-lock.json \
@@ -117,7 +121,7 @@ jobs:
           lease_seconds: "300"
 
       - id: verify
-        name: Revalidate the exact current receipt before synthetic mutation boundary
+        name: Revalidate the exact current receipt before synthetic mutation authority
         if: ${{ always() && steps.acquire.outputs.resource_lock_receipt != '' }}
         continue-on-error: true
         uses: ./.ciw/actions/device-lock
