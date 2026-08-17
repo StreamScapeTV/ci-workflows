@@ -210,6 +210,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertEqual(plan["schema"], {"mode": "none"})
         self.assertNotIn("compile", json.dumps(plan).casefold())
         self.assertIn("uses: ./.ciw/actions/validate-android", self.smoke_source)
+        self.assertIn("git rev-parse HEAD", self.smoke_source)
         self.assertIn("Verify zero Actions artifacts", self.smoke_source)
         self.assertNotIn("adb ", self.smoke_source.casefold())
         self.assertNotIn("physical-device", self.smoke_source.casefold())
