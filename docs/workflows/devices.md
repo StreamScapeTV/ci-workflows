@@ -1,83 +1,31 @@
-# Physical-device validation workflow
+# Physical-device reusable workflow
 
-`validation.device` is the bounded physical-device interface with stable check name `CI / Physical device validation`. It supports exact source admission, typed planning, opaque device aliases, deterministic runner-local discovery, independent owner authorization, production `device-lock/1` fencing, restoration-first terminal handling, and zero routine Actions artifacts.
+`validation.device` is the canonical non-versioned physical-device API implemented by `.github/workflows/reusable-device.yml`.
 
-## Public request
+The caller owns the exact admitted SHA, device family, bounded device capability, **semantic host capacity**, checked-in prepare/test/evidence/cleanup script paths, bounded test-script arguments, bounded non-secret environment, request identity, and optional named redacted-evidence exception. Central owns source admission, semantic runner resolution, deterministic discovery, authorization handling, fencing, execution order, restoration, cleanup, residue checks, and stable outputs.
 
-The caller supplies only bounded product facts:
+The only public secret is `device_authorization_receipt`. Secrets, raw runner labels, runner names, raw device identifiers, serials, UDIDs, arbitrary commands, and caller-selected secret names are not public inputs. Caller environment is explicitly non-secret and rejects credential/token/password/secret-style keys as well as Central/GitHub/runner authority variables.
 
-- exact lowercase admitted source SHA;
-- family: `android`, `ios`, or `tvos`;
-- reviewed capability;
-- bounded opaque alias from the selected profile;
-- reviewed command profile and exact checked-in test script;
-- bounded duration;
-- optional named redacted-evidence exception;
-- issue-scoped request ID.
+## Host placement
 
-There is no public raw serial or UDID and no caller-supplied `source_trust`, runner selector, concurrency group, lock backend, fencing token, or arbitrary command.
+Host selection is semantic. Android physical validation may request `mobile` when the reviewed physical device is reachable from mobile capacity, or `apple` when an Android phone is attached to the organization-managed macOS capacity. iOS and tvOS physical validation use `apple`. The resolved selector remains Central-owned.
 
-The named secret channels are separate:
+**Ordinary Android** build/test/lint validation is a different API and remains on semantic `mobile` capacity. Selecting `mobile` or `apple` never by itself proves a physical device is attached or authorized.
 
-- `device_authorization_receipt` — exact expiring owner authorization bound to repository/source/family/capability/request;
-- `live_test_credentials` — optional fixed non-production product backend credentials. This secret never grants physical authority.
+## Execution order
 
-```yaml
-jobs:
-  physical_device:
-    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-device.yml@<reviewed-ref>
-    with:
-      admitted_sha: <exact-lowercase-sha>
-      device_family: android
-      device_capability: instrumentation
-      device_alias: acceptance-primary
-      command_profile: iptv-android-device
-      script_path: build.sh
-      max_duration_minutes: 60
-      evidence_exception_id: ""
-      request_id: issue-14-approved-smoke
-    secrets:
-      device_authorization_receipt: ${{ secrets.DEVICE_AUTHORIZATION_RECEIPT }}
-      live_test_credentials: ${{ secrets.LIVE_TEST_CREDENTIALS }}
-```
+A real physical request must pass exact-source admission and an exact `device_authorization_receipt` before the heavy executor is scheduled. The executor uses one workspace and performs, in order:
 
-An absent or invalid authorization receipt produces stable `physical_authorization_required` before the hardware job is scheduled.
+1. exact admitted-source checkout and source revalidation;
+2. deterministic physical-device discovery;
+3. `device-lock/1` acquire and verify;
+4. caller-owned checked-in prepare, test, and evidence stages;
+5. caller-owned restoration/cleanup **exactly once** while the lock is still valid;
+6. expected-state lock release and lock-residue verification;
+7. Central device/source/workspace cleanup and zero-residue checks.
 
-## Exact lifecycle
-
-The planner derives current GitHub source admission and emits one canonical typed plan plus SHA-256. The physical job uses a centrally approved Android `mobile` or Apple runner selector and then performs the following fixed sequence:
-
-1. exact detached caller checkout and clean-tree revalidation;
-2. isolated workspace preparation;
-3. deterministic discovery of exactly one eligible device, publishing only its SHA-256 identity;
-4. production `device-lock/1` acquisition for the exact device/source/request/owner;
-5. production lock verification immediately before physical mutation;
-6. execution of only the contract-selected product scripts, with an independent Python receipt revalidation at the mutation boundary;
-7. lock-protected product restore/cleanup;
-8. expected-state lock release;
-9. released-lock residue verification;
-10. Central private device-state removal and residue verification;
-11. exact source no-follow cleanup and registered workspace cleanup;
-12. terminal projection that fails if any required lifecycle outcome failed.
-
-The plan's GitHub concurrency group uses `cancel-in-progress: false` and remains supplemental serialization only. It is **not** the fencing token.
-
-## Authority isolation
-
-Raw hardware identity stays runner-local. Product scripts receive only the selected platform identity they need to target the device. They do not inherit `device_authorization_receipt`, the opaque resource-lock receipt, the device-lock backend root, `CIW_LOCK_*` internals, checkout credentials, or the GitHub token.
-
-The merged #136 fencing action owns acquisition, verification, expected-state release, and residue semantics. Runner infrastructure owns its shared backend; callers cannot select a filesystem path or infrastructure endpoint. The in-memory device adapter remains test-only and cannot authorize production execution.
+The public API has no GitHub Actions cache. The workflow retains **zero routine Actions artifacts**; only a separately reviewed bounded redacted-evidence exception may change that policy.
 
 ## Synthetic contract smoke
 
-`.github/workflows/device-validation-contract-smoke.yml` remains source-only. Its Android/iOS/tvOS synthetic profiles exercise exact planning, deterministic inventory parsing, selection, redaction, restoration/cleanup behavior, and the in-memory lock test double. The smoke receives neither `device_authorization_receipt` nor live product credentials and never claims physical proof.
-
-## Immutable implementation and cleanup
-
-The reusable workflow calls the reviewed `validate-device`, `device-lock`, exact-checkout, workspace-preparation, and workspace-cleanup actions through immutable private action SHAs. Public workflow execution does not depend on a mutable Central checkout.
-
-All private selected-device state is stored below the registered device-validation state root, removed without following symlinks, and independently residue-checked. Zero routine Actions artifacts are retained. Stable evidence is bounded and redacted; raw platform logs, receipts, device identifiers, host paths, credentials, environment dumps, screenshots, traces, and private media are not durable product evidence.
-
-## Activation
-
-Central public registration marks `validation.device` implemented only after the reusable workflow, contracts, immutable action boundaries, documentation, and exact-head tests agree. Consumer repositories may then adopt the reviewed interface without selecting runners, hardware identifiers, fencing infrastructure, or Central internals.
+Central's permanent smoke runs the same generic request parser and typed plan for Android, iOS, and tvOS using checked-in synthetic fixtures. Synthetic mode is restricted to the `StreamScapeTV/ci-workflows` repository, remains non-physical, and cannot authorize the physical executor even on a trusted branch push or manual smoke dispatch.
