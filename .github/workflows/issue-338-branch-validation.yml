@@ -1,0 +1,70 @@
+name: Issue 338 branch validation
+
+on:
+  push:
+    branches:
+      - agent1/issue-338-android-live-release
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue-338-branch-validation
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    name: Android completion contracts
+    runs-on: [linux, amd64, general, small]
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact branch head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Compile completion adapters
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m py_compile \
+            src/ci_workflows/ciw_android_completion.py \
+            scripts/ci/android_completion.py
+
+      - name: Parse reusable YAML
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PYTHONDONTWRITEBYTECODE=1 python3 - <<'PY'
+          import yaml
+          from pathlib import Path
+          for relative in (
+              '.github/workflows/reusable-android-live-service.yml',
+              '.github/workflows/reusable-android-release.yml',
+              'actions/validate-android-live-service/action.yml',
+              'actions/validate-android-release/action.yml',
+          ):
+              value = yaml.safe_load(Path(relative).read_text(encoding='utf-8'))
+              assert isinstance(value, dict), relative
+          PY
+
+      - name: Run focused Android completion tests
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -Eeuo pipefail
+          PYTHONPATH=src python3 -m unittest -v \
+            tests.test_android_completion \
+            tests.test_android_ciw_dispatch \
+            tests.test_android_workflow_contract
+
+      - name: Require clean tree
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
