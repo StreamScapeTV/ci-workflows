@@ -26,6 +26,7 @@ _RESERVED_ENVIRONMENT = {
 }
 _RESERVED_PREFIXES = ("CIW_", "GITHUB_", "RUNNER_")
 _SECRET_MARKERS = ("CREDENTIAL", "PASSWORD", "PRIVATE_KEY", "SECRET", "SESSION", "TOKEN")
+_SYNTHETIC_EVENTS = {"pull_request", "push", "workflow_dispatch"}
 
 
 def _boolean_text(value: str, code: str) -> bool:
@@ -52,7 +53,7 @@ def source_trust_from_environment(environment: Mapping[str, str], admitted_sha: 
     require(event_sha == admitted_sha, "source_mismatch")
     if synthetic:
         require(
-            event_name == "pull_request" and repository == "StreamScapeTV/ci-workflows",
+            repository == "StreamScapeTV/ci-workflows" and event_name in _SYNTHETIC_EVENTS,
             "source_admission_rejected",
         )
         return "trusted-pr"

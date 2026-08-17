@@ -15,7 +15,10 @@ from .device_types import DeviceFamily, DevicePlan, DeviceRequest, DeviceValidat
 def build_plan(contract: Mapping[str, Any], request: DeviceRequest) -> DevicePlan:
     if request.source_trust == "trusted-pr":
         require(request.repository == "StreamScapeTV/ci-workflows", "source_admission_rejected")
-        require(request.event_name == "pull_request", "source_admission_rejected")
+        require(
+            request.event_name in set(contract.get("synthetic_allowed_events", ())),
+            "source_admission_rejected",
+        )
     else:
         require(request.source_trust == "trusted-exact", "source_admission_rejected")
         require(request.event_name in {"workflow_call", "workflow_dispatch"}, "authorization_rejected")
