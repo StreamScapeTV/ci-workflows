@@ -1,0 +1,267 @@
+name: Issue 338 canonical CIW completion diagnostic v2
+
+on:
+  push:
+    branches:
+      - agent1/issue-338-full-suite-diagnostic
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    if: ${{ github.event.head_commit.message == '[#338] Validate canonical CIW completion integration' }}
+    runs-on: [linux, amd64, general, small]
+    timeout-minutes: 35
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - name: Check out diagnostic branch with canonical action delegates
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Register completion validators in canonical ciw
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          import json
+          from pathlib import Path
+
+          def read(path: str) -> str:
+              return Path(path).read_text(encoding='utf-8')
+
+          def write(path: str, text: str) -> None:
+              Path(path).write_text(text, encoding='utf-8')
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              text = read(path)
+              if old not in text:
+                  raise SystemExit(f'missing patch anchor in {path}: {old[:100]!r}')
+              write(path, text.replace(old, new, 1))
+
+          ciw_path = 'src/ci_workflows/ciw.py'
+          replace_once(
+              ciw_path,
+              'from .ciw_android import configure_android_validate, execute_android_validate\n',
+              'from .ciw_android import configure_android_validate, execute_android_validate\n'
+              'from .ciw_android_completion import (\n'
+              '    configure_android_live_validate,\n'
+              '    configure_android_release_validate,\n'
+              '    execute_android_live_validate,\n'
+              '    execute_android_release_validate,\n'
+              ')\n',
+          )
+          replace_once(
+              ciw_path,
+              'def _add_android_validate(parser: argparse.ArgumentParser) -> None:\n    configure_android_validate(parser)\n\n\n',
+              'def _add_android_validate(parser: argparse.ArgumentParser) -> None:\n    configure_android_validate(parser)\n\n\n'
+              'def _add_android_live_validate(parser: argparse.ArgumentParser) -> None:\n    configure_android_live_validate(parser)\n\n\n'
+              'def _add_android_release_validate(parser: argparse.ArgumentParser) -> None:\n    configure_android_release_validate(parser)\n\n\n',
+          )
+          replace_once(
+              ciw_path,
+              'def handle_android_validate(\n    args: argparse.Namespace,\n    context: CIWContext,\n) -> CIWResult:\n    return execute_android_validate(args, context)\n\n\n',
+              'def handle_android_validate(\n    args: argparse.Namespace,\n    context: CIWContext,\n) -> CIWResult:\n    return execute_android_validate(args, context)\n\n\n'
+              'def handle_android_live_validate(\n    args: argparse.Namespace,\n    context: CIWContext,\n) -> CIWResult:\n    return execute_android_live_validate(args, context)\n\n\n'
+              'def handle_android_release_validate(\n    args: argparse.Namespace,\n    context: CIWContext,\n) -> CIWResult:\n    return execute_android_release_validate(args, context)\n\n\n',
+          )
+          replace_once(
+              ciw_path,
+              '        CommandSpec(\n            "android",\n            "validate",\n            handle_android_validate,\n            _add_android_validate,\n        ),\n',
+              '        CommandSpec(\n            "android",\n            "validate",\n            handle_android_validate,\n            _add_android_validate,\n        ),\n'
+              '        CommandSpec(\n            "android-live",\n            "validate",\n            handle_android_live_validate,\n            _add_android_live_validate,\n        ),\n'
+              '        CommandSpec(\n            "android-release",\n            "validate",\n            handle_android_release_validate,\n            _add_android_release_validate,\n        ),\n',
+          )
+
+          contract_path = Path('contracts/ciw-commands.json')
+          contract = json.loads(contract_path.read_text(encoding='utf-8'))
+          commands = contract['commands']
+          if any(row['domain'] in {'android-live', 'android-release'} for row in commands):
+              raise SystemExit('completion commands unexpectedly already registered')
+          android_index = next(
+              index for index, row in enumerate(commands)
+              if row['domain'] == 'android' and row['operation'] == 'validate'
+          )
+          commands[android_index + 1:android_index + 1] = [
+              {
+                  'cleanup': 'Android live-service copied-source and registered workspace cleanup under if: always()',
+                  'domain': 'android-live',
+                  'failure': 'CIWError.code',
+                  'handler': 'ci_workflows.ciw.handle_android_live_validate',
+                  'inputs': [
+                      'phase', 'source_root', 'admitted_sha', 'working_directory',
+                      'validation_plan_json',
+                      'optional exact private dependency coordinates and checkout evidence',
+                      'CIW_SERVICE_USERNAME', 'CIW_SERVICE_PASSWORD',
+                  ],
+                  'operation': 'validate',
+                  'outputs': [
+                      'result', 'source_sha', 'test_summary', 'private_dependency_used',
+                      'cleanup_result', 'failure_code', 'runner_profile', 'runs_on_json',
+                      'workspace_profile', 'execution_model',
+                  ],
+                  'side_effects': [
+                      'validates one checked-in product-neutral live-service script plan on semantic mobile capacity',
+                      'copies exact admitted source into registered state and validates JDK 25 before execution',
+                      'projects only generic caller-owned service credentials into the bounded execution environment',
+                      'uses an exact private dependency only after checkout identity and credential erasure are verified',
+                      'enforces exact-source recheck, copied-source cleanup, residue verification, and zero Actions artifacts',
+                  ],
+                  'trust_class': 'read-only-validation',
+              },
+              {
+                  'cleanup': 'Android unsigned-release copied-source and registered workspace cleanup under if: always()',
+                  'domain': 'android-release',
+                  'failure': 'CIWError.code',
+                  'handler': 'ci_workflows.ciw.handle_android_release_validate',
+                  'inputs': [
+                      'phase', 'source_root', 'admitted_sha', 'working_directory',
+                      'gradle_wrapper_path', 'validation_plan_json',
+                      'optional exact private dependency coordinates and checkout evidence',
+                  ],
+                  'operation': 'validate',
+                  'outputs': [
+                      'result', 'source_sha', 'test_summary', 'artifact_manifest_json',
+                      'artifact_paths_json', 'artifact_name', 'retention_days',
+                      'cleanup_result', 'failure_code', 'runner_profile', 'runs_on_json',
+                      'workspace_profile', 'execution_model',
+                  ],
+                  'side_effects': [
+                      'validates one product-neutral unsigned Android release plan on semantic mobile capacity',
+                      'reuses one copied source, exact optional dependency, Gradle state, and JDK 25 runtime across ordered release stages',
+                      'executes only bounded checked-in policy scripts, Gradle task groups, and size-budget verification',
+                      'selects only bounded in-workspace unsigned evidence paths with a maximum seven-day retention',
+                      'enforces exact-source recheck, copied-source cleanup, residue verification, and no signing or distribution authority',
+                  ],
+                  'trust_class': 'read-only-validation',
+              },
+          ]
+          contract['compatibility_wrappers'].append({
+              'commands': ['android-live validate', 'android-release validate'],
+              'path': 'scripts/ci/android_completion.py',
+          })
+          contract_path.write_text(json.dumps(contract, indent=2) + '\n', encoding='utf-8')
+
+          write(
+              'scripts/ci/android_completion.py',
+              '''#!/usr/bin/env python3\n"""Compatibility wrapper for canonical Android completion CIW commands."""\nfrom __future__ import annotations\n\nimport argparse\nimport sys\nfrom pathlib import Path\n\nROOT = Path(__file__).resolve().parents[2]\nSRC = ROOT / "src"\nif str(SRC) not in sys.path:\n    sys.path.insert(0, str(SRC))\n\nfrom ci_workflows.ciw import main as ciw_main  # noqa: E402\n\n\ndef main(argv: list[str] | None = None) -> int:\n    parser = argparse.ArgumentParser()\n    parser.add_argument("domain", choices=("live", "release"))\n    args, remainder = parser.parse_known_args(argv)\n    ciw_domain = "android-live" if args.domain == "live" else "android-release"\n    return ciw_main(["--root", str(ROOT), ciw_domain, "validate", *remainder])\n\n\nif __name__ == "__main__":\n    raise SystemExit(main(sys.argv[1:]))\n''',
+          )
+
+          replace_once(
+              'tests/test_bootstrap.py',
+              '                ".github/workflows/reusable-android.yml",\n',
+              '                ".github/workflows/reusable-android-live-service.yml",\n'
+              '                ".github/workflows/reusable-android-release.yml",\n'
+              '                ".github/workflows/reusable-android.yml",\n',
+          )
+          replace_once(
+              'tests/test_simple_script_workflow_contract.py',
+              '        self.assertEqual(20, index["workflow_count"])\n',
+              '        self.assertEqual(22, index["workflow_count"])\n',
+          )
+          PY
+          PYTHONPATH=src python3 scripts/ci/render_ciw_docs.py
+
+      - name: Run focused and complete discovered suites
+        shell: bash
+        run: |
+          set +e
+          python_bin="$(type -P python3.12 || type -P python3)"
+          validation_root="${HOME}/.ciw-issue-338-ciw-v2-${GITHUB_RUN_ID}"
+          mkdir -m 0700 "${validation_root}"
+          chmod 00700 "${validation_root}"
+          mkdir -p "${validation_root}/python" "${validation_root}/tmp"
+          chmod 00700 "${validation_root}/tmp"
+          "${python_bin}" scripts/ci/bootstrap_validation_runtime.py \
+            --lock contracts/action-tool-lock.json \
+            --target "${validation_root}/python"
+          export PYTHONPATH="${validation_root}/python:${GITHUB_WORKSPACE}/src:${GITHUB_WORKSPACE}/tests"
+          TMPDIR="${validation_root}/tmp" "${python_bin}" -m unittest -v \
+            tests.test_ciw_cli tests.test_ciw_docs tests.test_android_completion \
+            tests.test_android_ciw_dispatch tests.test_bootstrap \
+            tests.test_simple_script_workflow_contract \
+            > "${validation_root}/focused.log" 2>&1
+          focused=$?
+          TMPDIR="${validation_root}/tmp" "${python_bin}" -m unittest discover -s tests -p 'test_*.py' -v \
+            > "${validation_root}/full.log" 2>&1
+          full=$?
+          if [[ ${focused} -ne 0 ]]; then
+            echo '--- FOCUSED FAILURE TAIL ---'
+            tail -n 260 "${validation_root}/focused.log"
+          fi
+          if [[ ${full} -ne 0 ]]; then
+            echo '--- FULL FAILURE TAIL ---'
+            tail -n 320 "${validation_root}/full.log"
+          fi
+          if [[ ${focused} -eq 0 && ${full} -eq 0 ]]; then
+            echo 'focused and full discovered suites passed'
+          fi
+          rm -rf "${validation_root}"
+          exit $(( focused || full ))
+
+      - name: Persist green patch on diagnostic branch
+        if: success()
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          BRANCH_NAME: agent1/issue-338-full-suite-diagnostic
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from __future__ import annotations
+          import base64
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          api = os.environ['GITHUB_API_URL'].rstrip('/')
+          repo = os.environ['GITHUB_REPOSITORY']
+          branch = os.environ['BRANCH_NAME']
+          token = os.environ['GITHUB_TOKEN']
+          paths = (
+              'src/ci_workflows/ciw.py',
+              'contracts/ciw-commands.json',
+              'docs/reference/ciw.md',
+              'scripts/ci/android_completion.py',
+              'tests/test_bootstrap.py',
+              'tests/test_simple_script_workflow_contract.py',
+          )
+
+          def request(method: str, url: str, payload=None):
+              data = None if payload is None else json.dumps(payload).encode('utf-8')
+              req = urllib.request.Request(
+                  url, data=data, method=method,
+                  headers={
+                      'Accept': 'application/vnd.github+json',
+                      'Authorization': f'Bearer {token}',
+                      'Content-Type': 'application/json',
+                      'X-GitHub-Api-Version': '2022-11-28',
+                  },
+              )
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  raw = response.read()
+                  return {} if not raw else json.loads(raw)
+
+          for path in paths:
+              encoded = urllib.parse.quote(path, safe='/')
+              current = request('GET', f'{api}/repos/{repo}/contents/{encoded}?ref={urllib.parse.quote(branch, safe="")}')
+              content = Path(path).read_text(encoding='utf-8')
+              request(
+                  'PUT', f'{api}/repos/{repo}/contents/{encoded}',
+                  {
+                      'message': f'[skip ci] #338 validated CIW integration: {Path(path).name}',
+                      'content': base64.b64encode(content.encode('utf-8')).decode('ascii'),
+                      'sha': current['sha'], 'branch': branch,
+                  },
+              )
+          PY
