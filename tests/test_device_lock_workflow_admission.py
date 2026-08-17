@@ -56,7 +56,7 @@ class DeviceLockWorkflowAdmissionTests(unittest.TestCase):
 
         provision = steps[provision_index]["run"]
         self.assertIn('mkdir -m 0700 "${CIW_DEVICE_LOCK_ROOT}"', provision)
-        self.assertIn('chmod 0700 "${CIW_DEVICE_LOCK_ROOT}"', provision)
+        self.assertIn('chmod 00700 "${CIW_DEVICE_LOCK_ROOT}"', provision)
         self.assertIn("stat -c '%a'", provision)
         self.assertIn('= "700"', provision)
 
@@ -69,8 +69,8 @@ class DeviceLockWorkflowAdmissionTests(unittest.TestCase):
         self.assertIn("RUNNER_TEMP", run)
         self.assertIn("trap 'rm -rf -- \"${validation_root}\"' EXIT", run)
         self.assertIn('mkdir "${validation_root}"', run)
-        self.assertIn('chmod 0700 "${validation_root}"', run)
-        self.assertIn('chmod 0700 "${validation_root}/tmp"', run)
+        self.assertIn('chmod 00700 "${validation_root}"', run)
+        self.assertIn('chmod 00700 "${validation_root}/tmp"', run)
         self.assertIn("stat -c '%a'", run)
         self.assertIn('TMPDIR="${validation_root}/tmp"', run)
         self.assertIn('PYTHONPATH="${validation_root}/python:.ciw/src"', run)
