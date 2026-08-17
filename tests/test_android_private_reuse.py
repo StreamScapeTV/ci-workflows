@@ -10,7 +10,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/reusable-android.yml"
 PUBLIC_PATH = ROOT / "contracts/public-workflows/validation.json"
-ANDROID_SHA = "0b1be616b4a03891b6b31918001320f09726ed93"
+ANDROID_SHA = "e48b383e51137d5d8b1a9b2b6f3e5ba2fba74394"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 
 
@@ -79,6 +79,7 @@ class AndroidPrivateReuseRegressionTests(unittest.TestCase):
             "product_id",
         ):
             self.assertNotIn(forbidden, reusable_inputs)
+        self.assertIn("validation_plan_json", reusable_inputs)
         self.assertIn("private_dependency_repository", reusable_inputs)
         self.assertIn("private_dependency_sha", reusable_inputs)
         self.assertIn("private_dependency_subdirectory", reusable_inputs)
