@@ -13,6 +13,7 @@ on:
       - src/ci_workflows/apple_contract.py
       - src/ci_workflows/apple_contract_fragments.py
       - src/ci_workflows/apple_execution.py
+      - src/ci_workflows/apple_multistage.py
       - src/ci_workflows/apple_types.py
       - src/ci_workflows/ciw.py
       - src/ci_workflows/ciw_apple.py
@@ -23,17 +24,10 @@ on:
       - contracts/public-workflows.json
       - contracts/public-workflows/validation.json
       - docs/reference/ciw.md
+      - docs/workflows/apple.md
       - docs/workflows/public-api-reference.md
       - tests/fixtures/apple-validation/**
-      - tests/test_apple_ciw_dispatch.py
-      - tests/test_apple_contract_fragments.py
-      - tests/test_apple_contract_fragment_path_safety.py
-      - tests/test_apple_fragment_loader_isolation.py
-      - tests/test_apple_simulator_ownership.py
-      - tests/test_apple_terminal_cleanup.py
-      - tests/test_apple_validation.py
-      - tests/test_apple_workflow_contract.py
-      - tests/test_apple_smoke_trigger_contract.py
+      - tests/test_apple_*.py
       - tests/test_bootstrap.py
       - tests/test_ciw_cli.py
       - tests/test_ciw_contracts.py
@@ -49,15 +43,15 @@ concurrency:
 
 jobs:
   plan:
-    name: Resolve exact Apple smoke selectors
+    name: Validate protected-full Apple smoke plan
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: [linux, amd64, general, small]
     timeout-minutes: 10
     outputs:
-      runs_on_json: ${{ steps.ios.outputs.runs_on_json }}
-      workspace_profile: ${{ steps.ios.outputs.workspace_profile }}
+      runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
+      workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
     steps:
-      - name: Check out exact pull request source
+      - name: Check out exact pull request implementation
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
@@ -67,57 +61,43 @@ jobs:
           persist-credentials: false
           set-safe-directory: false
 
-      - name: Verify exact pull request source
+      - name: Verify exact pull request implementation
         shell: bash
         env:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -Eeuo pipefail
-          (cd .ciw && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
+          test "$(git -C .ciw rev-parse HEAD)" = "${EXPECTED_SHA}"
+          test -z "$(git -C .ciw status --porcelain=v1 --untracked-files=all)"
 
-      - id: ios
-        name: Resolve exact iOS simulator smoke plan
+      - id: plan
+        name: Resolve one sequential Apple smoke executor
         uses: ./.ciw/actions/validate-apple
         with:
           phase: plan
           admitted_sha: ${{ github.event.pull_request.head.sha }}
-          validation_profile: ios-simulator
-          working_directory: tests/fixtures/apple-validation/smoke-project
-          command_profile: ciw-apple-smoke
-          platform: ios
-          scheme: AppleValidationSmoke
-          destination_profile: ios-simulator-default
+          validation_scope: protected-full
           source_trust: trusted-pr
+          validation_plan_json: >-
+            {"stages":[{"id":"ios-build","platform":"ios","operation":"build","working_directory":"tests/fixtures/apple-validation/smoke-project","container":{"kind":"project","path":"tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj"},"scheme":"AppleValidationSmoke","configuration":"Debug","test_plan":"","package_resolution_mode":"disabled","resolved_files":[],"script":null,"xcodebuild_arguments":["ENABLE_TESTABILITY=YES"],"test_selectors":[],"expected_outputs":[],"cleanup_paths":["tests/fixtures/apple-validation/smoke-project/build","tests/fixtures/apple-validation/smoke-project/.swiftpm","tests/fixtures/apple-validation/smoke-project/xcuserdata","tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj/xcuserdata"]},{"id":"tvos-build","platform":"tvos","operation":"build","working_directory":"tests/fixtures/apple-validation/smoke-project","container":{"kind":"project","path":"tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj"},"scheme":"AppleValidationSmoke","configuration":"Debug","test_plan":"","package_resolution_mode":"disabled","resolved_files":[],"script":null,"xcodebuild_arguments":["ENABLE_TESTABILITY=YES"],"test_selectors":[],"expected_outputs":[],"cleanup_paths":["tests/fixtures/apple-validation/smoke-project/build","tests/fixtures/apple-validation/smoke-project/.swiftpm","tests/fixtures/apple-validation/smoke-project/xcuserdata","tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj/xcuserdata"]},{"id":"macos-build","platform":"macos","operation":"build","working_directory":"tests/fixtures/apple-validation/smoke-project","container":{"kind":"project","path":"tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj"},"scheme":"AppleValidationSmoke","configuration":"Debug","test_plan":"","package_resolution_mode":"disabled","resolved_files":[],"script":null,"xcodebuild_arguments":["ENABLE_TESTABILITY=YES"],"test_selectors":[],"expected_outputs":[],"cleanup_paths":["tests/fixtures/apple-validation/smoke-project/build","tests/fixtures/apple-validation/smoke-project/.swiftpm","tests/fixtures/apple-validation/smoke-project/xcuserdata","tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj/xcuserdata"]}]}
 
-      - id: tvos
-        name: Resolve exact tvOS simulator smoke plan
-        uses: ./.ciw/actions/validate-apple
-        with:
-          phase: plan
-          admitted_sha: ${{ github.event.pull_request.head.sha }}
-          validation_profile: tvos-simulator
-          working_directory: tests/fixtures/apple-validation/smoke-project
-          command_profile: ciw-apple-smoke
-          platform: tvos
-          scheme: AppleValidationSmoke
-          destination_profile: tvos-simulator-default
-          source_trust: trusted-pr
+      - name: Require one Apple executor and compile-only stage plan
+        shell: bash
+        env:
+          RUNS_ON_JSON: ${{ steps.plan.outputs.runs_on_json }}
+          TEST_SUMMARY: ${{ steps.plan.outputs.test_summary }}
+        run: |
+          set -Eeuo pipefail
+          test "${RUNS_ON_JSON}" = '["macOS","ARM64"]'
+          python3 - <<'PY'
+          import json
+          import os
+          stages = json.loads(os.environ["TEST_SUMMARY"])
+          assert [row["platform"] for row in stages] == ["ios", "tvos", "macos"]
+          assert all(row["operation"] == "build" for row in stages)
+          PY
 
-      - id: macos
-        name: Resolve exact unsigned macOS smoke plan
-        uses: ./.ciw/actions/validate-apple
-        with:
-          phase: plan
-          admitted_sha: ${{ github.event.pull_request.head.sha }}
-          validation_profile: macos
-          working_directory: tests/fixtures/apple-validation/smoke-project
-          command_profile: ciw-apple-smoke
-          platform: macos
-          scheme: AppleValidationSmoke
-          destination_profile: macos-unsigned
-          source_trust: trusted-pr
-
-      - name: Run branch-exclusive Apple repair checks
+      - name: Run branch-exclusive Apple contract tests
         shell: bash
         env:
           PYTHONDONTWRITEBYTECODE: "1"
@@ -126,6 +106,7 @@ jobs:
           (
             cd .ciw
             PYTHONPATH=src python3 -m unittest -v \
+              tests.test_apple_protected_full \
               tests.test_apple_validation \
               tests.test_apple_simulator_ownership \
               tests.test_apple_terminal_cleanup \
@@ -133,8 +114,8 @@ jobs:
             test -z "$(git status --porcelain=v1 --untracked-files=all)"
           )
 
-  ios:
-    name: Real iOS simulator smoke
+  apple:
+    name: Real protected-full Apple smoke
     needs: plan
     runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
     timeout-minutes: 120
@@ -155,7 +136,8 @@ jobs:
           set -Eeuo pipefail
           python3 .ciw/scripts/ci/apple_checkout_cleanup.py source
 
-      - name: Check out exact admitted smoke source
+      - id: checkout
+        name: Check out exact admitted smoke source once
         uses: ./.ciw/actions/exact-checkout
         with:
           repository: ${{ github.repository }}
@@ -163,16 +145,8 @@ jobs:
           path: source
           fetch_depth: "1"
 
-      - name: Verify exact admitted smoke source
-        shell: bash
-        env:
-          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -Eeuo pipefail
-          (cd source && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
-          (cd source && test -z "$(git status --porcelain=v1 --untracked-files=all)")
-
-      - name: Prepare isolated Apple state
+      - id: workspace
+        name: Prepare one isolated Apple workspace
         uses: ./.ciw/actions/prepare-workspace
         with:
           profile: ${{ needs.plan.outputs.workspace_profile }}
@@ -181,301 +155,115 @@ jobs:
           trust_mode: trusted-pr
 
       - id: execute
-        name: Execute exact iOS simulator validation
+        name: Execute iOS, tvOS, and macOS builds sequentially
         uses: ./.ciw/actions/validate-apple
         with:
           phase: execute
           admitted_sha: ${{ github.event.pull_request.head.sha }}
-          validation_profile: ios-simulator
-          working_directory: tests/fixtures/apple-validation/smoke-project
-          command_profile: ciw-apple-smoke
-          platform: ios
-          scheme: AppleValidationSmoke
-          destination_profile: ios-simulator-default
+          validation_scope: protected-full
           source_trust: trusted-pr
+          validation_plan_json: >-
+            {"stages":[{"id":"ios-build","platform":"ios","operation":"build","working_directory":"tests/fixtures/apple-validation/smoke-project","container":{"kind":"project","path":"tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj"},"scheme":"AppleValidationSmoke","configuration":"Debug","test_plan":"","package_resolution_mode":"disabled","resolved_files":[],"script":null,"xcodebuild_arguments":["ENABLE_TESTABILITY=YES"],"test_selectors":[],"expected_outputs":[],"cleanup_paths":["tests/fixtures/apple-validation/smoke-project/build","tests/fixtures/apple-validation/smoke-project/.swiftpm","tests/fixtures/apple-validation/smoke-project/xcuserdata","tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj/xcuserdata"]},{"id":"tvos-build","platform":"tvos","operation":"build","working_directory":"tests/fixtures/apple-validation/smoke-project","container":{"kind":"project","path":"tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj"},"scheme":"AppleValidationSmoke","configuration":"Debug","test_plan":"","package_resolution_mode":"disabled","resolved_files":[],"script":null,"xcodebuild_arguments":["ENABLE_TESTABILITY=YES"],"test_selectors":[],"expected_outputs":[],"cleanup_paths":["tests/fixtures/apple-validation/smoke-project/build","tests/fixtures/apple-validation/smoke-project/.swiftpm","tests/fixtures/apple-validation/smoke-project/xcuserdata","tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj/xcuserdata"]},{"id":"macos-build","platform":"macos","operation":"build","working_directory":"tests/fixtures/apple-validation/smoke-project","container":{"kind":"project","path":"tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj"},"scheme":"AppleValidationSmoke","configuration":"Debug","test_plan":"","package_resolution_mode":"disabled","resolved_files":[],"script":null,"xcodebuild_arguments":["ENABLE_TESTABILITY=YES"],"test_selectors":[],"expected_outputs":[],"cleanup_paths":["tests/fixtures/apple-validation/smoke-project/build","tests/fixtures/apple-validation/smoke-project/.swiftpm","tests/fixtures/apple-validation/smoke-project/xcuserdata","tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj/xcuserdata"]}]}
 
-      - name: Remove Apple-specific iOS state
-        if: always()
+      - id: apple_cleanup
+        name: Remove Apple-specific state once
+        if: always() && steps.workspace.outcome == 'success'
         uses: ./.ciw/actions/validate-apple
         with:
           phase: cleanup
           admitted_sha: ${{ github.event.pull_request.head.sha }}
-          validation_profile: ios-simulator
-          working_directory: tests/fixtures/apple-validation/smoke-project
-          command_profile: ciw-apple-smoke
-          platform: ios
-          scheme: AppleValidationSmoke
-          destination_profile: ios-simulator-default
+          validation_scope: protected-full
           source_trust: trusted-pr
+          validation_plan_json: >-
+            {"stages":[{"id":"ios-build","platform":"ios","operation":"build","working_directory":"tests/fixtures/apple-validation/smoke-project","container":{"kind":"project","path":"tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj"},"scheme":"AppleValidationSmoke","configuration":"Debug","test_plan":"","package_resolution_mode":"disabled","resolved_files":[],"script":null,"xcodebuild_arguments":["ENABLE_TESTABILITY=YES"],"test_selectors":[],"expected_outputs":[],"cleanup_paths":["tests/fixtures/apple-validation/smoke-project/build","tests/fixtures/apple-validation/smoke-project/.swiftpm","tests/fixtures/apple-validation/smoke-project/xcuserdata","tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj/xcuserdata"]},{"id":"tvos-build","platform":"tvos","operation":"build","working_directory":"tests/fixtures/apple-validation/smoke-project","container":{"kind":"project","path":"tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj"},"scheme":"AppleValidationSmoke","configuration":"Debug","test_plan":"","package_resolution_mode":"disabled","resolved_files":[],"script":null,"xcodebuild_arguments":["ENABLE_TESTABILITY=YES"],"test_selectors":[],"expected_outputs":[],"cleanup_paths":["tests/fixtures/apple-validation/smoke-project/build","tests/fixtures/apple-validation/smoke-project/.swiftpm","tests/fixtures/apple-validation/smoke-project/xcuserdata","tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj/xcuserdata"]},{"id":"macos-build","platform":"macos","operation":"build","working_directory":"tests/fixtures/apple-validation/smoke-project","container":{"kind":"project","path":"tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj"},"scheme":"AppleValidationSmoke","configuration":"Debug","test_plan":"","package_resolution_mode":"disabled","resolved_files":[],"script":null,"xcodebuild_arguments":["ENABLE_TESTABILITY=YES"],"test_selectors":[],"expected_outputs":[],"cleanup_paths":["tests/fixtures/apple-validation/smoke-project/build","tests/fixtures/apple-validation/smoke-project/.swiftpm","tests/fixtures/apple-validation/smoke-project/xcuserdata","tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj/xcuserdata"]}]}
 
-      - name: Verify zero Apple-specific iOS residue
-        if: always()
+      - id: residue
+        name: Verify zero Apple-specific residue once
+        if: always() && steps.workspace.outcome == 'success'
         uses: ./.ciw/actions/validate-apple
         with:
           phase: residue
           admitted_sha: ${{ github.event.pull_request.head.sha }}
-          validation_profile: ios-simulator
-          working_directory: tests/fixtures/apple-validation/smoke-project
-          command_profile: ciw-apple-smoke
-          platform: ios
-          scheme: AppleValidationSmoke
-          destination_profile: ios-simulator-default
+          validation_scope: protected-full
           source_trust: trusted-pr
+          validation_plan_json: >-
+            {"stages":[{"id":"ios-build","platform":"ios","operation":"build","working_directory":"tests/fixtures/apple-validation/smoke-project","container":{"kind":"project","path":"tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj"},"scheme":"AppleValidationSmoke","configuration":"Debug","test_plan":"","package_resolution_mode":"disabled","resolved_files":[],"script":null,"xcodebuild_arguments":["ENABLE_TESTABILITY=YES"],"test_selectors":[],"expected_outputs":[],"cleanup_paths":["tests/fixtures/apple-validation/smoke-project/build","tests/fixtures/apple-validation/smoke-project/.swiftpm","tests/fixtures/apple-validation/smoke-project/xcuserdata","tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj/xcuserdata"]},{"id":"tvos-build","platform":"tvos","operation":"build","working_directory":"tests/fixtures/apple-validation/smoke-project","container":{"kind":"project","path":"tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj"},"scheme":"AppleValidationSmoke","configuration":"Debug","test_plan":"","package_resolution_mode":"disabled","resolved_files":[],"script":null,"xcodebuild_arguments":["ENABLE_TESTABILITY=YES"],"test_selectors":[],"expected_outputs":[],"cleanup_paths":["tests/fixtures/apple-validation/smoke-project/build","tests/fixtures/apple-validation/smoke-project/.swiftpm","tests/fixtures/apple-validation/smoke-project/xcuserdata","tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj/xcuserdata"]},{"id":"macos-build","platform":"macos","operation":"build","working_directory":"tests/fixtures/apple-validation/smoke-project","container":{"kind":"project","path":"tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj"},"scheme":"AppleValidationSmoke","configuration":"Debug","test_plan":"","package_resolution_mode":"disabled","resolved_files":[],"script":null,"xcodebuild_arguments":["ENABLE_TESTABILITY=YES"],"test_selectors":[],"expected_outputs":[],"cleanup_paths":["tests/fixtures/apple-validation/smoke-project/build","tests/fixtures/apple-validation/smoke-project/.swiftpm","tests/fixtures/apple-validation/smoke-project/xcuserdata","tests/fixtures/apple-validation/smoke-project/AppleValidationSmoke.xcodeproj/xcuserdata"]}]}
 
-      - name: Remove exact admitted iOS smoke source
-        if: always()
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          python3 .ciw/scripts/ci/apple_checkout_cleanup.py source
-
-      - name: Remove and verify registered iOS workflow state
-        if: always()
-        uses: ./.ciw/actions/cleanup-workspace
-
-      - name: Remove exact iOS validation implementation checkout
-        if: always()
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          python3 .ciw/scripts/ci/apple_checkout_cleanup.py central
-
-  tvos:
-    name: Real tvOS simulator smoke
-    needs: plan
-    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
-    timeout-minutes: 120
-    steps:
-      - name: Check out exact validation implementation
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          path: .ciw
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
-
-      - name: Clear fixed admitted source checkout root
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          python3 .ciw/scripts/ci/apple_checkout_cleanup.py source
-
-      - name: Check out exact admitted smoke source
-        uses: ./.ciw/actions/exact-checkout
-        with:
-          repository: ${{ github.repository }}
-          admitted_sha: ${{ github.event.pull_request.head.sha }}
-          path: source
-          fetch_depth: "1"
-
-      - name: Verify exact admitted smoke source
+      - id: clean
+        name: Verify exact admitted source remained clean
+        if: always() && steps.checkout.outcome == 'success'
         shell: bash
         env:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -Eeuo pipefail
-          (cd source && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
-          (cd source && test -z "$(git status --porcelain=v1 --untracked-files=all)")
+          test "$(git -C source rev-parse HEAD)" = "${EXPECTED_SHA}"
+          test -z "$(git -C source status --porcelain=v1 --untracked-files=all)"
 
-      - name: Prepare isolated Apple state
-        uses: ./.ciw/actions/prepare-workspace
-        with:
-          profile: ${{ needs.plan.outputs.workspace_profile }}
-          cache_mode: disabled
-          source_sha: ${{ github.event.pull_request.head.sha }}
-          trust_mode: trusted-pr
-
-      - id: execute
-        name: Execute exact tvOS simulator validation
-        uses: ./.ciw/actions/validate-apple
-        with:
-          phase: execute
-          admitted_sha: ${{ github.event.pull_request.head.sha }}
-          validation_profile: tvos-simulator
-          working_directory: tests/fixtures/apple-validation/smoke-project
-          command_profile: ciw-apple-smoke
-          platform: tvos
-          scheme: AppleValidationSmoke
-          destination_profile: tvos-simulator-default
-          source_trust: trusted-pr
-
-      - name: Remove Apple-specific tvOS state
-        if: always()
-        uses: ./.ciw/actions/validate-apple
-        with:
-          phase: cleanup
-          admitted_sha: ${{ github.event.pull_request.head.sha }}
-          validation_profile: tvos-simulator
-          working_directory: tests/fixtures/apple-validation/smoke-project
-          command_profile: ciw-apple-smoke
-          platform: tvos
-          scheme: AppleValidationSmoke
-          destination_profile: tvos-simulator-default
-          source_trust: trusted-pr
-
-      - name: Verify zero Apple-specific tvOS residue
-        if: always()
-        uses: ./.ciw/actions/validate-apple
-        with:
-          phase: residue
-          admitted_sha: ${{ github.event.pull_request.head.sha }}
-          validation_profile: tvos-simulator
-          working_directory: tests/fixtures/apple-validation/smoke-project
-          command_profile: ciw-apple-smoke
-          platform: tvos
-          scheme: AppleValidationSmoke
-          destination_profile: tvos-simulator-default
-          source_trust: trusted-pr
-
-      - name: Remove exact admitted tvOS smoke source
+      - id: source_cleanup
+        name: Remove exact admitted smoke source once
         if: always()
         shell: bash
         run: |
           set -Eeuo pipefail
           python3 .ciw/scripts/ci/apple_checkout_cleanup.py source
 
-      - name: Remove and verify registered tvOS workflow state
+      - id: workspace_cleanup
+        name: Remove and verify the one registered Apple workspace
         if: always()
         uses: ./.ciw/actions/cleanup-workspace
 
-      - name: Remove exact tvOS validation implementation checkout
+      - id: central_cleanup
+        name: Remove exact validation implementation checkout
         if: always()
         shell: bash
         run: |
           set -Eeuo pipefail
           python3 .ciw/scripts/ci/apple_checkout_cleanup.py central
 
-  macos:
-    name: Real unsigned macOS smoke
-    needs: plan
-    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
-    timeout-minutes: 120
-    steps:
-      - name: Check out exact validation implementation
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          path: .ciw
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
-
-      - name: Clear fixed admitted source checkout root
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          python3 .ciw/scripts/ci/apple_checkout_cleanup.py source
-
-      - name: Check out exact admitted smoke source
-        uses: ./.ciw/actions/exact-checkout
-        with:
-          repository: ${{ github.repository }}
-          admitted_sha: ${{ github.event.pull_request.head.sha }}
-          path: source
-          fetch_depth: "1"
-
-      - name: Verify exact admitted smoke source
+      - name: Project terminal protected-full smoke status
+        if: always()
         shell: bash
         env:
-          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+          EXECUTE_OUTCOME: ${{ steps.execute.outcome }}
+          APPLE_CLEANUP_OUTCOME: ${{ steps.apple_cleanup.outcome }}
+          RESIDUE_OUTCOME: ${{ steps.residue.outcome }}
+          CLEAN_OUTCOME: ${{ steps.clean.outcome }}
+          SOURCE_CLEANUP_OUTCOME: ${{ steps.source_cleanup.outcome }}
+          WORKSPACE_CLEANUP_OUTCOME: ${{ steps.workspace_cleanup.outcome }}
+          CENTRAL_CLEANUP_OUTCOME: ${{ steps.central_cleanup.outcome }}
         run: |
           set -Eeuo pipefail
-          (cd source && test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}")
-          (cd source && test -z "$(git status --porcelain=v1 --untracked-files=all)")
-
-      - name: Prepare isolated Apple state
-        uses: ./.ciw/actions/prepare-workspace
-        with:
-          profile: ${{ needs.plan.outputs.workspace_profile }}
-          cache_mode: disabled
-          source_sha: ${{ github.event.pull_request.head.sha }}
-          trust_mode: trusted-pr
-
-      - id: execute
-        name: Execute exact unsigned macOS validation
-        uses: ./.ciw/actions/validate-apple
-        with:
-          phase: execute
-          admitted_sha: ${{ github.event.pull_request.head.sha }}
-          validation_profile: macos
-          working_directory: tests/fixtures/apple-validation/smoke-project
-          command_profile: ciw-apple-smoke
-          platform: macos
-          scheme: AppleValidationSmoke
-          destination_profile: macos-unsigned
-          source_trust: trusted-pr
-
-      - name: Remove Apple-specific macOS state
-        if: always()
-        uses: ./.ciw/actions/validate-apple
-        with:
-          phase: cleanup
-          admitted_sha: ${{ github.event.pull_request.head.sha }}
-          validation_profile: macos
-          working_directory: tests/fixtures/apple-validation/smoke-project
-          command_profile: ciw-apple-smoke
-          platform: macos
-          scheme: AppleValidationSmoke
-          destination_profile: macos-unsigned
-          source_trust: trusted-pr
-
-      - name: Verify zero Apple-specific macOS residue
-        if: always()
-        uses: ./.ciw/actions/validate-apple
-        with:
-          phase: residue
-          admitted_sha: ${{ github.event.pull_request.head.sha }}
-          validation_profile: macos
-          working_directory: tests/fixtures/apple-validation/smoke-project
-          command_profile: ciw-apple-smoke
-          platform: macos
-          scheme: AppleValidationSmoke
-          destination_profile: macos-unsigned
-          source_trust: trusted-pr
-
-      - name: Remove exact admitted macOS smoke source
-        if: always()
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          python3 .ciw/scripts/ci/apple_checkout_cleanup.py source
-
-      - name: Remove and verify registered macOS workflow state
-        if: always()
-        uses: ./.ciw/actions/cleanup-workspace
-
-      - name: Remove exact macOS validation implementation checkout
-        if: always()
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          python3 .ciw/scripts/ci/apple_checkout_cleanup.py central
+          test "${EXECUTE_OUTCOME}" = success
+          test "${APPLE_CLEANUP_OUTCOME}" = success
+          test "${RESIDUE_OUTCOME}" = success
+          test "${CLEAN_OUTCOME}" = success
+          test "${SOURCE_CLEANUP_OUTCOME}" = success
+          test "${WORKSPACE_CLEANUP_OUTCOME}" = success
+          test "${CENTRAL_CLEANUP_OUTCOME}" = success
 
   zero_artifacts:
     name: Verify Apple routine artifacts remain zero
-    needs: [plan, ios, tvos, macos]
+    needs: [plan, apple]
     if: ${{ always() && !cancelled() }}
     runs-on: [linux, amd64, general, small]
     timeout-minutes: 10
     steps:
-      - name: Require all Apple smoke paths and zero Actions artifacts
-        env:
-          PLAN_RESULT: ${{ needs.plan.result }}
-          IOS_RESULT: ${{ needs.ios.result }}
-          TVOS_RESULT: ${{ needs.tvos.result }}
-          MACOS_RESULT: ${{ needs.macos.result }}
-          GITHUB_TOKEN: ${{ github.token }}
+      - name: Require real protected-full smoke success
         shell: bash
+        env:
+          APPLE_RESULT: ${{ needs.apple.result }}
         run: |
           set -Eeuo pipefail
-          test "${PLAN_RESULT}" = success
-          test "${IOS_RESULT}" = success
-          test "${TVOS_RESULT}" = success
-          test "${MACOS_RESULT}" = success
-          python3 - <<'PY_ARTIFACTS'
+          test "${APPLE_RESULT}" = success
+
+      - name: Verify zero workflow artifacts
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
           import json
           import os
           import urllib.request
@@ -493,6 +281,6 @@ jobs:
           with urllib.request.urlopen(request, timeout=20) as response:
               payload = json.load(response)
           if payload.get("total_count") != 0 or payload.get("artifacts"):
-              raise SystemExit("Apple validation smoke retained Actions artifacts")
-          print("Routine Apple Actions artifacts verified: zero.")
-          PY_ARTIFACTS
+              raise SystemExit("routine Apple Actions artifacts are not zero")
+          print("Routine Apple Actions artifacts verified: zero")
+          PY
