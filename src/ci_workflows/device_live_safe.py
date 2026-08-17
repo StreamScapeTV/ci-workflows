@@ -17,20 +17,34 @@ from .device_types import (
     DeviceFamily,
     DevicePlan,
     DeviceResult,
-    DeviceValidationError,
     SelectedDevice,
     canonical_json,
 )
 
 _ALLOWED_HOST_ENVIRONMENT = {
-    "ANDROID_HOME", "ANDROID_SDK_ROOT", "DEVELOPER_DIR", "HOME", "JAVA_HOME",
-    "LANG", "LC_ALL", "LOGNAME", "PATH", "RUNNER_TEMP", "RUNNER_TOOL_CACHE",
-    "SHELL", "TMP", "TMPDIR", "USER",
+    "ANDROID_HOME",
+    "ANDROID_SDK_ROOT",
+    "DEVELOPER_DIR",
+    "HOME",
+    "JAVA_HOME",
+    "LANG",
+    "LC_ALL",
+    "LOGNAME",
+    "PATH",
+    "RUNNER_TEMP",
+    "RUNNER_TOOL_CACHE",
+    "SHELL",
+    "TMP",
+    "TMPDIR",
+    "USER",
 }
 
 
 def product_environment(
-    *, environment: Mapping[str, str], plan: DevicePlan, selected: SelectedDevice,
+    *,
+    environment: Mapping[str, str],
+    plan: DevicePlan,
+    selected: SelectedDevice,
 ) -> dict[str, str]:
     """Return the bounded product environment without Central authority material."""
 
@@ -58,76 +72,120 @@ def product_environment(
 
 
 def cleanup_live_device(
-    *, contract_root: Path, plan: DevicePlan, source_root: Path, state_root: Path,
-    selected_identity_hash: str, authorization_receipt: str,
-    resource_lock_receipt: str, environment: Mapping[str, str],
+    *,
+    contract_root: Path,
+    plan: DevicePlan,
+    source_root: Path,
+    state_root: Path,
+    selected_identity_hash: str,
+    authorization_receipt: str,
+    resource_lock_receipt: str,
+    environment: Mapping[str, str],
 ) -> None:
-    """Restore caller-owned device state while the exact fencing receipt is valid."""
+    """Run the caller's one restoration/cleanup stage while the lock is valid."""
 
     selected = load_selected_device(
-        state_root=state_root, plan=plan, expected_identity_hash=selected_identity_hash,
+        state_root=state_root,
+        plan=plan,
+        expected_identity_hash=selected_identity_hash,
     )
     verify_production_lock(
-        contract_root=contract_root, plan=plan, selected=selected,
+        contract_root=contract_root,
+        plan=plan,
+        selected=selected,
         authorization_receipt=authorization_receipt,
-        resource_lock_receipt=resource_lock_receipt, environment=environment,
+        resource_lock_receipt=resource_lock_receipt,
+        environment=environment,
     )
     _run_product_stage(
-        source_root, plan.profile.command_profile.cleanup_script, args=(),
-        environment=product_environment(environment=environment, plan=plan, selected=selected),
+        source_root,
+        plan.profile.command_profile.cleanup_script,
+        args=(),
+        environment=product_environment(
+            environment=environment,
+            plan=plan,
+            selected=selected,
+        ),
         timeout_seconds=min(900, max(60, plan.request.max_duration_minutes * 60)),
         failure_code="cleanup_failed",
     )
 
 
 def execute_live_device(
-    *, contract_root: Path, plan: DevicePlan, source_root: Path, state_root: Path,
-    selected_identity_hash: str, authorization_receipt: str,
-    resource_lock_receipt: str, environment: Mapping[str, str],
+    *,
+    contract_root: Path,
+    plan: DevicePlan,
+    source_root: Path,
+    state_root: Path,
+    selected_identity_hash: str,
+    authorization_receipt: str,
+    resource_lock_receipt: str,
+    environment: Mapping[str, str],
 ) -> DeviceResult:
-    """Execute one caller-owned bounded command plan after receipt revalidation."""
+    """Run prepare/test/evidence only; workflow restoration performs cleanup once."""
 
-    require(plan.execution_authorized and not plan.profile.synthetic_only, "physical_authorization_required")
+    require(
+        plan.execution_authorized and not plan.profile.synthetic_only,
+        "physical_authorization_required",
+    )
     selected = load_selected_device(
-        state_root=state_root, plan=plan, expected_identity_hash=selected_identity_hash,
+        state_root=state_root,
+        plan=plan,
+        expected_identity_hash=selected_identity_hash,
     )
     verify_production_lock(
-        contract_root=contract_root, plan=plan, selected=selected,
+        contract_root=contract_root,
+        plan=plan,
+        selected=selected,
         authorization_receipt=authorization_receipt,
-        resource_lock_receipt=resource_lock_receipt, environment=environment,
-        minimum_remaining_seconds=max(1, min(300, plan.request.max_duration_minutes * 60)),
+        resource_lock_receipt=resource_lock_receipt,
+        environment=environment,
+        minimum_remaining_seconds=max(
+            1,
+            min(300, plan.request.max_duration_minutes * 60),
+        ),
     )
-    runtime_environment = product_environment(environment=environment, plan=plan, selected=selected)
+    runtime_environment = product_environment(
+        environment=environment,
+        plan=plan,
+        selected=selected,
+    )
     profile = plan.profile.command_profile
     failure_code = ""
-    cleanup_result = "success"
     timeout_seconds = max(60, plan.request.max_duration_minutes * 60)
-    try:
-        _run_product_stage(
-            source_root, profile.prepare_script, args=(), environment=runtime_environment,
-            timeout_seconds=min(timeout_seconds, 900), failure_code="prepare_failed",
-        )
-        _run_product_stage(
-            source_root, profile.test_script, args=profile.fixed_arguments,
-            environment=runtime_environment, timeout_seconds=timeout_seconds,
-            failure_code="stage_failed",
-        )
-        _run_product_stage(
-            source_root, profile.evidence_script, args=(), environment=runtime_environment,
-            timeout_seconds=min(timeout_seconds, 900), failure_code="evidence_policy_failed",
-        )
-    except DeviceValidationError as error:
-        failure_code = error.code
-    finally:
+    stages = (
+        (
+            profile.prepare_script,
+            (),
+            min(timeout_seconds, 900),
+            "prepare_failed",
+        ),
+        (
+            profile.test_script,
+            profile.fixed_arguments,
+            timeout_seconds,
+            "stage_failed",
+        ),
+        (
+            profile.evidence_script,
+            (),
+            min(timeout_seconds, 900),
+            "evidence_policy_failed",
+        ),
+    )
+    for script, args, stage_timeout, code in stages:
         try:
             _run_product_stage(
-                source_root, profile.cleanup_script, args=(), environment=runtime_environment,
-                timeout_seconds=min(timeout_seconds, 900), failure_code="cleanup_failed",
+                source_root,
+                script,
+                args=args,
+                environment=runtime_environment,
+                timeout_seconds=stage_timeout,
+                failure_code=code,
             )
-        except DeviceValidationError:
-            cleanup_result = "failure"
-            if not failure_code:
-                failure_code = "cleanup_failed"
+        except Exception as error:
+            failure_code = getattr(error, "code", code)
+            break
 
     result = "failure" if failure_code else "success"
     stable_basis = {
@@ -139,15 +197,17 @@ def execute_live_device(
         "device_capability": plan.request.capability,
         "host_capacity": plan.request.host_capacity,
         "result": result,
-        "cleanup_result": cleanup_result,
+        "cleanup_result": "deferred-to-restoration",
     }
-    evidence_digest = hashlib.sha256(canonical_json(stable_basis).encode("utf-8")).hexdigest()
+    evidence_digest = hashlib.sha256(
+        canonical_json(stable_basis).encode("utf-8")
+    ).hexdigest()
     return DeviceResult(
         request_id=plan.request.request_id,
         evidence_id=evidence_digest,
         result=result,
         failure_code=failure_code,
-        cleanup_result=cleanup_result,
+        cleanup_result="deferred-to-restoration",
         artifact_exception_used=False,
         selected_device_hash=selected.identity_hash,
         evidence_packet={**stable_basis, "evidence_id": evidence_digest},
