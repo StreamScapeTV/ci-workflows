@@ -65,7 +65,8 @@ jobs:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -Eeuo pipefail
-          test "$(git -C .ciw rev-parse HEAD)" = "${EXPECTED_SHA}"
+          cd .ciw
+          test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
 
       - id: plan
         name: Validate protected-full single-executor plan
