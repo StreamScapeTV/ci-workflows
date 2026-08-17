@@ -59,6 +59,20 @@ class AppleSmokeTriggerContractTests(unittest.TestCase):
                 self.assertIn(EXPECTED_CONCURRENCY[name], source)
                 self.assertIn("cancel-in-progress: true", source)
 
+    def test_routine_repair_checks_use_private_normalized_temp_root(self) -> None:
+        source = WORKFLOWS["routine"].read_text(encoding="utf-8")
+        self.assertIn(
+            'validation_root="${RUNNER_TEMP}/ciw-apple-repair-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"',
+            source,
+        )
+        self.assertIn('chmod 0700 "${validation_root}"', source)
+        self.assertIn('chmod 0700 "${validation_root}/tmp"', source)
+        self.assertIn("stat -c '%a'", source)
+        self.assertIn('TMPDIR="${validation_root}/tmp"', source)
+        self.assertIn("trap 'rm -rf -- \"${validation_root}\"' EXIT", source)
+        self.assertIn('test ! -e "${validation_root}"', source)
+        self.assertNotIn("sudo chmod", source)
+
 
 if __name__ == "__main__":
     unittest.main()
