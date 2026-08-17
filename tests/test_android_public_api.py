@@ -28,12 +28,13 @@ class AndroidPublicApiTests(unittest.TestCase):
         self.assertEqual(self.android["api_version"], "2.0.0")
         self.assertEqual(self.android["status"], "implemented")
         self.assertEqual(self.android["semantic_runner_profile"], "mobile")
+        self.assertEqual(self.android["matrix_max_jobs"], 1)
         call = self.workflow["on"]["workflow_call"]
         self.assertEqual(set(call["inputs"]), {item["name"] for item in self.android["inputs"]})
         self.assertEqual(set(call["secrets"]), set(self.android["secrets"]))
         self.assertEqual(set(call["outputs"]), set(self.android["outputs"]))
 
-    def test_android_api_uses_caller_owned_technology_inputs(self) -> None:
+    def test_android_api_uses_one_caller_owned_plan_instead_of_central_profiles(self) -> None:
         inputs = {item["name"] for item in self.android["inputs"]}
         self.assertEqual(
             inputs,
@@ -42,10 +43,7 @@ class AndroidPublicApiTests(unittest.TestCase):
                 "validation_scope",
                 "working_directory",
                 "gradle_wrapper_path",
-                "gradle_tasks_json",
-                "targeted_test_selector",
-                "script_path",
-                "script_arguments_json",
+                "validation_plan_json",
                 "private_dependency_repository",
                 "private_dependency_sha",
                 "private_dependency_subdirectory",
@@ -56,6 +54,10 @@ class AndroidPublicApiTests(unittest.TestCase):
             "validation_profile",
             "task_profile",
             "consumer_script_profile",
+            "gradle_tasks_json",
+            "targeted_test_selector",
+            "script_path",
+            "script_arguments_json",
             "private_dependency_contract_id",
             "artifact_exception_id",
             "device_family",
@@ -67,8 +69,30 @@ class AndroidPublicApiTests(unittest.TestCase):
             self.assertNotIn(forbidden, inputs)
         self.assertEqual(
             set(self.android["repository_owned_hooks"]),
-            {"gradle_tasks_json", "script_path", "script_arguments_json"},
+            {"validation_plan_json"},
         )
+
+    def test_android_types_include_protected_full_and_strict_plan_json(self) -> None:
+        catalog = self.types["input_catalog"]
+        self.assertIn("validation_scope", catalog)
+        self.assertEqual(
+            catalog["validation_scope"]["enum"],
+            [
+                "protected-full",
+                "compile",
+                "unit",
+                "assemble",
+                "lint",
+                "targeted-unit",
+                "gradle",
+                "script",
+            ],
+        )
+        self.assertEqual(
+            catalog["validation_plan_json"],
+            {"type": "json-object", "max_bytes": 16384},
+        )
+        self.assertIn("private_dependency_id", catalog)
 
     def test_android_outputs_and_components_are_primitive_backed(self) -> None:
         self.assertEqual(
@@ -83,10 +107,6 @@ class AndroidPublicApiTests(unittest.TestCase):
                 "actions/validate-android",
             },
         )
-        self.assertIn("validation_scope", self.types["input_catalog"])
-        self.assertIn("gradle_tasks_json", self.types["input_catalog"])
-        self.assertIn("script_arguments_json", self.types["input_catalog"])
-        self.assertIn("private_dependency_id", self.types["input_catalog"])
 
     def test_android_breaking_change_is_explicitly_acknowledged(self) -> None:
         acknowledgement = next(
