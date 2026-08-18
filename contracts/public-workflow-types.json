@@ -72,10 +72,16 @@
     "platform": {"type": "string", "enum": ["linux", "android", "ios", "tvos", "macos"], "nullable": true},
     "scheme": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", "nullable": true},
     "destination_profile": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$", "nullable": true},
-    "device_family": {"type": "string", "enum": ["android", "android-phone", "android-tv", "ios", "tvos"], "nullable": true},
+    "device_family": {"type": "string", "enum": ["android", "ios", "tvos"], "nullable": true},
     "device_request_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$", "nullable": true},
     "device_capability": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$", "nullable": true},
-    "device_alias": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$"},
+    "host_capacity": {"type": "string", "enum": ["mobile", "apple"]},
+    "prepare_script_path": {"type": "path", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$"},
+    "test_script_path": {"type": "path", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$"},
+    "evidence_script_path": {"type": "path", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$"},
+    "cleanup_script_path": {"type": "path", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$"},
+    "arguments_json": {"type": "json-array", "max_items": 16},
+    "environment_json": {"type": "json-object", "max_bytes": 16384},
     "max_duration_minutes": {"type": "integer", "minimum": 1, "maximum": 240, "default": 60},
     "release_mode": {"type": "string", "enum": ["tag-push", "existing-tag"], "default": "tag-push"},
     "release_version": {"type": "string", "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$", "nullable": true},
@@ -107,10 +113,11 @@
   },
   "secret_catalog": {
     "private_dependency_token": {"required_scope": "contents:read", "exposed_to_product_source": false},
+    "service_username": {"required_scope": "test-environment", "exposed_to_product_source": true},
+    "service_password": {"required_scope": "test-environment", "exposed_to_product_source": true},
     "registry_username": {"required_scope": "registry-write", "exposed_to_product_source": false},
     "registry_token": {"required_scope": "registry-write", "exposed_to_product_source": false},
     "device_authorization_receipt": {"required_scope": "physical-device-authorization", "exposed_to_product_source": false},
-    "live_test_credentials": {"required_scope": "test-environment", "exposed_to_product_source": true},
     "flux_handoff_token": {"required_scope": "flux-dispatch", "exposed_to_product_source": false},
     "flux_kubeconfig": {"required_scope": "kubernetes-target", "exposed_to_product_source": false},
     "flux_sops_age_key": {"required_scope": "sops-decrypt", "exposed_to_product_source": false},
@@ -126,6 +133,7 @@
     "request_id": {"type": "string"},
     "result": {"type": "string", "enum": ["success", "failure", "skipped"]},
     "test_summary": {"type": "json-object", "nullable": true},
+    "artifact_manifest_json": {"type": "json-array", "nullable": true},
     "render_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$", "nullable": true},
     "artifact_exception_used": {"type": "boolean"},
     "node_version": {"type": "string", "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$"},
@@ -178,6 +186,6 @@
     {"id": "issue-322-flux-assets", "api_name": "flux.assets", "kind": "technology-input-decoupling", "reason": "Use a caller-owned bounded asset manifest instead of a central application product ID.", "migration_issue": "#322", "effective_version": "2.0.0"},
     {"id": "issue-322-flux-reconcile", "api_name": "flux.reconcile", "kind": "technology-input-decoupling", "reason": "Keep Flux authorization capability-based without a central application product ID.", "migration_issue": "#322", "effective_version": "2.0.0"},
     {"id": "issue-332-android", "api_name": "validation.android", "kind": "technology-input-decoupling", "reason": "Replace central Android product/task profiles with one caller-owned bounded validation plan.", "migration_issue": "#332", "effective_version": "2.0.0"},
-    {"id": "issue-336-apple", "api_name": "validation.apple", "kind": "technology-input-decoupling", "reason": "Add a caller-owned bounded Apple stage plan and single-executor protected-full path while preserving legacy profile calls.", "migration_issue": "#336", "effective_version": "2.0.0"}
+    {"id": "issue-341-device", "api_name": "validation.device", "kind": "technology-input-decoupling", "reason": "Replace product-coupled device aliases and profiles with semantic host capacity and caller-owned bounded command plans.", "migration_issue": "#341", "effective_version": "2.0.0"}
   ]
 }

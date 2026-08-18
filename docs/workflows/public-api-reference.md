@@ -21,8 +21,10 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 | `release.tag-image-chart-bootstrap` `1.2.0` | `.github/workflows/reusable-tag-image-chart.yml` | `deprecated-bootstrap-exception` | `trusted-publication` | Release / Bootstrap image and chart |
 | `source.resolve` `1.0.0` | `.github/workflows/reusable-resolve-source.yml` | `implemented` | `source-admission` | Shared / Source admission |
 | `validation.android` `2.0.0` | `.github/workflows/reusable-android.yml` | `implemented` | `read-only-validation` | CI / Android validation |
-| `validation.apple` `2.0.0` | `.github/workflows/reusable-apple.yml` | `implemented` | `read-only-validation` | CI / Apple validation |
-| `validation.device` `1.0.0` | `.github/workflows/reusable-device.yml` | `implemented` | `physical-device-validation` | CI / Physical device validation |
+| `validation.android-live-service` `1.0.0` | `.github/workflows/reusable-android-live-service.yml` | `implemented` | `read-only-validation` | CI / Android live-service acceptance |
+| `validation.android-release` `1.0.0` | `.github/workflows/reusable-android-release.yml` | `implemented` | `read-only-validation` | CI / Android unsigned release validation |
+| `validation.apple` `1.0.0` | `.github/workflows/reusable-apple.yml` | `implemented` | `read-only-validation` | CI / Apple validation |
+| `validation.device` `2.0.0` | `.github/workflows/reusable-device.yml` | `implemented` | `physical-device-validation` | CI / Physical device validation |
 | `validation.flutter` `1.0.0` | `.github/workflows/reusable-flutter.yml` | `implemented` | `read-only-validation` | CI / Flutter validation |
 | `validation.gitops` `1.0.0` | `.github/workflows/reusable-gitops-validation.yml` | `implemented` | `read-only-validation` | CI / GitOps validation |
 | `validation.node` `1.0.0` | `.github/workflows/reusable-node.yml` | `implemented` | `read-only-validation` | CI / Node validation |
@@ -135,21 +137,37 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 - Outputs: `result`, `test_summary`, `cleanup_result`
 - Repository-owned hooks: `validation_plan_json`
 
+### `validation.android-live-service`
+
+- Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
+- Inputs: `admitted_sha` (required), `working_directory` (default `.`), `validation_plan_json` (required), `private_dependency_repository` (default ``), `private_dependency_sha` (default ``), `private_dependency_subdirectory` (default `.`), `private_dependency_id` (default ``)
+- Secrets: `service_username`, `service_password`, `private_dependency_token`
+- Outputs: `result`, `test_summary`, `cleanup_result`
+- Repository-owned hooks: `validation_plan_json`
+
+### `validation.android-release`
+
+- Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
+- Inputs: `admitted_sha` (required), `working_directory` (default `.`), `gradle_wrapper_path` (default `gradlew`), `validation_plan_json` (required), `private_dependency_repository` (default ``), `private_dependency_sha` (default ``), `private_dependency_subdirectory` (default `.`), `private_dependency_id` (default ``)
+- Secrets: `private_dependency_token`
+- Outputs: `result`, `test_summary`, `cleanup_result`, `artifact_manifest_json`
+- Repository-owned hooks: `validation_plan_json`
+
 ### `validation.apple`
 
 - Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
-- Inputs: `admitted_sha` (required), `validation_scope` (default `legacy`), `validation_plan_json` (default ``), `validation_profile` (default ``), `version_file` (default ``), `working_directory` (default `.`), `command_profile` (default ``), `script_path` (default ``), `platform` (default ``), `scheme` (default ``), `destination_profile` (default ``), `artifact_exception_id` (default ``), `private_dependency_repository` (default ``), `private_dependency_sha` (default ``), `private_dependency_subdirectory` (default `.`), `private_dependency_id` (default ``)
-- Secrets: `private_dependency_token`
-- Outputs: `result`, `test_summary`, `cleanup_result`, `artifact_exception_used`
-- Repository-owned hooks: `validation_plan_json`, `command_profile`, `script_path`
+- Inputs: `admitted_sha` (required), `validation_profile` (required), `version_file`, `working_directory` (default `.`), `command_profile` (required), `script_path`, `platform` (required), `scheme`, `destination_profile`, `artifact_exception_id`
+- Secrets: none
+- Outputs: `result`, `test_summary`, `artifact_exception_used`
+- Repository-owned hooks: `command_profile`, `script_path`
 
 ### `validation.device`
 
 - Events: `workflow_dispatch`, `workflow_call`
-- Inputs: `admitted_sha` (required), `device_family` (required), `device_capability` (required), `device_alias` (required), `command_profile` (required), `script_path` (required), `max_duration_minutes` (default `60`), `evidence_exception_id`, `request_id` (required)
-- Secrets: `device_authorization_receipt`, `live_test_credentials`
+- Inputs: `admitted_sha` (required), `device_family` (required), `device_capability` (required), `host_capacity` (required), `prepare_script_path` (required), `test_script_path` (required), `evidence_script_path` (required), `cleanup_script_path` (required), `arguments_json` (default `[]`), `environment_json` (default `{}`), `max_duration_minutes` (default `60`), `evidence_exception_id`, `request_id` (required)
+- Secrets: `device_authorization_receipt`
 - Outputs: `result`, `device_evidence_id`, `artifact_exception_used`, `request_id`
-- Repository-owned hooks: `command_profile`, `script_path`
+- Repository-owned hooks: `prepare_script_path`, `test_script_path`, `evidence_script_path`, `cleanup_script_path`
 
 ### `validation.flutter`
 

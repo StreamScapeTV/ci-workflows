@@ -22,7 +22,7 @@ class PublicApiContractTests(unittest.TestCase):
         cls.workflows = contract.validate_workflows(cls.data, cls.profiles)
 
     def test_registry_is_complete_and_deterministic(self) -> None:
-        self.assertEqual(len(self.data.workflows), 20)
+        self.assertEqual(len(self.data.workflows), 22)
         self.assertEqual(len(self.profiles), 12)
         self.assertEqual(len(self.data.types["trust_classes"]), 6)
         self.assertEqual("3.0.0", self.data.index["contract_version"])
@@ -106,6 +106,113 @@ class PublicApiContractTests(unittest.TestCase):
             self.assertTrue(inputs.isdisjoint(forbidden), f"{row['api_name']} exposes {sorted(inputs & forbidden)}")
             self.assertNotIn("self-hosted", row["semantic_runner_profile"])
 
+    def test_android_completion_apis_are_canonical_and_secret_scoped(self) -> None:
+        routine = self.workflows["validation.android"]
+        live = self.workflows["validation.android-live-service"]
+        release = self.workflows["validation.android-release"]
+        self.assertEqual(".github/workflows/reusable-android.yml", routine["file"])
+        self.assertEqual(
+            ".github/workflows/reusable-android-live-service.yml",
+            live["file"],
+        )
+        self.assertEqual(
+            ".github/workflows/reusable-android-release.yml",
+            release["file"],
+        )
+        self.assertEqual("2.0.0", routine["api_version"])
+        self.assertEqual("1.0.0", live["api_version"])
+        self.assertEqual("1.0.0", release["api_version"])
+        self.assertEqual("mobile", live["semantic_runner_profile"])
+        self.assertEqual("mobile", release["semantic_runner_profile"])
+        self.assertEqual(1, live["matrix_max_jobs"])
+        self.assertEqual(1, release["matrix_max_jobs"])
+        self.assertEqual(["private_dependency_token"], routine["secrets"])
+        self.assertEqual(
+            ["service_username", "service_password", "private_dependency_token"],
+            live["secrets"],
+        )
+        self.assertEqual(["private_dependency_token"], release["secrets"])
+        self.assertEqual("bounded-evidence", release["artifact_policy"])
+        self.assertEqual(7, release["artifact_retention_max_days"])
+        for api, row in self.workflows.items():
+            if api != "validation.android-release":
+                self.assertNotIn("artifact_policy", row)
+                self.assertNotIn("artifact_retention_max_days", row)
+        self.assertEqual(
+            {"type": "json-array", "nullable": True},
+            self.data.types["output_catalog"]["artifact_manifest_json"],
+        )
+        for secret in ("service_username", "service_password"):
+            self.assertEqual(
+                "test-environment",
+                self.data.types["secret_catalog"][secret]["required_scope"],
+            )
+            self.assertTrue(
+                self.data.types["secret_catalog"][secret]["exposed_to_product_source"]
+            )
+        for row in (live, release):
+            self.assertNotIn("v1", row["file"])
+            self.assertNotIn("v2", row["file"])
+            self.assertNotIn("v3", row["file"])
+
+    def test_device_api_v2_is_product_neutral_and_secret_minimized(self) -> None:
+        row = self.workflows["validation.device"]
+        self.assertEqual(".github/workflows/reusable-device.yml", row["file"])
+        self.assertEqual("2.0.0", row["api_version"])
+        self.assertEqual("device-validation", row["permission_profile"])
+        self.assertEqual(["device_authorization_receipt"], row["secrets"])
+        self.assertEqual(
+            ["device_authorization_receipt"],
+            self.profiles["device-validation"]["named_secrets_allowed"],
+        )
+        names = {item["name"] for item in row["inputs"]}
+        self.assertEqual(
+            {
+                "admitted_sha",
+                "device_family",
+                "device_capability",
+                "host_capacity",
+                "prepare_script_path",
+                "test_script_path",
+                "evidence_script_path",
+                "cleanup_script_path",
+                "arguments_json",
+                "environment_json",
+                "max_duration_minutes",
+                "evidence_exception_id",
+                "request_id",
+            },
+            names,
+        )
+        self.assertTrue(
+            {
+                "host_capacity",
+                "prepare_script_path",
+                "test_script_path",
+                "evidence_script_path",
+                "cleanup_script_path",
+                "arguments_json",
+                "environment_json",
+            }
+            <= set(self.data.types["input_catalog"])
+        )
+        self.assertEqual(
+            ["android", "ios", "tvos"],
+            self.data.types["input_catalog"]["device_family"]["enum"],
+        )
+        self.assertNotIn("device_alias", self.data.types["input_catalog"])
+        self.assertNotIn("live_test_credentials", self.data.types["secret_catalog"])
+        self.assertEqual(
+            {
+                "prepare_script_path",
+                "test_script_path",
+                "evidence_script_path",
+                "cleanup_script_path",
+            },
+            set(row["repository_owned_hooks"]),
+        )
+        self.assertTrue(names.isdisjoint({"device_alias", "command_profile", "script_path"}))
+
     def test_publication_contracts_use_caller_owned_paths_and_names(self) -> None:
         expected = {
             "oci.build": {"image_name", "dockerfile_path", "build_context"},
@@ -142,7 +249,7 @@ class PublicApiContractTests(unittest.TestCase):
                 "flux.assets",
                 "flux.reconcile",
                 "validation.android",
-                "validation.apple",
+                "validation.device",
             },
             set(by_api),
         )
@@ -150,13 +257,13 @@ class PublicApiContractTests(unittest.TestCase):
             all(
                 item["migration_issue"] == "#322"
                 for api, item in by_api.items()
-                if api not in {"validation.android", "validation.apple"}
+                if api not in {"validation.android", "validation.device"}
             )
         )
         self.assertEqual("#332", by_api["validation.android"]["migration_issue"])
         self.assertEqual("2.0.0", by_api["validation.android"]["effective_version"])
-        self.assertEqual("#336", by_api["validation.apple"]["migration_issue"])
-        self.assertEqual("2.0.0", by_api["validation.apple"]["effective_version"])
+        self.assertEqual("#341", by_api["validation.device"]["migration_issue"])
+        self.assertEqual("2.0.0", by_api["validation.device"]["effective_version"])
 
     def test_existing_bootstrap_workflow_matches_its_versioned_api_record(self) -> None:
         row = self.workflows["release.tag-image-chart-bootstrap"]
@@ -194,6 +301,10 @@ class PublicApiContractTests(unittest.TestCase):
         self.assertIn("`image_name` (required)", rendered)
         self.assertIn("`workflow_dispatch-existing-tag`", rendered)
         self.assertIn("`validation_scope` (required)", rendered)
+        self.assertIn("`validation.android-live-service` `1.0.0`", rendered)
+        self.assertIn("`validation.android-release` `1.0.0`", rendered)
+        self.assertIn("`validation.device` `2.0.0`", rendered)
+        self.assertIn("`host_capacity` (required)", rendered)
 
     def test_breaking_changes_fail_without_a_complete_acknowledgement(self) -> None:
         baseline = copy.deepcopy(self.workflows["validation.python"])
@@ -235,11 +346,18 @@ class PublicApiContractTests(unittest.TestCase):
             "pr_number": 1,
             "validation_profile": "default",
             "validation_scope": "unit",
+            "validation_plan_json": {"stages": []},
             "command_profile": "full",
             "platform": "ios",
             "device_family": "ios",
             "device_capability": "physical",
-            "device_alias": "primary",
+            "host_capacity": "apple",
+            "prepare_script_path": "scripts/ci/device-prepare.sh",
+            "test_script_path": "scripts/ci/device-test.sh",
+            "evidence_script_path": "scripts/ci/device-evidence.sh",
+            "cleanup_script_path": "scripts/ci/device-cleanup.sh",
+            "arguments_json": [],
+            "environment_json": {},
             "script_path": "scripts/validate.sh",
             "release_mode": "tag-push",
             "release_version": "1.2.3",

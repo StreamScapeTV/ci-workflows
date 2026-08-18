@@ -1,0 +1,294 @@
+name: Android completion smoke
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - .github/workflows/reusable-android-live-service.yml
+      - .github/workflows/reusable-android-release.yml
+      - .github/workflows/android-completion-smoke.yml
+      - actions/validate-android-live-service/**
+      - actions/validate-android-release/**
+      - scripts/ci/android_completion.py
+      - src/ci_workflows/ciw_android_completion.py
+      - src/ci_workflows/public_api_contract.py
+      - contracts/action-tool-lock.json
+      - contracts/bootstrap-public-workflows.json
+      - contracts/permission-profiles.json
+      - contracts/public-workflow-types.json
+      - contracts/public-workflows.json
+      - contracts/public-workflows/validation.json
+      - docs/workflows/android-completion.md
+      - docs/workflows/public-api-reference.md
+      - tests/fixtures/android-validation/smoke-project/**
+      - tests/test_android_completion.py
+      - tests/test_public_api_contract.py
+  workflow_dispatch:
+
+concurrency:
+  group: android-completion-smoke-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  completion:
+    name: Android live-service and unsigned-release smoke
+    runs-on: [linux, amd64, mobile]
+    timeout-minutes: 60
+    steps:
+      - name: Admit exact same-repository candidate
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+        run: |
+          set -Eeuo pipefail
+          test "${HEAD_REPOSITORY}" = "${GITHUB_REPOSITORY}"
+          [[ "${EXPECTED_SHA}" =~ ^[0-9a-f]{40}$ ]]
+
+      - name: Stage exact candidate implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact candidate implementation
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -Eeuo pipefail
+          test "$(cd .ciw && git rev-parse HEAD)" = "${EXPECTED_SHA}"
+
+      - id: live_plan
+        name: Validate bounded live-service plan
+        uses: ./.ciw/actions/validate-android-live-service
+        with:
+          phase: plan
+          admitted_sha: ${{ github.event.pull_request.head.sha || github.sha }}
+          working_directory: tests/fixtures/android-validation/smoke-project
+          validation_plan_json: '{"script":{"interpreter":"python3","path":"ci/live-service-smoke.py","arguments":[]}}'
+
+      - id: release_plan
+        name: Validate bounded unsigned-release plan
+        uses: ./.ciw/actions/validate-android-release
+        with:
+          phase: plan
+          admitted_sha: ${{ github.event.pull_request.head.sha || github.sha }}
+          working_directory: tests/fixtures/android-validation/smoke-project
+          gradle_wrapper_path: gradlew
+          validation_plan_json: '{"pre_scripts":[{"interpreter":"bash","path":"ci/release-pre-smoke.sh","arguments":[]}],"gradle_groups":[{"tasks":["verifyToolchainSmoke"]}],"post_scripts":[{"interpreter":"bash","path":"ci/release-post-smoke.sh","arguments":[]}],"size_budget":{"script_path":"ci/release-size-smoke.py","apk_glob":"build/outputs/release/*.apk","aab_glob":"build/outputs/release/*.aab","budget_path":"ci/release-size-budgets.json","baseline_path":"ci/release-size-baseline.json","output_path":"build/reports/release-size-metrics.json"},"artifacts":[{"path":"build/outputs/release/*.apk","kind":"apk","required":true,"max_files":1},{"path":"build/outputs/release/*.aab","kind":"aab","required":true,"max_files":1},{"path":"build/reports/release-policy-report.json","kind":"json","required":true,"max_files":1},{"path":"build/reports/release-size-metrics.json","kind":"json","required":true,"max_files":1}],"artifact_name":"android-completion-smoke","retention_days":1}'
+
+      - id: reject_escape
+        name: Reject release artifact traversal before execution
+        continue-on-error: true
+        uses: ./.ciw/actions/validate-android-release
+        with:
+          phase: plan
+          admitted_sha: ${{ github.event.pull_request.head.sha || github.sha }}
+          working_directory: tests/fixtures/android-validation/smoke-project
+          gradle_wrapper_path: gradlew
+          validation_plan_json: '{"pre_scripts":[],"gradle_groups":[{"tasks":["verifyToolchainSmoke"]}],"post_scripts":[],"size_budget":{"script_path":"ci/release-size-smoke.py","apk_glob":"build/outputs/release/*.apk","aab_glob":"build/outputs/release/*.aab","budget_path":"ci/release-size-budgets.json","baseline_path":"ci/release-size-baseline.json","output_path":"build/reports/release-size-metrics.json"},"artifacts":[{"path":"../escape.apk","kind":"apk","required":true,"max_files":1}],"artifact_name":"android-completion-smoke","retention_days":1}'
+
+      - name: Require artifact traversal rejection
+        shell: bash
+        env:
+          OUTCOME: ${{ steps.reject_escape.outcome }}
+        run: |
+          set -Eeuo pipefail
+          test "${OUTCOME}" = failure
+
+      - name: Check out exact admitted candidate source once
+        uses: ./.ciw/actions/exact-checkout
+        with:
+          repository: ${{ github.repository }}
+          admitted_sha: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: source
+          fetch_depth: "1"
+
+      - id: workspace
+        name: Prepare one isolated Gradle workspace
+        uses: ./.ciw/actions/prepare-workspace
+        with:
+          profile: gradle
+          cache_mode: disabled
+          source_sha: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - id: live_execute
+        name: Execute synthetic live-service acceptance
+        uses: ./.ciw/actions/validate-android-live-service
+        with:
+          phase: execute
+          admitted_sha: ${{ github.event.pull_request.head.sha || github.sha }}
+          working_directory: tests/fixtures/android-validation/smoke-project
+          validation_plan_json: '{"script":{"interpreter":"python3","path":"ci/live-service-smoke.py","arguments":[]}}'
+          service_username: synthetic-user
+          service_password: synthetic-password
+
+      - id: live_cleanup
+        name: Remove live-service copied state once
+        if: always() && steps.workspace.outcome == 'success'
+        uses: ./.ciw/actions/validate-android-live-service
+        with:
+          phase: cleanup
+          admitted_sha: ${{ github.event.pull_request.head.sha || github.sha }}
+          validation_plan_json: '{"script":{"interpreter":"python3","path":"ci/live-service-smoke.py","arguments":[]}}'
+
+      - id: live_residue
+        name: Verify zero live-service copied-state residue
+        if: always() && steps.workspace.outcome == 'success'
+        uses: ./.ciw/actions/validate-android-live-service
+        with:
+          phase: residue
+          admitted_sha: ${{ github.event.pull_request.head.sha || github.sha }}
+          validation_plan_json: '{"script":{"interpreter":"python3","path":"ci/live-service-smoke.py","arguments":[]}}'
+
+      - id: release_execute
+        name: Execute synthetic unsigned-release acceptance
+        if: steps.live_execute.outcome == 'success' && steps.live_cleanup.outcome == 'success' && steps.live_residue.outcome == 'success'
+        uses: ./.ciw/actions/validate-android-release
+        with:
+          phase: execute
+          admitted_sha: ${{ github.event.pull_request.head.sha || github.sha }}
+          working_directory: tests/fixtures/android-validation/smoke-project
+          gradle_wrapper_path: gradlew
+          validation_plan_json: '{"pre_scripts":[{"interpreter":"bash","path":"ci/release-pre-smoke.sh","arguments":[]}],"gradle_groups":[{"tasks":["verifyToolchainSmoke"]}],"post_scripts":[{"interpreter":"bash","path":"ci/release-post-smoke.sh","arguments":[]}],"size_budget":{"script_path":"ci/release-size-smoke.py","apk_glob":"build/outputs/release/*.apk","aab_glob":"build/outputs/release/*.aab","budget_path":"ci/release-size-budgets.json","baseline_path":"ci/release-size-baseline.json","output_path":"build/reports/release-size-metrics.json"},"artifacts":[{"path":"build/outputs/release/*.apk","kind":"apk","required":true,"max_files":1},{"path":"build/outputs/release/*.aab","kind":"aab","required":true,"max_files":1},{"path":"build/reports/release-policy-report.json","kind":"json","required":true,"max_files":1},{"path":"build/reports/release-size-metrics.json","kind":"json","required":true,"max_files":1}],"artifact_name":"android-completion-smoke","retention_days":1}'
+
+      - id: artifact_boundary
+        name: Verify only bounded unsigned-release evidence was selected
+        if: steps.release_execute.outcome == 'success'
+        shell: bash
+        env:
+          ARTIFACT_PATHS_JSON: ${{ steps.release_execute.outputs.artifact_paths_json }}
+          ARTIFACT_MANIFEST_JSON: ${{ steps.release_execute.outputs.artifact_manifest_json }}
+          CIW_STATE_ROOT: ${{ env.CI_WORKFLOW_ROOT }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          state = Path(os.environ["CIW_STATE_ROOT"]).resolve(strict=True)
+          paths = json.loads(os.environ["ARTIFACT_PATHS_JSON"])
+          manifest = json.loads(os.environ["ARTIFACT_MANIFEST_JSON"])
+          if not isinstance(paths, list) or len(paths) != 4:
+              raise SystemExit("unexpected bounded artifact path count")
+          if not isinstance(manifest, list) or len(manifest) != 4:
+              raise SystemExit("unexpected bounded artifact manifest")
+          allowed_suffixes = {".apk", ".aab", ".json"}
+          for raw in paths:
+              candidate = Path(raw).resolve(strict=True)
+              candidate.relative_to(state)
+              if candidate.suffix not in allowed_suffixes or not candidate.is_file():
+                  raise SystemExit("unexpected release evidence path")
+          if {item.get("kind") for item in manifest} != {"apk", "aab", "json"}:
+              raise SystemExit("unexpected release evidence kind")
+          PY
+
+      - id: release_cleanup
+        name: Remove unsigned-release copied state once
+        if: always() && steps.workspace.outcome == 'success'
+        uses: ./.ciw/actions/validate-android-release
+        with:
+          phase: cleanup
+          admitted_sha: ${{ github.event.pull_request.head.sha || github.sha }}
+          validation_plan_json: '{"pre_scripts":[],"gradle_groups":[{"tasks":["verifyToolchainSmoke"]}],"post_scripts":[],"size_budget":{"script_path":"ci/release-size-smoke.py","apk_glob":"build/outputs/release/*.apk","aab_glob":"build/outputs/release/*.aab","budget_path":"ci/release-size-budgets.json","baseline_path":"ci/release-size-baseline.json","output_path":"build/reports/release-size-metrics.json"},"artifacts":[{"path":"build/outputs/release/*.apk","kind":"apk","required":true,"max_files":1}],"artifact_name":"android-completion-smoke","retention_days":1}'
+
+      - id: release_residue
+        name: Verify zero unsigned-release copied-state residue
+        if: always() && steps.workspace.outcome == 'success'
+        uses: ./.ciw/actions/validate-android-release
+        with:
+          phase: residue
+          admitted_sha: ${{ github.event.pull_request.head.sha || github.sha }}
+          validation_plan_json: '{"pre_scripts":[],"gradle_groups":[{"tasks":["verifyToolchainSmoke"]}],"post_scripts":[],"size_budget":{"script_path":"ci/release-size-smoke.py","apk_glob":"build/outputs/release/*.apk","aab_glob":"build/outputs/release/*.aab","budget_path":"ci/release-size-budgets.json","baseline_path":"ci/release-size-baseline.json","output_path":"build/reports/release-size-metrics.json"},"artifacts":[{"path":"build/outputs/release/*.apk","kind":"apk","required":true,"max_files":1}],"artifact_name":"android-completion-smoke","retention_days":1}'
+
+      - id: workspace_cleanup
+        name: Remove and verify the one registered Gradle workspace
+        if: always()
+        uses: ./.ciw/actions/cleanup-workspace
+
+      - id: clean
+        name: Verify exact admitted source remained clean
+        if: always()
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C source rev-parse HEAD)" = "${EXPECTED_SHA}"
+          test -z "$(git -C source status --porcelain=v1 --untracked-files=all)"
+
+      - id: artifacts
+        name: Verify completion smoke retained zero Actions artifacts
+        if: always()
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          request = urllib.request.Request(
+              f"{os.environ['GITHUB_API_URL'].rstrip('/')}/repos/"
+              f"{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
+              f"{os.environ['GITHUB_RUN_ID']}/artifacts",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              payload = json.load(response)
+          if payload.get("total_count") != 0 or payload.get("artifacts"):
+              raise SystemExit("Android completion smoke retained Actions artifacts")
+          PY
+
+      - name: Project terminal Android completion smoke status
+        if: always()
+        shell: bash
+        env:
+          LIVE_PLAN: ${{ steps.live_plan.outcome }}
+          RELEASE_PLAN: ${{ steps.release_plan.outcome }}
+          REJECT_ESCAPE: ${{ steps.reject_escape.outcome }}
+          WORKSPACE: ${{ steps.workspace.outcome }}
+          LIVE_EXECUTE: ${{ steps.live_execute.outcome }}
+          LIVE_CLEANUP: ${{ steps.live_cleanup.outcome }}
+          LIVE_RESIDUE: ${{ steps.live_residue.outcome }}
+          RELEASE_EXECUTE: ${{ steps.release_execute.outcome }}
+          ARTIFACT_BOUNDARY: ${{ steps.artifact_boundary.outcome }}
+          RELEASE_CLEANUP: ${{ steps.release_cleanup.outcome }}
+          RELEASE_RESIDUE: ${{ steps.release_residue.outcome }}
+          WORKSPACE_CLEANUP: ${{ steps.workspace_cleanup.outcome }}
+          CLEAN: ${{ steps.clean.outcome }}
+          ARTIFACTS: ${{ steps.artifacts.outcome }}
+        run: |
+          set -Eeuo pipefail
+          test "${LIVE_PLAN}" = success
+          test "${RELEASE_PLAN}" = success
+          test "${REJECT_ESCAPE}" = failure
+          test "${WORKSPACE}" = success
+          test "${LIVE_EXECUTE}" = success
+          test "${LIVE_CLEANUP}" = success
+          test "${LIVE_RESIDUE}" = success
+          test "${RELEASE_EXECUTE}" = success
+          test "${ARTIFACT_BOUNDARY}" = success
+          test "${RELEASE_CLEANUP}" = success
+          test "${RELEASE_RESIDUE}" = success
+          test "${WORKSPACE_CLEANUP}" = success
+          test "${CLEAN}" = success
+          test "${ARTIFACTS}" = success
