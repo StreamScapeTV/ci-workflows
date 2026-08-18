@@ -13,7 +13,7 @@ from ci_workflows.ciw_types import CIWContext, CIWError
 ROOT = Path(__file__).resolve().parents[1]
 ACTION = ROOT / "actions" / "upload-gradle-seed" / "action.yml"
 INTERNAL_MODULE = ROOT / "src" / "ci_workflows" / "gradle_seed_internal.py"
-CLI = ROOT / "scripts" / "ci" / "gradle_seed.py"
+CLI = ROOT / "scripts" / "ci" / "ciw.py"
 
 
 class GradleSeedActionContractTests(unittest.TestCase):
@@ -43,9 +43,9 @@ class GradleSeedActionContractTests(unittest.TestCase):
             "token:",
         ):
             self.assertNotIn(forbidden, source)
-        self.assertIn('scripts/ci/gradle_seed.py"', source)
+        self.assertIn('scripts/ci/ciw.py" gradle-seed upload', source)
         wrapper = CLI.read_text(encoding="utf-8")
-        self.assertIn("from ci_workflows.ciw_gradle_seed import main", wrapper)
+        self.assertIn("from ci_workflows.ciw import main", wrapper)
 
     def test_fixed_transport_is_cluster_local_and_has_no_github_identity_dependency(self) -> None:
         self.assertEqual(
