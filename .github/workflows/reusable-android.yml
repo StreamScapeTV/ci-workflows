@@ -168,6 +168,14 @@ jobs:
           admitted_sha: ${{ inputs.admitted_sha }}
           validation_scope: ${{ inputs.validation_scope }}
 
+      - id: gradle_seed
+        name: Sync newly resolved Gradle dependencies to the internal cache
+        if: ${{ steps.execute.outcome == 'success' && steps.android_cleanup.outcome == 'success' && steps.residue.outcome == 'success' }}
+        continue-on-error: true
+        uses: StreamScapeTV/ci-workflows/actions/upload-gradle-seed@b17f37545dec6da1e158edcc2092545cfa5435ce # issue #346 internal no-OIDC Gradle cache sync checkpoint
+        with:
+          source_sha: ${{ inputs.admitted_sha }}
+
       - id: workspace_cleanup
         name: Remove and verify the one registered Android workspace
         if: always()
