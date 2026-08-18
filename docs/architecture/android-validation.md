@@ -55,7 +55,7 @@ This evidence is collected inside the existing executor and does not create moni
 `reusable-android.yml` composes reviewed Central helpers by immutable source identity:
 
 - `validate-android@a01e29210603dc8b4cb9e31b9b0c926c2ab5cf37` — `issues #344/#346 Android telemetry and Gradle read-only seed checkpoint`;
-- `upload-gradle-seed@b17f37545dec6da1e158edcc2092545cfa5435ce` — `issue #346 internal no-OIDC Gradle cache sync checkpoint`;
+- `upload-gradle-seed@fb02aa35414e59464716be9ba644e0ee7ec100ed` — `issue #346 internal no-OIDC Gradle cache sync checkpoint`;
 - `exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`;
 - `prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`;
 - `render-evidence@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`;
