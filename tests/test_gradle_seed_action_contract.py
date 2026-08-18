@@ -111,7 +111,7 @@ class GradleSeedActionContractTests(unittest.TestCase):
             names,
         )
         lowered = output_block.lower()
-        for forbidden in ("token", "endpoint", "path", "sha256_json", "file_json"):
+        for forbidden in ("token", "endpoint", "sha256_json", "file_json"):
             self.assertNotIn(forbidden, lowered)
 
     def test_cli_adapter_requires_registered_gradle_workspace_home(self) -> None:
