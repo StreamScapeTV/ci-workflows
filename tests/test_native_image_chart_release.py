@@ -47,6 +47,7 @@ class NativeImageChartExistingTagContractTest(unittest.TestCase):
             self.assertTrue(inputs[required]["required"])
 
     def test_generated_reference_matches_additive_native_api(self) -> None:
+        self.assertTrue(self.reference.endswith("\n"))
         section = self.reference.split("### `release.native-image-chart`", 1)[1].split(
             "### `release.orchestrate`", 1
         )[0]
