@@ -12,10 +12,11 @@ The Android gate follows the repository's named-function architecture:
 6. `src/ci_workflows/android_execution.py` owns direct process execution, exact toolchain and wrapper verification, source copying, mutation checks, output checks, redaction, and no-follow cleanup.
 7. `src/ci_workflows/android.py` applies the projected repository policy before and after one plan and maps policy findings to stable Android codes.
 8. `src/ci_workflows/ciw_android.py` adapts the named `ciw android validate` command to plan, execute, cleanup, and residue phases.
-9. `actions/validate-android/action.yml` is a thin composite adapter.
-10. `.github/workflows/reusable-android.yml` owns protected planning, semantic mobile scheduling, exact source/dependency primitives, evidence, and unconditional cleanup.
+9. `src/ci_workflows/android_resource_metrics.py` samples bounded same-executor wall/CPU/cgroup evidence without changing child execution.
+10. `actions/validate-android/action.yml` is a thin composite adapter.
+11. `.github/workflows/reusable-android.yml` owns protected planning, semantic mobile scheduling, exact source/dependency primitives, evidence, and unconditional cleanup.
 
-Workflow YAML does not implement Gradle task selection, repository compatibility, authentication, cleanup traversal, test-filter parsing, source-policy exception selection, or product policy. Those decisions remain in typed code and checked-in contract data.
+Workflow YAML does not implement Gradle task selection, repository compatibility, authentication, cleanup traversal, test-filter parsing, source-policy exception selection, product policy, or resource-monitoring infrastructure. Those decisions remain in typed code and checked-in contract data.
 
 ## Immutable private helper source
 
@@ -53,6 +54,14 @@ JDK/Javac and SDK package inventory are verified before Gradle. Wrapper properti
 
 The central synthetic fixture is the only mode that obtains Gradle at runtime. Its checked-in launcher contains a fixed official Gradle `9.6.1` HTTPS URL and SHA-256, downloads beneath isolated `GRADLE_USER_HOME`, verifies the digest before extraction, and performs bounded no-follow extraction that rejects traversal, duplicate destinations, unsupported members, excessive member counts, and excessive expanded size. It then executes the fixed synthetic task through the installed binary. This does not install a system package, modify the host, use sudo, or create state outside the registered root. Consumer profiles continue to use their own checked-in wrapper or launcher contracts.
 
+## Same-executor performance evidence
+
+The CIW Android execute phase starts one lightweight resource sampler around the existing source-copy/toolchain/Gradle/script execution. It does not wrap Gradle in another shell/process, change task argv, change timeouts, or allocate another Actions job. Gradle and checked-in script wall times use monotonic-clock deltas around the same calls that already determine success or failure; total execute wall time is measured across the same CIW execution function.
+
+On Linux cgroup v2, the sampler resolves only the current process' unified cgroup from `/proc/self/cgroup` beneath the fixed `/sys/fs/cgroup` root and polls `memory.current` and `pids.current`. Those kernel counters already account for the cgroup and descendants, so the emitted peak is a same-executor cgroup peak observed during the Android execution window rather than a heap-ceiling estimate. POSIX `RUSAGE_CHILDREN` provides a bounded child CPU delta when available. No process command line, environment, PID list, cgroup path, source path, or host identity is emitted.
+
+Measurement support is explicitly optional. Missing/disappearing cgroup files or non-POSIX child CPU accounting produce JSON `null` and `resource_measurement: unavailable`; they do not convert successful product work into a telemetry failure and do not fabricate zero usage. The sampler context manager always stops under exception unwinding and returns `False`, so the original child exception remains authoritative.
+
 ## Private dependency composition
 
 The Android layer never performs Git authentication or checkout. The reusable workflow invokes `checkout-private-dependency`, then passes only registered-state relative path and primitive verification flags to Android execution. Android verifies the exact detached SHA again, requires no remotes, requires a clean worktree and expected subdirectory, and binds only contract-owned environment variables.
@@ -83,4 +92,4 @@ The reusable workflow invokes Android cleanup, residue verification, and foundat
 
 ## Deterministic evidence
 
-Planning output is canonical JSON plus fixed scalar identities. Execution evidence is derived from the exact source SHA, task profile, and stage count and includes no credentials, host paths, device serials, private URLs, SQL, signing material, or arbitrary command text. Logs are bounded to a terminal tail and redact token/password/authorization/secret/keystore values and credential-bearing URLs. Policy failure evidence is limited further to one stable rule plus a normalized relative path or digest.
+Planning output is canonical JSON plus fixed scalar identities. Successful CIW execution `test_summary` contains only finite/path-free technology facts: exact execution scope, stage/task counts, JDK major, total/Gradle/script wall milliseconds, child CPU milliseconds when available, sampled cgroup peak memory bytes/process count when available, and the explicit measurement source. Unsupported values remain JSON `null`. Execution evidence includes no credentials, host paths, device serials, private URLs, SQL, signing material, arbitrary command text, environment values, or raw process/cgroup listings. Logs are bounded to a terminal tail and redact token/password/authorization/secret/keystore values and credential-bearing URLs. Policy failure evidence is limited further to one stable rule plus a normalized relative path or digest.
