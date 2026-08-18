@@ -1,5 +1,5 @@
 name: Validate exact Apple source
-description: Plan, execute, clean, or inspect one checked-in Apple validation profile
+description: Plan, execute, clean, or inspect legacy and protected-full Apple validation
 
 inputs:
   phase:
@@ -9,33 +9,44 @@ inputs:
   admitted_sha:
     description: Exact admitted caller source SHA
     required: true
+  validation_scope:
+    description: legacy or protected-full
+    required: false
+    default: legacy
+  validation_plan_json:
+    description: Strict bounded caller-owned protected-full stage plan
+    required: false
+    default: ""
   validation_profile:
-    description: Bounded Apple validation profile
-    required: true
+    description: Legacy bounded Apple validation profile
+    required: false
+    default: ""
   version_file:
-    description: Optional exact contract-matching version or resolution authority file
+    description: Legacy optional exact contract-matching version or resolution authority file
     required: false
     default: ""
   working_directory:
-    description: Exact contract-matching working directory
+    description: Legacy exact contract-matching working directory
     required: false
     default: "."
   command_profile:
-    description: Reviewed product-neutral Apple consumer contract identifier
-    required: true
+    description: Legacy reviewed product-neutral Apple consumer contract identifier
+    required: false
+    default: ""
   script_path:
-    description: Optional exact contract-matching checked-in script
+    description: Legacy optional exact contract-matching checked-in script
     required: false
     default: ""
   platform:
-    description: Exact bounded Apple platform selected by the reviewed profile
-    required: true
+    description: Legacy exact bounded Apple platform selected by the reviewed profile
+    required: false
+    default: ""
   scheme:
-    description: Optional exact contract-matching scheme
+    description: Legacy optional exact contract-matching scheme
     required: false
     default: ""
   destination_profile:
-    description: Optional exact contract-matching destination profile identifier
+    description: Legacy optional exact contract-matching destination profile identifier
     required: false
     default: ""
   artifact_exception_id:
@@ -44,6 +55,50 @@ inputs:
     default: ""
   source_trust:
     description: Internal exact admitted source trust class
+    required: false
+    default: ""
+  private_dependency_repository:
+    description: Optional exact private dependency repository for protected-full
+    required: false
+    default: ""
+  private_dependency_sha:
+    description: Optional exact private dependency SHA for protected-full
+    required: false
+    default: ""
+  private_dependency_subdirectory:
+    description: Optional bounded private dependency subdirectory
+    required: false
+    default: "."
+  private_dependency_id:
+    description: Optional bounded private dependency identity
+    required: false
+    default: ""
+  private_dependency_verified:
+    description: Internal exact-checkout verification receipt
+    required: false
+    default: ""
+  private_dependency_remotes_erased:
+    description: Internal exact-checkout remote-erasure receipt
+    required: false
+    default: ""
+  private_dependency_credentials_erased:
+    description: Internal exact-checkout credential-erasure receipt
+    required: false
+    default: ""
+  private_dependency_head_sha:
+    description: Internal exact-checkout observed dependency SHA
+    required: false
+    default: ""
+  private_dependency_checkout_repository:
+    description: Internal exact-checkout repository receipt
+    required: false
+    default: ""
+  private_dependency_checkout_id:
+    description: Internal exact-checkout identity receipt
+    required: false
+    default: ""
+  private_dependency_expected_subpath:
+    description: Internal exact-checkout expected subpath receipt
     required: false
     default: ""
 
@@ -96,6 +151,16 @@ outputs:
     value: ${{ steps.apple.outputs.evidence_id }}
   failure_code:
     value: ${{ steps.apple.outputs.failure_code }}
+  private_dependency_used:
+    value: ${{ steps.apple.outputs.private_dependency_used }}
+  private_dependency_repository:
+    value: ${{ steps.apple.outputs.private_dependency_repository }}
+  private_dependency_sha:
+    value: ${{ steps.apple.outputs.private_dependency_sha }}
+  private_dependency_subdirectory:
+    value: ${{ steps.apple.outputs.private_dependency_subdirectory }}
+  private_dependency_id:
+    value: ${{ steps.apple.outputs.private_dependency_id }}
 
 runs:
   using: composite
@@ -106,6 +171,8 @@ runs:
       env:
         PYTHONDONTWRITEBYTECODE: "1"
         INPUT_ADMITTED_SHA: ${{ inputs.admitted_sha }}
+        INPUT_VALIDATION_SCOPE: ${{ inputs.validation_scope }}
+        INPUT_VALIDATION_PLAN_JSON: ${{ inputs.validation_plan_json }}
         INPUT_VALIDATION_PROFILE: ${{ inputs.validation_profile }}
         INPUT_VERSION_FILE: ${{ inputs.version_file }}
         INPUT_WORKING_DIRECTORY: ${{ inputs.working_directory }}
@@ -116,6 +183,17 @@ runs:
         INPUT_DESTINATION_PROFILE: ${{ inputs.destination_profile }}
         INPUT_ARTIFACT_EXCEPTION_ID: ${{ inputs.artifact_exception_id }}
         INPUT_SOURCE_TRUST: ${{ inputs.source_trust }}
+        INPUT_PRIVATE_DEPENDENCY_REPOSITORY: ${{ inputs.private_dependency_repository }}
+        INPUT_PRIVATE_DEPENDENCY_SHA: ${{ inputs.private_dependency_sha }}
+        INPUT_PRIVATE_DEPENDENCY_SUBDIRECTORY: ${{ inputs.private_dependency_subdirectory }}
+        INPUT_PRIVATE_DEPENDENCY_ID: ${{ inputs.private_dependency_id }}
+        INPUT_PRIVATE_DEPENDENCY_VERIFIED: ${{ inputs.private_dependency_verified }}
+        INPUT_PRIVATE_DEPENDENCY_REMOTES_ERASED: ${{ inputs.private_dependency_remotes_erased }}
+        INPUT_PRIVATE_DEPENDENCY_CREDENTIALS_ERASED: ${{ inputs.private_dependency_credentials_erased }}
+        INPUT_PRIVATE_DEPENDENCY_HEAD_SHA: ${{ inputs.private_dependency_head_sha }}
+        INPUT_PRIVATE_DEPENDENCY_CHECKOUT_REPOSITORY: ${{ inputs.private_dependency_checkout_repository }}
+        INPUT_PRIVATE_DEPENDENCY_CHECKOUT_ID: ${{ inputs.private_dependency_checkout_id }}
+        INPUT_PRIVATE_DEPENDENCY_EXPECTED_SUBPATH: ${{ inputs.private_dependency_expected_subpath }}
       run: |
         set -Eeuo pipefail
         python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
