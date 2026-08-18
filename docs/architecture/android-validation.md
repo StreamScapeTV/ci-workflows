@@ -15,7 +15,7 @@ The Android gate follows the repository's named-function architecture:
 9. `src/ci_workflows/android_resource_metrics.py` samples bounded same-executor wall/CPU/cgroup evidence without changing child execution.
 10. `actions/validate-android/action.yml` is a thin composite adapter.
 11. `actions/upload-gradle-seed/action.yml` is the bounded OIDC + portable Gradle modules promotion adapter; it owns no product task selection and no caller-selected endpoint.
-12. `.github/workflows/reusable-android.yml` owns protected planning, semantic mobile scheduling, exact source/dependency primitives, optional same-workspace seed warming, evidence, and verified terminal cleanup.
+12. `.github/workflows/reusable-android.yml` owns protected planning, semantic mobile scheduling, exact source/dependency primitives, capability-gated same-workspace seed warming, evidence, and verified terminal cleanup.
 
 Workflow YAML does not implement Gradle task selection, repository compatibility, authentication policy, cleanup traversal, test-filter parsing, source-policy exception selection, product policy, cache candidate filtering/framing, or resource-monitoring infrastructure. Those decisions remain in typed code and checked-in contract data.
 
@@ -35,7 +35,7 @@ The planner requests semantic `mobile` through the central runner resolver. The 
 
 The `mobile` profile means Android build capacity, not a physical Android device. `device-handoff` produces a data packet for another workflow and has no executable task.
 
-Seed warming adds one bounded boolean `promote_gradle_seed`, default `false`; it does not change runner selection, source admission, tasks, or validation authority. The reusable workflow declares `id-token: write` so the optional immutable promotion action can request GitHub OIDC, but a called workflow cannot elevate token permissions above its caller. A caller that grants only `contents: read` therefore has no promotion authority. A trusted caller must separately grant `id-token: write` to the exact call on which it sets `promote_gradle_seed: true`.
+Seed warming does not add a public workflow input. The reusable Android job may request `id-token: write`, but GitHub's called-workflow permission ceiling prevents it from elevating above the caller. Promotion is considered only for a protected `push`, and a bounded authority step requires GitHub's OIDC request capability to actually be present. Ordinary PR/manual/work-branch callers grant only `contents: read`; their effective OIDC permission stays absent and the uploader is skipped. A trusted protected-branch warming caller opts in solely by granting `id-token: write` to that exact reusable call.
 
 ## Contract-owned command model
 
@@ -69,7 +69,9 @@ Measurement support is explicitly optional. Missing/disappearing cgroup files or
 
 ## Trusted Gradle seed promotion
 
-When `promote_gradle_seed` is false, the workflow has the same execution and cleanup shape as an ordinary consumer. When it is true, promotion is considered only after authoritative Android execution succeeds and Android copied-source cleanup/residue is already verified. The immutable issue #347 client then reads the **same job-private `GRADLE_USER_HOME`** created by `prepare-workspace`; there is no second mutable Gradle home and no cross-job state transfer.
+Promotion is an internal acceleration path, not a public validation input. The reusable job requests OIDC at job scope, but it can receive that capability only when the caller grants it. The workflow additionally requires the caller event to be a protected `push`; a bounded authority step detects the runner-provided OIDC request capability without logging or forwarding its token. PRs, manual dispatches, and ordinary work branches therefore skip promotion even if they execute the same validation plan.
+
+When authority is present, promotion is considered only after authoritative Android execution succeeds and Android copied-source cleanup/residue is already verified. The immutable issue #347 client then reads the **same job-private `GRADLE_USER_HOME`** created by `prepare-workspace`; there is no second mutable Gradle home and no cross-job state transfer.
 
 The client accepts only the exact admitted source SHA. It obtains GitHub OIDC with fixed audience `streamscapetv-gradle-seed-v1`, talks only to the fixed internal promoter endpoint, and admits only portable dependency content beneath `caches/modules-*`. Traversal, symlinks, hardlinks/races, locks, `gc.properties`, transforms, daemon/configuration-cache state, build output, Android SDK, arbitrary HOME state, credentials, signing material, excessive files/bytes, and digest mismatch are rejected by reviewed typed code. Framing includes per-file SHA-256 identity. There is no GitHub Actions cache/artifact, PAT, deploy key, S3, OCI, or caller-selected endpoint fallback.
 
