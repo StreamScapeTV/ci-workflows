@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -12,10 +13,11 @@ from ci_workflows.ciw_types import CIWContext, CIWError
 ROOT = Path(__file__).resolve().parents[1]
 ACTION = ROOT / "actions" / "upload-gradle-seed" / "action.yml"
 MODULE = ROOT / "src" / "ci_workflows" / "gradle_seed.py"
+CLI = ROOT / "scripts" / "ci" / "gradle_seed.py"
 
 
 class GradleSeedActionContractTests(unittest.TestCase):
-    def test_action_is_thin_ciw_delegate_and_cleanup_is_unconditional(self) -> None:
+    def test_action_is_thin_cli_delegate_and_cleanup_is_unconditional(self) -> None:
         source = ACTION.read_text(encoding="utf-8")
         input_block = source.split("inputs:\n", 1)[1].split("\noutputs:\n", 1)[0]
         self.assertIn("  source_sha:\n", input_block)
@@ -38,9 +40,12 @@ class GradleSeedActionContractTests(unittest.TestCase):
         self.assertNotIn("endpoint:", input_block)
         self.assertNotIn("audience:", input_block)
         self.assertNotIn("token:", input_block)
-        self.assertIn('scripts/ci/ciw.py" \\\n          gradle-seed upload', source)
+        self.assertIn('scripts/ci/gradle_seed.py"', source)
         self.assertIn("if: always()", source)
         self.assertIn('scripts/ci/ciw.py" \\\n          workspace cleanup', source)
+        wrapper = CLI.read_text(encoding="utf-8")
+        self.assertIn("from ci_workflows.ciw_gradle_seed import main", wrapper)
+        self.assertNotIn("promote_gradle_seed", wrapper)
 
     def test_fixed_transport_matches_flux_protocol_but_product_policy_is_not_hardcoded(self) -> None:
         self.assertEqual("streamscapetv-gradle-seed-v1", gradle_seed.OIDC_AUDIENCE)
@@ -109,7 +114,7 @@ class GradleSeedActionContractTests(unittest.TestCase):
         for forbidden in ("token", "endpoint", "path", "sha256_json", "file_json"):
             self.assertNotIn(forbidden, lowered)
 
-    def test_ciw_adapter_requires_registered_gradle_workspace_home(self) -> None:
+    def test_cli_adapter_requires_registered_gradle_workspace_home(self) -> None:
         state_id = "workspace-test"
         root = f"/tmp/ci-workflows-state/{state_id}"
         environment = {
@@ -162,6 +167,54 @@ class GradleSeedActionContractTests(unittest.TestCase):
                         bad_context,
                     )
                 self.assertEqual("gradle_seed_home_rejected", raised.exception.code)
+
+    def test_cli_main_emits_bounded_outputs_and_projects_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory) / "output"
+            state_id = "workspace-test"
+            root = f"{directory}/{state_id}"
+            environment = {
+                "GITHUB_OUTPUT": str(output_path),
+                "INPUT_SOURCE_SHA": "a" * 40,
+                "CI_WORKFLOW_STATE_ID": state_id,
+                "CI_WORKFLOW_ROOT": root,
+                "GRADLE_USER_HOME": f"{root}/gradle",
+            }
+            result = mock.Mock()
+            result.output_values.return_value = {
+                "result": "promoted",
+                "source_sha": "a" * 40,
+            }
+            with mock.patch.object(
+                ciw_gradle_seed,
+                "promote_gradle_seed",
+                return_value=result,
+            ):
+                self.assertEqual(
+                    0,
+                    ciw_gradle_seed.main(
+                        ["--root", str(ROOT)],
+                        environment=environment,
+                        stdout=io.StringIO(),
+                        stderr=io.StringIO(),
+                    ),
+                )
+            emitted = output_path.read_text(encoding="utf-8")
+            self.assertIn("result=promoted", emitted)
+            self.assertIn("source_sha=" + "a" * 40, emitted)
+
+            errors = io.StringIO()
+            self.assertNotEqual(
+                0,
+                ciw_gradle_seed.main(
+                    ["--root", str(ROOT)],
+                    environment={**environment, "GITHUB_OUTPUT": ""},
+                    stdout=io.StringIO(),
+                    stderr=errors,
+                ),
+            )
+            self.assertIn("github_output_missing", errors.getvalue())
+            self.assertNotIn(directory, errors.getvalue())
 
 
 if __name__ == "__main__":
