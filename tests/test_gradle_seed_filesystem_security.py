@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from ci_workflows import gradle_seed
+from ci_workflows import gradle_seed, gradle_seed_internal
 
 
 def write_seed(root: Path, relative: str, payload: bytes) -> Path:
@@ -121,7 +121,7 @@ class GradleSeedFilesystemSecurityTests(unittest.TestCase):
                 gradle_seed.GradleSeedError,
                 "gradle_seed_response_counts_mismatch",
             ):
-                gradle_seed._validated_response(
+                gradle_seed_internal._validated_response(
                     response,
                     source_sha="a" * 40,
                     files=files,
