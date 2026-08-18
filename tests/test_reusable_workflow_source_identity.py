@@ -9,7 +9,7 @@ import yaml
 from ci_workflows.validation_model import ActionsLoader
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE_SHA = "87a7454aaa59cb680db8f580d22551b749ac4193"
+SOURCE_SHA = "0b55b5f4bc2623815e47759d186e4955b6444075"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 FLUTTER_SHA = "d2e1c7a7601e1caeeb976311fb13cf41fef94d4a"
 PYTHON_SHA = "aece8d01efdd5482a1c3d42db357aed87a7917e9"
@@ -23,7 +23,7 @@ HELM_SIMPLE_SHA = "7b17879f21fbf029708d6a404a9dd12d75503a52"
 RELEASE_TAG_SHA = "2b0443fdad002d47625386a959ebe68545cfe022"
 
 FOUNDATION = "issue #116 immutable private-action checkpoint"
-ISSUE_132 = "issue #132 immutable mode-aware source checkpoint"
+ISSUE_350 = "issue #350 PR-merge snapshot race checkpoint"
 ISSUE_104 = "issue #104 immutable private-action checkpoint"
 ISSUES_344_346 = "issues #344/#346 Android telemetry and Gradle read-only seed checkpoint"
 ISSUE_347 = "issue #347 trusted Gradle seed client"
@@ -179,7 +179,7 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
         self.assertNotIn("actions/checkout@", source)
         self.assertNotIn("secrets: inherit", source)
         self.assertEqual(locked[SOURCE_HELPER]["sha"], SOURCE_SHA)
-        self.assertEqual(locked[SOURCE_HELPER]["release"], ISSUE_132)
+        self.assertEqual(locked[SOURCE_HELPER]["release"], ISSUE_350)
         self.assertEqual(locked[SOURCE_HELPER]["runtime"], "composite")
         self.assertEqual(locked[SOURCE_HELPER]["source"], f"https://github.com/StreamScapeTV/ci-workflows/tree/{SOURCE_SHA}/actions/resolve-source")
 

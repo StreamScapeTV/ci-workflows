@@ -45,10 +45,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/resolve-source",
-      "sha": "87a7454aaa59cb680db8f580d22551b749ac4193",
-      "release": "issue #132 immutable mode-aware source checkpoint",
+      "sha": "0b55b5f4bc2623815e47759d186e4955b6444075",
+      "release": "issue #350 PR-merge snapshot race checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/87a7454aaa59cb680db8f580d22551b749ac4193/actions/resolve-source"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/0b55b5f4bc2623815e47759d186e4955b6444075/actions/resolve-source"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-device",
