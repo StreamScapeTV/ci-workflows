@@ -31,6 +31,8 @@ If the read-only cache is absent, execution falls back to normal cold dependency
 
 After successful Android execution, copied-source cleanup, and residue verification, the same executor makes one best-effort cache-sync call **before** registered workspace cleanup removes the private `GRADLE_USER_HOME`. The sync client reads only that job's `GRADLE_USER_HOME/caches/modules-*`, uses the existing bounded framing/filtering contract, and streams the delta to the fixed cluster-local Flux service. It does not invoke Gradle again.
 
+Central owns this invocation because it owns the registered workspace lifecycle. Flux owns the internal ClusterIP writer and the single-writer generation merge. Android product callers never gain a cache endpoint, token, OIDC permission, or separate warming job.
+
 The cache sync is `continue-on-error`: a missing cache, empty delta, unavailable internal service, or rejected promotion cannot overturn a correct product build. Registered workspace cleanup always runs afterward and remains the only owner of private workspace deletion.
 
 The Gradle process and cache-sync client use no GitHub OIDC. Routine PR, manual, work-branch, and integration validation therefore require only `contents: read`; there is no protected-branch-only warming topology.
