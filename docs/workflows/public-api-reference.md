@@ -18,6 +18,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 | `oci.build` `2.0.0` | `.github/workflows/reusable-oci-build.yml` | `migration-pending` | `read-only-validation` | CI / OCI build validation |
 | `oci.publish` `2.0.0` | `.github/workflows/reusable-oci-publish.yml` | `migration-pending` | `trusted-publication` | Release / OCI publication |
 | `release.native-image-chart` `1.0.0` | `.github/workflows/reusable-native-image-chart.yml` | `implemented` | `trusted-publication` | Publish native amd64 image and Helm chart |
+| `release.orchestrate` `2.0.0` | `.github/workflows/reusable-release.yml` | `planned` | `trusted-publication` | Release / Verified outputs |
 | `release.tag-image-chart-bootstrap` `1.2.0` | `.github/workflows/reusable-tag-image-chart.yml` | `deprecated-bootstrap-exception` | `trusted-publication` | Release / Bootstrap image and chart |
 | `source.resolve` `1.0.0` | `.github/workflows/reusable-resolve-source.yml` | `implemented` | `source-admission` | Shared / Source admission |
 | `validation.android` `2.0.0` | `.github/workflows/reusable-android.yml` | `implemented` | `read-only-validation` | CI / Android validation |
@@ -112,6 +113,14 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 - Secrets: `registry_username`, `registry_token`
 - Outputs: `version`, `source_sha`, `image_reference`, `image_digest`, `chart_reference`, `chart_digest`, `chart_package_sha256`
 - Repository-owned hooks: `chart_path`, `dockerfile_path`, `build_context`
+
+### `release.orchestrate`
+
+- Events: `tag-push`, `workflow_call`, `workflow_dispatch-verify-only`
+- Inputs: `admitted_sha` (required), `release_manifest_path` (required), `release_tag` (required), `release_version` (required), `request_id` (required), `target_id`
+- Secrets: `registry_username`, `registry_token`, `flux_handoff_token`
+- Outputs: `result`, `immutable_references_json`, `release_manifest_sha256`, `handoff_state`, `request_id`
+- Repository-owned hooks: `release_manifest_path`
 
 ### `release.tag-image-chart-bootstrap`
 
