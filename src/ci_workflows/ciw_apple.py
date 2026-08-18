@@ -182,6 +182,33 @@ def _protected_plan(
     )
 
 
+def _private_dependency_execution_environment(
+    environment: Mapping[str, str],
+    plan: apple_multistage.ProtectedApplePlan,
+    dependency: Path | None,
+) -> dict[str, str]:
+    """Bind one verified private repository URL to its credential-free local checkout."""
+    result = dict(environment)
+    if dependency is None:
+        return result
+    if not plan.private_dependency_used or not dependency.is_absolute() or dependency.is_symlink():
+        raise apple_validation.AppleValidationError("private_dependency_path_invalid")
+
+    repository_url = f"https://github.com/{plan.private_dependency_repository}"
+    local_url = dependency.as_uri()
+    rewrite_key = f"url.{local_url}.insteadOf"
+    result.update(
+        CI_PRIVATE_DEPENDENCY_PATH=str(dependency),
+        GIT_CONFIG_COUNT="2",
+        GIT_CONFIG_KEY_0=rewrite_key,
+        GIT_CONFIG_VALUE_0=f"{repository_url}.git",
+        GIT_CONFIG_KEY_1=rewrite_key,
+        GIT_CONFIG_VALUE_1=repository_url,
+        GIT_TERMINAL_PROMPT="0",
+    )
+    return result
+
+
 def _execute_protected_apple_validate(
     args: argparse.Namespace,
     context: "CIWContext",
@@ -231,9 +258,11 @@ def _execute_protected_apple_validate(
         workflow_state_root=workflow_state,
         environment=context.environment,
     )
-    execution_environment = dict(context.environment)
-    if dependency is not None:
-        execution_environment["CI_PRIVATE_DEPENDENCY_PATH"] = str(dependency)
+    execution_environment = _private_dependency_execution_environment(
+        context.environment,
+        plan,
+        dependency,
+    )
     outputs = apple_multistage.execute_protected_full(
         plan,
         source_root=source,
