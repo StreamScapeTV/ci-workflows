@@ -119,7 +119,7 @@ imports a keychain, reaches Kubernetes, or deploys a product.
 ## Immutable helper reuse
 
 The reusable workflow invokes `actions/validate-apple` through guarded issue
-#336 checkpoint `478b04651245d6d7d06bd3df74221278b74dd13b`.
+#336 checkpoint `2dacd98d19c5e136ce4803ab70b0f7ebd45414bf`.
 The corresponding action-lock release label is
 `issue-336 final Apple v2 checkpoint`.
 That checkpoint includes the protected-full planner/executor and the public plan
