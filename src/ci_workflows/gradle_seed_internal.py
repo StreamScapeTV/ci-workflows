@@ -12,7 +12,7 @@ import http.client
 import json
 import re
 from pathlib import Path
-from typing import Iterable, Mapping, Protocol
+from typing import Callable, Iterable, Mapping, Protocol
 
 from .gradle_seed import (
     CONTENT_TYPE,
@@ -31,6 +31,7 @@ from .gradle_seed import (
 
 _SHA40 = re.compile(r"^[a-f0-9]{40}$")
 _GENERATION = re.compile(r"^sha256-[a-f0-9]{64}$")
+SelectionReporter = Callable[[int, int], None]
 
 
 class SeedUploader(Protocol):
@@ -96,6 +97,14 @@ def _manifest_sha256(files: tuple[SeedFile, ...]) -> str:
     return digest.hexdigest()
 
 
+def _rejection_code(status: int) -> str:
+    if status == 409:
+        return "gradle_seed_writer_busy"
+    if status == 422:
+        return "gradle_seed_promotion_rejected"
+    return "gradle_seed_upload_rejected"
+
+
 def _validated_response(
     response: UploadResponse,
     *,
@@ -103,7 +112,7 @@ def _validated_response(
     files: tuple[SeedFile, ...],
 ) -> tuple[str, int]:
     if response.status != 200:
-        raise GradleSeedError("gradle_seed_promotion_rejected")
+        raise GradleSeedError(_rejection_code(response.status))
     if response.content_type.split(";", 1)[0].strip().lower() != "application/json":
         raise GradleSeedError("gradle_seed_response_invalid")
     try:
@@ -132,6 +141,7 @@ def sync_gradle_seed(
     source_sha: str,
     environment: Mapping[str, str],
     uploader: SeedUploader | None = None,
+    report_selection: SelectionReporter | None = None,
 ) -> GradleSeedResult:
     """Stream one job-private dependency delta without running Gradle again."""
 
@@ -142,6 +152,9 @@ def sync_gradle_seed(
         raise GradleSeedError("gradle_seed_home_required")
 
     files = collect_seed_files(Path(raw_home))
+    selected_bytes = sum(item.size for item in files)
+    if report_selection is not None:
+        report_selection(len(files), selected_bytes)
     manifest_sha256 = _manifest_sha256(files)
     transport = uploader or InternalFluxSeedUploader()
     try:

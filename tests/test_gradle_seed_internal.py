@@ -81,6 +81,7 @@ class InternalGradleSeedTests(unittest.TestCase):
                 home = self._seed_home(directory)
                 before = sorted(path.relative_to(home).as_posix() for path in home.rglob("*"))
                 uploader = FakeUploader()
+                selections: list[tuple[int, int]] = []
                 result = gradle_seed_internal.sync_gradle_seed(
                     source_sha=SOURCE_SHA,
                     environment={
@@ -89,9 +90,11 @@ class InternalGradleSeedTests(unittest.TestCase):
                         "GITHUB_REF": "refs/heads/arbitrary",
                     },
                     uploader=uploader,
+                    report_selection=lambda count, size: selections.append((count, size)),
                 )
                 after = sorted(path.relative_to(home).as_posix() for path in home.rglob("*"))
                 self.assertEqual(before, after)
+                self.assertEqual([(2, len(b"alpha") + len(b"beta"))], selections)
                 self.assertEqual(SOURCE_SHA, result.source_sha)
                 self.assertEqual("sha256-" + "b" * 64, result.generation)
                 self.assertEqual(2, result.file_count)
@@ -171,6 +174,30 @@ class InternalGradleSeedTests(unittest.TestCase):
                     environment={"GRADLE_USER_HOME": str(home)},
                     uploader=FakeUploader(response_factory=bad_response),
                 )
+
+    def test_rejection_statuses_distinguish_busy_from_promotion_failure(self) -> None:
+        cases = (
+            (409, "gradle_seed_writer_busy"),
+            (422, "gradle_seed_promotion_rejected"),
+            (503, "gradle_seed_upload_rejected"),
+        )
+        for status, code in cases:
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as directory:
+                home = self._seed_home(directory)
+
+                def rejected(_frames, *, response_status=status):
+                    return gradle_seed.UploadResponse(
+                        status=response_status,
+                        content_type="application/json",
+                        body=b'{}',
+                    )
+
+                with self.assertRaisesRegex(gradle_seed.GradleSeedError, code):
+                    gradle_seed_internal.sync_gradle_seed(
+                        source_sha=SOURCE_SHA,
+                        environment={"GRADLE_USER_HOME": str(home)},
+                        uploader=FakeUploader(response_factory=rejected),
+                    )
 
     def test_transport_failure_is_acceleration_only_to_the_caller(self) -> None:
         class FailedUploader:

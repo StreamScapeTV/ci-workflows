@@ -128,7 +128,10 @@ class GradleSeedActionContractTests(unittest.TestCase):
                 context,
             )
         self.assertEqual("promoted", projected.outputs["result"])
-        sync.assert_called_once_with(source_sha="a" * 40, environment=environment)
+        sync.assert_called_once()
+        self.assertEqual("a" * 40, sync.call_args.kwargs["source_sha"])
+        self.assertIs(environment, sync.call_args.kwargs["environment"])
+        self.assertTrue(callable(sync.call_args.kwargs["report_selection"]))
 
         bad_environments = (
             {**environment, "CI_WORKFLOW_ROOT": ""},

@@ -49,10 +49,17 @@ def execute_gradle_seed_upload(
     )
     if not source_sha:
         raise CIWError("gradle-seed", "gradle_seed_source_sha_required")
+
+    def report_selection(file_count: int, total_bytes: int) -> None:
+        context.stdout.write(
+            f"gradle-seed delta file_count={file_count} total_bytes={total_bytes}\n"
+        )
+
     try:
         result = sync_gradle_seed(
             source_sha=source_sha,
             environment=context.environment,
+            report_selection=report_selection,
         )
     except GradleSeedError as error:
         raise CIWError("gradle-seed", error.code) from None
