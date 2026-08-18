@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ARCHITECTURE_DOC = ROOT / "docs/architecture/android-validation.md"
 ACTION_LOCK = ROOT / "contracts/action-tool-lock.json"
 WORKFLOW = ROOT / ".github/workflows/reusable-android.yml"
+SEED_WORKFLOW = ROOT / ".github/workflows/reusable-android-seed-warm.yml"
 
 VALIDATE_ANDROID = "StreamScapeTV/ci-workflows/actions/validate-android"
 UPLOAD_GRADLE_SEED = "StreamScapeTV/ci-workflows/actions/upload-gradle-seed"
@@ -19,7 +20,7 @@ CLEANUP_WORKSPACE = "StreamScapeTV/ci-workflows/actions/cleanup-workspace"
 
 
 class AndroidArchitectureDocumentationTests(unittest.TestCase):
-    def test_helper_guidance_and_workflow_match_action_lock(self) -> None:
+    def test_helper_guidance_and_workflows_match_action_lock(self) -> None:
         required = {
             VALIDATE_ANDROID,
             UPLOAD_GRADLE_SEED,
@@ -36,14 +37,23 @@ class AndroidArchitectureDocumentationTests(unittest.TestCase):
             if item["uses"] in required
         }
         guide = ARCHITECTURE_DOC.read_text(encoding="utf-8")
-        workflow = WORKFLOW.read_text(encoding="utf-8")
+        routine = WORKFLOW.read_text(encoding="utf-8")
+        warm = SEED_WORKFLOW.read_text(encoding="utf-8")
 
         self.assertEqual(required, set(actions))
         for action_name, item in actions.items():
             self.assertEqual("composite", item["runtime"])
             self.assertIn(item["sha"], guide)
             self.assertIn(item["release"], guide)
-            self.assertIn(f"uses: {action_name}@{item['sha']}", workflow)
+            target = warm if action_name == UPLOAD_GRADLE_SEED else routine
+            self.assertIn(f"uses: {action_name}@{item['sha']}", target)
+            if action_name != UPLOAD_GRADLE_SEED:
+                self.assertIn(f"uses: {action_name}@{item['sha']}", warm)
+
+        self.assertNotIn(UPLOAD_GRADLE_SEED, routine)
+        self.assertIn(UPLOAD_GRADLE_SEED, warm)
+        self.assertIn("id-token: write", warm)
+        self.assertNotIn("id-token", routine)
 
         validate_sha = actions[VALIDATE_ANDROID]["sha"]
         foundation_sha = actions[EXACT_CHECKOUT]["sha"]
