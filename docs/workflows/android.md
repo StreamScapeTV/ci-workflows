@@ -16,6 +16,8 @@ If the shared cache is absent, Gradle resolves dependencies normally from the co
 
 After successful Android execution plus Android cleanup/residue verification, the same executor attempts one best-effort dependency-delta sync while its private `GRADLE_USER_HOME` still exists. The sync reads only `caches/modules-*`, streams that bounded content to the fixed internal Flux service, and never invokes Gradle again. It is `continue-on-error`, so an unavailable updater cannot fail a correct build. Ordinary registered workspace cleanup always runs afterward.
 
+The sync emits only the selected private delta file count and total bytes so cache-miss activity is measurable without exposing dependency paths or content. A concurrent writer returns the stable `gradle_seed_writer_busy` code; a writer-side promotion rejection returns `gradle_seed_promotion_rejected`; other non-success HTTP responses become `gradle_seed_upload_rejected`.
+
 Central owns this same-executor invocation because it owns the lifetime of the registered Gradle workspace. Flux owns the internal service and single-writer generation merge; the Android product repository only selects the reviewed Central revision and does not implement cache transport in product YAML.
 
 Routine Android validation requires no GitHub OIDC permission. PR, manual, work-branch, and integration runs use the same cache read/update model; there is no protected-branch-only warming call.
@@ -31,7 +33,7 @@ Android execution records bounded wall times for the full execute function, Grad
 The reusable workflow uses reviewed immutable Central helper checkpoints:
 
 - `StreamScapeTV/ci-workflows/actions/validate-android@a01e29210603dc8b4cb9e31b9b0c926c2ab5cf37` — `issues #344/#346 Android telemetry and Gradle read-only seed checkpoint`.
-- `StreamScapeTV/ci-workflows/actions/upload-gradle-seed@e6af72640ae8a782f5cd8c4f53a223956052ec25` — `issue #346 internal no-OIDC Gradle cache sync checkpoint`.
+- `StreamScapeTV/ci-workflows/actions/upload-gradle-seed@fa67b6a1580ff2eb7386a9e58de09896b9990696` — `issue #346 bounded Gradle cache sync diagnostics checkpoint`.
 - `StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`.
 - `StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`.
 - `StreamScapeTV/ci-workflows/actions/render-evidence@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`.
