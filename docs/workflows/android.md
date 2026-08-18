@@ -14,7 +14,9 @@ Every job has a private writable `GRADLE_USER_HOME`. On mobile runners, Central 
 
 If the shared cache is absent, Gradle resolves dependencies normally from the configured repositories. Cache availability is an acceleration, not a correctness requirement.
 
-Routine Android validation requires no GitHub OIDC permission and contains no seed uploader. Cache updates after successful misses are runner/Flux infrastructure work owned by `StreamScapeTV/iptv-android#800` and `StreamScapeTV/flux#327`; they must not require a second Gradle build.
+After successful Android execution plus Android cleanup/residue verification, the same executor attempts one best-effort dependency-delta sync while its private `GRADLE_USER_HOME` still exists. The sync reads only `caches/modules-*`, streams that bounded content to the fixed internal Flux service, and never invokes Gradle again. It is `continue-on-error`, so an unavailable updater cannot fail a correct build. Ordinary registered workspace cleanup always runs afterward.
+
+Routine Android validation requires no GitHub OIDC permission. PR, manual, work-branch, and integration runs use the same cache read/update model; there is no protected-branch-only warming call.
 
 Workspace preparation still uses Central `cache_mode: disabled` because Central does not create a GitHub Actions cache or a shared writable Gradle home. The shared read-only dependency cache is runner infrastructure and is independent from the private job workspace.
 
@@ -24,22 +26,23 @@ Android execution records bounded wall times for the full execute function, Grad
 
 ## Central helper checkpoints
 
-The reusable workflow uses the checked-in Central helper checkpoints recorded in `contracts/action-tool-lock.json`:
+The reusable workflow uses reviewed immutable Central helper checkpoints:
 
 - `StreamScapeTV/ci-workflows/actions/validate-android@a01e29210603dc8b4cb9e31b9b0c926c2ab5cf37` — `issues #344/#346 Android telemetry and Gradle read-only seed checkpoint`.
+- `StreamScapeTV/ci-workflows/actions/upload-gradle-seed@b17f37545dec6da1e158edcc2092545cfa5435ce` — `issue #346 internal no-OIDC Gradle cache sync checkpoint`.
 - `StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`.
 - `StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`.
 - `StreamScapeTV/ci-workflows/actions/render-evidence@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`.
 - `StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`.
 - `StreamScapeTV/ci-workflows/actions/checkout-private-dependency@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #104 immutable private-action checkpoint`.
 
-`upload-gradle-seed` is not part of routine Android validation.
+The checked-in action lock must record the same Gradle sync checkpoint before the candidate is merge-state.
 
 ## Private dependency and cleanup
 
-When a private dependency is requested, it is checked out once at the exact planned revision and only its verified path is passed into Android execution. The dependency token is confined to that checkout step.
+When a private dependency is requested, it is checked out once at the exact planned revision and only its verified path is passed into Android execution. The dependency token is confined to that checkout step and is not forwarded to Gradle or cache sync.
 
-Android copied-source cleanup and residue verification run after execution, then the registered workspace cleanup removes the private writable Gradle home, dependency state, temporary files, and evidence. A final source check verifies the admitted checkout remained exact and clean.
+Android copied-source cleanup and residue verification run after execution. A successful run may then attempt the internal cache sync, after which registered workspace cleanup removes the private writable Gradle home, dependency state, temporary files, and evidence. A final source check verifies the admitted checkout remained exact and clean.
 
 Routine Android validation retains zero GitHub Actions artifacts and does not use `actions/cache`.
 
