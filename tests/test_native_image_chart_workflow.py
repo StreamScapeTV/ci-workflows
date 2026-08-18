@@ -66,7 +66,7 @@ class NativeImageChartWorkflowContractTests(unittest.TestCase):
 
     def test_publication_is_immutable_read_back_and_non_deploying(self) -> None:
         text = self.text
-        self.assertIn("Require unused immutable version identities", text)
+        self.assertIn("require unused immutable version identities", text.casefold())
         self.assertIn("skopeo inspect --raw", text)
         self.assertIn("image_digest", text)
         self.assertIn("chart_digest", text)
