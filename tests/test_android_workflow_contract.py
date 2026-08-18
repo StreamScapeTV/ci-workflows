@@ -15,7 +15,7 @@ SMOKE = ROOT / ".github/workflows/android-validation-smoke.yml"
 ACTION = ROOT / "actions/validate-android/action.yml"
 ANDROID_SHA = "a01e29210603dc8b4cb9e31b9b0c926c2ab5cf37"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-GRADLE_SYNC_SHA = "e6af72640ae8a782f5cd8c4f53a223956052ec25"
+GRADLE_SYNC_SHA = "fa67b6a1580ff2eb7386a9e58de09896b9990696"
 
 PUBLIC_INPUTS = {
     "admitted_sha",
@@ -162,6 +162,20 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         terminal = next(step for step in steps if step["id"] == "terminal")
         self.assertNotIn("GRADLE_SEED", json.dumps(terminal))
         self.assertNotIn("gradle_seed", json.dumps(terminal).casefold())
+
+    def test_terminal_logs_only_bounded_android_execution_summary(self) -> None:
+        terminal = next(
+            step
+            for step in self.workflow["jobs"]["validate"]["steps"]
+            if step["id"] == "terminal"
+        )
+        self.assertEqual(
+            terminal["env"]["ANDROID_TEST_SUMMARY"],
+            "${{ steps.execute.outputs.test_summary }}",
+        )
+        self.assertIn("android-test-summary=%s", terminal["run"])
+        self.assertNotIn("github.event", terminal["run"])
+        self.assertNotIn("env |", terminal["run"])
 
     def test_private_token_is_confined_to_the_single_dependency_checkout(self) -> None:
         steps = self.workflow["jobs"]["validate"]["steps"]
