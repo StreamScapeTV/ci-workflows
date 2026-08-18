@@ -30,6 +30,16 @@ class FlutterSetupRetryTests(unittest.TestCase):
         self.assertIsNotNone(match)
         return textwrap.dedent(match.group("script"))
 
+    def _run_bash(self, script: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["bash", "-c", script],
+            cwd=ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
     def _simulate_interrupted_first_transfer(self, block: str) -> None:
         self.assertEqual(2, block.count("uses: subosito/flutter-action@"))
         self.assertEqual(1, block.count("- id: flutter_setup_primary"))
@@ -51,34 +61,6 @@ class FlutterSetupRetryTests(unittest.TestCase):
             fake_sleep.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
             fake_sleep.chmod(0o755)
 
-            harness = f"""
-            set -Eeuo pipefail
-            attempt=0
-            setup_attempt() {{
-              attempt=$((attempt + 1))
-              if [ "$attempt" -eq 1 ]; then
-                mkdir -p "$FLUTTER_CACHE_PATH" "$PUB_CACHE_PATH"
-                printf partial > "$FLUTTER_CACHE_PATH/interrupted.archive"
-                printf partial > "$PUB_CACHE_PATH/interrupted.pub"
-                return 18
-              fi
-              test ! -e "$FLUTTER_CACHE_PATH/interrupted.archive"
-              test ! -e "$PUB_CACHE_PATH/interrupted.pub"
-              mkdir -p "$FLUTTER_CACHE_PATH/flutter/bin"
-              printf '#!/bin/sh\\nexit 0\\n' > "$FLUTTER_CACHE_PATH/flutter/bin/flutter"
-              chmod +x "$FLUTTER_CACHE_PATH/flutter/bin/flutter"
-            }}
-
-            if ! setup_attempt; then
-            {textwrap.indent(reset_script, '  ')}
-              setup_attempt
-            fi
-
-            test "$attempt" -eq 2
-            test -x "$FLUTTER_CACHE_PATH/flutter/bin/flutter"
-            test -d "$PUB_CACHE_PATH"
-            test -z "$(find "$PUB_CACHE_PATH" -mindepth 1 -maxdepth 1 -print -quit)"
-            """
             env = os.environ.copy()
             env.update(
                 {
@@ -89,19 +71,46 @@ class FlutterSetupRetryTests(unittest.TestCase):
                     "PATH": f"{fake_bin}:{env.get('PATH', '')}",
                 }
             )
-            completed = subprocess.run(
-                ["bash", "-c", textwrap.dedent(harness)],
-                cwd=ROOT,
-                env=env,
-                capture_output=True,
-                text=True,
-                check=False,
+
+            interrupted = self._run_bash(
+                textwrap.dedent(
+                    """
+                    set -Eeuo pipefail
+                    mkdir -p "$FLUTTER_CACHE_PATH" "$PUB_CACHE_PATH"
+                    printf partial > "$FLUTTER_CACHE_PATH/interrupted.archive"
+                    printf partial > "$PUB_CACHE_PATH/interrupted.pub"
+                    exit 18
+                    """
+                ),
+                env,
             )
-            self.assertEqual(
-                0,
-                completed.returncode,
-                completed.stdout + completed.stderr,
+            self.assertEqual(18, interrupted.returncode)
+            self.assertTrue((flutter_cache / "interrupted.archive").is_file())
+            self.assertTrue((pub_cache / "interrupted.pub").is_file())
+
+            reset = self._run_bash(reset_script, env)
+            self.assertEqual(0, reset.returncode, reset.stdout + reset.stderr)
+            self.assertFalse(flutter_cache.exists())
+            self.assertTrue(pub_cache.is_dir())
+            self.assertEqual([], list(pub_cache.iterdir()))
+
+            retried = self._run_bash(
+                textwrap.dedent(
+                    """
+                    set -Eeuo pipefail
+                    test ! -e "$FLUTTER_CACHE_PATH/interrupted.archive"
+                    test ! -e "$PUB_CACHE_PATH/interrupted.pub"
+                    mkdir -p "$FLUTTER_CACHE_PATH/flutter/bin"
+                    printf '#!/bin/sh\nexit 0\n' > "$FLUTTER_CACHE_PATH/flutter/bin/flutter"
+                    chmod +x "$FLUTTER_CACHE_PATH/flutter/bin/flutter"
+                    test -x "$FLUTTER_CACHE_PATH/flutter/bin/flutter"
+                    test -d "$PUB_CACHE_PATH"
+                    test -z "$(find "$PUB_CACHE_PATH" -mindepth 1 -maxdepth 1 -print -quit)"
+                    """
+                ),
+                env,
             )
+            self.assertEqual(0, retried.returncode, retried.stdout + retried.stderr)
 
     def test_retry_preserves_exact_version_and_zero_actions_cache(self) -> None:
         for block in (
