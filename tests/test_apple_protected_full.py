@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from ci_workflows import apple_execution, apple_plan_guard
+from ci_workflows import apple_execution, apple_plan_guard, ciw_apple
 from ci_workflows.apple_contract_fragments import load_apple_contract
 from ci_workflows.apple_multistage import (
     build_protected_full_plan,
@@ -190,13 +190,14 @@ class AppleProtectedFullExecutionTests(unittest.TestCase):
         (source / "App.xcodeproj").mkdir()
         return source
 
-    def build(self, rows: list[dict[str, object]]):
+    def build(self, rows: list[dict[str, object]], **dependency: str):
         return build_protected_full_plan(
             raw_plan(rows),
             repository=REPOSITORY,
             admitted_sha=SHA,
             source_trust="trusted-pr",
             contract=self.contract,
+            **dependency,
         )
 
     @staticmethod
@@ -319,6 +320,65 @@ class AppleProtectedFullExecutionTests(unittest.TestCase):
                 )
         self.assertEqual(selected, ["protected-ios-test", "protected-tvos-test"])
         self.assertEqual(cleaned, selected)
+
+    def test_private_dependency_bridge_rewrites_exact_https_identity_to_local_checkout(self) -> None:
+        dependency_repository = "StreamScapeTV/private-fixture"
+        plan = self.build(
+            [stage("macos-build", "macos")],
+            private_dependency_repository=dependency_repository,
+            private_dependency_sha="b" * 40,
+            private_dependency_subdirectory=".",
+            private_dependency_id="fixture",
+        )
+        captured: list[dict[str, str]] = []
+
+        def execute(_plan, _command, _source, _state, _runner, env, _directories, _lease):
+            captured.append(dict(env))
+            return False
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = self.make_source(root)
+            state = root / "state"
+            state.mkdir()
+            dependency = root / "dependency checkout"
+            dependency.mkdir()
+            dependency = dependency.resolve()
+            environment = ciw_apple._private_dependency_execution_environment(
+                {
+                    "GIT_CONFIG_COUNT": "99",
+                    "GIT_CONFIG_KEY_0": "credential.helper",
+                    "GIT_CONFIG_VALUE_0": "should-not-survive",
+                },
+                plan,
+                dependency,
+            )
+            with (
+                mock.patch.object(apple_execution, "verify_toolchain", side_effect=self.toolchain_result),
+                mock.patch.object(apple_execution, "_execute_command", side_effect=execute),
+            ):
+                execute_protected_full(
+                    plan,
+                    source_root=source,
+                    state_root=state,
+                    environment=environment,
+                )
+            local_url = dependency.as_uri()
+
+        self.assertEqual(len(captured), 1)
+        runtime = captured[0]
+        rewrite_key = f"url.{local_url}.insteadOf"
+        repository_url = f"https://github.com/{dependency_repository}"
+        self.assertEqual(runtime["CI_PRIVATE_DEPENDENCY_PATH"], str(dependency))
+        self.assertEqual(runtime["GIT_CONFIG_COUNT"], "2")
+        self.assertEqual(runtime["GIT_CONFIG_KEY_0"], rewrite_key)
+        self.assertEqual(runtime["GIT_CONFIG_KEY_1"], rewrite_key)
+        self.assertEqual(
+            {runtime["GIT_CONFIG_VALUE_0"], runtime["GIT_CONFIG_VALUE_1"]},
+            {repository_url, f"{repository_url}.git"},
+        )
+        self.assertEqual(runtime["GIT_TERMINAL_PROMPT"], "0")
+        self.assertNotIn("should-not-survive", runtime.values())
 
 
 class AppleProtectedFullWorkflowShapeTests(unittest.TestCase):
