@@ -103,6 +103,36 @@ class FlutterSetupRetryTests(unittest.TestCase):
                 completed.stdout + completed.stderr,
             )
 
+    def test_retry_preserves_exact_version_and_zero_actions_cache(self) -> None:
+        for block in (
+            self._job_block("mobile", "apple"),
+            self._job_block("apple", "validate"),
+        ):
+            self.assertEqual(
+                2,
+                block.count(
+                    "flutter-version: ${{ needs.plan.outputs.flutter_version }}"
+                ),
+            )
+            self.assertEqual(2, block.count("cache: false"))
+            self.assertEqual(
+                2,
+                block.count(
+                    "cache-path: ${{ format('{0}/flutter-sdk-{1}', env.CI_TOOL_ROOT, needs.plan.outputs.flutter_version) }}"
+                ),
+            )
+            self.assertEqual(
+                2,
+                block.count(
+                    "pub-cache-path: ${{ format('{0}/tmp/flutter-validation/pub-cache', env.CI_WORKFLOW_ROOT) }}"
+                ),
+            )
+            self.assertNotIn("actions/cache@", block)
+            self.assertLess(
+                block.index("- id: flutter_setup_retry"),
+                block.index("phase: verify-toolchain"),
+            )
+
     def test_mobile_interrupted_first_transfer_resets_then_retries_once(self) -> None:
         self._simulate_interrupted_first_transfer(self._job_block("mobile", "apple"))
 
