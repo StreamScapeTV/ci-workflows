@@ -156,7 +156,7 @@ def _validate_policy(types: Mapping[str, Any]) -> None:
     require(isinstance(compatibility, dict), "compatibility_policy must be an object")
     for name in ("compatible", "conditional", "breaking"):
         unique_strings(compatibility.get(name), f"compatibility_policy.{name}", allow_empty=False)
-    required_ack = unique_strings(compatibility.get("acknowledgement_required_fields"), "acknowledgement_required_fields", allow_empty=False)
+    required_ack = unique_strings(compatibility.get("acknowledgement_required_fields"), "compatibility_policy.acknowledgement_required_fields", allow_empty=False)
     require(set(required_ack) == {"id", "api_name", "kind", "reason", "migration_issue", "effective_version"}, "breaking acknowledgement fields changed")
     defaults = types.get("defaults")
     require(isinstance(defaults, dict), "public API defaults are missing")
