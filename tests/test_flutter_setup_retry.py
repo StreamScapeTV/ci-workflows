@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import re
 import subprocess
 import tempfile
 import textwrap
@@ -22,13 +21,13 @@ class FlutterSetupRetryTests(unittest.TestCase):
         )[0]
 
     def _reset_script(self, block: str) -> str:
-        match = re.search(
-            r"(?ms)- id: flutter_setup_reset\n.*?^        run: \|\n"
-            r"(?P<script>(?:^          .*\n)+)",
-            block,
-        )
-        self.assertIsNotNone(match)
-        return textwrap.dedent(match.group("script"))
+        reset = block.split("      - id: flutter_setup_reset\n", 1)
+        self.assertEqual(2, len(reset))
+        retry = reset[1].split("      - id: flutter_setup_retry\n", 1)
+        self.assertEqual(2, len(retry))
+        run = retry[0].split("        run: |\n", 1)
+        self.assertEqual(2, len(run))
+        return textwrap.dedent(run[1])
 
     def _run_bash(self, script: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
