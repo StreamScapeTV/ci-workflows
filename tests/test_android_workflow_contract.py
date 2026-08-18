@@ -15,7 +15,7 @@ SMOKE = ROOT / ".github/workflows/android-validation-smoke.yml"
 ACTION = ROOT / "actions/validate-android/action.yml"
 ANDROID_SHA = "a01e29210603dc8b4cb9e31b9b0c926c2ab5cf37"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-GRADLE_SYNC_SHA = "b17f37545dec6da1e158edcc2092545cfa5435ce"
+GRADLE_SYNC_SHA = "fb02aa35414e59464716be9ba644e0ee7ec100ed"
 
 PUBLIC_INPUTS = {
     "admitted_sha",
