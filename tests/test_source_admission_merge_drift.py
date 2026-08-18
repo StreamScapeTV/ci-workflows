@@ -177,10 +177,20 @@ class SourceAdmissionMergeDriftTests(unittest.TestCase):
         )
 
         self.assertEqual(result.source_sha, CURRENT_MERGE)
+        self.assertEqual(result.resolved_sha, CURRENT_MERGE)
         self.assertEqual(result.pr_head_sha, HEAD)
         self.assertEqual(result.pr_base_sha, BASE)
         self.assertEqual(result.pr_merge_sha, CURRENT_MERGE)
         self.assertEqual(self.provider.pull_reads, 1)
+
+        repeated = source.admit_source(
+            self.inputs(source_mode="pr-merge", requested_sha=None),
+            self.event(),
+            self.provider,
+        )
+        self.assertEqual(repeated.source_sha, CURRENT_MERGE)
+        self.assertEqual(repeated.evidence_id, result.evidence_id)
+        self.assertEqual(self.provider.pull_reads, 2)
 
     def test_pr_merge_keeps_explicit_requested_merge_exact(self) -> None:
         self.provider.pull = MergeDriftProvider.pull_metadata(
