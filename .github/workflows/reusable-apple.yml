@@ -119,7 +119,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve one Apple executor plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@478b04651245d6d7d06bd3df74221278b74dd13b # issue-336 final Apple v2 checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@2dacd98d19c5e136ce4803ab70b0f7ebd45414bf # issue-336 final Apple v2 checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -212,7 +212,7 @@ jobs:
 
       - id: execute
         name: Execute one sequential Apple validation plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@478b04651245d6d7d06bd3df74221278b74dd13b # issue-336 final Apple v2 checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@2dacd98d19c5e136ce4803ab70b0f7ebd45414bf # issue-336 final Apple v2 checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -255,7 +255,7 @@ jobs:
       - id: apple_cleanup
         name: Remove Apple-specific state once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@478b04651245d6d7d06bd3df74221278b74dd13b # issue-336 final Apple v2 checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@2dacd98d19c5e136ce4803ab70b0f7ebd45414bf # issue-336 final Apple v2 checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -279,7 +279,7 @@ jobs:
       - id: residue
         name: Verify zero Apple-specific residue once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@478b04651245d6d7d06bd3df74221278b74dd13b # issue-336 final Apple v2 checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@2dacd98d19c5e136ce4803ab70b0f7ebd45414bf # issue-336 final Apple v2 checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
