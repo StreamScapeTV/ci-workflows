@@ -9,12 +9,14 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/reusable-native-image-chart.yml"
 PRODUCTS_PATH = ROOT / "contracts/public-workflows/products.json"
 AGGREGATE_PATH = ROOT / "contracts/public-workflows.json"
+REFERENCE_PATH = ROOT / "docs/workflows/public-api-reference.md"
 
 
 class NativeImageChartExistingTagContractTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+        cls.reference = REFERENCE_PATH.read_text(encoding="utf-8")
         products = json.loads(PRODUCTS_PATH.read_text(encoding="utf-8"))
         aggregate = json.loads(AGGREGATE_PATH.read_text(encoding="utf-8"))
         cls.contract = next(
@@ -43,6 +45,26 @@ class NativeImageChartExistingTagContractTest(unittest.TestCase):
         self.assertFalse(inputs["release_source_sha"]["required"])
         for required in ("image_name", "chart_name", "chart_path"):
             self.assertTrue(inputs[required]["required"])
+
+    def test_generated_reference_matches_additive_native_api(self) -> None:
+        section = self.reference.split("### `release.native-image-chart`", 1)[1].split(
+            "### `release.orchestrate`", 1
+        )[0]
+        self.assertIn(
+            "- Events: `tag-push`, `workflow_call`, `workflow_dispatch-existing-tag`",
+            section,
+        )
+        self.assertIn(
+            "- Inputs: `release_mode` (default `tag-push`), `release_version`, "
+            "`release_source_sha`, `image_name` (required), `chart_name` (required), "
+            "`chart_path` (required), `dockerfile_path` (default `Dockerfile`), "
+            "`build_context` (default `.`)",
+            section,
+        )
+        self.assertIn(
+            "| `release.native-image-chart` `1.0.0` |",
+            self.reference,
+        )
 
     def test_initial_authority_uses_caller_mode_and_exact_optional_tuple(self) -> None:
         self.assertRegex(
