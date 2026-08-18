@@ -30,8 +30,8 @@ Unsupported host metrics are emitted as JSON `null` with `resource_measurement: 
 
 Private callers do not clone the central repository with caller-scoped credentials. The workflow invokes central composite actions at immutable full commit SHAs:
 
-- `StreamScapeTV/ci-workflows/actions/validate-android` is pinned to `a01e29210603dc8b4cb9e31b9b0c926c2ab5cf37`, the merged Android telemetry + read-only Gradle dependency seed source checkpoint from issues #344/#346.
-- `StreamScapeTV/ci-workflows/actions/upload-gradle-seed` is pinned to `7a0977db839468aac24448831a9a0ffd97b3067b`, the merged issue #347 trusted Gradle seed promotion client.
+- `StreamScapeTV/ci-workflows/actions/validate-android` is pinned to `a01e29210603dc8b4cb9e31b9b0c926c2ab5cf37`, recorded with release `issues #344/#346 Android telemetry and Gradle read-only seed checkpoint`.
+- `StreamScapeTV/ci-workflows/actions/upload-gradle-seed` is pinned to `7a0977db839468aac24448831a9a0ffd97b3067b`, recorded with release `issue #347 trusted Gradle seed client`.
 - `StreamScapeTV/ci-workflows/actions/exact-checkout`, `prepare-workspace`, `render-evidence`, and `cleanup-workspace` remain pinned to `70e08d4ddf8930046632a7135950e924b82e22bf`, recorded as `issue #116 immutable private-action checkpoint`.
 - `StreamScapeTV/ci-workflows/actions/checkout-private-dependency` is pinned to `70e08d4ddf8930046632a7135950e924b82e22bf`, recorded as `issue #104 immutable private-action checkpoint`.
 
