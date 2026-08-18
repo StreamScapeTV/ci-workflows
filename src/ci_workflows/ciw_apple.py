@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 from . import apple as apple_validation
+from . import apple_multistage
+from . import apple_plan_guard
 from .apple_contract_fragments import load_apple_contract
 from .apple_simulator_script import SimulatorLeaseArgumentRunner
 
@@ -30,7 +32,7 @@ def configure_apple_validate(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--source-root", default="source")
 
 
-def _resolved_state_root(root: Path, environment: Mapping[str, str]) -> Path:
+def _workflow_state_root(root: Path, environment: Mapping[str, str]) -> Path:
     runner_temp = Path(environment.get("RUNNER_TEMP", root / ".validation-state"))
     declared = environment.get(
         "CI_WORKFLOW_ROOT",
@@ -42,15 +44,19 @@ def _resolved_state_root(root: Path, environment: Mapping[str, str]) -> Path:
     except NameError:
         path = Path(declared).resolve()
         path.mkdir(parents=True, exist_ok=True)
-        (path / "tmp").mkdir(parents=True, exist_ok=True)
-        return path / "tmp"
-    path = resolver(
+        return path
+    return resolver(
         runner_temp=runner_temp,
         state_id=state_id,
         declared_root=declared,
         contract_root=root,
     )
+
+
+def _resolved_state_root(root: Path, environment: Mapping[str, str]) -> Path:
+    path = _workflow_state_root(root, environment)
     temporary = path / "tmp"
+    temporary.mkdir(parents=True, exist_ok=True)
     if not temporary.is_dir() or temporary.is_symlink():
         raise apple_validation.AppleValidationError("invalid_input")
     return temporary
@@ -95,6 +101,24 @@ def _planning_outputs(
     return outputs
 
 
+def _protected_planning_outputs(
+    root: Path,
+    plan: apple_multistage.ProtectedApplePlan,
+) -> dict[str, str]:
+    try:
+        resolved = runners.resolve_runner_profile(
+            runners.load_runner_contract(root),
+            workflow_api="validation.apple",
+            source_trust=plan.source_trust,
+            requested_profile="apple",
+        )
+    except runners.RunnerContractError as error:
+        raise apple_validation.AppleValidationError("runner_rejected") from error
+    outputs = plan.planning_outputs()
+    outputs["runs_on_json"] = resolved.as_dict()["runs_on_json"]
+    return outputs
+
+
 def _source_path(
     root: Path,
     source_root: str,
@@ -121,6 +145,132 @@ def _run_plan(
         runner=SimulatorLeaseArgumentRunner(),
         environment=environment,
     )
+
+
+def _source_trust(environment: Mapping[str, str]) -> str:
+    explicit = environment.get("INPUT_SOURCE_TRUST", "").strip()
+    if explicit:
+        return explicit
+    if environment.get("GITHUB_EVENT_NAME"):
+        return apple_validation.source_trust_from_environment(environment)
+    return "trusted-pr"
+
+
+def _protected_plan(
+    context: "CIWContext",
+    contract: Mapping[str, object],
+) -> apple_multistage.ProtectedApplePlan:
+    environment = context.environment
+    raw_plan = environment.get("INPUT_VALIDATION_PLAN_JSON", "")
+    apple_plan_guard.validate_protected_full_plan_json(raw_plan)
+    return apple_multistage.build_protected_full_plan(
+        raw_plan,
+        repository=environment.get("GITHUB_REPOSITORY", ""),
+        admitted_sha=environment.get("INPUT_ADMITTED_SHA", ""),
+        source_trust=_source_trust(environment),
+        contract=contract,
+        private_dependency_repository=environment.get(
+            "INPUT_PRIVATE_DEPENDENCY_REPOSITORY",
+            "",
+        ),
+        private_dependency_sha=environment.get("INPUT_PRIVATE_DEPENDENCY_SHA", ""),
+        private_dependency_subdirectory=environment.get(
+            "INPUT_PRIVATE_DEPENDENCY_SUBDIRECTORY",
+            ".",
+        ),
+        private_dependency_id=environment.get("INPUT_PRIVATE_DEPENDENCY_ID", ""),
+    )
+
+
+def _private_dependency_execution_environment(
+    environment: Mapping[str, str],
+    plan: apple_multistage.ProtectedApplePlan,
+    dependency: Path | None,
+) -> dict[str, str]:
+    """Bind one verified private repository URL to its credential-free local checkout."""
+    result = dict(environment)
+    if dependency is None:
+        return result
+    if not plan.private_dependency_used or not dependency.is_absolute() or dependency.is_symlink():
+        raise apple_validation.AppleValidationError("private_dependency_path_invalid")
+
+    repository_url = f"https://github.com/{plan.private_dependency_repository}"
+    local_url = dependency.as_uri()
+    rewrite_key = f"url.{local_url}.insteadOf"
+    result.update(
+        CI_PRIVATE_DEPENDENCY_PATH=str(dependency),
+        GIT_CONFIG_COUNT="2",
+        GIT_CONFIG_KEY_0=rewrite_key,
+        GIT_CONFIG_VALUE_0=f"{repository_url}.git",
+        GIT_CONFIG_KEY_1=rewrite_key,
+        GIT_CONFIG_VALUE_1=repository_url,
+        GIT_TERMINAL_PROMPT="0",
+    )
+    return result
+
+
+def _execute_protected_apple_validate(
+    args: argparse.Namespace,
+    context: "CIWContext",
+    contract: Mapping[str, object],
+) -> "CIWResult":
+    plan = _protected_plan(context, contract)
+    if args.phase == "plan":
+        return CIWResult(
+            "apple",
+            "validate",
+            outputs=_protected_planning_outputs(context.root, plan),
+        )
+
+    source = _source_path(context.root, args.source_root, context.environment)
+    state = _resolved_state_root(context.root, context.environment)
+    runner = SimulatorLeaseArgumentRunner()
+    if args.phase == "cleanup":
+        apple_multistage.cleanup_protected_full(
+            plan,
+            source_root=source,
+            state_root=state,
+            runner=runner,
+            environment=context.environment,
+        )
+        return CIWResult(
+            "apple",
+            "validate",
+            outputs={"cleanup_result": "success", "failure_code": ""},
+        )
+    if args.phase == "residue":
+        apple_multistage.assert_zero_protected_full_residue(
+            plan,
+            source_root=source,
+            state_root=state,
+            runner=runner,
+            environment=context.environment,
+        )
+        return CIWResult(
+            "apple",
+            "validate",
+            outputs={"cleanup_result": "success", "failure_code": ""},
+        )
+
+    workflow_state = _workflow_state_root(context.root, context.environment)
+    dependency = apple_multistage.verify_private_dependency(
+        plan,
+        workflow_state_root=workflow_state,
+        environment=context.environment,
+    )
+    execution_environment = _private_dependency_execution_environment(
+        context.environment,
+        plan,
+        dependency,
+    )
+    outputs = apple_multistage.execute_protected_full(
+        plan,
+        source_root=source,
+        state_root=state,
+        runner=runner,
+        environment=execution_environment,
+    )
+    return CIWResult("apple", "validate", outputs=outputs)
 
 
 def standalone_main(argv: Sequence[str] | None = None) -> int:
@@ -174,6 +324,12 @@ def execute_apple_validate(
     context: "CIWContext",
 ) -> "CIWResult":
     contract = load_apple_contract(context.root)
+    scope = context.environment.get("INPUT_VALIDATION_SCOPE", "legacy").strip() or "legacy"
+    if scope == "protected-full":
+        return _execute_protected_apple_validate(args, context, contract)
+    if scope != "legacy":
+        raise apple_validation.AppleValidationError("unsupported_profile")
+
     request = apple_validation.request_from_environment(
         context.environment,
         contract,
