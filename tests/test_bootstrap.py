@@ -48,6 +48,7 @@ class BootstrapContractTests(unittest.TestCase):
                 ".github/workflows/reusable-gitops-validation.yml",
                 ".github/workflows/reusable-helm-publish.yml",
                 ".github/workflows/reusable-helm-validate.yml",
+                ".github/workflows/reusable-native-image-chart.yml",
                 ".github/workflows/reusable-node.yml",
                 ".github/workflows/reusable-oci-build.yml",
                 ".github/workflows/reusable-oci-publish.yml",
