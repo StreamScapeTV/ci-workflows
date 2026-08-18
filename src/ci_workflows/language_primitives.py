@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Mapping, Protocol, Sequence
@@ -14,6 +15,12 @@ _SAFE_MODULE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*
 _SAFE_PACKAGE_SCRIPT = re.compile(r"^[A-Za-z0-9_.:@/-]+$")
 _SAFE_GRADLE_TASK = re.compile(r"^:?[-A-Za-z0-9_.]+(?::[-A-Za-z0-9_.]+)*$")
 _JAVA_VERSION = re.compile(r'(?:openjdk|java)\s+version\s+"([^"]+)"', re.IGNORECASE)
+_SECRET_VALUE = re.compile(
+    r"(?i)\b(token|password|authorization|secret|keystore)\s*[:=]\s*\S+"
+)
+_URL_CREDENTIAL = re.compile(r"(?i)https?://[^\s/@:]+:[^\s/@]+@")
+_ANDROID_DIAGNOSTIC_MAX_LINES = 80
+_ANDROID_DIAGNOSTIC_MAX_BYTES = 16 * 1024
 
 
 class LanguagePrimitiveError(RuntimeError):
@@ -188,6 +195,30 @@ def _resolve(
     _fail("tool_unavailable", operation)
 
 
+def _android_failure_diagnostic(
+    operation: str,
+    outcome: ProcessResult | CommandOutcome,
+    cwd: Path,
+) -> None:
+    if not operation.startswith("android.") or not (outcome.timed_out or outcome.returncode != 0):
+        return
+    combined = "\n".join(part for part in (outcome.stdout, outcome.stderr) if part)
+    if not combined:
+        return
+    sanitized = combined.replace(str(cwd), "<project>")
+    sanitized = _URL_CREDENTIAL.sub("https://<redacted>@", sanitized)
+    sanitized = _SECRET_VALUE.sub(r"\1=<redacted>", sanitized)
+    sanitized = "\n".join(sanitized.splitlines()[-_ANDROID_DIAGNOSTIC_MAX_LINES:])
+    encoded = sanitized.encode("utf-8", errors="replace")
+    if len(encoded) > _ANDROID_DIAGNOSTIC_MAX_BYTES:
+        sanitized = encoded[-_ANDROID_DIAGNOSTIC_MAX_BYTES:].decode("utf-8", errors="replace")
+    if not sanitized:
+        return
+    print("android-command-diagnostic-begin", file=sys.stderr)
+    print(sanitized, file=sys.stderr)
+    print("android-command-diagnostic-end", file=sys.stderr)
+
+
 def _execute(
     operation: str,
     argv: Sequence[str],
@@ -196,10 +227,11 @@ def _execute(
     environment: Mapping[str, str] | None,
     runner: CommandRunner | None,
 ) -> OperationResult:
+    working = _directory(cwd, operation)
     try:
         outcome = (runner or RuntimeCommandRunner()).run(
             _arguments(argv, operation),
-            cwd=_directory(cwd, operation),
+            cwd=working,
             env=_environment(environment),
         )
     except RuntimePrimitiveError as error:
@@ -209,6 +241,7 @@ def _execute(
         raise LanguagePrimitiveError("command_unavailable", operation) from error
     if not isinstance(outcome, (ProcessResult, CommandOutcome)):
         _fail("runner_result_invalid", operation)
+    _android_failure_diagnostic(operation, outcome, working)
     if outcome.timed_out:
         _fail("command_timeout", operation)
     if outcome.returncode != 0:
