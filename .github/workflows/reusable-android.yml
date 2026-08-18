@@ -60,20 +60,14 @@ on:
         description: Success only after Android state and workspace cleanup are residue-free
         value: ${{ jobs.validate.outputs.cleanup_result }}
 
-permissions:
-  contents: read
-
+# Intentionally inherit the caller job's explicit permission ceiling. GitHub reusable
+# workflows cannot elevate permissions. Standard callers grant contents:read only;
+# the protected warming caller additionally grants id-token:write.
 jobs:
   validate:
     name: CI / Android validation
     runs-on: [linux, amd64, mobile]
     timeout-minutes: 120
-    # The reusable job may request OIDC, but a called workflow cannot elevate above
-    # its caller. Ordinary callers grant only contents:read, so the effective
-    # id-token permission remains none. The protected warming caller grants it.
-    permissions:
-      contents: read
-      id-token: write
     outputs:
       result: ${{ steps.terminal.outputs.result }}
       test_summary: ${{ steps.execute.outputs.test_summary }}
