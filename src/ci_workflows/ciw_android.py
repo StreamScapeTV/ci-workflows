@@ -41,6 +41,7 @@ _GRADLE_TASK = re.compile(r"^:?[-A-Za-z0-9_.]+(?::[-A-Za-z0-9_.]+)*$")
 _TEST_SELECTOR = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*(?:\.[A-Za-z_][A-Za-z0-9_$]*){2,31}$")
 _COPY_RELATIVE = "tmp/android-source"
 _MAX_PLAN_BYTES = 16 * 1024
+_GRADLE_RO_DEP_CACHE_PATH = Path("/opt/gradle-ro-cache")
 
 
 @dataclass(frozen=True, slots=True)
@@ -470,6 +471,25 @@ def _dependency_path(
     )
 
 
+def _read_only_gradle_cache(source: Mapping[str, str]) -> Path | None:
+    raw = source.get("GRADLE_RO_DEP_CACHE", "")
+    if not raw:
+        return None
+    expected = str(_GRADLE_RO_DEP_CACHE_PATH)
+    if raw != expected:
+        raise CIWError(_DOMAIN, "gradle_read_only_cache_invalid")
+    candidate = Path(raw)
+    if candidate.is_symlink():
+        raise CIWError(_DOMAIN, "gradle_read_only_cache_invalid")
+    try:
+        resolved = candidate.resolve(strict=True)
+    except OSError:
+        return None
+    if resolved != candidate or not resolved.is_dir():
+        return None
+    return resolved
+
+
 def _runtime_environment(
     context: CIWContext,
     dependency: Path | None,
@@ -499,6 +519,11 @@ def _runtime_environment(
     java_home = source.get("JAVA_HOME", "")
     if java_home:
         environment["JAVA_HOME"] = str(_runner_directory(java_home, "java_home_invalid"))
+    gradle_cache = _read_only_gradle_cache(source)
+    if gradle_cache is not None:
+        if str(gradle_cache) == required_directories["GRADLE_USER_HOME"]:
+            raise CIWError(_DOMAIN, "gradle_read_only_cache_invalid")
+        environment["GRADLE_RO_DEP_CACHE"] = str(gradle_cache)
     if dependency is not None:
         environment["CI_PRIVATE_DEPENDENCY_PATH"] = str(dependency)
     for name, value in environment.items():
@@ -635,6 +660,9 @@ def _execute_request(
     summary = json.dumps(
         {
             "execution_model": "single-executor",
+            "gradle_dependency_cache_mode": (
+                "read-only-seed" if "GRADLE_RO_DEP_CACHE" in environment else "cold"
+            ),
             "gradle_invocations": gradle_invocations,
             "java_major": runtime.major,
             "private_dependency_used": request.private_dependency_used,
