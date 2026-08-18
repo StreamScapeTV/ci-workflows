@@ -31,7 +31,7 @@ Android execution records bounded wall times for the full execute function, Grad
 The reusable workflow uses reviewed immutable Central helper checkpoints:
 
 - `StreamScapeTV/ci-workflows/actions/validate-android@a01e29210603dc8b4cb9e31b9b0c926c2ab5cf37` — `issues #344/#346 Android telemetry and Gradle read-only seed checkpoint`.
-- `StreamScapeTV/ci-workflows/actions/upload-gradle-seed@b17f37545dec6da1e158edcc2092545cfa5435ce` — `issue #346 internal no-OIDC Gradle cache sync checkpoint`.
+- `StreamScapeTV/ci-workflows/actions/upload-gradle-seed@fb02aa35414e59464716be9ba644e0ee7ec100ed` — `issue #346 internal no-OIDC Gradle cache sync checkpoint`.
 - `StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`.
 - `StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`.
 - `StreamScapeTV/ci-workflows/actions/render-evidence@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`.
