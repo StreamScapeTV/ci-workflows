@@ -24,6 +24,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 | `validation.android` `2.0.0` | `.github/workflows/reusable-android.yml` | `implemented` | `read-only-validation` | CI / Android validation |
 | `validation.android-live-service` `1.0.0` | `.github/workflows/reusable-android-live-service.yml` | `implemented` | `read-only-validation` | CI / Android live-service acceptance |
 | `validation.android-release` `1.0.0` | `.github/workflows/reusable-android-release.yml` | `implemented` | `read-only-validation` | CI / Android unsigned release validation |
+| `validation.android-seed-warm` `1.0.0` | `.github/workflows/reusable-android-seed-warm.yml` | `implemented` | `read-only-validation` | CI / Android protected seed validation |
 | `validation.apple` `1.0.0` | `.github/workflows/reusable-apple.yml` | `implemented` | `read-only-validation` | CI / Apple validation |
 | `validation.device` `2.0.0` | `.github/workflows/reusable-device.yml` | `implemented` | `physical-device-validation` | CI / Physical device validation |
 | `validation.flutter` `1.0.0` | `.github/workflows/reusable-flutter.yml` | `implemented` | `read-only-validation` | CI / Flutter validation |
@@ -160,6 +161,14 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 - Inputs: `admitted_sha` (required), `working_directory` (default `.`), `gradle_wrapper_path` (default `gradlew`), `validation_plan_json` (required), `private_dependency_repository` (default ``), `private_dependency_sha` (default ``), `private_dependency_subdirectory` (default `.`), `private_dependency_id` (default ``)
 - Secrets: `private_dependency_token`
 - Outputs: `result`, `test_summary`, `cleanup_result`, `artifact_manifest_json`
+- Repository-owned hooks: `validation_plan_json`
+
+### `validation.android-seed-warm`
+
+- Events: `push`, `workflow_call`
+- Inputs: `admitted_sha` (required), `validation_scope` (required), `working_directory` (default `.`), `gradle_wrapper_path` (default `gradlew`), `validation_plan_json` (required), `private_dependency_repository` (default ``), `private_dependency_sha` (default ``), `private_dependency_subdirectory` (default `.`), `private_dependency_id` (default ``)
+- Secrets: `private_dependency_token`
+- Outputs: `result`, `test_summary`, `cleanup_result`
 - Repository-owned hooks: `validation_plan_json`
 
 ### `validation.apple`
