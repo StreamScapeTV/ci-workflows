@@ -237,12 +237,16 @@ class FlutterWorkflowContractTests(unittest.TestCase):
             expected_condition = "if: ${{ steps.flutter_setup_primary.outcome == 'failure' }}"
             self.assertIn(expected_condition, reset)
             self.assertIn(expected_condition, retry)
-            self.assertIn('test ! -L "${FLUTTER_CACHE_PATH}"', reset)
-            self.assertIn('test ! -L "${PUB_CACHE_PATH}"', reset)
+            self.assertIn('case "${FLUTTER_CACHE_PATH}" in "${CI_TOOL_ROOT}/flutter-sdk-"*', reset)
+            self.assertIn('test ! -L "${FLUTTER_CACHE_PATH}" && test ! -L "${PUB_CACHE_PATH}"', reset)
             self.assertIn('rm -rf -- "${FLUTTER_CACHE_PATH}" "${PUB_CACHE_PATH}"', reset)
             self.assertIn('mkdir -p -- "${PUB_CACHE_PATH}"', reset)
             self.assertIn("sleep 5", reset)
-            self.assertIn("Flutter retry cache escaped registered tool root", reset)
+            run_block = reset.split("run: |", 1)[1]
+            self.assertLess(
+                len([line for line in run_block.splitlines() if line.strip()]),
+                8,
+            )
             self.assertLess(
                 block.index("- id: flutter_setup_retry"),
                 block.index("phase: pub-cache-bind"),
