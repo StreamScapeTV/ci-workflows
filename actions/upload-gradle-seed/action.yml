@@ -35,8 +35,7 @@ runs:
         INPUT_SOURCE_SHA: ${{ inputs.source_sha }}
       run: |
         set -Eeuo pipefail
-        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
-          gradle-seed upload
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/gradle_seed.py"
 
     - id: cleanup
       name: Remove registered promotion workspace state
