@@ -4,11 +4,13 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Mapping
 
 from . import android_execution
+from .android_resource_metrics import AndroidResourceSampler
 from .android_types import AndroidValidationError
 from .ciw_types import CIWContext, CIWError, CIWResult, input_value, project_error, write_command_file
 from .foundation_types import FoundationError
@@ -582,93 +584,118 @@ def _execute_script(
         raise CIWError(_DOMAIN, "script_failed")
 
 
+def _elapsed_ms(started_ns: int) -> int:
+    return max(0, (time.monotonic_ns() - started_ns) // 1_000_000)
+
+
 def _execute_request(
     request: AndroidPrimitiveRequest,
     args: argparse.Namespace,
     context: CIWContext,
 ) -> CIWResult:
-    state_root = _state_root(context)
-    source = _source_root(args, context)
-    android_execution.verify_exact_source(source, request.admitted_sha, context.environment)
-    copy = state_root / _COPY_RELATIVE
-    if copy.exists() or copy.is_symlink():
-        raise CIWError(_DOMAIN, "android_state_exists")
-    android_execution.copy_source(source, copy)
-    project = _bounded_existing_directory(
-        copy,
-        request.working_directory,
-        "working_directory_invalid",
-    )
-    dependency = _dependency_path(request, args, context, state_root)
-    environment = _runtime_environment(context, dependency)
-    java = resolve_java_executable(search_path=environment["PATH"])
-    runtime = inspect_java_runtime(java, working_directory=project, environment=environment)
-    validate_java_runtime(runtime, expected_major=25)
-
-    wrapper = Path(request.gradle_wrapper_path)
-    common = {
-        "project_directory": project,
-        "options": ("--no-daemon",),
-        "environment": environment,
-    }
-    scope = request.validation_scope
-    gradle_invocations = 0
-    script_invocations = 0
-    schema_mode = "not-applicable"
-    task_count = len(request.gradle_tasks)
-
-    if scope == "protected-full":
-        full = request.protected_full
-        if full is None:
-            raise CIWError(_DOMAIN, "validation_plan_invalid")
-        run_gradle_tasks(
-            wrapper,
-            full.gradle_tasks,
-            operation="android.protected_full",
-            **common,
+    gradle_wall_ms = 0
+    script_wall_ms = 0
+    with AndroidResourceSampler() as resources:
+        state_root = _state_root(context)
+        source = _source_root(args, context)
+        android_execution.verify_exact_source(source, request.admitted_sha, context.environment)
+        copy = state_root / _COPY_RELATIVE
+        if copy.exists() or copy.is_symlink():
+            raise CIWError(_DOMAIN, "android_state_exists")
+        android_execution.copy_source(source, copy)
+        project = _bounded_existing_directory(
+            copy,
+            request.working_directory,
+            "working_directory_invalid",
         )
-        gradle_invocations = 1
-        task_count = len(full.gradle_tasks)
-        schema_mode = full.schema_mode
-        if full.schema_script is not None:
-            _execute_script(full.schema_script, project=project, environment=environment)
+        dependency = _dependency_path(request, args, context, state_root)
+        environment = _runtime_environment(context, dependency)
+        java = resolve_java_executable(search_path=environment["PATH"])
+        runtime = inspect_java_runtime(java, working_directory=project, environment=environment)
+        validate_java_runtime(runtime, expected_major=25)
+
+        wrapper = Path(request.gradle_wrapper_path)
+        common = {
+            "project_directory": project,
+            "options": ("--no-daemon",),
+            "environment": environment,
+        }
+        scope = request.validation_scope
+        gradle_invocations = 0
+        script_invocations = 0
+        schema_mode = "not-applicable"
+        task_count = len(request.gradle_tasks)
+
+        if scope == "protected-full":
+            full = request.protected_full
+            if full is None:
+                raise CIWError(_DOMAIN, "validation_plan_invalid")
+            gradle_started = time.monotonic_ns()
+            run_gradle_tasks(
+                wrapper,
+                full.gradle_tasks,
+                operation="android.protected_full",
+                **common,
+            )
+            gradle_wall_ms = _elapsed_ms(gradle_started)
+            gradle_invocations = 1
+            task_count = len(full.gradle_tasks)
+            schema_mode = full.schema_mode
+            if full.schema_script is not None:
+                script_started = time.monotonic_ns()
+                _execute_script(full.schema_script, project=project, environment=environment)
+                script_wall_ms = _elapsed_ms(script_started)
+                script_invocations = 1
+        elif scope == "targeted-unit":
+            gradle_started = time.monotonic_ns()
+            android_targeted_test(
+                wrapper,
+                request.gradle_tasks[0],
+                request.targeted_test_selector,
+                **common,
+            )
+            gradle_wall_ms = _elapsed_ms(gradle_started)
+            gradle_invocations = 1
+        elif scope == "script":
+            if request.script is None:
+                raise CIWError(_DOMAIN, "validation_plan_invalid")
+            script_started = time.monotonic_ns()
+            _execute_script(request.script, project=project, environment=environment)
+            script_wall_ms = _elapsed_ms(script_started)
             script_invocations = 1
-    elif scope == "targeted-unit":
-        android_targeted_test(
-            wrapper,
-            request.gradle_tasks[0],
-            request.targeted_test_selector,
-            **common,
-        )
-        gradle_invocations = 1
-    elif scope == "script":
-        if request.script is None:
-            raise CIWError(_DOMAIN, "validation_plan_invalid")
-        _execute_script(request.script, project=project, environment=environment)
-        script_invocations = 1
-        task_count = 0
-    else:
-        run_gradle_tasks(
-            wrapper,
-            request.gradle_tasks,
-            operation=f"android.{scope.replace('-', '_')}",
-            **common,
-        )
-        gradle_invocations = 1
+            task_count = 0
+        else:
+            gradle_started = time.monotonic_ns()
+            run_gradle_tasks(
+                wrapper,
+                request.gradle_tasks,
+                operation=f"android.{scope.replace('-', '_')}",
+                **common,
+            )
+            gradle_wall_ms = _elapsed_ms(gradle_started)
+            gradle_invocations = 1
 
-    android_execution.verify_exact_source(source, request.admitted_sha, context.environment)
+        android_execution.verify_exact_source(source, request.admitted_sha, context.environment)
+    measured = resources.result
     summary = json.dumps(
         {
+            "child_cpu_ms": measured.child_cpu_ms,
+            "execute_wall_ms": measured.wall_ms,
             "execution_model": "single-executor",
             "gradle_dependency_cache_mode": (
                 "read-only-seed" if "GRADLE_RO_DEP_CACHE" in environment else "cold"
             ),
             "gradle_invocations": gradle_invocations,
+            "gradle_wall_ms": gradle_wall_ms,
             "java_major": runtime.major,
+            "peak_memory_bytes": measured.peak_memory_bytes,
+            "peak_processes": measured.peak_processes,
             "private_dependency_used": request.private_dependency_used,
+            "resource_measurement": measured.measurement_source,
             "schema_mode": schema_mode,
             "scope": scope,
             "script_invocations": script_invocations,
+            "script_wall_ms": script_wall_ms,
             "status": "success",
             "task_count": task_count,
         },

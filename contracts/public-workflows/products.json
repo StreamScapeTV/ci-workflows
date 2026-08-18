@@ -108,30 +108,6 @@
       "implementation_components": ["ci_workflows.helm.publish", "ci_workflows.helm.read_back"]
     },
     {
-      "file": ".github/workflows/reusable-native-image-chart.yml",
-      "api_name": "release.native-image-chart",
-      "api_version": "1.0.0",
-      "status": "implemented",
-      "trust_class": "trusted-publication",
-      "permission_profile": "oci-publication",
-      "semantic_runner_profile": "contract:oci-publish",
-      "permitted_events": ["tag-push", "workflow_call"],
-      "inputs": [
-        {"name": "image_name", "required": true},
-        {"name": "chart_name", "required": true},
-        {"name": "chart_path", "required": true},
-        {"name": "dockerfile_path", "required": false, "default": "Dockerfile"},
-        {"name": "build_context", "required": false, "default": "."}
-      ],
-      "secrets": ["registry_username", "registry_token"],
-      "outputs": ["version", "source_sha", "image_reference", "image_digest", "chart_reference", "chart_digest", "chart_package_sha256"],
-      "stable_check_name": "Release / Native image and Helm publication",
-      "timeout_minutes": 180,
-      "matrix_max_jobs": 2,
-      "repository_owned_hooks": ["chart_path", "dockerfile_path", "build_context"],
-      "implementation_components": ["ci_workflows.packaging_primitives", "ci_workflows.release_tag_authority", "actions/resolve-release-tag", "scripts/ci/native_image_chart_validate.py", "scripts/ci/native_image_chart_prepare.py"]
-    },
-    {
       "file": ".github/workflows/reusable-release.yml",
       "api_name": "release.orchestrate",
       "api_version": "2.0.0",
