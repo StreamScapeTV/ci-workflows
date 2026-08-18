@@ -186,6 +186,7 @@
     {"id": "issue-322-flux-assets", "api_name": "flux.assets", "kind": "technology-input-decoupling", "reason": "Use a caller-owned bounded asset manifest instead of a central application product ID.", "migration_issue": "#322", "effective_version": "2.0.0"},
     {"id": "issue-322-flux-reconcile", "api_name": "flux.reconcile", "kind": "technology-input-decoupling", "reason": "Keep Flux authorization capability-based without a central application product ID.", "migration_issue": "#322", "effective_version": "2.0.0"},
     {"id": "issue-332-android", "api_name": "validation.android", "kind": "technology-input-decoupling", "reason": "Replace central Android product/task profiles with one caller-owned bounded validation plan.", "migration_issue": "#332", "effective_version": "2.0.0"},
-    {"id": "issue-341-device", "api_name": "validation.device", "kind": "technology-input-decoupling", "reason": "Replace product-coupled device aliases and profiles with semantic host capacity and caller-owned bounded command plans.", "migration_issue": "#341", "effective_version": "2.0.0"}
+    {"id": "issue-341-device", "api_name": "validation.device", "kind": "technology-input-decoupling", "reason": "Replace product-coupled device aliases and profiles with semantic host capacity and caller-owned bounded command plans.", "migration_issue": "#341", "effective_version": "2.0.0"},
+    {"id": "issue-336-apple", "api_name": "validation.apple", "kind": "technology-input-decoupling", "reason": "Protected-full Apple validation now requires a bounded fail-closed validation_plan_json and executes sequential stages in one semantic macOS workspace.", "migration_issue": "#336", "effective_version": "2.0.0"}
   ]
 }
