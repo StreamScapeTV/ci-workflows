@@ -35,6 +35,8 @@ Central owns this invocation because it owns the registered workspace lifecycle.
 
 The cache sync is `continue-on-error`: a missing cache, empty delta, unavailable internal service, or rejected promotion cannot overturn a correct product build. Registered workspace cleanup always runs afterward and remains the only owner of private workspace deletion.
 
+For bounded live diagnosis, the sync client reports only the selected private dependency-delta file count and total bytes before upload. HTTP `409` is projected as `gradle_seed_writer_busy`, HTTP `422` as `gradle_seed_promotion_rejected`, and other non-success HTTP statuses as `gradle_seed_upload_rejected`. It does not log dependency paths, payload content, endpoints, tokens, headers, credentials, or arbitrary server response bodies.
+
 The Gradle process and cache-sync client use no GitHub OIDC. Routine PR, manual, work-branch, and integration validation therefore require only `contents: read`; there is no protected-branch-only warming topology.
 
 ## Performance evidence
@@ -55,7 +57,7 @@ This evidence is collected inside the existing executor and does not create moni
 `reusable-android.yml` composes reviewed Central helpers by immutable source identity:
 
 - `validate-android@a01e29210603dc8b4cb9e31b9b0c926c2ab5cf37` — `issues #344/#346 Android telemetry and Gradle read-only seed checkpoint`;
-- `upload-gradle-seed@e6af72640ae8a782f5cd8c4f53a223956052ec25` — `issue #346 internal no-OIDC Gradle cache sync checkpoint`;
+- `upload-gradle-seed@fa67b6a1580ff2eb7386a9e58de09896b9990696` — `issue #346 bounded Gradle cache sync diagnostics checkpoint`;
 - `exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`;
 - `prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`;
 - `render-evidence@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`;
