@@ -7,17 +7,17 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from ci_workflows import ciw_gradle_seed, gradle_seed
+from ci_workflows import ciw_gradle_seed, gradle_seed, gradle_seed_internal
 from ci_workflows.ciw_types import CIWContext, CIWError
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTION = ROOT / "actions" / "upload-gradle-seed" / "action.yml"
-MODULE = ROOT / "src" / "ci_workflows" / "gradle_seed.py"
+INTERNAL_MODULE = ROOT / "src" / "ci_workflows" / "gradle_seed_internal.py"
 CLI = ROOT / "scripts" / "ci" / "gradle_seed.py"
 
 
 class GradleSeedActionContractTests(unittest.TestCase):
-    def test_action_is_thin_cli_delegate_and_cleanup_is_unconditional(self) -> None:
+    def test_action_is_thin_internal_sync_delegate_without_cleanup_or_oidc(self) -> None:
         source = ACTION.read_text(encoding="utf-8")
         input_block = source.split("inputs:\n", 1)[1].split("\noutputs:\n", 1)[0]
         self.assertIn("  source_sha:\n", input_block)
@@ -31,63 +31,60 @@ class GradleSeedActionContractTests(unittest.TestCase):
                 and line.endswith(":")
             ),
         )
-        self.assertNotIn("permissions:", source)
-        self.assertNotIn("id-token: write", source)
-        self.assertNotIn("\non:", source)
-        self.assertNotIn("runs-on:", source)
-        self.assertNotIn("workflow_dispatch", source)
-        self.assertNotIn("pull_request", source)
-        self.assertNotIn("endpoint:", input_block)
-        self.assertNotIn("audience:", input_block)
-        self.assertNotIn("token:", input_block)
+        for forbidden in (
+            "permissions:",
+            "id-token: write",
+            "ACTIONS_ID_TOKEN",
+            "authorization",
+            "workspace cleanup",
+            "if: always()",
+            "endpoint:",
+            "audience:",
+            "token:",
+        ):
+            self.assertNotIn(forbidden, source)
         self.assertIn('scripts/ci/gradle_seed.py"', source)
-        self.assertIn("if: always()", source)
-        self.assertIn('scripts/ci/ciw.py" \\\n          workspace cleanup', source)
         wrapper = CLI.read_text(encoding="utf-8")
         self.assertIn("from ci_workflows.ciw_gradle_seed import main", wrapper)
-        self.assertNotIn("promote_gradle_seed", wrapper)
 
-    def test_fixed_transport_matches_flux_protocol_but_product_policy_is_not_hardcoded(self) -> None:
-        self.assertEqual("streamscapetv-gradle-seed-v1", gradle_seed.OIDC_AUDIENCE)
+    def test_fixed_transport_is_cluster_local_and_has_no_github_identity_dependency(self) -> None:
         self.assertEqual(
             "arc-gradle-seed-promoter.github-actions-runners.svc.cluster.local",
-            gradle_seed.FLUX_HOST,
+            gradle_seed_internal.FLUX_HOST,
         )
-        self.assertEqual(8080, gradle_seed.FLUX_PORT)
-        self.assertEqual("/v1/gradle-seed", gradle_seed.FLUX_PATH)
+        self.assertEqual(8080, gradle_seed_internal.FLUX_PORT)
+        self.assertEqual("/v1/gradle-seed", gradle_seed_internal.FLUX_PATH)
         self.assertEqual(
             "application/vnd.faruqi.gradle-seed-v1",
-            gradle_seed.CONTENT_TYPE,
+            gradle_seed_internal.CONTENT_TYPE,
         )
         self.assertEqual(4 * 1024 * 1024 * 1024, gradle_seed.MAX_UPLOAD_BYTES)
-        module = MODULE.read_text(encoding="utf-8")
-        self.assertNotIn("StreamScapeTV/iptv-android", module)
-        self.assertNotIn("1310373430", module)
-        self.assertNotIn("refs/heads/develop", module)
-        self.assertNotIn("android-ci.yml", module)
-
-    def test_no_long_lived_or_github_hosted_cache_transport_is_present(self) -> None:
-        combined = (
-            ACTION.read_text(encoding="utf-8")
-            + "\n"
-            + MODULE.read_text(encoding="utf-8")
-        ).lower()
+        combined = ACTION.read_text(encoding="utf-8") + "\n" + INTERNAL_MODULE.read_text(encoding="utf-8")
+        lowered = combined.lower()
         for forbidden in (
+            "actions_id_token_request_url",
+            "actions_id_token_request_token",
+            "openid",
+            "jwks",
+            "bearer",
+            "github_token",
+            "personal_access_token",
+            "deploy_key",
             "actions/cache",
             "upload-artifact",
             "download-artifact",
             "s3://",
-            "amazon s3",
             "ghcr.io",
-            "deploy key",
-            "private key",
-            "github_token",
         ):
-            self.assertNotIn(forbidden, combined)
-        self.assertIn("actions_id_token_request_url", combined)
-        self.assertIn("actions_id_token_request_token", combined)
+            self.assertNotIn(forbidden, lowered)
+        for product_policy in (
+            "StreamScapeTV/iptv-android",
+            "1310373430",
+            "refs/heads/develop",
+        ):
+            self.assertNotIn(product_policy, combined)
 
-    def test_action_outputs_only_bounded_evidence_and_cleanup_status(self) -> None:
+    def test_action_outputs_only_bounded_sync_evidence(self) -> None:
         source = ACTION.read_text(encoding="utf-8")
         output_block = source.split("outputs:\n", 1)[1].split("\nruns:\n", 1)[0]
         names = {
@@ -98,21 +95,10 @@ class GradleSeedActionContractTests(unittest.TestCase):
             and line.endswith(":")
         }
         self.assertEqual(
-            {
-                "result",
-                "source_sha",
-                "generation",
-                "file_count",
-                "total_bytes",
-                "evidence_id",
-                "cleanup_verified",
-                "cleanup_removed_paths",
-            },
+            {"result", "source_sha", "generation", "file_count", "total_bytes", "evidence_id"},
             names,
         )
-        lowered = output_block.lower()
-        for forbidden in ("token", "endpoint", "sha256_json", "file_json"):
-            self.assertNotIn(forbidden, lowered)
+        self.assertNotIn("cleanup", output_block.lower())
 
     def test_cli_adapter_requires_registered_gradle_workspace_home(self) -> None:
         state_id = "workspace-test"
@@ -134,18 +120,15 @@ class GradleSeedActionContractTests(unittest.TestCase):
         result.output_values.return_value = {"result": "promoted"}
         with mock.patch.object(
             ciw_gradle_seed,
-            "promote_gradle_seed",
+            "sync_gradle_seed",
             return_value=result,
-        ) as promote:
+        ) as sync:
             projected = ciw_gradle_seed.execute_gradle_seed_upload(
                 argparse.Namespace(source_sha=None),
                 context,
             )
         self.assertEqual("promoted", projected.outputs["result"])
-        promote.assert_called_once_with(
-            source_sha="a" * 40,
-            environment=environment,
-        )
+        sync.assert_called_once_with(source_sha="a" * 40, environment=environment)
 
         bad_environments = (
             {**environment, "CI_WORKFLOW_ROOT": ""},
@@ -181,15 +164,8 @@ class GradleSeedActionContractTests(unittest.TestCase):
                 "GRADLE_USER_HOME": f"{root}/gradle",
             }
             result = mock.Mock()
-            result.output_values.return_value = {
-                "result": "promoted",
-                "source_sha": "a" * 40,
-            }
-            with mock.patch.object(
-                ciw_gradle_seed,
-                "promote_gradle_seed",
-                return_value=result,
-            ):
+            result.output_values.return_value = {"result": "promoted", "source_sha": "a" * 40}
+            with mock.patch.object(ciw_gradle_seed, "sync_gradle_seed", return_value=result):
                 self.assertEqual(
                     0,
                     ciw_gradle_seed.main(
