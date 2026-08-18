@@ -145,6 +145,32 @@
       ]
     },
     {
+      "file": ".github/workflows/reusable-release.yml",
+      "api_name": "release.orchestrate",
+      "api_version": "2.0.0",
+      "status": "planned",
+      "trust_class": "trusted-publication",
+      "permission_profile": "release-orchestration",
+      "semantic_runner_profile": "contract:release",
+      "permitted_events": ["tag-push", "workflow_call", "workflow_dispatch-verify-only"],
+      "inputs": [
+        {"name": "admitted_sha", "required": true},
+        {"name": "release_manifest_path", "required": true},
+        {"name": "release_tag", "required": true},
+        {"name": "release_version", "required": true},
+        {"name": "request_id", "required": true},
+        {"name": "target_id", "required": false}
+      ],
+      "secrets": ["registry_username", "registry_token", "flux_handoff_token"],
+      "outputs": ["result", "immutable_references_json", "release_manifest_sha256", "handoff_state", "request_id"],
+      "stable_check_name": "Release / Verified outputs",
+      "timeout_minutes": 240,
+      "matrix_max_jobs": 16,
+      "repository_owned_hooks": ["release_manifest_path"],
+      "implementation_components": ["ci_workflows.release.resolve", "ci_workflows.release.manifest", "internal-release-products.yml"],
+      "max_reusable_workflow_depth": 2
+    },
+    {
       "file": ".github/workflows/reusable-flux-infrastructure-assets.yml",
       "api_name": "flux.assets",
       "api_version": "2.0.0",
@@ -197,8 +223,8 @@
       "matrix_max_jobs": 2,
       "repository_owned_hooks": ["chart_path", "dockerfile_path", "build_context"],
       "implementation_components": ["ci_workflows.release_tag_authority.resolve_release_authority", "ci_workflows.release_tag_authority.revalidate_release_authority", "actions/resolve-release-tag", "bootstrap-monolithic-workflow"],
-      "deprecation": {"replacement": "release.native-image-chart", "removal_version": null},
-      "notes": "Deprecated bootstrap exception retained for migration only. Native single-platform image+chart release uses release.native-image-chart; broader release orchestration remains deferred to the integration program."
+      "deprecation": {"replacement": "release.orchestrate", "removal_version": null},
+      "notes": "Deprecated bootstrap exception retained for migration only. The replacement release API is product-neutral and caller-configured."
     }
   ]
 }
