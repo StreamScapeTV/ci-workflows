@@ -22,6 +22,7 @@ class AndroidArchitectureDocumentationTests(unittest.TestCase):
     def test_helper_guidance_and_workflow_match_action_lock(self) -> None:
         required = {
             VALIDATE_ANDROID,
+            UPLOAD_GRADLE_SEED,
             EXACT_CHECKOUT,
             PREPARE_WORKSPACE,
             PRIVATE_DEPENDENCY,
@@ -44,14 +45,19 @@ class AndroidArchitectureDocumentationTests(unittest.TestCase):
             self.assertIn(item["release"], guide)
             self.assertIn(f"uses: {action_name}@{item['sha']}", workflow)
 
-        self.assertNotIn(UPLOAD_GRADLE_SEED, workflow)
         self.assertNotIn("id-token", workflow)
+        self.assertNotIn("ACTIONS_ID_TOKEN_REQUEST", workflow)
         self.assertIn("GRADLE_RO_DEP_CACHE", guide)
         self.assertIn("private writable `GRADLE_USER_HOME`", guide)
+        self.assertIn("best-effort cache-sync call", guide)
+        self.assertIn("does not invoke Gradle again", guide)
+        self.assertIn("Registered workspace cleanup always", guide)
 
         validate_sha = actions[VALIDATE_ANDROID]["sha"]
         foundation_sha = actions[EXACT_CHECKOUT]["sha"]
+        sync_sha = actions[UPLOAD_GRADLE_SEED]["sha"]
         self.assertNotEqual(validate_sha, foundation_sha)
+        self.assertNotEqual(sync_sha, foundation_sha)
 
 
 if __name__ == "__main__":
