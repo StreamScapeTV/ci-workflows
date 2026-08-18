@@ -20,6 +20,12 @@ For `protected-full`, unit + lint + assemble + any Gradle-backed Room/KSP/schema
 
 The reusable workflow has no matrix and no nested reusable mobile jobs. Separate result metadata does not imply separate Gradle builds.
 
+## Bounded performance telemetry
+
+Android execution measures performance inside the existing executor; it creates no monitoring job, service, artifact, cache, or background infrastructure. `test_summary` records finite integer milliseconds for the complete Android execute function, the Gradle invocation, and any checked-in script phase. On Linux cgroup v2 runners, one lightweight in-process sampler reads this process' fixed cgroup `memory.current` and `pids.current` during the execution window and records the observed peak bytes and process count. Child CPU time is reported as a bounded millisecond delta when the host runtime exposes POSIX child usage.
+
+Unsupported host metrics are emitted as JSON `null` with `resource_measurement: "unavailable"`; the adapter never invents zero usage. The sampler runs beside the existing child process rather than replacing it, and its context manager preserves the original exception/timeout/failure path. Evidence contains no command arguments, environment values, absolute cgroup paths, credentials, source payloads, or arbitrary process listings.
+
 ## Immutable central helpers
 
 Private callers do not clone the central repository with caller-scoped credentials. The workflow invokes central composite actions at immutable full commit SHAs:
@@ -46,7 +52,7 @@ The Android adapter refuses the dependency unless the checkout reports matching 
 
 ## Outputs, cleanup, and artifacts
 
-The public workflow exposes `result`, bounded `test_summary`, and `cleanup_result`. The summary contains only technology-level status: scope, single-executor model, task count, JDK major, Gradle/script invocation counts, schema mode, and whether an exact private dependency was used. Raw command stdout/stderr, environment values, tokens, host paths, and application identifiers are not public outputs.
+The public workflow exposes `result`, bounded `test_summary`, and `cleanup_result`. The summary contains only technology-level status and measurements: scope, single-executor model, task count, JDK major, Gradle/script invocation counts and wall times, complete execute wall time, schema mode, whether an exact private dependency was used, bounded child CPU time, and sampled cgroup peak memory/process count when available. Raw command stdout/stderr, environment values, tokens, host paths, and application identifiers are not public outputs.
 
 Android-specific cleanup runs once after execution under `if: always()` whenever workspace preparation succeeded. It removes only the known marker-bound copied-source path, then one residue check proves that path is absent. Registered workspace cleanup runs once under `if: always()` and removes private dependency state, credentials, Gradle state, temporary files, and evidence. A final exact-source check proves the admitted checkout SHA and worktree remained unchanged. Terminal projection fails the job unless execution and every applicable cleanup/residue check succeed.
 
