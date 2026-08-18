@@ -108,10 +108,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/upload-gradle-seed",
-      "sha": "7a0977db839468aac24448831a9a0ffd97b3067b",
-      "release": "issue #347 trusted Gradle seed client",
+      "sha": "fb02aa35414e59464716be9ba644e0ee7ec100ed",
+      "release": "issue #346 internal no-OIDC Gradle cache sync checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/7a0977db839468aac24448831a9a0ffd97b3067b/actions/upload-gradle-seed"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/fb02aa35414e59464716be9ba644e0ee7ec100ed/actions/upload-gradle-seed"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-android-live-service",
