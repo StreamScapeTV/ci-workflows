@@ -175,62 +175,7 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          python3 - <<'PY'
-          from __future__ import annotations
-
-          import json
-          import os
-          from pathlib import Path
-          import re
-
-          root = Path("source").resolve()
-          if not root.is_dir() or root.is_symlink():
-              raise SystemExit("caller source root is invalid")
-          if os.environ["SOURCE_SHA"] != os.popen("git -C source rev-parse HEAD").read().strip():
-              raise SystemExit("caller source SHA is not exact")
-
-          slug = re.compile(r"[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?")
-          for name in ("IMAGE_NAME", "CHART_NAME"):
-              value = os.environ[name]
-              if slug.fullmatch(value) is None:
-                  raise SystemExit(f"{name} is invalid")
-
-          def bounded(relative: str, *, directory: bool) -> Path:
-              if not relative or "\\" in relative or relative.startswith("/"):
-                  raise SystemExit("caller path is invalid")
-              if any(part in {"", ".."} for part in Path(relative).parts):
-                  raise SystemExit("caller path is invalid")
-              resolved = (root / relative).resolve()
-              if resolved != root and root not in resolved.parents:
-                  raise SystemExit("caller path escapes source")
-              if resolved.is_symlink() or (directory and not resolved.is_dir()) or (not directory and not resolved.is_file()):
-                  raise SystemExit("caller path does not exist with required type")
-              return resolved
-
-          bounded(os.environ["BUILD_CONTEXT"], directory=True)
-          bounded(os.environ["DOCKERFILE_PATH"], directory=False)
-          chart_root = bounded(os.environ["CHART_PATH"], directory=True)
-          chart_yaml = chart_root / "Chart.yaml"
-          if not chart_yaml.is_file() or chart_yaml.is_symlink():
-              raise SystemExit("Chart.yaml is invalid")
-
-          package = json.loads((root / "package.json").read_text(encoding="utf-8"))
-          package_version = package.get("version") if isinstance(package, dict) else None
-          chart_text = chart_yaml.read_text(encoding="utf-8")
-          chart_name = re.search(r"^name:\s*([^\s]+)\s*$", chart_text, re.MULTILINE)
-          chart_version = re.search(r"^version:\s*([^\s]+)\s*$", chart_text, re.MULTILINE)
-          app_version = re.search(r"^appVersion:\s*[\"']?([^\"'\s]+)[\"']?\s*$", chart_text, re.MULTILINE)
-          if chart_name is None or chart_name.group(1) != os.environ["CHART_NAME"]:
-              raise SystemExit("chart name does not match release input")
-          expected = os.environ["VERSION"]
-          values = (
-              package_version,
-              chart_version.group(1) if chart_version else None,
-              app_version.group(1) if app_version else None,
-          )
-          if any(value != expected for value in values):
-              raise SystemExit(f"release versions are not aligned to {expected}: {values}")
-          PY
+          python3 .ciw/scripts/ci/native_image_chart_validate.py
 
       - name: Verify daemonless native-amd64 publication tools and credentials
         shell: bash
@@ -281,53 +226,7 @@ jobs:
           rm -rf "${RUNNER_TEMP}/native-image-chart/auth.json" "${HELM_REGISTRY_CONFIG}" "${PACKAGE_ROOT}"
           mkdir -p "$(dirname "${REGISTRY_AUTH_FILE}")" "${PACKAGE_ROOT}"
           chmod 0700 "$(dirname "${REGISTRY_AUTH_FILE}")" "${PACKAGE_ROOT}"
-          python3 - <<'PY'
-          from __future__ import annotations
-
-          import hashlib
-          import os
-          from pathlib import Path
-
-          from ci_workflows.packaging_primitives import (
-              build_image,
-              helm_lint,
-              helm_package,
-              helm_template,
-              inspect_image,
-          )
-
-          source = Path("source").resolve()
-          context = (source / os.environ["BUILD_CONTEXT"]).resolve()
-          dockerfile = (source / os.environ["DOCKERFILE_PATH"]).resolve()
-          chart = (source / os.environ["CHART_PATH"]).resolve()
-          image_reference = (
-              f"{os.environ['REGISTRY']}/{os.environ['REGISTRY_NAMESPACE']}/"
-              f"{os.environ['IMAGE_NAME']}:{os.environ['VERSION']}"
-          )
-          env = dict(os.environ)
-          build_image(context, dockerfile, image_reference, environment=env, tool="buildah")
-          inspect_image(image_reference, environment=env, tool="buildah", cwd=source)
-          helm_lint(chart, environment=env)
-          rendered = helm_template(
-              chart,
-              release_name=os.environ["CHART_NAME"],
-              environment=env,
-          )
-          if not rendered.strip():
-              raise SystemExit("Helm render is empty")
-          package = helm_package(
-              chart,
-              Path(os.environ["PACKAGE_ROOT"]),
-              version=os.environ["VERSION"],
-              app_version=os.environ["VERSION"],
-              environment=env,
-          )
-          digest = hashlib.sha256(package.archive.read_bytes()).hexdigest()
-          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
-              output.write(f"image_reference={image_reference}\n")
-              output.write(f"package_path={package.archive}\n")
-              output.write(f"chart_package_sha256={digest}\n")
-          PY
+          python3 .ciw/scripts/ci/native_image_chart_prepare.py
 
       - name: Authenticate and require unused immutable version identities
         shell: bash
