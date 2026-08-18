@@ -223,17 +223,11 @@ jobs:
           PUB_CACHE_PATH: ${{ format('{0}/tmp/flutter-validation/pub-cache', env.CI_WORKFLOW_ROOT) }}
         run: |
           set -Eeuo pipefail
-          test -n "${CI_TOOL_ROOT:-}"
-          test -n "${CI_WORKFLOW_ROOT:-}"
-          case "${FLUTTER_CACHE_PATH}" in
-            "${CI_TOOL_ROOT}/flutter-sdk-"*) ;;
-            *) echo "::error::Flutter retry cache escaped registered tool root."; exit 1 ;;
-          esac
+          test -n "${CI_TOOL_ROOT:-}" && test -n "${CI_WORKFLOW_ROOT:-}"
+          case "${FLUTTER_CACHE_PATH}" in "${CI_TOOL_ROOT}/flutter-sdk-"*) ;; *) exit 1 ;; esac
           test "${PUB_CACHE_PATH}" = "${CI_WORKFLOW_ROOT}/tmp/flutter-validation/pub-cache"
-          test ! -L "${FLUTTER_CACHE_PATH}"
-          test ! -L "${PUB_CACHE_PATH}"
-          rm -rf -- "${FLUTTER_CACHE_PATH}" "${PUB_CACHE_PATH}"
-          mkdir -p -- "${PUB_CACHE_PATH}"
+          test ! -L "${FLUTTER_CACHE_PATH}" && test ! -L "${PUB_CACHE_PATH}"
+          rm -rf -- "${FLUTTER_CACHE_PATH}" "${PUB_CACHE_PATH}" && mkdir -p -- "${PUB_CACHE_PATH}"
           sleep 5
       - id: flutter_setup_retry
         name: Retry exact immutable Flutter runtime once
@@ -373,17 +367,11 @@ jobs:
           PUB_CACHE_PATH: ${{ format('{0}/tmp/flutter-validation/pub-cache', env.CI_WORKFLOW_ROOT) }}
         run: |
           set -Eeuo pipefail
-          test -n "${CI_TOOL_ROOT:-}"
-          test -n "${CI_WORKFLOW_ROOT:-}"
-          case "${FLUTTER_CACHE_PATH}" in
-            "${CI_TOOL_ROOT}/flutter-sdk-"*) ;;
-            *) echo "::error::Flutter retry cache escaped registered tool root."; exit 1 ;;
-          esac
+          test -n "${CI_TOOL_ROOT:-}" && test -n "${CI_WORKFLOW_ROOT:-}"
+          case "${FLUTTER_CACHE_PATH}" in "${CI_TOOL_ROOT}/flutter-sdk-"*) ;; *) exit 1 ;; esac
           test "${PUB_CACHE_PATH}" = "${CI_WORKFLOW_ROOT}/tmp/flutter-validation/pub-cache"
-          test ! -L "${FLUTTER_CACHE_PATH}"
-          test ! -L "${PUB_CACHE_PATH}"
-          rm -rf -- "${FLUTTER_CACHE_PATH}" "${PUB_CACHE_PATH}"
-          mkdir -p -- "${PUB_CACHE_PATH}"
+          test ! -L "${FLUTTER_CACHE_PATH}" && test ! -L "${PUB_CACHE_PATH}"
+          rm -rf -- "${FLUTTER_CACHE_PATH}" "${PUB_CACHE_PATH}" && mkdir -p -- "${PUB_CACHE_PATH}"
           sleep 5
       - id: flutter_setup_retry
         name: Retry exact immutable Flutter runtime once
