@@ -144,6 +144,34 @@
       "implementation_components": ["ci_workflows.ciw_android_completion.execute_android_release_validate", "actions/validate-android-release"]
     },
     {
+      "file": ".github/workflows/reusable-android-seed-warm.yml",
+      "api_name": "validation.android-seed-warm",
+      "api_version": "1.0.0",
+      "status": "implemented",
+      "trust_class": "read-only-validation",
+      "permission_profile": "validation-oidc",
+      "semantic_runner_profile": "mobile",
+      "permitted_events": ["push", "workflow_call"],
+      "inputs": [
+        {"name": "admitted_sha", "required": true},
+        {"name": "validation_scope", "required": true},
+        {"name": "working_directory", "required": false, "default": "."},
+        {"name": "gradle_wrapper_path", "required": false, "default": "gradlew"},
+        {"name": "validation_plan_json", "required": true},
+        {"name": "private_dependency_repository", "required": false, "default": ""},
+        {"name": "private_dependency_sha", "required": false, "default": ""},
+        {"name": "private_dependency_subdirectory", "required": false, "default": "."},
+        {"name": "private_dependency_id", "required": false, "default": ""}
+      ],
+      "secrets": ["private_dependency_token"],
+      "outputs": ["result", "test_summary", "cleanup_result"],
+      "stable_check_name": "CI / Android protected seed validation",
+      "timeout_minutes": 120,
+      "matrix_max_jobs": 1,
+      "repository_owned_hooks": ["validation_plan_json"],
+      "implementation_components": ["ci_workflows.ciw_android.execute_android_validate", "ci_workflows.language_primitives.run_gradle_tasks", "ci_workflows.language_primitives.android_targeted_test", "actions/validate-android", "actions/upload-gradle-seed"]
+    },
+    {
       "file": ".github/workflows/reusable-flutter.yml",
       "api_name": "validation.flutter",
       "api_version": "1.0.0",
