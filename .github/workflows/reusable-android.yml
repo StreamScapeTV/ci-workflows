@@ -172,7 +172,7 @@ jobs:
         name: Sync newly resolved Gradle dependencies to the internal cache
         if: ${{ steps.execute.outcome == 'success' && steps.android_cleanup.outcome == 'success' && steps.residue.outcome == 'success' }}
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/upload-gradle-seed@e6af72640ae8a782f5cd8c4f53a223956052ec25 # issue #346 internal no-OIDC Gradle cache sync checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/upload-gradle-seed@fa67b6a1580ff2eb7386a9e58de09896b9990696 # issue #346 bounded Gradle cache sync diagnostics checkpoint
         with:
           source_sha: ${{ inputs.admitted_sha }}
 
