@@ -68,16 +68,10 @@ jobs:
     name: CI / Android validation
     runs-on: [linux, amd64, mobile]
     timeout-minutes: 120
-    # The reusable job may request OIDC, but a called workflow cannot elevate above
-    # its caller. Ordinary callers grant only contents:read, so the effective
-    # id-token permission remains none. The protected warming caller grants it.
-    permissions:
-      contents: read
-      id-token: write
     outputs:
       result: ${{ steps.terminal.outputs.result }}
       test_summary: ${{ steps.execute.outputs.test_summary }}
-      cleanup_result: ${{ steps.android_cleanup.outcome == 'success' && steps.residue.outcome == 'success' && (steps.gradle_seed.outputs.cleanup_verified == 'true' || steps.workspace_cleanup.outcome == 'success') && 'success' || 'failure' }}
+      cleanup_result: ${{ steps.android_cleanup.outcome == 'success' && steps.residue.outcome == 'success' && steps.workspace_cleanup.outcome == 'success' && 'success' || 'failure' }}
     steps:
       - id: plan
         name: Validate technology-level Android request
@@ -174,29 +168,17 @@ jobs:
           admitted_sha: ${{ inputs.admitted_sha }}
           validation_scope: ${{ inputs.validation_scope }}
 
-      - id: gradle_seed_authority
-        name: Detect caller-granted protected-push OIDC authority
-        if: ${{ github.event_name == 'push' && github.ref_protected }}
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          enabled=false
-          if [[ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" && -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
-            enabled=true
-          fi
-          echo "enabled=${enabled}" >> "${GITHUB_OUTPUT}"
-
       - id: gradle_seed
-        name: Warm trusted Gradle dependency seed after successful validation
-        if: ${{ steps.gradle_seed_authority.outputs.enabled == 'true' && steps.execute.outcome == 'success' && steps.android_cleanup.outcome == 'success' && steps.residue.outcome == 'success' }}
+        name: Sync newly resolved Gradle dependencies to the internal cache
+        if: ${{ steps.execute.outcome == 'success' && steps.android_cleanup.outcome == 'success' && steps.residue.outcome == 'success' }}
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/upload-gradle-seed@7a0977db839468aac24448831a9a0ffd97b3067b # issue #347 trusted Gradle seed client
+        uses: StreamScapeTV/ci-workflows/actions/upload-gradle-seed@e6af72640ae8a782f5cd8c4f53a223956052ec25 # issue #346 internal no-OIDC Gradle cache sync checkpoint
         with:
           source_sha: ${{ inputs.admitted_sha }}
 
       - id: workspace_cleanup
         name: Remove and verify the one registered Android workspace
-        if: always() && steps.gradle_seed.outputs.cleanup_verified != 'true'
+        if: always()
         uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
 
       - id: clean
@@ -222,7 +204,6 @@ jobs:
           EXECUTE_OUTCOME: ${{ steps.execute.outcome }}
           ANDROID_CLEANUP_OUTCOME: ${{ steps.android_cleanup.outcome }}
           RESIDUE_OUTCOME: ${{ steps.residue.outcome }}
-          GRADLE_SEED_CLEANUP_VERIFIED: ${{ steps.gradle_seed.outputs.cleanup_verified }}
           WORKSPACE_CLEANUP_OUTCOME: ${{ steps.workspace_cleanup.outcome }}
           CLEAN_OUTCOME: ${{ steps.clean.outcome }}
         run: |
@@ -231,10 +212,6 @@ jobs:
           if [[ "${DEPENDENCY_REQUIRED}" == "true" ]]; then
             test "${DEPENDENCY_OUTCOME}" = "success" || dependency_ok=false
           fi
-          workspace_cleanup_ok=false
-          if [[ "${GRADLE_SEED_CLEANUP_VERIFIED}" == "true" || "${WORKSPACE_CLEANUP_OUTCOME}" == "success" ]]; then
-            workspace_cleanup_ok=true
-          fi
           if [[ "${PLAN_OUTCOME}" == "success" &&
                 "${CHECKOUT_OUTCOME}" == "success" &&
                 "${WORKSPACE_OUTCOME}" == "success" &&
@@ -242,7 +219,7 @@ jobs:
                 "${EXECUTE_OUTCOME}" == "success" &&
                 "${ANDROID_CLEANUP_OUTCOME}" == "success" &&
                 "${RESIDUE_OUTCOME}" == "success" &&
-                "${workspace_cleanup_ok}" == "true" &&
+                "${WORKSPACE_CLEANUP_OUTCOME}" == "success" &&
                 "${CLEAN_OUTCOME}" == "success" ]]; then
             echo "result=success" >> "${GITHUB_OUTPUT}"
             exit 0

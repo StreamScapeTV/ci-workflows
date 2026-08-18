@@ -14,7 +14,7 @@ FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 FLUTTER_SHA = "d2e1c7a7601e1caeeb976311fb13cf41fef94d4a"
 PYTHON_SHA = "aece8d01efdd5482a1c3d42db357aed87a7917e9"
 ANDROID_SHA = "a01e29210603dc8b4cb9e31b9b0c926c2ab5cf37"
-GRADLE_SEED_SHA = "7a0977db839468aac24448831a9a0ffd97b3067b"
+GRADLE_SEED_SHA = "e6af72640ae8a782f5cd8c4f53a223956052ec25"
 APPLE_SHA = "2dacd98d19c5e136ce4803ab70b0f7ebd45414bf"
 OCI_SHA = "3b401078d1167d7048281e3c3269556ce586dada"
 GITOPS_SHA = "8445e63dd9fa9468b60b6d0c61e543da9681b47b"
@@ -26,7 +26,7 @@ FOUNDATION = "issue #116 immutable private-action checkpoint"
 ISSUE_350 = "issue #350 PR-merge snapshot race checkpoint"
 ISSUE_104 = "issue #104 immutable private-action checkpoint"
 ISSUES_344_346 = "issues #344/#346 Android telemetry and Gradle read-only seed checkpoint"
-ISSUE_347 = "issue #347 trusted Gradle seed client"
+ISSUE_346_CACHE = "issue #346 internal no-OIDC Gradle cache sync checkpoint"
 ISSUE_125 = "issue #125 immutable private-action checkpoint"
 ISSUE_235 = "issue #235 general-runner Python primitives checkpoint"
 ISSUE_150 = "issue #150 immutable OCI input checkpoint"
@@ -44,7 +44,7 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
     },
     ".github/workflows/reusable-android.yml": {
         "StreamScapeTV/ci-workflows/actions/validate-android": (ANDROID_SHA, ISSUES_344_346),
-        "StreamScapeTV/ci-workflows/actions/upload-gradle-seed": (GRADLE_SEED_SHA, ISSUE_347),
+        "StreamScapeTV/ci-workflows/actions/upload-gradle-seed": (GRADLE_SEED_SHA, ISSUE_346_CACHE),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/checkout-private-dependency": (FOUNDATION_SHA, ISSUE_104),

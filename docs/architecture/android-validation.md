@@ -1,112 +1,81 @@
 # Android validation architecture
 
-## Authority and layers
+## Purpose
 
-The Android gate follows the repository's named-function architecture:
+Central Android validation provides one product-neutral Gradle execution boundary for Android consumers. The performance model is deliberately simple: one mobile executor, one copied source tree, one private writable Gradle home, and an optional runner-provided read-only dependency cache.
 
-1. `contracts/android-validation.json` is the reviewed behavior and compatibility authority.
-2. `contracts/android-source-policy.json` is the narrow Android projection for stable policy failure mapping and exact synthetic-marker exceptions.
-3. `src/ci_workflows/android_types.py` defines immutable requests, plans, commands, wrappers, results, stable errors, and bounded policy diagnostics.
-4. `src/ci_workflows/android_contract.py` validates the complete validation contract, derives source trust, parses bounded inputs, and resolves one deterministic plan.
-5. `src/ci_workflows/android_policy.py` preserves shared repository policy while applying only exact repository/profile/path/rule/blob exceptions and safe failure subjects.
-6. `src/ci_workflows/android_execution.py` owns direct process execution, exact toolchain and wrapper verification, source copying, mutation checks, output checks, redaction, and no-follow cleanup.
-7. `src/ci_workflows/android.py` applies the projected repository policy before and after one plan and maps policy findings to stable Android codes.
-8. `src/ci_workflows/ciw_android.py` adapts the named `ciw android validate` command to plan, execute, cleanup, and residue phases and forwards only the fixed runner-owned read-only Gradle dependency seed path when present.
-9. `src/ci_workflows/android_resource_metrics.py` samples bounded same-executor wall/CPU/cgroup evidence without changing child execution.
-10. `actions/validate-android/action.yml` is a thin composite adapter.
-11. `actions/upload-gradle-seed/action.yml` is the bounded OIDC + portable Gradle modules promotion adapter; it owns no product task selection and no caller-selected endpoint.
-12. `.github/workflows/reusable-android.yml` owns protected planning, semantic mobile scheduling, exact source/dependency primitives, capability-gated same-workspace seed warming, evidence, and verified terminal cleanup.
+## Layers
 
-Workflow YAML does not implement Gradle task selection, repository compatibility, authentication policy, cleanup traversal, test-filter parsing, source-policy exception selection, product policy, cache candidate filtering/framing, or resource-monitoring infrastructure. Those decisions remain in typed code and checked-in contract data.
+1. `contracts/android-validation.json` defines the Android validation contract.
+2. `src/ci_workflows/android_contract.py` validates the request and resolves a bounded plan.
+3. `src/ci_workflows/android_execution.py` verifies toolchain/wrapper state, copies source, runs commands, and checks mutation/output rules.
+4. `src/ci_workflows/ciw_android.py` adapts plan/execute/cleanup/residue phases and forwards the fixed runner-provided Gradle read-only cache when present.
+5. `src/ci_workflows/android_resource_metrics.py` measures bounded same-executor wall/CPU/cgroup evidence.
+6. `actions/validate-android/action.yml` is the thin validation adapter.
+7. `actions/upload-gradle-seed/action.yml` is the thin best-effort internal dependency-delta sync adapter.
+8. `.github/workflows/reusable-android.yml` composes one mobile job around those primitives.
 
-## Immutable private helper source
+There is no second Android build for cache warming and routine validation has no OIDC dependency.
 
-Private reusable callers do not clone the private `StreamScapeTV/ci-workflows` repository with the caller-scoped Actions token. `reusable-android.yml` composes reviewed central primitives through independently locked identities from `contracts/action-tool-lock.json`: `validate-android` uses `a01e29210603dc8b4cb9e31b9b0c926c2ab5cf37` with release `issues #344/#346 Android telemetry and Gradle read-only seed checkpoint`; `upload-gradle-seed` uses `7a0977db839468aac24448831a9a0ffd97b3067b` with release `issue #347 trusted Gradle seed client`; `exact-checkout`, `prepare-workspace`, `render-evidence`, and `cleanup-workspace` use `70e08d4ddf8930046632a7135950e924b82e22bf` with release `issue #116 immutable private-action checkpoint`; and `checkout-private-dependency` currently resolves to that same source SHA while retaining its separately recorded release `issue #104 immutable private-action checkpoint`.
+## One-executor protected-full
 
-Each composite resolves its implementation and contracts relative to its own `GITHUB_ACTION_PATH`, so the called helper source is the immutable action-lock revision rather than a caller PR merge SHA or a second central checkout. The caller cannot select or override any helper revision. The workflow does not accept a central-repository PAT, generic checkout token, mutable ref, cache endpoint, cache path, or `secrets: inherit`.
+`protected-full` flattens unit, lint, assemble, and applicable Gradle-backed Room/KSP/schema tasks into one Gradle invocation. A checked-in schema script, when selected, executes afterward in the same copied source/workspace. The workflow has no matrix and no nested mobile reusable job.
 
-The existing optional `private_dependency_token` remains a separate product dependency credential. It is passed only to `checkout-private-dependency` when the protected Android plan selects the reviewed dependency contract; it is never used to retrieve central helper source and never reaches planning, Android execution, evidence, seed promotion, or cleanup actions.
+This preserves compiled/configured state inside a single Gradle process rather than creating several cold Android jobs.
 
-## Trust and runner resolution
+## Shared dependency cache
 
-The planner derives trust from immutable GitHub event metadata. Only `trusted-pr` and `trusted-exact` are permitted by the Android profiles. Untrusted forks fail before mobile execution, shared cache, private dependency, live backend, signing, device, or privileged state. No public input can select a semantic profile or raw label.
+Each job receives a private writable `GRADLE_USER_HOME`. The Android runtime may additionally forward `GRADLE_RO_DEP_CACHE=/opt/gradle-ro-cache` when that runner-owned directory exists. Gradle reads dependency modules from that shared cache and writes new resolution state only to the job-private Gradle home.
 
-The planner requests semantic `mobile` through the central runner resolver. The execution job consumes only the protected resolver's JSON output. Bare `self-hosted`, hosted labels, Apple profiles, Buildah profiles, composite label mixtures, and caller expressions are excluded.
+If the read-only cache is absent, execution falls back to normal cold dependency resolution. Cache misses remain normal Gradle dependency resolution.
 
-The `mobile` profile means Android build capacity, not a physical Android device. `device-handoff` produces a data packet for another workflow and has no executable task.
+After successful Android execution, copied-source cleanup, and residue verification, the same executor makes one best-effort cache-sync call **before** registered workspace cleanup removes the private `GRADLE_USER_HOME`. The sync client reads only that job's `GRADLE_USER_HOME/caches/modules-*`, uses the existing bounded framing/filtering contract, and streams the delta to the fixed cluster-local Flux service. It does not invoke Gradle again.
 
-Seed warming does not add a public workflow input. The reusable Android job may request `id-token: write`, but GitHub's called-workflow permission ceiling prevents it from elevating above the caller. Promotion is considered only for a protected `push`, and a bounded authority step requires GitHub's OIDC request capability to actually be present. Ordinary PR/manual/work-branch callers grant only `contents: read`; their effective OIDC permission stays absent and the uploader is skipped. A trusted protected-branch warming caller opts in solely by granting `id-token: write` to that exact reusable call.
+Central owns this invocation because it owns the registered workspace lifecycle. Flux owns the internal ClusterIP writer and the single-writer generation merge. Android product callers never gain a cache endpoint, token, OIDC permission, or separate warming job.
 
-## Contract-owned command model
+The cache sync is `continue-on-error`: a missing cache, empty delta, unavailable internal service, or rejected promotion cannot overturn a correct product build. Registered workspace cleanup always runs afterward and remains the only owner of private workspace deletion.
 
-A public request identifies one repository task profile. Contract resolution requires an exact repository/task/profile/working-directory/wrapper tuple. The resulting command sequence contains only fixed argv arrays. Gradle tasks use strict colon-qualified task syntax and are invoked through the verified wrapper. Consumer hooks must be checked-in `scripts/` files and use fixed arguments.
+The Gradle process and cache-sync client use no GitHub OIDC. Routine PR, manual, work-branch, and integration validation therefore require only `contents: read`; there is no protected-branch-only warming topology.
 
-The only request-derived command value is an optional targeted test selector. Its grammar admits a fully qualified class or method identifier and excludes wildcards, traversal, whitespace, shell operators, hashes, Gradle properties, init scripts, and arbitrary arguments.
+## Performance evidence
 
-Repository-specific values are data, not code branches. The contract currently describes the Android application, Streamscape Media's Android build, and the central synthetic smoke fixture. Consumers remain responsible for the meaning of their tasks and product assertions.
+The Android execute phase reports:
 
-The `synthetic-smoke` wrapper mode has one fixed internal behavior: after exact wrapper/distribution version verification, execution invokes `:verifyToolchainSmoke`. The task belongs to the issue-owned synthetic fixture and cannot be selected or replaced by a caller. Other wrapper modes receive no implicit task and continue to execute only their resolved contract command sequence.
+- total execute wall time;
+- Gradle wall time;
+- optional checked-in script wall time;
+- child CPU time when available;
+- sampled cgroup peak memory and process count when available;
+- `gradle_dependency_cache_mode=read-only-seed|cold`.
 
-## Runtime isolation
+This evidence is collected inside the existing executor and does not create monitoring jobs or services.
 
-Before execution, the exact caller worktree must equal the admitted SHA and have no tracked or untracked changes. Source is copied without following symlinks into registered disposable state. Execution never mutates the caller checkout.
+## Helper checkpoints
 
-The runtime creates private mode-0700 locations for home, temporary files, Gradle state, Android user state, and logs beneath the registered Android state root. Java, Javac, SDK manager, Gradle wrapper, and Gradle tasks all receive those same paths. Inherited host `HOME` and `TMPDIR` values are not part of the execution environment. `GRADLE_OPTS` disables the daemon and enforces UTF-8. The checked-in wrapper receives `--no-daemon` on every invocation.
+`reusable-android.yml` composes reviewed Central helpers by immutable source identity:
 
-`GRADLE_USER_HOME` remains the workflow-scoped writable Gradle home. The strict runtime may additionally forward `GRADLE_RO_DEP_CACHE` only when the runner supplied exactly `/opt/gradle-ro-cache`, that fixed path is a real non-symlink directory, and it does not alias the writable home. Absence of the fixed mount degrades to ordinary cold dependency resolution. Any other non-empty path fails closed. No token, arbitrary inherited HOME state, GitHub environment, or caller-selected cache path is forwarded. Gradle's native read-only dependency-cache behavior therefore accelerates portable dependency lookup while misses continue to populate only the private job home.
+- `validate-android@a01e29210603dc8b4cb9e31b9b0c926c2ab5cf37` — `issues #344/#346 Android telemetry and Gradle read-only seed checkpoint`;
+- `upload-gradle-seed@e6af72640ae8a782f5cd8c4f53a223956052ec25` — `issue #346 internal no-OIDC Gradle cache sync checkpoint`;
+- `exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`;
+- `prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`;
+- `render-evidence@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`;
+- `cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`;
+- `checkout-private-dependency@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #104 immutable private-action checkpoint`.
 
-JDK/Javac and SDK package inventory are verified before Gradle. Wrapper properties are parsed without shell evaluation. The contract names the launcher path and blob identity, properties path and blob identity, and, when a standard Gradle wrapper uses one, JAR path and blob identity as independent fields relative to the reviewed working directory. Distribution URL, checksum, every declared component identity, and `Gradle <version>` output are verified against the contract; a JAR digest can never satisfy launcher verification. Streamscape Media's checked-in launcher and IPTV Android's standard wrapper have distinct reviewed wrapper modes.
+The action lock must record the same cache-sync checkpoint before the candidate is merge-state.
 
-The central synthetic fixture is the only mode that obtains Gradle at runtime. Its checked-in launcher contains a fixed official Gradle `9.6.1` HTTPS URL and SHA-256, downloads beneath isolated `GRADLE_USER_HOME`, verifies the digest before extraction, and performs bounded no-follow extraction that rejects traversal, duplicate destinations, unsupported members, excessive member counts, and excessive expanded size. It then executes the fixed synthetic task through the installed binary. This does not install a system package, modify the host, use sudo, or create state outside the registered root. Consumer profiles continue to use their own checked-in wrapper or launcher contracts.
+## Runtime state
 
-## Same-executor performance evidence
+The admitted checkout is copied into registered disposable workflow state before product execution. Java, Android SDK tools, Gradle, and checked-in scripts use that isolated state. The original admitted checkout remains a verification source and is checked again at the end.
 
-The CIW Android execute phase starts one lightweight resource sampler around the existing source-copy/toolchain/Gradle/script execution. It does not wrap Gradle in another shell/process, change task argv, change timeouts, or allocate another Actions job. Gradle and checked-in script wall times use monotonic-clock deltas around the same calls that already determine success or failure; total execute wall time is measured across the same CIW execution function.
+The private dependency, when requested, is checked out once to registered state and only its verified path reaches product execution. Its checkout credential does not reach Gradle or the cache-sync client.
 
-On Linux cgroup v2, the sampler resolves only the current process' unified cgroup from `/proc/self/cgroup` beneath the fixed `/sys/fs/cgroup` root and polls `memory.current` and `pids.current`. Those kernel counters already account for the cgroup and descendants, so the emitted peak is a same-executor cgroup peak observed during the Android execution window rather than a heap-ceiling estimate. POSIX `RUSAGE_CHILDREN` provides a bounded child CPU delta when available. No process command line, environment, PID list, cgroup path, source path, or host identity is emitted.
+## Cleanup
 
-Measurement support is explicitly optional. Missing/disappearing cgroup files or non-POSIX child CPU accounting produce JSON `null` and `resource_measurement: unavailable`; they do not convert successful product work into a telemetry failure and do not fabricate zero usage. The sampler context manager always stops under exception unwinding and returns `False`, so the original child exception remains authoritative.
+Android copied-source cleanup runs after execution, followed by residue verification. A successful run may then attempt the internal dependency-delta sync while the private Gradle home still exists. Registered workspace cleanup always follows and removes the private writable Gradle home, dependency checkout, temporary files, and evidence. The runner-owned read-only dependency cache is outside job cleanup and persists for later jobs.
 
-## Trusted Gradle seed promotion
+Terminal success requires the Android plan/execution plus applicable cleanup/residue/source-clean checks. Cache availability or cache updating is not a correctness condition.
 
-Promotion is an internal acceleration path, not a public validation input. The reusable job requests OIDC at job scope, but it can receive that capability only when the caller grants it. The workflow additionally requires the caller event to be a protected `push`; a bounded authority step detects the runner-provided OIDC request capability without logging or forwarding its token. PRs, manual dispatches, and ordinary work branches therefore skip promotion even if they execute the same validation plan.
+## Performance ownership
 
-When authority is present, promotion is considered only after authoritative Android execution succeeds and Android copied-source cleanup/residue is already verified. The immutable issue #347 client then reads the **same job-private `GRADLE_USER_HOME`** created by `prepare-workspace`; there is no second mutable Gradle home and no cross-job state transfer.
-
-The client accepts only the exact admitted source SHA. It obtains GitHub OIDC with fixed audience `streamscapetv-gradle-seed-v1`, talks only to the fixed internal promoter endpoint, and admits only portable dependency content beneath `caches/modules-*`. Traversal, symlinks, hardlinks/races, locks, `gc.properties`, transforms, daemon/configuration-cache state, build output, Android SDK, arbitrary HOME state, credentials, signing material, excessive files/bytes, and digest mismatch are rejected by reviewed typed code. Framing includes per-file SHA-256 identity. There is no GitHub Actions cache/artifact, PAT, deploy key, S3, OCI, or caller-selected endpoint fallback.
-
-Promotion is acceleration-only. The workflow marks the seed step `continue-on-error`, so OIDC, network, admission, or promoter failure cannot overturn otherwise-correct Android validation. Security cleanup remains authoritative: the upload action runs marker-bound workspace cleanup under `if: always()`, and the reusable workflow invokes the ordinary immutable workspace cleanup whenever the upload action did not prove `cleanup_verified=true`. Terminal success requires one cleanup proof even though it deliberately does not require upload success.
-
-## Private dependency composition
-
-The Android layer never performs Git authentication or checkout. The reusable workflow invokes `checkout-private-dependency`, then passes only registered-state relative path and primitive verification flags to Android execution. Android verifies the exact detached SHA again, requires no remotes, requires a clean worktree and expected subdirectory, and binds only contract-owned environment variables.
-
-The dependency directory is deleted by terminal registered-workspace cleanup after Android-specific residue checks. A traversal path, symlink, wrong SHA, missing Gradle path, retained remote, retained credential configuration, fork source, or unapproved dependency identifier fails closed.
-
-## Repository source policy
-
-The shared repository scanner remains authoritative. The Android projection does not remove a token rule, suppress an entire directory, or allow an extension class. It selects an exception only when the current repository and validation profile match a checked-in entry and the exact relative path has the exact reviewed Git blob digest. The Streamscape Media playback-lab bootstrap and lifecycle sentinels are individually exact path/blob bindings within the playback-lab exception; the guided-acceptance sentinel remains a separate named entry. Any mutation to a marker, surrounding fixture, path, profile, repository, or file identity restores the normal fail-closed secret finding.
-
-The projected verifier classifies generated-output drift before the general worktree digest so that generated drift remains distinct while the subsequent clean-tree check remains mandatory. Tracked and untracked mutation is represented by a SHA-256 digest of the normalized porcelain rows rather than by raw file names or scan output. Forbidden files, tracked secret-shaped content, and symlink escapes use only normalized repository-relative subjects.
-
-The public facade maps only stable shared rule IDs. Unknown or malformed source-policy state becomes `policy_contract_failed`; artifact rules remain `artifact_policy_failed`; actual worktree mutation alone becomes `dirty_tree`. CIW failure summaries and stderr contain no file content, token text, absolute path, credential-bearing URL, or unbounded scanner transcript.
-
-## Mutation and output controls
-
-Protected files and directories are hashed before and after execution. Room schema directories receive deterministic tree hashes. Git status after execution may contain only paths under the checked-in generated cleanup names; all other tracked or untracked mutation fails.
-
-`assemble-debug` requires the declared debug APK path and rejects names suggesting release or signing. Any AAB found in disposable source fails. Output is never uploaded and is removed. `room-schema` requires unchanged committed schema history. `performance` represents only deterministic checked-in JVM tests, never release or device performance.
-
-Diagnostic exceptions are named contract records, not arbitrary artifact paths. The initial exception permits only bounded logs/XML/Room report forms, forbids packages and key material, and remains absent by default. Shared artifact action pins and exception registration are central contracts rather than Android-owned mutable workflow logic.
-
-## Cleanup invariants
-
-Android cleanup receives only the marker-resolved temporary state root. It removes copied source and Android-specific generated/runtime state with descriptor-style no-follow traversal, then an independent residue phase proves the Android copy is gone before any optional seed upload begins. Neither phase accepts a caller deletion path.
-
-If seed warming runs, the immutable upload action uses the registered Gradle home and then calls the same marker-bound foundation workspace cleanup under `if: always()`. If it does not return `cleanup_verified=true`—including when promotion is skipped or its cleanup fails—the reusable workflow executes the ordinary immutable `cleanup-workspace` action as a fallback. Foundation cleanup removes private dependency state, credentials, private writable Gradle state, temporary files, and evidence. The read-only runner-owned seed is outside job cleanup.
-
-The workflow then verifies the original admitted caller worktree remains exact and clean. Terminal status requires plan, checkout, workspace, dependency when used, authoritative execution, Android cleanup/residue, one verified workspace cleanup path, and source cleanliness. It intentionally does not require seed upload success, so cache acceleration cannot become correctness authority; it still refuses to report success when local cleanup cannot be proven.
-
-## Deterministic evidence
-
-Planning output is canonical JSON plus fixed scalar identities. Successful CIW execution `test_summary` contains only finite/path-free technology facts: exact execution scope, stage/task counts, JDK major, total/Gradle/script wall milliseconds, child CPU milliseconds when available, sampled cgroup peak memory bytes/process count when available, explicit measurement source, and `gradle_dependency_cache_mode` (`read-only-seed` or `cold`). Unsupported values remain JSON `null`. Execution evidence includes no credentials, host paths, device serials, private URLs, SQL, signing material, arbitrary command text, environment values, or raw process/cgroup listings. Logs are bounded to a terminal tail and redact token/password/authorization/secret/keystore values and credential-bearing URLs. Policy failure evidence is limited further to one stable rule plus a normalized relative path or digest.
+Central owns the generic read-only dependency-cache handoff, same-executor best-effort miss sync, and timing evidence. The Android product repository owns Gradle/test resource settings and task selection. Flux owns the persistent shared cache and the internal single-writer generation merge that makes successful dependency misses reusable by later runs.

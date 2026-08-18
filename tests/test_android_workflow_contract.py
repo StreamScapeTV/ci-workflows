@@ -14,8 +14,8 @@ REUSABLE = ROOT / ".github/workflows/reusable-android.yml"
 SMOKE = ROOT / ".github/workflows/android-validation-smoke.yml"
 ACTION = ROOT / "actions/validate-android/action.yml"
 ANDROID_SHA = "a01e29210603dc8b4cb9e31b9b0c926c2ab5cf37"
-GRADLE_SEED_SHA = "7a0977db839468aac24448831a9a0ffd97b3067b"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
+GRADLE_SYNC_SHA = "e6af72640ae8a782f5cd8c4f53a223956052ec25"
 
 PUBLIC_INPUTS = {
     "admitted_sha",
@@ -46,8 +46,8 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertEqual(set(call["secrets"]), {"private_dependency_token"})
         self.assertEqual(set(call["outputs"]), {"result", "test_summary", "cleanup_result"})
         self.assertTrue(call["inputs"]["validation_plan_json"]["required"])
-        self.assertNotIn("promote_gradle_seed", call["inputs"])
         for forbidden in (
+            "promote_gradle_seed",
             "validation_profile",
             "task_profile",
             "consumer_script_profile",
@@ -88,26 +88,28 @@ class AndroidWorkflowContractTests(unittest.TestCase):
                 "evidence",
                 "android_cleanup",
                 "residue",
-                "gradle_seed_authority",
                 "gradle_seed",
                 "workspace_cleanup",
                 "clean",
                 "terminal",
             ],
         )
-        self.assertEqual(sum(step["id"] == "checkout" for step in steps), 1)
-        self.assertEqual(sum(step["id"] == "dependency" for step in steps), 1)
-        self.assertEqual(sum(step["id"] == "workspace" for step in steps), 1)
-        self.assertEqual(sum(step["id"] == "execute" for step in steps), 1)
-        self.assertEqual(sum(step["id"] == "android_cleanup" for step in steps), 1)
-        self.assertEqual(sum(step["id"] == "residue" for step in steps), 1)
-        self.assertEqual(sum(step["id"] == "gradle_seed_authority" for step in steps), 1)
-        self.assertEqual(sum(step["id"] == "gradle_seed" for step in steps), 1)
+        for identifier in (
+            "checkout",
+            "dependency",
+            "workspace",
+            "execute",
+            "android_cleanup",
+            "residue",
+            "gradle_seed",
+            "workspace_cleanup",
+        ):
+            self.assertEqual(sum(step["id"] == identifier for step in steps), 1)
         self.assertNotIn("self-hosted", self.source)
         self.assertNotIn("fromJSON(needs.", self.source)
         self.assertNotIn("matrix:", self.source)
 
-    def test_every_central_helper_is_immutable_and_android_pin_is_exact(self) -> None:
+    def test_every_central_helper_is_immutable_and_cache_sync_pin_is_exact(self) -> None:
         uses = [
             str(step.get("uses", ""))
             for step in self.workflow["jobs"]["validate"]["steps"]
@@ -115,15 +117,11 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         ]
         self.assertEqual(
             4,
-            uses.count(
-                f"StreamScapeTV/ci-workflows/actions/validate-android@{ANDROID_SHA}"
-            ),
+            uses.count(f"StreamScapeTV/ci-workflows/actions/validate-android@{ANDROID_SHA}"),
         )
         self.assertEqual(
             1,
-            uses.count(
-                f"StreamScapeTV/ci-workflows/actions/upload-gradle-seed@{GRADLE_SEED_SHA}"
-            ),
+            uses.count(f"StreamScapeTV/ci-workflows/actions/upload-gradle-seed@{GRADLE_SYNC_SHA}"),
         )
         for helper in (
             "exact-checkout",
@@ -140,54 +138,35 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             revision = item.rsplit("@", 1)[1]
             self.assertRegex(revision, r"^[0-9a-f]{40}$")
 
-    def test_seed_warming_requires_protected_push_and_caller_oidc_and_is_non_authoritative(self) -> None:
+    def test_internal_cache_sync_has_no_oidc_and_is_best_effort_before_cleanup(self) -> None:
         self.assertEqual(self.workflow["permissions"], {"contents": "read"})
         job = self.workflow["jobs"]["validate"]
-        self.assertEqual(
-            job["permissions"],
-            {"contents": "read", "id-token": "write"},
-        )
+        self.assertNotIn("permissions", job)
+        self.assertNotIn("id-token", self.source)
+        self.assertNotIn("ACTIONS_ID_TOKEN_REQUEST", self.source)
+        self.assertNotIn("authorization", self.source.casefold())
         steps = job["steps"]
-        authority = next(step for step in steps if step["id"] == "gradle_seed_authority")
-        self.assertIn("github.event_name == 'push'", authority["if"])
-        self.assertIn("github.ref_protected", authority["if"])
-        self.assertIn("ACTIONS_ID_TOKEN_REQUEST_URL", authority["run"])
-        self.assertIn("ACTIONS_ID_TOKEN_REQUEST_TOKEN", authority["run"])
-        self.assertIn('echo "enabled=${enabled}"', authority["run"])
-
-        promotion = next(step for step in steps if step["id"] == "gradle_seed")
-        self.assertTrue(promotion["continue-on-error"])
-        self.assertEqual(
-            promotion["uses"],
-            f"StreamScapeTV/ci-workflows/actions/upload-gradle-seed@{GRADLE_SEED_SHA}",
-        )
-        self.assertEqual(promotion["with"], {"source_sha": "${{ inputs.admitted_sha }}"})
-        condition = promotion["if"]
-        self.assertIn("steps.gradle_seed_authority.outputs.enabled == 'true'", condition)
-        self.assertIn("steps.execute.outcome == 'success'", condition)
-        self.assertIn("steps.android_cleanup.outcome == 'success'", condition)
-        self.assertIn("steps.residue.outcome == 'success'", condition)
-        self.assertNotIn("inputs.promote_gradle_seed", condition)
-
-        fallback = next(step for step in steps if step["id"] == "workspace_cleanup")
-        self.assertEqual(
-            fallback["if"],
-            "always() && steps.gradle_seed.outputs.cleanup_verified != 'true'",
-        )
+        sync_index = next(index for index, step in enumerate(steps) if step["id"] == "gradle_seed")
+        residue_index = next(index for index, step in enumerate(steps) if step["id"] == "residue")
+        cleanup_index = next(index for index, step in enumerate(steps) if step["id"] == "workspace_cleanup")
+        self.assertLess(residue_index, sync_index)
+        self.assertLess(sync_index, cleanup_index)
+        sync = steps[sync_index]
+        self.assertTrue(sync["continue-on-error"])
+        self.assertIn("steps.execute.outcome == 'success'", sync["if"])
+        self.assertIn("steps.android_cleanup.outcome == 'success'", sync["if"])
+        self.assertIn("steps.residue.outcome == 'success'", sync["if"])
+        self.assertEqual(sync["with"]["source_sha"], "${{ inputs.admitted_sha }}")
+        cleanup = steps[cleanup_index]
+        self.assertEqual(cleanup["if"], "always()")
         terminal = next(step for step in steps if step["id"] == "terminal")
-        terminal_script = terminal["run"]
-        self.assertIn("GRADLE_SEED_CLEANUP_VERIFIED", terminal["env"])
-        self.assertIn("workspace_cleanup_ok", terminal_script)
-        self.assertNotIn("GRADLE_SEED_OUTCOME", terminal["env"])
-        self.assertNotIn("GRADLE_SEED_OUTCOME", terminal_script)
+        self.assertNotIn("GRADLE_SEED", json.dumps(terminal))
+        self.assertNotIn("gradle_seed", json.dumps(terminal).casefold())
 
     def test_private_token_is_confined_to_the_single_dependency_checkout(self) -> None:
         steps = self.workflow["jobs"]["validate"]["steps"]
         dependency = next(step for step in steps if step["id"] == "dependency")
-        self.assertEqual(
-            dependency["with"]["token"],
-            "${{ secrets.private_dependency_token }}",
-        )
+        self.assertEqual(dependency["with"]["token"], "${{ secrets.private_dependency_token }}")
         for step in steps:
             if step is dependency:
                 continue
@@ -202,8 +181,8 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertIn("Prepare one isolated marker-bound Gradle state", self.source)
         self.assertIn("Check out exact private dependency at most once", self.source)
         self.assertIn("Execute one primitive-backed Android validation plan", self.source)
+        self.assertIn("Sync newly resolved Gradle dependencies to the internal cache", self.source)
         self.assertIn("Verify exact admitted source remained clean", self.source)
-        self.assertIn("if: always()", self.source)
         self.assertIn("Remove Android-specific copied source state once", self.source)
         self.assertIn("Verify zero Android-specific residue once", self.source)
         self.assertIn("Remove and verify the one registered Android workspace", self.source)
