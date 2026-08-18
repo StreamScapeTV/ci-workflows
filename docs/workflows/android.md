@@ -16,6 +16,8 @@ If the shared cache is absent, Gradle resolves dependencies normally from the co
 
 After successful Android execution plus Android cleanup/residue verification, the same executor attempts one best-effort dependency-delta sync while its private `GRADLE_USER_HOME` still exists. The sync reads only `caches/modules-*`, streams that bounded content to the fixed internal Flux service, and never invokes Gradle again. It is `continue-on-error`, so an unavailable updater cannot fail a correct build. Ordinary registered workspace cleanup always runs afterward.
 
+Central owns this same-executor invocation because it owns the lifetime of the registered Gradle workspace. Flux owns the internal service and single-writer generation merge; the Android product repository only selects the reviewed Central revision and does not implement cache transport in product YAML.
+
 Routine Android validation requires no GitHub OIDC permission. PR, manual, work-branch, and integration runs use the same cache read/update model; there is no protected-branch-only warming call.
 
 Workspace preparation still uses Central `cache_mode: disabled` because Central does not create a GitHub Actions cache or a shared writable Gradle home. The shared read-only dependency cache is runner infrastructure and is independent from the private job workspace.
