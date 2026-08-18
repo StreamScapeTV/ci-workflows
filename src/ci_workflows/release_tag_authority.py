@@ -21,6 +21,7 @@ REPOSITORY = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 WORKFLOW_PATH = re.compile(r"\.github/workflows/[A-Za-z0-9._/-]+\.(?:yml|yaml)")
 ALLOWED_MODES = {"tag-push", "existing-tag"}
 WRITE_PERMISSIONS = {"admin", "maintain", "write"}
+ACTIONS_AUTOMATION_ACTOR = "github-actions[bot]"
 MAX_TAG_DEREFERENCE_DEPTH = 8
 
 
@@ -235,6 +236,8 @@ def _validate_existing_tag_caller(
         isinstance(event.actor, str) and bool(event.actor),
         "missing_trusted_actor",
     )
+    if event.actor == ACTIONS_AUTOMATION_ACTOR:
+        return
     permission = _mapping(
         provider.collaborator_permission(event.repository, event.actor),
         "invalid_actor_permission",
