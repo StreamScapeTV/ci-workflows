@@ -110,7 +110,7 @@
     {
       "file": ".github/workflows/reusable-native-image-chart.yml",
       "api_name": "release.native-image-chart",
-      "api_version": "1.1.0",
+      "api_version": "1.0.0",
       "status": "implemented",
       "trust_class": "trusted-publication",
       "permission_profile": "oci-publication",
@@ -196,7 +196,7 @@
       "timeout_minutes": 240,
       "matrix_max_jobs": 12,
       "repository_owned_hooks": ["release_manifest_path", "policy_path"],
-      "implementation_components": ["ci_workflows.flux_assets.release", "internal-flux-assets.yml"],
+      "implementation_components": ["ci_workflows.flux_assets.release", "ci_workflows.flux_assets.release", "actions/resolve-release-tag"],
       "max_reusable_workflow_depth": 2
     },
     {
