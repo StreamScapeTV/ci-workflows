@@ -35,7 +35,7 @@ The planner requests semantic `mobile` through the central runner resolver. The 
 
 The `mobile` profile means Android build capacity, not a physical Android device. `device-handoff` produces a data packet for another workflow and has no executable task.
 
-Seed warming does not add a public workflow input. The reusable Android job may request `id-token: write`, but GitHub's called-workflow permission ceiling prevents it from elevating above the caller. Promotion is considered only for a protected `push`, and a bounded authority step requires GitHub's OIDC request capability to actually be present. Ordinary PR/manual/work-branch callers grant only `contents: read`; their effective OIDC permission stays absent and the uploader is skipped. A trusted protected-branch warming caller opts in solely by granting `id-token: write` to that exact reusable call.
+Seed warming does not add a public workflow input. The reusable Android workflow declares no token-permission elevation of its own; it inherits the caller's effective permission ceiling. Promotion is considered only for a protected `push`, and a bounded authority step requires GitHub's OIDC request capability to actually be present. Ordinary PR/manual/work-branch callers grant only `contents: read`, so OIDC remains absent and the uploader is skipped. A trusted protected-branch warming caller opts in solely by granting `id-token: write` to that exact reusable call; Central cannot elevate a read-only caller into an OIDC-capable one.
 
 ## Contract-owned command model
 
@@ -69,7 +69,7 @@ Measurement support is explicitly optional. Missing/disappearing cgroup files or
 
 ## Trusted Gradle seed promotion
 
-Promotion is an internal acceleration path, not a public validation input. The reusable job requests OIDC at job scope, but it can receive that capability only when the caller grants it. The workflow additionally requires the caller event to be a protected `push`; a bounded authority step detects the runner-provided OIDC request capability without logging or forwarding its token. PRs, manual dispatches, and ordinary work branches therefore skip promotion even if they execute the same validation plan.
+Promotion is an internal acceleration path, not a public validation input. The reusable Android workflow declares no `permissions` block that could elevate or narrow the caller's token; it inherits the caller's effective ceiling. The workflow additionally requires the caller event to be a protected `push`, and a bounded authority step detects the runner-provided OIDC request capability without logging or forwarding its token. PRs, manual dispatches, and ordinary work branches therefore skip promotion because their thin callers grant only `contents: read`, while an explicitly authorized protected-branch caller may grant `id-token: write`.
 
 When authority is present, promotion is considered only after authoritative Android execution succeeds and Android copied-source cleanup/residue is already verified. The immutable issue #347 client then reads the **same job-private `GRADLE_USER_HOME`** created by `prepare-workspace`; there is no second mutable Gradle home and no cross-job state transfer.
 
@@ -88,25 +88,3 @@ The dependency directory is deleted by terminal registered-workspace cleanup aft
 The shared repository scanner remains authoritative. The Android projection does not remove a token rule, suppress an entire directory, or allow an extension class. It selects an exception only when the current repository and validation profile match a checked-in entry and the exact relative path has the exact reviewed Git blob digest. The Streamscape Media playback-lab bootstrap and lifecycle sentinels are individually exact path/blob bindings within the playback-lab exception; the guided-acceptance sentinel remains a separate named entry. Any mutation to a marker, surrounding fixture, path, profile, repository, or file identity restores the normal fail-closed secret finding.
 
 The projected verifier classifies generated-output drift before the general worktree digest so that generated drift remains distinct while the subsequent clean-tree check remains mandatory. Tracked and untracked mutation is represented by a SHA-256 digest of the normalized porcelain rows rather than by raw file names or scan output. Forbidden files, tracked secret-shaped content, and symlink escapes use only normalized repository-relative subjects.
-
-The public facade maps only stable shared rule IDs. Unknown or malformed source-policy state becomes `policy_contract_failed`; artifact rules remain `artifact_policy_failed`; actual worktree mutation alone becomes `dirty_tree`. CIW failure summaries and stderr contain no file content, token text, absolute path, credential-bearing URL, or unbounded scanner transcript.
-
-## Mutation and output controls
-
-Protected files and directories are hashed before and after execution. Room schema directories receive deterministic tree hashes. Git status after execution may contain only paths under the checked-in generated cleanup names; all other tracked or untracked mutation fails.
-
-`assemble-debug` requires the declared debug APK path and rejects names suggesting release or signing. Any AAB found in disposable source fails. Output is never uploaded and is removed. `room-schema` requires unchanged committed schema history. `performance` represents only deterministic checked-in JVM tests, never release or device performance.
-
-Diagnostic exceptions are named contract records, not arbitrary artifact paths. The initial exception permits only bounded logs/XML/Room report forms, forbids packages and key material, and remains absent by default. Shared artifact action pins and exception registration are central contracts rather than Android-owned mutable workflow logic.
-
-## Cleanup invariants
-
-Android cleanup receives only the marker-resolved temporary state root. It removes copied source and Android-specific generated/runtime state with descriptor-style no-follow traversal, then an independent residue phase proves the Android copy is gone before any optional seed upload begins. Neither phase accepts a caller deletion path.
-
-If seed warming runs, the immutable upload action uses the registered Gradle home and then calls the same marker-bound foundation workspace cleanup under `if: always()`. If it does not return `cleanup_verified=true`—including when promotion is skipped or its cleanup fails—the reusable workflow executes the ordinary immutable `cleanup-workspace` action as a fallback. Foundation cleanup removes private dependency state, credentials, private writable Gradle state, temporary files, and evidence. The read-only runner-owned seed is outside job cleanup.
-
-The workflow then verifies the original admitted caller worktree remains exact and clean. Terminal status requires plan, checkout, workspace, dependency when used, authoritative execution, Android cleanup/residue, one verified workspace cleanup path, and source cleanliness. It intentionally does not require seed upload success, so cache acceleration cannot become correctness authority; it still refuses to report success when local cleanup cannot be proven.
-
-## Deterministic evidence
-
-Planning output is canonical JSON plus fixed scalar identities. Successful CIW execution `test_summary` contains only finite/path-free technology facts: exact execution scope, stage/task counts, JDK major, total/Gradle/script wall milliseconds, child CPU milliseconds when available, sampled cgroup peak memory bytes/process count when available, explicit measurement source, and `gradle_dependency_cache_mode` (`read-only-seed` or `cold`). Unsupported values remain JSON `null`. Execution evidence includes no credentials, host paths, device serials, private URLs, SQL, signing material, arbitrary command text, environment values, or raw process/cgroup listings. Logs are bounded to a terminal tail and redact token/password/authorization/secret/keystore values and credential-bearing URLs. Policy failure evidence is limited further to one stable rule plus a normalized relative path or digest.
