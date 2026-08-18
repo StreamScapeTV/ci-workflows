@@ -81,7 +81,6 @@ on:
         description: Optional bounded dependency identity
         required: false
         default: ""
-        type: string
     secrets:
       private_dependency_token:
         description: Optional transient contents-read token used only by exact private dependency checkout
@@ -120,7 +119,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve one Apple executor plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@478b04651245d6d7d06bd3df74221278b74dd13b # issue #336 guarded single-executor checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@478b04651245d6d7d06bd3df74221278b74dd13b # issue-336 final Apple v2 checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -183,7 +182,7 @@ jobs:
 
       - id: checkout
         name: Check out exact admitted caller source once
-        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable foundation checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -192,7 +191,7 @@ jobs:
 
       - id: workspace
         name: Prepare one isolated marker-bound Apple workspace
-        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable foundation checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           profile: ${{ needs.plan.outputs.workspace_profile }}
           cache_mode: disabled
@@ -202,7 +201,7 @@ jobs:
       - id: dependency
         name: Check out exact private dependency at most once
         if: needs.plan.outputs.private_dependency_used == 'true'
-        uses: StreamScapeTV/ci-workflows/actions/checkout-private-dependency@70e08d4ddf8930046632a7135950e924b82e22bf # issue #104 immutable foundation checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/checkout-private-dependency@70e08d4ddf8930046632a7135950e924b82e22bf # issue #104 immutable private-action checkpoint
         with:
           repository: ${{ needs.plan.outputs.private_dependency_repository }}
           admitted_sha: ${{ needs.plan.outputs.private_dependency_sha }}
@@ -213,7 +212,7 @@ jobs:
 
       - id: execute
         name: Execute one sequential Apple validation plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@478b04651245d6d7d06bd3df74221278b74dd13b # issue #336 guarded single-executor checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@478b04651245d6d7d06bd3df74221278b74dd13b # issue-336 final Apple v2 checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -244,7 +243,7 @@ jobs:
       - id: evidence
         name: Render bounded Apple validation evidence
         if: steps.execute.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/render-evidence@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable foundation checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/render-evidence@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           source_sha: ${{ inputs.admitted_sha }}
           workflow_release: validation-apple-v2
@@ -256,7 +255,7 @@ jobs:
       - id: apple_cleanup
         name: Remove Apple-specific state once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@478b04651245d6d7d06bd3df74221278b74dd13b # issue #336 guarded single-executor checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@478b04651245d6d7d06bd3df74221278b74dd13b # issue-336 final Apple v2 checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -280,7 +279,7 @@ jobs:
       - id: residue
         name: Verify zero Apple-specific residue once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@478b04651245d6d7d06bd3df74221278b74dd13b # issue #336 guarded single-executor checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@478b04651245d6d7d06bd3df74221278b74dd13b # issue-336 final Apple v2 checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -347,7 +346,7 @@ jobs:
       - id: workspace_cleanup
         name: Remove and verify the one registered Apple workspace
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable foundation checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
 
       - id: terminal
         name: Project terminal Apple validation status
