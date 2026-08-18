@@ -108,11 +108,14 @@ def admit_source(
         else:
             selected_mode = SourceMode.PR_HEAD if mode == SourceMode.AUTO else mode
         if selected_mode == SourceMode.PR_MERGE:
+            # GitHub may regenerate the synthetic merge ref without changing
+            # the PR head/base tuple. Select the merge SHA from this one
+            # current PR snapshot rather than comparing it with event-time
+            # synthetic merge identity.
             source_sha = _full_sha(
                 current_pr.merge_sha,
                 "pull_request_merge_sha_unavailable",
             )
-            _require(event_pr.merge_sha == source_sha, "stale_pr_merge")
         else:
             source_sha = current_pr.head_sha
         _expected_pr_freshness(inputs, current_pr)

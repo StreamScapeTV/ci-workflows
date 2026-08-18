@@ -17,13 +17,22 @@ HEAD = "b" * 40
 EVENT_MERGE = "c" * 40
 CURRENT_MERGE = "d" * 40
 STALE_HEAD = "e" * 40
+STALE_BASE = "f" * 40
 REPOSITORY = "StreamScapeTV/streamscape-media"
 
 
 class MergeDriftProvider:
     def __init__(self) -> None:
         self.pull: dict[str, Any] = self.pull_metadata(merge_sha=EVENT_MERGE)
-        self.commits = {BASE, HEAD, EVENT_MERGE, CURRENT_MERGE, STALE_HEAD}
+        self.pull_reads = 0
+        self.commits = {
+            BASE,
+            HEAD,
+            EVENT_MERGE,
+            CURRENT_MERGE,
+            STALE_HEAD,
+            STALE_BASE,
+        }
 
     @staticmethod
     def pull_metadata(
@@ -55,6 +64,7 @@ class MergeDriftProvider:
         self._require_repository(repository)
         if number != 524:
             raise AssertionError(f"unexpected pull request {number}")
+        self.pull_reads += 1
         return self.pull
 
     def commit(self, repository: str, sha: str) -> Mapping[str, Any]:
@@ -140,19 +150,64 @@ class SourceAdmissionMergeDriftTests(unittest.TestCase):
 
         self.assertEqual(caught.exception.instruction, "stale_pr_head")
 
-    def test_pr_merge_still_requires_current_event_merge_identity(self) -> None:
+    def test_stale_pr_base_still_fails_closed_when_merge_also_changed(self) -> None:
         self.provider.pull = MergeDriftProvider.pull_metadata(
-            merge_sha=CURRENT_MERGE
+            base_sha=STALE_BASE,
+            merge_sha=CURRENT_MERGE,
         )
 
         with self.assertRaises(source.SourceAdmissionError) as caught:
             source.admit_source(
-                self.inputs(source_mode="pr-merge", requested_sha=CURRENT_MERGE),
+                self.inputs(source_mode="pr-merge", requested_sha=None),
                 self.event(),
                 self.provider,
             )
 
-        self.assertEqual(caught.exception.instruction, "stale_pr_merge")
+        self.assertEqual(caught.exception.instruction, "stale_pr_base")
+
+    def test_pr_merge_selects_one_current_snapshot_after_regeneration(self) -> None:
+        self.provider.pull = MergeDriftProvider.pull_metadata(
+            merge_sha=CURRENT_MERGE
+        )
+
+        result = source.admit_source(
+            self.inputs(source_mode="pr-merge", requested_sha=None),
+            self.event(),
+            self.provider,
+        )
+
+        self.assertEqual(result.source_sha, CURRENT_MERGE)
+        self.assertEqual(result.pr_head_sha, HEAD)
+        self.assertEqual(result.pr_base_sha, BASE)
+        self.assertEqual(result.pr_merge_sha, CURRENT_MERGE)
+        self.assertEqual(self.provider.pull_reads, 1)
+
+    def test_pr_merge_keeps_explicit_requested_merge_exact(self) -> None:
+        self.provider.pull = MergeDriftProvider.pull_metadata(
+            merge_sha=CURRENT_MERGE
+        )
+
+        current = source.admit_source(
+            self.inputs(
+                source_mode="pr-merge",
+                requested_sha=CURRENT_MERGE,
+            ),
+            self.event(),
+            self.provider,
+        )
+        self.assertEqual(current.source_sha, CURRENT_MERGE)
+
+        with self.assertRaises(source.SourceAdmissionError) as caught:
+            source.admit_source(
+                self.inputs(
+                    source_mode="pr-merge",
+                    requested_sha=EVENT_MERGE,
+                ),
+                self.event(),
+                self.provider,
+            )
+
+        self.assertEqual(caught.exception.instruction, "requested_sha_mismatch")
 
     def test_explicit_expected_merge_remains_fail_closed_for_pr_head(self) -> None:
         self.provider.pull = MergeDriftProvider.pull_metadata(
