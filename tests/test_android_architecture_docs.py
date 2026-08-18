@@ -6,6 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ARCHITECTURE_DOC = ROOT / "docs/architecture/android-validation.md"
+WORKFLOW_DOC = ROOT / "docs/workflows/android.md"
 ACTION_LOCK = ROOT / "contracts/action-tool-lock.json"
 WORKFLOW = ROOT / ".github/workflows/reusable-android.yml"
 
@@ -36,6 +37,7 @@ class AndroidArchitectureDocumentationTests(unittest.TestCase):
             if item["uses"] in required
         }
         guide = ARCHITECTURE_DOC.read_text(encoding="utf-8")
+        workflow_guide = WORKFLOW_DOC.read_text(encoding="utf-8")
         workflow = WORKFLOW.read_text(encoding="utf-8")
 
         self.assertEqual(required, set(actions))
@@ -52,6 +54,9 @@ class AndroidArchitectureDocumentationTests(unittest.TestCase):
         self.assertIn("best-effort cache-sync call", guide)
         self.assertIn("does not invoke Gradle again", guide)
         self.assertIn("Registered workspace cleanup always", guide)
+        self.assertIn("Central owns this invocation", guide)
+        self.assertIn("Central owns this same-executor invocation", workflow_guide)
+        self.assertIn("Android product repository", workflow_guide)
 
         validate_sha = actions[VALIDATE_ANDROID]["sha"]
         foundation_sha = actions[EXACT_CHECKOUT]["sha"]
