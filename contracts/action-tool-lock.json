@@ -101,10 +101,17 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-android",
-      "sha": "474c707bfcfe77b0d36bd0e4c76691359e8dc4ad",
-      "release": "issue #332 single-executor Android checkpoint",
+      "sha": "a01e29210603dc8b4cb9e31b9b0c926c2ab5cf37",
+      "release": "issues #344/#346 Android telemetry and Gradle read-only seed checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/474c707bfcfe77b0d36bd0e4c76691359e8dc4ad/actions/validate-android"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/a01e29210603dc8b4cb9e31b9b0c926c2ab5cf37/actions/validate-android"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/upload-gradle-seed",
+      "sha": "7a0977db839468aac24448831a9a0ffd97b3067b",
+      "release": "issue #347 trusted Gradle seed client",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/7a0977db839468aac24448831a9a0ffd97b3067b/actions/upload-gradle-seed"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-android-live-service",

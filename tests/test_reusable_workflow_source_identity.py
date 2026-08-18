@@ -13,7 +13,8 @@ SOURCE_SHA = "87a7454aaa59cb680db8f580d22551b749ac4193"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 FLUTTER_SHA = "d2e1c7a7601e1caeeb976311fb13cf41fef94d4a"
 PYTHON_SHA = "aece8d01efdd5482a1c3d42db357aed87a7917e9"
-ANDROID_SHA = "474c707bfcfe77b0d36bd0e4c76691359e8dc4ad"
+ANDROID_SHA = "a01e29210603dc8b4cb9e31b9b0c926c2ab5cf37"
+GRADLE_SEED_SHA = "7a0977db839468aac24448831a9a0ffd97b3067b"
 APPLE_SHA = "702b950b6a5baf208e7b21f16e3f7df9b8f0f96e"
 OCI_SHA = "3b401078d1167d7048281e3c3269556ce586dada"
 GITOPS_SHA = "8445e63dd9fa9468b60b6d0c61e543da9681b47b"
@@ -24,7 +25,8 @@ RELEASE_TAG_SHA = "2b0443fdad002d47625386a959ebe68545cfe022"
 FOUNDATION = "issue #116 immutable private-action checkpoint"
 ISSUE_132 = "issue #132 immutable mode-aware source checkpoint"
 ISSUE_104 = "issue #104 immutable private-action checkpoint"
-ISSUE_332 = "issue #332 single-executor Android checkpoint"
+ISSUES_344_346 = "issues #344/#346 Android telemetry and Gradle read-only seed checkpoint"
+ISSUE_347 = "issue #347 trusted Gradle seed client"
 ISSUE_125 = "issue #125 immutable private-action checkpoint"
 ISSUE_235 = "issue #235 general-runner Python primitives checkpoint"
 ISSUE_150 = "issue #150 immutable OCI input checkpoint"
@@ -41,7 +43,8 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
     },
     ".github/workflows/reusable-android.yml": {
-        "StreamScapeTV/ci-workflows/actions/validate-android": (ANDROID_SHA, ISSUE_332),
+        "StreamScapeTV/ci-workflows/actions/validate-android": (ANDROID_SHA, ISSUES_344_346),
+        "StreamScapeTV/ci-workflows/actions/upload-gradle-seed": (GRADLE_SEED_SHA, ISSUE_347),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/checkout-private-dependency": (FOUNDATION_SHA, ISSUE_104),
