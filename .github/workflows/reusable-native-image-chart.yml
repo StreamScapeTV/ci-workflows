@@ -1,0 +1,368 @@
+name: Reusable native amd64 image and Helm release
+
+on:
+  workflow_call:
+    inputs:
+      image_name:
+        description: Image repository slug under the fixed private registry namespace
+        required: true
+        type: string
+      chart_name:
+        description: Helm chart and OCI repository slug
+        required: true
+        type: string
+      chart_path:
+        description: Caller-repository-relative Helm chart directory
+        required: true
+        type: string
+      dockerfile_path:
+        description: Caller-repository-relative Dockerfile path
+        required: false
+        default: Dockerfile
+        type: string
+      build_context:
+        description: Caller-repository-relative image build context
+        required: false
+        default: .
+        type: string
+    secrets:
+      registry_username:
+        description: Private OCI registry username
+        required: true
+      registry_token:
+        description: Private OCI registry token
+        required: true
+    outputs:
+      version:
+        description: Exact validated release version
+        value: ${{ jobs.publish.outputs.version }}
+      source_sha:
+        description: Exact validated tagged source commit
+        value: ${{ jobs.publish.outputs.source_sha }}
+      image_reference:
+        description: Published immutable image reference
+        value: ${{ jobs.publish.outputs.image_reference }}
+      image_digest:
+        description: Independently read-back remote image manifest digest
+        value: ${{ jobs.publish.outputs.image_digest }}
+      chart_reference:
+        description: Published immutable Helm OCI reference
+        value: ${{ jobs.publish.outputs.chart_reference }}
+      chart_digest:
+        description: Independently read-back remote Helm OCI manifest digest
+        value: ${{ jobs.publish.outputs.chart_digest }}
+      chart_package_sha256:
+        description: SHA-256 of the exact published Helm package
+        value: ${{ jobs.publish.outputs.chart_package_sha256 }}
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: git.faruqi.dev
+  REGISTRY_NAMESPACE: mimranfaruqi
+  CHART_NAMESPACE: mimranfaruqi/helm-charts
+  HELM_VERSION: v3.18.6
+  HELM_IMAGE: docker.io/alpine/helm:3.18.6@sha256:b158d7f0fe1fb84abb59a15973ef25adf66affa2028a8328c083046c5ca04e91
+
+jobs:
+  admit:
+    name: Resolve exact release tag authority
+    runs-on: [linux, amd64, buildah, high]
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.authority.outputs.release_version }}
+      source_sha: ${{ steps.authority.outputs.release_source_sha }}
+      tag_object_sha: ${{ steps.authority.outputs.tag_object_sha }}
+      tag_commit_sha: ${{ steps.authority.outputs.tag_commit_sha }}
+    steps:
+      - name: Check out exact Central reusable-workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact Central workflow source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
+            test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          )
+
+      - id: authority
+        name: Resolve exact tag-push authority
+        uses: ./.ciw/actions/resolve-release-tag
+        with:
+          release_mode: tag-push
+
+  publish:
+    name: Publish native amd64 image and Helm chart
+    needs: admit
+    runs-on: [linux, amd64, buildah, high]
+    timeout-minutes: 180
+    outputs:
+      version: ${{ needs.admit.outputs.version }}
+      source_sha: ${{ needs.admit.outputs.source_sha }}
+      image_reference: ${{ steps.readback.outputs.image_reference }}
+      image_digest: ${{ steps.readback.outputs.image_digest }}
+      chart_reference: ${{ steps.readback.outputs.chart_reference }}
+      chart_digest: ${{ steps.readback.outputs.chart_digest }}
+      chart_package_sha256: ${{ steps.readback.outputs.chart_package_sha256 }}
+    env:
+      VERSION: ${{ needs.admit.outputs.version }}
+      SOURCE_SHA: ${{ needs.admit.outputs.source_sha }}
+      IMAGE_NAME: ${{ inputs.image_name }}
+      CHART_NAME: ${{ inputs.chart_name }}
+      CHART_PATH: ${{ inputs.chart_path }}
+      DOCKERFILE_PATH: ${{ inputs.dockerfile_path }}
+      BUILD_CONTEXT: ${{ inputs.build_context }}
+      CIW_REGISTRY_USERNAME: ${{ secrets.registry_username }}
+      CIW_REGISTRY_TOKEN: ${{ secrets.registry_token }}
+      REGISTRY_AUTH_FILE: ${{ runner.temp }}/native-image-chart/auth.json
+      HELM_REGISTRY_CONFIG: ${{ runner.temp }}/native-image-chart/helm-registry.json
+      PACKAGE_ROOT: ${{ runner.temp }}/native-image-chart/packages
+    steps:
+      - name: Check out exact Central reusable-workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact Central workflow source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
+            test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          )
+
+      - id: revalidate
+        name: Revalidate exact tag immediately before privileged work
+        uses: ./.ciw/actions/resolve-release-tag
+        with:
+          phase: revalidate
+          release_mode: tag-push
+          expected_tag_object_sha: ${{ needs.admit.outputs.tag_object_sha }}
+          expected_tag_commit_sha: ${{ needs.admit.outputs.tag_commit_sha }}
+
+      - name: Check out exact validated caller source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ needs.admit.outputs.source_sha }}
+          path: source
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Validate bounded caller inputs and release-version alignment
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 .ciw/scripts/ci/native_image_chart_validate.py
+
+      - name: Verify daemonless native-amd64 publication tools and credentials
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          buildah --version
+          skopeo --version
+          podman --version
+          test "$(uname -s)" = Linux
+          test "$(uname -m)" = x86_64
+          test -n "${CIW_REGISTRY_USERNAME}"
+          test -n "${CIW_REGISTRY_TOKEN}"
+
+      - name: Stage pinned Helm from immutable tool image
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          helm_root="${RUNNER_TEMP}/native-image-chart/helm-bin"
+          helm_storage="${RUNNER_TEMP}/native-image-chart/helm-storage"
+          helm_runroot="${RUNNER_TEMP}/r/h${GITHUB_RUN_ID}${GITHUB_RUN_ATTEMPT}"
+          helm_path="${helm_root}/helm"
+          container="native-image-chart-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-helm"
+          rm -rf "${helm_root}" "${helm_storage}" "${helm_runroot}"
+          mkdir -p "${helm_root}" "${helm_storage}" "${helm_runroot}"
+          chmod 0700 "${helm_root}" "${helm_storage}" "${helm_runroot}"
+          podman_cmd=(podman --storage-driver vfs --root "${helm_storage}" --runroot "${helm_runroot}")
+          timeout --signal=TERM --kill-after=5s 60s "${podman_cmd[@]}" info >/dev/null
+          "${podman_cmd[@]}" pull --platform linux/amd64 "${HELM_IMAGE}" >/dev/null
+          image_id="$("${podman_cmd[@]}" image inspect --format '{{.Id}}' "${HELM_IMAGE}")"
+          "${podman_cmd[@]}" create --platform linux/amd64 --name "${container}" "${HELM_IMAGE}" version >/dev/null
+          "${podman_cmd[@]}" cp "${container}:/usr/bin/helm" "${helm_path}"
+          test -x "${helm_path}"
+          test "$("${helm_path}" version --template '{{.Version}}')" = "${HELM_VERSION}"
+          "${podman_cmd[@]}" rm -f "${container}" >/dev/null
+          "${podman_cmd[@]}" image rm -f "${image_id}" >/dev/null
+          rm -rf "${helm_storage}" "${helm_runroot}"
+          test ! -e "${helm_storage}"
+          test ! -e "${helm_runroot}"
+          echo "${helm_root}" >> "${GITHUB_PATH}"
+
+      - id: prepare
+        name: Build native image and validate/package chart before publication
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}/.ciw/src
+        run: |
+          set -Eeuo pipefail
+          rm -rf "${RUNNER_TEMP}/native-image-chart/auth.json" "${HELM_REGISTRY_CONFIG}" "${PACKAGE_ROOT}"
+          mkdir -p "$(dirname "${REGISTRY_AUTH_FILE}")" "${PACKAGE_ROOT}"
+          chmod 0700 "$(dirname "${REGISTRY_AUTH_FILE}")" "${PACKAGE_ROOT}"
+          python3 .ciw/scripts/ci/native_image_chart_prepare.py
+
+      - name: Authenticate and require unused immutable version identities
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}/.ciw/src
+          IMAGE_REFERENCE: ${{ steps.prepare.outputs.image_reference }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          from ci_workflows.packaging_primitives import registry_authenticate
+          env = dict(os.environ)
+          registry_authenticate(os.environ["REGISTRY"], environment=env, tool="buildah", cwd=Path("source"))
+          registry_authenticate(os.environ["REGISTRY"], environment=env, tool="helm", cwd=Path("source"))
+          PY
+          chart_reference="${REGISTRY}/${CHART_NAMESPACE}/${CHART_NAME}:${VERSION}"
+          if skopeo inspect "docker://${IMAGE_REFERENCE}" >/dev/null 2>&1; then
+            echo "::error::image version already exists: ${IMAGE_REFERENCE}" >&2
+            exit 2
+          fi
+          if skopeo inspect "docker://${chart_reference}" >/dev/null 2>&1; then
+            echo "::error::chart version already exists: ${chart_reference}" >&2
+            exit 2
+          fi
+
+      - name: Revalidate tag immediately before publication
+        uses: ./.ciw/actions/resolve-release-tag
+        with:
+          phase: revalidate
+          release_mode: tag-push
+          expected_tag_object_sha: ${{ needs.admit.outputs.tag_object_sha }}
+          expected_tag_commit_sha: ${{ needs.admit.outputs.tag_commit_sha }}
+
+      - name: Publish exact native image and chart package
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}/.ciw/src
+          IMAGE_REFERENCE: ${{ steps.prepare.outputs.image_reference }}
+          PACKAGE_PATH: ${{ steps.prepare.outputs.package_path }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          from ci_workflows.packaging_primitives import helm_push, push_image
+          env = dict(os.environ)
+          push_image(
+              os.environ["IMAGE_REFERENCE"],
+              environment=env,
+              tool="buildah",
+              cwd=Path("source"),
+          )
+          helm_push(
+              Path(os.environ["PACKAGE_PATH"]),
+              f"oci://{os.environ['REGISTRY']}/{os.environ['CHART_NAMESPACE']}",
+              environment=env,
+          )
+          PY
+
+      - id: readback
+        name: Independently read back immutable image and chart identities
+        shell: bash
+        env:
+          IMAGE_REFERENCE: ${{ steps.prepare.outputs.image_reference }}
+          CHART_PACKAGE_SHA256: ${{ steps.prepare.outputs.chart_package_sha256 }}
+        run: |
+          set -Eeuo pipefail
+          state="${RUNNER_TEMP}/native-image-chart/readback"
+          mkdir -p "${state}"
+          image_raw="${state}/image-manifest.json"
+          image_inspect="${state}/image-inspect.json"
+          chart_raw="${state}/chart-manifest.json"
+          skopeo inspect --raw "docker://${IMAGE_REFERENCE}" > "${image_raw}"
+          skopeo inspect "docker://${IMAGE_REFERENCE}" > "${image_inspect}"
+          image_digest="sha256:$(sha256sum "${image_raw}" | awk '{print $1}')"
+          IMAGE_INSPECT="${image_inspect}" IMAGE_DIGEST="${image_digest}" python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          data = json.loads(Path(os.environ["IMAGE_INSPECT"]).read_text(encoding="utf-8"))
+          if data.get("Os") != "linux" or data.get("Architecture") != "amd64":
+              raise SystemExit("remote image is not linux/amd64")
+          if data.get("Digest") != os.environ["IMAGE_DIGEST"]:
+              raise SystemExit("remote image digest does not match raw manifest")
+          PY
+          chart_reference="${REGISTRY}/${CHART_NAMESPACE}/${CHART_NAME}:${VERSION}"
+          skopeo inspect --raw "docker://${chart_reference}" > "${chart_raw}"
+          chart_digest="sha256:$(sha256sum "${chart_raw}" | awk '{print $1}')"
+          [[ "${image_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "${chart_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "${CHART_PACKAGE_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          {
+            echo "image_reference=${IMAGE_REFERENCE}"
+            echo "image_digest=${image_digest}"
+            echo "chart_reference=oci://${chart_reference}"
+            echo "chart_digest=${chart_digest}"
+            echo "chart_package_sha256=${CHART_PACKAGE_SHA256}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Clean publication credentials, images, packages, and tool state
+        if: always()
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}/.ciw/src
+        run: |
+          set +e
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          from ci_workflows.packaging_primitives import registry_logout
+          env = dict(os.environ)
+          for tool in ("helm", "buildah"):
+              try:
+                  registry_logout(os.environ["REGISTRY"], environment=env, tool=tool, cwd=Path("source"))
+              except Exception:
+                  pass
+          PY
+          buildah rm --all >/dev/null 2>&1 || true
+          buildah rmi --all --force >/dev/null 2>&1 || true
+          rm -rf "${RUNNER_TEMP}/native-image-chart"
+          exit 0
+
+      - name: Verify exact caller and Central sources remained clean
+        if: ${{ always() && !cancelled() }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          (
+            cd source
+            test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+            test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          )
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
+            test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          )
+          test ! -e "${RUNNER_TEMP}/native-image-chart"
