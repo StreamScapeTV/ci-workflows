@@ -10,6 +10,7 @@ ACTION_LOCK = ROOT / "contracts/action-tool-lock.json"
 WORKFLOW = ROOT / ".github/workflows/reusable-android.yml"
 
 VALIDATE_ANDROID = "StreamScapeTV/ci-workflows/actions/validate-android"
+UPLOAD_GRADLE_SEED = "StreamScapeTV/ci-workflows/actions/upload-gradle-seed"
 EXACT_CHECKOUT = "StreamScapeTV/ci-workflows/actions/exact-checkout"
 PREPARE_WORKSPACE = "StreamScapeTV/ci-workflows/actions/prepare-workspace"
 PRIVATE_DEPENDENCY = "StreamScapeTV/ci-workflows/actions/checkout-private-dependency"
@@ -21,6 +22,7 @@ class AndroidArchitectureDocumentationTests(unittest.TestCase):
     def test_helper_guidance_and_workflow_match_action_lock(self) -> None:
         required = {
             VALIDATE_ANDROID,
+            UPLOAD_GRADLE_SEED,
             EXACT_CHECKOUT,
             PREPARE_WORKSPACE,
             PRIVATE_DEPENDENCY,
