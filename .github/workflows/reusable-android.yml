@@ -45,6 +45,11 @@ on:
         required: false
         default: ""
         type: string
+      promote_gradle_seed:
+        description: Allow this exact validation job to warm the trusted shared Gradle dependency seed after successful execution
+        required: false
+        default: false
+        type: boolean
     secrets:
       private_dependency_token:
         description: Optional transient contents-read token used only by exact private dependency checkout
@@ -62,6 +67,10 @@ on:
 
 permissions:
   contents: read
+  # A called workflow cannot elevate beyond its caller. Consumers therefore grant
+  # id-token only to the protected trusted warming call; ordinary PR/manual calls
+  # retain id-token: none even though this optional primitive is available.
+  id-token: write
 
 jobs:
   validate:
@@ -71,11 +80,11 @@ jobs:
     outputs:
       result: ${{ steps.terminal.outputs.result }}
       test_summary: ${{ steps.execute.outputs.test_summary }}
-      cleanup_result: ${{ steps.android_cleanup.outcome == 'success' && steps.residue.outcome == 'success' && steps.workspace_cleanup.outcome == 'success' && 'success' || 'failure' }}
+      cleanup_result: ${{ steps.android_cleanup.outcome == 'success' && steps.residue.outcome == 'success' && (steps.gradle_seed.outputs.cleanup_verified == 'true' || steps.workspace_cleanup.outcome == 'success') && 'success' || 'failure' }}
     steps:
       - id: plan
         name: Validate technology-level Android request
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@474c707bfcfe77b0d36bd0e4c76691359e8dc4ad # issue #332 single-executor Android checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@a01e29210603dc8b4cb9e31b9b0c926c2ab5cf37 # issues #344/#346 telemetry + read-only Gradle seed checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -119,7 +128,7 @@ jobs:
 
       - id: execute
         name: Execute one primitive-backed Android validation plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@474c707bfcfe77b0d36bd0e4c76691359e8dc4ad # issue #332 single-executor Android checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@a01e29210603dc8b4cb9e31b9b0c926c2ab5cf37 # issues #344/#346 telemetry + read-only Gradle seed checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -153,7 +162,7 @@ jobs:
       - id: android_cleanup
         name: Remove Android-specific copied source state once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@474c707bfcfe77b0d36bd0e4c76691359e8dc4ad # issue #332 single-executor Android checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@a01e29210603dc8b4cb9e31b9b0c926c2ab5cf37 # issues #344/#346 telemetry + read-only Gradle seed checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -162,15 +171,23 @@ jobs:
       - id: residue
         name: Verify zero Android-specific residue once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@474c707bfcfe77b0d36bd0e4c76691359e8dc4ad # issue #332 single-executor Android checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@a01e29210603dc8b4cb9e31b9b0c926c2ab5cf37 # issues #344/#346 telemetry + read-only Gradle seed checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
           validation_scope: ${{ inputs.validation_scope }}
 
+      - id: gradle_seed
+        name: Warm trusted Gradle dependency seed after successful validation
+        if: ${{ inputs.promote_gradle_seed && steps.execute.outcome == 'success' && steps.android_cleanup.outcome == 'success' && steps.residue.outcome == 'success' }}
+        continue-on-error: true
+        uses: StreamScapeTV/ci-workflows/actions/upload-gradle-seed@7a0977db839468aac24448831a9a0ffd97b3067b # issue #347 trusted Gradle seed client
+        with:
+          source_sha: ${{ inputs.admitted_sha }}
+
       - id: workspace_cleanup
         name: Remove and verify the one registered Android workspace
-        if: always()
+        if: always() && steps.gradle_seed.outputs.cleanup_verified != 'true'
         uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
 
       - id: clean
@@ -196,6 +213,7 @@ jobs:
           EXECUTE_OUTCOME: ${{ steps.execute.outcome }}
           ANDROID_CLEANUP_OUTCOME: ${{ steps.android_cleanup.outcome }}
           RESIDUE_OUTCOME: ${{ steps.residue.outcome }}
+          GRADLE_SEED_CLEANUP_VERIFIED: ${{ steps.gradle_seed.outputs.cleanup_verified }}
           WORKSPACE_CLEANUP_OUTCOME: ${{ steps.workspace_cleanup.outcome }}
           CLEAN_OUTCOME: ${{ steps.clean.outcome }}
         run: |
@@ -204,6 +222,10 @@ jobs:
           if [[ "${DEPENDENCY_REQUIRED}" == "true" ]]; then
             test "${DEPENDENCY_OUTCOME}" = "success" || dependency_ok=false
           fi
+          workspace_cleanup_ok=false
+          if [[ "${GRADLE_SEED_CLEANUP_VERIFIED}" == "true" || "${WORKSPACE_CLEANUP_OUTCOME}" == "success" ]]; then
+            workspace_cleanup_ok=true
+          fi
           if [[ "${PLAN_OUTCOME}" == "success" &&
                 "${CHECKOUT_OUTCOME}" == "success" &&
                 "${WORKSPACE_OUTCOME}" == "success" &&
@@ -211,7 +233,7 @@ jobs:
                 "${EXECUTE_OUTCOME}" == "success" &&
                 "${ANDROID_CLEANUP_OUTCOME}" == "success" &&
                 "${RESIDUE_OUTCOME}" == "success" &&
-                "${WORKSPACE_CLEANUP_OUTCOME}" == "success" &&
+                "${workspace_cleanup_ok}" == "true" &&
                 "${CLEAN_OUTCOME}" == "success" ]]; then
             echo "result=success" >> "${GITHUB_OUTPUT}"
             exit 0
