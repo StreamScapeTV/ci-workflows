@@ -72,8 +72,11 @@ jobs:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -Eeuo pipefail
-          test "$(git -C .ciw rev-parse HEAD)" = "${EXPECTED_SHA}"
-          test -z "$(git -C .ciw status --porcelain=v1 --untracked-files=all)"
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+            test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          )
 
       - id: plan
         name: Resolve one sequential Apple smoke executor
@@ -134,6 +137,18 @@ jobs:
           clean: true
           persist-credentials: false
           set-safe-directory: false
+
+      - name: Verify exact validation implementation
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -Eeuo pipefail
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+            test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          )
 
       - name: Clear fixed admitted source checkout root
         shell: bash
