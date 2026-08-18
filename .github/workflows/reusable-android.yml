@@ -202,12 +202,16 @@ jobs:
           DEPENDENCY_REQUIRED: ${{ steps.plan.outputs.private_dependency_used }}
           DEPENDENCY_OUTCOME: ${{ steps.dependency.outcome }}
           EXECUTE_OUTCOME: ${{ steps.execute.outcome }}
+          ANDROID_TEST_SUMMARY: ${{ steps.execute.outputs.test_summary }}
           ANDROID_CLEANUP_OUTCOME: ${{ steps.android_cleanup.outcome }}
           RESIDUE_OUTCOME: ${{ steps.residue.outcome }}
           WORKSPACE_CLEANUP_OUTCOME: ${{ steps.workspace_cleanup.outcome }}
           CLEAN_OUTCOME: ${{ steps.clean.outcome }}
         run: |
           set -Eeuo pipefail
+          if [[ -n "${ANDROID_TEST_SUMMARY}" ]]; then
+            printf 'android-test-summary=%s\n' "${ANDROID_TEST_SUMMARY}"
+          fi
           dependency_ok=true
           if [[ "${DEPENDENCY_REQUIRED}" == "true" ]]; then
             test "${DEPENDENCY_OUTCOME}" = "success" || dependency_ok=false
