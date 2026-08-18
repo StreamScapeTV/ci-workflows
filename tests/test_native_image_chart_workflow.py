@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
 
@@ -8,6 +9,8 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "reusable-native-image-chart.yml"
 VALIDATE = ROOT / "scripts" / "ci" / "native_image_chart_validate.py"
 PREPARE = ROOT / "scripts" / "ci" / "native_image_chart_prepare.py"
+PUBLIC_INDEX = ROOT / "contracts" / "public-workflows.json"
+TAG_FIXTURE = ROOT / "tests" / "fixtures" / "harness" / "callers" / "tag-release.yml"
 
 
 class NativeImageChartWorkflowContractTests(unittest.TestCase):
@@ -86,6 +89,15 @@ class NativeImageChartWorkflowContractTests(unittest.TestCase):
         self.assertIn("CIW_REGISTRY_USERNAME", text)
         self.assertIn("CIW_REGISTRY_TOKEN", text)
         self.assertIn("release versions are not aligned", self.validate)
+
+    def test_public_api_index_and_release_fixture_use_the_native_api(self) -> None:
+        index = json.loads(PUBLIC_INDEX.read_text(encoding="utf-8"))
+        apis = [entry["api_name"] for entry in index["workflows"]]
+        self.assertEqual(index["workflow_count"], len(apis))
+        self.assertEqual(apis.count("release.native-image-chart"), 1)
+        fixture = TAG_FIXTURE.read_text(encoding="utf-8")
+        self.assertIn("reusable-native-image-chart.yml@", fixture)
+        self.assertNotIn("reusable-release.yml@", fixture)
 
 
 if __name__ == "__main__":
