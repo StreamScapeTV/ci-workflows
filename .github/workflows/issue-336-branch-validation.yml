@@ -1,0 +1,113 @@
+name: Issue 336 branch validation
+
+on:
+  push:
+    branches:
+      - agent1/issue-336-apple-single-executor
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue-336-branch-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-contracts:
+    name: Apple source and public API contracts
+    runs-on: [linux, amd64, general, small]
+    timeout-minutes: 10
+    env:
+      SOURCE_SHA: ${{ github.sha }}
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - name: Check out exact candidate source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact candidate source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+      - name: Resolve pre-provisioned CPython 3.12
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          candidate="$(type -P python3.12 || true)"
+          if [[ -z "${candidate}" ]]; then
+            candidate="$(type -P python3 || true)"
+          fi
+          test -n "${candidate}"
+          resolved="$("${candidate}" -c 'import os,sys; print(os.path.realpath(sys.executable))')"
+          identity="$("${resolved}" -c 'import platform,sys; print(f"{sys.implementation.name}|{sys.version_info.major}.{sys.version_info.minor}|{platform.system()}|{platform.machine().lower()}")')"
+          IFS='|' read -r implementation version system machine <<< "${identity}"
+          test "${implementation}" = cpython
+          test "${version}" = 3.12
+          test "${system}" = Linux
+          case "${machine}" in x86_64|amd64) ;; *) exit 1 ;; esac
+          echo "VERIFIED_PYTHON=${resolved}" >> "${GITHUB_ENV}"
+
+      - name: Prepare locked validation runtime
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          validation_root="${HOME}/.ciw-issue336-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          test ! -e "${validation_root}"
+          mkdir -m 0700 "${validation_root}"
+          mkdir -p "${validation_root}/python"
+          "${VERIFIED_PYTHON}" scripts/ci/bootstrap_validation_runtime.py \
+            --lock contracts/action-tool-lock.json \
+            --target "${validation_root}/python"
+          test -f "${validation_root}/python/yaml/__init__.py"
+          {
+            printf 'VALIDATION_ROOT=%s\n' "${validation_root}"
+            printf 'PYTHONPATH=%s:%s/src\n' "${validation_root}/python" "${GITHUB_WORKSPACE}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Validate public API and generated reference
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          "${VERIFIED_PYTHON}" scripts/ci/public_api_contract.py validate
+          "${VERIFIED_PYTHON}" scripts/ci/public_api_contract.py render --check
+
+      - name: Run focused Apple source contracts
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          "${VERIFIED_PYTHON}" -m unittest discover -s tests -p 'test_apple_*.py' -v
+          "${VERIFIED_PYTHON}" -m unittest tests.test_public_api_contract -v
+
+      - name: Compile changed Apple implementation modules
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          "${VERIFIED_PYTHON}" -m py_compile \
+            src/ci_workflows/apple.py \
+            src/ci_workflows/apple_multistage.py \
+            src/ci_workflows/apple_plan_guard.py \
+            src/ci_workflows/ciw_apple.py
+
+      - name: Require clean tracked source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+      - name: Remove validation runtime
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ -n "${VALIDATION_ROOT:-}" && "${VALIDATION_ROOT}" == "${HOME}/.ciw-issue336-"* ]]; then
+            rm -rf -- "${VALIDATION_ROOT}"
+          fi
