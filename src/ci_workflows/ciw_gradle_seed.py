@@ -1,11 +1,13 @@
-"""Thin ``ciw gradle-seed upload`` adapter."""
+"""Thin CLI adapter for the trusted Gradle seed upload function."""
 from __future__ import annotations
 
 import argparse
+import os
+import sys
 from pathlib import Path
-from typing import Mapping
+from typing import Any, Mapping, Sequence
 
-from .ciw_types import CIWContext, CIWError, CIWResult, input_value
+from .ciw_types import CIWContext, CIWError, CIWResult, input_value, project_error
 from .gradle_seed import GradleSeedError, promote_gradle_seed
 
 
@@ -58,3 +60,38 @@ def execute_gradle_seed_upload(
         "upload",
         outputs=result.output_values(),
     )
+
+
+def parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(
+        prog="gradle-seed",
+        description="Upload one trusted Gradle dependency seed delta.",
+    )
+    result.add_argument("--root", type=Path, default=Path.cwd())
+    configure_gradle_seed_upload(result)
+    return result
+
+
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    environment: Mapping[str, str] | None = None,
+    stdout: Any | None = None,
+    stderr: Any | None = None,
+) -> int:
+    args = parser().parse_args(argv)
+    output = sys.stdout if stdout is None else stdout
+    errors = sys.stderr if stderr is None else stderr
+    context = CIWContext(
+        root=args.root.resolve(),
+        environment=dict(os.environ if environment is None else environment),
+        stdout=output,
+        stderr=errors,
+    )
+    try:
+        execute_gradle_seed_upload(args, context).emit(context)
+    except BaseException as error:
+        projected = project_error(error, domain="gradle-seed")
+        errors.write(f"gradle-seed upload failed: {projected.code}\n")
+        return projected.exit_code
+    return 0
