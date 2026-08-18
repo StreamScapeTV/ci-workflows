@@ -17,13 +17,14 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 | `maintenance.runner-retry` `1.0.0` | `.github/workflows/reusable-runner-infrastructure-retry.yml` | `planned` | `trusted-maintenance` | Maintenance / Runner retry |
 | `oci.build` `2.0.0` | `.github/workflows/reusable-oci-build.yml` | `migration-pending` | `read-only-validation` | CI / OCI build validation |
 | `oci.publish` `2.0.0` | `.github/workflows/reusable-oci-publish.yml` | `migration-pending` | `trusted-publication` | Release / OCI publication |
+| `release.native-image-chart` `1.0.0` | `.github/workflows/reusable-native-image-chart.yml` | `implemented` | `trusted-publication` | Publish native amd64 image and Helm chart |
 | `release.orchestrate` `2.0.0` | `.github/workflows/reusable-release.yml` | `planned` | `trusted-publication` | Release / Verified outputs |
 | `release.tag-image-chart-bootstrap` `1.2.0` | `.github/workflows/reusable-tag-image-chart.yml` | `deprecated-bootstrap-exception` | `trusted-publication` | Release / Bootstrap image and chart |
 | `source.resolve` `1.0.0` | `.github/workflows/reusable-resolve-source.yml` | `implemented` | `source-admission` | Shared / Source admission |
 | `validation.android` `2.0.0` | `.github/workflows/reusable-android.yml` | `implemented` | `read-only-validation` | CI / Android validation |
 | `validation.android-live-service` `1.0.0` | `.github/workflows/reusable-android-live-service.yml` | `implemented` | `read-only-validation` | CI / Android live-service acceptance |
 | `validation.android-release` `1.0.0` | `.github/workflows/reusable-android-release.yml` | `implemented` | `read-only-validation` | CI / Android unsigned release validation |
-| `validation.apple` `2.0.0` | `.github/workflows/reusable-apple.yml` | `implemented` | `read-only-validation` | CI / Apple validation |
+| `validation.apple` `1.0.0` | `.github/workflows/reusable-apple.yml` | `implemented` | `read-only-validation` | CI / Apple validation |
 | `validation.device` `2.0.0` | `.github/workflows/reusable-device.yml` | `implemented` | `physical-device-validation` | CI / Physical device validation |
 | `validation.flutter` `1.0.0` | `.github/workflows/reusable-flutter.yml` | `implemented` | `read-only-validation` | CI / Flutter validation |
 | `validation.gitops` `1.0.0` | `.github/workflows/reusable-gitops-validation.yml` | `implemented` | `read-only-validation` | CI / GitOps validation |
@@ -105,6 +106,14 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 - Outputs: `result`, `image_digest`, `platform_digests_json`, `immutable_references_json`
 - Repository-owned hooks: `dockerfile_path`, `build_context`
 
+### `release.native-image-chart`
+
+- Events: `tag-push`, `workflow_call`
+- Inputs: `image_name` (required), `chart_name` (required), `chart_path` (required), `dockerfile_path` (default `Dockerfile`), `build_context` (default `.`)
+- Secrets: `registry_username`, `registry_token`
+- Outputs: `version`, `source_sha`, `image_reference`, `image_digest`, `chart_reference`, `chart_digest`, `chart_package_sha256`
+- Repository-owned hooks: `chart_path`, `dockerfile_path`, `build_context`
+
 ### `release.orchestrate`
 
 - Events: `tag-push`, `workflow_call`, `workflow_dispatch-verify-only`
@@ -156,10 +165,10 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 ### `validation.apple`
 
 - Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
-- Inputs: `admitted_sha` (required), `validation_scope` (default `legacy`), `validation_plan_json` (default ``), `validation_profile` (default ``), `version_file` (default ``), `working_directory` (default `.`), `command_profile` (default ``), `script_path` (default ``), `platform` (default ``), `scheme` (default ``), `destination_profile` (default ``), `artifact_exception_id` (default ``), `private_dependency_repository` (default ``), `private_dependency_sha` (default ``), `private_dependency_subdirectory` (default `.`), `private_dependency_id` (default ``)
-- Secrets: `private_dependency_token`
-- Outputs: `result`, `test_summary`, `cleanup_result`, `artifact_exception_used`
-- Repository-owned hooks: `validation_plan_json`, `command_profile`, `script_path`
+- Inputs: `admitted_sha` (required), `validation_profile` (required), `version_file`, `working_directory` (default `.`), `command_profile` (required), `script_path`, `platform` (required), `scheme`, `destination_profile`, `artifact_exception_id`
+- Secrets: none
+- Outputs: `result`, `test_summary`, `artifact_exception_used`
+- Repository-owned hooks: `command_profile`, `script_path`
 
 ### `validation.device`
 

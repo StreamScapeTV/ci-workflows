@@ -22,7 +22,7 @@ class PublicApiContractTests(unittest.TestCase):
         cls.workflows = contract.validate_workflows(cls.data, cls.profiles)
 
     def test_registry_is_complete_and_deterministic(self) -> None:
-        self.assertEqual(len(self.data.workflows), 22)
+        self.assertEqual(len(self.data.workflows), 23)
         self.assertEqual(len(self.profiles), 12)
         self.assertEqual(len(self.data.types["trust_classes"]), 6)
         self.assertEqual("3.0.0", self.data.index["contract_version"])
@@ -237,7 +237,7 @@ class PublicApiContractTests(unittest.TestCase):
         baseline["outputs"].remove("resolved_inputs_json")
         self.assertEqual("compatible", contract.classify_change(baseline, current))
         acknowledgements = self.data.types["breaking_change_acknowledgements"]
-        self.assertEqual(10, len(acknowledgements))
+        self.assertEqual(9, len(acknowledgements))
         by_api = {item["api_name"]: item for item in acknowledgements}
         self.assertEqual(
             {
@@ -249,7 +249,6 @@ class PublicApiContractTests(unittest.TestCase):
                 "flux.assets",
                 "flux.reconcile",
                 "validation.android",
-                "validation.apple",
                 "validation.device",
             },
             set(by_api),
@@ -258,13 +257,11 @@ class PublicApiContractTests(unittest.TestCase):
             all(
                 item["migration_issue"] == "#322"
                 for api, item in by_api.items()
-                if api not in {"validation.android", "validation.apple", "validation.device"}
+                if api not in {"validation.android", "validation.device"}
             )
         )
         self.assertEqual("#332", by_api["validation.android"]["migration_issue"])
         self.assertEqual("2.0.0", by_api["validation.android"]["effective_version"])
-        self.assertEqual("#336", by_api["validation.apple"]["migration_issue"])
-        self.assertEqual("2.0.0", by_api["validation.apple"]["effective_version"])
         self.assertEqual("#341", by_api["validation.device"]["migration_issue"])
         self.assertEqual("2.0.0", by_api["validation.device"]["effective_version"])
 
@@ -306,7 +303,6 @@ class PublicApiContractTests(unittest.TestCase):
         self.assertIn("`validation_scope` (required)", rendered)
         self.assertIn("`validation.android-live-service` `1.0.0`", rendered)
         self.assertIn("`validation.android-release` `1.0.0`", rendered)
-        self.assertIn("`validation.apple` `2.0.0`", rendered)
         self.assertIn("`validation.device` `2.0.0`", rendered)
         self.assertIn("`host_capacity` (required)", rendered)
 

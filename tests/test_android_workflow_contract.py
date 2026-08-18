@@ -13,7 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 REUSABLE = ROOT / ".github/workflows/reusable-android.yml"
 SMOKE = ROOT / ".github/workflows/android-validation-smoke.yml"
 ACTION = ROOT / "actions/validate-android/action.yml"
-ANDROID_SHA = "474c707bfcfe77b0d36bd0e4c76691359e8dc4ad"
+ANDROID_SHA = "a01e29210603dc8b4cb9e31b9b0c926c2ab5cf37"
+GRADLE_SEED_SHA = "7a0977db839468aac24448831a9a0ffd97b3067b"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 
 PUBLIC_INPUTS = {
@@ -45,6 +46,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertEqual(set(call["secrets"]), {"private_dependency_token"})
         self.assertEqual(set(call["outputs"]), {"result", "test_summary", "cleanup_result"})
         self.assertTrue(call["inputs"]["validation_plan_json"]["required"])
+        self.assertNotIn("promote_gradle_seed", call["inputs"])
         for forbidden in (
             "validation_profile",
             "task_profile",
@@ -61,6 +63,9 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             "runs_on",
             "product_id",
             "shell",
+            "cache_path",
+            "cache_host",
+            "cache_endpoint",
         ):
             self.assertNotIn(forbidden, call["inputs"])
 
@@ -83,6 +88,8 @@ class AndroidWorkflowContractTests(unittest.TestCase):
                 "evidence",
                 "android_cleanup",
                 "residue",
+                "gradle_seed_authority",
+                "gradle_seed",
                 "workspace_cleanup",
                 "clean",
                 "terminal",
@@ -94,6 +101,8 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertEqual(sum(step["id"] == "execute" for step in steps), 1)
         self.assertEqual(sum(step["id"] == "android_cleanup" for step in steps), 1)
         self.assertEqual(sum(step["id"] == "residue" for step in steps), 1)
+        self.assertEqual(sum(step["id"] == "gradle_seed_authority" for step in steps), 1)
+        self.assertEqual(sum(step["id"] == "gradle_seed" for step in steps), 1)
         self.assertNotIn("self-hosted", self.source)
         self.assertNotIn("fromJSON(needs.", self.source)
         self.assertNotIn("matrix:", self.source)
@@ -108,6 +117,12 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             4,
             uses.count(
                 f"StreamScapeTV/ci-workflows/actions/validate-android@{ANDROID_SHA}"
+            ),
+        )
+        self.assertEqual(
+            1,
+            uses.count(
+                f"StreamScapeTV/ci-workflows/actions/upload-gradle-seed@{GRADLE_SEED_SHA}"
             ),
         )
         for helper in (
@@ -125,6 +140,47 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             revision = item.rsplit("@", 1)[1]
             self.assertRegex(revision, r"^[0-9a-f]{40}$")
 
+    def test_seed_warming_requires_protected_push_and_caller_oidc_and_is_non_authoritative(self) -> None:
+        self.assertEqual(self.workflow["permissions"], {"contents": "read"})
+        job = self.workflow["jobs"]["validate"]
+        self.assertEqual(
+            job["permissions"],
+            {"contents": "read", "id-token": "write"},
+        )
+        steps = job["steps"]
+        authority = next(step for step in steps if step["id"] == "gradle_seed_authority")
+        self.assertIn("github.event_name == 'push'", authority["if"])
+        self.assertIn("github.ref_protected", authority["if"])
+        self.assertIn("ACTIONS_ID_TOKEN_REQUEST_URL", authority["run"])
+        self.assertIn("ACTIONS_ID_TOKEN_REQUEST_TOKEN", authority["run"])
+        self.assertIn('echo "enabled=${enabled}"', authority["run"])
+
+        promotion = next(step for step in steps if step["id"] == "gradle_seed")
+        self.assertTrue(promotion["continue-on-error"])
+        self.assertEqual(
+            promotion["uses"],
+            f"StreamScapeTV/ci-workflows/actions/upload-gradle-seed@{GRADLE_SEED_SHA}",
+        )
+        self.assertEqual(promotion["with"], {"source_sha": "${{ inputs.admitted_sha }}"})
+        condition = promotion["if"]
+        self.assertIn("steps.gradle_seed_authority.outputs.enabled == 'true'", condition)
+        self.assertIn("steps.execute.outcome == 'success'", condition)
+        self.assertIn("steps.android_cleanup.outcome == 'success'", condition)
+        self.assertIn("steps.residue.outcome == 'success'", condition)
+        self.assertNotIn("inputs.promote_gradle_seed", condition)
+
+        fallback = next(step for step in steps if step["id"] == "workspace_cleanup")
+        self.assertEqual(
+            fallback["if"],
+            "always() && steps.gradle_seed.outputs.cleanup_verified != 'true'",
+        )
+        terminal = next(step for step in steps if step["id"] == "terminal")
+        terminal_script = terminal["run"]
+        self.assertIn("GRADLE_SEED_CLEANUP_VERIFIED", terminal["env"])
+        self.assertIn("workspace_cleanup_ok", terminal_script)
+        self.assertNotIn("GRADLE_SEED_OUTCOME", terminal["env"])
+        self.assertNotIn("GRADLE_SEED_OUTCOME", terminal_script)
+
     def test_private_token_is_confined_to_the_single_dependency_checkout(self) -> None:
         steps = self.workflow["jobs"]["validate"]["steps"]
         dependency = next(step for step in steps if step["id"] == "dependency")
@@ -137,7 +193,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
                 continue
             self.assertNotIn("private_dependency_token", json.dumps(step))
 
-    def test_workspace_is_cache_free_exact_source_and_always_cleaned_once(self) -> None:
+    def test_workspace_uses_no_github_cache_or_artifact_transport_and_is_terminally_cleaned(self) -> None:
         self.assertNotIn("actions/cache", self.source)
         self.assertNotIn("upload-artifact", self.source)
         self.assertNotIn("download-artifact", self.source)
