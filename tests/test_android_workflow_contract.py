@@ -140,13 +140,14 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             revision = item.rsplit("@", 1)[1]
             self.assertRegex(revision, r"^[0-9a-f]{40}$")
 
-    def test_seed_warming_requires_protected_push_and_caller_oidc_and_is_non_authoritative(self) -> None:
-        self.assertEqual(self.workflow["permissions"], {"contents": "read"})
+    def test_seed_warming_inherits_caller_permission_ceiling_and_is_non_authoritative(self) -> None:
+        # The reusable workflow must not request a permission that a read-only caller
+        # did not grant. GitHub reusable workflows cannot elevate caller permissions.
+        self.assertNotIn("permissions", self.workflow)
         job = self.workflow["jobs"]["validate"]
-        self.assertEqual(
-            job["permissions"],
-            {"contents": "read", "id-token": "write"},
-        )
+        self.assertNotIn("permissions", job)
+        self.assertNotIn("\npermissions:\n", self.source)
+
         steps = job["steps"]
         authority = next(step for step in steps if step["id"] == "gradle_seed_authority")
         self.assertIn("github.event_name == 'push'", authority["if"])
