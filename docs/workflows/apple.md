@@ -120,6 +120,8 @@ imports a keychain, reaches Kubernetes, or deploys a product.
 
 The reusable workflow invokes `actions/validate-apple` through guarded issue
 #336 checkpoint `478b04651245d6d7d06bd3df74221278b74dd13b`.
+The corresponding action-lock release label is
+`issue-336 final Apple v2 checkpoint`.
 That checkpoint includes the protected-full planner/executor and the public plan
 filesystem guard. Exact source checkout, workspace preparation, optional private
 dependency checkout, evidence rendering, and registered-state cleanup use the
@@ -139,6 +141,16 @@ exact detached checkout, verifies the selected subpath, erases Git remotes and
 credentials, and exposes registered-state identity. Apple execution rejects the
 dependency unless every piece of checkout evidence matches the requested exact
 identity. `secrets: inherit` is not used.
+
+After that verification succeeds, Apple execution derives the dependency's exact
+GitHub HTTPS identity from the validated `owner/name` input and installs a
+process-scoped Git `url.<local-file-URI>.insteadOf` mapping for both the exact
+HTTPS form and its `.git` spelling. Xcode/SwiftPM can therefore resolve that one
+private package from the verified local checkout after remotes and credentials
+have been erased. The mapping is supplied only through the validation process
+environment, disables interactive Git prompting, and does not write repository,
+user, or system Git configuration. It does not create a general private-package
+credential channel or permit a caller-selected local path.
 
 ## Artifacts and cleanup
 
