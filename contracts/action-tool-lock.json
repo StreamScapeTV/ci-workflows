@@ -150,10 +150,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-apple",
-      "sha": "702b950b6a5baf208e7b21f16e3f7df9b8f0f96e",
-      "release": "issue #187 integrated Media tvOS consumer checkpoint",
+      "sha": "478b04651245d6d7d06bd3df74221278b74dd13b",
+      "release": "issue-336 final Apple v2 checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/702b950b6a5baf208e7b21f16e3f7df9b8f0f96e/actions/validate-apple"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/commit/478b04651245d6d7d06bd3df74221278b74dd13b"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-oci",
