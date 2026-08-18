@@ -196,7 +196,7 @@
       "timeout_minutes": 240,
       "matrix_max_jobs": 12,
       "repository_owned_hooks": ["release_manifest_path", "policy_path"],
-      "implementation_components": ["ci_workflows.flux_assets.release", "ci_workflows.flux_assets.release", "actions/resolve-release-tag"],
+      "implementation_components": ["ci_workflows.flux_assets.release", "internal-flux-assets.yml"],
       "max_reusable_workflow_depth": 2
     },
     {
