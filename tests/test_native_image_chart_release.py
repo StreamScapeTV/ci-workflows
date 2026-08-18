@@ -8,6 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/reusable-native-image-chart.yml"
 PRODUCTS_PATH = ROOT / "contracts/public-workflows/products.json"
+AGGREGATE_PATH = ROOT / "contracts/public-workflows.json"
 
 
 class NativeImageChartExistingTagContractTest(unittest.TestCase):
@@ -15,14 +16,21 @@ class NativeImageChartExistingTagContractTest(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
         products = json.loads(PRODUCTS_PATH.read_text(encoding="utf-8"))
+        aggregate = json.loads(AGGREGATE_PATH.read_text(encoding="utf-8"))
         cls.contract = next(
             row
             for row in products["workflows"]
             if row["api_name"] == "release.native-image-chart"
         )
+        cls.aggregate = next(
+            row
+            for row in aggregate["workflows"]
+            if row["api_name"] == "release.native-image-chart"
+        )
 
     def test_public_api_adds_only_optional_existing_tag_authority_inputs(self) -> None:
         self.assertEqual("1.0.0", self.contract["api_version"])
+        self.assertEqual("1.0.0", self.aggregate["api_version"])
         self.assertEqual("implemented", self.contract["status"])
         self.assertEqual(
             ["tag-push", "workflow_call", "workflow_dispatch-existing-tag"],
