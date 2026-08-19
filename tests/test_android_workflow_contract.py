@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REUSABLE = ROOT / ".github/workflows/reusable-android.yml"
 SMOKE = ROOT / ".github/workflows/android-validation-smoke.yml"
 ACTION = ROOT / "actions/validate-android/action.yml"
-ANDROID_SHA = "ac56fd7b3fac55f231e7b2ba715a5aebebbe51ef"
+ANDROID_SHA = "b878e56f978cb23bc8a0dd300d24b0799c943503"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 GRADLE_SYNC_SHA = "fa67b6a1580ff2eb7386a9e58de09896b9990696"
 
