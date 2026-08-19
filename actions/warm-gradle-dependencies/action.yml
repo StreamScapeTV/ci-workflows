@@ -34,8 +34,8 @@ runs:
         PYTHONDONTWRITEBYTECODE: "1"
       run: |
         set -Eeuo pipefail
-        PYTHONPATH="${GITHUB_ACTION_PATH}/../../src" \
-          python3 -m ci_workflows.gradle_dependency_warm \
-            --admitted-sha "${{ inputs.admitted_sha }}" \
-            --working-directory "${{ inputs.working_directory }}" \
-            --gradle-wrapper-path "${{ inputs.gradle_wrapper_path }}"
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
+          gradle warm-dependencies \
+          --admitted-sha "${{ inputs.admitted_sha }}" \
+          --working-directory "${{ inputs.working_directory }}" \
+          --gradle-wrapper-path "${{ inputs.gradle_wrapper_path }}"
