@@ -52,11 +52,13 @@ The Android execute phase reports:
 
 This evidence is collected inside the existing executor and does not create monitoring jobs or services.
 
+Failed or timed-out reviewed `android.*` primitive operations emit only a sanitized bounded last-80-line/16-KiB diagnostic tail before preserving the existing stable failure code. Successful Android operations and non-Android primitives retain their prior output behavior.
+
 ## Helper checkpoints
 
 `reusable-android.yml` composes reviewed Central helpers by immutable source identity:
 
-- `validate-android@a01e29210603dc8b4cb9e31b9b0c926c2ab5cf37` — `issues #344/#346 Android telemetry and Gradle read-only seed checkpoint`;
+- `validate-android@410fed5fb5fd7c930b28c545758a5f3992e43b0c` — `issue #344 bounded Android failure diagnostics checkpoint`;
 - `upload-gradle-seed@fa67b6a1580ff2eb7386a9e58de09896b9990696` — `issue #346 bounded Gradle cache sync diagnostics checkpoint`;
 - `exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`;
 - `prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`;
@@ -64,7 +66,7 @@ This evidence is collected inside the existing executor and does not create moni
 - `cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`;
 - `checkout-private-dependency@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #104 immutable private-action checkpoint`.
 
-The action lock must record the same cache-sync checkpoint before the candidate is merge-state.
+The action lock must record the same helper identities before the candidate is merge-state.
 
 ## Runtime state
 
