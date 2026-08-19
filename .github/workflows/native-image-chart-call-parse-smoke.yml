@@ -20,7 +20,7 @@ jobs:
   reusable_call:
     name: Parse native image/chart reusable call
     if: ${{ false }}
-    uses: ./.github/workflows/reusable-native-image-chart.yml
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-native-image-chart.yml@6fa19fe73c709c6fb81a30b926edac95a2fb674e # issue #364 parser-fix checkpoint
     with:
       release_mode: existing-tag
       release_version: "0.0.0"
