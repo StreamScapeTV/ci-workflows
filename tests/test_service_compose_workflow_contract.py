@@ -72,7 +72,7 @@ class ServiceComposeWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("inputs.runner", self.source)
         self.assertNotIn("inputs.compose_tool", self.source)
 
-    def test_execution_uses_exact_caller_source_and_exact_central_workflow_source(self) -> None:
+    def test_execution_isolates_exact_caller_source_from_exact_central_source(self) -> None:
         validate = self.jobs["validate"]
         self.assertEqual(
             "${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
@@ -91,16 +91,18 @@ class ServiceComposeWorkflowContractTests(unittest.TestCase):
         )
         self.assertEqual(f"actions/checkout@{CHECKOUT_SHA}", caller["uses"])
         self.assertEqual("${{ inputs.admitted_sha }}", caller["with"]["ref"])
+        self.assertEqual("source", caller["with"]["path"])
         self.assertFalse(caller["with"]["persist-credentials"])
         self.assertFalse(caller["with"]["set-safe-directory"])
-        self.assertNotIn("path", caller["with"])
         self.assertEqual(f"actions/checkout@{CHECKOUT_SHA}", central["uses"])
         self.assertEqual("StreamScapeTV/ci-workflows", central["with"]["repository"])
         self.assertEqual("${{ github.workflow_sha }}", central["with"]["ref"])
         self.assertEqual(".ciw", central["with"]["path"])
         self.assertFalse(central["with"]["persist-credentials"])
         self.assertFalse(central["with"]["set-safe-directory"])
+        self.assertIn("cd source", self.source)
         self.assertIn('test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"', self.source)
+        self.assertIn('GITHUB_WORKSPACE="${GITHUB_WORKSPACE}/source"', self.source)
 
     def test_workspace_and_runtime_are_fixed_and_cleanup_is_terminal(self) -> None:
         steps = self.jobs["validate"]["steps"]
@@ -139,6 +141,7 @@ class ServiceComposeWorkflowContractTests(unittest.TestCase):
         self.assertEqual("always()", clean["if"])
         self.assertIn("rm -rf -- .ciw", remove_central["run"])
         self.assertIn('test ! -e .ciw', remove_central["run"])
+        self.assertIn("cd source", clean["run"])
         self.assertIn('test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"', clean["run"])
         self.assertIn("podman --version", self.source)
         self.assertIn("podman-compose --version", self.source)
@@ -153,6 +156,7 @@ class ServiceComposeWorkflowContractTests(unittest.TestCase):
             == "Start services, wait, validate, diagnose failures, and tear down"
         )
         self.assertIn("python3 .ciw/scripts/ci/ciw.py compose validate", execute["run"])
+        self.assertIn('GITHUB_WORKSPACE="${GITHUB_WORKSPACE}/source"', execute["run"])
         self.assertEqual(
             "${{ steps.execute.outcome == 'success' && steps.cleanup.outcome == 'success' && steps.clean.outcome == 'success' && 'success' || 'failure' }}",
             self.jobs["validate"]["outputs"]["result"],
