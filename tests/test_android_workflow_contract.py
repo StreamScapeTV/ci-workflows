@@ -23,6 +23,7 @@ PUBLIC_INPUTS = {
     "working_directory",
     "gradle_wrapper_path",
     "validation_plan_json",
+    "dependency_prebuild_plan_json",
     "private_dependency_repository",
     "private_dependency_sha",
     "private_dependency_subdirectory",
@@ -46,6 +47,8 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertEqual(set(call["secrets"]), {"private_dependency_token"})
         self.assertEqual(set(call["outputs"]), {"result", "test_summary", "cleanup_result"})
         self.assertTrue(call["inputs"]["validation_plan_json"]["required"])
+        self.assertFalse(call["inputs"]["dependency_prebuild_plan_json"]["required"])
+        self.assertEqual(call["inputs"]["dependency_prebuild_plan_json"]["default"], "")
         for forbidden in (
             "promote_gradle_seed",
             "validation_profile",
@@ -81,9 +84,13 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             [step["id"] for step in steps],
             [
                 "plan",
+                "prebuild_plan",
                 "checkout",
                 "workspace",
                 "dependency",
+                "prebuild_execute",
+                "prebuild_cleanup",
+                "prebuild_residue",
                 "execute",
                 "evidence",
                 "android_cleanup",
@@ -98,6 +105,10 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             "checkout",
             "dependency",
             "workspace",
+            "prebuild_plan",
+            "prebuild_execute",
+            "prebuild_cleanup",
+            "prebuild_residue",
             "execute",
             "android_cleanup",
             "residue",
@@ -116,7 +127,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             if str(step.get("uses", "")).startswith("StreamScapeTV/ci-workflows/actions/")
         ]
         self.assertEqual(
-            4,
+            8,
             uses.count(f"StreamScapeTV/ci-workflows/actions/validate-android@{ANDROID_SHA}"),
         )
         self.assertEqual(
@@ -137,6 +148,41 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         for item in uses:
             revision = item.rsplit("@", 1)[1]
             self.assertRegex(revision, r"^[0-9a-f]{40}$")
+
+    def test_optional_dependency_prebuild_reuses_grouped_android_primitive(self) -> None:
+        steps = self.workflow["jobs"]["validate"]["steps"]
+        by_id = {step["id"]: step for step in steps}
+        prebuild_plan = by_id["prebuild_plan"]
+        prebuild_execute = by_id["prebuild_execute"]
+        prebuild_cleanup = by_id["prebuild_cleanup"]
+        prebuild_residue = by_id["prebuild_residue"]
+        execute = by_id["execute"]
+
+        self.assertEqual(prebuild_plan["with"]["validation_scope"], "protected-full")
+        self.assertEqual(
+            prebuild_plan["with"]["validation_plan_json"],
+            "${{ inputs.dependency_prebuild_plan_json }}",
+        )
+        self.assertIn("private_dependency_used == 'true'", prebuild_plan["if"])
+
+        self.assertEqual(prebuild_execute["with"]["validation_scope"], "protected-full")
+        self.assertEqual(
+            prebuild_execute["with"]["validation_plan_json"],
+            "${{ inputs.dependency_prebuild_plan_json }}",
+        )
+        self.assertIn("steps.prebuild_plan.outcome == 'success'", prebuild_execute["if"])
+        self.assertIn("steps.dependency.outcome == 'success'", prebuild_execute["if"])
+
+        self.assertEqual(prebuild_cleanup["with"]["phase"], "cleanup")
+        self.assertEqual(prebuild_residue["with"]["phase"], "residue")
+        self.assertIn("always()", prebuild_cleanup["if"])
+        self.assertIn("always()", prebuild_residue["if"])
+        self.assertLess(steps.index(prebuild_execute), steps.index(prebuild_cleanup))
+        self.assertLess(steps.index(prebuild_cleanup), steps.index(prebuild_residue))
+        self.assertLess(steps.index(prebuild_residue), steps.index(execute))
+        self.assertIn("steps.prebuild_execute.outcome == 'success'", execute["if"])
+        self.assertIn("steps.prebuild_cleanup.outcome == 'success'", execute["if"])
+        self.assertIn("steps.prebuild_residue.outcome == 'success'", execute["if"])
 
     def test_internal_cache_sync_has_no_oidc_and_is_best_effort_before_cleanup(self) -> None:
         self.assertEqual(self.workflow["permissions"], {"contents": "read"})
@@ -173,6 +219,8 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             terminal["env"]["ANDROID_TEST_SUMMARY"],
             "${{ steps.execute.outputs.test_summary }}",
         )
+        self.assertIn("PREBUILD_REQUIRED", terminal["env"])
+        self.assertIn("prebuild_ok=true", terminal["run"])
         self.assertIn("android-test-summary=%s", terminal["run"])
         self.assertNotIn("github.event", terminal["run"])
         self.assertNotIn("env |", terminal["run"])
@@ -194,6 +242,9 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertIn("Check out exact admitted caller source once", self.source)
         self.assertIn("Prepare one isolated marker-bound Gradle state", self.source)
         self.assertIn("Check out exact private dependency at most once", self.source)
+        self.assertIn("Process-isolate optional private dependency Gradle prebuild", self.source)
+        self.assertIn("Remove optional dependency-prebuild copied source state", self.source)
+        self.assertIn("Verify zero optional dependency-prebuild residue", self.source)
         self.assertIn("Execute one primitive-backed Android validation plan", self.source)
         self.assertIn("Sync newly resolved Gradle dependencies to the internal cache", self.source)
         self.assertIn("Verify exact admitted source remained clean", self.source)
