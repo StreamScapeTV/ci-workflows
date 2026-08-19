@@ -157,10 +157,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-apple",
-      "sha": "2dacd98d19c5e136ce4803ab70b0f7ebd45414bf",
-      "release": "issue-336 final Apple v2 checkpoint",
+      "sha": "f682622a1a659368cba78c071c72b8b6e8953d88",
+      "release": "issue #372 bounded Apple failure diagnostics checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/2dacd98d19c5e136ce4803ab70b0f7ebd45414bf/actions/validate-apple"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/f682622a1a659368cba78c071c72b8b6e8953d88/actions/validate-apple"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-oci",
