@@ -13,6 +13,10 @@ inputs:
     description: Bounded checked-in Gradle wrapper path relative to the project directory
     required: false
     default: gradlew
+  private_dependency_subdirectory:
+    description: Verified bounded subdirectory inside the optional private dependency checkout
+    required: false
+    default: .
 
 outputs:
   result:
@@ -38,4 +42,5 @@ runs:
           gradle warm-dependencies \
           --admitted-sha "${{ inputs.admitted_sha }}" \
           --working-directory "${{ inputs.working_directory }}" \
-          --gradle-wrapper-path "${{ inputs.gradle_wrapper_path }}"
+          --gradle-wrapper-path "${{ inputs.gradle_wrapper_path }}" \
+          --private-dependency-subdirectory "${{ inputs.private_dependency_subdirectory }}"
