@@ -12,6 +12,7 @@ from .validation_contracts import (
     _validate_fixture_coverage,
     _validate_tool_lock,
 )
+from .validation_expression_contexts import _validate_workflow_expression_contexts
 from .validation_graph import _validate_call_graphs
 from .validation_helpers import _finding
 from .validation_model import (
@@ -102,6 +103,7 @@ def validate_repository(
             )
             continue
         workflow_documents[relative_path] = document
+        _validate_workflow_expression_contexts(document, config, findings)
         _validate_workflow(
             document,
             root,
