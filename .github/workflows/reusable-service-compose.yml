@@ -12,32 +12,9 @@ on:
         required: false
         default: .
         type: string
-      compose_file:
-        description: Compose YAML path beneath the working directory
+      validation_plan_json:
+        description: Bounded product-owned Compose topology, readiness and validation plan
         required: true
-        type: string
-      services_json:
-        description: JSON array of Compose service names; empty selects the whole project
-        required: false
-        default: "[]"
-        type: string
-      env_files_json:
-        description: JSON array of checked-in Compose env-file paths
-        required: false
-        default: "[]"
-        type: string
-      readiness_json:
-        description: Bounded JSON array of typed service readiness checks
-        required: true
-        type: string
-      validation_script_path:
-        description: Repository-relative executable validation script
-        required: true
-        type: string
-      validation_timeout_seconds:
-        description: Validation-script timeout in seconds
-        required: false
-        default: "900"
         type: string
     outputs:
       result:
@@ -55,11 +32,9 @@ permissions:
 
 jobs:
   plan:
-    name: Admit exact source and select Compose capacity
+    name: Admit exact source before Compose capacity
     runs-on: [linux, amd64, general, small]
     timeout-minutes: 5
-    outputs:
-      runs_on_json: ${{ steps.capacity.outputs.runs_on_json }}
     steps:
       - name: Admit exact same-repository source for container validation
         shell: bash
@@ -88,73 +63,16 @@ jobs:
               ;;
           esac
 
-      - id: capacity
-        name: Select the bounded daemonless Compose runner
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          printf 'runs_on_json=%s\n' '["linux","amd64","buildah","small"]' >> "${GITHUB_OUTPUT}"
-
   validate:
     name: CI / Service Compose validation
     needs: plan
-    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
+    runs-on: [linux, amd64, buildah, small]
     timeout-minutes: 120
     outputs:
-      result: ${{ steps.execute.outcome == 'success' && steps.cleanup.outcome == 'success' && steps.clean.outcome == 'success' && 'success' || 'failure' }}
-      test_summary: ${{ steps.execute.outputs.test_summary }}
-      cleanup_result: ${{ steps.execute.outputs.cleanup_result == 'success' && steps.cleanup.outcome == 'success' && 'success' || 'failure' }}
+      result: ${{ steps.compose.outcome == 'success' && steps.cleanup.outcome == 'success' && steps.clean.outcome == 'success' && 'success' || 'failure' }}
+      test_summary: ${{ steps.compose.outputs.test_summary }}
+      cleanup_result: ${{ steps.compose.outputs.cleanup_result == 'success' && steps.cleanup.outcome == 'success' && 'success' || 'failure' }}
     steps:
-      - name: Check out exact admitted caller source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
-          ref: ${{ inputs.admitted_sha }}
-          path: source
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
-
-      - name: Verify exact admitted caller source
-        shell: bash
-        env:
-          EXPECTED_SHA: ${{ inputs.admitted_sha }}
-        run: |
-          set -Eeuo pipefail
-          (
-            cd source
-            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
-            test -z "$(git status --porcelain=v1 --untracked-files=all)"
-          )
-
-      - name: Check out exact Central reusable-workflow source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: StreamScapeTV/ci-workflows
-          ref: ${{ github.workflow_sha }}
-          path: .ciw
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
-
-      - name: Verify exact Central workflow source
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          (
-            cd .ciw
-            test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
-            test -z "$(git status --porcelain=v1 --untracked-files=all)"
-          )
-
-      - name: Prepare one isolated container workspace
-        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable checkpoint
-        with:
-          profile: container
-          cache_mode: disabled
-
       - name: Verify pre-provisioned daemonless Compose runtime
         shell: bash
         run: |
@@ -163,49 +81,43 @@ jobs:
           podman-compose --version
           podman compose version
 
-      - id: execute
+      - name: Check out exact admitted caller source once
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          admitted_sha: ${{ inputs.admitted_sha }}
+          path: source
+          fetch_depth: "1"
+
+      - id: workspace
+        name: Prepare one isolated container workspace
+        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        with:
+          profile: container
+          cache_mode: disabled
+          source_sha: ${{ inputs.admitted_sha }}
+
+      - id: compose
         name: Start services, wait, validate, diagnose failures, and tear down
-        shell: bash
-        env:
-          PYTHONDONTWRITEBYTECODE: "1"
-          PYTHONPATH: ${{ github.workspace }}/.ciw/src
-          INPUT_ADMITTED_SHA: ${{ inputs.admitted_sha }}
-          INPUT_WORKING_DIRECTORY: ${{ inputs.working_directory }}
-          INPUT_COMPOSE_FILE: ${{ inputs.compose_file }}
-          INPUT_COMPOSE_TOOL: podman
-          INPUT_SERVICES_JSON: ${{ inputs.services_json }}
-          INPUT_ENV_FILES_JSON: ${{ inputs.env_files_json }}
-          INPUT_READINESS_JSON: ${{ inputs.readiness_json }}
-          INPUT_VALIDATION_SCRIPT_PATH: ${{ inputs.validation_script_path }}
-          INPUT_VALIDATION_TIMEOUT_SECONDS: ${{ inputs.validation_timeout_seconds }}
-        run: |
-          set -Eeuo pipefail
-          GITHUB_WORKSPACE="${GITHUB_WORKSPACE}/source" \
-            python3 .ciw/scripts/ci/ciw.py compose validate
+        uses: StreamScapeTV/ci-workflows/actions/validate-service-compose@8b4d61b8ce0863e0d5efa806c1b39922d145402a # issue #359 Compose adapter checkpoint
+        with:
+          admitted_sha: ${{ inputs.admitted_sha }}
+          working_directory: ${{ inputs.working_directory }}
+          validation_plan_json: ${{ inputs.validation_plan_json }}
 
       - id: cleanup
         name: Remove and verify all registered workspace state
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable checkpoint
-
-      - name: Remove exact Central helper checkout
-        if: always()
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          rm -rf -- .ciw
-          test ! -e .ciw
+        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
 
       - id: clean
         name: Verify exact caller source remained clean after cleanup
         if: always()
         shell: bash
-        env:
-          EXPECTED_SHA: ${{ inputs.admitted_sha }}
         run: |
           set -Eeuo pipefail
           (
             cd source
-            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+            test "$(git rev-parse HEAD)" = "${{ inputs.admitted_sha }}"
             test -z "$(git status --porcelain=v1 --untracked-files=all)"
           )
