@@ -110,6 +110,7 @@ jobs:
         with:
           repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ inputs.admitted_sha }}
+          path: source
           fetch-depth: 1
           clean: true
           persist-credentials: false
@@ -121,8 +122,11 @@ jobs:
           EXPECTED_SHA: ${{ inputs.admitted_sha }}
         run: |
           set -Eeuo pipefail
-          test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
-          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          (
+            cd source
+            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+            test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          )
 
       - name: Check out exact Central reusable-workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -176,7 +180,8 @@ jobs:
           INPUT_VALIDATION_TIMEOUT_SECONDS: ${{ inputs.validation_timeout_seconds }}
         run: |
           set -Eeuo pipefail
-          python3 .ciw/scripts/ci/ciw.py compose validate
+          GITHUB_WORKSPACE="${GITHUB_WORKSPACE}/source" \
+            python3 .ciw/scripts/ci/ciw.py compose validate
 
       - id: cleanup
         name: Remove and verify all registered workspace state
@@ -199,5 +204,8 @@ jobs:
           EXPECTED_SHA: ${{ inputs.admitted_sha }}
         run: |
           set -Eeuo pipefail
-          test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
-          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          (
+            cd source
+            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+            test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          )
