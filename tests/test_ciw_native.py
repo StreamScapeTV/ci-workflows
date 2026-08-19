@@ -17,19 +17,17 @@ def _result(operation: str, cwd: Path) -> native_primitives.NativeCommandResult:
 
 
 class NativeAdapterTests(unittest.TestCase):
-    def environment(self, **overrides: str) -> dict[str, str]:
+    def environment(self, *, plan: object | None = None, **overrides: str) -> dict[str, str]:
+        validation_plan = {
+            "definitions": {"BUILD_TESTING": "ON"},
+            "configure_options": ["-Wno-dev"],
+            "test_target": "test",
+            "jobs": 2,
+        } if plan is None else plan
         values = {
             "INPUT_ADMITTED_SHA": SHA,
             "INPUT_WORKING_DIRECTORY": ".",
-            "INPUT_CMAKE_DEFINITIONS_JSON": '{"BUILD_TESTING":"ON"}',
-            "INPUT_CONFIGURE_OPTIONS_JSON": '["-Wno-dev"]',
-            "INPUT_CMAKE_GENERATOR": "",
-            "INPUT_BUILD_TARGET": "",
-            "INPUT_BUILD_CONFIGURATION": "",
-            "INPUT_BUILD_OPTIONS_JSON": "[]",
-            "INPUT_TEST_TARGET": "test",
-            "INPUT_TEST_OPTIONS_JSON": "[]",
-            "INPUT_JOBS": "2",
+            "INPUT_VALIDATION_PLAN_JSON": json.dumps(validation_plan, separators=(",", ":")),
         }
         values.update(overrides)
         return values
@@ -106,19 +104,21 @@ class NativeAdapterTests(unittest.TestCase):
 
     def test_invalid_functional_inputs_fail_closed_before_execution(self) -> None:
         invalid = (
-            ("invalid_admitted_sha", {"INPUT_ADMITTED_SHA": "HEAD"}),
-            ("invalid_working_directory", {"INPUT_WORKING_DIRECTORY": "../escape"}),
-            ("invalid_cmake_definitions", {"INPUT_CMAKE_DEFINITIONS_JSON": "[]"}),
-            ("invalid_configure_options", {"INPUT_CONFIGURE_OPTIONS_JSON": "{}"}),
-            ("invalid_build_options", {"INPUT_BUILD_OPTIONS_JSON": '[1]'}),
-            ("invalid_test_target", {"INPUT_TEST_TARGET": "bad\ntarget"}),
-            ("invalid_jobs", {"INPUT_JOBS": "0"}),
-            ("invalid_jobs", {"INPUT_JOBS": "2.0"}),
+            ("invalid_admitted_sha", self.environment(INPUT_ADMITTED_SHA="HEAD")),
+            ("invalid_working_directory", self.environment(INPUT_WORKING_DIRECTORY="../escape")),
+            ("invalid_validation_plan", self.environment(INPUT_VALIDATION_PLAN_JSON="[]")),
+            ("invalid_validation_plan", self.environment(plan={"unknown": True})),
+            ("invalid_cmake_definitions", self.environment(plan={"definitions": []})),
+            ("invalid_configure_options", self.environment(plan={"configure_options": {}})),
+            ("invalid_build_options", self.environment(plan={"build_options": [1]})),
+            ("invalid_test_target", self.environment(plan={"test_target": "bad\ntarget"})),
+            ("invalid_jobs", self.environment(plan={"jobs": 0})),
+            ("invalid_jobs", self.environment(plan={"jobs": "2"})),
         )
-        for code, overrides in invalid:
-            with self.subTest(code=code, overrides=overrides):
+        for code, environment in invalid:
+            with self.subTest(code=code, environment=environment):
                 with self.assertRaisesRegex(ciw_native.NativeValidationError, f"^{code}$"):
-                    ciw_native.request_from_environment(self.environment(**overrides))
+                    ciw_native.request_from_environment(environment)
 
     def test_native_build_output_never_targets_source_tree(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
