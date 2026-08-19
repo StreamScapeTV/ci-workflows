@@ -72,6 +72,13 @@ class AndroidDependencyPrebuildContractTests(unittest.TestCase):
         self.assertIn("steps.prebuild_cleanup.outcome == 'success'", authoritative["if"])
         self.assertIn("steps.prebuild_residue.outcome == 'success'", authoritative["if"])
 
+    def test_cleanup_result_requires_prebuild_cleanup_when_prebuild_is_requested(self) -> None:
+        cleanup_result = self.job["outputs"]["cleanup_result"]
+        self.assertIn("inputs.dependency_prebuild_plan_json == ''", cleanup_result)
+        self.assertIn("steps.prebuild_cleanup.outcome == 'success'", cleanup_result)
+        self.assertIn("steps.prebuild_residue.outcome == 'success'", cleanup_result)
+        self.assertIn("steps.workspace_cleanup.outcome == 'success'", cleanup_result)
+
     def test_prebuild_does_not_expand_runner_or_cache_authority(self) -> None:
         self.assertEqual(self.job["runs-on"], ["linux", "amd64", "mobile"])
         lowered = self.source.casefold()
