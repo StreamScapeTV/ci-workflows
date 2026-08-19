@@ -13,7 +13,7 @@ Central Android validation provides one product-neutral Gradle execution boundar
 5. `src/ci_workflows/gradle_dependency_warm.py` performs the product-neutral dependency-only bootstrap in a disposable exact-source copy.
 6. `src/ci_workflows/android_resource_metrics.py` measures bounded same-executor wall/CPU/cgroup evidence for authoritative Android execution.
 7. `actions/validate-android/action.yml` is the thin Android validation adapter.
-8. `actions/warm-gradle-dependencies/action.yml` is the thin dependency-only Gradle warm adapter.
+8. `actions/warm-gradle-dependencies/action.yml` is the thin dependency-only Gradle warm adapter routed through the canonical `scripts/ci/ciw.py` delegate.
 9. `actions/upload-gradle-seed/action.yml` is the thin best-effort internal dependency-delta sync adapter.
 10. `.github/workflows/reusable-android.yml` composes one mobile job around those primitives and may reuse the grouped Android primitive for an optional private-dependency prebuild pass before authoritative validation.
 
@@ -78,7 +78,7 @@ Failed dependency-warm or Android operations emit only sanitized bounded diagnos
 `reusable-android.yml` composes reviewed Central helpers by immutable source identity:
 
 - `validate-android@8eaa37ad0fe3231b202e878b26f66aa23753e38a` — `issue #373 compile Gradle isolation checkpoint`;
-- `warm-gradle-dependencies@89a5279f00fc04a7b033f90ee1e4254a9f8d89e3` — `issue #346 dependency warm checkpoint`;
+- `warm-gradle-dependencies@4539e4c9ef8dce45d8cd179dec5997dbf8c7b9cd` — `issue #346 dependency warm checkpoint`;
 - `upload-gradle-seed@fa67b6a1580ff2eb7386a9e58de09896b9990696` — `issue #346 bounded Gradle cache sync diagnostics checkpoint`;
 - `exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`;
 - `prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`;
