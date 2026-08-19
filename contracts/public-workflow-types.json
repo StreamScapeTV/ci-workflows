@@ -149,7 +149,7 @@
     "image_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "nullable": true},
     "platform_digests_json": {"type": "json-object", "nullable": true},
     "resolved_inputs_json": {"type": "json-object", "nullable": true},
-    "chart_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$", "nullable": true},
+    "chart_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "nullable": true},
     "immutable_references_json": {"type": "json-object", "nullable": true},
     "release_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "nullable": true},
     "handoff_state": {"type": "string", "nullable": true},
