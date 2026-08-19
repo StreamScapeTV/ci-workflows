@@ -141,10 +141,10 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 ### `validation.android`
 
 - Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
-- Inputs: `admitted_sha` (required), `validation_scope` (required), `working_directory` (default `.`), `gradle_wrapper_path` (default `gradlew`), `validation_plan_json` (required), `private_dependency_repository` (default ``), `private_dependency_sha` (default ``), `private_dependency_subdirectory` (default `.`), `private_dependency_id` (default ``)
+- Inputs: `admitted_sha` (required), `validation_scope` (required), `working_directory` (default `.`), `gradle_wrapper_path` (default `gradlew`), `validation_plan_json` (required), `dependency_prebuild_plan_json` (default ``), `private_dependency_repository` (default ``), `private_dependency_sha` (default ``), `private_dependency_subdirectory` (default `.`), `private_dependency_id` (default ``)
 - Secrets: `private_dependency_token`
 - Outputs: `result`, `test_summary`, `cleanup_result`
-- Repository-owned hooks: `validation_plan_json`
+- Repository-owned hooks: `validation_plan_json`, `dependency_prebuild_plan_json`
 
 ### `validation.android-live-service`
 
