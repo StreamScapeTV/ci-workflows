@@ -198,10 +198,10 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 ### `validation.native`
 
 - Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
-- Inputs: `admitted_sha` (required), `working_directory` (default `.`), `cmake_definitions_json` (default `{}`), `configure_options_json` (default `[]`), `cmake_generator` (default ``), `build_target` (default ``), `build_configuration` (default ``), `build_options_json` (default `[]`), `test_target` (default `test`), `test_options_json` (default `[]`), `jobs` (default `2`)
+- Inputs: `admitted_sha` (required), `working_directory` (default `.`), `validation_plan_json` (required)
 - Secrets: none
 - Outputs: `result`, `test_summary`, `cleanup_result`
-- Repository-owned hooks: `working_directory`, `build_target`, `test_target`
+- Repository-owned hooks: `validation_plan_json`
 
 ### `validation.node`
 
