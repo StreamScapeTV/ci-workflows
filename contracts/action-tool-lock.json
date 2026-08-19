@@ -101,10 +101,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-android",
-      "sha": "410fed5fb5fd7c930b28c545758a5f3992e43b0c",
-      "release": "issue #344 bounded Android failure diagnostics checkpoint",
+      "sha": "ac56fd7b3fac55f231e7b2ba715a5aebebbe51ef",
+      "release": "issue #373 protected-full Gradle group isolation checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/410fed5fb5fd7c930b28c545758a5f3992e43b0c/actions/validate-android"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/ac56fd7b3fac55f231e7b2ba715a5aebebbe51ef/actions/validate-android"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/upload-gradle-seed",
