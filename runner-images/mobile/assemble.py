@@ -4,21 +4,10 @@ from __future__ import annotations
 from pathlib import Path
 import shutil
 import stat
-import sys
 import tarfile
 import zipfile
 
 ANDROID = Path("/opt/android-sdk")
-COMPONENTS = (
-    "flutter",
-    "cmdline-tools",
-    "platform-tools",
-    "platform-36",
-    "platform-37",
-    "build-tools-36",
-    "build-tools-37",
-    "ndk",
-)
 
 
 def _safe_symlink_target(output: Path, target_root: Path, raw_target: bytes) -> str:
@@ -85,104 +74,44 @@ def copy_tree(source: Path, destination: Path) -> None:
     shutil.copytree(source, destination, dirs_exist_ok=True, symlinks=True)
 
 
-def _assemble_flutter() -> None:
+def main() -> int:
+    ANDROID.mkdir(parents=True, exist_ok=True)
     with tarfile.open("/tmp/flutter.tar.xz", "r:xz") as archive:
         archive.extractall("/opt", filter="data")
 
+    cmdline = extract_zip(Path("/tmp/android-command-line-tools.zip"), Path("/tmp/cmdline"))
+    copy_tree(cmdline / "cmdline-tools", ANDROID / "cmdline-tools" / "latest")
 
-def _assemble_cmdline_tools() -> None:
-    target = Path("/tmp/cmdline")
-    try:
-        unpacked = extract_zip(Path("/tmp/android-command-line-tools.zip"), target)
-        copy_tree(unpacked / "cmdline-tools", ANDROID / "cmdline-tools" / "latest")
-    finally:
-        shutil.rmtree(target, ignore_errors=True)
+    platform_tools = extract_zip(Path("/tmp/android-platform-tools.zip"), Path("/tmp/platform-tools"))
+    copy_tree(platform_tools / "platform-tools", ANDROID / "platform-tools")
 
-
-def _assemble_platform_tools() -> None:
-    target = Path("/tmp/platform-tools")
-    try:
-        unpacked = extract_zip(Path("/tmp/android-platform-tools.zip"), target)
-        copy_tree(unpacked / "platform-tools", ANDROID / "platform-tools")
-    finally:
-        shutil.rmtree(target, ignore_errors=True)
-
-
-def _assemble_platform(api: str) -> None:
-    source = Path(f"/tmp/android-platform-{api.split('.')[0]}.zip")
-    target = Path(f"/tmp/platform-{api}")
-    try:
-        unpacked = extract_zip(source, target)
+    for source, api in (
+        (Path("/tmp/android-platform-36.zip"), "36"),
+        (Path("/tmp/android-platform-37.zip"), "37.0"),
+    ):
+        unpacked = extract_zip(source, Path(f"/tmp/platform-{api}"))
         jars = list(unpacked.rglob("android.jar"))
         if len(jars) != 1:
             raise SystemExit(f"expected one android.jar for platform {api}, got {len(jars)}")
         copy_tree(jars[0].parent, ANDROID / "platforms" / f"android-{api}")
-    finally:
-        shutil.rmtree(target, ignore_errors=True)
 
-
-def _assemble_build_tools(version: str) -> None:
-    major = version.split(".")[0]
-    source = Path(f"/tmp/android-build-tools-{major}.zip")
-    target = Path(f"/tmp/build-tools-{version}")
-    try:
-        unpacked = extract_zip(source, target)
+    for source, version in (
+        (Path("/tmp/android-build-tools-36.zip"), "36.0.0"),
+        (Path("/tmp/android-build-tools-37.zip"), "37.0.0"),
+    ):
+        unpacked = extract_zip(source, Path(f"/tmp/build-tools-{version}"))
         candidates = [path.parent for path in unpacked.rglob("aapt2") if path.is_file()]
         if len(candidates) != 1:
             raise SystemExit(
                 f"expected one build-tools directory for {version}, got {len(candidates)}"
             )
         copy_tree(candidates[0], ANDROID / "build-tools" / version)
-    finally:
-        shutil.rmtree(target, ignore_errors=True)
 
-
-def _assemble_ndk() -> None:
-    target = Path("/tmp/ndk")
-    try:
-        ndk = extract_zip(Path("/tmp/android-ndk.zip"), target)
-        roots = [path for path in ndk.iterdir() if path.is_dir()]
-        if len(roots) != 1:
-            raise SystemExit(f"expected one NDK root, got {len(roots)}")
-        copy_tree(roots[0], ANDROID / "ndk" / "28.2.13676358")
-    finally:
-        shutil.rmtree(target, ignore_errors=True)
-
-
-def assemble_component(component: str) -> None:
-    ANDROID.mkdir(parents=True, exist_ok=True)
-    if component == "flutter":
-        _assemble_flutter()
-    elif component == "cmdline-tools":
-        _assemble_cmdline_tools()
-    elif component == "platform-tools":
-        _assemble_platform_tools()
-    elif component == "platform-36":
-        _assemble_platform("36")
-    elif component == "platform-37":
-        _assemble_platform("37.0")
-    elif component == "build-tools-36":
-        _assemble_build_tools("36.0.0")
-    elif component == "build-tools-37":
-        _assemble_build_tools("37.0.0")
-    elif component == "ndk":
-        _assemble_ndk()
-    else:
-        raise SystemExit(f"unsupported Mobile component: {component}")
-
-
-def main(argv: list[str] | None = None) -> int:
-    arguments = list(sys.argv[1:] if argv is None else argv)
-    if len(arguments) > 1:
-        raise SystemExit("usage: runner-mobile-assemble [component]")
-    component = arguments[0] if arguments else "all"
-    if component == "all":
-        for item in COMPONENTS:
-            assemble_component(item)
-        return 0
-    if component not in COMPONENTS:
-        raise SystemExit(f"unsupported Mobile component: {component}")
-    assemble_component(component)
+    ndk = extract_zip(Path("/tmp/android-ndk.zip"), Path("/tmp/ndk"))
+    roots = [path for path in ndk.iterdir() if path.is_dir()]
+    if len(roots) != 1:
+        raise SystemExit(f"expected one NDK root, got {len(roots)}")
+    copy_tree(roots[0], ANDROID / "ndk" / "28.2.13676358")
     return 0
 
 
