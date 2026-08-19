@@ -67,6 +67,26 @@ class RunnerImageValidationWorkflowTests(unittest.TestCase):
             job["env"]["SOURCE_SHA"],
         )
 
+    def test_buildah_publication_scratch_is_proven_before_image_validation(self) -> None:
+        steps = self.document["jobs"]["images"]["steps"]
+        scratch_index = next(
+            index
+            for index, step in enumerate(steps)
+            if step.get("name") == "Verify dedicated Buildah publication scratch"
+        )
+        shared_index = next(
+            index
+            for index, step in enumerate(steps)
+            if step.get("name") == "Build and smoke through the shared runner-image action"
+        )
+        scratch = steps[scratch_index]
+        self.assertLess(scratch_index, shared_index)
+        self.assertEqual("bash", scratch["shell"])
+        self.assertIn("push_tmp=/var/tmp/buildah", scratch["run"])
+        self.assertIn('test -d "${push_tmp}"', scratch["run"])
+        self.assertIn('test ! -L "${push_tmp}"', scratch["run"])
+        self.assertIn('test -w "${push_tmp}"', scratch["run"])
+
     def test_each_matrix_entry_uses_shared_nonpublishing_action(self) -> None:
         job = self.document["jobs"]["images"]
         steps = job["steps"]

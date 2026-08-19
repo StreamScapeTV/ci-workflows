@@ -59,6 +59,15 @@ jobs:
           [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
 
+      - name: Verify dedicated Buildah publication scratch
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          push_tmp=/var/tmp/buildah
+          test -d "${push_tmp}"
+          test ! -L "${push_tmp}"
+          test -w "${push_tmp}"
+
       - name: Build and smoke through the shared runner-image action
         uses: ./actions/runner-image
         with:
