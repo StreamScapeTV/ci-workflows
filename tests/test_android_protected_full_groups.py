@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from ci_workflows import ciw_android
-from ci_workflows.ciw_types import CIWContext
+from ci_workflows.ciw_types import CIWContext, CIWError
 from ci_workflows.language_primitives import JavaRuntime, OperationResult
 
 SHA = "a" * 40
@@ -40,6 +40,7 @@ class AndroidProtectedFullGroupTests(unittest.TestCase):
         schema_mode: str,
         schema_tasks: tuple[str, ...] = (),
         schema_script: ciw_android.ScriptPlan | None = None,
+        pre_unit_tasks: tuple[str, ...] = (),
     ) -> ciw_android.AndroidPrimitiveRequest:
         return ciw_android.AndroidPrimitiveRequest(
             admitted_sha=SHA,
@@ -56,6 +57,7 @@ class AndroidProtectedFullGroupTests(unittest.TestCase):
                 schema_mode=schema_mode,
                 schema_tasks=schema_tasks,
                 schema_script=schema_script,
+                pre_unit_tasks=pre_unit_tasks,
             ),
             private_dependency_repository="",
             private_dependency_sha="",
@@ -167,6 +169,113 @@ class AndroidProtectedFullGroupTests(unittest.TestCase):
         self.assertEqual(summary["gradle_wall_ms"], 10)
         self.assertEqual(summary["task_count"], 5)
         self.assertEqual(summary["schema_mode"], "gradle")
+
+    def test_optional_pre_unit_group_runs_first_and_reclaims_before_unit(self) -> None:
+        summary, gradle, script, environment = self._execute(
+            self._request(
+                schema_mode="none",
+                pre_unit_tasks=(":app:prepareKspInputs",),
+            ),
+            clock=[
+                0,
+                1_000_000,
+                2_000_000,
+                4_000_000,
+                5_000_000,
+                8_000_000,
+                9_000_000,
+                13_000_000,
+            ],
+        )
+
+        self.assertEqual(
+            [call.args[1] for call in gradle.call_args_list],
+            [
+                (":app:prepareKspInputs",),
+                (":app:testDebugUnitTest",),
+                (":app:lintDebug",),
+                (":app:kspDebugKotlin", ":app:assembleDebug"),
+            ],
+        )
+        self.assertEqual(
+            [call.kwargs["operation"] for call in gradle.call_args_list],
+            [
+                "android.protected_full.pre_unit",
+                "android.protected_full.unit",
+                "android.protected_full.lint",
+                "android.protected_full.assemble",
+            ],
+        )
+        for call in gradle.call_args_list:
+            self.assertEqual(call.kwargs["options"], ("--no-daemon",))
+            self.assertIs(call.kwargs["environment"], environment)
+        script.assert_not_called()
+        self.assertEqual(summary["gradle_invocations"], 4)
+        self.assertEqual(summary["gradle_wall_ms"], 10)
+        self.assertEqual(summary["task_count"], 5)
+        self.assertEqual(summary["schema_mode"], "none")
+
+    def test_pre_unit_plan_is_optional_and_duplicate_safe(self) -> None:
+        legacy = ciw_android._protected_full_plan(
+            {
+                "unit_tasks": [":app:testDebugUnitTest"],
+                "lint_tasks": [":app:lintDebug"],
+                "assemble_tasks": [":app:assembleDebug"],
+                "schema": {"mode": "none"},
+            },
+            "validation_plan_invalid",
+        )
+        self.assertEqual(legacy.pre_unit_tasks, ())
+
+        isolated = ciw_android._protected_full_plan(
+            {
+                "pre_unit_tasks": [":app:kspDebugKotlin"],
+                "unit_tasks": [":app:testDebugUnitTest"],
+                "lint_tasks": [":app:lintDebug"],
+                "assemble_tasks": [":app:assembleDebug"],
+                "schema": {"mode": "none"},
+            },
+            "validation_plan_invalid",
+        )
+        self.assertEqual(isolated.pre_unit_tasks, (":app:kspDebugKotlin",))
+        self.assertEqual(
+            isolated.gradle_tasks,
+            (
+                ":app:kspDebugKotlin",
+                ":app:testDebugUnitTest",
+                ":app:lintDebug",
+                ":app:assembleDebug",
+            ),
+        )
+
+        for invalid in (
+            {
+                "pre_unit_tasks": [],
+                "unit_tasks": [":app:testDebugUnitTest"],
+                "lint_tasks": [":app:lintDebug"],
+                "assemble_tasks": [":app:assembleDebug"],
+                "schema": {"mode": "none"},
+            },
+            {
+                "pre_unit_tasks": [":app:testDebugUnitTest"],
+                "unit_tasks": [":app:testDebugUnitTest"],
+                "lint_tasks": [":app:lintDebug"],
+                "assemble_tasks": [":app:assembleDebug"],
+                "schema": {"mode": "none"},
+            },
+            {
+                "pre_unit_tasks": [":app:kspDebugKotlin"],
+                "unit_tasks": [":app:testDebugUnitTest"],
+                "lint_tasks": [":app:lintDebug"],
+                "assemble_tasks": [":app:assembleDebug"],
+                "schema": {"mode": "none"},
+                "pre_unit_options": ["--max-workers=1"],
+            },
+        ):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(CIWError) as failure:
+                    ciw_android._protected_full_plan(invalid, "validation_plan_invalid")
+                self.assertEqual(failure.exception.code, "validation_plan_invalid")
 
     def test_schema_script_does_not_create_a_phantom_gradle_group(self) -> None:
         plan = ciw_android.ScriptPlan("scripts/verify-schema.sh", ("--check",))
