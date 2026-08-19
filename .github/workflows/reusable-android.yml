@@ -146,6 +146,7 @@ jobs:
           admitted_sha: ${{ inputs.admitted_sha }}
           working_directory: ${{ inputs.working_directory }}
           gradle_wrapper_path: ${{ inputs.gradle_wrapper_path }}
+          private_dependency_subdirectory: ${{ steps.plan.outputs.private_dependency_subdirectory }}
 
       - id: dependency_warm_seed
         name: Publish warmed Gradle dependency delta before build
