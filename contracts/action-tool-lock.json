@@ -108,10 +108,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies",
-      "sha": "89a5279f00fc04a7b033f90ee1e4254a9f8d89e3",
+      "sha": "4539e4c9ef8dce45d8cd179dec5997dbf8c7b9cd",
       "release": "issue #346 dependency warm checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/89a5279f00fc04a7b033f90ee1e4254a9f8d89e3/actions/warm-gradle-dependencies"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/4539e4c9ef8dce45d8cd179dec5997dbf8c7b9cd/actions/warm-gradle-dependencies"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/upload-gradle-seed",
