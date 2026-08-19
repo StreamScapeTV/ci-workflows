@@ -139,27 +139,42 @@ RUN set -eux; \
         --proto '=https' --tlsv1.2 "${url}" -o "${destination}"; \
       printf '%s  %s\n' "${sha}" "${destination}" | sha256sum -c -; \
     }; \
-    download "${FLUTTER_URL}" "${FLUTTER_SHA256}" /tmp/flutter.tar.xz; \
-    download "${ANDROID_CMDLINE_TOOLS_URL}" "${ANDROID_CMDLINE_TOOLS_SHA256}" /tmp/android-command-line-tools.zip; \
-    download "${ANDROID_PLATFORM_TOOLS_URL}" "${ANDROID_PLATFORM_TOOLS_SHA256}" /tmp/android-platform-tools.zip; \
-    download "${ANDROID_PLATFORM_36_URL}" "${ANDROID_PLATFORM_36_SHA256}" /tmp/android-platform-36.zip; \
-    download "${ANDROID_PLATFORM_37_URL}" "${ANDROID_PLATFORM_37_SHA256}" /tmp/android-platform-37.zip; \
-    download "${ANDROID_BUILD_TOOLS_36_URL}" "${ANDROID_BUILD_TOOLS_36_SHA256}" /tmp/android-build-tools-36.zip; \
-    download "${ANDROID_BUILD_TOOLS_37_URL}" "${ANDROID_BUILD_TOOLS_37_SHA256}" /tmp/android-build-tools-37.zip; \
-    download "${ANDROID_NDK_URL}" "${ANDROID_NDK_SHA256}" /tmp/android-ndk.zip; \
     test -z "$(getent passwd 1001 || true)"; \
     test -z "$(getent group 1001 || true)"; \
     printf '%s\n' 'runner:x:1001:1001:GitHub Actions Runner:/home/runner:/usr/bin/bash' >> /etc/passwd; \
     printf '%s\n' 'runner:x:1001:' >> /etc/group; \
     mkdir -p /home/runner /home/runner/_work /opt/android-sdk /opt/runner-cache; \
     tar -xzf /tmp/runner.tar.gz -C /home/runner; \
-    /usr/local/bin/runner-mobile-assemble; \
+    rm -f /tmp/runner.tar.gz; \
+    download "${FLUTTER_URL}" "${FLUTTER_SHA256}" /tmp/flutter.tar.xz; \
+    /usr/local/bin/runner-mobile-assemble flutter; \
+    rm -f /tmp/flutter.tar.xz; \
+    download "${ANDROID_CMDLINE_TOOLS_URL}" "${ANDROID_CMDLINE_TOOLS_SHA256}" /tmp/android-command-line-tools.zip; \
+    /usr/local/bin/runner-mobile-assemble cmdline-tools; \
+    rm -f /tmp/android-command-line-tools.zip; \
+    download "${ANDROID_PLATFORM_TOOLS_URL}" "${ANDROID_PLATFORM_TOOLS_SHA256}" /tmp/android-platform-tools.zip; \
+    /usr/local/bin/runner-mobile-assemble platform-tools; \
+    rm -f /tmp/android-platform-tools.zip; \
+    download "${ANDROID_PLATFORM_36_URL}" "${ANDROID_PLATFORM_36_SHA256}" /tmp/android-platform-36.zip; \
+    /usr/local/bin/runner-mobile-assemble platform-36; \
+    rm -f /tmp/android-platform-36.zip; \
+    download "${ANDROID_PLATFORM_37_URL}" "${ANDROID_PLATFORM_37_SHA256}" /tmp/android-platform-37.zip; \
+    /usr/local/bin/runner-mobile-assemble platform-37; \
+    rm -f /tmp/android-platform-37.zip; \
+    download "${ANDROID_BUILD_TOOLS_36_URL}" "${ANDROID_BUILD_TOOLS_36_SHA256}" /tmp/android-build-tools-36.zip; \
+    /usr/local/bin/runner-mobile-assemble build-tools-36; \
+    rm -f /tmp/android-build-tools-36.zip; \
+    download "${ANDROID_BUILD_TOOLS_37_URL}" "${ANDROID_BUILD_TOOLS_37_SHA256}" /tmp/android-build-tools-37.zip; \
+    /usr/local/bin/runner-mobile-assemble build-tools-37; \
+    rm -f /tmp/android-build-tools-37.zip; \
+    download "${ANDROID_NDK_URL}" "${ANDROID_NDK_SHA256}" /tmp/android-ndk.zip; \
+    /usr/local/bin/runner-mobile-assemble ndk; \
+    rm -f /tmp/android-ndk.zip; \
     ln -sfn "android-${ANDROID_PLATFORM_PACKAGE_VERSION}" \
       "${ANDROID_HOME}/platforms/android-${ANDROID_PLATFORM_VERSION}"; \
     git config --system --add safe.directory /opt/flutter; \
     chown -R 1001:1001 /home/runner /opt/android-sdk /opt/flutter /opt/runner-cache; \
-    rm -rf /tmp/runner.tar.gz /tmp/flutter.tar.xz /tmp/android-*.zip \
-      /tmp/cmdline /tmp/platform-tools /tmp/platform-* /tmp/build-tools-* /tmp/ndk; \
+    rm -rf /tmp/cmdline /tmp/platform-tools /tmp/platform-* /tmp/build-tools-* /tmp/ndk; \
     rm -f /usr/local/bin/runner-mobile-assemble; \
     rm -f \
       /usr/bin/apt /usr/bin/apt-cache /usr/bin/apt-cdrom /usr/bin/apt-config \
