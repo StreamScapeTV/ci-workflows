@@ -101,10 +101,9 @@ jobs:
         name: Prepare isolated native build state
         uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
-          profile: portable
+          profile: native
           cache_mode: disabled
           source_sha: ${{ inputs.admitted_sha }}
-          trust_mode: trusted-pr
 
       - id: native
         name: Execute bounded native configure build and test
