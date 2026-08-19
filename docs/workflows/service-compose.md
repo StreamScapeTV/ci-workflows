@@ -11,12 +11,13 @@ The planned public inputs are:
 - `admitted_sha`: exact lowercase 40-character caller source SHA.
 - `working_directory`: repository-relative Compose project root, default `.`.
 - `compose_file`: Compose YAML beneath the working directory.
-- `compose_tool`: bounded `podman` or `docker`; Central must select a runner that actually provides the selected engine before this is exposed publicly.
 - `services_json`: JSON array of service names, default `[]` for the whole project.
 - `env_files_json`: JSON array of repository-relative env-file paths, default `[]`. Values are paths only; arbitrary environment maps are not a public input.
 - `readiness_json`: one to 32 typed readiness checks.
 - `validation_script_path`: repository-relative, non-symlink executable validation script beneath the working directory.
 - `validation_timeout_seconds`: bounded validation-script timeout, default 900 seconds and maximum 3600 seconds.
+
+The container engine is **not** a public caller input. The adapter has a bounded internal Docker/Podman setting so Central can bind it to the runner implementation, but the reusable workflow must supply that setting itself. This preserves the runner contract rule that consumers do not select `container_engine`, runner labels or infrastructure identity.
 
 Readiness checks are typed rather than arbitrary environment objects:
 
