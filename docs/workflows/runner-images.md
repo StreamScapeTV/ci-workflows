@@ -26,8 +26,15 @@ A runner-image implementation can call this leaf with `publish: false`, its fixe
 
 ## Repository release
 
-`.github/workflows/runner-images-release.yml` is the thin repository-level release caller. A Git tag event publishes all five images from the exact tagged `ci-workflows` commit using that human-readable Git tag as the OCI tag. Manual dispatch accepts an already-existing Git tag, verifies the tag resolves to the checked-out commit, and rebuilds the same five-image release set.
+`.github/workflows/runner-images-release.yml` is the thin repository-level release caller. **Every repository Git tag** matches the workflow's `push.tags: ["*"]` trigger; no `runner-images-` prefix is required. The exact repository Git tag is passed through unchanged as the OCI tag for all five images built from that tagged `ci-workflows` commit.
 
-The release workflow calls the same `actions/runner-image` composite action directly rather than nesting reusable workflows. The Git tag and commit are the release source of truth. `latest` is rejected. Registry-side tag immutability, provenance manifests, digest ledgers, canary state, and rollback state are not acceptance requirements for this workflow. Publication performs a simple authenticated registry inspection after push so an immediately unreadable tag fails the release job.
+For example:
+
+- repository tag `1.0.1` publishes `git.faruqi.dev/mimranfaruqi/github-actions-runner-general:1.0.1` and the corresponding `:1.0.1` tag for the other fixed images;
+- repository tag `runner-images-2026.08.19-hotfix` publishes the corresponding `:runner-images-2026.08.19-hotfix` OCI tags.
+
+Manual dispatch accepts an already-existing Git tag, verifies the tag resolves to the checked-out commit, and rebuilds the same five-image release set using that exact tag again.
+
+The release workflow calls the same `actions/runner-image` composite action directly rather than nesting reusable workflows. The Git tag and commit are the release source of truth. `latest` is rejected by the current publication policy; releases publish only the exact approved Git tag. Registry-side tag immutability, provenance manifests, digest ledgers, canary state, and rollback state are not acceptance requirements for this workflow. Publication performs a simple authenticated registry inspection after push so an immediately unreadable tag fails the release job.
 
 The release caller expects repository secrets `RUNNER_REGISTRY_USERNAME` and `RUNNER_REGISTRY_TOKEN`. They are passed only into the build/publish action. Authentication state is stored under `RUNNER_TEMP`, removed in the action's unconditional cleanup, and independently checked absent by the calling workflow.

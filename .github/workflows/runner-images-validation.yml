@@ -7,11 +7,13 @@ on:
       - ".github/workflows/runner-images-validation.yml"
       - "actions/runner-image/**"
       - "runner-images/general/**"
+      - "runner-images/mobile/**"
       - "runner-images/docker/**"
       - "runner-images/flux-control/**"
       - "scripts/ci/runner_images.py"
       - "src/ci_workflows/runner_images.py"
       - "tests/test_runner_image_general.py"
+      - "tests/test_mobile_runner_image_assembly.py"
       - "tests/test_runner_image_docker.py"
       - "tests/test_runner_image_flux_control.py"
       - "tests/test_runner_images_validation_workflow.py"
@@ -32,6 +34,7 @@ jobs:
       matrix:
         image:
           - general
+          - mobile
           - docker
           - flux-control
     runs-on: [linux, amd64, buildah, high]
