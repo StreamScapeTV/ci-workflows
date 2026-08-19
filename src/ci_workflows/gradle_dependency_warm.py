@@ -207,7 +207,11 @@ def _read_only_cache(environment: Mapping[str, str]) -> Path | None:
     return resolved
 
 
-def _runtime_environment(environment: Mapping[str, str], state_root: Path) -> dict[str, str]:
+def _runtime_environment(
+    environment: Mapping[str, str],
+    state_root: Path,
+    private_dependency_subdirectory: str,
+) -> dict[str, str]:
     home = _existing_directory(environment.get("HOME", ""), "runtime_environment_invalid")
     gradle_home = _existing_directory(
         environment.get("GRADLE_USER_HOME", ""),
@@ -243,13 +247,23 @@ def _runtime_environment(environment: Mapping[str, str], state_root: Path) -> di
         result["GRADLE_RO_DEP_CACHE"] = str(cache)
     dependency_raw = environment.get("CI_PRIVATE_DEPENDENCY_PATH", "")
     if dependency_raw:
-        dependency = _existing_directory(dependency_raw, "private_dependency_path_invalid")
+        dependency_root = _existing_directory(
+            dependency_raw,
+            "private_dependency_path_invalid",
+        )
         dependencies_root = state_root / "dependencies"
         try:
-            dependency.relative_to(dependencies_root)
+            dependency_root.relative_to(dependencies_root)
         except ValueError as error:
             raise CIWError(_DOMAIN, "private_dependency_path_invalid") from error
+        dependency = _bounded_directory(
+            dependency_root,
+            private_dependency_subdirectory,
+            "private_dependency_subdirectory_invalid",
+        )
         result["CI_PRIVATE_DEPENDENCY_PATH"] = str(dependency)
+    elif private_dependency_subdirectory != ".":
+        raise CIWError(_DOMAIN, "private_dependency_path_invalid")
     return result
 
 
@@ -274,10 +288,16 @@ def warm_gradle_dependencies(
     admitted_sha: str,
     working_directory: str,
     gradle_wrapper_path: str,
+    private_dependency_subdirectory: str,
     environment: Mapping[str, str],
 ) -> GradleDependencyWarmResult:
     if _FULL_SHA.fullmatch(admitted_sha) is None:
         raise CIWError(_DOMAIN, "admitted_sha_invalid")
+    dependency_subdirectory = _relative(
+        private_dependency_subdirectory,
+        "private_dependency_subdirectory_invalid",
+        allow_dot=True,
+    )
     workspace = _existing_directory(environment.get("GITHUB_WORKSPACE", ""), "workspace_invalid")
     state_root = _existing_directory(environment.get("CI_WORKFLOW_ROOT", ""), "workspace_state_invalid")
     if state_root.name != environment.get("CI_WORKFLOW_STATE_ID", ""):
@@ -299,7 +319,11 @@ def warm_gradle_dependencies(
             _relative(gradle_wrapper_path, "gradle_wrapper_path_invalid", allow_dot=False),
             "gradle_wrapper_path_invalid",
         )
-        runtime = _runtime_environment(environment, state_root)
+        runtime = _runtime_environment(
+            environment,
+            state_root,
+            dependency_subdirectory,
+        )
         started = time.monotonic_ns()
         try:
             completed = run_process(
@@ -349,6 +373,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--admitted-sha")
     result.add_argument("--working-directory", default=".")
     result.add_argument("--gradle-wrapper-path", default="gradlew")
+    result.add_argument("--private-dependency-subdirectory", default=".")
     return result
 
 
@@ -359,6 +384,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             admitted_sha=_plain(args.admitted_sha, "admitted_sha_invalid", maximum=40),
             working_directory=args.working_directory,
             gradle_wrapper_path=args.gradle_wrapper_path,
+            private_dependency_subdirectory=args.private_dependency_subdirectory,
             environment=os.environ,
         )
         output_path = os.environ.get("GITHUB_OUTPUT", "")
