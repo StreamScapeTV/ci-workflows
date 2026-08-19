@@ -59,7 +59,7 @@ Failed or timed-out reviewed `android.*` primitive operations emit only a saniti
 
 `reusable-android.yml` composes reviewed Central helpers by immutable source identity:
 
-- `validate-android@410fed5fb5fd7c930b28c545758a5f3992e43b0c` — `issue #344 bounded Android failure diagnostics checkpoint`;
+- `validate-android@ac56fd7b3fac55f231e7b2ba715a5aebebbe51ef` — `issue #373 protected-full Gradle group isolation checkpoint`;
 - `upload-gradle-seed@fa67b6a1580ff2eb7386a9e58de09896b9990696` — `issue #346 bounded Gradle cache sync diagnostics checkpoint`;
 - `exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`;
 - `prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`;
