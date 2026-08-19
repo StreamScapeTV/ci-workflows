@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 from .ciw_compose import execute_compose_validate
-from .ciw_types import CIWContext, input_value, project_error
+from .ciw_types import CIWContext, input_value, project_error, write_command_file
 from .service_compose_primitives import ServiceComposeError
 
 _MAX_PLAN_BYTES = 16 * 1024
@@ -50,6 +50,22 @@ def _array(value: object, *, code: str) -> list[object]:
     return value
 
 
+def _validate_selected_readiness(
+    services: list[object],
+    readiness: list[object],
+) -> None:
+    """Reject readiness for a service omitted from an explicit selection."""
+    if not services or not all(isinstance(service, str) for service in services):
+        return
+    selected = set(services)
+    for row in readiness:
+        if not isinstance(row, dict):
+            continue
+        service = row.get("service")
+        if isinstance(service, str) and service and service not in selected:
+            _fail("compose_readiness_input_invalid")
+
+
 def _parse_plan(environment: Mapping[str, str]) -> dict[str, object]:
     raw = input_value(environment, "validation_plan_json")
     if not raw or len(raw.encode("utf-8")) > _MAX_PLAN_BYTES:
@@ -71,6 +87,7 @@ def _parse_plan(environment: Mapping[str, str]) -> dict[str, object]:
     services = _array(value.get("services", []), code="compose_services_input_invalid")
     env_files = _array(value.get("env_files", []), code="compose_env_files_input_invalid")
     readiness = _array(value.get("readiness"), code="compose_readiness_input_invalid")
+    _validate_selected_readiness(services, readiness)
     timeout = value.get("validation_timeout_seconds", 900)
     if isinstance(timeout, bool) or not isinstance(timeout, int) or not 1 <= timeout <= 3600:
         _fail("compose_validation_timeout_invalid")
@@ -88,7 +105,8 @@ def _parse_plan(environment: Mapping[str, str]) -> dict[str, object]:
 def _adapter_environment(environment: Mapping[str, str]) -> dict[str, str]:
     plan = _parse_plan(environment)
     result = dict(environment)
-    result["INPUT_ADMITTED_SHA"] = input_value(environment, "admitted_sha")
+    admitted_sha = input_value(environment, "admitted_sha")
+    result["INPUT_ADMITTED_SHA"] = admitted_sha
     result["INPUT_WORKING_DIRECTORY"] = input_value(environment, "working_directory", ".")
     result["INPUT_COMPOSE_FILE"] = str(plan["compose_file"])
     result["INPUT_COMPOSE_TOOL"] = "podman"
@@ -105,7 +123,41 @@ def _adapter_environment(environment: Mapping[str, str]) -> dict[str, str]:
     result["INPUT_VALIDATION_TIMEOUT_SECONDS"] = str(
         plan["validation_timeout_seconds"]
     )
+    # The product validation subprocess receives the exact checked-out source
+    # identity rather than the event's merge/push SHA when they differ.
+    result["GITHUB_SHA"] = admitted_sha
     return result
+
+
+def _emit_early_failure_outputs(
+    environment: Mapping[str, str],
+    *,
+    failure_code: str,
+) -> None:
+    output = environment.get("GITHUB_OUTPUT", "")
+    if not output:
+        return
+    path = Path(output)
+    try:
+        existing = path.read_text(encoding="utf-8") if path.exists() else ""
+    except OSError:
+        existing = ""
+    # Lifecycle failures already emit richer primary/cleanup evidence in the
+    # adapter. Do not overwrite those values after the exception crosses this
+    # executable boundary.
+    if any(line.startswith("failure_code=") for line in existing.splitlines()):
+        return
+    write_command_file(
+        path,
+        {
+            "result": "failure",
+            "test_summary": "{}",
+            "cleanup_result": "success",
+            "failure_code": failure_code,
+            "cleanup_code": "",
+            "project_name": "",
+        },
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -125,6 +177,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         result.emit(context)
     except Exception as error:
         projected = project_error(error, domain="compose")
+        _emit_early_failure_outputs(environment, failure_code=projected.code)
         print(f"service/Compose validation failed: {projected.code}", file=sys.stderr)
         return projected.exit_code
     return 0
