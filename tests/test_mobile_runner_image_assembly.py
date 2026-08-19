@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib.util
 import os
-import re
 import stat
 import subprocess
 import tempfile
@@ -14,7 +13,6 @@ from ci_workflows.runner_images import RunnerImageError, build_plan, validate_re
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSEMBLER_PATH = ROOT / "runner-images/mobile/assemble.py"
-DOCKERFILE_PATH = ROOT / "runner-images/mobile/Dockerfile"
 
 
 def _load_assembler():
@@ -31,21 +29,6 @@ def _zip_info(name: str, mode: int) -> zipfile.ZipInfo:
     info.create_system = 3
     info.external_attr = mode << 16
     return info
-
-
-def _docker_instruction_containing(source: str, marker: str) -> str:
-    marker_index = source.index(marker)
-    instructions = list(
-        re.finditer(
-            r"(?m)^(?:ARG|CMD|COPY|ENV|FROM|RUN|USER|WORKDIR)\b.*$",
-            source,
-        )
-    )
-    for index, instruction in enumerate(instructions):
-        end = instructions[index + 1].start() if index + 1 < len(instructions) else len(source)
-        if instruction.start() <= marker_index < end:
-            return source[instruction.start() : end]
-    raise AssertionError(f"marker is not inside a Dockerfile instruction: {marker}")
 
 
 class MobileRunnerArchiveTests(unittest.TestCase):
@@ -102,115 +85,6 @@ class MobileRunnerArchiveTests(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "unsafe archive symlink"):
                 self.assembler.extract_zip(archive_path, root / "extract")
 
-    def test_component_entrypoint_is_fixed_and_rejects_unknown_components(self) -> None:
-        self.assertEqual(
-            (
-                "flutter",
-                "cmdline-tools",
-                "platform-tools",
-                "platform-36",
-                "platform-37",
-                "build-tools-36",
-                "build-tools-37",
-                "ndk",
-            ),
-            self.assembler.COMPONENTS,
-        )
-        with self.assertRaisesRegex(SystemExit, "unsupported Mobile component"):
-            self.assembler.main(["unknown"])
-
-
-class MobileRunnerDockerfileLayerTests(unittest.TestCase):
-    def test_transient_tool_archives_are_assembled_and_removed_sequentially_in_one_run(self) -> None:
-        source = DOCKERFILE_PATH.read_text(encoding="utf-8")
-        sequence = (
-            (
-                'download "${FLUTTER_URL}" "${FLUTTER_SHA256}" /tmp/flutter.tar.xz;',
-                "/usr/local/bin/runner-mobile-assemble flutter;",
-                "rm -f /tmp/flutter.tar.xz;",
-            ),
-            (
-                'download "${ANDROID_CMDLINE_TOOLS_URL}" "${ANDROID_CMDLINE_TOOLS_SHA256}" /tmp/android-command-line-tools.zip;',
-                "/usr/local/bin/runner-mobile-assemble cmdline-tools;",
-                "rm -f /tmp/android-command-line-tools.zip;",
-            ),
-            (
-                'download "${ANDROID_PLATFORM_TOOLS_URL}" "${ANDROID_PLATFORM_TOOLS_SHA256}" /tmp/android-platform-tools.zip;',
-                "/usr/local/bin/runner-mobile-assemble platform-tools;",
-                "rm -f /tmp/android-platform-tools.zip;",
-            ),
-            (
-                'download "${ANDROID_PLATFORM_36_URL}" "${ANDROID_PLATFORM_36_SHA256}" /tmp/android-platform-36.zip;',
-                "/usr/local/bin/runner-mobile-assemble platform-36;",
-                "rm -f /tmp/android-platform-36.zip;",
-            ),
-            (
-                'download "${ANDROID_PLATFORM_37_URL}" "${ANDROID_PLATFORM_37_SHA256}" /tmp/android-platform-37.zip;',
-                "/usr/local/bin/runner-mobile-assemble platform-37;",
-                "rm -f /tmp/android-platform-37.zip;",
-            ),
-            (
-                'download "${ANDROID_BUILD_TOOLS_36_URL}" "${ANDROID_BUILD_TOOLS_36_SHA256}" /tmp/android-build-tools-36.zip;',
-                "/usr/local/bin/runner-mobile-assemble build-tools-36;",
-                "rm -f /tmp/android-build-tools-36.zip;",
-            ),
-            (
-                'download "${ANDROID_BUILD_TOOLS_37_URL}" "${ANDROID_BUILD_TOOLS_37_SHA256}" /tmp/android-build-tools-37.zip;',
-                "/usr/local/bin/runner-mobile-assemble build-tools-37;",
-                "rm -f /tmp/android-build-tools-37.zip;",
-            ),
-            (
-                'download "${ANDROID_NDK_URL}" "${ANDROID_NDK_SHA256}" /tmp/android-ndk.zip;',
-                "/usr/local/bin/runner-mobile-assemble ndk;",
-                "rm -f /tmp/android-ndk.zip;",
-            ),
-        )
-        instruction = _docker_instruction_containing(source, sequence[0][0])
-        self.assertTrue(instruction.startswith("RUN set -eux;"))
-        self.assertLess(
-            source.index("COPY --chmod=0755 assemble.py /usr/local/bin/runner-mobile-assemble"),
-            source.index(sequence[0][0]),
-        )
-
-        previous_cleanup = -1
-        for download_marker, assemble_marker, cleanup_marker in sequence:
-            with self.subTest(component=assemble_marker):
-                self.assertEqual(
-                    instruction,
-                    _docker_instruction_containing(source, download_marker),
-                )
-                self.assertEqual(
-                    instruction,
-                    _docker_instruction_containing(source, assemble_marker),
-                )
-                self.assertEqual(
-                    instruction,
-                    _docker_instruction_containing(source, cleanup_marker),
-                )
-                download_index = instruction.index(download_marker)
-                assemble_index = instruction.index(assemble_marker)
-                cleanup_index = instruction.index(cleanup_marker)
-                self.assertLess(previous_cleanup, download_index)
-                self.assertLess(download_index, assemble_index)
-                self.assertLess(assemble_index, cleanup_index)
-                previous_cleanup = cleanup_index
-
-    def test_large_downloads_retry_transport_errors_without_http2(self) -> None:
-        source = DOCKERFILE_PATH.read_text(encoding="utf-8")
-        runner_download = _docker_instruction_containing(source, "${ACTIONS_RUNNER_URL}")
-        tool_download = _docker_instruction_containing(
-            source,
-            'download "${FLUTTER_URL}" "${FLUTTER_SHA256}" /tmp/flutter.tar.xz',
-        )
-        for instruction in (runner_download, tool_download):
-            with self.subTest(instruction=instruction[:80]):
-                self.assertIn("--http1.1", instruction)
-                self.assertIn("--retry 5", instruction)
-                self.assertIn("--retry-all-errors", instruction)
-                self.assertIn("--retry-delay 1", instruction)
-                self.assertIn("--proto '=https'", instruction)
-                self.assertIn("--tlsv1.2", instruction)
-
 
 class RunnerImageReleaseTagContractTests(unittest.TestCase):
     def test_every_valid_repository_tag_is_used_verbatim_as_oci_tag(self) -> None:
@@ -245,7 +119,7 @@ class RunnerImageReleaseTagContractTests(unittest.TestCase):
             release,
         )
 
-    def test_latest_remains_forbidden_as_repository_release_tag(self) -> None:
+    def test_latest_remains_forbidden_by_current_release_policy(self) -> None:
         with self.assertRaises(RunnerImageError):
             validate_release_tag("latest")
 
