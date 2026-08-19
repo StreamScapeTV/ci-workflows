@@ -70,6 +70,15 @@ class ProtectedFullPlan:
             *self.schema_tasks,
         )
 
+    @property
+    def gradle_groups(self) -> tuple[tuple[str, tuple[str, ...]], ...]:
+        return (
+            ("unit", self.unit_tasks),
+            ("lint", self.lint_tasks),
+            ("assemble", self.assemble_tasks),
+            ("schema", self.schema_tasks),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class AndroidPrimitiveRequest:
@@ -630,17 +639,20 @@ def _execute_request(
             full = request.protected_full
             if full is None:
                 raise CIWError(_DOMAIN, "validation_plan_invalid")
-            gradle_started = time.monotonic_ns()
-            run_gradle_tasks(
-                wrapper,
-                full.gradle_tasks,
-                operation="android.protected_full",
-                **common,
-            )
-            gradle_wall_ms = _elapsed_ms(gradle_started)
-            gradle_invocations = 1
             task_count = len(full.gradle_tasks)
             schema_mode = full.schema_mode
+            for group_name, group_tasks in full.gradle_groups:
+                if not group_tasks:
+                    continue
+                gradle_started = time.monotonic_ns()
+                run_gradle_tasks(
+                    wrapper,
+                    group_tasks,
+                    operation=f"android.protected_full.{group_name}",
+                    **common,
+                )
+                gradle_wall_ms += _elapsed_ms(gradle_started)
+                gradle_invocations += 1
             if full.schema_script is not None:
                 script_started = time.monotonic_ns()
                 _execute_script(full.schema_script, project=project, environment=environment)
