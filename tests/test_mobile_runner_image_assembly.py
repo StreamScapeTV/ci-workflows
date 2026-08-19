@@ -137,6 +137,22 @@ class MobileRunnerDockerfileLayerTests(unittest.TestCase):
             with self.subTest(archive=archive):
                 self.assertIn(archive, download_instruction)
 
+    def test_large_downloads_retry_transport_errors_without_http2(self) -> None:
+        source = DOCKERFILE_PATH.read_text(encoding="utf-8")
+        runner_download = _docker_instruction_containing(source, "${ACTIONS_RUNNER_URL}")
+        tool_download = _docker_instruction_containing(
+            source,
+            'download "${FLUTTER_URL}" "${FLUTTER_SHA256}" /tmp/flutter.tar.xz',
+        )
+        for instruction in (runner_download, tool_download):
+            with self.subTest(instruction=instruction[:80]):
+                self.assertIn("--http1.1", instruction)
+                self.assertIn("--retry 5", instruction)
+                self.assertIn("--retry-all-errors", instruction)
+                self.assertIn("--retry-delay 1", instruction)
+                self.assertIn("--proto '=https'", instruction)
+                self.assertIn("--tlsv1.2", instruction)
+
 
 class RunnerImageReleaseTagContractTests(unittest.TestCase):
     def test_every_valid_repository_tag_is_used_verbatim_as_oci_tag(self) -> None:
