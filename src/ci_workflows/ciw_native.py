@@ -14,8 +14,19 @@ from .ciw_types import write_command_file
 from .workspace import resolve_state_root
 
 _SHA = re.compile(r"^[0-9a-f]{40}$")
-_MAX_JSON_BYTES = 64 * 1024
+_MAX_JSON_BYTES = 16 * 1024
 _MAX_LIST_ITEMS = 128
+_PLAN_KEYS = {
+    "definitions",
+    "configure_options",
+    "generator",
+    "build_target",
+    "build_configuration",
+    "build_options",
+    "test_target",
+    "test_options",
+    "jobs",
+}
 
 
 class NativeValidationError(RuntimeError):
@@ -58,19 +69,21 @@ def bounded_path(root: Path, relative: Path, *, code: str) -> Path:
     return resolved
 
 
-def _json(raw: str, expected: type, *, code: str):
-    _require(isinstance(raw, str) and len(raw.encode("utf-8")) <= _MAX_JSON_BYTES, code)
-    try:
-        value = json.loads(raw)
-    except json.JSONDecodeError as error:
-        raise NativeValidationError(code) from error
-    _require(type(value) is expected, code)
+def _bounded_text(value: object, *, code: str, allow_empty: bool = True) -> str:
+    _require(isinstance(value, str), code)
+    _require(
+        (allow_empty or bool(value))
+        and "\x00" not in value
+        and "\r" not in value
+        and "\n" not in value,
+        code,
+    )
+    _require(len(value.encode("utf-8")) <= 4096, code)
     return value
 
 
-def _string_map(raw: str) -> dict[str, str]:
-    value = _json(raw, dict, code="invalid_cmake_definitions")
-    _require(len(value) <= _MAX_LIST_ITEMS, "invalid_cmake_definitions")
+def _string_map(value: object) -> dict[str, str]:
+    _require(isinstance(value, dict) and len(value) <= _MAX_LIST_ITEMS, "invalid_cmake_definitions")
     _require(
         all(isinstance(key, str) and isinstance(item, str) for key, item in value.items()),
         "invalid_cmake_definitions",
@@ -78,27 +91,49 @@ def _string_map(raw: str) -> dict[str, str]:
     return dict(value)
 
 
-def _string_list(raw: str, *, code: str) -> tuple[str, ...]:
-    value = _json(raw, list, code=code)
-    _require(0 <= len(value) <= _MAX_LIST_ITEMS, code)
+def _string_list(value: object, *, code: str) -> tuple[str, ...]:
+    _require(isinstance(value, list) and len(value) <= _MAX_LIST_ITEMS, code)
     _require(all(isinstance(item, str) for item in value), code)
     return tuple(value)
 
 
-def _bounded_text(value: str, *, code: str, allow_empty: bool = True) -> str:
-    _require(isinstance(value, str), code)
-    _require((allow_empty or bool(value)) and "\x00" not in value and "\r" not in value and "\n" not in value, code)
-    _require(len(value.encode("utf-8")) <= 4096, code)
+def _jobs(value: object) -> int:
+    _require(type(value) is int and 1 <= value <= 64, "invalid_jobs")
     return value
 
 
-def _jobs(raw: str) -> int:
+def _plan(raw: str) -> dict[str, object]:
+    _require(isinstance(raw, str) and bool(raw), "invalid_validation_plan")
+    _require(len(raw.encode("utf-8")) <= _MAX_JSON_BYTES, "invalid_validation_plan")
     try:
-        value = int(raw, 10)
-    except (TypeError, ValueError) as error:
-        raise NativeValidationError("invalid_jobs") from error
-    _require(str(value) == str(raw).strip() and 1 <= value <= 64, "invalid_jobs")
-    return value
+        value = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise NativeValidationError("invalid_validation_plan") from error
+    _require(isinstance(value, dict), "invalid_validation_plan")
+    _require(set(value) <= _PLAN_KEYS, "invalid_validation_plan")
+    return {
+        "definitions": _string_map(value.get("definitions", {})),
+        "configure_options": _string_list(
+            value.get("configure_options", []), code="invalid_configure_options"
+        ),
+        "generator": _bounded_text(value.get("generator", ""), code="invalid_generator"),
+        "build_target": _bounded_text(
+            value.get("build_target", ""), code="invalid_build_target"
+        ),
+        "build_configuration": _bounded_text(
+            value.get("build_configuration", ""), code="invalid_build_configuration"
+        ),
+        "build_options": _string_list(
+            value.get("build_options", []), code="invalid_build_options"
+        ),
+        "test_target": _bounded_text(
+            value.get("test_target", "test"), code="invalid_test_target", allow_empty=False
+        ),
+        "test_options": _string_list(
+            value.get("test_options", []), code="invalid_test_options"
+        ),
+        "jobs": _jobs(value.get("jobs", 2)),
+    }
 
 
 def _state_temp(environment: Mapping[str, str], contract_root: Path) -> Path:
@@ -125,31 +160,7 @@ def request_from_environment(environment: Mapping[str, str]) -> dict[str, object
     return {
         "admitted_sha": admitted_sha,
         "working_directory": safe_relative(environment.get("INPUT_WORKING_DIRECTORY", ".")),
-        "definitions": _string_map(environment.get("INPUT_CMAKE_DEFINITIONS_JSON", "{}")),
-        "configure_options": _string_list(
-            environment.get("INPUT_CONFIGURE_OPTIONS_JSON", "[]"),
-            code="invalid_configure_options",
-        ),
-        "generator": _bounded_text(environment.get("INPUT_CMAKE_GENERATOR", ""), code="invalid_generator"),
-        "build_target": _bounded_text(environment.get("INPUT_BUILD_TARGET", ""), code="invalid_build_target"),
-        "build_configuration": _bounded_text(
-            environment.get("INPUT_BUILD_CONFIGURATION", ""),
-            code="invalid_build_configuration",
-        ),
-        "build_options": _string_list(
-            environment.get("INPUT_BUILD_OPTIONS_JSON", "[]"),
-            code="invalid_build_options",
-        ),
-        "test_target": _bounded_text(
-            environment.get("INPUT_TEST_TARGET", "test"),
-            code="invalid_test_target",
-            allow_empty=False,
-        ),
-        "test_options": _string_list(
-            environment.get("INPUT_TEST_OPTIONS_JSON", "[]"),
-            code="invalid_test_options",
-        ),
-        "jobs": _jobs(environment.get("INPUT_JOBS", "2")),
+        **_plan(environment.get("INPUT_VALIDATION_PLAN_JSON", "")),
     }
 
 
@@ -204,12 +215,7 @@ def execute_native_validate(
     )
 
     summary = json.dumps(
-        {
-            "build": "success",
-            "configure": "success",
-            "status": "success",
-            "test": "success",
-        },
+        {"build": "success", "configure": "success", "status": "success", "test": "success"},
         sort_keys=True,
         separators=(",", ":"),
     )
@@ -229,11 +235,7 @@ def _failure_outputs(environment: Mapping[str, str], code: str) -> None:
         {
             "result": "failure",
             "source_sha": environment.get("INPUT_ADMITTED_SHA", ""),
-            "test_summary": json.dumps(
-                {"status": "failed"},
-                sort_keys=True,
-                separators=(",", ":"),
-            ),
+            "test_summary": json.dumps({"status": "failed"}, sort_keys=True, separators=(",", ":")),
             "failure_code": code,
         },
     )
