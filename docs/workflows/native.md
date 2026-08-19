@@ -2,13 +2,13 @@
 
 Public API: `validation.native` (`.github/workflows/reusable-native.yml`).
 
-This reusable provides ordinary product-neutral CMake validation on semantic general-small Linux capacity. It performs one exact caller-source checkout, prepares one marker-bound `native` workspace, and runs configure, build, and a caller-selected bounded CMake test target against one isolated build tree. The build tree lives under Central workspace state rather than inside the caller checkout, so source cleanliness can be verified after cleanup.
+This reusable provides ordinary product-neutral CMake validation on semantic general-small Linux capacity. It performs one exact caller-source checkout, prepares one marker-bound `native` workspace, and runs configure, build, and a bounded CMake test target against one isolated build tree. The build tree lives under Central workspace state rather than inside the caller checkout, so source cleanliness can be verified after cleanup.
 
 ## Caller-owned inputs
 
-Callers provide only bounded build intent: the exact admitted SHA, an optional relative CMake source directory, CMake definitions/options, optional generator/configuration/build target, the test target, and bounded parallelism. Product names, repository-specific assertions, arbitrary shell commands, runner labels, container engines, cache identities, credentials, publication settings, or deployment authority are not part of this API.
+The public surface is intentionally small: `admitted_sha`, optional `working_directory`, and required `validation_plan_json`. The plan is a bounded JSON object whose allowed keys are `definitions`, `configure_options`, `generator`, `build_target`, `build_configuration`, `build_options`, `test_target`, `test_options`, and `jobs`. Unknown keys and invalid types fail closed before CMake execution; the plan is capped at 16 KiB, option collections at 128 entries, and parallelism at 1 through 64.
 
-The default test target is `test`, which is the conventional CMake/CTest target. A repository may select another checked-in target when its CMake project exposes tests under a different bounded target name. Central does not inject product-specific commands.
+The default test target is `test`, which is the conventional CMake/CTest target. A repository may select another bounded CMake target when its project exposes tests differently. Central does not inject product-specific commands or assertions. Product names, arbitrary shell commands, runner labels, container engines, cache identities, credentials, publication settings, or deployment authority are not part of this API.
 
 ## Workspace and cleanup
 
@@ -36,10 +36,8 @@ jobs:
     with:
       admitted_sha: ${{ needs.source.outputs.source_sha }}
       working_directory: native
-      cmake_definitions_json: '{"BUILD_TESTING":"ON"}'
-      build_target: all
-      test_target: test
-      jobs: 2
+      validation_plan_json: >-
+        {"definitions":{"BUILD_TESTING":"ON"},"build_target":"all","test_target":"test","jobs":2}
 ```
 
 Pin the reusable to an immutable reviewed Central commit. Source admission remains caller-owned and must supply the exact admitted SHA.
