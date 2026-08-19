@@ -1,9 +1,9 @@
 """Offline GitHub Actions expression-context availability validation.
 
-The tables in this module mirror the documented GitHub Actions context
-availability rows for the workflow, job, and step locations that the canonical
-Central validator already understands.  They intentionally validate context
-*availability*, not expression semantics or product policy.
+The tables mirror GitHub's documented context-availability rows for the
+workflow, job, and step fields already understood by the canonical Central
+validator. They validate context availability only; they do not add product or
+security policy.
 """
 from __future__ import annotations
 
@@ -16,20 +16,7 @@ from .validation_helpers import _finding, _iter_jobs, _iter_steps
 from .validation_model import Finding, HarnessConfig, ParsedDocument
 
 _CONTEXT_NAMES = frozenset(
-    {
-        "env",
-        "github",
-        "inputs",
-        "job",
-        "jobs",
-        "matrix",
-        "needs",
-        "runner",
-        "secrets",
-        "steps",
-        "strategy",
-        "vars",
-    }
+    "env github inputs job jobs matrix needs runner secrets steps strategy vars".split()
 )
 _CONTEXT_REFERENCE_RE = re.compile(
     r"(?<![A-Za-z0-9_.])(?P<context>"
@@ -38,227 +25,107 @@ _CONTEXT_REFERENCE_RE = re.compile(
 )
 
 
+def _contexts(value: str) -> frozenset[str]:
+    return frozenset(value.split())
+
+
+_PRE_RUN = _contexts("github needs strategy matrix vars inputs")
+_RUNTIME = _contexts(
+    "github needs strategy matrix job runner env vars secrets steps inputs"
+)
+_RUNTIME_IF = _RUNTIME - {"secrets"}
+
+
 @dataclasses.dataclass(frozen=True)
 class _ContextRule:
     github_key: str
     allowed: frozenset[str]
+    implicit_expression: bool = False
 
 
-def _rule(github_key: str, *allowed: str) -> _ContextRule:
-    return _ContextRule(github_key=github_key, allowed=frozenset(allowed))
+def _rule(
+    github_key: str,
+    allowed: frozenset[str],
+    *,
+    implicit_expression: bool = False,
+) -> _ContextRule:
+    return _ContextRule(
+        github_key=github_key,
+        allowed=allowed,
+        implicit_expression=implicit_expression,
+    )
 
 
-_WORKFLOW_SCALAR_RULES = {
-    "run-name": _rule("run-name", "github", "inputs", "vars"),
-    "concurrency": _rule("concurrency", "github", "inputs", "vars"),
+_WORKFLOW_RULES = {
+    "run-name": _rule("run-name", _contexts("github inputs vars")),
+    "concurrency": _rule("concurrency", _contexts("github inputs vars")),
+    "env": _rule("env", _contexts("github secrets inputs vars")),
 }
-_WORKFLOW_ENV_RULE = _rule(
-    "env",
-    "github",
-    "secrets",
-    "inputs",
-    "vars",
-)
-
-_JOB_SCALAR_RULES = {
-    "concurrency": _rule(
-        "jobs.<job_id>.concurrency",
-        "github",
-        "needs",
-        "strategy",
-        "matrix",
-        "inputs",
-        "vars",
-    ),
-    "continue-on-error": _rule(
-        "jobs.<job_id>.continue-on-error",
-        "github",
-        "needs",
-        "strategy",
-        "matrix",
-        "inputs",
-        "vars",
+_JOB_RULES = {
+    "concurrency": _rule("jobs.<job_id>.concurrency", _PRE_RUN),
+    "continue-on-error": _rule("jobs.<job_id>.continue-on-error", _PRE_RUN),
+    "env": _rule(
+        "jobs.<job_id>.env",
+        _contexts("github needs strategy matrix vars secrets inputs"),
     ),
     "if": _rule(
         "jobs.<job_id>.if",
-        "github",
-        "needs",
-        "vars",
-        "inputs",
+        _contexts("github needs vars inputs"),
+        implicit_expression=True,
     ),
-    "name": _rule(
-        "jobs.<job_id>.name",
-        "github",
-        "needs",
-        "strategy",
-        "matrix",
-        "vars",
-        "inputs",
+    "name": _rule("jobs.<job_id>.name", _PRE_RUN),
+    "outputs": _rule(
+        "jobs.<job_id>.outputs.<output_id>",
+        _RUNTIME,
     ),
-    "runs-on": _rule(
-        "jobs.<job_id>.runs-on",
-        "github",
-        "needs",
-        "strategy",
-        "matrix",
-        "vars",
-        "inputs",
+    "runs-on": _rule("jobs.<job_id>.runs-on", _PRE_RUN),
+    "secrets": _rule(
+        "jobs.<job_id>.secrets.<secrets_id>",
+        _contexts("github needs strategy matrix secrets inputs vars"),
     ),
-    "timeout-minutes": _rule(
-        "jobs.<job_id>.timeout-minutes",
-        "github",
-        "needs",
-        "strategy",
-        "matrix",
-        "vars",
-        "inputs",
+    "strategy": _rule(
+        "jobs.<job_id>.strategy",
+        _contexts("github needs vars inputs"),
     ),
+    "timeout-minutes": _rule("jobs.<job_id>.timeout-minutes", _PRE_RUN),
+    "with": _rule("jobs.<job_id>.with.<with_id>", _PRE_RUN),
 }
-_JOB_ENV_RULE = _rule(
-    "jobs.<job_id>.env",
-    "github",
-    "needs",
-    "strategy",
-    "matrix",
-    "vars",
-    "secrets",
-    "inputs",
-)
-_JOB_OUTPUT_RULE = _rule(
-    "jobs.<job_id>.outputs.<output_id>",
-    "github",
-    "needs",
-    "strategy",
-    "matrix",
-    "job",
-    "runner",
-    "env",
-    "vars",
-    "secrets",
-    "steps",
-    "inputs",
-)
-_JOB_STRATEGY_RULE = _rule(
-    "jobs.<job_id>.strategy",
-    "github",
-    "needs",
-    "vars",
-    "inputs",
-)
-_JOB_WITH_RULE = _rule(
-    "jobs.<job_id>.with.<with_id>",
-    "github",
-    "needs",
-    "strategy",
-    "matrix",
-    "inputs",
-    "vars",
-)
-_JOB_SECRET_RULE = _rule(
-    "jobs.<job_id>.secrets.<secrets_id>",
-    "github",
-    "needs",
-    "strategy",
-    "matrix",
-    "secrets",
-    "inputs",
-    "vars",
-)
 _JOB_DEFAULTS_RUN_RULE = _rule(
     "jobs.<job_id>.defaults.run",
-    "github",
-    "needs",
-    "strategy",
-    "matrix",
-    "env",
-    "vars",
-    "inputs",
+    _contexts("github needs strategy matrix env vars inputs"),
 )
-_JOB_ENVIRONMENT_RULE = _rule(
-    "jobs.<job_id>.environment",
-    "github",
-    "needs",
-    "strategy",
-    "matrix",
-    "vars",
-    "inputs",
-)
+_JOB_ENVIRONMENT_RULE = _rule("jobs.<job_id>.environment", _PRE_RUN)
 _JOB_ENVIRONMENT_URL_RULE = _rule(
     "jobs.<job_id>.environment.url",
-    "github",
-    "needs",
-    "strategy",
-    "matrix",
-    "job",
-    "runner",
-    "env",
-    "vars",
-    "steps",
-    "inputs",
-)
-
-_STEP_FULL_RULE = _rule(
-    "jobs.<job_id>.steps",
-    "github",
-    "needs",
-    "strategy",
-    "matrix",
-    "job",
-    "runner",
-    "env",
-    "vars",
-    "secrets",
-    "steps",
-    "inputs",
-)
-_STEP_IF_RULE = _rule(
-    "jobs.<job_id>.steps.if",
-    "github",
-    "needs",
-    "strategy",
-    "matrix",
-    "job",
-    "runner",
-    "env",
-    "vars",
-    "steps",
-    "inputs",
+    _contexts("github needs strategy matrix job runner env vars steps inputs"),
 )
 _STEP_RULES = {
-    "continue-on-error": dataclasses.replace(
-        _STEP_FULL_RULE,
-        github_key="jobs.<job_id>.steps.continue-on-error",
+    "continue-on-error": _rule(
+        "jobs.<job_id>.steps.continue-on-error",
+        _RUNTIME,
     ),
-    "env": dataclasses.replace(
-        _STEP_FULL_RULE,
-        github_key="jobs.<job_id>.steps.env",
+    "env": _rule("jobs.<job_id>.steps.env", _RUNTIME),
+    "if": _rule(
+        "jobs.<job_id>.steps.if",
+        _RUNTIME_IF,
+        implicit_expression=True,
     ),
-    "if": _STEP_IF_RULE,
-    "name": dataclasses.replace(
-        _STEP_FULL_RULE,
-        github_key="jobs.<job_id>.steps.name",
+    "name": _rule("jobs.<job_id>.steps.name", _RUNTIME),
+    "run": _rule("jobs.<job_id>.steps.run", _RUNTIME),
+    "timeout-minutes": _rule(
+        "jobs.<job_id>.steps.timeout-minutes",
+        _RUNTIME,
     ),
-    "run": dataclasses.replace(
-        _STEP_FULL_RULE,
-        github_key="jobs.<job_id>.steps.run",
-    ),
-    "timeout-minutes": dataclasses.replace(
-        _STEP_FULL_RULE,
-        github_key="jobs.<job_id>.steps.timeout-minutes",
-    ),
-    "with": dataclasses.replace(
-        _STEP_FULL_RULE,
-        github_key="jobs.<job_id>.steps.with",
-    ),
-    "working-directory": dataclasses.replace(
-        _STEP_FULL_RULE,
-        github_key="jobs.<job_id>.steps.working-directory",
+    "with": _rule("jobs.<job_id>.steps.with", _RUNTIME),
+    "working-directory": _rule(
+        "jobs.<job_id>.steps.working-directory",
+        _RUNTIME,
     ),
 }
 
 
 def _expression_bodies(value: str) -> Iterator[str]:
-    """Yield expression bodies while respecting GitHub single-quoted strings."""
+    """Yield ``${{ ... }}`` bodies without closing inside quoted literals."""
 
     offset = 0
     while True:
@@ -287,35 +154,46 @@ def _expression_bodies(value: str) -> Iterator[str]:
 
 
 def _without_single_quoted_literals(expression: str) -> str:
-    """Blank expression string literals so their text is not a context use."""
+    """Blank GitHub expression string literals before detecting context roots."""
 
-    result: list[str] = []
+    visible: list[str] = []
     index = 0
     in_string = False
     while index < len(expression):
         character = expression[index]
         if character == "'":
-            result.append(" ")
+            visible.append(" ")
             if in_string and index + 1 < len(expression) and expression[index + 1] == "'":
-                result.append(" ")
+                visible.append(" ")
                 index += 2
                 continue
             in_string = not in_string
             index += 1
             continue
-        result.append(" " if in_string else character)
+        visible.append(" " if in_string else character)
         index += 1
-    return "".join(result)
+    return "".join(visible)
 
 
-def _contexts_in_string(value: str) -> frozenset[str]:
-    contexts: set[str] = set()
-    for body in _expression_bodies(value):
-        visible = _without_single_quoted_literals(body)
-        contexts.update(
-            match.group("context") for match in _CONTEXT_REFERENCE_RE.finditer(visible)
+def _contexts_in_expression(expression: str) -> set[str]:
+    visible = _without_single_quoted_literals(expression)
+    return {
+        match.group("context")
+        for match in _CONTEXT_REFERENCE_RE.finditer(visible)
+    }
+
+
+def _contexts_in_value(value: str, *, implicit_expression: bool) -> frozenset[str]:
+    bodies = tuple(_expression_bodies(value))
+    if bodies:
+        return frozenset(
+            context
+            for body in bodies
+            for context in _contexts_in_expression(body)
         )
-    return frozenset(contexts)
+    if implicit_expression:
+        return frozenset(_contexts_in_expression(value))
+    return frozenset()
 
 
 def _scalar_leaves(value: Any, location: str) -> Iterator[tuple[str, Any]]:
@@ -341,16 +219,19 @@ def _validate_value(
     for leaf_location, leaf in _scalar_leaves(value, location):
         if not isinstance(leaf, str):
             continue
-        unavailable = sorted(_contexts_in_string(leaf) - rule.allowed)
-        for context in unavailable:
-            allowed = ", ".join(sorted(rule.allowed))
+        used = _contexts_in_value(
+            leaf,
+            implicit_expression=rule.implicit_expression,
+        )
+        for context in sorted(used - rule.allowed):
             _finding(
                 findings,
                 config,
                 "invalid-expression-context",
                 document.relative_path,
                 f"{leaf_location} uses unavailable GitHub Actions context "
-                f"{context!r}; {rule.github_key} allows only: {allowed}",
+                f"{context!r}; {rule.github_key} allows only: "
+                f"{', '.join(sorted(rule.allowed))}",
             )
 
 
@@ -393,10 +274,10 @@ def _validate_workflow_expression_contexts(
     config: HarnessConfig,
     findings: list[Finding],
 ) -> None:
-    """Reject contexts unavailable at the documented workflow YAML location."""
+    """Reject context roots unavailable at their documented YAML location."""
 
     data = document.data
-    for field, rule in _WORKFLOW_SCALAR_RULES.items():
+    for field, rule in _WORKFLOW_RULES.items():
         if field in data:
             _validate_value(
                 document,
@@ -404,74 +285,26 @@ def _validate_workflow_expression_contexts(
                 findings,
                 rule,
                 data[field],
-                f"workflow field {field!r}",
+                f"workflow field {field!r}" if field != "env" else "workflow env",
             )
-    if "env" in data:
-        _validate_value(
-            document,
-            config,
-            findings,
-            _WORKFLOW_ENV_RULE,
-            data["env"],
-            "workflow env",
-        )
 
     for job_id, job in _iter_jobs(document):
-        for field, rule in _JOB_SCALAR_RULES.items():
+        for field, rule in _JOB_RULES.items():
             if field in job:
+                location = (
+                    f"job {job_id!r} {field}"
+                    if field in {"env", "outputs", "strategy", "with", "secrets"}
+                    else f"job {job_id!r} field {field!r}"
+                )
                 _validate_value(
                     document,
                     config,
                     findings,
                     rule,
                     job[field],
-                    f"job {job_id!r} field {field!r}",
+                    location,
                 )
-        if "env" in job:
-            _validate_value(
-                document,
-                config,
-                findings,
-                _JOB_ENV_RULE,
-                job["env"],
-                f"job {job_id!r} env",
-            )
-        if "outputs" in job:
-            _validate_value(
-                document,
-                config,
-                findings,
-                _JOB_OUTPUT_RULE,
-                job["outputs"],
-                f"job {job_id!r} outputs",
-            )
-        if "strategy" in job:
-            _validate_value(
-                document,
-                config,
-                findings,
-                _JOB_STRATEGY_RULE,
-                job["strategy"],
-                f"job {job_id!r} strategy",
-            )
-        if isinstance(job.get("with"), Mapping):
-            _validate_value(
-                document,
-                config,
-                findings,
-                _JOB_WITH_RULE,
-                job["with"],
-                f"job {job_id!r} with",
-            )
-        if isinstance(job.get("secrets"), Mapping):
-            _validate_value(
-                document,
-                config,
-                findings,
-                _JOB_SECRET_RULE,
-                job["secrets"],
-                f"job {job_id!r} secrets",
-            )
+
         defaults = job.get("defaults")
         if isinstance(defaults, Mapping) and "run" in defaults:
             _validate_value(
@@ -493,16 +326,15 @@ def _validate_workflow_expression_contexts(
 
         for step_index, step in _iter_steps(job):
             for field, rule in _STEP_RULES.items():
-                if field not in step:
-                    continue
-                _validate_value(
-                    document,
-                    config,
-                    findings,
-                    rule,
-                    step[field],
-                    f"job {job_id!r} step {step_index} field {field!r}",
-                )
+                if field in step:
+                    _validate_value(
+                        document,
+                        config,
+                        findings,
+                        rule,
+                        step[field],
+                        f"job {job_id!r} step {step_index} field {field!r}",
+                    )
 
 
 __all__ = ("_validate_workflow_expression_contexts",)
