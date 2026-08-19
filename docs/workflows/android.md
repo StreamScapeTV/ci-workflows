@@ -47,7 +47,7 @@ Failed or timed-out reviewed Android operations emit only a sanitized bounded di
 The reusable workflow uses reviewed immutable Central helper checkpoints:
 
 - `StreamScapeTV/ci-workflows/actions/validate-android@8eaa37ad0fe3231b202e878b26f66aa23753e38a` — `issue #373 compile Gradle isolation checkpoint`.
-- `StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies@89a5279f00fc04a7b033f90ee1e4254a9f8d89e3` — `issue #346 dependency warm checkpoint`.
+- `StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies@4539e4c9ef8dce45d8cd179dec5997dbf8c7b9cd` — `issue #346 dependency warm checkpoint`.
 - `StreamScapeTV/ci-workflows/actions/upload-gradle-seed@fa67b6a1580ff2eb7386a9e58de09896b9990696` — `issue #346 bounded Gradle cache sync diagnostics checkpoint`.
 - `StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`.
 - `StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`.
@@ -67,4 +67,4 @@ Routine Android validation retains zero GitHub Actions artifacts and does not us
 
 ## Repository-owned smoke
 
-`.github/workflows/android-validation-smoke.yml` exercises one real synthetic `protected-full` validation on mobile capacity and verifies the expected Android/JDK toolchain, ordered Gradle task-group execution, and cleanup. Application performance proof and any product-specific dependency prebuild or optional pre-unit/compile plan belong in the Android consumer repository after Central source/contract checks are green.
+`.github/workflows/android-validation-smoke.yml` exercises one real synthetic `protected-full` validation on mobile capacity and verifies the dependency warm phase, expected Android/JDK toolchain, ordered Gradle task-group execution, and cleanup. Application performance proof and any product-specific dependency prebuild or optional pre-unit/compile plan belong in the Android consumer repository after Central source/contract checks are green.
