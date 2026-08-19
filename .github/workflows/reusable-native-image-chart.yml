@@ -142,9 +142,6 @@ jobs:
       BUILD_CONTEXT: ${{ inputs.build_context }}
       CIW_REGISTRY_USERNAME: ${{ secrets.registry_username }}
       CIW_REGISTRY_TOKEN: ${{ secrets.registry_token }}
-      REGISTRY_AUTH_FILE: ${{ runner.temp }}/native-image-chart/auth.json
-      HELM_REGISTRY_CONFIG: ${{ runner.temp }}/native-image-chart/helm-registry.json
-      PACKAGE_ROOT: ${{ runner.temp }}/native-image-chart/packages
     steps:
       - name: Check out exact Central reusable-workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -166,6 +163,17 @@ jobs:
             test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
             test -z "$(git status --porcelain=v1 --untracked-files=all)"
           )
+
+      - name: Initialize runner-local publication paths
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          state_root="${RUNNER_TEMP}/native-image-chart"
+          {
+            printf 'REGISTRY_AUTH_FILE=%s\n' "${state_root}/auth.json"
+            printf 'HELM_REGISTRY_CONFIG=%s\n' "${state_root}/helm-registry.json"
+            printf 'PACKAGE_ROOT=%s\n' "${state_root}/packages"
+          } >> "${GITHUB_ENV}"
 
       - id: revalidate
         name: Revalidate exact tag immediately before privileged work
