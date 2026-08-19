@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import re
 import stat
 import subprocess
 import tempfile
@@ -13,6 +14,7 @@ from ci_workflows.runner_images import RunnerImageError, build_plan, validate_re
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSEMBLER_PATH = ROOT / "runner-images/mobile/assemble.py"
+DOCKERFILE_PATH = ROOT / "runner-images/mobile/Dockerfile"
 
 
 def _load_assembler():
@@ -29,6 +31,21 @@ def _zip_info(name: str, mode: int) -> zipfile.ZipInfo:
     info.create_system = 3
     info.external_attr = mode << 16
     return info
+
+
+def _docker_instruction_containing(source: str, marker: str) -> str:
+    marker_index = source.index(marker)
+    instructions = list(
+        re.finditer(
+            r"(?m)^(?:ARG|CMD|COPY|ENV|FROM|RUN|USER|WORKDIR)\b.*$",
+            source,
+        )
+    )
+    for index, instruction in enumerate(instructions):
+        end = instructions[index + 1].start() if index + 1 < len(instructions) else len(source)
+        if instruction.start() <= marker_index < end:
+            return source[instruction.start() : end]
+    raise AssertionError(f"marker is not inside a Dockerfile instruction: {marker}")
 
 
 class MobileRunnerArchiveTests(unittest.TestCase):
@@ -86,6 +103,41 @@ class MobileRunnerArchiveTests(unittest.TestCase):
                 self.assembler.extract_zip(archive_path, root / "extract")
 
 
+class MobileRunnerDockerfileLayerTests(unittest.TestCase):
+    def test_transient_tool_archives_are_downloaded_assembled_and_removed_in_one_run(self) -> None:
+        source = DOCKERFILE_PATH.read_text(encoding="utf-8")
+        download_marker = 'download "${FLUTTER_URL}" "${FLUTTER_SHA256}" /tmp/flutter.tar.xz'
+        assemble_marker = "/usr/local/bin/runner-mobile-assemble;"
+        cleanup_marker = "rm -rf /tmp/runner.tar.gz /tmp/flutter.tar.xz /tmp/android-*.zip"
+
+        download_instruction = _docker_instruction_containing(source, download_marker)
+        self.assertTrue(download_instruction.startswith("RUN set -eux;"))
+        self.assertEqual(
+            download_instruction,
+            _docker_instruction_containing(source, assemble_marker),
+        )
+        self.assertEqual(
+            download_instruction,
+            _docker_instruction_containing(source, cleanup_marker),
+        )
+        self.assertLess(
+            source.index("COPY --chmod=0755 assemble.py /usr/local/bin/runner-mobile-assemble"),
+            source.index(download_marker),
+        )
+        for archive in (
+            "/tmp/flutter.tar.xz",
+            "/tmp/android-command-line-tools.zip",
+            "/tmp/android-platform-tools.zip",
+            "/tmp/android-platform-36.zip",
+            "/tmp/android-platform-37.zip",
+            "/tmp/android-build-tools-36.zip",
+            "/tmp/android-build-tools-37.zip",
+            "/tmp/android-ndk.zip",
+        ):
+            with self.subTest(archive=archive):
+                self.assertIn(archive, download_instruction)
+
+
 class RunnerImageReleaseTagContractTests(unittest.TestCase):
     def test_every_valid_repository_tag_is_used_verbatim_as_oci_tag(self) -> None:
         source_sha = "a" * 40
@@ -119,7 +171,7 @@ class RunnerImageReleaseTagContractTests(unittest.TestCase):
             release,
         )
 
-    def test_latest_remains_forbidden_by_current_release_policy(self) -> None:
+    def test_latest_remains_forbidden_as_repository_release_tag(self) -> None:
         with self.assertRaises(RunnerImageError):
             validate_release_tag("latest")
 
