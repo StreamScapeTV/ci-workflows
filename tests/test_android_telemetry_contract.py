@@ -87,20 +87,29 @@ class AndroidTelemetryContractTests(unittest.TestCase):
             mock.patch("ci_workflows.ciw_android._execute_script"),
             mock.patch(
                 "ci_workflows.ciw_android.time.monotonic_ns",
-                side_effect=(1_000_000_000, 1_275_000_000, 1_300_000_000, 1_345_000_000),
+                side_effect=(
+                    1_000_000_000,
+                    1_100_000_000,
+                    1_200_000_000,
+                    1_300_000_000,
+                    1_400_000_000,
+                    1_550_000_000,
+                    1_600_000_000,
+                    1_645_000_000,
+                ),
             ),
         ):
             result = _execute_request(self._request(), argparse.Namespace(), context)
 
         summary = json.loads(result.outputs["test_summary"])
         self.assertEqual(summary["execute_wall_ms"], 1350)
-        self.assertEqual(summary["gradle_wall_ms"], 275)
+        self.assertEqual(summary["gradle_wall_ms"], 350)
         self.assertEqual(summary["script_wall_ms"], 45)
         self.assertEqual(summary["child_cpu_ms"], 2410)
         self.assertEqual(summary["peak_memory_bytes"], 4_200_000_000)
         self.assertEqual(summary["peak_processes"], 23)
         self.assertEqual(summary["resource_measurement"], "cgroup-v2-sampled")
-        self.assertEqual(summary["gradle_invocations"], 1)
+        self.assertEqual(summary["gradle_invocations"], 3)
         self.assertEqual(summary["script_invocations"], 1)
         self.assertEqual(summary["schema_mode"], "script")
         self.assertNotIn("/state", result.outputs["test_summary"])
