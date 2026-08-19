@@ -45,6 +45,7 @@ class RunnerImagePlan:
     registry_repository: str
     local_reference: str
     remote_reference: str
+    latest_reference: str
     smoke_command: str = SMOKE_COMMAND
 
     def to_dict(self) -> dict[str, str]:
@@ -91,7 +92,7 @@ def validate_source_sha(value: str) -> str:
 def validate_release_tag(value: str) -> str:
     if _OCI_TAG.fullmatch(value) is None or value.casefold() == "latest":
         raise RunnerImageError(
-            "release tag must be a human-readable OCI-compatible Git tag and must not be latest"
+            "release tag must be a human-readable OCI-compatible Git tag and must not be latest; latest is reserved for the mutable runner-image alias"
         )
     return value
 
@@ -143,6 +144,7 @@ def build_plan(
         registry_repository=image.registry_repository,
         local_reference=f"ciw-runner-{image.image_id}:sha-{source_sha[:12]}",
         remote_reference=remote,
+        latest_reference=f"{image.registry_repository}:latest",
     )
 
 
