@@ -24,7 +24,7 @@ class NativeImageChartWorkflowContractTests(unittest.TestCase):
     def test_is_generic_reusable_exact_tag_publisher(self) -> None:
         text = self.text
         self.assertIn("workflow_call:", text)
-        self.assertIn("Resolve exact tag-push authority", text)
+        self.assertIn("Resolve exact release tag authority", text)
         self.assertIn("Revalidate tag immediately before publication", text)
         self.assertIn("${{ github.workflow_sha }}", text)
         self.assertIn("repository: ${{ github.repository }}", text)
