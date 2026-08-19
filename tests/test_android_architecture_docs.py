@@ -11,6 +11,7 @@ ACTION_LOCK = ROOT / "contracts/action-tool-lock.json"
 WORKFLOW = ROOT / ".github/workflows/reusable-android.yml"
 
 VALIDATE_ANDROID = "StreamScapeTV/ci-workflows/actions/validate-android"
+WARM_GRADLE = "StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies"
 UPLOAD_GRADLE_SEED = "StreamScapeTV/ci-workflows/actions/upload-gradle-seed"
 EXACT_CHECKOUT = "StreamScapeTV/ci-workflows/actions/exact-checkout"
 PREPARE_WORKSPACE = "StreamScapeTV/ci-workflows/actions/prepare-workspace"
@@ -23,6 +24,7 @@ class AndroidArchitectureDocumentationTests(unittest.TestCase):
     def test_helper_guidance_and_workflow_match_action_lock(self) -> None:
         required = {
             VALIDATE_ANDROID,
+            WARM_GRADLE,
             UPLOAD_GRADLE_SEED,
             EXACT_CHECKOUT,
             PREPARE_WORKSPACE,
@@ -51,17 +53,21 @@ class AndroidArchitectureDocumentationTests(unittest.TestCase):
         self.assertNotIn("ACTIONS_ID_TOKEN_REQUEST", workflow)
         self.assertIn("GRADLE_RO_DEP_CACHE", guide)
         self.assertIn("private writable `GRADLE_USER_HOME`", guide)
-        self.assertIn("best-effort cache-sync call", guide)
-        self.assertIn("does not invoke Gradle again", guide)
+        self.assertIn("dependency-only warm", guide)
+        self.assertIn("first best-effort cache-sync call", guide)
+        self.assertIn("second best-effort cache-sync call", guide)
+        self.assertIn("does not invoke Gradle", guide)
         self.assertIn("Registered workspace cleanup always", guide)
-        self.assertIn("Central owns this invocation", guide)
-        self.assertIn("Central owns this same-executor invocation", workflow_guide)
+        self.assertIn("Central owns these invocations", guide)
+        self.assertIn("Central owns both same-executor sync points", workflow_guide)
         self.assertIn("Android product repository", workflow_guide)
 
         validate_sha = actions[VALIDATE_ANDROID]["sha"]
+        warm_sha = actions[WARM_GRADLE]["sha"]
         foundation_sha = actions[EXACT_CHECKOUT]["sha"]
         sync_sha = actions[UPLOAD_GRADLE_SEED]["sha"]
         self.assertNotEqual(validate_sha, foundation_sha)
+        self.assertNotEqual(warm_sha, foundation_sha)
         self.assertNotEqual(sync_sha, foundation_sha)
 
 
