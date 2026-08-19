@@ -70,6 +70,7 @@ class GradleDependencyWarmTests(unittest.TestCase):
                     admitted_sha=SHA,
                     working_directory=".",
                     gradle_wrapper_path="gradlew",
+                    private_dependency_subdirectory=".",
                     environment=environment,
                 )
 
@@ -122,6 +123,7 @@ class GradleDependencyWarmTests(unittest.TestCase):
                     admitted_sha=SHA,
                     working_directory=".",
                     gradle_wrapper_path="gradlew",
+                    private_dependency_subdirectory=".",
                     environment=environment,
                 )
 
@@ -129,6 +131,61 @@ class GradleDependencyWarmTests(unittest.TestCase):
             runtime = process.call_args.kwargs["environment"]
             self.assertEqual(runtime["GRADLE_RO_DEP_CACHE"], str(cache))
             self.assertEqual(runtime["CI_PRIVATE_DEPENDENCY_PATH"], str(dependency))
+
+    def test_warm_exposes_only_verified_private_dependency_subdirectory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            environment = self._environment(root)
+            dependency_root = root / "state/dependencies/media"
+            dependency_android = dependency_root / "android"
+            dependency_android.mkdir(parents=True)
+            environment["CI_PRIVATE_DEPENDENCY_PATH"] = str(dependency_root)
+            with (
+                mock.patch(
+                    "ci_workflows.gradle_dependency_warm._verify_exact_source"
+                ),
+                mock.patch(
+                    "ci_workflows.gradle_dependency_warm._copy_source",
+                    side_effect=self._copy_with_wrapper,
+                ),
+                mock.patch(
+                    "ci_workflows.gradle_dependency_warm.run_process",
+                    return_value=ProcessResult(0, "", "", False),
+                ) as process,
+            ):
+                warm_gradle_dependencies(
+                    admitted_sha=SHA,
+                    working_directory=".",
+                    gradle_wrapper_path="gradlew",
+                    private_dependency_subdirectory="android",
+                    environment=environment,
+                )
+
+            runtime = process.call_args.kwargs["environment"]
+            self.assertEqual(
+                runtime["CI_PRIVATE_DEPENDENCY_PATH"],
+                str(dependency_android),
+            )
+
+    def test_private_dependency_subdirectory_traversal_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            environment = self._environment(root)
+            dependency = root / "state/dependencies/media"
+            dependency.mkdir(parents=True)
+            environment["CI_PRIVATE_DEPENDENCY_PATH"] = str(dependency)
+            with self.assertRaises(CIWError) as failure:
+                warm_gradle_dependencies(
+                    admitted_sha=SHA,
+                    working_directory=".",
+                    gradle_wrapper_path="gradlew",
+                    private_dependency_subdirectory="../android",
+                    environment=environment,
+                )
+            self.assertEqual(
+                failure.exception.code,
+                "private_dependency_subdirectory_invalid",
+            )
 
     def test_arbitrary_read_only_cache_path_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -151,6 +208,7 @@ class GradleDependencyWarmTests(unittest.TestCase):
                         admitted_sha=SHA,
                         working_directory=".",
                         gradle_wrapper_path="gradlew",
+                        private_dependency_subdirectory=".",
                         environment=environment,
                     )
             self.assertEqual(failure.exception.code, "gradle_read_only_cache_invalid")
@@ -180,6 +238,7 @@ class GradleDependencyWarmTests(unittest.TestCase):
                         admitted_sha=SHA,
                         working_directory=".",
                         gradle_wrapper_path="gradlew",
+                        private_dependency_subdirectory=".",
                         environment=environment,
                     )
             self.assertEqual(failure.exception.code, "dependency_warm_failed")

@@ -14,7 +14,7 @@ REUSABLE = ROOT / ".github/workflows/reusable-android.yml"
 SMOKE = ROOT / ".github/workflows/android-validation-smoke.yml"
 ACTION = ROOT / "actions/validate-android/action.yml"
 ANDROID_SHA = "8eaa37ad0fe3231b202e878b26f66aa23753e38a"
-WARM_SHA = "4539e4c9ef8dce45d8cd179dec5997dbf8c7b9cd"
+WARM_SHA = "13de46c51efcf65df798dfec82a620c484350dfa"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 GRADLE_SYNC_SHA = "fa67b6a1580ff2eb7386a9e58de09896b9990696"
 
@@ -172,6 +172,10 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertIn("inputs.validation_scope == 'protected-full'", warm["if"])
         self.assertIn("steps.dependency.outcome == 'success'", warm["if"])
         self.assertEqual(warm["with"]["admitted_sha"], "${{ inputs.admitted_sha }}")
+        self.assertEqual(
+            warm["with"]["private_dependency_subdirectory"],
+            "${{ steps.plan.outputs.private_dependency_subdirectory }}",
+        )
         self.assertEqual(
             warm["uses"],
             f"StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies@{WARM_SHA}",

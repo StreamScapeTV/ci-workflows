@@ -18,7 +18,12 @@ class AndroidDependencyWarmActionTests(unittest.TestCase):
     def test_action_surface_is_bounded_project_data_only(self) -> None:
         self.assertEqual(
             set(self.action["inputs"]),
-            {"admitted_sha", "working_directory", "gradle_wrapper_path"},
+            {
+                "admitted_sha",
+                "working_directory",
+                "gradle_wrapper_path",
+                "private_dependency_subdirectory",
+            },
         )
         self.assertEqual(
             set(self.action["outputs"]),
@@ -28,6 +33,10 @@ class AndroidDependencyWarmActionTests(unittest.TestCase):
                 "gradle_dependency_cache_mode",
                 "warm_wall_ms",
             },
+        )
+        self.assertEqual(
+            self.action["inputs"]["private_dependency_subdirectory"]["default"],
+            ".",
         )
         for forbidden in (
             "command",
@@ -54,6 +63,7 @@ class AndroidDependencyWarmActionTests(unittest.TestCase):
         self.assertIn("--admitted-sha", command)
         self.assertIn("--working-directory", command)
         self.assertIn("--gradle-wrapper-path", command)
+        self.assertIn("--private-dependency-subdirectory", command)
         self.assertNotIn("./gradlew", command)
         self.assertNotIn("--offline", command)
         self.assertNotIn("--refresh-dependencies", command)
