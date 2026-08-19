@@ -19,13 +19,13 @@ There is no second runner or cache-specific warming build and routine validation
 
 ## One-executor protected-full
 
-`protected-full` keeps the entire request inside one mobile executor, one copied source tree, one private writable `GRADLE_USER_HOME`, one exact private dependency checkout, and the same runner-provided read-only dependency seed. Within that executor, the caller-owned Gradle task families are executed sequentially as optional pre-unit, unit, lint, assemble, and Gradle-schema groups. Each non-empty group uses the existing `--no-daemon` primitive, so Gradle starts a fresh single-use daemon and releases task-family class metadata before the next group. A checked-in schema script, when selected, executes afterward in the same copied source/workspace. The workflow has no matrix and no nested mobile reusable job.
+`protected-full` keeps the entire request inside one mobile executor, one copied source tree, one private writable `GRADLE_USER_HOME`, one exact private dependency checkout, and the same runner-provided read-only dependency seed. Within that executor, the caller-owned Gradle task families are executed sequentially as optional pre-unit, optional compile, unit, lint, assemble, and Gradle-schema groups. Each non-empty group uses the existing `--no-daemon` primitive, so Gradle starts a fresh single-use daemon and releases task-family class metadata before the next group. A checked-in schema script, when selected, executes afterward in the same copied source/workspace. The workflow has no matrix and no nested mobile reusable job.
 
-The optional `pre_unit_tasks` field is part of the bounded `validation_plan_json`, not a new infrastructure input. When present, it runs first and is intended for caller-owned prerequisites such as code generation that unit tests would otherwise trigger inside the unit daemon. It does not alter Gradle memory, worker, Kotlin, or test settings. Empty pre-unit lists, unknown plan keys, and duplicate task identities across pre-unit/unit/lint/assemble/Gradle-schema groups fail closed. Plans that omit the field preserve the previous unit → lint → assemble → schema sequence.
+The optional `pre_unit_tasks` field is part of the bounded `validation_plan_json`, not a new infrastructure input. When present, it runs first and is intended for caller-owned prerequisites such as code generation that unit tests would otherwise trigger inside the unit daemon. The optional `compile_tasks` field is also part of that same bounded plan and runs immediately after `pre_unit_tasks` and before `unit_tasks`. It is intended for caller-owned main compilation or another compile prerequisite whose class metadata must be reclaimed before unit-test setup. Neither field alters Gradle memory, worker, Kotlin, or test settings. Empty optional lists, unknown plan keys, and duplicate task identities across pre-unit/compile/unit/lint/assemble/Gradle-schema groups fail closed. Plans that omit both optional fields preserve the previous unit → lint → assemble → schema sequence; plans that provide only `pre_unit_tasks` preserve the existing pre-unit → unit → lint → assemble → schema behavior.
 
 For private dependency graphs whose preparation itself is too large to coexist with the authoritative application task graph under the caller-owned memory profile, the workflow accepts optional `dependency_prebuild_plan_json`. It is validated and executed through the same immutable `protected-full` primitive before authoritative execution, using the same mobile executor, private Gradle home, read-only dependency seed, and verified private dependency checkout. The prebuild copied caller source is then removed and residue-checked before the normal validation copy is created. This preserves dependency build outputs while releasing Gradle process/class metadata between bounded dependency layers and again before authoritative application validation.
 
-The dependency prebuild plan does not change Gradle memory, worker, Kotlin, or test settings; it only selects caller-owned Gradle work and reuses the same ordered daemon boundaries. It is optional, requires a private dependency request, and does not replace the authoritative pre-unit/unit/lint/assemble/schema plan. Terminal success requires every requested prebuild plan/execute/cleanup/residue phase plus the authoritative plan/execution/cleanup chain to succeed.
+The dependency prebuild plan does not change Gradle memory, worker, Kotlin, or test settings; it only selects caller-owned Gradle work and reuses the same ordered daemon boundaries. It is optional, requires a private dependency request, and does not replace the authoritative pre-unit/compile/unit/lint/assemble/schema plan. Terminal success requires every requested prebuild plan/execute/cleanup/residue phase plus the authoritative plan/execution/cleanup chain to succeed.
 
 ## Shared dependency cache
 
@@ -49,7 +49,7 @@ The authoritative Android execute phase reports:
 
 - total execute wall time;
 - aggregate Gradle wall time across all non-empty task groups;
-- the actual Gradle invocation count, including pre-unit when requested;
+- the actual Gradle invocation count, including optional pre-unit and compile groups when requested;
 - optional checked-in script wall time;
 - child CPU time when available;
 - sampled cgroup peak memory and process count when available;
@@ -63,7 +63,7 @@ Failed or timed-out reviewed `android.*` primitive operations emit only a saniti
 
 `reusable-android.yml` composes reviewed Central helpers by immutable source identity:
 
-- `validate-android@b878e56f978cb23bc8a0dd300d24b0799c943503` — `issue #373 pre-unit Gradle isolation checkpoint`;
+- `validate-android@8eaa37ad0fe3231b202e878b26f66aa23753e38a` — `issue #373 compile Gradle isolation checkpoint`;
 - `upload-gradle-seed@fa67b6a1580ff2eb7386a9e58de09896b9990696` — `issue #346 bounded Gradle cache sync diagnostics checkpoint`;
 - `exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`;
 - `prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`;
@@ -87,4 +87,4 @@ Terminal success requires the Android plan/execution plus all applicable prebuil
 
 ## Performance ownership
 
-Central owns generic one-executor process isolation, the read-only dependency-cache handoff, same-executor best-effort miss sync, and timing evidence. The Android product repository owns Gradle/test resource settings and task selection, including any bounded private-dependency prebuild task layers and optional pre-unit prerequisites. Flux owns the persistent shared cache and the internal single-writer generation merge that makes successful dependency misses reusable by later runs.
+Central owns generic one-executor process isolation, the read-only dependency-cache handoff, same-executor best-effort miss sync, and timing evidence. The Android product repository owns Gradle/test resource settings and task selection, including any bounded private-dependency prebuild task layers and optional pre-unit/compile prerequisites. Flux owns the persistent shared cache and the internal single-writer generation merge that makes successful dependency misses reusable by later runs.

@@ -103,7 +103,7 @@ class AndroidCIWDispatchTests(unittest.TestCase):
         )
         self.assertNotIn("product", " ".join(result.outputs).casefold())
 
-    def test_protected_full_rejects_compile_leg_duplicates_and_duplicate_json_keys(self) -> None:
+    def test_protected_full_rejects_unknown_controls_task_duplicates_and_duplicate_json_keys(self) -> None:
         invalid_plans = (
             json.dumps(
                 {
@@ -111,7 +111,16 @@ class AndroidCIWDispatchTests(unittest.TestCase):
                     "lint_tasks": ["lintDebug"],
                     "assemble_tasks": ["assembleDebug"],
                     "schema": {"mode": "none"},
-                    "compile_tasks": ["compileDebugKotlin"],
+                    "compile_options": ["--max-workers=1"],
+                }
+            ),
+            json.dumps(
+                {
+                    "compile_tasks": ["check"],
+                    "unit_tasks": ["check"],
+                    "lint_tasks": ["lintDebug"],
+                    "assemble_tasks": ["assembleDebug"],
+                    "schema": {"mode": "none"},
                 }
             ),
             json.dumps(
