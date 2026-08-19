@@ -7,7 +7,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-COMPOSE_ACTION_SHA = "8b4d61b8ce0863e0d5efa806c1b39922d145402a"
+COMPOSE_ACTION_SHA = "cef7fcd5ff2ee634544c1cb95d8e862a16f98f90"
 
 
 class ServiceComposeWorkflowContractTests(unittest.TestCase):
@@ -130,7 +130,7 @@ class ServiceComposeWorkflowContractTests(unittest.TestCase):
             validate["outputs"]["result"],
         )
 
-    def test_composite_action_uses_executable_python_boundary_not_shared_ciw_registry(self) -> None:
+    def test_composite_action_uses_hardened_executable_boundary_not_shared_ciw_registry(self) -> None:
         action_path = ROOT / "actions/validate-service-compose/action.yml"
         action_source = action_path.read_text(encoding="utf-8")
         action = yaml.safe_load(action_source)
@@ -156,6 +156,9 @@ class ServiceComposeWorkflowContractTests(unittest.TestCase):
         self.assertIn('"validation_script_path"', entrypoint)
         self.assertIn('"validation_timeout_seconds"', entrypoint)
         self.assertIn('result["INPUT_COMPOSE_TOOL"] = "podman"', entrypoint)
+        self.assertIn('result["GITHUB_SHA"] = admitted_sha', entrypoint)
+        self.assertIn("_validate_selected_readiness", entrypoint)
+        self.assertIn("_emit_early_failure_outputs", entrypoint)
         self.assertIn("execute_compose_validate", entrypoint)
         self.assertNotIn("subprocess", entrypoint)
         self.assertNotIn("os.system", entrypoint)
