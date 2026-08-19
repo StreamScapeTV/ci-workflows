@@ -191,8 +191,11 @@ class RunnerImageWorkflowTests(unittest.TestCase):
         self.assertIn(smoke_run, smoke)
         self.assertIn(smoke_remove, smoke)
         self.assertIn("trap - EXIT", smoke)
-        self.assertLess(smoke.index(smoke_run), smoke.index(smoke_remove))
-        self.assertLess(smoke.index(smoke_remove), smoke.index("trap - EXIT"))
+        smoke_run_index = smoke.index(smoke_run)
+        smoke_remove_index = smoke.index(smoke_remove, smoke_run_index + len(smoke_run))
+        trap_clear_index = smoke.index("trap - EXIT", smoke_remove_index + len(smoke_remove))
+        self.assertLess(smoke_run_index, smoke_remove_index)
+        self.assertLess(smoke_remove_index, trap_clear_index)
         self.assertIn('buildah rm "${container}" >/dev/null 2>&1 || true', cleanup)
 
     def test_publication_uses_dedicated_buildah_push_scratch_only(self) -> None:
