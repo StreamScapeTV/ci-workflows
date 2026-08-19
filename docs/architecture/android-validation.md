@@ -19,9 +19,9 @@ There is no second Android build for cache warming and routine validation has no
 
 ## One-executor protected-full
 
-`protected-full` flattens unit, lint, assemble, and applicable Gradle-backed Room/KSP/schema tasks into one Gradle invocation. A checked-in schema script, when selected, executes afterward in the same copied source/workspace. The workflow has no matrix and no nested mobile reusable job.
+`protected-full` keeps the entire request inside one mobile executor, one copied source tree, one private writable `GRADLE_USER_HOME`, one exact private dependency checkout, and the same runner-provided read-only dependency seed. Within that executor, the caller-owned Gradle task families are executed sequentially as non-empty unit, lint, assemble, and Gradle-schema groups. Each group uses the existing `--no-daemon` primitive, so Gradle starts a fresh single-use daemon and releases task-family class metadata before the next group. A checked-in schema script, when selected, executes afterward in the same copied source/workspace. The workflow has no matrix and no nested mobile reusable job.
 
-This preserves compiled/configured state inside a single Gradle process rather than creating several cold Android jobs.
+This preserves one runner/workspace/cache lifecycle while bounding Gradle metaspace lifetime. It does not create separate Android jobs, alter task coverage, or add a cache-warming invocation.
 
 ## Shared dependency cache
 
@@ -44,7 +44,8 @@ The Gradle process and cache-sync client use no GitHub OIDC. Routine PR, manual,
 The Android execute phase reports:
 
 - total execute wall time;
-- Gradle wall time;
+- aggregate Gradle wall time across all non-empty task groups;
+- the actual Gradle invocation count;
 - optional checked-in script wall time;
 - child CPU time when available;
 - sampled cgroup peak memory and process count when available;
