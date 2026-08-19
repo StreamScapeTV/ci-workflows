@@ -4,7 +4,7 @@
 
 ## Build model
 
-One reusable call creates one mobile executor and one Gradle workspace. `protected-full` combines unit tests, lint, assemble, and applicable Gradle-backed KSP/Room/schema tasks into one Gradle invocation so configuration, dependency resolution, and compiled state are reused inside the job. There is no standalone protected-full compile job and no second cache-warming build.
+One reusable call creates one mobile executor and one Gradle workspace. `protected-full` preserves the caller-owned unit, lint, assemble, and applicable Gradle-backed KSP/Room/schema task groups in that same executor/workspace, but executes each non-empty group sequentially through its own `--no-daemon` Gradle invocation. This bounds Gradle metaspace lifetime between task families while reusing the same checked-out source, private dependency, private writable Gradle home, and read-only dependency seed. There is no standalone protected-full compile job and no second cache-warming build.
 
 The workflow exposes only Android technology inputs: admitted source SHA, validation scope, working directory, Gradle wrapper path, one bounded validation plan, and optional exact private-dependency coordinates. It has no cache path, cache endpoint, promotion flag, runner selector, signing, release, Docker, Helm, or device input.
 
@@ -26,7 +26,7 @@ Workspace preparation still uses Central `cache_mode: disabled` because Central 
 
 ## Performance telemetry
 
-Android execution records bounded wall times for the full execute function, Gradle, and any checked-in script phase. On supported Linux runners it also records sampled cgroup peak memory/process count and child CPU time. `test_summary` reports `gradle_dependency_cache_mode` as `read-only-seed` or `cold`, allowing cold/warm measurements without another monitoring job.
+Android execution records bounded wall times for the full execute function, the aggregate of all Gradle task-group invocations, and any checked-in script phase. `test_summary.gradle_invocations` reports the actual number of non-empty Gradle groups. On supported Linux runners it also records sampled cgroup peak memory/process count and child CPU time. `test_summary` reports `gradle_dependency_cache_mode` as `read-only-seed` or `cold`, allowing cold/warm measurements without another monitoring job.
 
 Failed or timed-out reviewed `android.*` operations emit only a sanitized bounded diagnostic tail before preserving the existing stable error code. Successful Android operations and non-Android primitives do not emit that failure tail.
 
@@ -54,4 +54,4 @@ Routine Android validation retains zero GitHub Actions artifacts and does not us
 
 ## Repository-owned smoke
 
-`.github/workflows/android-validation-smoke.yml` exercises one real synthetic `protected-full` Gradle invocation on mobile capacity and verifies the expected Android/JDK toolchain plus cleanup. Application performance proof belongs in the Android consumer repository after the shared cache is populated.
+`.github/workflows/android-validation-smoke.yml` exercises one real synthetic `protected-full` validation on mobile capacity and verifies the expected Android/JDK toolchain, ordered Gradle task-group execution, and cleanup. Application performance proof belongs in the Android consumer repository after the shared cache is populated.
