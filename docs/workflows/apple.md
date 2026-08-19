@@ -119,13 +119,15 @@ imports a keychain, reaches Kubernetes, or deploys a product.
 ## Immutable helper reuse
 
 The reusable workflow invokes `actions/validate-apple` through guarded issue
-#336 checkpoint `2dacd98d19c5e136ce4803ab70b0f7ebd45414bf`.
+#372 checkpoint `f682622a1a659368cba78c071c72b8b6e8953d88`.
 The corresponding action-lock release label is
-`issue-336 final Apple v2 checkpoint`.
-That checkpoint includes the protected-full planner/executor and the public plan
-filesystem guard. Exact source checkout, workspace preparation, optional private
-dependency checkout, evidence rendering, and registered-state cleanup use the
-reviewed immutable foundation helpers.
+`issue #372 bounded Apple failure diagnostics checkpoint`.
+That checkpoint preserves the protected-full planner/executor and public plan
+filesystem guard while adding bounded fail-closed command diagnostics before
+terminal cleanup removes runner-local Apple validation state. Exact source
+checkout, workspace preparation, optional private dependency checkout, evidence
+rendering, and registered-state cleanup use the reviewed immutable foundation
+helpers.
 
 The action archive supplies its Python modules relative to `GITHUB_ACTION_PATH`;
 the reusable workflow does not clone a second central checkout or use a caller-
