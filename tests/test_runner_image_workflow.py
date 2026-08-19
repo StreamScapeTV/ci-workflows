@@ -179,6 +179,22 @@ class RunnerImageWorkflowTests(unittest.TestCase):
             publish.index('docker://${LATEST_REFERENCE}'),
         )
 
+    def test_successful_smoke_releases_buildah_container_before_publication(self) -> None:
+        smoke = self._action_step_run("Run image-owned smoke as the configured image user")
+        cleanup = self._action_step_run("Remove exact runner-image build and authentication state")
+        smoke_run = 'buildah run "${container}" -- "${SMOKE_COMMAND}"'
+        smoke_remove = 'buildah rm "${container}" >/dev/null'
+
+        self.assertIn("cleanup_smoke_container() {", smoke)
+        self.assertIn('buildah rm "${container}" >/dev/null 2>&1 || true', smoke)
+        self.assertIn("trap cleanup_smoke_container EXIT", smoke)
+        self.assertIn(smoke_run, smoke)
+        self.assertIn(smoke_remove, smoke)
+        self.assertIn("trap - EXIT", smoke)
+        self.assertLess(smoke.index(smoke_run), smoke.index(smoke_remove))
+        self.assertLess(smoke.index(smoke_remove), smoke.index("trap - EXIT"))
+        self.assertIn('buildah rm "${container}" >/dev/null 2>&1 || true', cleanup)
+
     def test_publication_uses_dedicated_buildah_push_scratch_only(self) -> None:
         build = self._action_step_run("Build exact runner image")
         smoke = self._action_step_run("Run image-owned smoke as the configured image user")
