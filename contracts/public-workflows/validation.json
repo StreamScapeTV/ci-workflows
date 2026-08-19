@@ -41,22 +41,14 @@
       "inputs": [
         {"name": "admitted_sha", "required": true},
         {"name": "working_directory", "required": false, "default": "."},
-        {"name": "cmake_definitions_json", "required": false, "default": "{}"},
-        {"name": "configure_options_json", "required": false, "default": "[]"},
-        {"name": "cmake_generator", "required": false, "default": ""},
-        {"name": "build_target", "required": false, "default": ""},
-        {"name": "build_configuration", "required": false, "default": ""},
-        {"name": "build_options_json", "required": false, "default": "[]"},
-        {"name": "test_target", "required": false, "default": "test"},
-        {"name": "test_options_json", "required": false, "default": "[]"},
-        {"name": "jobs", "required": false, "default": 2}
+        {"name": "validation_plan_json", "required": true}
       ],
       "secrets": [],
       "outputs": ["result", "test_summary", "cleanup_result"],
       "stable_check_name": "CI / Native CMake validation",
       "timeout_minutes": 120,
       "matrix_max_jobs": 1,
-      "repository_owned_hooks": ["working_directory", "build_target", "test_target"],
+      "repository_owned_hooks": ["validation_plan_json"],
       "implementation_components": ["ci_workflows.ciw_native.execute_native_validate", "ci_workflows.native_primitives.cmake_configure", "ci_workflows.native_primitives.cmake_build", "actions/validate-native"]
     },
     {
