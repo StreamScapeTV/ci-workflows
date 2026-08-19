@@ -99,7 +99,7 @@ jobs:
 
       - id: compose
         name: Start services, wait, validate, diagnose failures, and tear down
-        uses: StreamScapeTV/ci-workflows/actions/validate-service-compose@8b4d61b8ce0863e0d5efa806c1b39922d145402a # issue #359 Compose adapter checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-service-compose@cef7fcd5ff2ee634544c1cb95d8e862a16f98f90 # issue #359 hardened Compose adapter checkpoint
         with:
           admitted_sha: ${{ inputs.admitted_sha }}
           working_directory: ${{ inputs.working_directory }}
