@@ -67,10 +67,11 @@ This private repository owns reusable GitHub Actions orchestration for supported
 ## Publication and release safety
 
 - Product publication is admitted only from an exact approved Git tag and exact tagged source SHA.
-- Immutable image and chart versions use the exact approved tag. Never publish `latest`.
-- Historical tags build the exact historical commit without rewriting branches.
+- Immutable image and chart versions use the exact approved tag. Runner-image releases additionally publish the same built artifact under the mutable `latest` alias after the exact versioned tag is published; `latest` is a convenience deployment alias and is never release/source authority.
+- The repository Git tag `latest` is not a valid release-version input for the runner-image workflow; an ordinary version/tag such as `1.0` remains the release authority and produces both `:1.0` and `:latest`.
+- Historical tags build the exact historical commit without rewriting branches. Replaying an historical runner-image tag may therefore also move the mutable `latest` alias to that replayed artifact; use replay deliberately.
 - Publication and deployment remain separate. Product release workflows do not receive Kubernetes or SOPS credentials and do not mutate clusters.
-- Published images and charts require independent remote read-back. Replays are idempotent, and conflicting immutable content fails closed.
+- Published images and charts require independent remote read-back. Runner-image publication must read back both the exact versioned tag and `latest` before the image job succeeds. Replays are idempotent for exact versioned content, and conflicting immutable content fails closed.
 
 ## Product validation contract
 
