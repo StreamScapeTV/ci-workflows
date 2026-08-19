@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/reusable-native-image-chart.yml"
+CALLER_SMOKE_PATH = ROOT / ".github/workflows/native-image-chart-call-parse-smoke.yml"
 PRODUCTS_PATH = ROOT / "contracts/public-workflows/products.json"
 AGGREGATE_PATH = ROOT / "contracts/public-workflows.json"
 REFERENCE_PATH = ROOT / "docs/workflows/public-api-reference.md"
@@ -16,6 +17,7 @@ class NativeImageChartExistingTagContractTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+        cls.caller_smoke = CALLER_SMOKE_PATH.read_text(encoding="utf-8")
         cls.reference = REFERENCE_PATH.read_text(encoding="utf-8")
         products = json.loads(PRODUCTS_PATH.read_text(encoding="utf-8"))
         aggregate = json.loads(AGGREGATE_PATH.read_text(encoding="utf-8"))
@@ -134,6 +136,48 @@ class NativeImageChartExistingTagContractTest(unittest.TestCase):
         self.assertNotRegex(
             self.workflow,
             re.compile(r"agent-state-dashboard|0\.1\.1|faruqi\.dev/mimranfaruqi/agent-state-dashboard"),
+        )
+
+    def test_runner_temp_paths_are_initialized_at_runtime(self) -> None:
+        self.assertNotIn("${{ runner.temp }}", self.workflow)
+        initialize = self.workflow.split(
+            "- name: Initialize runner-local publication paths", 1
+        )[1].split("\n\n      - id: revalidate", 1)[0]
+        self.assertIn('state_root="${RUNNER_TEMP}/native-image-chart"', initialize)
+        self.assertIn(
+            "printf 'REGISTRY_AUTH_FILE=%s\\n' \"${state_root}/auth.json\"",
+            initialize,
+        )
+        self.assertIn(
+            "printf 'HELM_REGISTRY_CONFIG=%s\\n' \"${state_root}/helm-registry.json\"",
+            initialize,
+        )
+        self.assertIn(
+            "printf 'PACKAGE_ROOT=%s\\n' \"${state_root}/packages\"",
+            initialize,
+        )
+        self.assertIn('} >> "${GITHUB_ENV}"', initialize)
+
+    def test_github_smoke_compiles_the_real_reusable_call_without_publication(self) -> None:
+        self.assertIn("pull_request:", self.caller_smoke)
+        self.assertIn(
+            '".github/workflows/reusable-native-image-chart.yml"',
+            self.caller_smoke,
+        )
+        self.assertIn("if: ${{ false }}", self.caller_smoke)
+        self.assertIn(
+            "uses: ./.github/workflows/reusable-native-image-chart.yml",
+            self.caller_smoke,
+        )
+        self.assertIn("release_mode: existing-tag", self.caller_smoke)
+        self.assertIn('release_version: "0.0.0"', self.caller_smoke)
+        self.assertIn(
+            'release_source_sha: "0000000000000000000000000000000000000000"',
+            self.caller_smoke,
+        )
+        self.assertIn(
+            'test "${{ needs.reusable_call.result }}" = "skipped"',
+            self.caller_smoke,
         )
 
 
