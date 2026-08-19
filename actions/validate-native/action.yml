@@ -9,42 +9,9 @@ inputs:
     description: Relative CMake source directory within the exact checkout
     required: false
     default: .
-  cmake_definitions_json:
-    description: Bounded JSON object of CMake -D definitions
-    required: false
-    default: "{}"
-  configure_options_json:
-    description: Bounded JSON array of additional CMake configure options
-    required: false
-    default: "[]"
-  cmake_generator:
-    description: Optional bounded CMake generator name
-    required: false
-    default: ""
-  build_target:
-    description: Optional bounded primary CMake build target
-    required: false
-    default: ""
-  build_configuration:
-    description: Optional bounded CMake configuration
-    required: false
-    default: ""
-  build_options_json:
-    description: Bounded JSON array passed after cmake --build --
-    required: false
-    default: "[]"
-  test_target:
-    description: Bounded CMake target used for tests
-    required: false
-    default: test
-  test_options_json:
-    description: Bounded JSON array passed after the test-target build command
-    required: false
-    default: "[]"
-  jobs:
-    description: Bounded CMake parallelism from 1 through 64
-    required: false
-    default: "2"
+  validation_plan_json:
+    description: Bounded CMake definitions/options/targets and parallelism plan
+    required: true
 
 outputs:
   result:
@@ -66,15 +33,7 @@ runs:
         PYTHONDONTWRITEBYTECODE: "1"
         INPUT_ADMITTED_SHA: ${{ inputs.admitted_sha }}
         INPUT_WORKING_DIRECTORY: ${{ inputs.working_directory }}
-        INPUT_CMAKE_DEFINITIONS_JSON: ${{ inputs.cmake_definitions_json }}
-        INPUT_CONFIGURE_OPTIONS_JSON: ${{ inputs.configure_options_json }}
-        INPUT_CMAKE_GENERATOR: ${{ inputs.cmake_generator }}
-        INPUT_BUILD_TARGET: ${{ inputs.build_target }}
-        INPUT_BUILD_CONFIGURATION: ${{ inputs.build_configuration }}
-        INPUT_BUILD_OPTIONS_JSON: ${{ inputs.build_options_json }}
-        INPUT_TEST_TARGET: ${{ inputs.test_target }}
-        INPUT_TEST_OPTIONS_JSON: ${{ inputs.test_options_json }}
-        INPUT_JOBS: ${{ inputs.jobs }}
+        INPUT_VALIDATION_PLAN_JSON: ${{ inputs.validation_plan_json }}
       run: |
         set -Eeuo pipefail
         interpreter="$(type -P python3.12 || true)"
