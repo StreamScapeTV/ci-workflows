@@ -179,6 +179,23 @@ class RunnerImageWorkflowTests(unittest.TestCase):
             publish.index('docker://${LATEST_REFERENCE}'),
         )
 
+    def test_publication_uses_dedicated_buildah_push_scratch_only(self) -> None:
+        build = self._action_step_run("Build exact runner image")
+        smoke = self._action_step_run("Run image-owned smoke as the configured image user")
+        publish = self._action_step_run("Publish and confirm the versioned and latest tags")
+
+        self.assertNotIn("/var/tmp/buildah", build)
+        self.assertNotIn("/var/tmp/buildah", smoke)
+        self.assertIn("push_tmp=/var/tmp/buildah", publish)
+        self.assertIn('test -d "${push_tmp}"', publish)
+        self.assertIn('test ! -L "${push_tmp}"', publish)
+        self.assertIn('test -w "${push_tmp}"', publish)
+        self.assertIn('export TMPDIR="${push_tmp}"', publish)
+        self.assertIn('export TMP="${push_tmp}"', publish)
+        self.assertIn('export TEMP="${push_tmp}"', publish)
+        self.assertLess(publish.index('export TMPDIR="${push_tmp}"'), publish.index("buildah push"))
+        self.assertEqual(publish.count("buildah push"), 2)
+
     def test_internal_leaf_is_shallow_and_delegates_to_composite_action(self) -> None:
         self.assertIn("workflow_call:", self.internal)
         self.assertNotIn("workflow_dispatch:", self.internal)
