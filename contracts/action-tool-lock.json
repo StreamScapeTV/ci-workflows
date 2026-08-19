@@ -107,6 +107,13 @@
       "source": "https://github.com/StreamScapeTV/ci-workflows/tree/8eaa37ad0fe3231b202e878b26f66aa23753e38a/actions/validate-android"
     },
     {
+      "uses": "StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies",
+      "sha": "89a5279f00fc04a7b033f90ee1e4254a9f8d89e3",
+      "release": "issue #346 dependency warm checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/89a5279f00fc04a7b033f90ee1e4254a9f8d89e3/actions/warm-gradle-dependencies"
+    },
+    {
       "uses": "StreamScapeTV/ci-workflows/actions/upload-gradle-seed",
       "sha": "fa67b6a1580ff2eb7386a9e58de09896b9990696",
       "release": "issue #346 bounded Gradle cache sync diagnostics checkpoint",
