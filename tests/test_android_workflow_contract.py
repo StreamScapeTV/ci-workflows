@@ -14,7 +14,7 @@ REUSABLE = ROOT / ".github/workflows/reusable-android.yml"
 SMOKE = ROOT / ".github/workflows/android-validation-smoke.yml"
 ACTION = ROOT / "actions/validate-android/action.yml"
 ANDROID_SHA = "8eaa37ad0fe3231b202e878b26f66aa23753e38a"
-WARM_SHA = "89a5279f00fc04a7b033f90ee1e4254a9f8d89e3"
+WARM_SHA = "4539e4c9ef8dce45d8cd179dec5997dbf8c7b9cd"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 GRADLE_SYNC_SHA = "fa67b6a1580ff2eb7386a9e58de09896b9990696"
 
