@@ -1,0 +1,54 @@
+name: Validate exact service-backed Compose source
+description: Execute one bounded product-neutral Compose service/readiness/validation lifecycle
+
+inputs:
+  admitted_sha:
+    description: Exact admitted caller source SHA
+    required: true
+  working_directory:
+    description: Relative Compose project directory within the exact checkout
+    required: false
+    default: .
+  validation_plan_json:
+    description: Bounded product-owned Compose topology, readiness and validation plan
+    required: true
+
+outputs:
+  result:
+    value: ${{ steps.compose.outputs.result }}
+  test_summary:
+    value: ${{ steps.compose.outputs.test_summary }}
+  cleanup_result:
+    value: ${{ steps.compose.outputs.cleanup_result }}
+  failure_code:
+    value: ${{ steps.compose.outputs.failure_code }}
+  cleanup_code:
+    value: ${{ steps.compose.outputs.cleanup_code }}
+  project_name:
+    value: ${{ steps.compose.outputs.project_name }}
+
+runs:
+  using: composite
+  steps:
+    - id: compose
+      name: Dispatch bounded service Compose validation
+      shell: bash
+      env:
+        PYTHONDONTWRITEBYTECODE: "1"
+        INPUT_ADMITTED_SHA: ${{ inputs.admitted_sha }}
+        INPUT_WORKING_DIRECTORY: ${{ inputs.working_directory }}
+        INPUT_VALIDATION_PLAN_JSON: ${{ inputs.validation_plan_json }}
+      run: |
+        set -Eeuo pipefail
+        interpreter="$(type -P python3.12 || true)"
+        if [[ -z "${interpreter}" ]]; then
+          interpreter="$(type -P python3 || true)"
+        fi
+        if [[ -z "${interpreter}" || "${interpreter}" != /* || ! -x "${interpreter}" ]]; then
+          echo '::error::Runner-provided CPython is unavailable.' >&2
+          exit 2
+        fi
+        GITHUB_WORKSPACE="${GITHUB_WORKSPACE}/source" \
+        PYTHONPATH="${GITHUB_ACTION_PATH}/../../src" \
+          "${interpreter}" -m ci_workflows.ciw_compose_entrypoint \
+          --root "${GITHUB_ACTION_PATH}/../.."
