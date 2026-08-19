@@ -133,11 +133,17 @@ runs:
         authfile="${RUNNER_TEMP}/ciw-runner-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${IMAGE}.json"
         test -f "${authfile}"
         test ! -L "${authfile}"
+        cleanup_smoke_container() {
+          buildah rm "${container}" >/dev/null 2>&1 || true
+        }
+        trap cleanup_smoke_container EXIT
         buildah from \
           --authfile "${authfile}" \
           --name "${container}" \
           "${LOCAL_REFERENCE}" >/dev/null
         buildah run "${container}" -- "${SMOKE_COMMAND}"
+        buildah rm "${container}" >/dev/null
+        trap - EXIT
 
     - name: Authenticate to the fixed runner registry
       if: ${{ inputs.publish == 'true' }}
