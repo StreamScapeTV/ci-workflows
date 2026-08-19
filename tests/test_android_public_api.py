@@ -34,7 +34,7 @@ class AndroidPublicApiTests(unittest.TestCase):
         self.assertEqual(set(call["secrets"]), set(self.android["secrets"]))
         self.assertEqual(set(call["outputs"]), set(self.android["outputs"]))
 
-    def test_android_api_uses_one_caller_owned_plan_instead_of_central_profiles(self) -> None:
+    def test_android_api_uses_bounded_caller_owned_plans_instead_of_central_profiles(self) -> None:
         inputs = {item["name"] for item in self.android["inputs"]}
         self.assertEqual(
             inputs,
@@ -44,6 +44,7 @@ class AndroidPublicApiTests(unittest.TestCase):
                 "working_directory",
                 "gradle_wrapper_path",
                 "validation_plan_json",
+                "dependency_prebuild_plan_json",
                 "private_dependency_repository",
                 "private_dependency_sha",
                 "private_dependency_subdirectory",
@@ -69,7 +70,7 @@ class AndroidPublicApiTests(unittest.TestCase):
             self.assertNotIn(forbidden, inputs)
         self.assertEqual(
             set(self.android["repository_owned_hooks"]),
-            {"validation_plan_json"},
+            {"validation_plan_json", "dependency_prebuild_plan_json"},
         )
 
     def test_android_types_include_protected_full_and_strict_plan_json(self) -> None:
@@ -88,10 +89,9 @@ class AndroidPublicApiTests(unittest.TestCase):
                 "script",
             ],
         )
-        self.assertEqual(
-            catalog["validation_plan_json"],
-            {"type": "json-object", "max_bytes": 16384},
-        )
+        expected_plan_type = {"type": "json-object", "max_bytes": 16384}
+        self.assertEqual(catalog["validation_plan_json"], expected_plan_type)
+        self.assertEqual(catalog["dependency_prebuild_plan_json"], expected_plan_type)
         self.assertIn("private_dependency_id", catalog)
 
     def test_android_outputs_and_components_are_primitive_backed(self) -> None:

@@ -25,6 +25,11 @@ on:
         description: Strict bounded JSON plan of caller-owned Gradle tasks, selector, or checked-in script data
         required: true
         type: string
+      dependency_prebuild_plan_json:
+        description: Optional strict protected-full Gradle plan used only to process-isolate private dependency preparation before authoritative validation
+        required: false
+        default: ""
+        type: string
       private_dependency_repository:
         description: Optional exact private dependency repository
         required: false
@@ -71,7 +76,7 @@ jobs:
     outputs:
       result: ${{ steps.terminal.outputs.result }}
       test_summary: ${{ steps.execute.outputs.test_summary }}
-      cleanup_result: ${{ steps.android_cleanup.outcome == 'success' && steps.residue.outcome == 'success' && steps.workspace_cleanup.outcome == 'success' && 'success' || 'failure' }}
+      cleanup_result: ${{ (inputs.dependency_prebuild_plan_json == '' || (steps.prebuild_cleanup.outcome == 'success' && steps.prebuild_residue.outcome == 'success')) && steps.android_cleanup.outcome == 'success' && steps.residue.outcome == 'success' && steps.workspace_cleanup.outcome == 'success' && 'success' || 'failure' }}
     steps:
       - id: plan
         name: Validate technology-level Android request
@@ -83,6 +88,22 @@ jobs:
           working_directory: ${{ inputs.working_directory }}
           gradle_wrapper_path: ${{ inputs.gradle_wrapper_path }}
           validation_plan_json: ${{ inputs.validation_plan_json }}
+          private_dependency_repository: ${{ inputs.private_dependency_repository }}
+          private_dependency_sha: ${{ inputs.private_dependency_sha }}
+          private_dependency_subdirectory: ${{ inputs.private_dependency_subdirectory }}
+          private_dependency_id: ${{ inputs.private_dependency_id }}
+
+      - id: prebuild_plan
+        name: Validate optional private dependency prebuild plan
+        if: ${{ inputs.dependency_prebuild_plan_json != '' && steps.plan.outputs.private_dependency_used == 'true' }}
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@ac56fd7b3fac55f231e7b2ba715a5aebebbe51ef # issue #373 protected-full Gradle group isolation checkpoint
+        with:
+          phase: plan
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_scope: protected-full
+          working_directory: ${{ inputs.working_directory }}
+          gradle_wrapper_path: ${{ inputs.gradle_wrapper_path }}
+          validation_plan_json: ${{ inputs.dependency_prebuild_plan_json }}
           private_dependency_repository: ${{ inputs.private_dependency_repository }}
           private_dependency_sha: ${{ inputs.private_dependency_sha }}
           private_dependency_subdirectory: ${{ inputs.private_dependency_subdirectory }}
@@ -117,8 +138,50 @@ jobs:
           fetch_depth: "1"
           token: ${{ secrets.private_dependency_token }}
 
+      - id: prebuild_execute
+        name: Process-isolate optional private dependency Gradle prebuild
+        if: ${{ inputs.dependency_prebuild_plan_json != '' && steps.prebuild_plan.outcome == 'success' && steps.dependency.outcome == 'success' }}
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@ac56fd7b3fac55f231e7b2ba715a5aebebbe51ef # issue #373 protected-full Gradle group isolation checkpoint
+        with:
+          phase: execute
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_scope: protected-full
+          working_directory: ${{ inputs.working_directory }}
+          gradle_wrapper_path: ${{ inputs.gradle_wrapper_path }}
+          validation_plan_json: ${{ inputs.dependency_prebuild_plan_json }}
+          private_dependency_repository: ${{ inputs.private_dependency_repository }}
+          private_dependency_sha: ${{ inputs.private_dependency_sha }}
+          private_dependency_subdirectory: ${{ inputs.private_dependency_subdirectory }}
+          private_dependency_id: ${{ inputs.private_dependency_id }}
+          private_dependency_verified: ${{ steps.dependency.outputs.verified }}
+          private_dependency_remotes_erased: ${{ steps.dependency.outputs.remotes_erased }}
+          private_dependency_credentials_erased: ${{ steps.dependency.outputs.credentials_erased }}
+          private_dependency_head_sha: ${{ steps.dependency.outputs.head_sha }}
+          private_dependency_checkout_repository: ${{ steps.dependency.outputs.repository }}
+          private_dependency_checkout_id: ${{ steps.dependency.outputs.dependency_id }}
+          private_dependency_expected_subpath: ${{ steps.dependency.outputs.expected_subpath }}
+
+      - id: prebuild_cleanup
+        name: Remove optional dependency-prebuild copied source state
+        if: ${{ always() && inputs.dependency_prebuild_plan_json != '' && steps.workspace.outcome == 'success' }}
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@ac56fd7b3fac55f231e7b2ba715a5aebebbe51ef # issue #373 protected-full Gradle group isolation checkpoint
+        with:
+          phase: cleanup
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_scope: protected-full
+
+      - id: prebuild_residue
+        name: Verify zero optional dependency-prebuild residue
+        if: ${{ always() && inputs.dependency_prebuild_plan_json != '' && steps.workspace.outcome == 'success' }}
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@ac56fd7b3fac55f231e7b2ba715a5aebebbe51ef # issue #373 protected-full Gradle group isolation checkpoint
+        with:
+          phase: residue
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_scope: protected-full
+
       - id: execute
         name: Execute one primitive-backed Android validation plan
+        if: ${{ success() && (inputs.dependency_prebuild_plan_json == '' || (steps.prebuild_plan.outcome == 'success' && steps.prebuild_execute.outcome == 'success' && steps.prebuild_cleanup.outcome == 'success' && steps.prebuild_residue.outcome == 'success')) }}
         uses: StreamScapeTV/ci-workflows/actions/validate-android@ac56fd7b3fac55f231e7b2ba715a5aebebbe51ef # issue #373 protected-full Gradle group isolation checkpoint
         with:
           phase: execute
@@ -197,6 +260,11 @@ jobs:
         shell: bash
         env:
           PLAN_OUTCOME: ${{ steps.plan.outcome }}
+          PREBUILD_REQUIRED: ${{ inputs.dependency_prebuild_plan_json != '' && 'true' || 'false' }}
+          PREBUILD_PLAN_OUTCOME: ${{ steps.prebuild_plan.outcome }}
+          PREBUILD_EXECUTE_OUTCOME: ${{ steps.prebuild_execute.outcome }}
+          PREBUILD_CLEANUP_OUTCOME: ${{ steps.prebuild_cleanup.outcome }}
+          PREBUILD_RESIDUE_OUTCOME: ${{ steps.prebuild_residue.outcome }}
           CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
           WORKSPACE_OUTCOME: ${{ steps.workspace.outcome }}
           DEPENDENCY_REQUIRED: ${{ steps.plan.outputs.private_dependency_used }}
@@ -216,10 +284,19 @@ jobs:
           if [[ "${DEPENDENCY_REQUIRED}" == "true" ]]; then
             test "${DEPENDENCY_OUTCOME}" = "success" || dependency_ok=false
           fi
+          prebuild_ok=true
+          if [[ "${PREBUILD_REQUIRED}" == "true" ]]; then
+            test "${DEPENDENCY_REQUIRED}" = "true" || prebuild_ok=false
+            test "${PREBUILD_PLAN_OUTCOME}" = "success" || prebuild_ok=false
+            test "${PREBUILD_EXECUTE_OUTCOME}" = "success" || prebuild_ok=false
+            test "${PREBUILD_CLEANUP_OUTCOME}" = "success" || prebuild_ok=false
+            test "${PREBUILD_RESIDUE_OUTCOME}" = "success" || prebuild_ok=false
+          fi
           if [[ "${PLAN_OUTCOME}" == "success" &&
                 "${CHECKOUT_OUTCOME}" == "success" &&
                 "${WORKSPACE_OUTCOME}" == "success" &&
                 "${dependency_ok}" == "true" &&
+                "${prebuild_ok}" == "true" &&
                 "${EXECUTE_OUTCOME}" == "success" &&
                 "${ANDROID_CLEANUP_OUTCOME}" == "success" &&
                 "${RESIDUE_OUTCOME}" == "success" &&

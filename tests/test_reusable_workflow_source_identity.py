@@ -153,7 +153,7 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
         policy = json.loads((ROOT / "contracts/android-source-policy.json").read_text(encoding="utf-8"))
         exception = next(item for item in policy["tracked_secret_exceptions"] if item["id"] == "streamscape_media_playback_lab_redaction_sentinels_v1")
         self.assertIn({"path": "apple/Tests/StreamscapePlaybackLabSupportTests/PlaybackLabLifecycleEvidenceTests.swift", "git_blob_sha1": "5df889bbf613ee7f4dabd07ca931aa81fb4f71a3"}, exception["paths"])
-        self.assertEqual(4, source.count(f"actions/validate-android@{ANDROID_SHA}"))
+        self.assertEqual(8, source.count(f"actions/validate-android@{ANDROID_SHA}"))
         self.assertNotIn("actions/validate-android@275ee86f0f5de3d8f3330b92c84d7c0188fb10f8", source)
 
     def test_apple_private_action_checkpoint_contains_media_contract_in_current_tree(self) -> None:
