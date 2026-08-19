@@ -171,11 +171,18 @@ runs:
       run: |
         set -Eeuo pipefail
         authfile="${RUNNER_TEMP}/ciw-runner-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${IMAGE}.json"
+        push_tmp=/var/tmp/buildah
         test -f "${authfile}"
         test ! -L "${authfile}"
+        test -d "${push_tmp}"
+        test ! -L "${push_tmp}"
+        test -w "${push_tmp}"
         test -n "${REMOTE_REFERENCE}"
         test -n "${LATEST_REFERENCE}"
         test "${REMOTE_REFERENCE}" != "${LATEST_REFERENCE}"
+        export TMPDIR="${push_tmp}"
+        export TMP="${push_tmp}"
+        export TEMP="${push_tmp}"
 
         buildah push \
           --authfile "${authfile}" \
