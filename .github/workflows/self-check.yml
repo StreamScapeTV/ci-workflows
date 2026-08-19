@@ -165,18 +165,6 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          while IFS= read -r -d '' path; do
-            case "${path}" in
-              tests/test_*.py|tests/*/test_*.py|tests/*/*/test_*.py)
-                rm -f -- "${path}"
-                ;;
-              *)
-                echo "::error::Unexpected untracked test path ${path}." >&2
-                exit 1
-                ;;
-            esac
-          done < <(git ls-files --others --exclude-standard -z -- 'tests/test_*.py' 'tests/*/test_*.py' 'tests/*/*/test_*.py')
-          test -z "$(git ls-files --others --exclude-standard -- 'tests/test_*.py' 'tests/*/test_*.py' 'tests/*/*/test_*.py')"
           TMPDIR="${VALIDATION_ROOT}/tmp" \
             "${VERIFIED_PYTHON}" -m unittest discover -s tests -p 'test_*.py' -v
           test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
