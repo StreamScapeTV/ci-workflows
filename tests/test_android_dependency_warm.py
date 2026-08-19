@@ -42,13 +42,15 @@ class AndroidDependencyWarmActionTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, self.action["inputs"])
 
-    def test_action_executes_only_reviewed_dependency_warm_module(self) -> None:
+    def test_action_executes_only_reviewed_dependency_warm_delegate(self) -> None:
         self.assertEqual(self.action["runs"]["using"], "composite")
         self.assertEqual(len(self.action["runs"]["steps"]), 1)
         step = self.action["runs"]["steps"][0]
         self.assertEqual(step["id"], "warm")
         command = step["run"]
-        self.assertIn("python3 -m ci_workflows.gradle_dependency_warm", command)
+        self.assertIn("scripts/ci/ciw.py", command)
+        self.assertIn("gradle warm-dependencies", command)
+        self.assertNotIn("python3 -m ci_workflows.gradle_dependency_warm", command)
         self.assertIn("--admitted-sha", command)
         self.assertIn("--working-directory", command)
         self.assertIn("--gradle-wrapper-path", command)
