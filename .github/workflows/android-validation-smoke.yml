@@ -8,8 +8,10 @@ on:
       - .github/workflows/reusable-android.yml
       - .github/workflows/android-validation-smoke.yml
       - actions/validate-android/**
+      - actions/warm-gradle-dependencies/**
       - src/ci_workflows/ciw.py
       - src/ci_workflows/ciw_android.py
+      - src/ci_workflows/gradle_dependency_warm.py
       - src/ci_workflows/language_primitives.py
       - src/ci_workflows/runtime_primitives.py
       - contracts/action-tool-lock.json
@@ -21,6 +23,7 @@ on:
       - docs/workflows/android.md
       - tests/fixtures/android-validation/smoke-project/**
       - tests/test_android_*.py
+      - tests/test_gradle_dependency_warm.py
       - tests/test_reusable_workflow_source_identity.py
   workflow_dispatch:
 
@@ -94,6 +97,14 @@ jobs:
           profile: gradle
           cache_mode: disabled
           source_sha: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - id: dependency_warm
+        name: Resolve dependency graph before synthetic protected-full
+        uses: ./.ciw/actions/warm-gradle-dependencies
+        with:
+          admitted_sha: ${{ github.event.pull_request.head.sha || github.sha }}
+          working_directory: tests/fixtures/android-validation/smoke-project
+          gradle_wrapper_path: gradlew
 
       - id: execute
         name: Execute protected-full in one mobile workspace
@@ -174,6 +185,9 @@ jobs:
         shell: bash
         env:
           PLAN_OUTCOME: ${{ steps.plan.outcome }}
+          WARM_OUTCOME: ${{ steps.dependency_warm.outcome }}
+          WARM_CACHE_MODE: ${{ steps.dependency_warm.outputs.gradle_dependency_cache_mode }}
+          WARM_WALL_MS: ${{ steps.dependency_warm.outputs.warm_wall_ms }}
           EXECUTE_OUTCOME: ${{ steps.execute.outcome }}
           ANDROID_CLEANUP_OUTCOME: ${{ steps.android_cleanup.outcome }}
           RESIDUE_OUTCOME: ${{ steps.residue.outcome }}
@@ -183,6 +197,9 @@ jobs:
         run: |
           set -Eeuo pipefail
           test "${PLAN_OUTCOME}" = "success"
+          test "${WARM_OUTCOME}" = "success"
+          [[ "${WARM_CACHE_MODE}" =~ ^(cold|read-only-seed)$ ]]
+          [[ "${WARM_WALL_MS}" =~ ^[0-9]+$ ]]
           test "${EXECUTE_OUTCOME}" = "success"
           test "${ANDROID_CLEANUP_OUTCOME}" = "success"
           test "${RESIDUE_OUTCOME}" = "success"
