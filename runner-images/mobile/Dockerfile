@@ -7,8 +7,8 @@ ARG ACTIONS_RUNNER_URL=https://github.com/actions/runner/releases/download/v2.33
 ARG ACTIONS_RUNNER_SHA256=04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d
 
 RUN set -eux; \
-    curl --fail --location --retry 3 --proto '=https' --tlsv1.2 \
-      "${ACTIONS_RUNNER_URL}" -o /tmp/runner.tar.gz; \
+    curl --fail --location --http1.1 --retry 5 --retry-all-errors --retry-delay 1 \
+      --proto '=https' --tlsv1.2 "${ACTIONS_RUNNER_URL}" -o /tmp/runner.tar.gz; \
     printf '%s  %s\n' "${ACTIONS_RUNNER_SHA256}" /tmp/runner.tar.gz | sha256sum -c -; \
     mkdir -p /tmp/runner /out /out/tmp; \
     tar -xzf /tmp/runner.tar.gz -C /tmp/runner; \
@@ -135,7 +135,8 @@ COPY --chmod=0755 smoke.sh /usr/local/bin/runner-image-smoke
 RUN set -eux; \
     download() { \
       url="$1"; sha="$2"; destination="$3"; \
-      curl --fail --location --retry 3 --proto '=https' --tlsv1.2 "${url}" -o "${destination}"; \
+      curl --fail --location --http1.1 --retry 5 --retry-all-errors --retry-delay 1 \
+        --proto '=https' --tlsv1.2 "${url}" -o "${destination}"; \
       printf '%s  %s\n' "${sha}" "${destination}" | sha256sum -c -; \
     }; \
     download "${FLUTTER_URL}" "${FLUTTER_SHA256}" /tmp/flutter.tar.xz; \
