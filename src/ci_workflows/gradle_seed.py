@@ -1,8 +1,12 @@
-"""Trusted Gradle dependency-seed delta framing and OIDC upload client."""
+"""Portable Gradle dependency-module cache selection and framing primitives.
+
+This module contains no GitHub identity, event, ref, token, or transport authority.
+The active internal cache-sync transport lives in ``gradle_seed_internal`` and
+reuses only the bounded ``caches/modules-*`` selection/framing contract here.
+"""
 from __future__ import annotations
 
 import hashlib
-import http.client
 import json
 import os
 import re
@@ -10,12 +14,10 @@ import stat
 import struct
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Iterator, Mapping, Protocol
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from typing import Iterator
 
 MAGIC = b"GRADLE-SEED-V1\n"
 CONTENT_TYPE = "application/vnd.faruqi.gradle-seed-v1"
-OIDC_AUDIENCE = "streamscapetv-gradle-seed-v1"
 FLUX_HOST = "arc-gradle-seed-promoter.github-actions-runners.svc.cluster.local"
 FLUX_PORT = 8080
 FLUX_PATH = "/v1/gradle-seed"
@@ -28,14 +30,11 @@ MAX_RESPONSE_BYTES = 64 * 1024
 READ_CHUNK_BYTES = 1024 * 1024
 HTTP_TIMEOUT_SECONDS = 30
 
-_SHA40 = re.compile(r"^[a-f0-9]{40}$")
-_GENERATION = re.compile(r"^sha256-[a-f0-9]{64}$")
 _MODULE_CACHE = re.compile(r"^modules-[A-Za-z0-9._-]+$")
-_OIDC_HOST = re.compile(r"^(?:[A-Za-z0-9-]+\.)*actions\.githubusercontent\.com$")
 
 
 class GradleSeedError(RuntimeError):
-    """Fail-closed Gradle seed client error with a stable non-secret code."""
+    """Fail-closed Gradle seed error with a stable non-secret code."""
 
     def __init__(self, code: str) -> None:
         self.code = code
@@ -94,37 +93,6 @@ class GradleSeedResult:
             "total_bytes": str(self.total_bytes),
             "evidence_id": self.evidence_id,
         }
-
-
-class OidcRequester(Protocol):
-    def request_token(self, environment: Mapping[str, str]) -> str: ...
-
-
-class SeedUploader(Protocol):
-    def upload(
-        self,
-        *,
-        token: str,
-        source_sha: str,
-        body: Iterable[bytes],
-    ) -> UploadResponse: ...
-
-
-def _require_exact_source_sha(value: str) -> str:
-    if _SHA40.fullmatch(value) is None:
-        raise GradleSeedError("gradle_seed_source_sha_invalid")
-    return value
-
-
-def _require_runtime_context(environment: Mapping[str, str], source_sha: str) -> None:
-    """Reject mutable event shapes while leaving product allowlisting to Flux."""
-
-    if (
-        environment.get("GITHUB_SHA", "") != source_sha
-        or environment.get("GITHUB_EVENT_NAME", "") != "push"
-        or environment.get("GITHUB_REF_TYPE", "") != "branch"
-    ):
-        raise GradleSeedError("gradle_seed_context_rejected")
 
 
 def _safe_relative_path(parts: tuple[str, ...]) -> str:
@@ -476,233 +444,3 @@ def framed_seed_stream(files: tuple[SeedFile, ...]) -> Iterator[bytes]:
         ):
             raise GradleSeedError("gradle_seed_file_changed")
     yield struct.pack(">I", 0)
-
-
-def _manifest_sha256(files: tuple[SeedFile, ...]) -> str:
-    digest = hashlib.sha256()
-    for seed_file in files:
-        header = seed_file.header_bytes()
-        digest.update(struct.pack(">I", len(header)))
-        digest.update(header)
-    return digest.hexdigest()
-
-
-class GithubOidcRequester:
-    """Request only the short-lived GitHub OIDC token for the reviewed audience."""
-
-    def __init__(self, *, timeout_seconds: int = HTTP_TIMEOUT_SECONDS) -> None:
-        self.timeout_seconds = timeout_seconds
-
-    @staticmethod
-    def _request_target(raw_url: str) -> tuple[str, int, str]:
-        try:
-            parsed = urlsplit(raw_url)
-            port = parsed.port
-        except ValueError as error:
-            raise GradleSeedError("gradle_seed_oidc_url_rejected") from error
-        hostname = parsed.hostname or ""
-        if (
-            parsed.scheme != "https"
-            or not hostname
-            or _OIDC_HOST.fullmatch(hostname) is None
-            or parsed.username is not None
-            or parsed.password is not None
-            or parsed.fragment
-            or port not in {None, 443}
-        ):
-            raise GradleSeedError("gradle_seed_oidc_url_rejected")
-        query = [
-            (key, value)
-            for key, value in parse_qsl(parsed.query, keep_blank_values=True)
-            if key != "audience"
-        ]
-        query.append(("audience", OIDC_AUDIENCE))
-        target = urlunsplit(("", "", parsed.path or "/", urlencode(query), ""))
-        return hostname, port or 443, target
-
-    def request_token(self, environment: Mapping[str, str]) -> str:
-        raw_url = environment.get("ACTIONS_ID_TOKEN_REQUEST_URL", "")
-        capability = environment.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "")
-        if not raw_url or not capability:
-            raise GradleSeedError("gradle_seed_oidc_capability_missing")
-        host, port, target = self._request_target(raw_url)
-        connection = http.client.HTTPSConnection(host, port, timeout=self.timeout_seconds)
-        try:
-            connection.request(
-                "GET",
-                target,
-                headers={
-                    "Accept": "application/json",
-                    "Authorization": f"Bearer {capability}",
-                },
-            )
-            response = connection.getresponse()
-            body = response.read(MAX_RESPONSE_BYTES + 1)
-            if len(body) > MAX_RESPONSE_BYTES:
-                raise GradleSeedError("gradle_seed_oidc_response_too_large")
-            if response.status != 200:
-                raise GradleSeedError("gradle_seed_oidc_request_failed")
-            content_type = response.getheader("content-type", "")
-            if content_type.split(";", 1)[0].strip().lower() != "application/json":
-                raise GradleSeedError("gradle_seed_oidc_response_invalid")
-            try:
-                payload = json.loads(body.decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError) as error:
-                raise GradleSeedError("gradle_seed_oidc_response_invalid") from error
-            token = payload.get("value") if isinstance(payload, dict) else None
-            if not isinstance(token, str) or token.count(".") != 2 or len(token) > 16_384:
-                raise GradleSeedError("gradle_seed_oidc_response_invalid")
-            return token
-        except GradleSeedError:
-            raise
-        except (OSError, http.client.HTTPException) as error:
-            raise GradleSeedError("gradle_seed_oidc_request_failed") from error
-        finally:
-            connection.close()
-
-
-class FluxSeedUploader:
-    """Stream one complete framed delta to the fixed internal Flux promoter."""
-
-    def __init__(self, *, timeout_seconds: int = HTTP_TIMEOUT_SECONDS) -> None:
-        self.timeout_seconds = timeout_seconds
-
-    def upload(
-        self,
-        *,
-        token: str,
-        source_sha: str,
-        body: Iterable[bytes],
-    ) -> UploadResponse:
-        connection = http.client.HTTPConnection(
-            FLUX_HOST,
-            FLUX_PORT,
-            timeout=self.timeout_seconds,
-        )
-        try:
-            connection.request(
-                "POST",
-                FLUX_PATH,
-                body=body,
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": CONTENT_TYPE,
-                    "X-Gradle-Source-Sha": source_sha,
-                },
-                encode_chunked=True,
-            )
-            response = connection.getresponse()
-            response_body = response.read(MAX_RESPONSE_BYTES + 1)
-            if len(response_body) > MAX_RESPONSE_BYTES:
-                raise GradleSeedError("gradle_seed_response_too_large")
-            return UploadResponse(
-                status=response.status,
-                content_type=response.getheader("content-type", ""),
-                body=response_body,
-            )
-        except GradleSeedError:
-            raise
-        except (OSError, http.client.HTTPException) as error:
-            raise GradleSeedError("gradle_seed_upload_failed") from error
-        finally:
-            connection.close()
-
-
-def _validated_response(
-    response: UploadResponse,
-    *,
-    source_sha: str,
-    files: tuple[SeedFile, ...],
-) -> tuple[str, int]:
-    if response.status != 200:
-        raise GradleSeedError("gradle_seed_promotion_rejected")
-    if response.content_type.split(";", 1)[0].strip().lower() != "application/json":
-        raise GradleSeedError("gradle_seed_response_invalid")
-    try:
-        payload = json.loads(response.body.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise GradleSeedError("gradle_seed_response_invalid") from error
-    if not isinstance(payload, dict) or payload.get("status") != "promoted":
-        raise GradleSeedError("gradle_seed_response_invalid")
-    if payload.get("sourceSha") != source_sha:
-        raise GradleSeedError("gradle_seed_response_source_mismatch")
-    generation = payload.get("generation")
-    if not isinstance(generation, str) or _GENERATION.fullmatch(generation) is None:
-        raise GradleSeedError("gradle_seed_response_generation_invalid")
-    expected_bytes = sum(item.size for item in files)
-    file_count = payload.get("fileCount")
-    total_bytes = payload.get("totalBytes")
-    if type(file_count) is not int or type(total_bytes) is not int:
-        raise GradleSeedError("gradle_seed_response_counts_mismatch")
-    if file_count != len(files) or total_bytes != expected_bytes:
-        raise GradleSeedError("gradle_seed_response_counts_mismatch")
-    return generation, expected_bytes
-
-
-def promote_gradle_seed(
-    *,
-    source_sha: str,
-    environment: Mapping[str, str],
-    oidc_requester: OidcRequester | None = None,
-    uploader: SeedUploader | None = None,
-) -> GradleSeedResult:
-    """Validate, frame, upload, and verify one exact protected-push Gradle delta."""
-
-    source = _require_exact_source_sha(source_sha)
-    _require_runtime_context(environment, source)
-    raw_home = environment.get("GRADLE_USER_HOME", "")
-    if not raw_home:
-        raise GradleSeedError("gradle_seed_home_required")
-    files = collect_seed_files(Path(raw_home))
-    manifest_sha256 = _manifest_sha256(files)
-    requester = oidc_requester or GithubOidcRequester()
-    transport = uploader or FluxSeedUploader()
-
-    token = ""
-    try:
-        try:
-            token = requester.request_token(environment)
-        except GradleSeedError:
-            raise
-        except Exception as error:
-            raise GradleSeedError("gradle_seed_oidc_request_failed") from error
-        if not token:
-            raise GradleSeedError("gradle_seed_oidc_response_invalid")
-        try:
-            response = transport.upload(
-                token=token,
-                source_sha=source,
-                body=framed_seed_stream(files),
-            )
-        except GradleSeedError:
-            raise
-        except Exception as error:
-            raise GradleSeedError("gradle_seed_upload_failed") from error
-    finally:
-        token = ""
-
-    generation, total_bytes = _validated_response(
-        response,
-        source_sha=source,
-        files=files,
-    )
-    evidence_payload = json.dumps(
-        {
-            "fileCount": len(files),
-            "generation": generation,
-            "manifestSha256": manifest_sha256,
-            "protocol": "gradle-seed-v1",
-            "sourceSha": source,
-            "totalBytes": total_bytes,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("ascii")
-    evidence_id = hashlib.sha256(evidence_payload).hexdigest()
-    return GradleSeedResult(
-        source_sha=source,
-        generation=generation,
-        file_count=len(files),
-        total_bytes=total_bytes,
-        evidence_id=evidence_id,
-    )

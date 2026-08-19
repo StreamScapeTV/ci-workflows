@@ -1,9 +1,9 @@
-name: Upload trusted Gradle dependency seed
-description: Stream one exact-SHA job-private Gradle modules delta to the fixed Flux OIDC promoter
+name: Sync Gradle dependency seed
+description: Stream one job-private Gradle modules delta to the fixed internal Flux cache service
 
 inputs:
   source_sha:
-    description: Exact protected-push source SHA already validated by the caller
+    description: Exact admitted source SHA used only as bounded cache-update evidence
     required: true
 
 outputs:
@@ -19,10 +19,6 @@ outputs:
     value: ${{ steps.upload.outputs.total_bytes }}
   evidence_id:
     value: ${{ steps.upload.outputs.evidence_id }}
-  cleanup_verified:
-    value: ${{ steps.cleanup.outputs.cleanup_verified }}
-  cleanup_removed_paths:
-    value: ${{ steps.cleanup.outputs.removed_paths }}
 
 runs:
   using: composite
@@ -35,15 +31,4 @@ runs:
         INPUT_SOURCE_SHA: ${{ inputs.source_sha }}
       run: |
         set -Eeuo pipefail
-        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/gradle_seed.py"
-
-    - id: cleanup
-      name: Remove registered promotion workspace state
-      if: always()
-      shell: bash
-      env:
-        PYTHONDONTWRITEBYTECODE: "1"
-      run: |
-        set -Eeuo pipefail
-        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
-          workspace cleanup
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" gradle-seed upload

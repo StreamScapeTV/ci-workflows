@@ -45,10 +45,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/resolve-source",
-      "sha": "87a7454aaa59cb680db8f580d22551b749ac4193",
-      "release": "issue #132 immutable mode-aware source checkpoint",
+      "sha": "0b55b5f4bc2623815e47759d186e4955b6444075",
+      "release": "issue #350 PR-merge snapshot race checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/87a7454aaa59cb680db8f580d22551b749ac4193/actions/resolve-source"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/0b55b5f4bc2623815e47759d186e4955b6444075/actions/resolve-source"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-device",
@@ -101,17 +101,17 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-android",
-      "sha": "a01e29210603dc8b4cb9e31b9b0c926c2ab5cf37",
-      "release": "issues #344/#346 Android telemetry and Gradle read-only seed checkpoint",
+      "sha": "410fed5fb5fd7c930b28c545758a5f3992e43b0c",
+      "release": "issue #344 bounded Android failure diagnostics checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/a01e29210603dc8b4cb9e31b9b0c926c2ab5cf37/actions/validate-android"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/410fed5fb5fd7c930b28c545758a5f3992e43b0c/actions/validate-android"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/upload-gradle-seed",
-      "sha": "7a0977db839468aac24448831a9a0ffd97b3067b",
-      "release": "issue #347 trusted Gradle seed client",
+      "sha": "fa67b6a1580ff2eb7386a9e58de09896b9990696",
+      "release": "issue #346 bounded Gradle cache sync diagnostics checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/7a0977db839468aac24448831a9a0ffd97b3067b/actions/upload-gradle-seed"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/fa67b6a1580ff2eb7386a9e58de09896b9990696/actions/upload-gradle-seed"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-android-live-service",
@@ -157,10 +157,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-apple",
-      "sha": "702b950b6a5baf208e7b21f16e3f7df9b8f0f96e",
-      "release": "issue #187 integrated Media tvOS consumer checkpoint",
+      "sha": "2dacd98d19c5e136ce4803ab70b0f7ebd45414bf",
+      "release": "issue-336 final Apple v2 checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/702b950b6a5baf208e7b21f16e3f7df9b8f0f96e/actions/validate-apple"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/2dacd98d19c5e136ce4803ab70b0f7ebd45414bf/actions/validate-apple"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-oci",
