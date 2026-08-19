@@ -66,11 +66,11 @@ class ValidationExpressionContextTest(unittest.TestCase):
         self.assertIn("context 'runner'", findings[0].message)
         self.assertIn("env allows only", findings[0].message)
 
-    def test_job_if_rejects_runner_before_runner_dispatch(self) -> None:
+    def test_job_if_rejects_runner_without_expression_wrapper(self) -> None:
         self.workflow.write_text(
             self.original.replace(
                 "    runs-on: [linux, amd64, general, small]\n",
-                "    if: ${{ runner.os == 'Linux' }}\n"
+                "    if: runner.os == 'Linux'\n"
                 "    runs-on: [linux, amd64, general, small]\n",
                 1,
             ),
@@ -80,6 +80,7 @@ class ValidationExpressionContextTest(unittest.TestCase):
         findings = self.context_findings()
         self.assertEqual(1, len(findings))
         self.assertIn("job 'validate' field 'if'", findings[0].message)
+        self.assertIn("context 'runner'", findings[0].message)
         self.assertIn("jobs.<job_id>.if", findings[0].message)
 
     def test_step_runtime_runner_context_remains_allowed(self) -> None:
@@ -87,6 +88,7 @@ class ValidationExpressionContextTest(unittest.TestCase):
             self.original.replace(
                 "        shell: bash\n        run: |\n",
                 "        shell: bash\n"
+                "        if: runner.os == 'Linux'\n"
                 "        env:\n"
                 "          REGISTRY_AUTH_FILE: ${{ runner.temp }}/registry-auth.json\n"
                 "        run: |\n"
@@ -133,7 +135,7 @@ class ValidationExpressionContextTest(unittest.TestCase):
             self.original.replace(
                 "        shell: bash\n        run: |\n",
                 "        shell: bash\n"
-                "        if: ${{ secrets.RUNTIME_TOKEN != '' }}\n"
+                "        if: secrets.RUNTIME_TOKEN != ''\n"
                 "        env:\n"
                 "          RUNTIME_TOKEN: ${{ secrets.RUNTIME_TOKEN }}\n"
                 "        run: |\n",
