@@ -93,12 +93,14 @@ class GradleDependencyWarmTests(unittest.TestCase):
                 (root / "state/tmp/gradle-dependency-warm-source").exists()
             )
 
-    def test_warm_uses_only_fixed_read_only_dependency_cache(self) -> None:
+    def test_warm_propagates_fixed_read_only_cache_and_verified_dependency_path(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             environment = self._environment(root)
             cache = Path("/opt/gradle-ro-cache")
-            environment["GRADLE_RO_DEP_CACHE"] = str(cache)
+            dependency = root / "state/dependencies/media"
+            dependency.mkdir(parents=True)
+            environment["CI_PRIVATE_DEPENDENCY_PATH"] = str(dependency)
             with (
                 mock.patch(
                     "ci_workflows.gradle_dependency_warm._verify_exact_source"
@@ -107,43 +109,26 @@ class GradleDependencyWarmTests(unittest.TestCase):
                     "ci_workflows.gradle_dependency_warm._copy_source",
                     side_effect=self._copy_with_wrapper,
                 ),
-                mock.patch.object(Path, "resolve", autospec=True) as resolve,
+                mock.patch(
+                    "ci_workflows.gradle_dependency_warm._read_only_cache",
+                    return_value=cache,
+                ),
+                mock.patch(
+                    "ci_workflows.gradle_dependency_warm.run_process",
+                    return_value=ProcessResult(0, "", "", False),
+                ) as process,
             ):
-                # Let all normal paths resolve normally while projecting the fixed
-                # runner-owned cache as present for this focused contract test.
-                original = Path.resolve
-
-                def resolve_path(path: Path, strict: bool = False) -> Path:
-                    if str(path) == str(cache):
-                        return cache
-                    return original(path, strict=strict)
-
-                resolve.side_effect = resolve_path
-                with (
-                    mock.patch.object(Path, "is_dir", autospec=True) as is_dir,
-                    mock.patch(
-                        "ci_workflows.gradle_dependency_warm.run_process",
-                        return_value=ProcessResult(0, "", "", False),
-                    ) as process,
-                ):
-                    original_is_dir = Path.is_dir
-
-                    def directory(path: Path) -> bool:
-                        if str(path) == str(cache):
-                            return True
-                        return original_is_dir(path)
-
-                    is_dir.side_effect = directory
-                    result = warm_gradle_dependencies(
-                        admitted_sha=SHA,
-                        working_directory=".",
-                        gradle_wrapper_path="gradlew",
-                        environment=environment,
-                    )
+                result = warm_gradle_dependencies(
+                    admitted_sha=SHA,
+                    working_directory=".",
+                    gradle_wrapper_path="gradlew",
+                    environment=environment,
+                )
 
             self.assertEqual(result.cache_mode, "read-only-seed")
             runtime = process.call_args.kwargs["environment"]
             self.assertEqual(runtime["GRADLE_RO_DEP_CACHE"], str(cache))
+            self.assertEqual(runtime["CI_PRIVATE_DEPENDENCY_PATH"], str(dependency))
 
     def test_arbitrary_read_only_cache_path_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
