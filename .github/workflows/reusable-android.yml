@@ -75,7 +75,7 @@ jobs:
     steps:
       - id: plan
         name: Validate technology-level Android request
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@410fed5fb5fd7c930b28c545758a5f3992e43b0c # issue #344 bounded Android failure diagnostics checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@ac56fd7b3fac55f231e7b2ba715a5aebebbe51ef # issue #373 protected-full Gradle group isolation checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -119,7 +119,7 @@ jobs:
 
       - id: execute
         name: Execute one primitive-backed Android validation plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@410fed5fb5fd7c930b28c545758a5f3992e43b0c # issue #344 bounded Android failure diagnostics checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@ac56fd7b3fac55f231e7b2ba715a5aebebbe51ef # issue #373 protected-full Gradle group isolation checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -153,7 +153,7 @@ jobs:
       - id: android_cleanup
         name: Remove Android-specific copied source state once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@410fed5fb5fd7c930b28c545758a5f3992e43b0c # issue #344 bounded Android failure diagnostics checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@ac56fd7b3fac55f231e7b2ba715a5aebebbe51ef # issue #373 protected-full Gradle group isolation checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -162,7 +162,7 @@ jobs:
       - id: residue
         name: Verify zero Android-specific residue once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@410fed5fb5fd7c930b28c545758a5f3992e43b0c # issue #344 bounded Android failure diagnostics checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@ac56fd7b3fac55f231e7b2ba715a5aebebbe51ef # issue #373 protected-full Gradle group isolation checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
