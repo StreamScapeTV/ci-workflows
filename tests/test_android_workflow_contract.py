@@ -14,6 +14,7 @@ REUSABLE = ROOT / ".github/workflows/reusable-android.yml"
 SMOKE = ROOT / ".github/workflows/android-validation-smoke.yml"
 ACTION = ROOT / "actions/validate-android/action.yml"
 ANDROID_SHA = "8eaa37ad0fe3231b202e878b26f66aa23753e38a"
+WARM_SHA = "4539e4c9ef8dce45d8cd179dec5997dbf8c7b9cd"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 GRADLE_SYNC_SHA = "fa67b6a1580ff2eb7386a9e58de09896b9990696"
 
@@ -51,6 +52,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertEqual(call["inputs"]["dependency_prebuild_plan_json"]["default"], "")
         for forbidden in (
             "promote_gradle_seed",
+            "warm_gradle_dependencies",
             "validation_profile",
             "task_profile",
             "consumer_script_profile",
@@ -88,6 +90,8 @@ class AndroidWorkflowContractTests(unittest.TestCase):
                 "checkout",
                 "workspace",
                 "dependency",
+                "dependency_warm",
+                "dependency_warm_seed",
                 "prebuild_execute",
                 "prebuild_cleanup",
                 "prebuild_residue",
@@ -105,6 +109,8 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             "checkout",
             "dependency",
             "workspace",
+            "dependency_warm",
+            "dependency_warm_seed",
             "prebuild_plan",
             "prebuild_execute",
             "prebuild_cleanup",
@@ -120,7 +126,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("fromJSON(needs.", self.source)
         self.assertNotIn("matrix:", self.source)
 
-    def test_every_central_helper_is_immutable_and_cache_sync_pin_is_exact(self) -> None:
+    def test_every_central_helper_is_immutable_and_cache_sync_pins_are_exact(self) -> None:
         uses = [
             str(step.get("uses", ""))
             for step in self.workflow["jobs"]["validate"]["steps"]
@@ -132,6 +138,12 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         )
         self.assertEqual(
             1,
+            uses.count(
+                f"StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies@{WARM_SHA}"
+            ),
+        )
+        self.assertEqual(
+            2,
             uses.count(f"StreamScapeTV/ci-workflows/actions/upload-gradle-seed@{GRADLE_SYNC_SHA}"),
         )
         for helper in (
@@ -148,6 +160,32 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         for item in uses:
             revision = item.rsplit("@", 1)[1]
             self.assertRegex(revision, r"^[0-9a-f]{40}$")
+
+    def test_dependency_warm_is_blocking_resolution_but_best_effort_promotion(self) -> None:
+        steps = self.workflow["jobs"]["validate"]["steps"]
+        by_id = {step["id"]: step for step in steps}
+        warm = by_id["dependency_warm"]
+        warm_seed = by_id["dependency_warm_seed"]
+        prebuild = by_id["prebuild_execute"]
+        execute = by_id["execute"]
+
+        self.assertIn("inputs.validation_scope == 'protected-full'", warm["if"])
+        self.assertIn("steps.dependency.outcome == 'success'", warm["if"])
+        self.assertEqual(warm["with"]["admitted_sha"], "${{ inputs.admitted_sha }}")
+        self.assertEqual(
+            warm["uses"],
+            f"StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies@{WARM_SHA}",
+        )
+        self.assertTrue(warm_seed["continue-on-error"])
+        self.assertEqual(warm_seed["if"], "${{ steps.dependency_warm.outcome == 'success' }}")
+        self.assertEqual(warm_seed["with"]["source_sha"], "${{ inputs.admitted_sha }}")
+        self.assertLess(steps.index(warm), steps.index(warm_seed))
+        self.assertLess(steps.index(warm_seed), steps.index(prebuild))
+        self.assertLess(steps.index(warm_seed), steps.index(execute))
+        self.assertIn("steps.dependency_warm.outcome == 'success'", prebuild["if"])
+        self.assertIn("steps.dependency_warm.outcome == 'success'", execute["if"])
+        self.assertNotIn("steps.dependency_warm_seed.outcome", prebuild["if"])
+        self.assertNotIn("steps.dependency_warm_seed.outcome", execute["if"])
 
     def test_optional_dependency_prebuild_reuses_grouped_android_primitive(self) -> None:
         steps = self.workflow["jobs"]["validate"]["steps"]
@@ -192,24 +230,26 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("ACTIONS_ID_TOKEN_REQUEST", self.source)
         self.assertNotIn("authorization", self.source.casefold())
         steps = job["steps"]
-        sync_index = next(index for index, step in enumerate(steps) if step["id"] == "gradle_seed")
+        warm_index = next(index for index, step in enumerate(steps) if step["id"] == "dependency_warm")
+        warm_sync_index = next(index for index, step in enumerate(steps) if step["id"] == "dependency_warm_seed")
+        final_sync_index = next(index for index, step in enumerate(steps) if step["id"] == "gradle_seed")
         residue_index = next(index for index, step in enumerate(steps) if step["id"] == "residue")
         cleanup_index = next(index for index, step in enumerate(steps) if step["id"] == "workspace_cleanup")
-        self.assertLess(residue_index, sync_index)
-        self.assertLess(sync_index, cleanup_index)
-        sync = steps[sync_index]
-        self.assertTrue(sync["continue-on-error"])
-        self.assertIn("steps.execute.outcome == 'success'", sync["if"])
-        self.assertIn("steps.android_cleanup.outcome == 'success'", sync["if"])
-        self.assertIn("steps.residue.outcome == 'success'", sync["if"])
-        self.assertEqual(sync["with"]["source_sha"], "${{ inputs.admitted_sha }}")
+        self.assertLess(warm_index, warm_sync_index)
+        self.assertLess(warm_sync_index, final_sync_index)
+        self.assertLess(residue_index, final_sync_index)
+        self.assertLess(final_sync_index, cleanup_index)
+        for identifier in ("dependency_warm_seed", "gradle_seed"):
+            sync = next(step for step in steps if step["id"] == identifier)
+            self.assertTrue(sync["continue-on-error"])
+            self.assertEqual(sync["with"]["source_sha"], "${{ inputs.admitted_sha }}")
         cleanup = steps[cleanup_index]
         self.assertEqual(cleanup["if"], "always()")
         terminal = next(step for step in steps if step["id"] == "terminal")
-        self.assertNotIn("GRADLE_SEED", json.dumps(terminal))
+        self.assertNotIn("dependency_warm_seed", json.dumps(terminal).casefold())
         self.assertNotIn("gradle_seed", json.dumps(terminal).casefold())
 
-    def test_terminal_logs_only_bounded_android_execution_summary(self) -> None:
+    def test_terminal_logs_bounded_warm_and_android_execution_summaries(self) -> None:
         terminal = next(
             step
             for step in self.workflow["jobs"]["validate"]["steps"]
@@ -219,6 +259,16 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             terminal["env"]["ANDROID_TEST_SUMMARY"],
             "${{ steps.execute.outputs.test_summary }}",
         )
+        self.assertEqual(
+            terminal["env"]["WARM_CACHE_MODE"],
+            "${{ steps.dependency_warm.outputs.gradle_dependency_cache_mode }}",
+        )
+        self.assertEqual(
+            terminal["env"]["WARM_WALL_MS"],
+            "${{ steps.dependency_warm.outputs.warm_wall_ms }}",
+        )
+        self.assertIn("warm_ok=true", terminal["run"])
+        self.assertIn("gradle-dependency-warm cache_mode=%s wall_ms=%s", terminal["run"])
         self.assertIn("PREBUILD_REQUIRED", terminal["env"])
         self.assertIn("prebuild_ok=true", terminal["run"])
         self.assertIn("android-test-summary=%s", terminal["run"])
@@ -242,6 +292,8 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertIn("Check out exact admitted caller source once", self.source)
         self.assertIn("Prepare one isolated marker-bound Gradle state", self.source)
         self.assertIn("Check out exact private dependency at most once", self.source)
+        self.assertIn("Resolve Gradle dependency graph before protected build", self.source)
+        self.assertIn("Publish warmed Gradle dependency delta before build", self.source)
         self.assertIn("Process-isolate optional private dependency Gradle prebuild", self.source)
         self.assertIn("Remove optional dependency-prebuild copied source state", self.source)
         self.assertIn("Verify zero optional dependency-prebuild residue", self.source)
@@ -259,6 +311,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             "iptv-android",
             "streamscape-media",
             "compiledebugkotlin",
+            "write-verification-metadata",
             "sdkmanager ",
             "adb ",
             "gradlew ",

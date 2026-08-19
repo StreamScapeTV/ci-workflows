@@ -13,12 +13,15 @@ if str(SRC) not in sys.path:
 
 from ci_workflows.ciw import main as registry_main  # noqa: E402
 from ci_workflows.ciw_gradle_seed import main as gradle_seed_main  # noqa: E402
+from ci_workflows.gradle_dependency_warm import main as gradle_dependency_warm_main  # noqa: E402
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments[:2] == ["gradle-seed", "upload"]:
         return gradle_seed_main(["--root", str(ROOT), *arguments[2:]])
+    if arguments[:2] == ["gradle", "warm-dependencies"]:
+        return gradle_dependency_warm_main(arguments[2:])
     return registry_main(["--root", str(ROOT), *arguments])
 
 

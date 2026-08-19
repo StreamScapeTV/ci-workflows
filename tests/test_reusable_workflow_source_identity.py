@@ -14,6 +14,7 @@ FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 FLUTTER_SHA = "d2e1c7a7601e1caeeb976311fb13cf41fef94d4a"
 PYTHON_SHA = "aece8d01efdd5482a1c3d42db357aed87a7917e9"
 ANDROID_SHA = "8eaa37ad0fe3231b202e878b26f66aa23753e38a"
+GRADLE_WARM_SHA = "4539e4c9ef8dce45d8cd179dec5997dbf8c7b9cd"
 GRADLE_SEED_SHA = "fa67b6a1580ff2eb7386a9e58de09896b9990696"
 APPLE_SHA = "f682622a1a659368cba78c071c72b8b6e8953d88"
 OCI_SHA = "3b401078d1167d7048281e3c3269556ce586dada"
@@ -26,6 +27,7 @@ FOUNDATION = "issue #116 immutable private-action checkpoint"
 ISSUE_350 = "issue #350 PR-merge snapshot race checkpoint"
 ISSUE_104 = "issue #104 immutable private-action checkpoint"
 ISSUE_373_ANDROID_GROUPS = "issue #373 compile Gradle isolation checkpoint"
+ISSUE_346_WARM = "issue #346 dependency warm checkpoint"
 ISSUE_346_CACHE = "issue #346 bounded Gradle cache sync diagnostics checkpoint"
 ISSUE_125 = "issue #125 immutable private-action checkpoint"
 ISSUE_235 = "issue #235 general-runner Python primitives checkpoint"
@@ -44,6 +46,7 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
     },
     ".github/workflows/reusable-android.yml": {
         "StreamScapeTV/ci-workflows/actions/validate-android": (ANDROID_SHA, ISSUE_373_ANDROID_GROUPS),
+        "StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies": (GRADLE_WARM_SHA, ISSUE_346_WARM),
         "StreamScapeTV/ci-workflows/actions/upload-gradle-seed": (GRADLE_SEED_SHA, ISSUE_346_CACHE),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
@@ -154,6 +157,7 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
         exception = next(item for item in policy["tracked_secret_exceptions"] if item["id"] == "streamscape_media_playback_lab_redaction_sentinels_v1")
         self.assertIn({"path": "apple/Tests/StreamscapePlaybackLabSupportTests/PlaybackLabLifecycleEvidenceTests.swift", "git_blob_sha1": "5df889bbf613ee7f4dabd07ca931aa81fb4f71a3"}, exception["paths"])
         self.assertEqual(8, source.count(f"actions/validate-android@{ANDROID_SHA}"))
+        self.assertEqual(1, source.count(f"actions/warm-gradle-dependencies@{GRADLE_WARM_SHA}"))
         self.assertNotIn("actions/validate-android@275ee86f0f5de3d8f3330b92c84d7c0188fb10f8", source)
 
     def test_apple_private_action_checkpoint_contains_media_contract_in_current_tree(self) -> None:

@@ -1,0 +1,41 @@
+name: Warm Gradle dependencies
+description: Resolve the real Gradle project dependency graph into the registered private Gradle home without compiling product code
+
+inputs:
+  admitted_sha:
+    description: Exact admitted source SHA
+    required: true
+  working_directory:
+    description: Bounded relative Gradle project directory
+    required: false
+    default: .
+  gradle_wrapper_path:
+    description: Bounded checked-in Gradle wrapper path relative to the project directory
+    required: false
+    default: gradlew
+
+outputs:
+  result:
+    value: ${{ steps.warm.outputs.result }}
+  source_sha:
+    value: ${{ steps.warm.outputs.source_sha }}
+  gradle_dependency_cache_mode:
+    value: ${{ steps.warm.outputs.gradle_dependency_cache_mode }}
+  warm_wall_ms:
+    value: ${{ steps.warm.outputs.warm_wall_ms }}
+
+runs:
+  using: composite
+  steps:
+    - id: warm
+      name: Resolve complete Gradle dependency graph
+      shell: bash
+      env:
+        PYTHONDONTWRITEBYTECODE: "1"
+      run: |
+        set -Eeuo pipefail
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
+          gradle warm-dependencies \
+          --admitted-sha "${{ inputs.admitted_sha }}" \
+          --working-directory "${{ inputs.working_directory }}" \
+          --gradle-wrapper-path "${{ inputs.gradle_wrapper_path }}"
