@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 
-from ci_workflows.ciw_compose_entrypoint import _adapter_environment
+from ci_workflows.ciw_compose_entrypoint import _adapter_environment, main
 from ci_workflows.service_compose_primitives import ServiceComposeError
 
 
@@ -13,6 +17,7 @@ class ComposeEntrypointTests(unittest.TestCase):
             "INPUT_ADMITTED_SHA": "a" * 40,
             "INPUT_WORKING_DIRECTORY": "integration",
             "INPUT_VALIDATION_PLAN_JSON": json.dumps(plan),
+            "GITHUB_SHA": "b" * 40,
             "PATH": "/usr/bin",
         }
 
@@ -55,6 +60,7 @@ class ComposeEntrypointTests(unittest.TestCase):
         )
         self.assertEqual("45", projected["INPUT_VALIDATION_TIMEOUT_SECONDS"])
         self.assertEqual("/usr/bin", projected["PATH"])
+        self.assertEqual("a" * 40, projected["GITHUB_SHA"])
 
     def test_optional_lists_and_timeout_have_bounded_defaults(self) -> None:
         plan = self._plan()
@@ -66,6 +72,13 @@ class ComposeEntrypointTests(unittest.TestCase):
         self.assertEqual([], json.loads(projected["INPUT_SERVICES_JSON"]))
         self.assertEqual([], json.loads(projected["INPUT_ENV_FILES_JSON"]))
         self.assertEqual("900", projected["INPUT_VALIDATION_TIMEOUT_SECONDS"])
+
+    def test_explicit_service_selection_rejects_readiness_for_unselected_service(self) -> None:
+        plan = self._plan()
+        plan["services"] = ["api"]
+        with self.assertRaises(ServiceComposeError) as captured:
+            _adapter_environment(self._environment(plan))
+        self.assertEqual("compose_readiness_input_invalid", captured.exception.code)
 
     def test_rejects_missing_required_and_unknown_plan_fields(self) -> None:
         missing = self._plan()
@@ -111,6 +124,28 @@ class ComposeEntrypointTests(unittest.TestCase):
         with self.assertRaises(ServiceComposeError) as captured:
             _adapter_environment(environment)
         self.assertEqual("compose_plan_invalid", captured.exception.code)
+
+    def test_main_emits_stable_outputs_for_plan_failure_before_adapter_execution(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "github-output"
+            environment = {
+                "INPUT_ADMITTED_SHA": "a" * 40,
+                "INPUT_WORKING_DIRECTORY": ".",
+                "INPUT_VALIDATION_PLAN_JSON": "not-json",
+                "GITHUB_OUTPUT": str(output),
+            }
+            with mock.patch.dict(os.environ, environment, clear=True):
+                exit_code = main(["--root", directory])
+
+            rendered = output.read_text(encoding="utf-8")
+
+        self.assertEqual(2, exit_code)
+        self.assertIn("result=failure\n", rendered)
+        self.assertIn("test_summary={}\n", rendered)
+        self.assertIn("cleanup_result=success\n", rendered)
+        self.assertIn("failure_code=compose_plan_invalid\n", rendered)
+        self.assertIn("cleanup_code=\n", rendered)
+        self.assertIn("project_name=\n", rendered)
 
 
 if __name__ == "__main__":
