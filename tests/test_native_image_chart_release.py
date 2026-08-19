@@ -127,7 +127,7 @@ class NativeImageChartExistingTagContractTest(unittest.TestCase):
             self.workflow.count("ref: ${{ github.workflow_sha }}"),
         )
         self.assertEqual(
-            2,
+            3,
             self.workflow.count('test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"'),
         )
         self.assertNotIn("reusable-tag-image-chart.yml", self.workflow)
