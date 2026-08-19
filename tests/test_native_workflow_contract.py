@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
 
@@ -11,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/reusable-native.yml"
 ACTION_PATH = ROOT / "actions/validate-native/action.yml"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-NATIVE_ACTION_SHA = "4af8ee93673f9398053c7d14b6045150db24af74"
+NATIVE_ACTION_SHA = "7f83425d53edcc7fd2287adbb347fa320fc24e56"
 
 
 class NativeWorkflowContractTests(unittest.TestCase):
@@ -21,28 +22,32 @@ class NativeWorkflowContractTests(unittest.TestCase):
         cls.workflow = yaml.load(cls.workflow_text, Loader=ActionsLoader)
         cls.action_text = ACTION_PATH.read_text(encoding="utf-8")
         cls.action = yaml.load(cls.action_text, Loader=ActionsLoader)
+        public = json.loads(
+            (ROOT / "contracts/public-workflows/validation.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        cls.public_record = next(
+            item for item in public["workflows"] if item["api_name"] == "validation.native"
+        )
 
-    def test_workflow_call_is_product_neutral_and_bounded(self) -> None:
+    def test_workflow_call_is_product_neutral_and_matches_public_api(self) -> None:
         self.assertEqual(set(self.workflow["on"]), {"workflow_call"})
         call = self.workflow["on"]["workflow_call"]
         self.assertEqual(
             set(call["inputs"]),
-            {
-                "admitted_sha",
-                "working_directory",
-                "cmake_definitions_json",
-                "configure_options_json",
-                "cmake_generator",
-                "build_target",
-                "build_configuration",
-                "build_options_json",
-                "test_target",
-                "test_options_json",
-                "jobs",
-            },
+            {"admitted_sha", "working_directory", "validation_plan_json"},
         )
         self.assertEqual(set(call["outputs"]), {"result", "test_summary", "cleanup_result"})
         self.assertEqual(call.get("secrets", {}), {})
+        self.assertEqual(self.public_record["status"], "implemented")
+        self.assertEqual(self.public_record["api_version"], "1.0.0")
+        self.assertEqual(
+            {item["name"] for item in self.public_record["inputs"]},
+            set(call["inputs"]),
+        )
+        self.assertEqual(set(self.public_record["outputs"]), set(call["outputs"]))
+        self.assertEqual(self.public_record["stable_check_name"], "CI / Native CMake validation")
         forbidden = {
             "runner",
             "runs_on",
@@ -53,6 +58,7 @@ class NativeWorkflowContractTests(unittest.TestCase):
             "registry_token",
             "product_id",
             "repository_script",
+            "arbitrary_command",
         }
         self.assertTrue(set(call["inputs"]).isdisjoint(forbidden))
 
@@ -96,6 +102,10 @@ class NativeWorkflowContractTests(unittest.TestCase):
         self.assertIn("steps.native.outcome", result)
         self.assertIn("steps.cleanup.outcome", result)
         self.assertIn("steps.clean.outcome", result)
+        self.assertEqual(
+            validate["outputs"]["cleanup_result"],
+            "${{ steps.cleanup.outcome == 'success' && 'success' || 'failure' }}",
+        )
 
     def test_no_actions_cache_artifacts_or_security_publication_surface(self) -> None:
         text = self.workflow_text + "\n" + self.action_text
@@ -117,6 +127,10 @@ class NativeWorkflowContractTests(unittest.TestCase):
     def test_action_is_thin_and_caller_cannot_supply_arbitrary_commands(self) -> None:
         self.assertEqual(self.action["runs"]["using"], "composite")
         self.assertEqual(len(self.action["runs"]["steps"]), 1)
+        self.assertEqual(
+            set(self.action["inputs"]),
+            {"admitted_sha", "working_directory", "validation_plan_json"},
+        )
         script = self.action["runs"]["steps"][0]["run"]
         self.assertIn("-m ci_workflows.ciw_native", script)
         self.assertIn("type -P python3", script)
