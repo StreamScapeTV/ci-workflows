@@ -199,7 +199,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertIn("Verify exact admitted source remained clean", self.source)
         self.assertIn("Remove Android-specific copied source state once", self.source)
         self.assertIn("Verify zero Android-specific residue once", self.source)
-        self.assertIn("Remove and verify the one registered workspace", self.source)
+        self.assertIn("Remove and verify the one registered Android workspace", self.source)
         self.assertIn("Project terminal Android validation status", self.source)
 
     def test_workflow_yaml_contains_no_product_commands_or_identity(self) -> None:
