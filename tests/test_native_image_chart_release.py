@@ -11,6 +11,7 @@ CALLER_SMOKE_PATH = ROOT / ".github/workflows/native-image-chart-call-parse-smok
 PRODUCTS_PATH = ROOT / "contracts/public-workflows/products.json"
 AGGREGATE_PATH = ROOT / "contracts/public-workflows.json"
 REFERENCE_PATH = ROOT / "docs/workflows/public-api-reference.md"
+PARSER_FIX_CHECKPOINT = "6fa19fe73c709c6fb81a30b926edac95a2fb674e"
 
 
 class NativeImageChartExistingTagContractTest(unittest.TestCase):
@@ -158,15 +159,20 @@ class NativeImageChartExistingTagContractTest(unittest.TestCase):
         )
         self.assertIn('} >> "${GITHUB_ENV}"', initialize)
 
-    def test_github_smoke_compiles_the_real_reusable_call_without_publication(self) -> None:
+    def test_github_smoke_compiles_the_exact_fixed_reusable_without_publication(self) -> None:
         self.assertIn("pull_request:", self.caller_smoke)
         self.assertIn(
             '".github/workflows/reusable-native-image-chart.yml"',
             self.caller_smoke,
         )
         self.assertIn("if: ${{ false }}", self.caller_smoke)
-        self.assertIn(
+        self.assertNotIn(
             "uses: ./.github/workflows/reusable-native-image-chart.yml",
+            self.caller_smoke,
+        )
+        self.assertIn(
+            "uses: StreamScapeTV/ci-workflows/.github/workflows/"
+            f"reusable-native-image-chart.yml@{PARSER_FIX_CHECKPOINT}",
             self.caller_smoke,
         )
         self.assertIn("release_mode: existing-tag", self.caller_smoke)
