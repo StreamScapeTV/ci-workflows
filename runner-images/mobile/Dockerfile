@@ -127,6 +127,10 @@ COPY --from=build-tools /out/ /
 COPY --from=build-tools /etc/ssl/certs /etc/ssl/certs
 COPY --from=java-runtime /opt/java/openjdk /opt/java/openjdk
 COPY --from=node-runtime /node-root/ /
+COPY --chmod=0755 assemble.py /usr/local/bin/runner-mobile-assemble
+COPY --chmod=0755 zip.py /usr/local/bin/zip
+COPY --chmod=0755 unzip.py /usr/local/bin/unzip
+COPY --chmod=0755 smoke.sh /usr/local/bin/runner-image-smoke
 
 RUN set -eux; \
     download() { \
@@ -141,14 +145,7 @@ RUN set -eux; \
     download "${ANDROID_PLATFORM_37_URL}" "${ANDROID_PLATFORM_37_SHA256}" /tmp/android-platform-37.zip; \
     download "${ANDROID_BUILD_TOOLS_36_URL}" "${ANDROID_BUILD_TOOLS_36_SHA256}" /tmp/android-build-tools-36.zip; \
     download "${ANDROID_BUILD_TOOLS_37_URL}" "${ANDROID_BUILD_TOOLS_37_SHA256}" /tmp/android-build-tools-37.zip; \
-    download "${ANDROID_NDK_URL}" "${ANDROID_NDK_SHA256}" /tmp/android-ndk.zip
-
-COPY --chmod=0755 assemble.py /usr/local/bin/runner-mobile-assemble
-COPY --chmod=0755 zip.py /usr/local/bin/zip
-COPY --chmod=0755 unzip.py /usr/local/bin/unzip
-COPY --chmod=0755 smoke.sh /usr/local/bin/runner-image-smoke
-
-RUN set -eux; \
+    download "${ANDROID_NDK_URL}" "${ANDROID_NDK_SHA256}" /tmp/android-ndk.zip; \
     test -z "$(getent passwd 1001 || true)"; \
     test -z "$(getent group 1001 || true)"; \
     printf '%s\n' 'runner:x:1001:1001:GitHub Actions Runner:/home/runner:/usr/bin/bash' >> /etc/passwd; \
