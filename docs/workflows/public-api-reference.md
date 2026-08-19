@@ -108,8 +108,8 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 
 ### `release.native-image-chart`
 
-- Events: `tag-push`, `workflow_call`
-- Inputs: `image_name` (required), `chart_name` (required), `chart_path` (required), `dockerfile_path` (default `Dockerfile`), `build_context` (default `.`)
+- Events: `tag-push`, `workflow_call`, `workflow_dispatch-existing-tag`
+- Inputs: `release_mode` (default `tag-push`), `release_version`, `release_source_sha`, `image_name` (required), `chart_name` (required), `chart_path` (required), `dockerfile_path` (default `Dockerfile`), `build_context` (default `.`)
 - Secrets: `registry_username`, `registry_token`
 - Outputs: `version`, `source_sha`, `image_reference`, `image_digest`, `chart_reference`, `chart_digest`, `chart_package_sha256`
 - Repository-owned hooks: `chart_path`, `dockerfile_path`, `build_context`
