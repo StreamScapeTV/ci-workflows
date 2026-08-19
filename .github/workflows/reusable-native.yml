@@ -1,0 +1,140 @@
+name: Reusable native CMake validation
+
+on:
+  workflow_call:
+    inputs:
+      admitted_sha:
+        description: Exact lowercase source SHA admitted by source.resolve
+        required: true
+        type: string
+      working_directory:
+        description: Relative CMake source directory within the exact checkout
+        required: false
+        default: .
+        type: string
+      cmake_definitions_json:
+        description: Bounded JSON object of CMake definitions
+        required: false
+        default: "{}"
+        type: string
+      configure_options_json:
+        description: Bounded JSON array of additional CMake configure options
+        required: false
+        default: "[]"
+        type: string
+      cmake_generator:
+        description: Optional bounded CMake generator name
+        required: false
+        default: ""
+        type: string
+      build_target:
+        description: Optional bounded primary CMake build target
+        required: false
+        default: ""
+        type: string
+      build_configuration:
+        description: Optional bounded CMake configuration
+        required: false
+        default: ""
+        type: string
+      build_options_json:
+        description: Bounded JSON array passed after cmake --build --
+        required: false
+        default: "[]"
+        type: string
+      test_target:
+        description: Bounded CMake target used for tests
+        required: false
+        default: test
+        type: string
+      test_options_json:
+        description: Bounded JSON array passed after the test-target build command
+        required: false
+        default: "[]"
+        type: string
+      jobs:
+        description: Bounded CMake parallelism from 1 through 64
+        required: false
+        default: 2
+        type: number
+    outputs:
+      result:
+        description: Success only after native validation and terminal cleanup
+        value: ${{ jobs.validate.outputs.result }}
+      test_summary:
+        description: Bounded machine-readable configure/build/test summary
+        value: ${{ jobs.validate.outputs.test_summary }}
+      cleanup_result:
+        description: Marker-bound workspace cleanup result
+        value: ${{ jobs.validate.outputs.cleanup_result }}
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: CI / Native CMake validation
+    runs-on: [linux, amd64, general, small]
+    timeout-minutes: 120
+    outputs:
+      result: ${{ steps.native.outcome == 'success' && steps.cleanup.outcome == 'success' && steps.clean.outcome == 'success' && 'success' || 'failure' }}
+      test_summary: ${{ steps.native.outputs.test_summary }}
+      cleanup_result: ${{ steps.cleanup.outputs.cleanup_verified }}
+    steps:
+      - name: Verify runner-provided CMake
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cmake_path="$(type -P cmake || true)"
+          test -n "${cmake_path}" && test "${cmake_path}" = /* && test -x "${cmake_path}"
+          cmake --version
+
+      - name: Check out exact admitted caller source
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          admitted_sha: ${{ inputs.admitted_sha }}
+          path: source
+          fetch_depth: "1"
+
+      - id: workspace
+        name: Prepare isolated native build state
+        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        with:
+          profile: portable
+          cache_mode: disabled
+          source_sha: ${{ inputs.admitted_sha }}
+          trust_mode: trusted-pr
+
+      - id: native
+        name: Execute bounded native configure build and test
+        uses: StreamScapeTV/ci-workflows/actions/validate-native@4af8ee93673f9398053c7d14b6045150db24af74 # issue #360 native adapter checkpoint
+        with:
+          admitted_sha: ${{ inputs.admitted_sha }}
+          working_directory: ${{ inputs.working_directory }}
+          cmake_definitions_json: ${{ inputs.cmake_definitions_json }}
+          configure_options_json: ${{ inputs.configure_options_json }}
+          cmake_generator: ${{ inputs.cmake_generator }}
+          build_target: ${{ inputs.build_target }}
+          build_configuration: ${{ inputs.build_configuration }}
+          build_options_json: ${{ inputs.build_options_json }}
+          test_target: ${{ inputs.test_target }}
+          test_options_json: ${{ inputs.test_options_json }}
+          jobs: ${{ inputs.jobs }}
+
+      - id: cleanup
+        name: Remove and verify all registered native state
+        if: always()
+        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+
+      - id: clean
+        name: Verify exact source remained clean after cleanup
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          (
+            cd source
+            test "$(git rev-parse HEAD)" = "${{ inputs.admitted_sha }}"
+            test -z "$(git status --porcelain --untracked-files=all)"
+          )
