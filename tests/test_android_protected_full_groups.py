@@ -226,6 +226,10 @@ class AndroidProtectedFullGroupTests(unittest.TestCase):
             "validation_plan_invalid",
         )
         self.assertEqual(legacy.pre_unit_tasks, ())
+        self.assertEqual(
+            [name for name, tasks in legacy.gradle_groups if tasks],
+            ["unit", "lint", "assemble"],
+        )
 
         isolated = ciw_android._protected_full_plan(
             {
