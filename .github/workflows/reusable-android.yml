@@ -141,7 +141,7 @@ jobs:
       - id: dependency_warm
         name: Resolve Gradle dependency graph before protected build
         if: ${{ inputs.validation_scope == 'protected-full' && (steps.plan.outputs.private_dependency_used != 'true' || steps.dependency.outcome == 'success') }}
-        uses: StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies@89a5279f00fc04a7b033f90ee1e4254a9f8d89e3 # issue #346 dependency warm checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies@4539e4c9ef8dce45d8cd179dec5997dbf8c7b9cd # issue #346 dependency warm checkpoint
         with:
           admitted_sha: ${{ inputs.admitted_sha }}
           working_directory: ${{ inputs.working_directory }}
