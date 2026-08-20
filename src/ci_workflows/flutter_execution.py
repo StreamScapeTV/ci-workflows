@@ -720,6 +720,37 @@ def _cleanup_targets(source_root: Path, state_root: Path) -> tuple[Path, ...]:
     )
 
 
+def _procfs_state_gradle_daemon_pids(
+    state: Path,
+    proc_root: Path = Path("/proc"),
+) -> tuple[int, ...]:
+    try:
+        entries = tuple(proc_root.iterdir())
+    except OSError:
+        fail("cleanup_failed")
+    gradle_home = str(state / "gradle-home")
+    pids: set[int] = set()
+    for entry in entries:
+        if not entry.name.isdecimal():
+            continue
+        pid = int(entry.name)
+        try:
+            command = (entry / "cmdline").read_bytes()
+        except (FileNotFoundError, PermissionError, ProcessLookupError):
+            continue
+        except OSError:
+            continue
+        rendered = command.replace(b"\0", b" ").decode(
+            "utf-8", errors="surrogateescape"
+        )
+        if "GradleDaemon" not in rendered or gradle_home not in rendered:
+            continue
+        if pid <= 1:
+            fail("cleanup_failed")
+        pids.add(pid)
+    return tuple(sorted(pids))
+
+
 def _state_gradle_daemon_pids(state: Path) -> tuple[int, ...]:
     try:
         completed = subprocess.run(
@@ -732,6 +763,8 @@ def _state_gradle_daemon_pids(state: Path) -> tuple[int, ...]:
             check=False,
             timeout=30,
         )
+    except FileNotFoundError:
+        return _procfs_state_gradle_daemon_pids(state)
     except (OSError, subprocess.TimeoutExpired):
         fail("cleanup_failed")
     if completed.returncode:
