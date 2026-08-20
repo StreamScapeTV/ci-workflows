@@ -10,7 +10,7 @@ def test_gradle_maintenance_scope_warms_private_dependency_before_validation() -
 
     assert "inputs.validation_scope == 'gradle'" in text
     assert "steps.plan.outputs.private_dependency_used == 'true'" in text
-    assert "name: Resolve Gradle dependency graph before Android validation" in text
+    assert "name: Resolve Gradle dependency graph before protected build or cache maintenance" in text
     assert "uses: StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies@" in text
     assert "uses: StreamScapeTV/ci-workflows/actions/upload-gradle-seed@" in text
 
