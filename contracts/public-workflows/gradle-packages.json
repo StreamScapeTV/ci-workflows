@@ -11,21 +11,21 @@
       "trust_class": "trusted-publication",
       "permission_profile": "oci-publication",
       "semantic_runner_profile": "mobile",
-      "permitted_events": ["push", "tag-push", "workflow_call"],
+      "permitted_events": ["workflow_call"],
       "inputs": [
         {"name": "admitted_sha", "required": true},
+        {"name": "expected_branch", "required": true},
         {"name": "working_directory", "required": false, "default": "."},
         {"name": "gradle_wrapper_path", "required": false, "default": "gradlew"},
         {"name": "version_file", "required": false, "default": "VERSION"},
-        {"name": "publication_channel", "required": true},
-        {"name": "publication_tasks_json", "required": true}
+        {"name": "arguments_json", "required": true}
       ],
       "secrets": ["registry_username", "registry_token"],
-      "outputs": ["result", "package_version", "gradle_wall_ms"],
+      "outputs": ["result", "release_version"],
       "stable_check_name": "Release / Gradle Maven publication",
       "timeout_minutes": 120,
       "matrix_max_jobs": 1,
-      "repository_owned_hooks": ["working_directory", "gradle_wrapper_path", "version_file", "publication_tasks_json"],
+      "repository_owned_hooks": ["working_directory", "gradle_wrapper_path", "version_file", "arguments_json"],
       "implementation_components": ["ci_workflows.gradle_maven_publish.publish", "actions/publish-gradle-maven"]
     }
   ]
