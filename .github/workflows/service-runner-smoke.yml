@@ -61,7 +61,6 @@ jobs:
     env:
       SOURCE_SHA: ${{ inputs.source_sha }}
       COMPOSE_PROJECT_NAME: ciw-service-${{ github.run_id }}-${{ github.run_attempt }}
-      SERVICE_CANARY_WORK_DIR: ${{ runner.temp }}/service-compose-smoke
     steps:
       - name: Check out exact Central source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -85,12 +84,12 @@ jobs:
 
       - name: Run exact-source multi-service service canary
         shell: bash
-        run: python3 scripts/ci/service_runner_smoke.py run --project-name "${COMPOSE_PROJECT_NAME}" --work-dir "${SERVICE_CANARY_WORK_DIR}"
+        run: python3 scripts/ci/service_runner_smoke.py run --project-name "${COMPOSE_PROJECT_NAME}" --work-dir "${RUNNER_TEMP}/service-compose-smoke"
 
       - name: Cleanup run-owned service canary state
         if: always()
         shell: bash
-        run: python3 scripts/ci/service_runner_smoke.py cleanup --project-name "${COMPOSE_PROJECT_NAME}" --work-dir "${SERVICE_CANARY_WORK_DIR}"
+        run: python3 scripts/ci/service_runner_smoke.py cleanup --project-name "${COMPOSE_PROJECT_NAME}" --work-dir "${RUNNER_TEMP}/service-compose-smoke"
 
       - name: Verify exact source remained clean
         if: ${{ always() && !cancelled() }}
