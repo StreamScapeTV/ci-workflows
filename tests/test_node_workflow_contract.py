@@ -14,8 +14,8 @@ WORKFLOW_PATH = ROOT / ".github/workflows/reusable-node.yml"
 ACTION_PATH = ROOT / "actions/validate-node/action.yml"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 FOUNDATION_RELEASE = "issue #116 immutable private-action checkpoint"
-VALIDATE_NODE_SHA = "34d736612462f7ab4e7be83443760c59027478db"
-VALIDATE_NODE_RELEASE = "issue #405 execution-backend checkpoint"
+VALIDATE_NODE_SHA = "3a93709b69bb09e962ae3debba6b575deea55392"
+VALIDATE_NODE_RELEASE = "issue #405 reconciled execution-backend checkpoint"
 PRIVATE_HELPERS = {
     "validate-node": (VALIDATE_NODE_SHA, VALIDATE_NODE_RELEASE),
     "exact-checkout": (FOUNDATION_SHA, FOUNDATION_RELEASE),
