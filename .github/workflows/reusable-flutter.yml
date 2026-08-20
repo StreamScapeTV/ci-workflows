@@ -205,7 +205,33 @@ jobs:
         with:
           distribution: ${{ needs.plan.outputs.jdk_distribution }}
           java-version: ${{ needs.plan.outputs.jdk_version }}
-      - name: Set up exact immutable Flutter runtime
+      - id: flutter_setup_primary
+        name: Set up exact immutable Flutter runtime
+        continue-on-error: true
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # reviewed 2026-03-25
+        with:
+          flutter-version: ${{ needs.plan.outputs.flutter_version }}
+          cache: false
+          cache-path: ${{ format('{0}/flutter-sdk-{1}', env.CI_TOOL_ROOT, needs.plan.outputs.flutter_version) }}
+          pub-cache-path: ${{ format('{0}/tmp/flutter-validation/pub-cache', env.CI_WORKFLOW_ROOT) }}
+      - id: flutter_setup_reset
+        name: Remove incomplete Flutter setup state before bounded retry
+        if: ${{ steps.flutter_setup_primary.outcome == 'failure' }}
+        shell: bash
+        env:
+          FLUTTER_CACHE_PATH: ${{ format('{0}/flutter-sdk-{1}', env.CI_TOOL_ROOT, needs.plan.outputs.flutter_version) }}
+          PUB_CACHE_PATH: ${{ format('{0}/tmp/flutter-validation/pub-cache', env.CI_WORKFLOW_ROOT) }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${CI_TOOL_ROOT:-}" && test -n "${CI_WORKFLOW_ROOT:-}"
+          case "${FLUTTER_CACHE_PATH}" in "${CI_TOOL_ROOT}/flutter-sdk-"*) ;; *) exit 1 ;; esac
+          test "${PUB_CACHE_PATH}" = "${CI_WORKFLOW_ROOT}/tmp/flutter-validation/pub-cache"
+          test ! -L "${FLUTTER_CACHE_PATH}" && test ! -L "${PUB_CACHE_PATH}"
+          rm -rf -- "${FLUTTER_CACHE_PATH}" "${PUB_CACHE_PATH}" && mkdir -p -- "${PUB_CACHE_PATH}"
+          sleep 5
+      - id: flutter_setup_retry
+        name: Retry exact immutable Flutter runtime once
+        if: ${{ steps.flutter_setup_primary.outcome == 'failure' }}
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # reviewed 2026-03-25
         with:
           flutter-version: ${{ needs.plan.outputs.flutter_version }}
@@ -323,7 +349,33 @@ jobs:
           validation_profile: ${{ inputs.validation_profile }}
           command_profile: ${{ inputs.command_profile }}
           source_trust: ${{ needs.plan.outputs.source_trust }}
-      - name: Set up exact immutable Flutter runtime
+      - id: flutter_setup_primary
+        name: Set up exact immutable Flutter runtime
+        continue-on-error: true
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # reviewed 2026-03-25
+        with:
+          flutter-version: ${{ needs.plan.outputs.flutter_version }}
+          cache: false
+          cache-path: ${{ format('{0}/flutter-sdk-{1}', env.CI_TOOL_ROOT, needs.plan.outputs.flutter_version) }}
+          pub-cache-path: ${{ format('{0}/tmp/flutter-validation/pub-cache', env.CI_WORKFLOW_ROOT) }}
+      - id: flutter_setup_reset
+        name: Remove incomplete Flutter setup state before bounded retry
+        if: ${{ steps.flutter_setup_primary.outcome == 'failure' }}
+        shell: bash
+        env:
+          FLUTTER_CACHE_PATH: ${{ format('{0}/flutter-sdk-{1}', env.CI_TOOL_ROOT, needs.plan.outputs.flutter_version) }}
+          PUB_CACHE_PATH: ${{ format('{0}/tmp/flutter-validation/pub-cache', env.CI_WORKFLOW_ROOT) }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${CI_TOOL_ROOT:-}" && test -n "${CI_WORKFLOW_ROOT:-}"
+          case "${FLUTTER_CACHE_PATH}" in "${CI_TOOL_ROOT}/flutter-sdk-"*) ;; *) exit 1 ;; esac
+          test "${PUB_CACHE_PATH}" = "${CI_WORKFLOW_ROOT}/tmp/flutter-validation/pub-cache"
+          test ! -L "${FLUTTER_CACHE_PATH}" && test ! -L "${PUB_CACHE_PATH}"
+          rm -rf -- "${FLUTTER_CACHE_PATH}" "${PUB_CACHE_PATH}" && mkdir -p -- "${PUB_CACHE_PATH}"
+          sleep 5
+      - id: flutter_setup_retry
+        name: Retry exact immutable Flutter runtime once
+        if: ${{ steps.flutter_setup_primary.outcome == 'failure' }}
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # reviewed 2026-03-25
         with:
           flutter-version: ${{ needs.plan.outputs.flutter_version }}
