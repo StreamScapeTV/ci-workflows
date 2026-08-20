@@ -9,6 +9,7 @@ from typing import Any, Mapping
 
 ROOT = Path(__file__).resolve().parents[2]
 GENERAL_LINUX_SELECTOR = ["linux", "amd64", "general", "small"]
+SELF_CHECK_RUNNER = "ubuntu-latest"
 
 HOST_PYTHON = {
     "implementation": "cpython",
@@ -63,6 +64,7 @@ REQUIRED_PATHS = (
     "contracts/security-policy.json",
     "contracts/bootstrap-public-workflows.json",
     "contracts/runner-profiles.json",
+    "contracts/runner-execution-backends.json",
     "docs/architecture/ADR-0001-reuse-layers.md",
     "docs/architecture/security-and-artifacts.md",
     "docs/consumers/access.md",
@@ -80,11 +82,11 @@ FORBIDDEN_SELF_CHECK_PATTERNS = (
     "id-token: write",
     "homelab-portable-linux-x64",
     "runs-on: portable",
+    "runs-on: [linux, amd64, general, small]",
     "runs-on: [linux, amd64, general]",
     "runs-on: macOS",
     "runs-on: apple",
     "runs-on: macos-latest",
-    "runs-on: ubuntu-latest",
     "runs-on: windows-latest",
     "runs-on: self-hosted",
     "runs-on: mobile",
@@ -229,6 +231,19 @@ def _validate_general_linux_runner_contract() -> None:
         )
 
 
+def _validate_hosted_self_check_contract() -> None:
+    backend = _mapping(
+        read_json("contracts/runner-execution-backends.json"),
+        "runner execution backend contract is invalid",
+    )
+    hosted = _mapping(
+        backend.get("github-hosted"),
+        "github-hosted backend contract is invalid",
+    )
+    if hosted.get("runs_on") != [SELF_CHECK_RUNNER]:
+        raise SystemExit("standard hosted runner selector drifted")
+
+
 def _validate_verified_interpreter_use(source: str) -> None:
     host_step = source.index(
         "- name: Verify pre-provisioned general-Linux CPython 3.12"
@@ -277,7 +292,7 @@ def _validate_verified_interpreter_use(source: str) -> None:
 def validate_self_check() -> None:
     source = read_text(".github/workflows/self-check.yml")
     required = (
-        "runs-on: [linux, amd64, general, small]",
+        f"runs-on: {SELF_CHECK_RUNNER}",
         "timeout-minutes: 10",
         "permissions:\n  actions: read\n  contents: read",
         "Admit trusted workflow source",
@@ -318,10 +333,9 @@ def validate_self_check() -> None:
         source,
         re.MULTILINE,
     )
-    if runs_on != ["[linux, amd64, general, small]"]:
+    if runs_on != [SELF_CHECK_RUNNER]:
         raise SystemExit(
-            "self-check must use exactly [linux, amd64, general, small], "
-            f"found {runs_on!r}"
+            f"self-check must use exactly {SELF_CHECK_RUNNER}, found {runs_on!r}"
         )
     if re.search(r"runs-on:\s*.*\$\{\{", source):
         raise SystemExit("self-check runner selector must not be dynamic")
@@ -343,6 +357,7 @@ def validate_self_check() -> None:
 
     _validate_verified_interpreter_use(source)
     _validate_general_linux_runner_contract()
+    _validate_hosted_self_check_contract()
 
 
 def validate_runtime_lock() -> None:
