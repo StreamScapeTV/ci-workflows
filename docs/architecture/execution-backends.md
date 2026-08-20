@@ -14,6 +14,17 @@ Omitting the input is exactly equivalent to `organization`. Repository visibilit
 
 Callers cannot supply a runner label, `runs-on` value, runner group, host, container engine, storage driver, or arbitrary matrix. `ci-workflows` owns every concrete mapping.
 
+## Authorities
+
+Workload semantics and execution backend are intentionally separate checked-in contracts:
+
+- `contracts/runner-profiles.json` remains the authority for organization semantic profiles and selectors.
+- `contracts/runner-execution-backends.json` owns the bounded backend names, the default backend, the fixed GitHub-hosted selector, and the exact workflow/profile combinations allowed to use hosted compute.
+- `generated/runner-execution-backends.json` is the deterministic generated/debug projection and must exactly match the backend contract.
+- `src/ci_workflows/execution_backends.py` validates both the contract and generated mapping before it resolves scheduling.
+
+The backend contract defaults to `organization`, requires exact preservation of the semantic organization selector, and currently fixes hosted execution to `ubuntu-latest` for `source.resolve/general-tiny`, `validation.node/general-small`, and `validation.python/general-small` only.
+
 ## Separation from workload profiles
 
 Execution backend and workload/profile semantics are independent dimensions.
@@ -25,7 +36,7 @@ Execution backend and workload/profile semantics are independent dimensions.
 - Unknown backend values fail closed.
 - A hosted backend request for an unsupported semantic profile fails closed instead of switching engines or weakening isolation.
 
-For Python this means `audit` and `host` may use `github-hosted` because both retain the existing `general-small` semantics. `podman` and `podman-postgres` retain their current Buildah-backed isolation and reject `github-hosted`; Docker is not substituted for Podman.
+For Python this means `audit` and `host` may use `github-hosted` because both retain the existing `general-small` execution semantics. `podman` and `podman-postgres` retain their current Buildah-backed isolation and reject `github-hosted`; Docker is not substituted for Podman.
 
 ## Initial API scope
 
@@ -35,7 +46,7 @@ Only these public APIs receive the new input in #405:
 - `validation.node`;
 - `validation.python`.
 
-Android, Apple, Flutter, physical-device, signing, Flux/control-plane, OCI product publication, Helm publication, and other centralized workflows remain unchanged unless a separate reviewed issue adds a backend mapping.
+Android, Apple, Flutter, physical-device, signing, Flux/control-plane, OCI product publication, Helm publication, and other centralized reusable workflows remain unchanged unless a separate reviewed issue adds a backend mapping.
 
 ## Planning and scheduling
 
@@ -45,8 +56,14 @@ Node and Python retain their existing trusted planning jobs. The planner resolve
 
 The current planner jobs remain on the existing organization general capacity. They are small control-plane work and preserve the established trusted-planner architecture; the substantial source/Node/Python execution job is what moves to standard hosted capacity when requested. This avoids making caller-controlled expressions or arbitrary labels part of `runs-on`.
 
+## Immutable implementation checkpoint
+
+The selected reusable workflows invoke their backend-aware Central actions at immutable checkpoint `3a93709b69bb09e962ae3debba6b575deea55392`, recorded in `contracts/action-tool-lock.json` as `issue #405 reconciled execution-backend checkpoint`.
+
+That snapshot contains the validated backend contract/mapping loader, source backend resolver action, and backend-aware Node/Python planning adapters. The workflows do not depend on mutable Central source when resolving the backend.
+
 ## Failure boundary
 
 Execution-backend-specific internal errors are projected through each public API's existing error vocabulary. The new scheduling dimension does not add arbitrary failure strings to Node/Python public outputs.
 
-The canonical runner contract and generated mapping remain the final authority for supported backend/profile combinations. The implementation helper must stay synchronized with that contract; generated drift and focused tests fail the final candidate if the two disagree.
+Unknown backend values, invalid contract/generated mapping state, unsafe organization selectors, and unsupported hosted profile combinations all fail closed. Tests ratchet exact organization preservation, the three allowed hosted combinations, Python Buildah rejection, and the immutable action checkpoint.
