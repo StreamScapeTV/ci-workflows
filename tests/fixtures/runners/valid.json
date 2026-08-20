@@ -44,6 +44,20 @@
       ]
     },
     {
+      "id": "service-compose-trusted-pr",
+      "workflow_api": "validation.service-compose",
+      "source_trust": "trusted-pr",
+      "requested_profile": "service-small",
+      "expected_profile": "service-small",
+      "expected_execution_profile": "service-small",
+      "expected_runs_on": [
+        "linux",
+        "amd64",
+        "service",
+        "small"
+      ]
+    },
+    {
       "id": "mobile-android-validation",
       "workflow_api": "validation.android",
       "source_trust": "trusted-pr",
