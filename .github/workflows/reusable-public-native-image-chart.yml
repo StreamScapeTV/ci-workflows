@@ -1,0 +1,260 @@
+name: Reusable public native amd64 image and Helm release
+
+on:
+  workflow_call:
+    inputs:
+      image_name:
+        description: Public GHCR image repository slug under StreamScapeTV
+        required: true
+        type: string
+      chart_name:
+        description: Public Helm chart and OCI repository slug
+        required: true
+        type: string
+      chart_path:
+        description: Caller-repository-relative Helm chart directory
+        required: true
+        type: string
+      dockerfile_path:
+        description: Caller-repository-relative Dockerfile path
+        required: false
+        default: Dockerfile
+        type: string
+      build_context:
+        description: Caller-repository-relative image build context
+        required: false
+        default: .
+        type: string
+    outputs:
+      version:
+        description: Exact validated release version
+        value: ${{ jobs.publish.outputs.version }}
+      source_sha:
+        description: Exact validated tagged source commit
+        value: ${{ jobs.publish.outputs.source_sha }}
+      image_reference:
+        description: Published immutable public image reference
+        value: ${{ jobs.publish.outputs.image_reference }}
+      image_digest:
+        description: Anonymous read-back image manifest digest
+        value: ${{ jobs.publish.outputs.image_digest }}
+      chart_reference:
+        description: Published immutable public Helm OCI reference
+        value: ${{ jobs.publish.outputs.chart_reference }}
+      chart_digest:
+        description: Anonymous read-back Helm OCI manifest digest
+        value: ${{ jobs.publish.outputs.chart_digest }}
+      chart_package_sha256:
+        description: SHA-256 of the exact published Helm package
+        value: ${{ jobs.publish.outputs.chart_package_sha256 }}
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  REGISTRY_NAMESPACE: streamscapetv
+  CHART_NAMESPACE: streamscapetv/helm-charts
+  BUILDAH_ISOLATION: chroot
+
+jobs:
+  admit:
+    name: Resolve exact public release tag authority
+    runs-on: [ubuntu-latest]
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.authority.outputs.release_version }}
+      source_sha: ${{ steps.authority.outputs.release_source_sha }}
+      tag_object_sha: ${{ steps.authority.outputs.tag_object_sha }}
+      tag_commit_sha: ${{ steps.authority.outputs.tag_commit_sha }}
+    steps:
+      - name: Check out exact Central reusable-workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact Central workflow source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cd .ciw
+          test "$(git rev-parse HEAD)" = "${{ job.workflow_sha }}"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+      - id: authority
+        name: Resolve exact release tag authority
+        uses: ./.ciw/actions/resolve-release-tag
+        with:
+          release_mode: tag-push
+
+  publish:
+    name: Publish public native amd64 image and Helm chart
+    needs: admit
+    runs-on: [ubuntu-latest]
+    timeout-minutes: 180
+    outputs:
+      version: ${{ needs.admit.outputs.version }}
+      source_sha: ${{ needs.admit.outputs.source_sha }}
+      image_reference: ${{ steps.readback.outputs.image_reference }}
+      image_digest: ${{ steps.readback.outputs.image_digest }}
+      chart_reference: ${{ steps.readback.outputs.chart_reference }}
+      chart_digest: ${{ steps.readback.outputs.chart_digest }}
+      chart_package_sha256: ${{ steps.prepare.outputs.chart_package_sha256 }}
+    env:
+      VERSION: ${{ needs.admit.outputs.version }}
+      SOURCE_SHA: ${{ needs.admit.outputs.source_sha }}
+      IMAGE_NAME: ${{ inputs.image_name }}
+      CHART_NAME: ${{ inputs.chart_name }}
+      CHART_PATH: ${{ inputs.chart_path }}
+      DOCKERFILE_PATH: ${{ inputs.dockerfile_path }}
+      BUILD_CONTEXT: ${{ inputs.build_context }}
+      CIW_REGISTRY_USERNAME: ${{ github.actor }}
+      CIW_REGISTRY_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out exact Central reusable-workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact Central workflow source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cd .ciw
+          test "$(git rev-parse HEAD)" = "${{ job.workflow_sha }}"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+      - name: Initialize isolated publication state
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          state_root="${RUNNER_TEMP}/public-native-image-chart"
+          test ! -e "${state_root}"
+          mkdir -m 0700 "${state_root}" "${state_root}/packages"
+          printf '{}\n' > "${state_root}/auth.json"
+          chmod 0600 "${state_root}/auth.json"
+          echo "REGISTRY_AUTH_FILE=${state_root}/auth.json" >> "${GITHUB_ENV}"
+          echo "HELM_REGISTRY_CONFIG=${state_root}/helm-registry.json" >> "${GITHUB_ENV}"
+          echo "PACKAGE_ROOT=${state_root}/packages" >> "${GITHUB_ENV}"
+          echo "PUBLIC_RELEASE_STATE_ROOT=${state_root}" >> "${GITHUB_ENV}"
+
+      - name: Revalidate exact tag immediately before privileged work
+        uses: ./.ciw/actions/resolve-release-tag
+        with:
+          phase: revalidate
+          release_mode: tag-push
+          release_version: ${{ needs.admit.outputs.version }}
+          release_source_sha: ${{ needs.admit.outputs.source_sha }}
+          expected_tag_object_sha: ${{ needs.admit.outputs.tag_object_sha }}
+          expected_tag_commit_sha: ${{ needs.admit.outputs.tag_commit_sha }}
+
+      - name: Check out exact validated caller source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ needs.admit.outputs.source_sha }}
+          path: source
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Validate bounded caller release inputs
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 .ciw/scripts/ci/native_image_chart_validate.py
+
+      - name: Require standard GitHub-hosted publication tools
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 .ciw/scripts/ci/public_native_image_chart.py verify-host
+
+      - id: prepare
+        name: Build image once and validate/package chart
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}/.ciw/src
+        run: |
+          set -Eeuo pipefail
+          python3 .ciw/scripts/ci/native_image_chart_prepare.py
+
+      - name: Authenticate to public GHCR and require unused version
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}/.ciw/src
+        run: |
+          set -Eeuo pipefail
+          python3 .ciw/scripts/ci/public_native_image_chart.py authenticate \
+            --image-name "${IMAGE_NAME}" --version "${VERSION}"
+          python3 .ciw/scripts/ci/public_native_image_chart.py require-unused \
+            --image-name "${IMAGE_NAME}" --chart-name "${CHART_NAME}" --version "${VERSION}"
+
+      - name: Revalidate exact tag immediately before publication
+        uses: ./.ciw/actions/resolve-release-tag
+        with:
+          phase: revalidate
+          release_mode: tag-push
+          release_version: ${{ needs.admit.outputs.version }}
+          release_source_sha: ${{ needs.admit.outputs.source_sha }}
+          expected_tag_object_sha: ${{ needs.admit.outputs.tag_object_sha }}
+          expected_tag_commit_sha: ${{ needs.admit.outputs.tag_commit_sha }}
+
+      - name: Publish exact image and chart once
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}/.ciw/src
+          PACKAGE_PATH: ${{ steps.prepare.outputs.package_path }}
+        run: |
+          set -Eeuo pipefail
+          python3 .ciw/scripts/ci/public_native_image_chart.py publish \
+            --image-name "${IMAGE_NAME}" --chart-name "${CHART_NAME}" \
+            --version "${VERSION}" --package-path "${PACKAGE_PATH}"
+
+      - id: readback
+        name: Drop credentials and anonymously read back public artifacts
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}/.ciw/src
+        run: |
+          set -Eeuo pipefail
+          python3 .ciw/scripts/ci/public_native_image_chart.py readback \
+            --image-name "${IMAGE_NAME}" --chart-name "${CHART_NAME}" \
+            --version "${VERSION}" --state-root "${PUBLIC_RELEASE_STATE_ROOT}" \
+            --github-output "${GITHUB_OUTPUT}"
+
+      - name: Clean public publication credentials and build state
+        if: always()
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}/.ciw/src
+        run: |
+          set -Eeuo pipefail
+          python3 .ciw/scripts/ci/public_native_image_chart.py cleanup \
+            --image-name "${IMAGE_NAME}" --version "${VERSION}" \
+            --state-root "${PUBLIC_RELEASE_STATE_ROOT}"
+
+      - name: Verify exact caller and Central sources remained clean
+        if: ${{ always() && !cancelled() }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C source rev-parse HEAD)" = "${SOURCE_SHA}"
+          test -z "$(git -C source status --porcelain=v1 --untracked-files=all)"
+          test "$(git -C .ciw rev-parse HEAD)" = "${{ job.workflow_sha }}"
+          test -z "$(git -C .ciw status --porcelain=v1 --untracked-files=all)"
+          test ! -e "${PUBLIC_RELEASE_STATE_ROOT}"
