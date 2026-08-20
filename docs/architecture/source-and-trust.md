@@ -114,4 +114,4 @@ jobs:
           admitted_sha: ${{ needs.source.outputs.source_sha }}
 ```
 
-Human-readable compatibility tags and full commit SHAs remain supported fixed/rollback channels. A future reviewed policy may choose a stable tag such as `@v1` as the default; full SHAs remain optional unless policy explicitly requires them. Exact product-source admission remains mandatory regardless of the Central workflow reference.
+Human-readable compatibility tags and full commit SHAs remain supported fixed/rollback channels. A future reviewed policy may choose a stable tag such as `@v1` as the default. Until such a reviewed cutover, they are not preferred or required over `@main` for privileged consumers; full SHAs remain optional unless policy explicitly requires them. Exact product-source admission remains mandatory regardless of the Central workflow reference.
