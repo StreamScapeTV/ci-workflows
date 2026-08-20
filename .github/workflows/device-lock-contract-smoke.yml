@@ -33,7 +33,7 @@ jobs:
   contract_smoke:
     name: Validate synthetic cross-run fencing contract
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ubuntu-latest
+    runs-on: [ubuntu-latest]
     timeout-minutes: 30
     steps:
       - name: Initialize synthetic private backend path
@@ -218,7 +218,7 @@ jobs:
     name: Verify device lock smoke artifacts remain zero
     needs: contract_smoke
     if: ${{ always() && !cancelled() }}
-    runs-on: ubuntu-latest
+    runs-on: [ubuntu-latest]
     timeout-minutes: 10
     steps:
       - name: Require zero Actions artifacts and successful contract smoke
