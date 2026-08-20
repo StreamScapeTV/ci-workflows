@@ -461,16 +461,16 @@ class CIWCLITests(unittest.TestCase):
             )
         actions = sorted((ROOT / "actions").glob("*/action.yml"))
         self.assertTrue(actions)
-        completion_actions = {
-            "validate-android-live-service",
-            "validate-android-release",
+        special_adapters = {
+            "validate-android-live-service": "scripts/ci/android_completion.py",
+            "validate-android-release": "scripts/ci/android_completion.py",
+            "resolve-execution-backend": "scripts/ci/execution_backend.py",
         }
         for action in actions:
             source = action.read_text(encoding="utf-8")
-            expected_adapter = (
-                "scripts/ci/android_completion.py"
-                if action.parent.name in completion_actions
-                else "scripts/ci/ciw.py"
+            expected_adapter = special_adapters.get(
+                action.parent.name,
+                "scripts/ci/ciw.py",
             )
             self.assertIn(expected_adapter, source, action.as_posix())
 
