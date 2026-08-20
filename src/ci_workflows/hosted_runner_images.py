@@ -9,9 +9,12 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Mapping, Sequence
 
+from .runner_images import resolve_image
+
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _SOURCE_SHA = re.compile(r"^[0-9a-f]{40}$")
 _DECIMAL_SIZE = re.compile(r"^([0-9]+(?:\.[0-9]+)?)(B|kB|MB|GB|TB)$")
+_POSITIVE_INTEGER = re.compile(r"^[1-9][0-9]*$")
 _GHCR_REFERENCE = re.compile(
     r"^ghcr\.io/streamscapetv/github-actions-runner-[a-z][a-z0-9-]{0,31}:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$"
 )
@@ -82,6 +85,47 @@ def validate_ghcr_reference(reference: str) -> str:
 def validate_source_sha(source_sha: str) -> str:
     require(_SOURCE_SHA.fullmatch(source_sha) is not None, "invalid_source_sha")
     return source_sha
+
+
+def _remove_exact_path(path: Path, *, expected_parent: Path) -> None:
+    """Remove one exact bounded path without following a symlink target."""
+
+    require(path.parent == expected_parent, "invalid_cleanup_path")
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.is_dir():
+        shutil.rmtree(path)
+    elif path.exists():
+        raise HostedRunnerImageError("invalid_cleanup_path")
+    require(not path.exists() and not path.is_symlink(), "runner_image_cleanup_failed")
+
+
+def cleanup_hosted_runner_state(
+    *,
+    image_id: str,
+    workspace: Path,
+    runner_temp: Path,
+    run_id: str,
+    run_attempt: str,
+) -> None:
+    """Remove the exact per-run Docker auth and image-owned build-input paths."""
+
+    image = resolve_image(image_id)
+    require(_POSITIVE_INTEGER.fullmatch(run_id) is not None, "invalid_run_identity")
+    require(_POSITIVE_INTEGER.fullmatch(run_attempt) is not None, "invalid_run_identity")
+
+    workspace_root = workspace.resolve(strict=True)
+    runner_temp_root = runner_temp.resolve(strict=True)
+    require(workspace_root.is_dir() and not workspace.is_symlink(), "invalid_workspace")
+    require(runner_temp_root.is_dir() and not runner_temp.is_symlink(), "invalid_runner_temp")
+
+    context = workspace_root / image.context_path
+    require(context.is_dir() and not context.is_symlink(), "invalid_image_context")
+    build_inputs = context / ".ciw-build-inputs"
+    docker_config = runner_temp_root / f"ciw-runner-docker-{run_id}-{run_attempt}-{image.image_id}"
+
+    _remove_exact_path(build_inputs, expected_parent=context)
+    _remove_exact_path(docker_config, expected_parent=runner_temp_root)
 
 
 def _completed(
@@ -317,6 +361,7 @@ def verify_anonymous_pullability(
 __all__ = (
     "HostedImageMetrics",
     "HostedRunnerImageError",
+    "cleanup_hosted_runner_state",
     "collect_metrics",
     "parse_docker_size",
     "publish_exact_image",
