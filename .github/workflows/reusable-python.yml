@@ -65,7 +65,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve contract-owned command and execution plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-python@34d736612462f7ab4e7be83443760c59027478db # issue #405 execution-backend checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-python@3a93709b69bb09e962ae3debba6b575deea55392 # issue #405 reconciled execution-backend checkpoint
         with:
           phase: plan
           execution_backend: ${{ inputs.execution_backend }}
@@ -112,7 +112,7 @@ jobs:
 
       - id: python
         name: Execute bounded Python validation
-        uses: StreamScapeTV/ci-workflows/actions/validate-python@34d736612462f7ab4e7be83443760c59027478db # issue #405 execution-backend checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-python@3a93709b69bb09e962ae3debba6b575deea55392 # issue #405 reconciled execution-backend checkpoint
         with:
           phase: execute
           execution_backend: ${{ inputs.execution_backend }}
