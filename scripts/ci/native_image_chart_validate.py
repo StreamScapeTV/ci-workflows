@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 import re
@@ -52,28 +51,12 @@ def main() -> int:
     chart_yaml = chart_root / "Chart.yaml"
     _require(chart_yaml.is_file() and not chart_yaml.is_symlink(), "Chart.yaml is invalid")
 
-    package_path = root / "package.json"
-    _require(package_path.is_file() and not package_path.is_symlink(), "package.json is invalid")
-    package = json.loads(package_path.read_text(encoding="utf-8"))
-    package_version = package.get("version") if isinstance(package, dict) else None
-
     chart_text = chart_yaml.read_text(encoding="utf-8")
     chart_name = re.search(r"^name:\s*([^\s]+)\s*$", chart_text, re.MULTILINE)
-    chart_version = re.search(r"^version:\s*([^\s]+)\s*$", chart_text, re.MULTILINE)
-    app_version = re.search(
-        r"^appVersion:\s*[\"']?([^\"'\s]+)[\"']?\s*$",
-        chart_text,
-        re.MULTILINE,
+    _require(
+        chart_name is not None and chart_name.group(1) == os.environ["CHART_NAME"],
+        "chart name does not match release input",
     )
-    _require(chart_name is not None and chart_name.group(1) == os.environ["CHART_NAME"], "chart name does not match release input")
-
-    expected = os.environ["VERSION"]
-    versions = (
-        package_version,
-        chart_version.group(1) if chart_version else None,
-        app_version.group(1) if app_version else None,
-    )
-    _require(all(value == expected for value in versions), f"release versions are not aligned to {expected}: {versions}")
     return 0
 
 

@@ -91,7 +91,10 @@ class NativeImageChartWorkflowContractTests(unittest.TestCase):
         self.assertIn("registry_token:", text)
         self.assertIn("CIW_REGISTRY_USERNAME", text)
         self.assertIn("CIW_REGISTRY_TOKEN", text)
-        self.assertIn("release versions are not aligned", self.validate)
+        self.assertNotIn("package.json", self.validate)
+        self.assertNotIn("release versions are not aligned", self.validate)
+        self.assertIn('version=os.environ["VERSION"]', self.prepare)
+        self.assertIn('app_version=os.environ["VERSION"]', self.prepare)
 
     def test_public_api_index_and_release_fixture_use_the_native_api(self) -> None:
         index = json.loads(PUBLIC_INDEX.read_text(encoding="utf-8"))

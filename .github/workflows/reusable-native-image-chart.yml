@@ -3,19 +3,6 @@ name: Reusable native amd64 image and Helm release
 on:
   workflow_call:
     inputs:
-      release_mode:
-        description: tag-push by default, or existing-tag with the complete exact tuple
-        required: false
-        default: tag-push
-        type: string
-      release_version:
-        description: Exact canonical stable SemVer tag for existing-tag mode
-        required: false
-        type: string
-      release_source_sha:
-        description: Exact lowercase tagged commit for existing-tag mode
-        required: false
-        type: string
       image_name:
         description: Image repository slug under the fixed private registry namespace
         required: true
@@ -84,7 +71,6 @@ jobs:
     runs-on: [linux, amd64, buildah, high]
     timeout-minutes: 10
     outputs:
-      release_mode: ${{ steps.authority.outputs.release_mode }}
       version: ${{ steps.authority.outputs.release_version }}
       source_sha: ${{ steps.authority.outputs.release_source_sha }}
       tag_object_sha: ${{ steps.authority.outputs.tag_object_sha }}
@@ -115,9 +101,7 @@ jobs:
         name: Resolve exact release tag authority
         uses: ./.ciw/actions/resolve-release-tag
         with:
-          release_mode: ${{ inputs.release_mode }}
-          release_version: ${{ inputs.release_version }}
-          release_source_sha: ${{ inputs.release_source_sha }}
+          release_mode: tag-push
 
   publish:
     name: Publish native amd64 image and Helm chart
@@ -180,7 +164,7 @@ jobs:
         uses: ./.ciw/actions/resolve-release-tag
         with:
           phase: revalidate
-          release_mode: ${{ needs.admit.outputs.release_mode }}
+          release_mode: tag-push
           release_version: ${{ needs.admit.outputs.version }}
           release_source_sha: ${{ needs.admit.outputs.source_sha }}
           expected_tag_object_sha: ${{ needs.admit.outputs.tag_object_sha }}
@@ -197,7 +181,7 @@ jobs:
           persist-credentials: false
           set-safe-directory: false
 
-      - name: Validate bounded caller inputs and release-version alignment
+      - name: Validate bounded caller release inputs
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -283,7 +267,7 @@ jobs:
         uses: ./.ciw/actions/resolve-release-tag
         with:
           phase: revalidate
-          release_mode: ${{ needs.admit.outputs.release_mode }}
+          release_mode: tag-push
           release_version: ${{ needs.admit.outputs.version }}
           release_source_sha: ${{ needs.admit.outputs.source_sha }}
           expected_tag_object_sha: ${{ needs.admit.outputs.tag_object_sha }}
