@@ -67,6 +67,7 @@ jobs:
           - general
           - mobile
           - buildah
+          - service
           - docker
           - flux-control
     runs-on: [linux, amd64, buildah, high]
