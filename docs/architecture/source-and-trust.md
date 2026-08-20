@@ -91,7 +91,7 @@ Product commands, status/comment formats, registry publication, cluster selectio
 
 ## Thin caller example
 
-During the active-development/bootstrap phase, the public reusable workflow follows protected `@main` so reviewed central fixes propagate without a consumer repin. The separately composed private helper remains an immutable action reference.
+During active Central development, the public reusable workflow follows `@main` as an ordinary shared-library reference so reviewed Central fixes propagate without a consumer repin. No per-product bootstrap, registration, or consumer-maintained Central SHA is required. The separately composed private helper remains an immutable action reference.
 
 ```yaml
 jobs:
@@ -114,4 +114,4 @@ jobs:
           admitted_sha: ${{ needs.source.outputs.source_sha }}
 ```
 
-Full commit SHAs and stable `ci-workflows` tags remain supported fixed/rollback channels and may become the organization default after a later explicit stable-release cutover. Until that decision, they are not preferred or required over `@main` for privileged consumers. Exact product-source admission remains mandatory regardless of the central workflow reference.
+Human-readable compatibility tags and full commit SHAs remain supported fixed/rollback channels. A future reviewed policy may choose a stable tag such as `@v1` as the default; full SHAs remain optional unless policy explicitly requires them. Exact product-source admission remains mandatory regardless of the Central workflow reference.
