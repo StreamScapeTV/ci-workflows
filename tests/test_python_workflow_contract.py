@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/reusable-python.yml"
 ACTION_PATH = ROOT / "actions/validate-python/action.yml"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-PYTHON_ACTION_SHA = "34d736612462f7ab4e7be83443760c59027478db"
+PYTHON_ACTION_SHA = "3a93709b69bb09e962ae3debba6b575deea55392"
 PRIVATE_HELPERS = {
     "validate-python": PYTHON_ACTION_SHA,
     "exact-checkout": FOUNDATION_SHA,
