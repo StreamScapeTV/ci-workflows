@@ -8,6 +8,9 @@ inputs:
     description: Exact caller checkout root
     required: false
     default: source
+  expected_branch:
+    description: Protected development branch authorized for source-specific package publication
+    required: true
   working_directory:
     description: Repository-relative Gradle project directory
     required: false
@@ -20,10 +23,7 @@ inputs:
     description: Repository-relative stable VERSION file
     required: false
     default: VERSION
-  publication_channel:
-    description: stable or develop
-    required: true
-  publication_tasks_json:
+  arguments_json:
     description: Bounded JSON array of Gradle Maven publication tasks
     required: true
   registry_username:
@@ -33,9 +33,9 @@ inputs:
     description: Workflow-scoped private Maven registry token
     required: true
 outputs:
-  package_version:
+  release_version:
     description: Exact Maven version published by this invocation
-    value: ${{ steps.publish.outputs.package_version }}
+    value: ${{ steps.publish.outputs.release_version }}
   gradle_wall_ms:
     description: Gradle publication wall time in milliseconds
     value: ${{ steps.publish.outputs.gradle_wall_ms }}
@@ -50,11 +50,11 @@ runs:
         PYTHONPATH: ${{ github.action_path }}/../../src
         INPUT_ADMITTED_SHA: ${{ inputs.admitted_sha }}
         INPUT_SOURCE_ROOT: ${{ inputs.source_root }}
+        INPUT_EXPECTED_BRANCH: ${{ inputs.expected_branch }}
         INPUT_WORKING_DIRECTORY: ${{ inputs.working_directory }}
         INPUT_GRADLE_WRAPPER_PATH: ${{ inputs.gradle_wrapper_path }}
         INPUT_VERSION_FILE: ${{ inputs.version_file }}
-        INPUT_PUBLICATION_CHANNEL: ${{ inputs.publication_channel }}
-        INPUT_PUBLICATION_TASKS_JSON: ${{ inputs.publication_tasks_json }}
+        INPUT_ARGUMENTS_JSON: ${{ inputs.arguments_json }}
         CIW_MAVEN_REGISTRY_USERNAME: ${{ inputs.registry_username }}
         CIW_MAVEN_REGISTRY_TOKEN: ${{ inputs.registry_token }}
       run: |
