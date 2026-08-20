@@ -181,7 +181,12 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          python3 .ciw/scripts/ci/public_native_image_chart.py verify-host
+          test "${RUNNER_ENVIRONMENT:-}" = "github-hosted"
+          test "${RUNNER_OS:-}" = "Linux"
+          test "$(uname -m)" = "x86_64"
+          buildah --version
+          skopeo --version
+          helm version --short
 
       - id: prepare
         name: Build image once and validate/package chart
@@ -192,16 +197,24 @@ jobs:
           set -Eeuo pipefail
           python3 .ciw/scripts/ci/native_image_chart_prepare.py
 
-      - name: Authenticate to public GHCR and require unused version
+      - name: Authenticate to GHCR and require unused immutable version
         shell: bash
         env:
           PYTHONPATH: ${{ github.workspace }}/.ciw/src
+          IMAGE_REFERENCE: ghcr.io/streamscapetv/${{ inputs.image_name }}:${{ needs.admit.outputs.version }}
         run: |
           set -Eeuo pipefail
-          python3 .ciw/scripts/ci/public_native_image_chart.py authenticate \
-            --image-name "${IMAGE_NAME}" --version "${VERSION}"
-          python3 .ciw/scripts/ci/public_native_image_chart.py require-unused \
-            --image-name "${IMAGE_NAME}" --chart-name "${CHART_NAME}" --version "${VERSION}"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          from ci_workflows.packaging_primitives import registry_authenticate
+          env = dict(os.environ)
+          registry_authenticate("ghcr.io", environment=env, tool="buildah", cwd=Path("source"))
+          registry_authenticate("ghcr.io", environment=env, tool="helm", cwd=Path("source"))
+          PY
+          chart_reference="${REGISTRY}/${CHART_NAMESPACE}/${CHART_NAME}:${VERSION}"
+          ! skopeo inspect --authfile "${REGISTRY_AUTH_FILE}" "docker://${IMAGE_REFERENCE}" >/dev/null 2>&1
+          ! skopeo inspect --authfile "${REGISTRY_AUTH_FILE}" "docker://${chart_reference}" >/dev/null 2>&1
 
       - name: Revalidate exact tag immediately before publication
         uses: ./.ciw/actions/resolve-release-tag
@@ -217,35 +230,82 @@ jobs:
         shell: bash
         env:
           PYTHONPATH: ${{ github.workspace }}/.ciw/src
+          IMAGE_REFERENCE: ghcr.io/streamscapetv/${{ inputs.image_name }}:${{ needs.admit.outputs.version }}
           PACKAGE_PATH: ${{ steps.prepare.outputs.package_path }}
         run: |
           set -Eeuo pipefail
-          python3 .ciw/scripts/ci/public_native_image_chart.py publish \
-            --image-name "${IMAGE_NAME}" --chart-name "${CHART_NAME}" \
-            --version "${VERSION}" --package-path "${PACKAGE_PATH}"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          from ci_workflows.packaging_primitives import helm_push, push_image
+          env = dict(os.environ)
+          push_image(os.environ["IMAGE_REFERENCE"], environment=env, tool="buildah", cwd=Path("source"))
+          helm_push(Path(os.environ["PACKAGE_PATH"]), "oci://ghcr.io/streamscapetv/helm-charts", environment=env)
+          PY
 
       - id: readback
         name: Drop credentials and anonymously read back public artifacts
         shell: bash
         env:
           PYTHONPATH: ${{ github.workspace }}/.ciw/src
+          IMAGE_REFERENCE: ghcr.io/streamscapetv/${{ inputs.image_name }}:${{ needs.admit.outputs.version }}
         run: |
           set -Eeuo pipefail
-          python3 .ciw/scripts/ci/public_native_image_chart.py readback \
-            --image-name "${IMAGE_NAME}" --chart-name "${CHART_NAME}" \
-            --version "${VERSION}" --state-root "${RUNNER_TEMP}/public-native-image-chart" \
-            --github-output "${GITHUB_OUTPUT}"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          from ci_workflows.packaging_primitives import registry_logout
+          env = dict(os.environ)
+          registry_logout("ghcr.io", environment=env, tool="helm", cwd=Path("source"))
+          registry_logout("ghcr.io", environment=env, tool="buildah", cwd=Path("source"))
+          PY
+          state="${RUNNER_TEMP}/public-native-image-chart"
+          anon_authfile="${state}/anonymous-auth.json"
+          printf '{}\n' > "${anon_authfile}"
+          chmod 0600 "${anon_authfile}"
+          image_raw="${state}/image-manifest.json"
+          image_inspect="${state}/image-inspect.json"
+          chart_raw="${state}/chart-manifest.json"
+          chart_reference="${REGISTRY}/${CHART_NAMESPACE}/${CHART_NAME}:${VERSION}"
+          skopeo inspect --authfile "${anon_authfile}" --raw "docker://${IMAGE_REFERENCE}" > "${image_raw}"
+          skopeo inspect --authfile "${anon_authfile}" "docker://${IMAGE_REFERENCE}" > "${image_inspect}"
+          skopeo inspect --authfile "${anon_authfile}" --raw "docker://${chart_reference}" > "${chart_raw}"
+          image_digest="sha256:$(sha256sum "${image_raw}" | awk '{print $1}')"
+          chart_digest="sha256:$(sha256sum "${chart_raw}" | awk '{print $1}')"
+          IMAGE_INSPECT="${image_inspect}" IMAGE_DIGEST="${image_digest}" python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          data = json.loads(Path(os.environ["IMAGE_INSPECT"]).read_text(encoding="utf-8"))
+          if data.get("Os") != "linux" or data.get("Architecture") != "amd64" or data.get("Digest") != os.environ["IMAGE_DIGEST"]:
+              raise SystemExit("anonymous image read-back identity mismatch")
+          PY
+          echo "image_reference=${IMAGE_REFERENCE}" >> "${GITHUB_OUTPUT}"
+          echo "image_digest=${image_digest}" >> "${GITHUB_OUTPUT}"
+          echo "chart_reference=oci://${chart_reference}" >> "${GITHUB_OUTPUT}"
+          echo "chart_digest=${chart_digest}" >> "${GITHUB_OUTPUT}"
 
       - name: Clean public publication credentials and build state
         if: always()
         shell: bash
         env:
           PYTHONPATH: ${{ github.workspace }}/.ciw/src
+          IMAGE_REFERENCE: ghcr.io/streamscapetv/${{ inputs.image_name }}:${{ needs.admit.outputs.version }}
         run: |
           set -Eeuo pipefail
-          python3 .ciw/scripts/ci/public_native_image_chart.py cleanup \
-            --image-name "${IMAGE_NAME}" --version "${VERSION}" \
-            --state-root "${RUNNER_TEMP}/public-native-image-chart"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          from ci_workflows.packaging_primitives import cleanup_packaging_state, registry_logout
+          env = dict(os.environ)
+          for tool in ("helm", "buildah"):
+              try:
+                  registry_logout("ghcr.io", environment=env, tool=tool, cwd=Path("source") if Path("source").is_dir() else Path.cwd())
+              except Exception:
+                  pass
+          cleanup_packaging_state((Path(os.environ["RUNNER_TEMP"]) / "public-native-image-chart",))
+          PY
+          buildah rmi "${IMAGE_REFERENCE}" >/dev/null 2>&1 || true
+          test ! -e "${RUNNER_TEMP}/public-native-image-chart"
 
       - name: Verify exact caller and Central sources remained clean
         if: ${{ always() && !cancelled() }}
