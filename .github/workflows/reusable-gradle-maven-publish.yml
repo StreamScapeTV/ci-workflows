@@ -7,6 +7,10 @@ on:
         description: Exact lowercase caller source SHA
         required: true
         type: string
+      expected_branch:
+        description: Protected development branch authorized for source-specific package publication
+        required: true
+        type: string
       working_directory:
         description: Repository-relative Gradle project directory
         required: false
@@ -22,11 +26,7 @@ on:
         required: false
         default: VERSION
         type: string
-      publication_channel:
-        description: stable or develop
-        required: true
-        type: string
-      publication_tasks_json:
+      arguments_json:
         description: Bounded JSON array of Gradle Maven publication tasks
         required: true
         type: string
@@ -41,19 +41,12 @@ on:
       result:
         description: Success only after publication and terminal cleanup succeed
         value: ${{ jobs.publish.outputs.result }}
-      package_version:
+      release_version:
         description: Exact Maven version published
-        value: ${{ jobs.publish.outputs.package_version }}
-      gradle_wall_ms:
-        description: Publication Gradle wall time in milliseconds
-        value: ${{ jobs.publish.outputs.gradle_wall_ms }}
+        value: ${{ jobs.publish.outputs.release_version }}
 
 permissions:
   contents: read
-
-concurrency:
-  group: gradle-maven-publish-${{ github.repository }}-${{ inputs.publication_channel }}
-  cancel-in-progress: false
 
 jobs:
   publish:
@@ -62,8 +55,7 @@ jobs:
     timeout-minutes: 120
     outputs:
       result: ${{ steps.terminal.outputs.result }}
-      package_version: ${{ steps.maven.outputs.package_version }}
-      gradle_wall_ms: ${{ steps.maven.outputs.gradle_wall_ms }}
+      release_version: ${{ steps.maven.outputs.release_version }}
     steps:
       - name: Check out exact Central workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -107,11 +99,11 @@ jobs:
         with:
           admitted_sha: ${{ inputs.admitted_sha }}
           source_root: source
+          expected_branch: ${{ inputs.expected_branch }}
           working_directory: ${{ inputs.working_directory }}
           gradle_wrapper_path: ${{ inputs.gradle_wrapper_path }}
           version_file: ${{ inputs.version_file }}
-          publication_channel: ${{ inputs.publication_channel }}
-          publication_tasks_json: ${{ inputs.publication_tasks_json }}
+          arguments_json: ${{ inputs.arguments_json }}
           registry_username: ${{ secrets.registry_username }}
           registry_token: ${{ secrets.registry_token }}
 
