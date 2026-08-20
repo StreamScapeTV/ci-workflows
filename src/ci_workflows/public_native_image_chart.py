@@ -3,13 +3,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import subprocess
 from pathlib import Path
 from typing import Mapping
 
 from .packaging_primitives import (
     PackagingError,
+    cleanup_packaging_state,
     helm_push,
     push_image,
     registry_authenticate,
@@ -71,8 +71,9 @@ def verify_host(environment: Mapping[str, str]) -> None:
     _require(environment.get("RUNNER_OS") == "Linux", "not_linux")
     machine = _run(["uname", "-m"], environment=environment).stdout.strip()
     _require(machine == "x86_64", "not_amd64")
-    for tool in ("buildah", "skopeo", "helm"):
-        _run([tool, "--version"], environment=environment)
+    _run(["buildah", "--version"], environment=environment)
+    _run(["skopeo", "--version"], environment=environment)
+    _run(["helm", "version", "--short"], environment=environment)
 
 
 def authenticate(
@@ -138,16 +139,25 @@ def publish(
     )
 
 
-def _anonymous_inspect(
+def _anonymous_raw_digest(
     reference: str,
     *,
     environment: Mapping[str, str],
     authfile: Path,
-) -> tuple[dict[str, object], str]:
+) -> str:
     raw = _run(
         ["skopeo", "inspect", "--authfile", str(authfile), "--raw", f"docker://{reference}"],
         environment=environment,
     ).stdout.encode()
+    return f"{_DIGEST_PREFIX}{hashlib.sha256(raw).hexdigest()}"
+
+
+def _anonymous_image_inspect(
+    reference: str,
+    *,
+    environment: Mapping[str, str],
+    authfile: Path,
+) -> dict[str, object]:
     inspection = _run(
         ["skopeo", "inspect", "--authfile", str(authfile), f"docker://{reference}"],
         environment=environment,
@@ -157,10 +167,7 @@ def _anonymous_inspect(
     except json.JSONDecodeError as error:
         raise PublicNativeReleaseError("invalid_remote_inspection") from error
     _require(isinstance(payload, dict), "invalid_remote_inspection")
-    digest = f"{_DIGEST_PREFIX}{hashlib.sha256(raw).hexdigest()}"
-    advertised = payload.get("Digest")
-    _require(advertised == digest, "remote_digest_mismatch")
-    return payload, digest
+    return payload
 
 
 def readback_public(
@@ -184,14 +191,18 @@ def readback_public(
 
     image = image_reference(image_name, version)
     chart = chart_reference(chart_name, version)
-    image_payload, image_digest = _anonymous_inspect(
+    image_digest = _anonymous_raw_digest(
         image, environment=values, authfile=anonymous_authfile
     )
+    image_payload = _anonymous_image_inspect(
+        image, environment=values, authfile=anonymous_authfile
+    )
+    _require(image_payload.get("Digest") == image_digest, "remote_digest_mismatch")
     _require(
         image_payload.get("Os") == "linux" and image_payload.get("Architecture") == "amd64",
         "remote_image_platform_mismatch",
     )
-    _, chart_digest = _anonymous_inspect(
+    chart_digest = _anonymous_raw_digest(
         chart, environment=values, authfile=anonymous_authfile
     )
     return {
@@ -224,16 +235,10 @@ def cleanup(
         cwd=cwd,
         check=False,
     )
-    if state_root.exists() or state_root.is_symlink():
-        if state_root.is_symlink():
-            state_root.unlink()
-        else:
-            for child in sorted(state_root.rglob("*"), reverse=True):
-                if child.is_symlink() or child.is_file():
-                    child.unlink()
-                elif child.is_dir():
-                    child.rmdir()
-            state_root.rmdir()
+    try:
+        cleanup_packaging_state((state_root,))
+    except PackagingError as error:
+        raise PublicNativeReleaseError("cleanup_failed") from error
     _require(not state_root.exists() and not state_root.is_symlink(), "cleanup_failed")
 
 
