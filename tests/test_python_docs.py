@@ -8,8 +8,8 @@ ROOT = Path(__file__).resolve().parents[1]
 PYTHON_DOC = ROOT / "docs/workflows/python.md"
 ACTION_LOCK = ROOT / "contracts/action-tool-lock.json"
 VALIDATE_PYTHON_ACTION = "StreamScapeTV/ci-workflows/actions/validate-python"
-CHECKPOINT = "aece8d01efdd5482a1c3d42db357aed87a7917e9"
-RELEASE = "issue #235 general-runner Python primitives checkpoint"
+CHECKPOINT = "7d5d839c6e90491e165f1358ecb5e80129805764"
+RELEASE = "issue #405 simplified execution-backend checkpoint"
 
 
 class PythonDocumentationTests(unittest.TestCase):

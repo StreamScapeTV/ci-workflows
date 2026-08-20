@@ -124,6 +124,7 @@ class PythonValidationContractTests(unittest.TestCase):
         self.assertEqual(
             public_inputs,
             {
+                "execution_backend",
                 "admitted_sha",
                 "validation_profile",
                 "command_profile",
