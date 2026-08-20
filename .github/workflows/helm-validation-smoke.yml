@@ -19,7 +19,9 @@ on:
       - "contracts/public-workflows.json"
       - "contracts/public-workflows/products.json"
       - "contracts/runner-profiles.json"
+      - "contracts/runner-execution-backends.json"
       - "generated/runner-mappings.json"
+      - "generated/runner-execution-backends.json"
       - "scripts/ci/helm*.py"
       - "src/ci_workflows/ciw.py"
       - "src/ci_workflows/ciw_helm.py"
@@ -42,7 +44,7 @@ permissions:
 jobs:
   contracts:
     name: CI / Helm workflow contract smoke
-    runs-on: [linux, amd64, general, small]
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       PYTHONDONTWRITEBYTECODE: "1"
@@ -70,7 +72,11 @@ jobs:
           if [[ -z "${candidate}" ]]; then
             candidate="$(type -P python3 || true)"
           fi
+          test -n "${candidate}"
+          test "${candidate}" = "${candidate#/}" || true
           resolved="$("${candidate}" -c 'import os,sys; print(os.path.realpath(sys.executable))')"
+          test "${resolved}" != "${resolved#/}"
+          test -x "${resolved}"
           identity="$("${resolved}" -c 'import platform,sys; m=platform.machine().lower(); m={"amd64":"x86_64","x64":"x86_64","aarch64":"arm64"}.get(m,m); print(f"{sys.implementation.name}|{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}|{platform.system()}|{m}")')"
           IFS='|' read -r implementation version system machine <<< "${identity}"
           [[ "${implementation}" == "cpython" ]]
