@@ -12,7 +12,7 @@ WORKFLOW_PATH = ROOT / ".github/workflows/reusable-static-web.yml"
 ACTION_PATH = ROOT / "actions/validate-static-web/action.yml"
 DOC_PATH = ROOT / "docs/workflows/static-web.md"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-STATIC_WEB_SHA = "602f4bc237daa318781270758fa5da5817d5c9b3"
+STATIC_WEB_SHA = "31af596623516257506bfc3a08fa9d8ba2560a4e"
 
 
 class StaticWebWorkflowContractTests(unittest.TestCase):
