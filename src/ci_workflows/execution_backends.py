@@ -41,9 +41,8 @@ def resolve_execution_backend(
 
     backend = execution_backend.strip()
     organization = tuple(str(label) for label in organization_runs_on)
-    if not organization or any(not label for label in organization):
+    if not organization or any(not label for label in organization) or "self-hosted" in organization:
         raise ExecutionBackendError("invalid_organization_runner")
-
     if backend == "organization":
         return ExecutionBackendResolution(backend, execution_profile, organization)
     if backend != "github-hosted":
@@ -53,8 +52,4 @@ def resolve_execution_backend(
     return ExecutionBackendResolution(backend, execution_profile, _HOSTED_RUNS_ON)
 
 
-__all__ = (
-    "ExecutionBackendError",
-    "ExecutionBackendResolution",
-    "resolve_execution_backend",
-)
+__all__ = ("ExecutionBackendError", "ExecutionBackendResolution", "resolve_execution_backend")
