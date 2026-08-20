@@ -17,11 +17,11 @@ central or infrastructure-owned workflows.
 ## Semantic profile IDs are not GitHub runner labels
 
 The resolver exposes first-class general profiles `general-tiny`,
-`general-small`, and `general-medium`, plus domain profiles such as `mobile`,
-`buildah-tiny`, and `buildah-small`. `portable` remains a compatibility semantic
-request and maps only to `general-small`. Semantic values describe workflow
-intent. They are not copied into `runs-on` and do not need to exist as live
-GitHub runner labels.
+`general-small`, and `general-medium`, the dedicated service-validation profile
+`service-small`, plus domain profiles such as `mobile`, `buildah-tiny`, and
+`buildah-small`. `portable` remains a compatibility semantic request and maps
+only to `general-small`. Semantic values describe workflow intent. They are not
+copied into `runs-on` and do not need to exist as live GitHub runner labels.
 
 A runner row in GitHub contains different concepts:
 
@@ -30,7 +30,7 @@ A runner row in GitHub contains different concepts:
 - **GitHub-managed system label:** for example `self-hosted`. It can appear on a
   runner without being a safe or sufficient selector.
 - **Capability label:** one independent property such as `linux`, `amd64`,
-  `android`, `buildah`, `general`, `tiny`, or `small`.
+  `android`, `service`, `buildah`, `general`, `tiny`, or `small`.
 
 Every Linux ARC custom label is lowercase. GitHub requires one runner to contain
 **all** labels listed by a job. Platform labels alone, such as
@@ -57,6 +57,7 @@ the platform labels:
 | Minimal source admission and lightweight maintenance/control | `general-tiny` | `[linux, amd64, general, tiny]` | Actions runner 2.336.0; 256 Mi / 1 Gi memory; 4 Gi local storage; 2 Gi disposable workspace | Tokenless, one job, ephemeral; may run untrusted source only when the workflow exposes no secret or privileged authority |
 | Ordinary policy, lint, Python/Node scripts, Helm, GitOps, and Central conformance | `general-small`; compatibility request `portable` | `[linux, amd64, general, small]` | Actions runner 2.336.0; 512 Mi / 2 Gi memory; 8 Gi local storage; 4 Gi disposable workspace | Same tokenless general boundary; `portable` is intent only and never a label |
 | Measured larger general work | `general-medium` | `[linux, amd64, general, medium]` | Actions runner 2.336.0; 1 / 4 Gi memory; 16 Gi local storage; 8 Gi disposable workspace | Opt in only through an API that explicitly permits the measured medium tier |
+| Read-only service/Compose validation | `service-small` | `[linux, amd64, service, small]` | Actions runner 2.336.0; rootless Podman 4.9.3; podman-compose 1.0.6; VFS container storage; 512 Mi / 2 Gi memory; 8 Gi local storage | Tokenless, non-privileged, one job; same-repository trusted PR or trusted exact source only; no Docker/DinD, Buildah/Skopeo, registry publication, Kubernetes token, or Agent State credential |
 | Android, Gradle, Flutter-on-Linux, JDK 25, or Node 24 validation | `mobile` | `[linux, amd64, mobile]`; narrower installed-tool selectors are listed below | JDK/Javac 25; Flutter 3.44.8; Dart 3.12.2; Node 24.19.0; Android API/Build Tools 36 and 37; NDK 28.2.13676358; 2 / 4 Gi memory; 6 Gi workspace; 20 Gi scratch; managed 20 Gi dependency cache | Tokenless, one job; trusted PR or exact source because the managed cache is shared; does not prove a physical Android device is attached |
 | Very small daemonless OCI work | `buildah-tiny` | `[linux, amd64, buildah, tiny]` | Buildah 1.33.7, Skopeo 1.13.3, Podman 4.9.3; 512 Mi / 1 Gi memory; 6 Gi local storage | Privileged Buildah pod; trusted exact source only; no Docker daemon, DinD, Kubernetes token, or Agent State credential |
 | Small daemonless OCI work | `buildah-small` | `[linux, amd64, buildah, small]` | Same OCI tools; 512 Mi / 2 Gi memory; 16 Gi local storage | Same trusted exact-source boundary |
@@ -106,6 +107,30 @@ The repository Central self-check runs on `general-small`. It verifies its
 pre-provisioned Linux runtime before checkout and does not install, elevate, or
 persist a host runtime. The former emergency macOS exception is retired and
 must not be restored.
+
+### Service and Compose validation
+
+`validation.service-compose` resolves only to `service-small` and emits:
+
+```yaml
+runs-on: [linux, amd64, service, small]
+```
+
+This is a dedicated validation capacity, not an extension of ordinary general
+Linux and not an OCI publication tier. Its image pre-provisions rootless Podman
+and a compatible Compose provider and uses VFS storage so jobs do not depend on
+a privileged overlay mount, Docker daemon, DinD sidecar, or host socket.
+
+`service-small` accepts same-repository `trusted-pr` and `trusted-exact` source.
+It rejects `untrusted-fork`. It is non-privileged and Kubernetes-tokenless, and
+its API does not authorize Buildah, Skopeo, image publication, registry-write,
+cluster mutation, or caller-selected engine/infrastructure identity.
+
+Central owns the profile, resolver, and runner image product. Flux owns the live
+ARC deployment, security context, resources, storage, immutable image digest,
+and scale-to-zero policy. The tracked deployment/canary work is
+`StreamScapeTV/flux#447`; source-level presence of this profile is not evidence
+that the live capacity is already deployed.
 
 ### Android and mobile tools
 
@@ -313,6 +338,7 @@ The full receipt and cleanup contract is documented in
 | Source admission and lightweight maintenance | `general-tiny`, resolved to `[linux, amd64, general, tiny]` |
 | Ordinary policy, lint, Python/Node, Helm, GitOps, or conformance | `general-small`; compatibility `portable` resolves to `[linux, amd64, general, small]` |
 | Measured larger general work | `general-medium`, resolved to `[linux, amd64, general, medium]` only where the API permits it |
+| Service/Compose validation | `service-small` through `validation.service-compose`, resolved to `[linux, amd64, service, small]` for trusted PR/exact source |
 | Android or Gradle validation | `mobile`, resolved to `[linux, amd64, mobile]` |
 | Flutter on Linux | `mobile` |
 | Flutter or native Apple validation on macOS | `apple` |
@@ -331,6 +357,8 @@ change the runner after a job is scheduled.
 - Never use bare `[linux, amd64, general]`; include exactly one general size.
 - Never use bare `buildah` as a complete direct selector.
 - Never use deprecated combined or internal ARC infrastructure labels.
+- Never use `service-small` for OCI publication or as a substitute for a
+  measured privileged Buildah tier.
 - Never introduce Docker-capable or DinD selection for Linux ARC until a
   separately reviewed live Docker class is proven and the runner contract is
   updated.
