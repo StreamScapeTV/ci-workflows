@@ -17,8 +17,19 @@ The reusable workflow validates one exact admitted source SHA through checked-in
 
 All profiles use semantic `portable`. Callers cannot supply concrete labels, hosts, engines, caches, registries, package-manager commands, matrices, or infrastructure identities.
 
+## Execution backend
+
+`execution_backend` is optional and defaults to `organization`, which preserves the existing `general-small` organization selector exactly. A caller may explicitly request `github-hosted`; Central then maps the same Node workload plan to the fixed standard `ubuntu-latest` selector. The caller never supplies `ubuntu-latest` or any other concrete runner label.
+
+Backend choice changes scheduling only. Node version authority, npm-only restore, command profile, source trust, workspace isolation, cleanup, and outputs remain identical. Unknown backend values and unsupported backend/profile combinations fail closed. Repository visibility does not automatically select a backend.
+
+The small trusted planning job remains on organization general capacity and emits the exact Central-owned `runs_on_json` used by the validation job. The substantial Node execution is what moves to GitHub-hosted capacity when `execution_backend: github-hosted` is requested.
+
+`contracts/runner-execution-backends.json` owns this scheduling policy and `generated/runner-execution-backends.json` must remain its exact generated projection. `contracts/runner-profiles.json` remains the separate authority for the organization semantic selector.
+
 ## Public inputs
 
+- `execution_backend`: optional `organization` or `github-hosted`; default `organization`.
 - `admitted_sha`: exact lowercase source SHA already admitted by `source.resolve`.
 - `validation_profile`: one of the four reviewed profiles.
 - exactly one of `version_file` or exact `node_version`, as permitted by the selected fixture.
@@ -26,7 +37,7 @@ All profiles use semantic `portable`. Callers cannot supply concrete labels, hos
 - `public_environment`: canonical JSON containing only reviewed browser-public keys allowed by the selected fixture.
 - `artifact_exception_id`: reserved central input; v1 requires it to be empty and retains zero routine artifacts.
 
-The API never accepts arbitrary command text, shell, arguments, callbacks, modules, functions, environment-file paths, refs, runners, engines, registries, secrets, database URLs, Cloudflare deployment, Workers, Wrangler, signing, devices, Flux targets, Kubernetes targets, publication, or artifact uploads.
+The API never accepts arbitrary command text, shell, arguments, callbacks, modules, functions, environment-file paths, refs, runner labels, hosts, engines, registries, secrets, database URLs, Cloudflare deployment, Workers, Wrangler, signing, devices, Flux targets, Kubernetes targets, publication, or artifact uploads.
 
 ## Public outputs
 
@@ -39,19 +50,13 @@ The API never accepts arbitrary command text, shell, arguments, callbacks, modul
 
 No command output, public browser value, host path, package cache, source content, deployment value, token, or secret is exposed.
 
-## Immutable private helper reuse
+## Immutable Central helper reuse
 
-Private consumers do not need a second token or permission to clone `StreamScapeTV/ci-workflows`. `validation.node` follows the already-proven private-action sharing model used by `source.resolve`: central composite actions are invoked directly as immutable private action references rather than checking the central repository out into the caller workspace.
+Consumers do not need a second token or permission to clone `StreamScapeTV/ci-workflows`. `validation.node` invokes Central composite actions directly as immutable action references rather than checking the Central repository out into the caller workspace.
 
-The Node workflow pins these central helpers to the reviewed commit `70e08d4ddf8930046632a7135950e924b82e22bf` and records the same identities in `contracts/action-tool-lock.json`:
+The Node planner/executor uses `actions/validate-node@3a93709b69bb09e962ae3debba6b575deea55392`, recorded in `contracts/action-tool-lock.json` as `issue #405 reconciled execution-backend checkpoint`. Exact checkout, workspace preparation, evidence rendering, and cleanup remain pinned to foundation checkpoint `70e08d4ddf8930046632a7135950e924b82e22bf`.
 
-- `actions/validate-node`;
-- `actions/exact-checkout`;
-- `actions/prepare-workspace`;
-- `actions/render-evidence`; and
-- `actions/cleanup-workspace`.
-
-The composites resolve their central scripts and libraries relative to `GITHUB_ACTION_PATH`, so the private central implementation is supplied by the immutable action checkout itself. The public workflow has no `actions/checkout` step for the central repository, no `.ciw` clone, no caller-visible central source selector, and no new workflow secret.
+The composites resolve their Central scripts and libraries relative to `GITHUB_ACTION_PATH`, so the implementation is supplied by the immutable action checkout itself. The public workflow has no `actions/checkout` step for the Central repository, no `.ciw` clone, no caller-visible Central source selector, and no new workflow secret.
 
 `exact-checkout` still checks out only the admitted caller repository/source SHA. Its optional token defaults to the caller-scoped `github.token` and is never persisted. Central helper access therefore remains separate from caller-source checkout and from product dependency credentials.
 

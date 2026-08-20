@@ -133,7 +133,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 ### `source.resolve`
 
 - Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`, `tag-push`, `workflow_run`, `issue_comment`, `pull_request_target`
-- Inputs: `source_mode` (required), `requested_sha`, `expected_branch`, `release_contract`, `history_depth` (default `1`)
+- Inputs: `source_mode` (required), `requested_sha`, `expected_branch`, `release_contract`, `history_depth` (default `1`), `execution_backend` (default `organization`)
 - Secrets: none
 - Outputs: `caller_repository`, `caller_default_branch`, `caller_integration_branch`, `trust_mode`, `source_repository`, `source_sha`, `requested_sha`, `resolved_sha`, `pr_number`, `pr_head_repository`, `pr_head_sha`, `pr_base_branch`, `pr_base_sha`, `pr_merge_sha`, `tag_name`, `tag_object_sha`, `tag_commit_sha`, `requires_freshness`, `history_depth`, `request_id`, `evidence_id`
 - Repository-owned hooks: none
@@ -197,7 +197,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 ### `validation.node`
 
 - Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
-- Inputs: `admitted_sha` (required), `validation_profile` (required), `version_file`, `node_version`, `working_directory` (default `.`), `install_profile` (required), `command_profile` (required), `script_path`, `static_output_directory`, `output_verifier_path`, `public_environment` (default `{}`), `artifact_exception_id`
+- Inputs: `execution_backend` (default `organization`), `admitted_sha` (required), `validation_profile` (required), `version_file`, `node_version`, `working_directory` (default `.`), `install_profile` (required), `command_profile` (required), `script_path`, `static_output_directory`, `output_verifier_path`, `public_environment` (default `{}`), `artifact_exception_id`
 - Secrets: none
 - Outputs: `result`, `node_version`, `npm_version`, `install_result`, `test_summary`, `build_result`, `output_verified`, `output_digest`, `clean_tree`, `cleanup_result`, `artifact_exception_used`, `evidence_id`
 - Repository-owned hooks: `command_profile`, `script_path`, `static_output_directory`, `output_verifier_path`
@@ -205,7 +205,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 ### `validation.python`
 
 - Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
-- Inputs: `admitted_sha` (required), `validation_profile` (required), `version_file`, `working_directory` (default `.`), `command_profile` (required), `script_path`, `artifact_exception_id`
+- Inputs: `execution_backend` (default `organization`), `admitted_sha` (required), `validation_profile` (required), `version_file`, `working_directory` (default `.`), `command_profile` (required), `script_path`, `artifact_exception_id`
 - Secrets: none
 - Outputs: `result`, `test_summary`, `artifact_exception_used`
 - Repository-owned hooks: `command_profile`, `script_path`

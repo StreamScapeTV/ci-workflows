@@ -1,46 +1,47 @@
 # Runner image build and release
 
-`ci-workflows` owns one shared build/publish path for the organization runner images. Image composition stays under `runner-images/<image>/`; Flux owns ARC/K3s deployment, runner labels and resources, Docker sidecars, persistent/shared caching, and the image tag selected for live runners.
+`ci-workflows` owns one shared runner-image action: `actions/runner-image`. The workflows only choose the fixed image ID and whether publication is enabled.
 
-## Fixed image family
+## Images and registry
 
-The shared contract accepts only these image IDs:
+The fixed image family is:
 
-- `general` -> `git.faruqi.dev/mimranfaruqi/github-actions-runner-general`
-- `mobile` -> `git.faruqi.dev/mimranfaruqi/github-actions-runner-mobile`
-- `buildah` -> `git.faruqi.dev/mimranfaruqi/github-actions-runner-buildah`
-- `docker` -> `git.faruqi.dev/mimranfaruqi/github-actions-runner-docker`
-- `flux-control` -> `git.faruqi.dev/mimranfaruqi/github-actions-runner-flux-control`
+- `general`
+- `mobile`
+- `buildah`
+- `service`
+- `docker`
+- `flux-control`
 
-Each image provides `runner-images/<image>/Dockerfile`, `runner-images/<image>/smoke.sh`, and `/usr/local/bin/runner-image-smoke` in the built image. The typed resolver owns the fixed source paths and registry destinations. `actions/runner-image` is the single Buildah build/smoke/publish implementation used by both the internal reusable leaf and the repository release workflow.
+Each image publishes only to:
 
-An image may additionally own `runner-images/<image>/prepare_inputs.py` when its Dockerfile needs checksum-verified build-context inputs. The shared action runs that fixed product-local preparer only when it exists, requires it to create a real `.ciw-build-inputs` directory before the build, and removes that generated directory in terminal cleanup. Images without a preparer go directly from planning to build; Central does not own per-product download URLs or tool definitions.
+`ghcr.io/streamscapetv/github-actions-runner-<image>`
 
-Callers cannot choose a registry, container engine, runner labels, arbitrary shell command, Kubernetes target, cache backend, or storage path. The shared path uses the organization Buildah high-capacity runner, builds the image, executes the image-owned smoke command, and optionally publishes that same local image. It does not use GitHub Actions cache and does not create or manage PVs or cache services.
+`git.faruqi.dev` and private runner-registry credentials are not part of this path.
 
-The Buildah runner owns a dedicated job-private publication scratch directory at `/var/tmp/buildah`. Ordinary checkout/action temporary state remains under `RUNNER_TEMP`; only the registry publication step overrides `TMPDIR`, `TMP`, and `TEMP` to the fixed publication scratch after verifying that path is a real writable directory and not a symlink. This keeps large containers/image layer staging and compression off the smaller Actions work volume without exposing a caller-selectable storage path or changing Flux-owned capacity.
+## Build and smoke
 
-## Reusable non-publishing path
+Runner-image validation and release use standard GitHub-hosted `[ubuntu-latest]` jobs. The shared action uses the Buildah and Skopeo tools already provided by that runner image.
 
-`.github/workflows/internal-runner-image.yml` is a shallow `workflow_call` leaf for central/infrastructure callers. It checks out one exact `ci-workflows` SHA, delegates build/smoke/optional publication to the composite action, verifies credential cleanup, and verifies the source checkout remains clean. It does not call another reusable workflow.
+For each image the action:
 
-A runner-image implementation can call this leaf with `publish: false`, its fixed image ID, and the exact pull-request head SHA. Registry credentials are unnecessary in that mode.
+1. resolves the fixed source directory and GHCR reference;
+2. builds the image once with Buildah;
+3. runs the image-owned `/usr/local/bin/runner-image-smoke` from that same local image;
+4. optionally logs in to GHCR with the repository `GITHUB_TOKEN` and pushes the version plus `latest`;
+5. verifies the version and `latest` digests match and are anonymously readable; and
+6. performs terminal cleanup under `if: always()`.
 
-## Repository release
+There is no Docker/Buildx implementation, no private-registry mirror, and no GitHub Actions image artifact handoff.
 
-`.github/workflows/runner-images-release.yml` is the thin repository-level release caller. **Every repository Git tag** matches the workflow's `push.tags: ["*"]` trigger; no `runner-images-` prefix is required. The exact repository Git tag is passed through unchanged as the versioned OCI tag for all five images built from that tagged `ci-workflows` commit.
+## Pull-request validation
 
-For example, repository tag `1.0` publishes each fixed image twice:
+`.github/workflows/runner-images-validation.yml` creates one independent `[ubuntu-latest]` matrix job for each of the six images. It calls the shared action with `publish: false`, so validation has no package-write permission.
 
-- `git.faruqi.dev/mimranfaruqi/github-actions-runner-<image>:1.0`
-- `git.faruqi.dev/mimranfaruqi/github-actions-runner-<image>:latest`
+## Release
 
-A tag such as `runner-images-2026.08.19-hotfix` likewise publishes both the corresponding `:runner-images-2026.08.19-hotfix` version and `:latest`.
+`.github/workflows/runner-images-release.yml` triggers for every repository Git tag and may also replay an existing Git tag through manual dispatch. The release job grants only `contents: read` and `packages: write`, checks out the exact tagged commit, and calls the same shared action with `publish: true`.
 
-The exact Git tag remains the immutable/versioned release authority. `latest` is only a mutable convenience alias for the most recently published runner-image artifact and is not accepted as the repository release tag itself.
+The exact Git tag is the versioned image tag. `latest` is only the mutable convenience alias. A pre-existing version tag with a different `org.opencontainers.image.revision` is rejected before publication.
 
-Manual dispatch accepts an already-existing Git tag, verifies the tag resolves to the checked-out commit, and rebuilds the same five-image release set using that exact versioned tag again. Because `latest` is intentionally mutable, manually replaying an historical tag also moves `latest` to the replayed artifact; use historical replay deliberately.
-
-The release workflow calls the same `actions/runner-image` composite action directly rather than nesting reusable workflows. Publication uses the dedicated Buildah publication scratch, pushes and authenticated-read-backs the exact versioned tag first, then pushes and authenticated-read-backs `latest`. Either push/read-back failure fails that image job. Registry-side tag immutability, provenance manifests, digest ledgers, canary state, and rollback state are not acceptance requirements for this workflow.
-
-The release caller expects repository secrets `RUNNER_REGISTRY_USERNAME` and `RUNNER_REGISTRY_TOKEN`. They are passed only into the build/publish action. Authentication state is stored under `RUNNER_TEMP`, removed in the action's unconditional cleanup, and independently checked absent by the calling workflow.
+Live ARC/Kubernetes deployment remains Flux-owned and is not changed by this workflow.

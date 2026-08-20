@@ -44,6 +44,7 @@
     "project_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$"},
     "pr_number": {"type": "integer", "minimum": 1, "nullable": true},
     "request_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"},
+    "execution_backend": {"type": "string", "enum": ["organization", "github-hosted"], "default": "organization"},
     "validation_profile": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$"},
     "validation_scope": {"type": "string", "enum": ["protected-full", "compile", "unit", "assemble", "lint", "targeted-unit", "gradle", "script"]},
     "validation_plan_json": {"type": "json-object", "max_bytes": 16384},

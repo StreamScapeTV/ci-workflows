@@ -28,6 +28,7 @@ class RunnerContractTests(unittest.TestCase):
                 "general-tiny",
                 "general-small",
                 "general-medium",
+                "service-small",
                 "mobile",
                 "buildah-tiny",
                 "buildah-small",
@@ -388,6 +389,7 @@ class RunnerContractTests(unittest.TestCase):
         self.assertIn("general-tiny", source)
         self.assertIn("general-small", source)
         self.assertIn("general-medium", source)
+        self.assertIn("service-small", source)
         self.assertIn("physical-device", source)
 
     def test_architecture_records_planner_and_flux_boundary(self) -> None:

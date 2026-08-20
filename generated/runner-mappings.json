@@ -13,7 +13,8 @@
     "macOS": "apple",
     "mobile": "mobile",
     "physical-device": "physical-device",
-    "portable": "general-small"
+    "portable": "general-small",
+    "service-small": "service-small"
   },
   "contract_version": "2.2.0",
   "generated_from": "contracts/runner-profiles.json",
@@ -524,6 +525,45 @@
       },
       "public_labels": [],
       "runs_on": null
+    },
+    "service-small": {
+      "allowed_source_trust": [
+        "trusted-pr",
+        "trusted-exact"
+      ],
+      "allowed_workflow_apis": [
+        "validation.service-compose"
+      ],
+      "approved_selectors": [
+        [
+          "linux",
+          "amd64",
+          "service",
+          "small"
+        ]
+      ],
+      "capacity_owner": "flux-arc",
+      "evidence_fields": [
+        "result",
+        "test_summary",
+        "cleanup_result"
+      ],
+      "kind": "runner",
+      "lifecycle": "ephemeral-one-job",
+      "privilege": {
+        "device_locked": false,
+        "kubernetes_token": false,
+        "manual_capacity": false,
+        "privileged_container": false,
+        "repository_scoped": false
+      },
+      "public_labels": [],
+      "runs_on": [
+        "linux",
+        "amd64",
+        "service",
+        "small"
+      ]
     }
   },
   "scheduling_mechanism": {
@@ -668,6 +708,12 @@
         "buildah-high"
       ],
       "strategy": "profile-contract"
+    },
+    "validation.service-compose": {
+      "profiles": [
+        "service-small"
+      ],
+      "strategy": "fixed"
     }
   }
 }
