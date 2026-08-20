@@ -91,7 +91,8 @@ class AppleWorkflowContractTests(unittest.TestCase):
     def test_semantic_runner_selection_uses_one_heavy_apple_executor(self) -> None:
         direct_general_selector = "runs-on: [linux, amd64, general, small]"
         self.assertIn(direct_general_selector, self.workflow)
-        self.assertEqual(self.smoke.count(direct_general_selector), 2)
+        self.assertNotIn(direct_general_selector, self.smoke)
+        self.assertEqual(self.smoke.count("runs-on: ubuntu-latest"), 2)
         self.assertEqual(
             self.workflow.count(
                 "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}"
@@ -109,7 +110,7 @@ class AppleWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("runs-on: macOS", self.workflow + self.smoke)
         self.assertNotIn("runs-on: self-hosted", self.workflow + self.smoke)
         self.assertNotIn("macos-latest", self.workflow + self.smoke)
-        self.assertNotIn("ubuntu-latest", self.workflow + self.smoke)
+        self.assertNotIn("ubuntu-latest", self.workflow)
         self.assertEqual(self.contract["planner_runner_profile"], "portable")
         self.assertEqual(self.contract["execution_runner_profile"], "apple")
         self.assertIn('requested_profile="apple"', (
