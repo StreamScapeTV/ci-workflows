@@ -8,12 +8,7 @@ from pathlib import Path
 from . import node as node_validation
 from . import runners
 from .ciw_types import CIWContext, CIWResult, write_command_file
-from .execution_backends import (
-    ExecutionBackendError,
-    load_execution_backend_contract,
-    resolve_execution_backend,
-    validate_generated_mapping,
-)
+from .execution_backends import ExecutionBackendError, resolve_execution_backend
 from .workspace import resolve_state_root
 
 
@@ -88,10 +83,7 @@ def execute_node_validate(
 
     try:
         contract = node_validation.load_node_contract(context.root)
-        request = node_validation.request_from_environment(
-            context.environment,
-            contract,
-        )
+        request = node_validation.request_from_environment(context.environment, contract)
         if args.phase == "plan":
             plan = node_validation.validate(
                 contract_root=context.root,
@@ -110,23 +102,13 @@ def execute_node_validate(
                 requested_profile=plan.runner_profile,
             )
             try:
-                backend_contract = load_execution_backend_contract(context.root)
-                validate_generated_mapping(context.root, backend_contract)
                 backend = resolve_execution_backend(
-                    contract=backend_contract,
-                    workflow_api="validation.node",
-                    execution_backend=context.environment.get(
-                        "INPUT_EXECUTION_BACKEND", "organization"
-                    ),
+                    execution_backend=context.environment.get("INPUT_EXECUTION_BACKEND", "organization"),
                     execution_profile=organization.execution_profile,
                     organization_runs_on=organization.runs_on,
                 )
             except ExecutionBackendError as error:
-                code = (
-                    "unsupported_profile"
-                    if error.code == "unsupported_execution_backend_profile"
-                    else "invalid_input"
-                )
+                code = "unsupported_profile" if error.code == "unsupported_execution_backend_profile" else "invalid_input"
                 raise node_validation.NodeValidationError(code) from error
             outputs = plan.planning_outputs()
             outputs.update(
@@ -140,9 +122,7 @@ def execute_node_validate(
             )
             return CIWResult("node", "validate", outputs=outputs)
 
-        workspace = Path(
-            context.environment.get("GITHUB_WORKSPACE", ".")
-        ).resolve()
+        workspace = Path(context.environment.get("GITHUB_WORKSPACE", ".")).resolve()
         relative_source = node_validation.safe_relative(args.source_root)
         source_root = node_validation.bounded_path(workspace, relative_source)
         result = node_validation.validate(
@@ -155,11 +135,7 @@ def execute_node_validate(
         )
         if not isinstance(result, node_validation.NodeValidationResult):
             raise node_validation.NodeValidationError("invalid_input")
-        return CIWResult(
-            "node",
-            "validate",
-            outputs=result.output_values(),
-        )
+        return CIWResult("node", "validate", outputs=result.output_values())
     except node_validation.NodeValidationError as error:
         _failure_outputs(context, error.code)
         raise
