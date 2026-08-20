@@ -10,6 +10,7 @@ from typing import Any, Mapping
 ROOT = Path(__file__).resolve().parents[2]
 GENERAL_LINUX_SELECTOR = ["linux", "amd64", "general", "small"]
 SELF_CHECK_RUNNER = "ubuntu-latest"
+SELF_CHECK_RUNS_ON_SOURCE = "[ubuntu-latest]"
 
 HOST_PYTHON = {
     "implementation": "cpython",
@@ -292,7 +293,7 @@ def _validate_verified_interpreter_use(source: str) -> None:
 def validate_self_check() -> None:
     source = read_text(".github/workflows/self-check.yml")
     required = (
-        f"runs-on: {SELF_CHECK_RUNNER}",
+        f"runs-on: {SELF_CHECK_RUNS_ON_SOURCE}",
         "timeout-minutes: 10",
         "permissions:\n  actions: read\n  contents: read",
         "Admit trusted workflow source",
@@ -333,9 +334,9 @@ def validate_self_check() -> None:
         source,
         re.MULTILINE,
     )
-    if runs_on != [SELF_CHECK_RUNNER]:
+    if runs_on != [SELF_CHECK_RUNS_ON_SOURCE]:
         raise SystemExit(
-            f"self-check must use exactly {SELF_CHECK_RUNNER}, found {runs_on!r}"
+            f"self-check must use exactly {SELF_CHECK_RUNS_ON_SOURCE}, found {runs_on!r}"
         )
     if re.search(r"runs-on:\s*.*\$\{\{", source):
         raise SystemExit("self-check runner selector must not be dynamic")
