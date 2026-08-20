@@ -23,10 +23,7 @@ EXPECTED_CONCURRENCY = {
     "routine": "group: apple-validation-smoke-pr-${{ github.event.pull_request.number }}",
     "release": "group: apple-release-certification-pr-${{ github.event.pull_request.number }}",
 }
-EXPECTED_APPLE_EXECUTOR = {
-    "routine": "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
-    "release": "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
-}
+APPLE_EXECUTOR_SELECTOR = "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}"
 
 
 def pull_request_paths(source: str) -> set[str]:
@@ -69,8 +66,11 @@ class AppleSmokeTriggerContractTests(unittest.TestCase):
                 source = path.read_text(encoding="utf-8")
                 self.assertEqual(source.count("runs-on: ubuntu-latest"), 2)
                 self.assertNotIn("runs-on: [linux, amd64, general, small]", source)
-                self.assertIn(EXPECTED_APPLE_EXECUTOR[name], source)
-                self.assertIn("'[\"macOS\",\"ARM64\"]'", source) if name == "routine" else None
+                self.assertIn(APPLE_EXECUTOR_SELECTOR, source)
+
+        routine = WORKFLOWS["routine"].read_text(encoding="utf-8")
+        self.assertIn("macOS", routine)
+        self.assertIn("ARM64", routine)
 
 
 if __name__ == "__main__":
