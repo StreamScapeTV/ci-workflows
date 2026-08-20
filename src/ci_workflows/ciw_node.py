@@ -8,6 +8,7 @@ from pathlib import Path
 from . import node as node_validation
 from . import runners
 from .ciw_types import CIWContext, CIWResult, write_command_file
+from .execution_backends import ExecutionBackendError, resolve_execution_backend
 from .workspace import resolve_state_root
 
 
@@ -66,6 +67,7 @@ def _failure_outputs(context: CIWContext, code: str) -> None:
             "evidence_id": "",
             "failure_code": code,
             "runner_profile": "portable",
+            "runs_on_json": "",
             "workspace_profile": "minimal",
             "timeout_minutes": "",
             "source_trust": "",
@@ -96,17 +98,28 @@ def execute_node_validate(
             )
             if not isinstance(plan, node_validation.NodeValidationPlan):
                 raise node_validation.NodeValidationError("invalid_input")
-            resolved = runners.resolve_runner_profile(
+            organization = runners.resolve_runner_profile(
                 runners.load_runner_contract(context.root),
                 workflow_api="validation.node",
                 source_trust=request.source_trust,
                 requested_profile=plan.runner_profile,
             )
+            try:
+                backend = resolve_execution_backend(
+                    workflow_api="validation.node",
+                    execution_backend=context.environment.get(
+                        "INPUT_EXECUTION_BACKEND", "organization"
+                    ),
+                    execution_profile=organization.execution_profile,
+                    organization_runs_on=organization.runs_on,
+                )
+            except ExecutionBackendError as error:
+                raise node_validation.NodeValidationError(error.code) from error
             outputs = plan.planning_outputs()
             outputs.update(
                 {
                     "runner_profile": plan.runner_profile,
-                    "runs_on_json": resolved.as_dict()["runs_on_json"],
+                    "runs_on_json": backend.as_dict()["runs_on_json"],
                     "workspace_profile": plan.workspace_profile,
                     "timeout_minutes": str(plan.timeout_minutes),
                     "source_trust": request.source_trust,
