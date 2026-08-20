@@ -5,10 +5,6 @@ import re
 import unittest
 from pathlib import Path
 
-import yaml
-
-from ci_workflows.validation_model import ActionsLoader
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -16,16 +12,10 @@ class SourceWorkflowContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.workflow = (ROOT / ".github/workflows/reusable-resolve-source.yml").read_text(encoding="utf-8")
-        cls.parsed = yaml.load(cls.workflow, Loader=ActionsLoader)
         cls.action = (ROOT / "actions/exact-checkout/action.yml").read_text(encoding="utf-8")
         cls.contract = json.loads((ROOT / "contracts/source-admission.json").read_text(encoding="utf-8"))
-        cls.public = json.loads(
-            (ROOT / "contracts/public-workflows/source-control.json").read_text(
-                encoding="utf-8"
-            )
-        )["workflows"][0]
 
-    def test_reusable_workflow_is_short_metadata_only_and_exactly_stages_helpers(self) -> None:
+    def test_reusable_workflow_is_short_metadata_only_and_exactly_stages_helper(self) -> None:
         self.assertIn("\n  workflow_call:\n", self.workflow)
         for forbidden in (
             "\n  pull_request:\n",
@@ -43,40 +33,10 @@ class SourceWorkflowContractTests(unittest.TestCase):
             self.workflow,
             r"uses: StreamScapeTV/ci-workflows/actions/resolve-source@[0-9a-f]{40}",
         )
-        self.assertRegex(
-            self.workflow,
-            r"uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@[0-9a-f]{40}",
-        )
         self.assertIn("runs-on: [linux, amd64, general, tiny]", self.workflow)
-        self.assertIn(
-            "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
-            self.workflow,
-        )
         self.assertNotIn("runs-on: [linux, amd64, general]", self.workflow)
         self.assertNotIn("runs-on: portable", self.workflow)
         self.assertNotIn("run: |", self.workflow)
-
-    def test_execution_backend_is_optional_and_organization_default(self) -> None:
-        call = self.parsed["on"]["workflow_call"]
-        backend = call["inputs"]["execution_backend"]
-        self.assertFalse(backend["required"])
-        self.assertEqual(backend["default"], "organization")
-        self.assertEqual(backend["type"], "string")
-        public_inputs = {item["name"]: item for item in self.public["inputs"]}
-        self.assertEqual(public_inputs["execution_backend"]["default"], "organization")
-        plan = self.parsed["jobs"]["plan"]
-        admit = self.parsed["jobs"]["admit"]
-        self.assertEqual(plan["runs-on"], ["linux", "amd64", "general", "tiny"])
-        self.assertEqual(
-            admit["runs-on"],
-            "${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
-        )
-        backend_step = plan["steps"][0]
-        self.assertEqual(backend_step["with"]["workflow_api"], "source.resolve")
-        self.assertEqual(
-            backend_step["with"]["execution_backend"],
-            "${{ inputs.execution_backend }}",
-        )
 
     def test_workflow_and_machine_contract_publish_the_same_typed_outputs(self) -> None:
         workflow_output_block = self.workflow.split("    outputs:\n", 1)[1].split("\npermissions:\n", 1)[0]

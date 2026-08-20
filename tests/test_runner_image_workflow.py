@@ -24,8 +24,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class RunnerImageContractTests(unittest.TestCase):
-    def test_fixed_five_image_family(self) -> None:
-        self.assertEqual(("general", "mobile", "buildah", "docker", "flux-control"), IMAGE_IDS)
+    def test_fixed_six_image_family(self) -> None:
+        self.assertEqual(("general", "mobile", "buildah", "service", "docker", "flux-control"), IMAGE_IDS)
         self.assertEqual(IMAGE_IDS, release_matrix())
         for image_id in IMAGE_IDS:
             image = resolve_image(image_id)

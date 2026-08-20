@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "default_backend": "organization",
+  "allowed_backends": [
+    "organization",
+    "github-hosted"
+  ],
+  "organization": {
+    "selector_authority": "contracts/runner-profiles.json",
+    "preserve_semantic_selector": true
+  },
+  "github-hosted": {
+    "runs_on": [
+      "ubuntu-latest"
+    ],
+    "supported_workflow_profiles": {
+      "source.resolve": [
+        "general-tiny"
+      ],
+      "validation.node": [
+        "general-small"
+      ],
+      "validation.python": [
+        "general-small"
+      ]
+    }
+  }
+}

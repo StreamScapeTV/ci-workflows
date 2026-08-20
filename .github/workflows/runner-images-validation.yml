@@ -6,14 +6,23 @@ on:
     paths:
       - ".github/workflows/runner-images-validation.yml"
       - "actions/runner-image/**"
+      - "contracts/runner-execution-backends.json"
+      - "generated/runner-execution-backends.json"
       - "runner-images/general/**"
       - "runner-images/mobile/**"
+      - "runner-images/buildah/**"
+      - "runner-images/service/**"
       - "runner-images/docker/**"
       - "runner-images/flux-control/**"
+      - "scripts/ci/hosted_runner_images.py"
       - "scripts/ci/runner_images.py"
+      - "src/ci_workflows/hosted_runner_images.py"
       - "src/ci_workflows/runner_images.py"
+      - "tests/test_hosted_runner_image_action.py"
+      - "tests/test_hosted_runner_images.py"
       - "tests/test_runner_image_general.py"
       - "tests/test_mobile_runner_image_assembly.py"
+      - "tests/test_service_runner_capacity.py"
       - "tests/test_runner_image_docker.py"
       - "tests/test_runner_image_flux_control.py"
       - "tests/test_runner_images_validation_workflow.py"
@@ -35,9 +44,11 @@ jobs:
         image:
           - general
           - mobile
+          - buildah
+          - service
           - docker
           - flux-control
-    runs-on: [linux, amd64, buildah, high]
+    runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
       SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
@@ -59,32 +70,24 @@ jobs:
           [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
 
-      - name: Verify dedicated Buildah publication scratch
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          push_tmp=/var/tmp/buildah
-          test -d "${push_tmp}"
-          test ! -L "${push_tmp}"
-          test -w "${push_tmp}"
-
-      - name: Build and smoke through the shared runner-image action
+      - id: image
+        name: Build and smoke on fresh GitHub-hosted capacity
         uses: ./actions/runner-image
         with:
           image: ${{ matrix.image }}
           source_sha: ${{ env.SOURCE_SHA }}
           publish: "false"
 
-      - name: Verify runner-image credential cleanup
-        if: always()
+      - name: Record hosted feasibility measurements
         shell: bash
         env:
           IMAGE: ${{ matrix.image }}
+          HOSTED_METRICS_JSON: ${{ steps.image.outputs.hosted_metrics_json }}
         run: |
           set -Eeuo pipefail
-          authfile="${RUNNER_TEMP}/ciw-runner-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${IMAGE}.json"
-          test ! -e "${authfile}"
-          test ! -L "${authfile}"
+          test -n "${HOSTED_METRICS_JSON}"
+          printf '### Runner image `%s` hosted feasibility\n\n```json\n%s\n```\n' \
+            "${IMAGE}" "${HOSTED_METRICS_JSON}" >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Verify exact source remained clean
         if: ${{ always() && !cancelled() }}

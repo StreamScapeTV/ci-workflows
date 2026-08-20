@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "product_id": "runner-service",
+  "image_repository": "git.faruqi.dev/mimranfaruqi/github-actions-runner-service",
+  "platform": "linux/amd64",
+  "dockerfile": "runner-images/service/Dockerfile",
+  "smoke": "runner-images/service/smoke.sh",
+  "release_authority": "ci-workflows-git-tag"
+}

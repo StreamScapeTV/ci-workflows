@@ -1,0 +1,100 @@
+name: Service runner exact-source smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact 40-character ci-workflows source SHA to test
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Resolve service validation capacity
+    runs-on: [linux, amd64, general, tiny]
+    timeout-minutes: 10
+    outputs:
+      runs_on_json: ${{ steps.resolve.outputs.runs_on_json }}
+    env:
+      SOURCE_SHA: ${{ inputs.source_sha }}
+    steps:
+      - name: Validate exact source input
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+
+      - name: Check out exact Central source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact checked-out source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+
+      - name: Resolve semantic service profile
+        id: resolve
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          resolved="$(python3 scripts/ci/runner_contract.py resolve --api validation.service-compose --source-trust trusted-exact --profile service-small)"
+          runs_on_json="$(jq -r '.runs_on_json' <<<"${resolved}")"
+          test "${runs_on_json}" = '["linux","amd64","service","small"]'
+          printf 'runs_on_json=%s\n' "${runs_on_json}" >> "${GITHUB_OUTPUT}"
+
+  smoke:
+    name: Rootless multi-service Compose smoke
+    needs: plan
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
+    timeout-minutes: 20
+    env:
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      COMPOSE_PROJECT_NAME: ciw-service-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Check out exact Central source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact checked-out source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+
+      - name: Verify dedicated rootless service runtime
+        shell: bash
+        run: python3 scripts/ci/service_runner_smoke.py verify-runtime
+
+      - name: Run exact-source multi-service service canary
+        shell: bash
+        run: python3 scripts/ci/service_runner_smoke.py run --project-name "${COMPOSE_PROJECT_NAME}" --work-dir "${RUNNER_TEMP}/service-compose-smoke"
+
+      - name: Cleanup run-owned service canary state
+        if: always()
+        shell: bash
+        run: python3 scripts/ci/service_runner_smoke.py cleanup --project-name "${COMPOSE_PROJECT_NAME}" --work-dir "${RUNNER_TEMP}/service-compose-smoke"
+
+      - name: Verify exact source remained clean
+        if: ${{ always() && !cancelled() }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+          test -z "$(git status --porcelain --untracked-files=all)"

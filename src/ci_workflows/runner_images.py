@@ -7,8 +7,9 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TextIO
 
-REGISTRY_HOST = "git.faruqi.dev"
-REGISTRY_NAMESPACE = "mimranfaruqi"
+REGISTRY_HOST = "ghcr.io"
+REGISTRY_NAMESPACE = "streamscapetv"
+SOURCE_REPOSITORY = "https://github.com/StreamScapeTV/ci-workflows"
 SMOKE_COMMAND = "/usr/local/bin/runner-image-smoke"
 
 _SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -52,32 +53,20 @@ class RunnerImagePlan:
         return asdict(self)
 
 
-_IMAGES = (
+_IMAGES = tuple(
     RunnerImage(
+        image_id,
+        f"runner-images/{image_id}",
+        f"{REGISTRY_HOST}/{REGISTRY_NAMESPACE}/github-actions-runner-{image_id}",
+    )
+    for image_id in (
         "general",
-        "runner-images/general",
-        f"{REGISTRY_HOST}/{REGISTRY_NAMESPACE}/github-actions-runner-general",
-    ),
-    RunnerImage(
         "mobile",
-        "runner-images/mobile",
-        f"{REGISTRY_HOST}/{REGISTRY_NAMESPACE}/github-actions-runner-mobile",
-    ),
-    RunnerImage(
         "buildah",
-        "runner-images/buildah",
-        f"{REGISTRY_HOST}/{REGISTRY_NAMESPACE}/github-actions-runner-buildah",
-    ),
-    RunnerImage(
+        "service",
         "docker",
-        "runner-images/docker",
-        f"{REGISTRY_HOST}/{REGISTRY_NAMESPACE}/github-actions-runner-docker",
-    ),
-    RunnerImage(
         "flux-control",
-        "runner-images/flux-control",
-        f"{REGISTRY_HOST}/{REGISTRY_NAMESPACE}/github-actions-runner-flux-control",
-    ),
+    )
 )
 IMAGE_IDS = tuple(item.image_id for item in _IMAGES)
 _IMAGE_BY_ID = {item.image_id: item for item in _IMAGES}
@@ -123,7 +112,7 @@ def build_plan(
     source_sha: str,
     release_tag: str | None = None,
 ) -> RunnerImagePlan:
-    """Resolve one fixed image into local and optional publication references."""
+    """Resolve one fixed image into local and optional GHCR references."""
 
     image = resolve_image(image_id)
     source_sha = validate_source_sha(source_sha)

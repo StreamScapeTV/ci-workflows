@@ -8,7 +8,12 @@ from pathlib import Path
 from . import node as node_validation
 from . import runners
 from .ciw_types import CIWContext, CIWResult, write_command_file
-from .execution_backends import ExecutionBackendError, resolve_execution_backend
+from .execution_backends import (
+    ExecutionBackendError,
+    load_execution_backend_contract,
+    resolve_execution_backend,
+    validate_generated_mapping,
+)
 from .workspace import resolve_state_root
 
 
@@ -105,7 +110,10 @@ def execute_node_validate(
                 requested_profile=plan.runner_profile,
             )
             try:
+                backend_contract = load_execution_backend_contract(context.root)
+                validate_generated_mapping(context.root, backend_contract)
                 backend = resolve_execution_backend(
+                    contract=backend_contract,
                     workflow_api="validation.node",
                     execution_backend=context.environment.get(
                         "INPUT_EXECUTION_BACKEND", "organization"

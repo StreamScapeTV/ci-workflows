@@ -8,18 +8,20 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/runner-images-validation.yml"
 
-EXPECTED_IMAGES = ["general", "mobile", "docker", "flux-control"]
+EXPECTED_IMAGES = ["general", "mobile", "service", "docker", "flux-control"]
 EXPECTED_PATHS = [
     ".github/workflows/runner-images-validation.yml",
     "actions/runner-image/**",
     "runner-images/general/**",
     "runner-images/mobile/**",
+    "runner-images/service/**",
     "runner-images/docker/**",
     "runner-images/flux-control/**",
     "scripts/ci/runner_images.py",
     "src/ci_workflows/runner_images.py",
     "tests/test_runner_image_general.py",
     "tests/test_mobile_runner_image_assembly.py",
+    "tests/test_service_runner_capacity.py",
     "tests/test_runner_image_docker.py",
     "tests/test_runner_image_flux_control.py",
     "tests/test_runner_images_validation_workflow.py",

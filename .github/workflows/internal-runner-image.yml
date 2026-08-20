@@ -12,35 +12,39 @@ on:
         required: true
         type: string
       release_tag:
-        description: Optional human-readable Git release tag used as the OCI tag
+        description: Optional human-readable Git release tag used as the GHCR tag
         required: false
         default: ""
         type: string
       publish:
-        description: Publish the built image to the fixed private registry
+        description: Publish the already-smoked image to public GHCR
         required: false
         default: false
         type: boolean
-    secrets:
-      registry_username:
-        required: false
-      registry_token:
-        required: false
     outputs:
       image_reference:
-        description: Fixed registry reference when release_tag is supplied
+        description: Fixed GHCR reference when release_tag is supplied
         value: ${{ jobs.image.outputs.image_reference }}
+      image_digest:
+        description: Published GHCR manifest digest in publish mode
+        value: ${{ jobs.image.outputs.image_digest }}
+      hosted_metrics_json:
+        description: Hosted-runner feasibility measurements
+        value: ${{ jobs.image.outputs.hosted_metrics_json }}
 
 permissions:
   contents: read
+  packages: write
 
 jobs:
   image:
     name: Runner image / ${{ inputs.image }}
-    runs-on: [linux, amd64, buildah, high]
+    runs-on: ubuntu-latest
     timeout-minutes: 180
     outputs:
       image_reference: ${{ steps.runner_image.outputs.image_reference }}
+      image_digest: ${{ steps.runner_image.outputs.image_digest }}
+      hosted_metrics_json: ${{ steps.runner_image.outputs.hosted_metrics_json }}
     steps:
       - name: Check out exact runner-image source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -69,19 +73,6 @@ jobs:
           source_sha: ${{ inputs.source_sha }}
           release_tag: ${{ inputs.release_tag }}
           publish: ${{ inputs.publish }}
-          registry_username: ${{ secrets.registry_username }}
-          registry_token: ${{ secrets.registry_token }}
-
-      - name: Verify runner-image credential cleanup
-        if: always()
-        shell: bash
-        env:
-          IMAGE: ${{ inputs.image }}
-        run: |
-          set -Eeuo pipefail
-          authfile="${RUNNER_TEMP}/ciw-runner-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${IMAGE}.json"
-          test ! -e "${authfile}"
-          test ! -L "${authfile}"
 
       - name: Verify exact source remained clean
         if: ${{ always() && !cancelled() }}
