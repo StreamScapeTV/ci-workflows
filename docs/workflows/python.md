@@ -16,6 +16,8 @@ The `audit` and `host` validation profiles both resolve to the existing `general
 
 The small trusted planning job remains on organization general capacity and emits the exact Central-owned `runs_on_json` consumed by the validation job. Repository visibility never chooses a backend automatically.
 
+`contracts/runner-execution-backends.json` owns the backend names, default, fixed hosted selector, and allowed workflow/profile combinations. `generated/runner-execution-backends.json` must remain its exact generated projection; `contracts/runner-profiles.json` separately remains the organization semantic runner authority.
+
 ## Public inputs
 
 | Input | Required | Meaning |
@@ -61,7 +63,7 @@ Current Agent State source checks and the Backend same-repository pull-request g
 
 ## Code distribution and runtime authority
 
-Private consumers do not clone `StreamScapeTV/ci-workflows` with caller-scoped credentials. The planner and executor invoke `validate-python` directly at immutable #405 execution-backend checkpoint `34d736612462f7ab4e7be83443760c59027478db`. The final candidate records that identity in `contracts/action-tool-lock.json`.
+Consumers do not clone `StreamScapeTV/ci-workflows` with caller-scoped credentials. The planner and executor invoke `validate-python` directly at immutable checkpoint `3a93709b69bb09e962ae3debba6b575deea55392`, recorded in `contracts/action-tool-lock.json` as `issue #405 reconciled execution-backend checkpoint`.
 
 That SHA fixes the reviewed Central code bundle; it is not a product-facing immutable-runtime or provenance acceptance gate. Host runtime authority comes from the checked-in `host-cpython-3.12` family contract and the selected runner's pre-provisioned interpreter. Container and PostgreSQL profiles retain their exact image identities.
 
@@ -71,7 +73,7 @@ Exact checkout, marker-bound workspace preparation, and cleanup use foundation c
 
 1. A general-Linux planning job calls the immutable `validate-python` code checkpoint with bounded intent, including `execution_backend`.
 2. The planner validates caller identity, source trust, validation profile, command profile, and the existing semantic runner intent.
-3. Central backend resolution preserves the organization selector or maps a supported portable profile to the fixed hosted selector; unsupported combinations fail before execution.
+3. Central backend resolution validates the checked-in backend contract/generated mapping, preserves the organization selector, or maps a supported portable profile to the fixed hosted selector; unsupported combinations fail before execution.
 4. The dependent validation job is scheduled from the exact JSON selector emitted by the planner.
 5. The job checks out only the exact admitted caller source and creates marker-bound state with cache mode disabled.
 6. `ciw python validate --phase execute` revalidates source, version and dependency contracts, and repository policy.
