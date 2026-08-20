@@ -48,7 +48,7 @@ jobs:
           - service
           - docker
           - flux-control
-    runs-on: ubuntu-latest
+    runs-on: [ubuntu-latest]
     timeout-minutes: 180
     env:
       SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
@@ -88,6 +88,23 @@ jobs:
           test -n "${HOSTED_METRICS_JSON}"
           printf '### Runner image `%s` hosted feasibility\n\n```json\n%s\n```\n' \
             "${IMAGE}" "${HOSTED_METRICS_JSON}" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Remove runner-image validation residue
+        if: always()
+        shell: bash
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: |
+          set +e
+          cleanup_failed=0
+          docker_config="${RUNNER_TEMP}/ciw-runner-docker-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${IMAGE}"
+          build_inputs="${GITHUB_WORKSPACE}/runner-images/${IMAGE}/.ciw-build-inputs"
+          rm -rf -- "${docker_config}" "${build_inputs}" || cleanup_failed=1
+          test ! -e "${docker_config}" || cleanup_failed=1
+          test ! -L "${docker_config}" || cleanup_failed=1
+          test ! -e "${build_inputs}" || cleanup_failed=1
+          test ! -L "${build_inputs}" || cleanup_failed=1
+          exit "${cleanup_failed}"
 
       - name: Verify exact source remained clean
         if: ${{ always() && !cancelled() }}
