@@ -1,0 +1,174 @@
+name: Service runner exact-source smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact 40-character ci-workflows source SHA to test
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Resolve service validation capacity
+    runs-on: [linux, amd64, general, tiny]
+    timeout-minutes: 10
+    outputs:
+      runs_on: ${{ steps.resolve.outputs.runs_on }}
+    env:
+      SOURCE_SHA: ${{ inputs.source_sha }}
+    steps:
+      - name: Validate exact source input
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+
+      - name: Check out exact Central source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact checked-out source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+
+      - name: Resolve semantic service profile
+        id: resolve
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          resolved="$(python3 scripts/ci/runner_contract.py resolve \
+            --api validation.service-compose \
+            --source-trust trusted-exact \
+            --profile service-small)"
+          runs_on="$(jq -c '.runs_on' <<<"${resolved}")"
+          test "${runs_on}" = '["linux","amd64","service","small"]'
+          printf 'runs_on=%s\n' "${runs_on}" >> "${GITHUB_OUTPUT}"
+
+  smoke:
+    name: Rootless multi-service Compose smoke
+    needs: plan
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on) }}
+    timeout-minutes: 20
+    env:
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      COMPOSE_PROJECT_NAME: ciw-service-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Verify runner boundary before checkout
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(id -u)" -ne 0
+          podman --version | grep -F '4.9.3'
+          podman-compose --version | grep -F '1.0.6'
+          test "$(podman info --format '{{.Host.Security.Rootless}}')" = true
+          test "${STORAGE_DRIVER:-}" = vfs
+          ! command -v docker
+          ! command -v dockerd
+          ! command -v containerd
+          ! command -v buildah
+          ! command -v skopeo
+          test ! -e /var/run/docker.sock
+          test ! -e /run/docker.sock
+
+      - name: Check out exact Central source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact checked-out source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+
+      - name: Start and verify two Compose services
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          work="${RUNNER_TEMP}/service-compose-smoke"
+          mkdir -p "${work}"
+          cat > "${work}/compose.yml" <<'YAML'
+          services:
+            backend:
+              image: docker.io/library/busybox:1.37.0
+              command:
+                - sh
+                - -ec
+                - |
+                  mkdir -p /www
+                  printf 'backend-ready\n' > /www/ready
+                  exec httpd -f -p 8080 -h /www
+            client:
+              image: docker.io/library/busybox:1.37.0
+              depends_on:
+                - backend
+              command:
+                - sh
+                - -ec
+                - |
+                  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+                    if wget -qO- http://backend:8080/ready | grep -Fx backend-ready; then
+                      printf 'client-ready\n' > /tmp/client-ready
+                      exec sleep 600
+                    fi
+                    sleep 1
+                  done
+                  exit 1
+          YAML
+
+          cd "${work}"
+          podman-compose -f compose.yml -p "${COMPOSE_PROJECT_NAME}" up -d
+
+          backend_id="$(podman-compose -f compose.yml -p "${COMPOSE_PROJECT_NAME}" ps -q backend)"
+          client_id="$(podman-compose -f compose.yml -p "${COMPOSE_PROJECT_NAME}" ps -q client)"
+          test -n "${backend_id}"
+          test -n "${client_id}"
+
+          ready=false
+          for _ in $(seq 1 30); do
+            if podman exec "${client_id}" test -f /tmp/client-ready; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "${ready}" = true
+          test "$(podman exec "${client_id}" wget -qO- http://backend:8080/ready)" = backend-ready
+
+      - name: Tear down run-owned Compose resources
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          work="${RUNNER_TEMP}/service-compose-smoke"
+          if test -f "${work}/compose.yml"; then
+            cd "${work}"
+            podman-compose -f compose.yml -p "${COMPOSE_PROJECT_NAME}" down --volumes --remove-orphans
+          fi
+          test -z "$(podman ps -aq --filter "label=io.podman.compose.project=${COMPOSE_PROJECT_NAME}")"
+          test -z "$(podman pod ps -q --filter "label=io.podman.compose.project=${COMPOSE_PROJECT_NAME}" 2>/dev/null || true)"
+
+      - name: Verify exact source remained clean
+        if: ${{ always() && !cancelled() }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+          test -z "$(git status --porcelain --untracked-files=all)"
