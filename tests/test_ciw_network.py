@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json
 import tempfile
@@ -17,6 +18,25 @@ from ci_workflows.ciw_docs import load_command_contract
 from ci_workflows.network_primitives import DownloadResult
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+class _DownloadStream:
+    def __init__(self, body: bytes, content_type: str) -> None:
+        self.status = 200
+        self.url = "https://example.invalid/tool.zip"
+        self.headers = {
+            "Content-Length": str(len(body)),
+            "Content-Type": content_type,
+            "Content-Encoding": "identity",
+        }
+        self._body = io.BytesIO(body)
+        self.closed = False
+
+    def read(self, size: int = -1) -> bytes:
+        return self._body.read(size)
+
+    def close(self) -> None:
+        self.closed = True
 
 
 class NetworkCIWTests(unittest.TestCase):
@@ -108,6 +128,49 @@ class NetworkCIWTests(unittest.TestCase):
                 expected_content_type="application/zip",
                 maximum_bytes=8,
             )
+
+    def test_download_runs_real_primitive_and_writes_verified_file(self) -> None:
+        body = b"representative-download"
+        digest = hashlib.sha256(body).hexdigest()
+        stream = _DownloadStream(body, "application/zip")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            dependencies = root / "dependencies"
+            generated = root / "generated"
+            dependencies.mkdir()
+            generated.mkdir()
+            with mock.patch(
+                "ci_workflows.network_primitives.UrllibTransport.open",
+                return_value=stream,
+            ):
+                result = execute_network(
+                    self._args(
+                        "--operation",
+                        "download",
+                        "--url",
+                        "https://example.invalid/tool.zip",
+                        "--relative-path",
+                        "tool.zip",
+                        "--expected-sha256",
+                        digest,
+                        "--expected-size",
+                        str(len(body)),
+                        "--expected-content-type",
+                        "application/zip",
+                        "--maximum-bytes",
+                        str(len(body)),
+                    ),
+                    self._context(dependencies, generated),
+                )
+
+            target = dependencies / "tool.zip"
+            self.assertEqual(body, target.read_bytes())
+            self.assertTrue(stream.closed)
+            self.assertEqual(str(target), result.outputs["local_path"])
+            payload = json.loads(result.outputs["network_result_json"])
+            self.assertEqual(digest, payload["sha256"])
+            self.assertEqual(len(body), payload["size"])
+            self.assertEqual("application/zip", payload["content_type"])
 
     def test_verify_uses_registered_dependency_file(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
