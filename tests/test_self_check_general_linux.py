@@ -19,7 +19,7 @@ assert SPEC and SPEC.loader
 BOOTSTRAP = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(BOOTSTRAP)
 ORIGINAL_READ_TEXT = BOOTSTRAP.read_text
-SELECTOR_LINE = "runs-on: ubuntu-latest"
+SELECTOR_LINE = "runs-on: [ubuntu-latest]"
 
 
 def workflow_source() -> str:
@@ -119,7 +119,7 @@ class GeneralLinuxSelfCheckTest(unittest.TestCase):
         workflow = yaml.safe_load(source)
         self.assertEqual(
             workflow["jobs"]["validate"]["runs-on"],
-            "ubuntu-latest",
+            ["ubuntu-latest"],
         )
         self.assertEqual(1, source.count(SELECTOR_LINE))
         for forbidden in (
@@ -151,7 +151,7 @@ class GeneralLinuxSelfCheckTest(unittest.TestCase):
             "runs-on: macOS",
             "runs-on: apple",
             "runs-on: macos-latest",
-            "runs-on: ubuntu-24.04",
+            "runs-on: [ubuntu-24.04]",
             "runs-on: windows-latest",
             "runs-on: self-hosted",
             "runs-on: ${{ inputs.runner }}",
@@ -175,7 +175,7 @@ class GeneralLinuxSelfCheckTest(unittest.TestCase):
             (ROOT / "contracts/runner-execution-backends.json").read_text()
         )
         self.assertEqual(contract["github-hosted"]["runs_on"], ["ubuntu-latest"])
-        mutated = workflow_source().replace(SELECTOR_LINE, "runs-on: ubuntu-24.04")
+        mutated = workflow_source().replace(SELECTOR_LINE, "runs-on: [ubuntu-24.04]")
         with self.assertRaises(SystemExit):
             validate_mutation(mutated)
 
