@@ -93,8 +93,8 @@ jobs:
       - name: Check out exact Central reusable-workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: StreamScapeTV/ci-workflows
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: .ciw
           fetch-depth: 1
           clean: true
@@ -107,7 +107,7 @@ jobs:
           set -Eeuo pipefail
           (
             cd .ciw
-            test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
+            test "$(git rev-parse HEAD)" = "${{ job.workflow_sha }}"
             test -z "$(git status --porcelain=v1 --untracked-files=all)"
           )
 
@@ -146,8 +146,8 @@ jobs:
       - name: Check out exact Central reusable-workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: StreamScapeTV/ci-workflows
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: .ciw
           fetch-depth: 1
           clean: true
@@ -160,7 +160,7 @@ jobs:
           set -Eeuo pipefail
           (
             cd .ciw
-            test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
+            test "$(git rev-parse HEAD)" = "${{ job.workflow_sha }}"
             test -z "$(git status --porcelain=v1 --untracked-files=all)"
           )
 
@@ -390,7 +390,7 @@ jobs:
           )
           (
             cd .ciw
-            test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
+            test "$(git rev-parse HEAD)" = "${{ job.workflow_sha }}"
             test -z "$(git status --porcelain=v1 --untracked-files=all)"
           )
           test ! -e "${RUNNER_TEMP}/native-image-chart"

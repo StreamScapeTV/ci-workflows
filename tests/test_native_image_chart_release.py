@@ -124,15 +124,22 @@ class NativeImageChartExistingTagContractTest(unittest.TestCase):
         self.assertIn("Independently read back immutable image and chart identities", self.workflow)
         self.assertIn("chart_package_sha256", self.workflow)
 
-    def test_workflow_consumes_its_exact_central_authority_source(self) -> None:
+    def test_workflow_consumes_called_reusable_identity_not_caller_identity(self) -> None:
         self.assertEqual(
             2,
-            self.workflow.count("ref: ${{ github.workflow_sha }}"),
+            self.workflow.count("repository: ${{ job.workflow_repository }}"),
+        )
+        self.assertEqual(
+            2,
+            self.workflow.count("ref: ${{ job.workflow_sha }}"),
         )
         self.assertEqual(
             3,
-            self.workflow.count('test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"'),
+            self.workflow.count('test "$(git rev-parse HEAD)" = "${{ job.workflow_sha }}"'),
         )
+        self.assertNotIn("${{ github.workflow_sha }}", self.workflow)
+        self.assertNotIn("${GITHUB_WORKFLOW_SHA}", self.workflow)
+        self.assertNotIn("repository: StreamScapeTV/ci-workflows", self.workflow)
         self.assertNotIn("reusable-tag-image-chart.yml", self.workflow)
         self.assertNotRegex(
             self.workflow,
