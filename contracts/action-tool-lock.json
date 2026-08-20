@@ -101,10 +101,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/network",
-      "sha": "b667425dcded85368300d104be53805c94b7fc3a",
+      "sha": "cb28865f7990d2f4592ebc9d16e4c9bace56b805",
       "release": "issue #363 immutable network checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/b667425dcded85368300d104be53805c94b7fc3a/actions/network"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/cb28865f7990d2f4592ebc9d16e4c9bace56b805/actions/network"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-android",
