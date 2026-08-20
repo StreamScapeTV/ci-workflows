@@ -108,7 +108,7 @@ jobs:
     steps:
       - id: backend
         name: Resolve bounded execution backend
-        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@3a93709b69bb09e962ae3debba6b575deea55392 # issue #405 reconciled execution-backend checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@7d5d839c6e90491e165f1358ecb5e80129805764 # issue #405 simplified execution-backend checkpoint
         with:
           workflow_api: source.resolve
           source_trust: trusted-exact
