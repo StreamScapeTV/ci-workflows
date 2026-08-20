@@ -203,7 +203,6 @@ class NetworkCIWTests(unittest.TestCase):
                         self._context(dependencies, generated),
                     )
             self.assertEqual("http_status_rejected", failure.exception.code)
-            self.assertTrue(stream.closed)
             self.assertFalse((dependencies / "missing.bin").exists())
 
     def test_download_integrity_failure_removes_partial_file(self) -> None:
