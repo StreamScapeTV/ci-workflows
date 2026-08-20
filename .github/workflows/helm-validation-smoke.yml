@@ -73,7 +73,8 @@ jobs:
             candidate="$(type -P python3 || true)"
           fi
           test -n "${candidate}"
-          test "${candidate}" = "${candidate#/}" || true
+          test "${candidate}" != "${candidate#/}"
+          test -x "${candidate}"
           resolved="$("${candidate}" -c 'import os,sys; print(os.path.realpath(sys.executable))')"
           test "${resolved}" != "${resolved#/}"
           test -x "${resolved}"
