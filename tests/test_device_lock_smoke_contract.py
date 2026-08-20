@@ -25,9 +25,6 @@ class DeviceLockSmokeContractTests(unittest.TestCase):
         self.assertNotIn("pull_request_target", self.source)
         self.assertNotIn("workflow_dispatch", self.source)
         self.assertNotIn("secrets.", self.source)
-        self.assertEqual(
-            ["ubuntu-latest"], self.workflow["jobs"]["contract_smoke"]["runs-on"]
-        )
 
     def test_backend_root_is_synthetic_workflow_state_not_an_action_input(self) -> None:
         contract = self.workflow["jobs"]["contract_smoke"]
@@ -92,7 +89,9 @@ class DeviceLockSmokeContractTests(unittest.TestCase):
 
     def test_zero_artifact_finalizer_is_independent_and_non_cancelled(self) -> None:
         finalizer = self.workflow["jobs"]["zero_artifacts"]
-        self.assertEqual(["ubuntu-latest"], finalizer["runs-on"])
+        self.assertEqual(
+            ["linux", "amd64", "general", "small"], finalizer["runs-on"]
+        )
         self.assertNotIn("runs-on: [linux, amd64, general]", self.source)
         self.assertEqual("${{ always() && !cancelled() }}", finalizer["if"])
         run = finalizer["steps"][0]["run"]

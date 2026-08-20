@@ -103,13 +103,10 @@ scheduling label. Source admission and other contract-proven lightweight
 maintenance paths use `general-tiny`; ordinary validation defaults to
 `general-small`; `general-medium` requires an API that explicitly permits it.
 
-The repository-internal Central self-check now schedules on standard GitHub-hosted
-`ubuntu-latest` capacity so Central validation is not dependent on organization
-ARC availability. It still verifies an absolute pre-provisioned CPython 3.12 Linux
-runtime before checkout and does not install, elevate, or persist a host runtime.
-This hosted scheduler does not change the organization semantic contract:
-`portable` still resolves exactly to `general-small` for organization-backed
-callers. The former emergency macOS exception is retired and must not be restored.
+The repository Central self-check runs on `general-small`. It verifies its
+pre-provisioned Linux runtime before checkout and does not install, elevate, or
+persist a host runtime. The former emergency macOS exception is retired and
+must not be restored.
 
 ### Service and Compose validation
 
