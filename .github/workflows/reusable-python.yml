@@ -3,6 +3,11 @@ name: Reusable Python validation
 on:
   workflow_call:
     inputs:
+      execution_backend:
+        description: organization or github-hosted
+        required: false
+        default: organization
+        type: string
       admitted_sha:
         description: Exact lowercase source SHA admitted by source.resolve
         required: true
@@ -59,10 +64,11 @@ jobs:
       source_trust: ${{ steps.plan.outputs.source_trust }}
     steps:
       - id: plan
-        name: Resolve contract-owned command and runner plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-python@aece8d01efdd5482a1c3d42db357aed87a7917e9 # issue #235 general-runner Python primitives checkpoint
+        name: Resolve contract-owned command and execution plan
+        uses: StreamScapeTV/ci-workflows/actions/validate-python@34d736612462f7ab4e7be83443760c59027478db # issue #405 execution-backend checkpoint
         with:
           phase: plan
+          execution_backend: ${{ inputs.execution_backend }}
           admitted_sha: ${{ inputs.admitted_sha }}
           validation_profile: ${{ inputs.validation_profile }}
           command_profile: ${{ inputs.command_profile }}
@@ -106,9 +112,10 @@ jobs:
 
       - id: python
         name: Execute bounded Python validation
-        uses: StreamScapeTV/ci-workflows/actions/validate-python@aece8d01efdd5482a1c3d42db357aed87a7917e9 # issue #235 general-runner Python primitives checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-python@34d736612462f7ab4e7be83443760c59027478db # issue #405 execution-backend checkpoint
         with:
           phase: execute
+          execution_backend: ${{ inputs.execution_backend }}
           admitted_sha: ${{ inputs.admitted_sha }}
           validation_profile: ${{ inputs.validation_profile }}
           command_profile: ${{ inputs.command_profile }}
