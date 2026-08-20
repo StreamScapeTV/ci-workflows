@@ -39,7 +39,7 @@ permissions:
 jobs:
   image:
     name: Runner image / ${{ inputs.image }}
-    runs-on: ubuntu-latest
+    runs-on: [ubuntu-latest]
     timeout-minutes: 180
     outputs:
       image_reference: ${{ steps.runner_image.outputs.image_reference }}
