@@ -50,7 +50,7 @@ jobs:
   plan:
     name: Validate protected-full Apple smoke plan
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ubuntu-latest
+    runs-on: [ubuntu-latest]
     timeout-minutes: 10
     outputs:
       runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
@@ -266,7 +266,7 @@ jobs:
     name: Verify Apple routine artifacts remain zero
     needs: [plan, apple]
     if: ${{ always() && !cancelled() }}
-    runs-on: ubuntu-latest
+    runs-on: [ubuntu-latest]
     timeout-minutes: 10
     steps:
       - name: Require real protected-full smoke success
