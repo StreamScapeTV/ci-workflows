@@ -149,7 +149,8 @@ issues:
     blocked_by:
       - https://github.com/StreamScapeTV/organization-rules/issues/66
   324:
-    blocked_by: []
+    blocked_by:
+      - 402
   332:
     blocked_by: []
   336:
@@ -174,4 +175,6 @@ issues:
   364:
     blocked_by: []
   382:
+    blocked_by: []
+  402:
     blocked_by: []
