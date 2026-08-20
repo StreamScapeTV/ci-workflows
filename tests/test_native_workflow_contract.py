@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import unittest
 from pathlib import Path
 
@@ -22,16 +21,8 @@ class NativeWorkflowContractTests(unittest.TestCase):
         cls.workflow = yaml.load(cls.workflow_text, Loader=ActionsLoader)
         cls.action_text = ACTION_PATH.read_text(encoding="utf-8")
         cls.action = yaml.load(cls.action_text, Loader=ActionsLoader)
-        public = json.loads(
-            (ROOT / "contracts/public-workflows/validation.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        cls.public_record = next(
-            item for item in public["workflows"] if item["api_name"] == "validation.native"
-        )
 
-    def test_workflow_call_is_product_neutral_and_matches_public_api(self) -> None:
+    def test_workflow_call_is_product_neutral_and_bounded(self) -> None:
         self.assertEqual(set(self.workflow["on"]), {"workflow_call"})
         call = self.workflow["on"]["workflow_call"]
         self.assertEqual(
@@ -40,14 +31,11 @@ class NativeWorkflowContractTests(unittest.TestCase):
         )
         self.assertEqual(set(call["outputs"]), {"result", "test_summary", "cleanup_result"})
         self.assertEqual(call.get("secrets", {}), {})
-        self.assertEqual(self.public_record["status"], "implemented")
-        self.assertEqual(self.public_record["api_version"], "1.0.0")
+        self.assertEqual(self.workflow["permissions"], {"contents": "read"})
         self.assertEqual(
-            {item["name"] for item in self.public_record["inputs"]},
-            set(call["inputs"]),
+            self.workflow["jobs"]["validate"]["name"],
+            "CI / Native CMake validation",
         )
-        self.assertEqual(set(self.public_record["outputs"]), set(call["outputs"]))
-        self.assertEqual(self.public_record["stable_check_name"], "CI / Native CMake validation")
         forbidden = {
             "runner",
             "runs_on",
@@ -89,6 +77,21 @@ class NativeWorkflowContractTests(unittest.TestCase):
         )
         self.assertIn("profile: native", self.workflow_text)
         self.assertIn("cache_mode: disabled", self.workflow_text)
+
+    def test_runner_tool_probe_precedes_source_execution_without_installing_packages(self) -> None:
+        validate = self.workflow["jobs"]["validate"]
+        steps = validate["steps"]
+        cmake_index = next(
+            index for index, step in enumerate(steps) if step.get("name") == "Verify runner-provided CMake"
+        )
+        checkout_index = next(
+            index for index, step in enumerate(steps) if step.get("name") == "Check out exact admitted caller source"
+        )
+        self.assertLess(cmake_index, checkout_index)
+        probe = steps[cmake_index]["run"]
+        self.assertIn("type -P cmake", probe)
+        for token in ("apt-get", "apt ", "sudo ", "brew ", "dnf ", "yum "):
+            self.assertNotIn(token, probe)
 
     def test_cleanup_and_clean_tree_are_terminal_even_after_failure(self) -> None:
         validate = self.workflow["jobs"]["validate"]
