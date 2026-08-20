@@ -139,7 +139,7 @@ jobs:
           token: ${{ secrets.private_dependency_token }}
 
       - id: dependency_warm
-        name: Resolve Gradle dependency graph before Android validation
+        name: Resolve Gradle dependency graph before protected build or cache maintenance
         if: ${{ (inputs.validation_scope == 'protected-full' || (inputs.validation_scope == 'gradle' && steps.plan.outputs.private_dependency_used == 'true')) && (steps.plan.outputs.private_dependency_used != 'true' || steps.dependency.outcome == 'success') }}
         uses: StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies@13de46c51efcf65df798dfec82a620c484350dfa # issue #346 dependency warm checkpoint
         with:
