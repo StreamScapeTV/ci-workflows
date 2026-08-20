@@ -38,6 +38,24 @@ class ExecutionBackendTests(unittest.TestCase):
                 self.assertEqual(resolved.runs_on, ("ubuntu-latest",))
                 self.assertEqual(resolved.as_dict()["runs_on_json"], '["ubuntu-latest"]')
 
+    def test_native_release_is_the_only_hosted_buildah_high_exception(self) -> None:
+        resolved = resolve_execution_backend(
+            execution_backend="github-hosted",
+            execution_profile="buildah-high",
+            organization_runs_on=("linux", "amd64", "buildah", "high"),
+            workflow_api="release.native-image-chart",
+        )
+        self.assertEqual(resolved.runs_on, ("ubuntu-latest",))
+        for workflow_api in (None, "validation.python", "oci.publish", "release.orchestrate"):
+            with self.subTest(workflow_api=workflow_api), self.assertRaises(ExecutionBackendError) as raised:
+                resolve_execution_backend(
+                    execution_backend="github-hosted",
+                    execution_profile="buildah-high",
+                    organization_runs_on=("linux", "amd64", "buildah", "high"),
+                    workflow_api=workflow_api,
+                )
+            self.assertEqual(raised.exception.code, "unsupported_execution_backend_profile")
+
     def test_hosted_rejects_python_buildah_profiles_instead_of_switching_engines(self) -> None:
         for profile in ("buildah-medium", "buildah-high"):
             with self.subTest(profile=profile), self.assertRaises(ExecutionBackendError) as raised:
@@ -45,6 +63,7 @@ class ExecutionBackendTests(unittest.TestCase):
                     execution_backend="github-hosted",
                     execution_profile=profile,
                     organization_runs_on=("linux", "amd64", "buildah", "medium"),
+                    workflow_api="validation.python",
                 )
             self.assertEqual(raised.exception.code, "unsupported_execution_backend_profile")
 
@@ -62,8 +81,13 @@ class ExecutionBackendTests(unittest.TestCase):
                 organization_runs_on=("self-hosted",),
             )
 
-    def test_only_selected_reusable_workflows_expose_optional_backend(self) -> None:
-        for filename in ("reusable-resolve-source.yml", "reusable-node.yml", "reusable-python.yml"):
+    def test_selected_reusable_workflows_expose_optional_backend(self) -> None:
+        for filename in (
+            "reusable-resolve-source.yml",
+            "reusable-node.yml",
+            "reusable-python.yml",
+            "reusable-native-image-chart.yml",
+        ):
             workflow = yaml.load(
                 (ROOT / ".github/workflows" / filename).read_text(encoding="utf-8"),
                 Loader=ActionsLoader,
@@ -85,6 +109,13 @@ class ExecutionBackendTests(unittest.TestCase):
                 Loader=ActionsLoader,
             )
             self.assertEqual(workflow["jobs"]["validate"]["runs-on"], "${{ fromJSON(needs.plan.outputs.runs_on_json) }}")
+        native = yaml.load(
+            (ROOT / ".github/workflows/reusable-native-image-chart.yml").read_text(encoding="utf-8"),
+            Loader=ActionsLoader,
+        )
+        self.assertEqual(native["jobs"]["plan"]["runs-on"], "ubuntu-latest")
+        self.assertEqual(native["jobs"]["admit"]["runs-on"], "${{ fromJSON(needs.plan.outputs.runs_on_json) }}")
+        self.assertEqual(native["jobs"]["publish"]["runs-on"], "${{ fromJSON(needs.plan.outputs.runs_on_json) }}")
 
 
 if __name__ == "__main__":
