@@ -60,6 +60,7 @@ def main() -> int:
             return 0
 
         source_root = args.source_root.resolve()
+        working_root = source_root if source_root.is_dir() else Path.cwd()
         if args.command == "authenticate":
             authenticate(environment=environment, cwd=source_root)
         elif args.command == "require-unused":
@@ -101,7 +102,7 @@ def main() -> int:
                 version=args.version,
                 state_root=args.state_root.resolve(),
                 environment=environment,
-                cwd=source_root,
+                cwd=working_root,
             )
         else:
             raise PublicNativeReleaseError("unknown_command")
