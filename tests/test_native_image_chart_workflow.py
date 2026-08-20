@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "reusable-native-image-chart.yml"
+BACKEND = ROOT / "scripts" / "ci" / "native_image_chart_backend.py"
 VALIDATE = ROOT / "scripts" / "ci" / "native_image_chart_validate.py"
 PREPARE = ROOT / "scripts" / "ci" / "native_image_chart_prepare.py"
 PUBLIC_INDEX = ROOT / "contracts" / "public-workflows.json"
@@ -17,17 +18,18 @@ class NativeImageChartWorkflowContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.text = WORKFLOW.read_text(encoding="utf-8")
+        cls.backend = BACKEND.read_text(encoding="utf-8")
         cls.validate = VALIDATE.read_text(encoding="utf-8")
         cls.prepare = PREPARE.read_text(encoding="utf-8")
-        cls.implementation = "\n".join((cls.text, cls.validate, cls.prepare))
+        cls.implementation = "\n".join((cls.text, cls.backend, cls.validate, cls.prepare))
 
     def test_is_generic_reusable_exact_tag_publisher(self) -> None:
         text = self.text
         self.assertIn("workflow_call:", text)
         self.assertIn("Resolve exact release tag authority", text)
         self.assertIn("Revalidate tag immediately before publication", text)
-        self.assertEqual(2, text.count("repository: ${{ job.workflow_repository }}"))
-        self.assertEqual(2, text.count("ref: ${{ job.workflow_sha }}"))
+        self.assertEqual(3, text.count("repository: ${{ job.workflow_repository }}"))
+        self.assertEqual(3, text.count("ref: ${{ job.workflow_sha }}"))
         self.assertNotIn("${{ github.workflow_sha }}", text)
         self.assertNotIn("${GITHUB_WORKFLOW_SHA}", text)
         self.assertIn("repository: ${{ github.repository }}", text)
@@ -36,16 +38,24 @@ class NativeImageChartWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("supported_products", self.implementation)
         self.assertNotIn("agent-state-dashboard", self.implementation)
 
-    def test_selects_native_amd64_central_capacity_only(self) -> None:
-        text = self.text
-        self.assertIn("runs-on: [linux, amd64, buildah, high]", text)
-        self.assertIn('test "$(uname -m)" = x86_64', text)
-        self.assertIn("remote image is not linux/amd64", text)
-        self.assertNotIn("arm64", self.implementation)
+    def test_backend_is_bounded_and_hosted_is_standard_github_linux_only(self) -> None:
+        self.assertIn('"organization": {', self.backend)
+        self.assertIn('"github-hosted": {', self.backend)
+        self.assertIn('"registry": "git.faruqi.dev"', self.backend)
+        self.assertIn('"registry": "ghcr.io"', self.backend)
+        self.assertIn('"registry_namespace": "streamscapetv"', self.backend)
+        self.assertIn('"chart_namespace": "streamscapetv/helm-charts"', self.backend)
+        self.assertIn('workflow_api="release.native-image-chart"', self.backend)
+        self.assertIn('requested_profile="buildah-high"', self.backend)
+        self.assertIn("runs-on: ubuntu-latest", self.text)
+        self.assertEqual(2, self.text.count("runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}"))
+        self.assertIn('test "${RUNNER_ENVIRONMENT:-}" = github-hosted', self.text)
+        self.assertIn('test "$(uname -m)" = x86_64', self.text)
+        self.assertIn("remote image is not linux/amd64", self.text)
         self.assertNotIn("qemu", self.implementation.casefold())
-        self.assertNotIn("--platform \"linux/", text)
 
     def test_composes_product_neutral_packaging_primitives(self) -> None:
+        self.assertIn("native_image_chart_backend.py", self.text)
         self.assertIn("native_image_chart_validate.py", self.text)
         self.assertIn("native_image_chart_prepare.py", self.text)
         self.assertIn("ci_workflows.packaging_primitives", self.prepare)
@@ -64,16 +74,24 @@ class NativeImageChartWorkflowContractTests(unittest.TestCase):
             "registry_logout",
         ):
             self.assertIn(primitive, self.text)
-        self.assertIn("image_name:", self.text)
-        self.assertIn("chart_name:", self.text)
-        self.assertIn("chart_path:", self.text)
-        self.assertIn("dockerfile_path:", self.text)
-        self.assertIn("build_context:", self.text)
+        for public_input in (
+            "execution_backend:",
+            "image_name:",
+            "chart_name:",
+            "chart_path:",
+            "dockerfile_path:",
+            "build_context:",
+        ):
+            self.assertIn(public_input, self.text)
+        self.assertNotIn("registry_host:", self.text)
+        self.assertNotIn("runner_labels:", self.text)
 
-    def test_publication_is_immutable_read_back_and_non_deploying(self) -> None:
+    def test_publication_is_immutable_public_read_back_and_non_deploying(self) -> None:
         text = self.text
         self.assertIn("require unused immutable version identities", text.casefold())
-        self.assertIn("skopeo inspect --raw", text)
+        self.assertIn("skopeo --authfile", text)
+        self.assertIn('readback_auth="${state}/anonymous-auth.json"', text)
+        self.assertIn("registry_logout", text)
         self.assertIn("image_digest", text)
         self.assertIn("chart_digest", text)
         self.assertIn("chart_package_sha256", text)
@@ -82,15 +100,20 @@ class NativeImageChartWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("flux reconcile", text)
         self.assertNotIn(":latest", text)
 
-    def test_fixed_registry_and_secret_interface_are_bounded(self) -> None:
+    def test_private_default_and_public_hosted_credentials_are_separate(self) -> None:
         text = self.text
-        self.assertIn("REGISTRY: git.faruqi.dev", text)
-        self.assertIn("REGISTRY_NAMESPACE: mimranfaruqi", text)
-        self.assertIn("CHART_NAMESPACE: mimranfaruqi/helm-charts", text)
-        self.assertIn("registry_username:", text)
-        self.assertIn("registry_token:", text)
-        self.assertIn("CIW_REGISTRY_USERNAME", text)
-        self.assertIn("CIW_REGISTRY_TOKEN", text)
+        self.assertIn("default: organization", text)
+        self.assertIn("required: false", text)
+        self.assertIn("PRIVATE_REGISTRY_USERNAME: ${{ secrets.registry_username }}", text)
+        self.assertIn("PRIVATE_REGISTRY_TOKEN: ${{ secrets.registry_token }}", text)
+        self.assertIn("github.actor", text)
+        self.assertIn("github.token", text)
+        self.assertIn("packages: write", text)
+        self.assertIn('test -z "${PRIVATE_REGISTRY_USERNAME}"', text)
+        self.assertIn('test -z "${PRIVATE_REGISTRY_TOKEN}"', text)
+        self.assertIn('test -n "${PRIVATE_REGISTRY_USERNAME}"', text)
+        self.assertIn('test -n "${PRIVATE_REGISTRY_TOKEN}"', text)
+        self.assertIn("BUILDAH_ISOLATION=chroot", text)
         self.assertNotIn("package.json", self.validate)
         self.assertNotIn("release versions are not aligned", self.validate)
         self.assertIn('version=os.environ["VERSION"]', self.prepare)
