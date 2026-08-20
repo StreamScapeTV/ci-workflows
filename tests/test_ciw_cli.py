@@ -465,6 +465,7 @@ class CIWCLITests(unittest.TestCase):
             "validate-android-live-service": "scripts/ci/android_completion.py",
             "validate-android-release": "scripts/ci/android_completion.py",
             "resolve-execution-backend": "scripts/ci/execution_backend.py",
+            "runner-image": "scripts/ci/runner_images.py",
         }
         for action in actions:
             source = action.read_text(encoding="utf-8")
