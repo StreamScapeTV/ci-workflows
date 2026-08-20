@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TextIO
@@ -15,6 +16,7 @@ SMOKE_COMMAND = "/usr/local/bin/runner-image-smoke"
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 _OCI_TAG = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$")
 _IMAGE_ID = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
+_RUN_ID = re.compile(r"^[1-9][0-9]*$")
 
 
 class RunnerImageError(ValueError):
@@ -137,15 +139,51 @@ def build_plan(
     )
 
 
-def release_matrix() -> tuple[str, ...]:
-    """Return the exact repository-level runner-image release set."""
+def cleanup_runner_state(
+    *,
+    image_id: str,
+    workspace: Path,
+    runner_temp: Path,
+    run_id: str,
+    run_attempt: str,
+) -> None:
+    """Idempotently remove fixed per-run runner-image temporary state."""
 
+    image = resolve_image(image_id)
+    if _RUN_ID.fullmatch(run_id) is None or _RUN_ID.fullmatch(run_attempt) is None:
+        raise RunnerImageError("run id and attempt must be positive decimal values")
+    workspace = workspace.resolve()
+    runner_temp = runner_temp.resolve()
+    if not workspace.is_dir() or not runner_temp.is_dir():
+        raise RunnerImageError("workspace and runner temp must be real directories")
+
+    files = (
+        runner_temp / f"ciw-runner-auth-{run_id}-{run_attempt}-{image.image_id}.json",
+        runner_temp / f"ciw-runner-anon-{run_id}-{run_attempt}-{image.image_id}.json",
+    )
+    directories = (
+        runner_temp / f"ciw-buildah-push-{run_id}-{run_attempt}-{image.image_id}",
+        workspace / image.context_path / ".ciw-build-inputs",
+    )
+    for path in files:
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+        elif path.exists():
+            raise RunnerImageError(f"unexpected cleanup target type: {path.name}")
+    for path in directories:
+        if path.is_symlink():
+            path.unlink()
+        elif path.is_dir():
+            shutil.rmtree(path)
+        elif path.exists():
+            raise RunnerImageError(f"unexpected cleanup target type: {path.name}")
+
+
+def release_matrix() -> tuple[str, ...]:
     return IMAGE_IDS
 
 
 def write_github_outputs(handle: TextIO, values: dict[str, str]) -> None:
-    """Write already-bounded scalar values to a GitHub output file."""
-
     for key, value in values.items():
         if "\n" in key or "\r" in key or "\n" in value or "\r" in value:
             raise RunnerImageError("GitHub output values must be single-line")
@@ -153,8 +191,7 @@ def write_github_outputs(handle: TextIO, values: dict[str, str]) -> None:
 
 
 def plan_outputs(plan: RunnerImagePlan) -> dict[str, str]:
-    values = plan.to_dict()
-    return {key: str(value) for key, value in values.items()}
+    return {key: str(value) for key, value in plan.to_dict().items()}
 
 
 def release_outputs(tag: str, source_sha: str) -> dict[str, str]:
