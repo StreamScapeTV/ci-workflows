@@ -80,6 +80,12 @@
       "required_follow_up": []
     },
     {
+      "path": ".github/workflows/reusable-public-native-image-chart.yml",
+      "issue": 412,
+      "status": "implemented-public-workflow",
+      "required_follow_up": []
+    },
+    {
       "path": ".github/workflows/reusable-python.yml",
       "issue": 9,
       "status": "implemented-public-workflow",
