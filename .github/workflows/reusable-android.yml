@@ -140,7 +140,7 @@ jobs:
 
       - id: dependency_warm
         name: Resolve Gradle dependency graph before Android validation
-        if: ${{ (inputs.validation_scope == 'protected-full' || inputs.validation_scope == 'compile') && (steps.plan.outputs.private_dependency_used != 'true' || steps.dependency.outcome == 'success') }}
+        if: ${{ (inputs.validation_scope == 'protected-full' || (inputs.validation_scope == 'gradle' && steps.plan.outputs.private_dependency_used == 'true')) && (steps.plan.outputs.private_dependency_used != 'true' || steps.dependency.outcome == 'success') }}
         uses: StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies@13de46c51efcf65df798dfec82a620c484350dfa # issue #346 dependency warm checkpoint
         with:
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -199,7 +199,7 @@ jobs:
 
       - id: execute
         name: Execute one primitive-backed Android validation plan
-        if: ${{ success() && ((inputs.validation_scope != 'protected-full' && inputs.validation_scope != 'compile') || steps.dependency_warm.outcome == 'success') && (inputs.dependency_prebuild_plan_json == '' || (steps.prebuild_plan.outcome == 'success' && steps.prebuild_execute.outcome == 'success' && steps.prebuild_cleanup.outcome == 'success' && steps.prebuild_residue.outcome == 'success')) }}
+        if: ${{ success() && ((inputs.validation_scope != 'protected-full' && (inputs.validation_scope != 'gradle' || steps.plan.outputs.private_dependency_used != 'true')) || steps.dependency_warm.outcome == 'success') && (inputs.dependency_prebuild_plan_json == '' || (steps.prebuild_plan.outcome == 'success' && steps.prebuild_execute.outcome == 'success' && steps.prebuild_cleanup.outcome == 'success' && steps.prebuild_residue.outcome == 'success')) }}
         uses: StreamScapeTV/ci-workflows/actions/validate-android@8eaa37ad0fe3231b202e878b26f66aa23753e38a # issue #373 compile Gradle isolation checkpoint
         with:
           phase: execute
@@ -278,7 +278,7 @@ jobs:
         shell: bash
         env:
           PLAN_OUTCOME: ${{ steps.plan.outcome }}
-          WARM_REQUIRED: ${{ (inputs.validation_scope == 'protected-full' || inputs.validation_scope == 'compile') && 'true' || 'false' }}
+          WARM_REQUIRED: ${{ (inputs.validation_scope == 'protected-full' || (inputs.validation_scope == 'gradle' && steps.plan.outputs.private_dependency_used == 'true')) && 'true' || 'false' }}
           WARM_OUTCOME: ${{ steps.dependency_warm.outcome }}
           WARM_CACHE_MODE: ${{ steps.dependency_warm.outputs.gradle_dependency_cache_mode }}
           WARM_WALL_MS: ${{ steps.dependency_warm.outputs.warm_wall_ms }}
