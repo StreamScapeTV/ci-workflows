@@ -100,6 +100,13 @@
       "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/cleanup-workspace"
     },
     {
+      "uses": "StreamScapeTV/ci-workflows/actions/network",
+      "sha": "d090f1e37acc5b75ba3abd7928721ac993c9e6fd",
+      "release": "issue #363 immutable network checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/d090f1e37acc5b75ba3abd7928721ac993c9e6fd/actions/network"
+    },
+    {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-android",
       "sha": "8eaa37ad0fe3231b202e878b26f66aa23753e38a",
       "release": "issue #373 compile Gradle isolation checkpoint",

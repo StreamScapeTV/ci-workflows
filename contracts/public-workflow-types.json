@@ -24,7 +24,7 @@
     "cleanup_policy": "always-residue-checked",
     "concurrency_policy": "caller-owned",
     "max_reusable_workflow_depth": 1,
-    "forbidden_caller_fields": ["runner", "runs_on", "runner_labels", "container_engine", "docker_command", "buildah_command", "registry_host", "registry_command", "secret_name", "kubeconfig_path", "cluster", "namespace", "arbitrary_command", "shell", "callback_url", "product_id"]
+    "forbidden_caller_fields": ["runner", "runs_on", "runner_labels", "container_engine", "docker_command", "buildah_command", "registry_host", "registry_command", "secret_name", "deletion_path", "workspace_root", "arbitrary_command", "shell", "callback_url", "product_id"]
   },
   "trust_classes": {
     "source-admission": {"reference_policy": "bootstrap-main-or-immutable", "allowed_events": ["pull_request", "push", "workflow_dispatch", "workflow_call", "tag-push", "workflow_run", "issue_comment", "pull_request_target"], "executes_caller_source": false, "privileged": false},
@@ -93,6 +93,14 @@
     "release_tag": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", "nullable": true},
     "target_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$", "nullable": true},
     "operation": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$", "nullable": true},
+    "url": {"type": "string", "pattern": "^https://[^\\s\\r\\n]{1,2048}$"},
+    "relative_path": {"type": "path", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$", "default": "dependency.bin"},
+    "expected_sha256": {"type": "string", "pattern": "^[0-9A-Fa-f]{64}$", "nullable": true},
+    "expected_size": {"type": "string", "pattern": "^(?:0|[1-9][0-9]{0,9})$", "nullable": true},
+    "expected_content_type": {"type": "string", "pattern": "^[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+$", "nullable": true},
+    "maximum_bytes": {"type": "integer", "minimum": 1, "maximum": 8589934592, "default": 536870912},
+    "archive_format": {"type": "string", "enum": ["none", "zip", "tar"], "default": "none"},
+    "relative_destination": {"type": "path", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$", "default": "extracted"},
     "policy_path": {"type": "path", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$", "nullable": true},
     "allowlist_path": {"type": "path", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$", "nullable": true},
     "values_path": {"type": "path", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$", "nullable": true},
@@ -145,6 +153,8 @@
     "output_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$", "nullable": true},
     "clean_tree": {"type": "boolean"},
     "cleanup_result": {"type": "string", "enum": ["success", "failure"]},
+    "download_result_json": {"type": "json-object"},
+    "extraction_result_json": {"type": "json-object", "nullable": true},
     "device_evidence_id": {"type": "string", "nullable": true},
     "image_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "nullable": true},
     "platform_digests_json": {"type": "json-object", "nullable": true},
