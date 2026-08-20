@@ -83,7 +83,7 @@ RUN set -eux; \
           cp -pL "${library}" "/node-root${library_dir}/$(basename "${library}")"; \
         done
 
-FROM docker.io/library/python:3.12.14-slim-trixie@sha256:0bdd92d1210a488ce24366c2e1d3b2390e923dcd70a0ce2f673b6f1ce090f556 AS final
+FROM docker.io/library/python:3.14.7-slim-trixie@sha256:ce40764625a4ff50df3548277632e7f96c4e77fe75fa848aae9885476e7df5a4 AS final
 
 ARG FLUTTER_VERSION=3.44.8
 ARG DART_VERSION=3.12.2
