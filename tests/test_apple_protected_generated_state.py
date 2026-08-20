@@ -1,3 +1,4 @@
+"""Regression coverage for tracked-vs-generated Xcode protected source state."""
 from __future__ import annotations
 
 import json
