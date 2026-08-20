@@ -24,7 +24,7 @@
     "cleanup_policy": "always-residue-checked",
     "concurrency_policy": "caller-owned",
     "max_reusable_workflow_depth": 1,
-    "forbidden_caller_fields": ["runner", "runs_on", "runner_labels", "container_engine", "docker_command", "buildah_command", "registry_host", "registry_command", "secret_name", "deletion_path", "workspace_root", "arbitrary_command", "shell", "callback_url", "product_id"]
+    "forbidden_caller_fields": ["runner", "runs_on", "runner_labels", "container_engine", "docker_command", "buildah_command", "registry_host", "registry_command", "secret_name", "kubeconfig_path", "cluster", "namespace", "arbitrary_command", "shell", "callback_url", "product_id"]
   },
   "trust_classes": {
     "source-admission": {"reference_policy": "bootstrap-main-or-immutable", "allowed_events": ["pull_request", "push", "workflow_dispatch", "workflow_call", "tag-push", "workflow_run", "issue_comment", "pull_request_target"], "executes_caller_source": false, "privileged": false},
