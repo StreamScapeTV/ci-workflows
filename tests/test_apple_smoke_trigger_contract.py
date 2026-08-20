@@ -24,6 +24,7 @@ EXPECTED_CONCURRENCY = {
     "release": "group: apple-release-certification-pr-${{ github.event.pull_request.number }}",
 }
 APPLE_EXECUTOR_SELECTOR = "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}"
+HOSTED_CONTROL_SELECTOR = "runs-on: [ubuntu-latest]"
 
 
 def pull_request_paths(source: str) -> set[str]:
@@ -64,8 +65,9 @@ class AppleSmokeTriggerContractTests(unittest.TestCase):
         for name, path in WORKFLOWS.items():
             with self.subTest(workflow=name):
                 source = path.read_text(encoding="utf-8")
-                self.assertEqual(source.count("runs-on: ubuntu-latest"), 2)
+                self.assertEqual(source.count(HOSTED_CONTROL_SELECTOR), 2)
                 self.assertNotIn("runs-on: [linux, amd64, general, small]", source)
+                self.assertNotIn("runs-on: ubuntu-latest", source)
                 self.assertIn(APPLE_EXECUTOR_SELECTOR, source)
 
         routine = WORKFLOWS["routine"].read_text(encoding="utf-8")
