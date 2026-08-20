@@ -21,6 +21,7 @@ class ServiceRunnerCapacityTests(unittest.TestCase):
         cls.smoke = (ROOT / "runner-images/service/smoke.sh").read_text(encoding="utf-8")
         cls.product = json.loads((ROOT / "runner-images/service/product.json").read_text(encoding="utf-8"))
         cls.lock = json.loads((ROOT / "runner-images/service/toolchain.lock.json").read_text(encoding="utf-8"))
+        cls.canary = (ROOT / ".github/workflows/service-runner-smoke.yml").read_text(encoding="utf-8")
 
     def test_service_profile_is_fixed_pr_safe_semantic_capacity(self) -> None:
         self.assertEqual(self.service["internal_selectors"], [["linux", "amd64", "service", "small"]])
@@ -108,6 +109,43 @@ class ServiceRunnerCapacityTests(unittest.TestCase):
             plan.registry_repository,
             "git.faruqi.dev/mimranfaruqi/github-actions-runner-service",
         )
+
+    def test_exact_source_canary_proves_rootless_compose_and_cleanup(self) -> None:
+        for expected in (
+            "on:\n  workflow_dispatch:",
+            "--api validation.service-compose",
+            "--source-trust trusted-exact",
+            "--profile service-small",
+            "'[\"linux\",\"amd64\",\"service\",\"small\"]'",
+            "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on) }}",
+            'test "$(id -u)" -ne 0',
+            "podman info --format '{{.Host.Security.Rootless}}'",
+            'test "${STORAGE_DRIVER:-}" = vfs',
+            "podman-compose -f compose.yml",
+            "backend:",
+            "client:",
+            "down --volumes --remove-orphans",
+            "podman ps -aq --filter",
+            "podman pod ps -q --filter",
+            "podman volume ls -q --filter",
+        ):
+            self.assertIn(expected, self.canary)
+        self.assertNotIn("pull_request:", self.canary)
+        self.assertNotIn("push:", self.canary)
+        for forbidden in (
+            "actions/cache",
+            "upload-artifact",
+            "registry_username",
+            "registry_token",
+            "secrets: inherit",
+            "buildah bud",
+            "buildah push",
+            "skopeo copy",
+            "kubectl ",
+            "flux ",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, self.canary)
 
 
 if __name__ == "__main__":
