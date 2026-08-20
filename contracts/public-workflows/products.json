@@ -202,7 +202,7 @@
         "ci_workflows.packaging_primitives.helm_package",
         "ci_workflows.packaging_primitives.helm_push",
         "ci_workflows.packaging_primitives.registry_logout",
-        "ci_workflows.public_native_image_chart.readback_public",
+        "ci_workflows.packaging_primitives.cleanup_packaging_state",
         "ci_workflows.release_tag_authority.resolve_release_authority",
         "ci_workflows.release_tag_authority.revalidate_release_authority",
         "actions/resolve-release-tag"
