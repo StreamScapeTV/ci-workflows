@@ -94,17 +94,13 @@ jobs:
         shell: bash
         env:
           IMAGE: ${{ matrix.image }}
-        run: |
-          set +e
-          cleanup_failed=0
-          docker_config="${RUNNER_TEMP}/ciw-runner-docker-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${IMAGE}"
-          build_inputs="${GITHUB_WORKSPACE}/runner-images/${IMAGE}/.ciw-build-inputs"
-          rm -rf -- "${docker_config}" "${build_inputs}" || cleanup_failed=1
-          test ! -e "${docker_config}" || cleanup_failed=1
-          test ! -L "${docker_config}" || cleanup_failed=1
-          test ! -e "${build_inputs}" || cleanup_failed=1
-          test ! -L "${build_inputs}" || cleanup_failed=1
-          exit "${cleanup_failed}"
+        run: >-
+          python3 scripts/ci/hosted_runner_images.py cleanup
+          --image "${IMAGE}"
+          --workspace "${GITHUB_WORKSPACE}"
+          --runner-temp "${RUNNER_TEMP}"
+          --run-id "${GITHUB_RUN_ID}"
+          --run-attempt "${GITHUB_RUN_ATTEMPT}"
 
       - name: Verify exact source remained clean
         if: ${{ always() && !cancelled() }}
