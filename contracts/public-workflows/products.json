@@ -117,7 +117,6 @@
       "semantic_runner_profile": "contract:oci-publish",
       "permitted_events": ["tag-push", "workflow_call"],
       "inputs": [
-        {"name": "execution_backend", "required": false, "default": "organization"},
         {"name": "image_name", "required": true},
         {"name": "chart_name", "required": true},
         {"name": "chart_path", "required": true},
@@ -131,7 +130,6 @@
       "matrix_max_jobs": 2,
       "repository_owned_hooks": ["chart_path", "dockerfile_path", "build_context"],
       "implementation_components": [
-        "ci_workflows.execution_backends.resolve_execution_backend",
         "ci_workflows.packaging_primitives.build_image",
         "ci_workflows.packaging_primitives.inspect_image",
         "ci_workflows.packaging_primitives.registry_authenticate",

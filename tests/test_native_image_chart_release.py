@@ -37,7 +37,7 @@ class NativeImageChartNormalReleaseContractTest(unittest.TestCase):
             if row["api_name"] == "release.native-image-chart"
         )
 
-    def test_public_api_v2_adds_only_optional_execution_backend(self) -> None:
+    def test_public_api_v2_is_normal_tag_push_only(self) -> None:
         self.assertEqual("2.0.0", self.contract["api_version"])
         self.assertEqual("2.0.0", self.aggregate["api_version"])
         self.assertEqual("implemented", self.contract["status"])
@@ -47,18 +47,9 @@ class NativeImageChartNormalReleaseContractTest(unittest.TestCase):
         )
         inputs = {row["name"]: row for row in self.contract["inputs"]}
         self.assertEqual(
-            {
-                "execution_backend",
-                "image_name",
-                "chart_name",
-                "chart_path",
-                "dockerfile_path",
-                "build_context",
-            },
+            {"image_name", "chart_name", "chart_path", "dockerfile_path", "build_context"},
             set(inputs),
         )
-        self.assertFalse(inputs["execution_backend"]["required"])
-        self.assertEqual("organization", inputs["execution_backend"]["default"])
         for required in ("image_name", "chart_name", "chart_path"):
             self.assertTrue(inputs[required]["required"])
         self.assertEqual("Dockerfile", inputs["dockerfile_path"]["default"])
@@ -81,8 +72,7 @@ class NativeImageChartNormalReleaseContractTest(unittest.TestCase):
         )[0]
         self.assertIn("- Events: `tag-push`, `workflow_call`", section)
         self.assertIn(
-            "- Inputs: `execution_backend` (default `organization`), "
-            "`image_name` (required), `chart_name` (required), "
+            "- Inputs: `image_name` (required), `chart_name` (required), "
             "`chart_path` (required), `dockerfile_path` (default `Dockerfile`), "
             "`build_context` (default `.`)",
             section,
@@ -133,10 +123,9 @@ class NativeImageChartNormalReleaseContractTest(unittest.TestCase):
         )
 
     def test_normal_release_keeps_native_amd64_publication_contract(self) -> None:
-        self.assertIn("runs-on: ubuntu-latest", self.workflow)
         self.assertEqual(
             2,
-            self.workflow.count("runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}"),
+            self.workflow.count("runs-on: [linux, amd64, buildah, high]"),
         )
         self.assertIn('test "$(uname -m)" = x86_64', self.workflow)
         self.assertIn("--platform linux/amd64", self.workflow)
@@ -146,40 +135,17 @@ class NativeImageChartNormalReleaseContractTest(unittest.TestCase):
         self.assertIn("Independently read back immutable image and chart identities", self.workflow)
         self.assertIn("chart_package_sha256", self.workflow)
 
-    def test_hosted_publication_uses_ghcr_github_token_and_anonymous_readback(self) -> None:
-        self.assertIn("execution_backend:", self.workflow)
-        self.assertIn("default: organization", self.workflow)
-        self.assertIn("github.token", self.workflow)
-        self.assertIn("github.actor", self.workflow)
-        self.assertIn("packages: write", self.workflow)
-        self.assertIn('test "${REGISTRY}" = ghcr.io', self.workflow)
-        self.assertIn('test "${REGISTRY_NAMESPACE}" = streamscapetv', self.workflow)
-        self.assertIn('test "${CHART_NAMESPACE}" = streamscapetv/helm-charts', self.workflow)
-        self.assertIn('test -z "${PRIVATE_REGISTRY_USERNAME}"', self.workflow)
-        self.assertIn('test -z "${PRIVATE_REGISTRY_TOKEN}"', self.workflow)
-        self.assertIn('readback_auth="${state}/anonymous-auth.json"', self.workflow)
-        self.assertIn('printf \'{}\\n\' > "${readback_auth}"', self.workflow)
-
-    def test_organization_default_keeps_private_registry_contract(self) -> None:
-        self.assertIn('test "${REGISTRY}" = git.faruqi.dev', self.workflow)
-        self.assertIn('test "${REGISTRY_NAMESPACE}" = mimranfaruqi', self.workflow)
-        self.assertIn('test "${CHART_NAMESPACE}" = mimranfaruqi/helm-charts', self.workflow)
-        self.assertIn('test -n "${PRIVATE_REGISTRY_USERNAME}"', self.workflow)
-        self.assertIn('test -n "${PRIVATE_REGISTRY_TOKEN}"', self.workflow)
-        secret_block = self.workflow.split("    secrets:\n", 1)[1].split("    outputs:\n", 1)[0]
-        self.assertEqual(2, secret_block.count("required: false"))
-
     def test_workflow_consumes_called_reusable_identity_not_caller_identity(self) -> None:
         self.assertEqual(
-            3,
+            2,
             self.workflow.count("repository: ${{ job.workflow_repository }}"),
         )
         self.assertEqual(
-            3,
+            2,
             self.workflow.count("ref: ${{ job.workflow_sha }}"),
         )
         self.assertEqual(
-            4,
+            3,
             self.workflow.count('test "$(git rev-parse HEAD)" = "${{ job.workflow_sha }}"'),
         )
         self.assertNotIn("${{ github.workflow_sha }}", self.workflow)
