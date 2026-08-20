@@ -7,23 +7,25 @@ The reusable workflow checks out the exact admitted caller source, creates one p
 ## Inputs
 
 - `admitted_sha`: exact caller source SHA.
+- `expected_branch`: protected development branch allowed to publish source-specific development packages.
 - `working_directory`: repository-relative Gradle project directory.
 - `gradle_wrapper_path`: checked-in wrapper relative to the Gradle project directory.
 - `version_file`: repository-relative stable `MAJOR.MINOR.PATCH` version file.
-- `publication_channel`: `stable` or `develop`.
-- `publication_tasks_json`: non-empty bounded JSON array of Gradle task identities.
+- `arguments_json`: non-empty bounded JSON array of Gradle Maven publication task identities.
 
 The workflow accepts only the named `registry_username` and `registry_token` secrets. They reach only the publication action and are forwarded to Gradle as `CIW_MAVEN_REGISTRY_USERNAME` and `CIW_MAVEN_REGISTRY_TOKEN`. The credentials are never placed on the command line.
 
-## Versioning
+## Version authority
 
-`stable` publishes the exact version from `version_file`.
+Publication mode is derived from the caller ref rather than a caller-selected mode flag.
 
-`develop` derives an immutable source-specific Maven version:
+When the caller ref is exactly `refs/heads/<expected_branch>`, Central derives an immutable source-specific version:
 
 `<base-version>-develop.<first-12-characters-of-source-sha>`
 
-Development publication therefore does not overwrite a mutable `latest` package. A consumer can use the exact version emitted by the workflow while the source branch continues moving.
+When the caller ref is exactly `refs/tags/v<base-version>`, Central publishes `<base-version>`.
+
+Any other caller ref fails closed. Development publication therefore does not overwrite a mutable `latest` Maven version, while stable tags map directly to stable Maven versions.
 
 ## Execution and cleanup
 
