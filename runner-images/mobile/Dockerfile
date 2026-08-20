@@ -1,7 +1,7 @@
 # Mobile Android/Flutter runner image. Base image digests are retained as build
 # hygiene, while tool downloads are ordinary HTTPS inputs verified by the small
 # checked-in toolchain lock rather than the retired central input/provenance path.
-FROM docker.io/library/gcc:15-trixie@sha256:486d5379b2d679f18bca957901d628952aa0ebc2d82817047bbef1dbfbc13d70 AS build-tools
+FROM docker.io/library/gcc:16-trixie@sha256:8d466d9001805b81ecc280645889c368ae28e75724e7ecba03a0336deda0faac AS build-tools
 
 ARG ACTIONS_RUNNER_URL=https://github.com/actions/runner/releases/download/v2.336.0/actions-runner-linux-x64-2.336.0.tar.gz
 ARG ACTIONS_RUNNER_SHA256=04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d
