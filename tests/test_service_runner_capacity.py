@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from ci_workflows import runner_images, runners  # noqa: E402
+from ci_workflows import runner_images, runners, service_runner_smoke  # noqa: E402
 
 
 class ServiceRunnerCapacityTests(unittest.TestCase):
@@ -50,7 +52,12 @@ class ServiceRunnerCapacityTests(unittest.TestCase):
         self.assertNotIn("oci.publish", self.service["allowed_workflow_apis"])
         tool_names = {tool["name"] for tool in self.service["tools"]}
         self.assertEqual(tool_names, {"github-actions-runner", "podman", "podman-compose"})
-        self.assertTrue({"Docker", "Buildah", "Skopeo"} <= {word.rstrip(",") for item in self.service["forbidden_uses"] for word in item.split()})
+        forbidden_words = {
+            word.rstrip(",")
+            for item in self.service["forbidden_uses"]
+            for word in item.split()
+        }
+        self.assertTrue({"Docker", "Buildah", "Skopeo"} <= forbidden_words)
 
     def test_general_small_remains_engine_free(self) -> None:
         general = self.profiles["general-small"]
@@ -119,28 +126,86 @@ class ServiceRunnerCapacityTests(unittest.TestCase):
         self.assertIn('directory: "/runner-images/service"', self.dependabot)
         self.assertIn('"runner-images/service/**"', self.validation_workflow)
 
-    def test_exact_source_canary_proves_rootless_compose_and_cleanup(self) -> None:
+    def test_named_compose_fixture_contains_two_services_and_owned_volume(self) -> None:
+        document = service_runner_smoke.compose_document()
+        self.assertIn("backend:", document)
+        self.assertIn("client:", document)
+        self.assertIn("depends_on:\n      - backend", document)
+        self.assertIn("backend-data:/data", document)
+        self.assertIn("volumes:\n  backend-data: {}", document)
+        with tempfile.TemporaryDirectory() as directory:
+            path = service_runner_smoke.write_compose_file(Path(directory) / "canary")
+            self.assertEqual(path.read_text(encoding="utf-8"), document)
+            self.assertFalse(path.is_symlink())
+
+    def test_project_identity_is_bounded_to_service_canary_namespace(self) -> None:
+        self.assertEqual(
+            service_runner_smoke.validate_project_name("ciw-service-123-1"),
+            "ciw-service-123-1",
+        )
+        for invalid in ("", "other-123", "ciw-service-a/b", "ciw-service-a b"):
+            with self.subTest(value=invalid), self.assertRaises(
+                service_runner_smoke.ServiceRunnerSmokeError
+            ):
+                service_runner_smoke.validate_project_name(invalid)
+
+    def test_cleanup_removes_work_dir_after_zero_residue(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory) / "canary"
+            service_runner_smoke.write_compose_file(work)
+            with (
+                patch.object(service_runner_smoke, "_run") as run,
+                patch.object(
+                    service_runner_smoke,
+                    "_residual_resources",
+                    return_value={"containers": "", "pods": "", "volumes": ""},
+                ),
+            ):
+                service_runner_smoke.cleanup_smoke(
+                    project_name="ciw-service-123-1",
+                    work_dir=work,
+                )
+            run.assert_called_once()
+            self.assertFalse(work.exists())
+
+    def test_cleanup_fails_closed_when_owned_resources_remain(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory) / "canary"
+            work.mkdir()
+            with patch.object(
+                service_runner_smoke,
+                "_residual_resources",
+                return_value={"containers": "abc", "pods": "", "volumes": ""},
+            ):
+                with self.assertRaisesRegex(
+                    service_runner_smoke.ServiceRunnerSmokeError,
+                    "left run-owned resources",
+                ):
+                    service_runner_smoke.cleanup_smoke(
+                        project_name="ciw-service-123-1",
+                        work_dir=work,
+                    )
+            self.assertTrue(work.exists())
+
+    def test_exact_source_canary_is_thin_and_uses_trusted_planner_output(self) -> None:
         for expected in (
             "on:\n  workflow_dispatch:",
             "--api validation.service-compose",
             "--source-trust trusted-exact",
             "--profile service-small",
-            "'[\"linux\",\"amd64\",\"service\",\"small\"]'",
-            "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on) }}",
-            'test "$(id -u)" -ne 0',
-            "podman info --format '{{.Host.Security.Rootless}}'",
-            'test "${STORAGE_DRIVER:-}" = vfs',
-            "podman-compose -f compose.yml",
-            "backend:",
-            "client:",
-            "down --volumes --remove-orphans",
-            "podman ps -aq --filter",
-            "podman pod ps -q --filter",
-            "podman volume ls -q --filter",
+            "runs_on_json",
+            "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
+            "scripts/ci/service_runner_smoke.py verify-runtime",
+            "scripts/ci/service_runner_smoke.py run",
+            "scripts/ci/service_runner_smoke.py cleanup",
+            "name: Cleanup run-owned service canary state",
+            "if: always()",
         ):
             self.assertIn(expected, self.canary)
         self.assertNotIn("pull_request:", self.canary)
         self.assertNotIn("push:", self.canary)
+        self.assertNotIn("for i in", self.canary)
+        self.assertNotIn("cat >", self.canary)
         for forbidden in (
             "actions/cache",
             "upload-artifact",
