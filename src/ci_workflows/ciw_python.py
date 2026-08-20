@@ -8,12 +8,7 @@ from pathlib import Path
 from . import python as python_validation
 from . import runners
 from .ciw_types import CIWContext, CIWResult, write_command_file
-from .execution_backends import (
-    ExecutionBackendError,
-    load_execution_backend_contract,
-    resolve_execution_backend,
-    validate_generated_mapping,
-)
+from .execution_backends import ExecutionBackendError, resolve_execution_backend
 from .workspace import resolve_state_root
 
 
@@ -49,12 +44,8 @@ def _failure_outputs(context: CIWContext, code: str) -> None:
     summary = json.dumps(
         {
             "status": "failed",
-            "validation_profile": context.environment.get(
-                "INPUT_VALIDATION_PROFILE", ""
-            ),
-            "command_profile": context.environment.get(
-                "INPUT_COMMAND_PROFILE", ""
-            ),
+            "validation_profile": context.environment.get("INPUT_VALIDATION_PROFILE", ""),
+            "command_profile": context.environment.get("INPUT_COMMAND_PROFILE", ""),
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -66,9 +57,7 @@ def _failure_outputs(context: CIWContext, code: str) -> None:
             "test_summary": summary,
             "source_sha": context.environment.get("INPUT_ADMITTED_SHA", ""),
             "resolved_python_version": "",
-            "validation_profile": context.environment.get(
-                "INPUT_VALIDATION_PROFILE", ""
-            ),
+            "validation_profile": context.environment.get("INPUT_VALIDATION_PROFILE", ""),
             "command_profile": context.environment.get("INPUT_COMMAND_PROFILE", ""),
             "cleanup_result": "not-run",
             "failure_code": code,
@@ -109,23 +98,13 @@ def execute_python_validate(
                 requested_profile=plan.runner_profile,
             )
             try:
-                backend_contract = load_execution_backend_contract(context.root)
-                validate_generated_mapping(context.root, backend_contract)
                 backend = resolve_execution_backend(
-                    contract=backend_contract,
-                    workflow_api="validation.python",
-                    execution_backend=context.environment.get(
-                        "INPUT_EXECUTION_BACKEND", "organization"
-                    ),
+                    execution_backend=context.environment.get("INPUT_EXECUTION_BACKEND", "organization"),
                     execution_profile=organization.execution_profile,
                     organization_runs_on=organization.runs_on,
                 )
             except ExecutionBackendError as error:
-                code = (
-                    "unsupported_profile"
-                    if error.code == "unsupported_execution_backend_profile"
-                    else "invalid_input"
-                )
+                code = "unsupported_profile" if error.code == "unsupported_execution_backend_profile" else "invalid_input"
                 raise python_validation.PythonValidationError(code) from error
             outputs = plan.planning_outputs()
             outputs.update(
@@ -140,9 +119,7 @@ def execute_python_validate(
             )
             return CIWResult("python", "validate", outputs=outputs)
 
-        workspace = Path(
-            context.environment.get("GITHUB_WORKSPACE", ".")
-        ).resolve()
+        workspace = Path(context.environment.get("GITHUB_WORKSPACE", ".")).resolve()
         relative_source = python_validation.safe_relative(args.source_root)
         source_root = python_validation.bounded_path(workspace, relative_source)
         result = python_validation.validate(
@@ -155,11 +132,7 @@ def execute_python_validate(
         )
         if not isinstance(result, python_validation.PythonValidationResult):
             raise python_validation.PythonValidationError("invalid_input")
-        return CIWResult(
-            "python",
-            "validate",
-            outputs=result.output_values(),
-        )
+        return CIWResult("python", "validate", outputs=result.output_values())
     except python_validation.PythonValidationError as error:
         _failure_outputs(context, error.code)
         raise
