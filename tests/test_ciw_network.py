@@ -21,8 +21,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class _DownloadStream:
-    def __init__(self, body: bytes, content_type: str) -> None:
-        self.status = 200
+    def __init__(
+        self,
+        body: bytes,
+        content_type: str,
+        *,
+        status: int = 200,
+    ) -> None:
+        self.status = status
         self.url = "https://example.invalid/tool.zip"
         self.headers = {
             "Content-Length": str(len(body)),
@@ -172,6 +178,66 @@ class NetworkCIWTests(unittest.TestCase):
             self.assertEqual(len(body), payload["size"])
             self.assertEqual("application/zip", payload["content_type"])
 
+    def test_download_network_status_failure_projects_stable_code(self) -> None:
+        stream = _DownloadStream(b"missing", "application/octet-stream", status=404)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            dependencies = root / "dependencies"
+            generated = root / "generated"
+            dependencies.mkdir()
+            generated.mkdir()
+            with mock.patch(
+                "ci_workflows.network_primitives.UrllibTransport.open",
+                return_value=stream,
+            ):
+                with self.assertRaises(CIWError) as failure:
+                    execute_network(
+                        self._args(
+                            "--operation",
+                            "download",
+                            "--url",
+                            "https://example.invalid/missing.bin",
+                            "--relative-path",
+                            "missing.bin",
+                        ),
+                        self._context(dependencies, generated),
+                    )
+            self.assertEqual("http_status_rejected", failure.exception.code)
+            self.assertTrue(stream.closed)
+            self.assertFalse((dependencies / "missing.bin").exists())
+
+    def test_download_integrity_failure_removes_partial_file(self) -> None:
+        body = b"wrong-checksum-body"
+        stream = _DownloadStream(body, "application/octet-stream")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            dependencies = root / "dependencies"
+            generated = root / "generated"
+            dependencies.mkdir()
+            generated.mkdir()
+            with mock.patch(
+                "ci_workflows.network_primitives.UrllibTransport.open",
+                return_value=stream,
+            ):
+                with self.assertRaises(CIWError) as failure:
+                    execute_network(
+                        self._args(
+                            "--operation",
+                            "download",
+                            "--url",
+                            "https://example.invalid/tool.bin",
+                            "--relative-path",
+                            "tool.bin",
+                            "--expected-sha256",
+                            "0" * 64,
+                        ),
+                        self._context(dependencies, generated),
+                    )
+            self.assertEqual("checksum_mismatch", failure.exception.code)
+            self.assertTrue(stream.closed)
+            self.assertFalse((dependencies / "tool.bin").exists())
+            self.assertEqual([], list(dependencies.glob("*.partial")))
+
     def test_verify_uses_registered_dependency_file(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -226,6 +292,32 @@ class NetworkCIWTests(unittest.TestCase):
             self.assertEqual(payload["destination"], "bundle")
             self.assertEqual(result.outputs["local_path"], str(generated / "bundle"))
             self.assertEqual((generated / "bundle/bin/tool").read_bytes(), b"tool-bytes")
+
+    def test_extract_failure_projects_stable_code_and_leaves_no_destination(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            dependencies = root / "dependencies"
+            generated = root / "generated"
+            dependencies.mkdir()
+            generated.mkdir()
+            archive = dependencies / "broken.zip"
+            archive.write_bytes(b"not-a-zip")
+            with self.assertRaises(CIWError) as failure:
+                execute_network(
+                    self._args(
+                        "--operation",
+                        "extract",
+                        "--relative-path",
+                        "broken.zip",
+                        "--archive-format",
+                        "zip",
+                        "--relative-destination",
+                        "broken",
+                    ),
+                    self._context(dependencies, generated),
+                )
+            self.assertEqual("archive_invalid", failure.exception.code)
+            self.assertFalse((generated / "broken").exists())
 
     def test_invalid_environment_size_fails_with_bounded_code(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

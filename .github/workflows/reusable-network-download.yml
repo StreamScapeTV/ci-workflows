@@ -79,7 +79,7 @@ jobs:
 
       - id: download
         name: Download and verify bounded dependency
-        uses: StreamScapeTV/ci-workflows/actions/network@d090f1e37acc5b75ba3abd7928721ac993c9e6fd # issue #363 immutable network checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/network@b667425dcded85368300d104be53805c94b7fc3a # issue #363 immutable network checkpoint
         with:
           operation: download
           url: ${{ inputs.url }}
@@ -92,7 +92,7 @@ jobs:
       - id: extract
         name: Extract verified dependency archive
         if: inputs.archive_format != 'none'
-        uses: StreamScapeTV/ci-workflows/actions/network@d090f1e37acc5b75ba3abd7928721ac993c9e6fd # issue #363 immutable network checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/network@b667425dcded85368300d104be53805c94b7fc3a # issue #363 immutable network checkpoint
         with:
           operation: extract
           relative_path: ${{ inputs.relative_path }}
