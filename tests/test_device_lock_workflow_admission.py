@@ -47,12 +47,21 @@ class DeviceLockWorkflowAdmissionTests(unittest.TestCase):
 
         initialize = steps[initialize_index]
         run = initialize["run"]
-        self.assertIn("RUNNER_TEMP", run)
+        self.assertIn("HOME", run)
+        self.assertNotIn("RUNNER_TEMP", run)
         self.assertIn("GITHUB_ENV", run)
         self.assertIn("CIW_DEVICE_LOCK_ROOT=", run)
         self.assertIn("GITHUB_RUN_ID", run)
         self.assertIn("GITHUB_RUN_ATTEMPT", run)
+        self.assertIn("stat -c '%u'", run)
+        self.assertIn("id -u", run)
         self.assertNotIn("set -x", run)
+
+        provision = steps[provision_index]["run"]
+        self.assertIn('mkdir -m 0700 "${CIW_DEVICE_LOCK_ROOT}"', provision)
+        self.assertIn('chmod 0700 "${CIW_DEVICE_LOCK_ROOT}"', provision)
+        self.assertIn("stat -c '%a'", provision)
+        self.assertIn('= "700"', provision)
 
     def test_focused_tests_use_locked_validation_runtime_and_clean_it(self) -> None:
         contract = self.workflow["jobs"]["contract_smoke"]
@@ -60,8 +69,14 @@ class DeviceLockWorkflowAdmissionTests(unittest.TestCase):
         run = focused["run"]
         self.assertIn("bootstrap_validation_runtime.py", run)
         self.assertIn("contracts/action-tool-lock.json", run)
-        self.assertIn("RUNNER_TEMP", run)
+        self.assertIn("HOME", run)
+        self.assertNotIn("RUNNER_TEMP", run)
         self.assertIn("trap 'rm -rf -- \"${validation_root}\"' EXIT", run)
+        self.assertIn('mkdir -m 0700 "${validation_root}"', run)
+        self.assertIn('chmod 0700 "${validation_root}"', run)
+        self.assertIn('chmod 0700 "${validation_root}/tmp"', run)
+        self.assertIn("stat -c '%a'", run)
+        self.assertIn('TMPDIR="${validation_root}/tmp"', run)
         self.assertIn('PYTHONPATH="${validation_root}/python:.ciw/src"', run)
         self.assertIn('test ! -e "${validation_root}"', run)
         self.assertIn("trap - EXIT", run)

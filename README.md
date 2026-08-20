@@ -21,10 +21,16 @@ Consumer repositories keep triggers, minimum permissions, concurrency and enviro
 
 ## Reuse layers
 
-1. `.github/workflows/reusable-*.yml` — public reusable workflows.
-2. `.github/workflows/internal-*.yml` — optional non-nesting internal leaf workflows.
-3. `actions/<name>/action.yml` — thin bounded composite actions.
-4. `src/ci_workflows/` — named typed functions for non-trivial behavior.
+1. `src/ci_workflows/` — named typed Python functions implement reusable behavior.
+2. `actions/<name>/action.yml` — thin bounded adapters over those functions.
+3. `.github/workflows/reusable-*.yml` — public reusable orchestration.
+4. `.github/workflows/internal-*.yml` — optional non-nesting internal orchestration leaves.
+
+Workflow YAML is orchestration, not the implementation layer. Central names describe technologies or capabilities; product paths, tasks, scripts, and options remain bounded inputs owned by the consumer. Shared functions take explicit working directories, environment/input data and named secret environment variables, and return structured results that adapters serialize for GitHub Actions.
+
+The product-neutral primitives in `src/ci_workflows/runtime_primitives.py` provide the common runtime substrate: structured subprocess execution, non-secret input normalization, named secret lookup, bounded temporary workspaces and cleanup, exact repository/SHA checkout, deterministic JSON/GitHub-output serialization, and idempotent temporary/auth-state finalization. Domain modules compose these primitives; CLI/public-workflow registration remains a separate wiring concern.
+
+Ordinary validation does not require a provenance ledger, canary/rollback framework, immutable-digest proof, or remote read-back layer merely to run a product-owned command. Publication workflows may retain stronger publication-specific checks where their reviewed contract requires them. Local-runner caching/storage stays Flux-owned; shared workflows do not add GitHub Actions cache or manage PV/shared-volume infrastructure.
 
 `contracts/public-workflows.json` is the machine-readable authority for the current public API inventory and each API's implemented, planned, or compatibility status. Do not infer API availability from README prose alone. The exact-tag image/chart workflow introduced by #34 remains a `deprecated-bootstrap-exception` compatibility path while its replacement Helm/release APIs are still planned; it is not the sole public workflow and it does not block already implemented source, validation, or OCI APIs from being consumed.
 

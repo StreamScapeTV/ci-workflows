@@ -60,7 +60,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve contract-owned command and runner plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-python@d060c275570e07222969546acf988a2616a3bcc6 # issue #229 immutable portable host runtime checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-python@aece8d01efdd5482a1c3d42db357aed87a7917e9 # issue #235 general-runner Python primitives checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -77,7 +77,7 @@ jobs:
     runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
     timeout-minutes: 120
     outputs:
-      result: ${{ steps.python.outcome == 'success' && steps.cleanup.outcome == 'success' && 'success' || 'failure' }}
+      result: ${{ steps.python.outcome == 'success' && steps.cleanup.outcome == 'success' && steps.clean.outcome == 'success' && 'success' || 'failure' }}
       test_summary: ${{ steps.python.outputs.test_summary }}
       source_sha: ${{ steps.python.outputs.source_sha }}
       resolved_python_version: ${{ steps.python.outputs.resolved_python_version }}
@@ -104,17 +104,9 @@ jobs:
           source_sha: ${{ inputs.admitted_sha }}
           trust_mode: ${{ needs.plan.outputs.source_trust }}
 
-      - id: tools
-        name: Verify contract-selected host toolchain
-        uses: StreamScapeTV/ci-workflows/actions/verify-toolchain@70e08d4ddf8930046632a7135950e924b82e22bf # issue #125 immutable private-action checkpoint
-        with:
-          operation: verify-set
-          tool_set: baseline
-          capability_profile: linux
-
       - id: python
         name: Execute bounded Python validation
-        uses: StreamScapeTV/ci-workflows/actions/validate-python@d060c275570e07222969546acf988a2616a3bcc6 # issue #229 immutable portable host runtime checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-python@aece8d01efdd5482a1c3d42db357aed87a7917e9 # issue #235 general-runner Python primitives checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -125,25 +117,13 @@ jobs:
           script_path: ${{ inputs.script_path }}
           artifact_exception_id: ${{ inputs.artifact_exception_id }}
 
-      - name: Render deterministic redacted Python evidence
-        if: always()
-        uses: StreamScapeTV/ci-workflows/actions/render-evidence@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
-        with:
-          source_sha: ${{ inputs.admitted_sha }}
-          workflow_release: validation-python-1.0.0
-          runner_profile: ${{ needs.plan.outputs.runner_profile }}
-          toolchain_json: ${{ steps.tools.outputs.toolchain_json }}
-          command_profile: ${{ inputs.command_profile }}
-          result: ${{ steps.python.outcome == 'success' && 'success' || 'failure' }}
-          cleanup_state: not-run
-          cleanup_removed_paths: "0"
-
       - id: cleanup
         name: Remove and verify all registered Python state
         if: always()
         uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
 
-      - name: Verify exact source remained clean after cleanup
+      - id: clean
+        name: Verify exact source remained clean after cleanup
         if: always()
         shell: bash
         run: |

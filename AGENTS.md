@@ -34,6 +34,14 @@ This private repository owns reusable GitHub Actions orchestration for supported
 - Public inputs and outputs must match checked-in contracts and generated reference documentation. Inputs must be bounded and may not accept arbitrary shell commands, callbacks, registry hosts, runner labels, container engines, cluster targets, namespaces, service accounts, secret names, or unrestricted matrices.
 - Public and internal workflow calls and composite-action calls must remain acyclic, accessible, shallow, and compatible with the supported consumer and product inventory.
 
+### Function-first implementation rule
+
+- Python functions under `src/ci_workflows/` are the implementation layer. Workflow YAML owns orchestration only; composite actions and CLI adapters stay thin and delegate reusable behavior to named tested functions.
+- Central function/workflow/action names describe technologies or capabilities, not product identities. Product paths, tasks, scripts, and options remain bounded caller inputs and product-owned behavior.
+- Secrets are read only from fixed named environment variables chosen by the central implementation. Never log secret values or accept a caller-selected secret-variable name as a public input.
+- Ordinary validation must not depend on immutable-digest, remote read-back, provenance-ledger, canary, or rollback machinery unless the bounded workflow actually requires publication/deployment semantics. Publication-specific safeguards in this repository remain authoritative where explicitly required.
+- Do not add GitHub Actions cache as a workflow feature for local runners. Flux owns runner-side caching, persistent/shared storage, and deployed runner infrastructure.
+
 ## Authority boundaries
 
 - Flux remains the sole authority for desired state, target and product allowlists, SOPS data, Kubernetes credentials, reconciliation policy, canary selection, live health, and rollback acceptance. This repository owns only reviewed orchestration around exact Flux-owned policy source.
@@ -59,10 +67,11 @@ This private repository owns reusable GitHub Actions orchestration for supported
 ## Publication and release safety
 
 - Product publication is admitted only from an exact approved Git tag and exact tagged source SHA.
-- Immutable image and chart versions use the exact approved tag. Never publish `latest`.
-- Historical tags build the exact historical commit without rewriting branches.
+- Immutable image and chart versions use the exact approved tag. Runner-image releases additionally publish the same built artifact under the mutable `latest` alias after the exact versioned tag is published; `latest` is a convenience deployment alias and is never release/source authority.
+- The repository Git tag `latest` is not a valid release-version input for the runner-image workflow; an ordinary version/tag such as `1.0` remains the release authority and produces both `:1.0` and `:latest`.
+- Historical tags build the exact historical commit without rewriting branches. Replaying an historical runner-image tag may therefore also move the mutable `latest` alias to that replayed artifact; use replay deliberately.
 - Publication and deployment remain separate. Product release workflows do not receive Kubernetes or SOPS credentials and do not mutate clusters.
-- Published images and charts require independent remote read-back. Replays are idempotent, and conflicting immutable content fails closed.
+- Published images and charts require independent remote read-back. Runner-image publication must read back both the exact versioned tag and `latest` before the image job succeeds. Replays are idempotent for exact versioned content, and conflicting immutable content fails closed.
 
 ## Product validation contract
 

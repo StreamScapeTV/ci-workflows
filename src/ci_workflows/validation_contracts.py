@@ -54,36 +54,38 @@ def _validate_public_compatibility(
     expected_inputs = _contract_input_map(record)
     expected_secrets = {str(value) for value in record.get("secrets", [])}
     expected_outputs = {str(value) for value in record.get("outputs", [])}
-    if _actual_names(actual_inputs) != set(expected_inputs):
-        _finding(
-            findings,
-            config,
-            "workflow-input-drift",
-            document.relative_path,
-            f"workflow_call inputs differ from contract: actual={sorted(_actual_names(actual_inputs))}, expected={sorted(expected_inputs)}",
-        )
-    else:
-        assert isinstance(actual_inputs, Mapping)
-        for name, expected in expected_inputs.items():
-            actual = actual_inputs.get(name, {})
-            if not isinstance(actual, Mapping):
-                continue
-            if bool(actual.get("required", False)) != bool(expected.get("required", False)):
-                _finding(
-                    findings,
-                    config,
-                    "workflow-input-drift",
-                    document.relative_path,
-                    f"input {name!r} required flag differs from contract",
-                )
-            if "default" in expected and actual.get("default") != expected.get("default"):
-                _finding(
-                    findings,
-                    config,
-                    "workflow-input-drift",
-                    document.relative_path,
-                    f"input {name!r} default differs from contract",
-                )
+    migration_pending = record.get("status") == "migration-pending"
+    if not migration_pending:
+        if _actual_names(actual_inputs) != set(expected_inputs):
+            _finding(
+                findings,
+                config,
+                "workflow-input-drift",
+                document.relative_path,
+                f"workflow_call inputs differ from contract: actual={sorted(_actual_names(actual_inputs))}, expected={sorted(expected_inputs)}",
+            )
+        else:
+            assert isinstance(actual_inputs, Mapping)
+            for name, expected in expected_inputs.items():
+                actual = actual_inputs.get(name, {})
+                if not isinstance(actual, Mapping):
+                    continue
+                if bool(actual.get("required", False)) != bool(expected.get("required", False)):
+                    _finding(
+                        findings,
+                        config,
+                        "workflow-input-drift",
+                        document.relative_path,
+                        f"input {name!r} required flag differs from contract",
+                    )
+                if "default" in expected and actual.get("default") != expected.get("default"):
+                    _finding(
+                        findings,
+                        config,
+                        "workflow-input-drift",
+                        document.relative_path,
+                        f"input {name!r} default differs from contract",
+                    )
     if _actual_names(actual_secrets) != expected_secrets:
         _finding(
             findings,

@@ -1,0 +1,95 @@
+name: Runner image validation
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+    paths:
+      - ".github/workflows/runner-images-validation.yml"
+      - "actions/runner-image/**"
+      - "runner-images/general/**"
+      - "runner-images/mobile/**"
+      - "runner-images/docker/**"
+      - "runner-images/flux-control/**"
+      - "scripts/ci/runner_images.py"
+      - "src/ci_workflows/runner_images.py"
+      - "tests/test_runner_image_general.py"
+      - "tests/test_mobile_runner_image_assembly.py"
+      - "tests/test_runner_image_docker.py"
+      - "tests/test_runner_image_flux_control.py"
+      - "tests/test_runner_images_validation_workflow.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runner-images-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  images:
+    name: Build and smoke ${{ matrix.image }} runner image
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - general
+          - mobile
+          - docker
+          - flux-control
+    runs-on: [linux, amd64, buildah, high]
+    timeout-minutes: 180
+    env:
+      SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Check out exact runner-image source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact runner-image source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+
+      - name: Verify dedicated Buildah publication scratch
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          push_tmp=/var/tmp/buildah
+          test -d "${push_tmp}"
+          test ! -L "${push_tmp}"
+          test -w "${push_tmp}"
+
+      - name: Build and smoke through the shared runner-image action
+        uses: ./actions/runner-image
+        with:
+          image: ${{ matrix.image }}
+          source_sha: ${{ env.SOURCE_SHA }}
+          publish: "false"
+
+      - name: Verify runner-image credential cleanup
+        if: always()
+        shell: bash
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: |
+          set -Eeuo pipefail
+          authfile="${RUNNER_TEMP}/ciw-runner-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${IMAGE}.json"
+          test ! -e "${authfile}"
+          test ! -L "${authfile}"
+
+      - name: Verify exact source remained clean
+        if: ${{ always() && !cancelled() }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+          test -z "$(git status --porcelain --untracked-files=all)"

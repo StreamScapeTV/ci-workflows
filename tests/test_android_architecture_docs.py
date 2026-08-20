@@ -6,10 +6,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ARCHITECTURE_DOC = ROOT / "docs/architecture/android-validation.md"
+WORKFLOW_DOC = ROOT / "docs/workflows/android.md"
 ACTION_LOCK = ROOT / "contracts/action-tool-lock.json"
 WORKFLOW = ROOT / ".github/workflows/reusable-android.yml"
 
 VALIDATE_ANDROID = "StreamScapeTV/ci-workflows/actions/validate-android"
+WARM_GRADLE = "StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies"
+UPLOAD_GRADLE_SEED = "StreamScapeTV/ci-workflows/actions/upload-gradle-seed"
 EXACT_CHECKOUT = "StreamScapeTV/ci-workflows/actions/exact-checkout"
 PREPARE_WORKSPACE = "StreamScapeTV/ci-workflows/actions/prepare-workspace"
 PRIVATE_DEPENDENCY = "StreamScapeTV/ci-workflows/actions/checkout-private-dependency"
@@ -21,6 +24,8 @@ class AndroidArchitectureDocumentationTests(unittest.TestCase):
     def test_helper_guidance_and_workflow_match_action_lock(self) -> None:
         required = {
             VALIDATE_ANDROID,
+            WARM_GRADLE,
+            UPLOAD_GRADLE_SEED,
             EXACT_CHECKOUT,
             PREPARE_WORKSPACE,
             PRIVATE_DEPENDENCY,
@@ -34,6 +39,7 @@ class AndroidArchitectureDocumentationTests(unittest.TestCase):
             if item["uses"] in required
         }
         guide = ARCHITECTURE_DOC.read_text(encoding="utf-8")
+        workflow_guide = WORKFLOW_DOC.read_text(encoding="utf-8")
         workflow = WORKFLOW.read_text(encoding="utf-8")
 
         self.assertEqual(required, set(actions))
@@ -43,14 +49,26 @@ class AndroidArchitectureDocumentationTests(unittest.TestCase):
             self.assertIn(item["release"], guide)
             self.assertIn(f"uses: {action_name}@{item['sha']}", workflow)
 
+        self.assertNotIn("id-token", workflow)
+        self.assertNotIn("ACTIONS_ID_TOKEN_REQUEST", workflow)
+        self.assertIn("GRADLE_RO_DEP_CACHE", guide)
+        self.assertIn("private writable `GRADLE_USER_HOME`", guide)
+        self.assertIn("dependency-only warm", guide)
+        self.assertIn("first best-effort cache-sync call", guide)
+        self.assertIn("second best-effort cache-sync call", guide)
+        self.assertIn("does not invoke Gradle", guide)
+        self.assertIn("Registered workspace cleanup always", guide)
+        self.assertIn("Central owns these invocations", guide)
+        self.assertIn("Central owns both same-executor sync points", workflow_guide)
+        self.assertIn("Android product repository", workflow_guide)
+
         validate_sha = actions[VALIDATE_ANDROID]["sha"]
+        warm_sha = actions[WARM_GRADLE]["sha"]
         foundation_sha = actions[EXACT_CHECKOUT]["sha"]
+        sync_sha = actions[UPLOAD_GRADLE_SEED]["sha"]
         self.assertNotEqual(validate_sha, foundation_sha)
-        obsolete_single_checkpoint = (
-            "central primitives directly as immutable private composite-action "
-            f"references pinned to `{foundation_sha}`: `validate-android`"
-        )
-        self.assertNotIn(obsolete_single_checkpoint, guide)
+        self.assertNotEqual(warm_sha, foundation_sha)
+        self.assertNotEqual(sync_sha, foundation_sha)
 
 
 if __name__ == "__main__":

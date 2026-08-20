@@ -1,1 +1,106 @@
-{"schema_version":1,"organization":"StreamScapeTV","group":"operations","workflows":[{"file":".github/workflows/reusable-flux-reconcile.yml","api_name":"flux.reconcile","api_version":"1.0.0","status":"planned","trust_class":"flux-authorized","permission_profile":"flux-reconciliation","semantic_runner_profile":"contract:flux-control","permitted_events":["workflow_dispatch","repository_dispatch","workflow_call"],"inputs":[{"name":"admitted_sha","required":true},{"name":"target_id","required":true},{"name":"product_id","required":true},{"name":"operation","required":true},{"name":"policy_path","required":true},{"name":"allowlist_path","required":true},{"name":"request_id","required":true},{"name":"dry_run","required":false,"default":true}],"secrets":["flux_kubeconfig","flux_sops_age_key"],"outputs":["result","reconciliation_state","request_id"],"stable_check_name":"Flux / Reconciliation","timeout_minutes":120,"matrix_max_jobs":1,"supported_consumers":["StreamScapeTV/flux"],"supported_products":[],"repository_owned_hooks":["policy_path","allowlist_path"],"implementation_components":["ci_workflows.flux.resolve_request","ci_workflows.flux.reconcile","ci_workflows.flux.verify_health"]},{"file":".github/workflows/reusable-artifact-cleanup.yml","api_name":"maintenance.artifacts","api_version":"1.0.0","status":"planned","trust_class":"trusted-maintenance","permission_profile":"artifact-cleanup","semantic_runner_profile":"maintenance-control","permitted_events":["schedule","workflow_dispatch","workflow_call"],"inputs":[{"name":"repository_scope","required":false},{"name":"dry_run","required":false,"default":true},{"name":"request_id","required":true}],"secrets":["organization_maintenance_token"],"outputs":["result","mutation_count","request_id"],"stable_check_name":"Maintenance / Artifact cleanup","timeout_minutes":60,"matrix_max_jobs":1,"supported_consumers":["StreamScapeTV/ci-workflows"],"supported_products":[],"repository_owned_hooks":[],"implementation_components":["ci_workflows.maintenance.artifacts"],"concurrency_policy":"operation-scoped"},{"file":".github/workflows/reusable-branch-hygiene.yml","api_name":"maintenance.branches","api_version":"1.0.0","status":"planned","trust_class":"trusted-maintenance","permission_profile":"branch-hygiene","semantic_runner_profile":"maintenance-control","permitted_events":["pull_request-closed","workflow_dispatch","workflow_call"],"inputs":[{"name":"project_id","required":true},{"name":"pr_number","required":false},{"name":"expected_head_sha","required":true},{"name":"dry_run","required":false,"default":true},{"name":"request_id","required":true}],"secrets":["organization_maintenance_token"],"outputs":["result","mutation_count","request_id"],"stable_check_name":"Maintenance / Branch hygiene","timeout_minutes":30,"matrix_max_jobs":1,"supported_consumers":["StreamScapeTV/*"],"supported_products":[],"repository_owned_hooks":[],"implementation_components":["ci_workflows.maintenance.branches"],"concurrency_policy":"operation-scoped"},{"file":".github/workflows/reusable-conformance.yml","api_name":"maintenance.conformance","api_version":"1.0.0","status":"planned","trust_class":"trusted-maintenance","permission_profile":"conformance-report","semantic_runner_profile":"maintenance-control","permitted_events":["schedule","workflow_dispatch","workflow_call"],"inputs":[{"name":"repository_scope","required":false},{"name":"dry_run","required":false,"default":true},{"name":"request_id","required":true}],"secrets":["organization_read_token","organization_update_token"],"outputs":["result","mutation_count","report_issue_url","request_id"],"stable_check_name":"Maintenance / Organization conformance","timeout_minutes":90,"matrix_max_jobs":1,"supported_consumers":["StreamScapeTV/ci-workflows"],"supported_products":[],"repository_owned_hooks":[],"implementation_components":["ci_workflows.maintenance.conformance"],"concurrency_policy":"operation-scoped"},{"file":".github/workflows/reusable-runner-infrastructure-retry.yml","api_name":"maintenance.runner-retry","api_version":"1.0.0","status":"planned","trust_class":"trusted-maintenance","permission_profile":"runner-infrastructure-retry","semantic_runner_profile":"maintenance-control","permitted_events":["workflow_dispatch","workflow_call"],"inputs":[{"name":"project_id","required":true},{"name":"run_id","required":true},{"name":"expected_head_sha","required":true},{"name":"dry_run","required":false,"default":true},{"name":"request_id","required":true}],"secrets":["organization_maintenance_token"],"outputs":["result","retry_run_id","request_id"],"stable_check_name":"Maintenance / Runner retry","timeout_minutes":30,"matrix_max_jobs":1,"supported_consumers":["StreamScapeTV/*"],"supported_products":[],"repository_owned_hooks":[],"implementation_components":["ci_workflows.maintenance.runner_retry"],"concurrency_policy":"operation-scoped"}]}
+{
+  "schema_version": 1,
+  "organization": "StreamScapeTV",
+  "group": "operations",
+  "workflows": [
+    {
+      "file": ".github/workflows/reusable-flux-reconcile.yml",
+      "api_name": "flux.reconcile",
+      "api_version": "2.0.0",
+      "status": "planned",
+      "trust_class": "flux-authorized",
+      "permission_profile": "flux-reconciliation",
+      "semantic_runner_profile": "contract:flux-control",
+      "permitted_events": ["workflow_dispatch", "repository_dispatch", "workflow_call"],
+      "inputs": [
+        {"name": "admitted_sha", "required": true},
+        {"name": "target_id", "required": true},
+        {"name": "operation", "required": true},
+        {"name": "policy_path", "required": true},
+        {"name": "allowlist_path", "required": true},
+        {"name": "request_id", "required": true},
+        {"name": "dry_run", "required": false, "default": true}
+      ],
+      "secrets": ["flux_kubeconfig", "flux_sops_age_key"],
+      "outputs": ["result", "reconciliation_state", "request_id"],
+      "stable_check_name": "Flux / Reconciliation",
+      "timeout_minutes": 120,
+      "matrix_max_jobs": 1,
+      "repository_owned_hooks": ["policy_path", "allowlist_path"],
+      "implementation_components": ["ci_workflows.flux.resolve_request", "ci_workflows.flux.reconcile", "ci_workflows.flux.verify_health"]
+    },
+    {
+      "file": ".github/workflows/reusable-artifact-cleanup.yml",
+      "api_name": "maintenance.artifacts",
+      "api_version": "1.0.0",
+      "status": "planned",
+      "trust_class": "trusted-maintenance",
+      "permission_profile": "artifact-cleanup",
+      "semantic_runner_profile": "maintenance-control",
+      "permitted_events": ["schedule", "workflow_dispatch", "workflow_call"],
+      "inputs": [
+        {"name": "repository_scope", "required": false},
+        {"name": "dry_run", "required": false, "default": true},
+        {"name": "request_id", "required": true}
+      ],
+      "secrets": ["organization_maintenance_token"],
+      "outputs": ["result", "mutation_count", "request_id"],
+      "stable_check_name": "Maintenance / Artifact cleanup",
+      "timeout_minutes": 60,
+      "matrix_max_jobs": 1,
+      "repository_owned_hooks": [],
+      "implementation_components": ["ci_workflows.maintenance.artifacts"],
+      "concurrency_policy": "operation-scoped"
+    },
+    {
+      "file": ".github/workflows/reusable-branch-hygiene.yml",
+      "api_name": "maintenance.branches",
+      "api_version": "1.0.0",
+      "status": "planned",
+      "trust_class": "trusted-maintenance",
+      "permission_profile": "branch-hygiene",
+      "semantic_runner_profile": "maintenance-control",
+      "permitted_events": ["pull_request-closed", "workflow_dispatch", "workflow_call"],
+      "inputs": [
+        {"name": "project_id", "required": true},
+        {"name": "pr_number", "required": false},
+        {"name": "expected_head_sha", "required": true},
+        {"name": "dry_run", "required": false, "default": true},
+        {"name": "request_id", "required": true}
+      ],
+      "secrets": ["organization_maintenance_token"],
+      "outputs": ["result", "mutation_count", "request_id"],
+      "stable_check_name": "Maintenance / Branch hygiene",
+      "timeout_minutes": 30,
+      "matrix_max_jobs": 1,
+      "repository_owned_hooks": [],
+      "implementation_components": ["ci_workflows.maintenance.branches"],
+      "concurrency_policy": "operation-scoped"
+    },
+    {
+      "file": ".github/workflows/reusable-runner-infrastructure-retry.yml",
+      "api_name": "maintenance.runner-retry",
+      "api_version": "1.0.0",
+      "status": "planned",
+      "trust_class": "trusted-maintenance",
+      "permission_profile": "runner-infrastructure-retry",
+      "semantic_runner_profile": "maintenance-control",
+      "permitted_events": ["workflow_dispatch", "workflow_call"],
+      "inputs": [
+        {"name": "project_id", "required": true},
+        {"name": "run_id", "required": true},
+        {"name": "expected_head_sha", "required": true},
+        {"name": "dry_run", "required": false, "default": true},
+        {"name": "request_id", "required": true}
+      ],
+      "secrets": ["organization_maintenance_token"],
+      "outputs": ["result", "retry_run_id", "request_id"],
+      "stable_check_name": "Maintenance / Runner retry",
+      "timeout_minutes": 30,
+      "matrix_max_jobs": 1,
+      "repository_owned_hooks": [],
+      "implementation_components": ["ci_workflows.maintenance.runner_retry"],
+      "concurrency_policy": "operation-scoped"
+    }
+  ]
+}

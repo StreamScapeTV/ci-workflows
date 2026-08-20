@@ -1,5 +1,5 @@
 name: Validate exact physical-device request
-description: Derive, discover, execute, restore, or synthetically validate one reviewed device profile
+description: Derive, discover, execute, restore, or synthetically validate one bounded generic device request
 
 inputs:
   phase:
@@ -15,21 +15,37 @@ inputs:
     required: false
     default: ""
   device_capability:
-    description: Reviewed bounded capability
+    description: Caller-owned bounded device capability
     required: false
     default: ""
-  device_alias:
-    description: Opaque contract alias resolved on the trusted host
+  host_capacity:
+    description: Reviewed semantic host capacity such as mobile or apple
     required: false
     default: ""
-  command_profile:
-    description: Reviewed command-profile identifier
+  prepare_script_path:
+    description: Bounded checked-in prepare script
     required: false
     default: ""
-  script_path:
-    description: Exact contract-matching checked-in test script
+  test_script_path:
+    description: Bounded checked-in test script
     required: false
     default: ""
+  evidence_script_path:
+    description: Bounded checked-in evidence-policy script
+    required: false
+    default: ""
+  cleanup_script_path:
+    description: Bounded checked-in restoration/cleanup script
+    required: false
+    default: ""
+  arguments_json:
+    description: Bounded JSON array of test-script arguments
+    required: false
+    default: "[]"
+  environment_json:
+    description: Bounded JSON object of non-secret caller environment
+    required: false
+    default: "{}"
   max_duration_minutes:
     description: Bounded duration
     required: false
@@ -86,8 +102,8 @@ outputs:
     value: ${{ steps.device.outputs.selected_device_hash }}
   runner_profile:
     value: ${{ steps.device.outputs.runner_profile }}
-  base_runner_profile:
-    value: ${{ steps.device.outputs.base_runner_profile }}
+  host_capacity:
+    value: ${{ steps.device.outputs.host_capacity }}
   runs_on_json:
     value: ${{ steps.device.outputs.runs_on_json }}
   workspace_profile:
@@ -126,9 +142,13 @@ runs:
         INPUT_ADMITTED_SHA: ${{ inputs.admitted_sha }}
         INPUT_DEVICE_FAMILY: ${{ inputs.device_family }}
         INPUT_DEVICE_CAPABILITY: ${{ inputs.device_capability }}
-        INPUT_DEVICE_ALIAS: ${{ inputs.device_alias }}
-        INPUT_COMMAND_PROFILE: ${{ inputs.command_profile }}
-        INPUT_SCRIPT_PATH: ${{ inputs.script_path }}
+        INPUT_HOST_CAPACITY: ${{ inputs.host_capacity }}
+        INPUT_PREPARE_SCRIPT_PATH: ${{ inputs.prepare_script_path }}
+        INPUT_TEST_SCRIPT_PATH: ${{ inputs.test_script_path }}
+        INPUT_EVIDENCE_SCRIPT_PATH: ${{ inputs.evidence_script_path }}
+        INPUT_CLEANUP_SCRIPT_PATH: ${{ inputs.cleanup_script_path }}
+        INPUT_ARGUMENTS_JSON: ${{ inputs.arguments_json }}
+        INPUT_ENVIRONMENT_JSON: ${{ inputs.environment_json }}
         INPUT_MAX_DURATION_MINUTES: ${{ inputs.max_duration_minutes }}
         INPUT_EVIDENCE_EXCEPTION_ID: ${{ inputs.evidence_exception_id }}
         INPUT_REQUEST_ID: ${{ inputs.request_id }}

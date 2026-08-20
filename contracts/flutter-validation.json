@@ -304,15 +304,7 @@
           ],
           "device_handoff": null,
           "gate_path": null,
-          "node_composition": {
-            "command_profile": "source-audit",
-            "install_profile": "none",
-            "node_version": "22.16.0",
-            "script_path": "tool/ci_quality_gate.sh",
-            "validation_profile": "node-source-audit",
-            "version_file": ".node-version",
-            "working_directory": "."
-          }
+          "node_composition": null
         },
         "canonical-gate": {
           "commands": [
@@ -320,15 +312,7 @@
           ],
           "device_handoff": null,
           "gate_path": "tool/ci_quality_gate.sh",
-          "node_composition": {
-            "command_profile": "source-audit",
-            "install_profile": "none",
-            "node_version": "22.16.0",
-            "script_path": "tool/ci_quality_gate.sh",
-            "validation_profile": "node-source-audit",
-            "version_file": ".node-version",
-            "working_directory": "."
-          }
+          "node_composition": null
         },
         "compatibility-smoke": {
           "commands": [
@@ -339,7 +323,6 @@
           "node_composition": {
             "command_profile": "source-audit",
             "install_profile": "none",
-            "node_version": "22.16.0",
             "script_path": "tool/ci_quality_gate.sh",
             "validation_profile": "node-source-audit",
             "version_file": ".node-version",
@@ -368,7 +351,6 @@
           "node_composition": {
             "command_profile": "source-audit",
             "install_profile": "none",
-            "node_version": "22.16.0",
             "script_path": "tool/ci_quality_gate.sh",
             "validation_profile": "node-source-audit",
             "version_file": ".node-version",
@@ -386,7 +368,6 @@
           "node_composition": {
             "command_profile": "source-audit",
             "install_profile": "none",
-            "node_version": "22.16.0",
             "script_path": "tool/ci_quality_gate.sh",
             "validation_profile": "node-source-audit",
             "version_file": ".node-version",
@@ -402,7 +383,6 @@
           "node_composition": {
             "command_profile": "source-audit",
             "install_profile": "none",
-            "node_version": "22.16.0",
             "script_path": "tool/ci_quality_gate.sh",
             "validation_profile": "node-source-audit",
             "version_file": ".node-version",

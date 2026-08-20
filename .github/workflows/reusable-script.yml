@@ -1,0 +1,134 @@
+name: Reusable product script validation
+
+on:
+  workflow_call:
+    inputs:
+      admitted_sha:
+        description: Exact lowercase caller source SHA to validate
+        required: true
+        type: string
+      validation_profile:
+        description: "Bounded semantic capacity: general, mobile, or apple"
+        required: true
+        type: string
+      working_directory:
+        description: Repository-relative working directory for the product script
+        required: false
+        default: .
+        type: string
+      script_path:
+        description: Repository-relative executable product-owned validation script
+        required: true
+        type: string
+    outputs:
+      result:
+        description: Success only when the product script and clean-tree check pass
+        value: ${{ jobs.validate.outputs.result }}
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Select script validation capacity
+    runs-on: [linux, amd64, general, small]
+    timeout-minutes: 5
+    outputs:
+      runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
+    steps:
+      - name: Admit specialized runner trust
+        shell: bash
+        env:
+          ADMITTED_SHA: ${{ inputs.admitted_sha }}
+          CALLER_REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || '' }}
+          VALIDATION_PROFILE: ${{ inputs.validation_profile }}
+        run: |
+          set -Eeuo pipefail
+          [[ "${ADMITTED_SHA}" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::admitted_sha must be an exact lowercase commit SHA' >&2; exit 2; }
+          case "${VALIDATION_PROFILE}" in
+            general) ;;
+            mobile|apple)
+              case "${EVENT_NAME}" in
+                pull_request) [[ -n "${PR_HEAD_REPOSITORY}" && "${PR_HEAD_REPOSITORY}" == "${CALLER_REPOSITORY}" ]] || { echo '::error::specialized script validation rejects fork pull requests' >&2; exit 2; } ;;
+                push|workflow_dispatch) ;;
+                *) echo '::error::specialized script validation requires same-repository PR or exact non-PR source' >&2; exit 2 ;;
+              esac
+              ;;
+            *) echo '::error::validation_profile must be general, mobile, or apple' >&2; exit 2 ;;
+          esac
+
+      - id: plan
+        name: Resolve bounded semantic runner
+        shell: bash
+        env:
+          VALIDATION_PROFILE: ${{ inputs.validation_profile }}
+        run: |
+          set -Eeuo pipefail
+          case "${VALIDATION_PROFILE}" in
+            general) runs_on='["linux","amd64","general","small"]' ;;
+            mobile) runs_on='["linux","amd64","mobile"]' ;;
+            apple) runs_on='["macOS","ARM64"]' ;;
+            *) echo '::error::validation_profile must be general, mobile, or apple' >&2; exit 2 ;;
+          esac
+          printf 'runs_on_json=%s\n' "${runs_on}" >> "${GITHUB_OUTPUT}"
+
+  validate:
+    name: CI / Script validation
+    needs: plan
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
+    timeout-minutes: 120
+    outputs:
+      result: ${{ steps.execute.outcome == 'success' && steps.clean.outcome == 'success' && 'success' || 'failure' }}
+    steps:
+      - name: Check out exact admitted caller source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ inputs.admitted_sha }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact admitted caller source
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.admitted_sha }}
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+      - id: execute
+        name: Run checked-in product validation script
+        shell: bash
+        env:
+          SCRIPT_PATH: ${{ inputs.script_path }}
+          WORKING_DIRECTORY: ${{ inputs.working_directory }}
+        run: |
+          set -Eeuo pipefail
+          [[ "${SCRIPT_PATH}" =~ ^[A-Za-z0-9._/-]+$ && "${WORKING_DIRECTORY}" =~ ^[A-Za-z0-9._/-]+$ ]]
+          [[ "${SCRIPT_PATH}" != /* && "${SCRIPT_PATH}" != *\\* && "/${SCRIPT_PATH}/" != *"/../"* ]]
+          [[ "${WORKING_DIRECTORY}" != /* && "${WORKING_DIRECTORY}" != *\\* && "/${WORKING_DIRECTORY}/" != *"/../"* ]]
+          root="$(pwd -P)"
+          work="${root}/${WORKING_DIRECTORY}"
+          script="${root}/${SCRIPT_PATH}"
+          test -d "${work}" && test ! -L "${work}"
+          test -f "${script}" && test ! -L "${script}" && test -x "${script}"
+          work_real="$(cd "${work}" && pwd -P)"
+          script_dir="$(cd "$(dirname "${script}")" && pwd -P)"
+          script_real="${script_dir}/$(basename "${script}")"
+          [[ "${work_real}" == "${root}" || "${work_real}" == "${root}/"* ]]
+          [[ "${script_real}" == "${root}/"* ]]
+          cd "${work_real}"
+          "${script_real}"
+
+      - id: clean
+        name: Verify product script left source clean
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"

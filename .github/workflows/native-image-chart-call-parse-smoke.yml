@@ -1,0 +1,47 @@
+name: Native image/chart reusable call parse smoke
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+    paths:
+      - ".github/workflows/native-image-chart-call-parse-smoke.yml"
+      - ".github/workflows/reusable-native-image-chart.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  reusable_call:
+    name: Parse native image/chart reusable call
+    if: ${{ false }}
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-native-image-chart.yml@6fa19fe73c709c6fb81a30b926edac95a2fb674e # issue #364 parser-fix checkpoint
+    with:
+      release_mode: existing-tag
+      release_version: "0.0.0"
+      release_source_sha: "0000000000000000000000000000000000000000"
+      image_name: parser-smoke
+      chart_name: parser-smoke
+      chart_path: .
+    secrets:
+      registry_username: ${{ github.repository_owner }}
+      registry_token: ${{ github.repository }}
+
+  parsed:
+    name: CI / native image-chart reusable call parsed
+    needs: reusable_call
+    if: ${{ always() }}
+    runs-on: [linux, amd64, general, small]
+    timeout-minutes: 5
+    steps:
+      - name: Confirm parse and clean zero runtime state
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "${{ needs.reusable_call.result }}" = "skipped"

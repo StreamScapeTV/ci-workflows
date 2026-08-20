@@ -45,14 +45,6 @@
         "stable-check-drift",
         "public-api-doc-drift"
       ]
-    },
-    {
-      "path": ".github/workflows/reusable-release.yml",
-      "issue": 19,
-      "reason": "The refactored simple Git-tag release intentionally keeps remote digest/read-back proof outside the core path; the caller Git tag and exact admitted SHA are the release source of truth.",
-      "rules": [
-        "missing-publication-readback"
-      ]
     }
   ]
 }

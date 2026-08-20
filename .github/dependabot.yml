@@ -1,0 +1,28 @@
+version: 2
+updates:
+  # Keep each runner image in its own update lane. Dependabot's Docker updater
+  # only proposes the first tagged FROM update; image-owned lock/tests remain
+  # authoritative for the complete multi-stage/toolchain review.
+  - package-ecosystem: "docker"
+    directory: "/runner-images/mobile"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "docker"
+    directory: "/runner-images/buildah"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "docker"
+    directory: "/runner-images/docker"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "docker"
+    directory: "/runner-images/flux-control"
+    schedule:
+      interval: "weekly"
+
+  # runner-images/general is intentionally lock-reviewed instead of using the
+  # Docker updater: its networkless stages are digest-only and the reviewed
+  # release identities live in runner-images/general/toolchain.lock.json.

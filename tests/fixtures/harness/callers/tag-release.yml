@@ -4,19 +4,17 @@ on:
     tags:
       - 'v*'
 permissions:
-  actions: read
-  contents: write
+  contents: read
 jobs:
   release_products:
-    name: Release verified products
-    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-release.yml@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    name: Release verified native image and chart
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-native-image-chart.yml@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
     with:
-      admitted_sha: ${{ github.sha }}
-      release_contract: backend
-      release_tag: ${{ github.ref_name }}
-      release_version: 1.2.3
-      request_id: fixture-request-0003
+      image_name: fixture-image
+      chart_name: fixture-chart
+      chart_path: charts/fixture-chart
+      dockerfile_path: Dockerfile
+      build_context: .
     secrets:
       registry_username: ${{ secrets.REGISTRY_USERNAME }}
       registry_token: ${{ secrets.REGISTRY_TOKEN }}
-      flux_handoff_token: ${{ secrets.FLUX_HANDOFF_TOKEN }}
