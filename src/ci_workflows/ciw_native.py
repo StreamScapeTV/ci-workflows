@@ -230,11 +230,13 @@ def execute_native_validate(
 
 
 def _failure_outputs(environment: Mapping[str, str], code: str) -> None:
+    candidate_sha = environment.get("INPUT_ADMITTED_SHA", "").strip()
+    source_sha = candidate_sha if _SHA.fullmatch(candidate_sha) is not None else ""
     _emit_outputs(
         environment,
         {
             "result": "failure",
-            "source_sha": environment.get("INPUT_ADMITTED_SHA", ""),
+            "source_sha": source_sha,
             "test_summary": json.dumps({"status": "failed"}, sort_keys=True, separators=(",", ":")),
             "failure_code": code,
         },
