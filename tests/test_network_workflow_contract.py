@@ -15,7 +15,7 @@ BOOTSTRAP = ROOT / "contracts/bootstrap-public-workflows.json"
 VALIDATION = ROOT / "contracts/public-workflows/validation.json"
 TYPES = ROOT / "contracts/public-workflow-types.json"
 DOC = ROOT / "docs/workflows/network.md"
-NETWORK_CHECKPOINT = "b667425dcded85368300d104be53805c94b7fc3a"
+NETWORK_CHECKPOINT = "cb28865f7990d2f4592ebc9d16e4c9bace56b805"
 FOUNDATION_CHECKPOINT = "70e08d4ddf8930046632a7135950e924b82e22bf"
 
 
