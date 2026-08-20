@@ -15,7 +15,7 @@ Before any work, read this file and then the current shared organization entry p
 
 This private repository owns reusable GitHub Actions orchestration for supported StreamScapeTV repositories, including central source admission, semantic runner resolution, validation, publication mechanics, release support, and Flux orchestration. Consumer repositories retain thin event callers, minimum permissions, bounded product configuration, and product-owned scripts, contracts, policy, credentials, and deployment data.
 
-`main` is the integration branch and initial bootstrap consumer channel. This repository is released by an exact compatible Git tag; it does not require a GitHub Release object, attached archive, container image, or Helm chart for its own release.
+`main` is the integration branch and the normal consumer channel during active Central development. Calling a reusable workflow at `@main` is ordinary shared-library consumption and requires no per-product bootstrap or registration. This repository is released by an exact compatible Git tag; it does not require a GitHub Release object, attached archive, container image, or Helm chart for its own release.
 
 ## Agent State boundary
 
@@ -29,7 +29,7 @@ This private repository owns reusable GitHub Actions orchestration for supported
 - Public reusable workflows live directly under `.github/workflows/reusable-*.yml` and expose `workflow_call` only.
 - Optional internal multi-job leaf workflows live under `.github/workflows/internal-*.yml`, may not call another reusable workflow, and must preserve the reviewed shallow call graph.
 - Consumers own event triggers, concurrency, environments, minimum caller permissions, and bounded product configuration. Reusable workflows must not silently add scheduled, branch, manual publication, or trusted-dispatch paths.
-- During bootstrap, consumers may call `@main`; tagged and full-SHA references remain supported. Privileged and production callers should migrate to immutable references after a stable tag when required by reviewed policy.
+- During active Central development, consumers call public reusable workflows at `@main` without registration, initialization, product IDs, request IDs, synchronization handshakes, or consumer-maintained Central SHAs. Human-readable compatibility tags and full-SHA references remain supported; a later reviewed policy may prefer a stable tag such as `@v1`, while full SHAs remain optional unless explicitly required.
 - Keep workflow YAML as short, ordered orchestration. Put non-trivial algorithms in named, typed, tested functions under `src/ci_workflows/` and expose them through thin composite actions or CLI adapters.
 - Public inputs and outputs must match checked-in contracts and generated reference documentation. Inputs must be bounded and may not accept arbitrary shell commands, callbacks, registry hosts, runner labels, container engines, cluster targets, namespaces, service accounts, secret names, or unrestricted matrices.
 - Public and internal workflow calls and composite-action calls must remain acyclic, accessible, shallow, and compatible with the supported consumer and product inventory.
