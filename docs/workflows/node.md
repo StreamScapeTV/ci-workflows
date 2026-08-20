@@ -25,7 +25,7 @@ Backend choice changes scheduling only. Node version authority, npm-only restore
 
 The small trusted planning job remains on organization general capacity and emits the exact Central-owned `runs_on_json` used by the validation job. The substantial Node execution is what moves to GitHub-hosted capacity when `execution_backend: github-hosted` is requested.
 
-`contracts/runner-execution-backends.json` owns this scheduling policy and `generated/runner-execution-backends.json` must remain its exact generated projection. `contracts/runner-profiles.json` remains the separate authority for the organization semantic selector.
+`contracts/runner-execution-backends.json` records the bounded backend names, default, and fixed hosted selector. `src/ci_workflows/execution_backends.py` enforces the same small mapping; `contracts/runner-profiles.json` remains the separate authority for the organization semantic selector.
 
 ## Public inputs
 
@@ -52,9 +52,9 @@ No command output, public browser value, host path, package cache, source conten
 
 ## Immutable Central helper reuse
 
-Consumers do not need a second token or permission to clone `StreamScapeTV/ci-workflows`. `validation.node` invokes Central composite actions directly as immutable action references rather than checking the Central repository out into the caller workspace.
+Consumers do not need a second token or permission to clone `StreamScapeTV/ci-workflows`. `validation.node` invokes Central composite actions directly as immutable action references rather than checking the Central repository out into the caller workspace. These immutable action references replace the older `immutable private` clone/bootstrap terminology; no private Central checkout is required for this public repository.
 
-The Node planner/executor uses `actions/validate-node@3a93709b69bb09e962ae3debba6b575deea55392`, recorded in `contracts/action-tool-lock.json` as `issue #405 reconciled execution-backend checkpoint`. Exact checkout, workspace preparation, evidence rendering, and cleanup remain pinned to foundation checkpoint `70e08d4ddf8930046632a7135950e924b82e22bf`.
+The Node planner/executor uses `actions/validate-node@7d5d839c6e90491e165f1358ecb5e80129805764`, recorded in `contracts/action-tool-lock.json` as `issue #405 simplified execution-backend checkpoint`. Exact checkout, workspace preparation, evidence rendering, and cleanup remain pinned to foundation checkpoint `70e08d4ddf8930046632a7135950e924b82e22bf`.
 
 The composites resolve their Central scripts and libraries relative to `GITHUB_ACTION_PATH`, so the implementation is supplied by the immutable action checkout itself. The public workflow has no `actions/checkout` step for the Central repository, no `.ciw` clone, no caller-visible Central source selector, and no new workflow secret.
 
