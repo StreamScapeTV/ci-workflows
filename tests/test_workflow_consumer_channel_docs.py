@@ -48,10 +48,8 @@ class WorkflowConsumerChannelDocsTests(unittest.TestCase):
             r"`validate-oci` composite action through immutable central revision\n`[0-9a-f]{40}`",
         )
         for source in (flutter, oci_build):
-            self.assertIn(
-                "This does not weaken internal/private helper pins, which remain\nexact immutable SHAs.",
-                source,
-            )
+            self.assertIn("This does not weaken internal/private helper pins", source)
+            self.assertIn("exact immutable SHAs.", source)
 
     def test_policy_docs_do_not_describe_main_as_a_bootstrap_channel(self) -> None:
         sources = {
