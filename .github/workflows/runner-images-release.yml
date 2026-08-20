@@ -21,7 +21,7 @@ concurrency:
 jobs:
   resolve:
     name: Resolve exact repository release tag
-    runs-on: ubuntu-latest
+    runs-on: [ubuntu-latest]
     timeout-minutes: 10
     outputs:
       release_tag: ${{ steps.release.outputs.release_tag }}
@@ -74,7 +74,7 @@ jobs:
           - service
           - docker
           - flux-control
-    runs-on: ubuntu-latest
+    runs-on: [ubuntu-latest]
     timeout-minutes: 180
     steps:
       - name: Check out exact tagged runner-image source
@@ -120,6 +120,23 @@ jobs:
           printf '### Runner image `%s` release\n\n- Reference: `%s`\n- Digest: `%s`\n\n```json\n%s\n```\n' \
             "${IMAGE}" "${IMAGE_REFERENCE}" "${IMAGE_DIGEST}" "${HOSTED_METRICS_JSON}" \
             >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Remove runner-image release residue
+        if: always()
+        shell: bash
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: |
+          set +e
+          cleanup_failed=0
+          docker_config="${RUNNER_TEMP}/ciw-runner-docker-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${IMAGE}"
+          build_inputs="${GITHUB_WORKSPACE}/runner-images/${IMAGE}/.ciw-build-inputs"
+          rm -rf -- "${docker_config}" "${build_inputs}" || cleanup_failed=1
+          test ! -e "${docker_config}" || cleanup_failed=1
+          test ! -L "${docker_config}" || cleanup_failed=1
+          test ! -e "${build_inputs}" || cleanup_failed=1
+          test ! -L "${build_inputs}" || cleanup_failed=1
+          exit "${cleanup_failed}"
 
       - name: Verify exact tagged source remained clean
         if: ${{ always() && !cancelled() }}
