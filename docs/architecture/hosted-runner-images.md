@@ -14,7 +14,7 @@ GitHub's current public documentation states:
 - public GitHub Packages are free;
 - Container Registry storage and bandwidth are currently free, with GitHub stating that it will give at least one month of notice before changing that Container Registry policy;
 - public Container Registry packages support anonymous pulls;
-- Container Registry layers are limited to 10 GB and layer uploads have a 10-minute timeout.
+- Container Registry layers are limited to 10 GB and each layer upload has a 10-minute timeout.
 
 References:
 
@@ -43,6 +43,8 @@ The action:
 
 A build that does not fit the standard hosted VM, reaches the layer headroom boundary, or cannot publish within GHCR platform limits fails with bounded evidence. It never silently moves to Buildah/ARC or a larger organization runner.
 
+The registry's documented 10-minute upload timeout applies to an individual layer rather than the whole multi-layer release command. Central therefore does not impose a ten-minute total `docker push` timeout; Docker operations remain bounded by a one-hour command guard inside the overall 180-minute image job.
+
 ## GHCR-only publication
 
 Runner images use fixed public repositories under:
@@ -53,12 +55,14 @@ Runner images use fixed public repositories under:
 
 A tagged runner-image release grants only `contents: read` and `packages: write`. The publish step authenticates to `ghcr.io` with the workflow's built-in `GITHUB_TOKEN`; no PAT or private registry secret is accepted by the runner-image action.
 
-The versioned release tag remains immutable source authority. `latest` remains a mutable deployment convenience alias. Before writing a pre-existing version tag, Central reads its OCI source-revision label and fails if it names a different source SHA. Replays with the same source must also reproduce the existing manifest digest or fail as an immutable-content conflict.
+The versioned release tag remains immutable source authority. `latest` remains a mutable deployment convenience alias. Before writing a pre-existing version tag, Central reads its OCI source-revision label and fails if it names a different source SHA. A same-source replay must also reproduce the existing image config digest; otherwise it fails as an immutable-content conflict before moving `latest`. The immutable version tag itself is never overwritten.
 
-After publishing the version and `latest` aliases, Central requires both to resolve to the same manifest digest. It then logs out, removes the isolated Docker credential directory, and resolves both manifests again without credentials. Release success therefore proves public/anonymous GHCR read-back instead of assuming package visibility from repository visibility.
+For an idempotent replay, Central copies the exact existing version manifest to `latest` with Buildx `--prefer-index=false`. For a new version, it tags and pushes the already-smoked local image as both version and `latest`; no rebuild occurs between smoke and publication.
+
+After publishing or replaying, Central requires the versioned and `latest` references to resolve to the same manifest digest. It then logs out, removes the isolated Docker credential directory, and resolves both manifests again without credentials. Release success therefore proves public/anonymous GHCR read-back instead of assuming package visibility from repository visibility.
 
 ## Artifacts and cache
 
-Runner-image validation and release retain zero routine GitHub Actions artifacts. Image content moves directly from the hosted Docker daemon to GHCR in the same job; a 4 GB image is not serialized into Actions artifact storage.
+Runner-image validation and release retain zero routine GitHub Actions artifacts. Image content moves directly from the hosted Docker daemon to GHCR in the same job; multi-gigabyte images are not serialized into Actions artifact storage.
 
 No GitHub Actions dependency cache is introduced. Fresh hosted VMs intentionally provide isolated image builds. Product/ARC dependency caching remains outside this runner-image publication path.
