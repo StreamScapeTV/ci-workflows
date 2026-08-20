@@ -77,7 +77,7 @@ jobs:
 
       - id: static_web
         name: Build and verify caller-owned static output
-        uses: StreamScapeTV/ci-workflows/actions/validate-static-web@602f4bc237daa318781270758fa5da5817d5c9b3 # issue #361 immutable static-web checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-static-web@31af596623516257506bfc3a08fa9d8ba2560a4e # issue #361 immutable static-web checkpoint
         with:
           admitted_sha: ${{ inputs.admitted_sha }}
           working_directory: ${{ inputs.working_directory }}
