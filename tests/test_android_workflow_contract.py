@@ -250,7 +250,9 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         cleanup = steps[cleanup_index]
         self.assertEqual(cleanup["if"], "always()")
         terminal = next(step for step in steps if step["id"] == "terminal")
-        self.assertNotIn("dependency_warm_seed", json.dumps(terminal).casefold())
+        self.assertIn("dependency_warm_seed", json.dumps(terminal).casefold())
+        self.assertIn("MAINTENANCE_MODE", terminal["env"])
+        self.assertIn("WARM_SEED_OUTCOME", terminal["env"])
         self.assertNotIn("gradle_seed", json.dumps(terminal).casefold())
 
     def test_terminal_logs_bounded_warm_and_android_execution_summaries(self) -> None:
