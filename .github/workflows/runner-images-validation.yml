@@ -6,25 +6,20 @@ on:
     paths:
       - ".github/workflows/runner-images-validation.yml"
       - "actions/runner-image/**"
-      - "contracts/runner-execution-backends.json"
-      - "generated/runner-execution-backends.json"
       - "runner-images/general/**"
       - "runner-images/mobile/**"
       - "runner-images/buildah/**"
       - "runner-images/service/**"
       - "runner-images/docker/**"
       - "runner-images/flux-control/**"
-      - "scripts/ci/hosted_runner_images.py"
       - "scripts/ci/runner_images.py"
-      - "src/ci_workflows/hosted_runner_images.py"
       - "src/ci_workflows/runner_images.py"
-      - "tests/test_hosted_runner_image_action.py"
-      - "tests/test_hosted_runner_images.py"
       - "tests/test_runner_image_general.py"
       - "tests/test_mobile_runner_image_assembly.py"
       - "tests/test_service_runner_capacity.py"
       - "tests/test_runner_image_docker.py"
       - "tests/test_runner_image_flux_control.py"
+      - "tests/test_runner_image_workflow.py"
       - "tests/test_runner_images_validation_workflow.py"
   workflow_dispatch:
 
@@ -70,24 +65,12 @@ jobs:
           [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
 
-      - id: image
-        name: Build and smoke on fresh GitHub-hosted capacity
+      - name: Build and smoke with shared Buildah action
         uses: ./actions/runner-image
         with:
           image: ${{ matrix.image }}
           source_sha: ${{ env.SOURCE_SHA }}
           publish: "false"
-
-      - name: Record hosted feasibility measurements
-        shell: bash
-        env:
-          IMAGE: ${{ matrix.image }}
-          HOSTED_METRICS_JSON: ${{ steps.image.outputs.hosted_metrics_json }}
-        run: |
-          set -Eeuo pipefail
-          test -n "${HOSTED_METRICS_JSON}"
-          printf '### Runner image `%s` hosted feasibility\n\n```json\n%s\n```\n' \
-            "${IMAGE}" "${HOSTED_METRICS_JSON}" >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Remove runner-image validation residue
         if: always()
@@ -95,7 +78,7 @@ jobs:
         env:
           IMAGE: ${{ matrix.image }}
         run: >-
-          python3 scripts/ci/hosted_runner_images.py cleanup
+          python3 scripts/ci/runner_images.py cleanup
           --image "${IMAGE}"
           --workspace "${GITHUB_WORKSPACE}"
           --runner-temp "${RUNNER_TEMP}"
