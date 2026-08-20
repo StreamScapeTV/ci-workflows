@@ -23,6 +23,10 @@ EXPECTED_CONCURRENCY = {
     "routine": "group: apple-validation-smoke-pr-${{ github.event.pull_request.number }}",
     "release": "group: apple-release-certification-pr-${{ github.event.pull_request.number }}",
 }
+EXPECTED_APPLE_EXECUTOR = {
+    "routine": "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
+    "release": "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
+}
 
 
 def pull_request_paths(source: str) -> set[str]:
@@ -58,6 +62,15 @@ class AppleSmokeTriggerContractTests(unittest.TestCase):
                 self.assertNotIn("workflow_call:", trigger)
                 self.assertIn(EXPECTED_CONCURRENCY[name], source)
                 self.assertIn("cancel-in-progress: true", source)
+
+    def test_public_repository_linux_control_jobs_are_github_hosted(self) -> None:
+        for name, path in WORKFLOWS.items():
+            with self.subTest(workflow=name):
+                source = path.read_text(encoding="utf-8")
+                self.assertEqual(source.count("runs-on: ubuntu-latest"), 2)
+                self.assertNotIn("runs-on: [linux, amd64, general, small]", source)
+                self.assertIn(EXPECTED_APPLE_EXECUTOR[name], source)
+                self.assertIn("'[\"macOS\",\"ARM64\"]'", source) if name == "routine" else None
 
 
 if __name__ == "__main__":
