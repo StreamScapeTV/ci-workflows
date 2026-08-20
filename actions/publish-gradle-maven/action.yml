@@ -1,0 +1,62 @@
+name: Publish Gradle Maven packages
+description: Run one bounded Gradle Maven publication command against exact caller source
+inputs:
+  admitted_sha:
+    description: Exact lowercase caller source SHA
+    required: true
+  source_root:
+    description: Exact caller checkout root
+    required: false
+    default: source
+  working_directory:
+    description: Repository-relative Gradle project directory
+    required: false
+    default: .
+  gradle_wrapper_path:
+    description: Checked-in Gradle wrapper path relative to working_directory
+    required: false
+    default: gradlew
+  version_file:
+    description: Repository-relative stable VERSION file
+    required: false
+    default: VERSION
+  publication_channel:
+    description: stable or develop
+    required: true
+  publication_tasks_json:
+    description: Bounded JSON array of Gradle Maven publication tasks
+    required: true
+  registry_username:
+    description: Workflow-scoped private Maven registry username
+    required: true
+  registry_token:
+    description: Workflow-scoped private Maven registry token
+    required: true
+outputs:
+  package_version:
+    description: Exact Maven version published by this invocation
+    value: ${{ steps.publish.outputs.package_version }}
+  gradle_wall_ms:
+    description: Gradle publication wall time in milliseconds
+    value: ${{ steps.publish.outputs.gradle_wall_ms }}
+runs:
+  using: composite
+  steps:
+    - id: publish
+      name: Publish bounded Maven package set once
+      shell: bash
+      env:
+        PYTHONDONTWRITEBYTECODE: "1"
+        PYTHONPATH: ${{ github.action_path }}/../../src
+        INPUT_ADMITTED_SHA: ${{ inputs.admitted_sha }}
+        INPUT_SOURCE_ROOT: ${{ inputs.source_root }}
+        INPUT_WORKING_DIRECTORY: ${{ inputs.working_directory }}
+        INPUT_GRADLE_WRAPPER_PATH: ${{ inputs.gradle_wrapper_path }}
+        INPUT_VERSION_FILE: ${{ inputs.version_file }}
+        INPUT_PUBLICATION_CHANNEL: ${{ inputs.publication_channel }}
+        INPUT_PUBLICATION_TASKS_JSON: ${{ inputs.publication_tasks_json }}
+        CIW_MAVEN_REGISTRY_USERNAME: ${{ inputs.registry_username }}
+        CIW_MAVEN_REGISTRY_TOKEN: ${{ inputs.registry_token }}
+      run: |
+        set -Eeuo pipefail
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/gradle_maven_publish.py"
