@@ -117,7 +117,7 @@ class ServiceRunnerCapacityTests(unittest.TestCase):
         self.assertEqual(plan.context_path, "runner-images/service")
         self.assertEqual(
             plan.registry_repository,
-            "git.faruqi.dev/mimranfaruqi/github-actions-runner-service",
+            "ghcr.io/streamscapetv/github-actions-runner-service",
         )
 
     def test_service_image_lifecycle_is_registered(self) -> None:
