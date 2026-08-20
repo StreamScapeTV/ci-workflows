@@ -1,5 +1,5 @@
 name: Runner image build and publish
-description: Build, smoke, optionally publish, and clean one fixed ci-workflows runner image
+description: Build, smoke, optionally publish to public GHCR, and clean one fixed ci-workflows runner image
 
 inputs:
   image:
@@ -9,37 +9,28 @@ inputs:
     description: Exact ci-workflows source SHA
     required: true
   release_tag:
-    description: Optional human-readable Git release tag used as the versioned OCI tag
+    description: Optional human-readable Git release tag used as the versioned GHCR tag
     required: false
     default: ""
   publish:
-    description: Whether to publish the built image
+    description: Whether to publish the already-smoked image to public GHCR
     required: false
     default: "false"
-  registry_username:
-    description: Private registry username used only in publish mode
-    required: false
-    default: ""
-  registry_token:
-    description: Private registry token used only in publish mode
-    required: false
-    default: ""
 
 outputs:
   image_reference:
-    description: Fixed versioned registry reference when release_tag is supplied
+    description: Fixed versioned GHCR reference when release_tag is supplied
     value: ${{ steps.plan.outputs.remote_reference }}
+  image_digest:
+    description: Exact published GHCR manifest digest in publish mode
+    value: ${{ steps.publish.outputs.image_digest }}
+  hosted_metrics_json:
+    description: Bounded hosted-runner image and disk feasibility measurements
+    value: ${{ steps.metrics.outputs.hosted_metrics_json }}
 
 runs:
   using: composite
   steps:
-    - name: Validate fixed Buildah execution selector through CIW
-      shell: bash
-      run: |
-        set -Eeuo pipefail
-        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
-          runners validate-selector linux amd64 buildah high >/dev/null
-
     - id: plan
       name: Resolve fixed image paths and destination
       shell: bash
@@ -55,6 +46,16 @@ runs:
           --source-root "${GITHUB_WORKSPACE}" \
           --release-tag "${RELEASE_TAG}" \
           --github-output "${GITHUB_OUTPUT}"
+
+    - name: Require standard GitHub-hosted Linux Docker capacity
+      shell: bash
+      run: |
+        set -Eeuo pipefail
+        test "${RUNNER_ENVIRONMENT:-}" = "github-hosted"
+        test "${RUNNER_OS:-}" = "Linux"
+        test "${RUNNER_ARCH:-}" = "X64"
+        docker version >/dev/null
+        docker buildx version >/dev/null
 
     - name: Prepare optional image-owned build inputs
       shell: bash
@@ -74,155 +75,148 @@ runs:
           test ! -L "${build_inputs}"
         fi
 
-    - name: Require publication credentials only in publish mode
-      if: ${{ inputs.publish == 'true' }}
+    - name: Build exact runner image once with Docker
       shell: bash
       env:
-        RELEASE_TAG: ${{ inputs.release_tag }}
-        REGISTRY_USERNAME: ${{ inputs.registry_username }}
-        REGISTRY_TOKEN: ${{ inputs.registry_token }}
-      run: |
-        set -Eeuo pipefail
-        test -n "${RELEASE_TAG}"
-        test -n "${REGISTRY_USERNAME}"
-        test -n "${REGISTRY_TOKEN}"
-
-    - name: Prepare isolated registry authentication state
-      shell: bash
-      env:
-        IMAGE: ${{ inputs.image }}
-      run: |
-        set -Eeuo pipefail
-        authfile="${RUNNER_TEMP}/ciw-runner-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${IMAGE}.json"
-        test ! -e "${authfile}"
-        test ! -L "${authfile}"
-        umask 077
-        printf '{}\n' > "${authfile}"
-        test -f "${authfile}"
-        test ! -L "${authfile}"
-        chmod 0600 "${authfile}"
-
-    - name: Build exact runner image
-      shell: bash
-      env:
-        IMAGE: ${{ inputs.image }}
         CONTEXT_PATH: ${{ steps.plan.outputs.context_path }}
         DOCKERFILE_PATH: ${{ steps.plan.outputs.dockerfile_path }}
         LOCAL_REFERENCE: ${{ steps.plan.outputs.local_reference }}
+        SOURCE_SHA: ${{ inputs.source_sha }}
       run: |
         set -Eeuo pipefail
-        authfile="${RUNNER_TEMP}/ciw-runner-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${IMAGE}.json"
-        test -f "${authfile}"
-        test ! -L "${authfile}"
-        buildah bud \
-          --authfile "${authfile}" \
-          --layers=false \
+        docker build \
+          --no-cache \
+          --platform linux/amd64 \
+          --label "org.opencontainers.image.source=https://github.com/StreamScapeTV/ci-workflows" \
+          --label "org.opencontainers.image.revision=${SOURCE_SHA}" \
           --tag "${LOCAL_REFERENCE}" \
           --file "${DOCKERFILE_PATH}" \
           "${CONTEXT_PATH}"
+        test "$(docker image inspect "${LOCAL_REFERENCE}" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "${SOURCE_SHA}"
+
+    - id: metrics
+      name: Measure hosted image and disk feasibility
+      shell: bash
+      env:
+        LOCAL_REFERENCE: ${{ steps.plan.outputs.local_reference }}
+        SOURCE_SHA: ${{ inputs.source_sha }}
+      run: |
+        set -Eeuo pipefail
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/hosted_runner_images.py" metrics \
+          --source-sha "${SOURCE_SHA}" \
+          --image-reference "${LOCAL_REFERENCE}" \
+          --workspace "${GITHUB_WORKSPACE}" \
+          --github-output "${GITHUB_OUTPUT}"
 
     - name: Run image-owned smoke as the configured image user
       shell: bash
       env:
-        IMAGE: ${{ inputs.image }}
         LOCAL_REFERENCE: ${{ steps.plan.outputs.local_reference }}
         SMOKE_COMMAND: ${{ steps.plan.outputs.smoke_command }}
       run: |
         set -Eeuo pipefail
-        container="ciw-${IMAGE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-        authfile="${RUNNER_TEMP}/ciw-runner-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${IMAGE}.json"
-        test -f "${authfile}"
-        test ! -L "${authfile}"
-        buildah from \
-          --authfile "${authfile}" \
-          --name "${container}" \
-          "${LOCAL_REFERENCE}" >/dev/null
-        buildah run "${container}" -- "${SMOKE_COMMAND}"
+        docker run --rm \
+          --entrypoint "${SMOKE_COMMAND}" \
+          "${LOCAL_REFERENCE}"
 
-    - name: Authenticate to the fixed runner registry
+    - name: Authenticate only to GHCR with the repository token
       if: ${{ inputs.publish == 'true' }}
       shell: bash
       env:
-        IMAGE: ${{ inputs.image }}
+        GHCR_TOKEN: ${{ github.token }}
         REGISTRY_HOST: ${{ steps.plan.outputs.registry_host }}
-        REGISTRY_USERNAME: ${{ inputs.registry_username }}
-        REGISTRY_TOKEN: ${{ inputs.registry_token }}
+        RELEASE_TAG: ${{ inputs.release_tag }}
       run: |
         set -Eeuo pipefail
-        authfile="${RUNNER_TEMP}/ciw-runner-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${IMAGE}.json"
-        test -f "${authfile}"
-        test ! -L "${authfile}"
-        umask 077
-        printf '%s' "${REGISTRY_TOKEN}" | buildah login \
-          --authfile "${authfile}" \
-          --username "${REGISTRY_USERNAME}" \
-          --password-stdin \
-          "${REGISTRY_HOST}"
-        chmod 0600 "${authfile}"
+        test "${REGISTRY_HOST}" = "ghcr.io"
+        test -n "${RELEASE_TAG}"
+        test -n "${GHCR_TOKEN}"
+        docker_config="${RUNNER_TEMP}/ciw-runner-docker-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ inputs.image }}"
+        test ! -e "${docker_config}"
+        mkdir -m 0700 "${docker_config}"
+        export DOCKER_CONFIG="${docker_config}"
+        printf '%s' "${GHCR_TOKEN}" | docker login ghcr.io \
+          --username "${GITHUB_ACTOR}" \
+          --password-stdin >/dev/null
 
-    - name: Publish and confirm the versioned and latest tags
+    - id: publish
+      name: Publish the already-smoked image and verify GHCR digests
       if: ${{ inputs.publish == 'true' }}
       shell: bash
       env:
-        IMAGE: ${{ inputs.image }}
         LOCAL_REFERENCE: ${{ steps.plan.outputs.local_reference }}
         REMOTE_REFERENCE: ${{ steps.plan.outputs.remote_reference }}
         LATEST_REFERENCE: ${{ steps.plan.outputs.latest_reference }}
+        SOURCE_SHA: ${{ inputs.source_sha }}
       run: |
         set -Eeuo pipefail
-        authfile="${RUNNER_TEMP}/ciw-runner-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${IMAGE}.json"
-        push_tmp=/var/tmp/buildah
-        test -f "${authfile}"
-        test ! -L "${authfile}"
-        test -d "${push_tmp}"
-        test ! -L "${push_tmp}"
-        test -w "${push_tmp}"
-        test -n "${REMOTE_REFERENCE}"
-        test -n "${LATEST_REFERENCE}"
-        test "${REMOTE_REFERENCE}" != "${LATEST_REFERENCE}"
-        export TMPDIR="${push_tmp}"
-        export TMP="${push_tmp}"
-        export TEMP="${push_tmp}"
+        docker_config="${RUNNER_TEMP}/ciw-runner-docker-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ inputs.image }}"
+        test -d "${docker_config}"
+        test ! -L "${docker_config}"
+        export DOCKER_CONFIG="${docker_config}"
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/hosted_runner_images.py" publish \
+          --source-sha "${SOURCE_SHA}" \
+          --local-reference "${LOCAL_REFERENCE}" \
+          --versioned-reference "${REMOTE_REFERENCE}" \
+          --latest-reference "${LATEST_REFERENCE}" \
+          --github-output "${GITHUB_OUTPUT}"
 
-        buildah push \
-          --authfile "${authfile}" \
-          "${LOCAL_REFERENCE}" \
-          "docker://${REMOTE_REFERENCE}"
-        skopeo inspect --authfile "${authfile}" "docker://${REMOTE_REFERENCE}" >/dev/null
+    - name: Drop GHCR authentication before public read-back
+      if: ${{ inputs.publish == 'true' }}
+      shell: bash
+      run: |
+        set -Eeuo pipefail
+        docker_config="${RUNNER_TEMP}/ciw-runner-docker-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ inputs.image }}"
+        test -d "${docker_config}"
+        export DOCKER_CONFIG="${docker_config}"
+        docker logout ghcr.io >/dev/null
+        rm -rf -- "${docker_config}"
+        test ! -e "${docker_config}"
+        mkdir -m 0700 "${docker_config}"
 
-        buildah push \
-          --authfile "${authfile}" \
-          "${LOCAL_REFERENCE}" \
-          "docker://${LATEST_REFERENCE}"
-        skopeo inspect --authfile "${authfile}" "docker://${LATEST_REFERENCE}" >/dev/null
+    - name: Verify GHCR version and latest are anonymously readable
+      if: ${{ inputs.publish == 'true' }}
+      shell: bash
+      env:
+        REMOTE_REFERENCE: ${{ steps.plan.outputs.remote_reference }}
+        LATEST_REFERENCE: ${{ steps.plan.outputs.latest_reference }}
+        IMAGE_DIGEST: ${{ steps.publish.outputs.image_digest }}
+      run: |
+        set -Eeuo pipefail
+        docker_config="${RUNNER_TEMP}/ciw-runner-docker-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ inputs.image }}"
+        test -d "${docker_config}"
+        export DOCKER_CONFIG="${docker_config}"
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/hosted_runner_images.py" anonymous-readback \
+          --versioned-reference "${REMOTE_REFERENCE}" \
+          --latest-reference "${LATEST_REFERENCE}" \
+          --expected-digest "${IMAGE_DIGEST}"
 
     - name: Remove exact runner-image build and authentication state
       if: always()
       shell: bash
       env:
-        IMAGE: ${{ inputs.image }}
         CONTEXT_PATH: ${{ steps.plan.outputs.context_path }}
         LOCAL_REFERENCE: ${{ steps.plan.outputs.local_reference }}
-        REGISTRY_HOST: ${{ steps.plan.outputs.registry_host }}
+        REMOTE_REFERENCE: ${{ steps.plan.outputs.remote_reference }}
+        LATEST_REFERENCE: ${{ steps.plan.outputs.latest_reference }}
       run: |
-        set -Eeuo pipefail
-        container="ciw-${IMAGE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-        authfile="${RUNNER_TEMP}/ciw-runner-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${IMAGE}.json"
-        buildah rm "${container}" >/dev/null 2>&1 || true
-        if test -e "${authfile}"; then
-          if test -n "${REGISTRY_HOST}"; then
-            buildah logout --authfile "${authfile}" "${REGISTRY_HOST}" >/dev/null 2>&1 || true
-          fi
-          rm -f "${authfile}"
+        set +e
+        cleanup_failed=0
+        docker_config="${RUNNER_TEMP}/ciw-runner-docker-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ inputs.image }}"
+        if test -d "${docker_config}" && test ! -L "${docker_config}"; then
+          DOCKER_CONFIG="${docker_config}" docker logout ghcr.io >/dev/null 2>&1 || true
         fi
+        rm -rf -- "${docker_config}" || cleanup_failed=1
+        test ! -e "${docker_config}" || cleanup_failed=1
         if test -n "${CONTEXT_PATH}"; then
           build_inputs="${CONTEXT_PATH}/.ciw-build-inputs"
-          rm -rf -- "${build_inputs}"
-          test ! -e "${build_inputs}"
-          test ! -L "${build_inputs}"
+          rm -rf -- "${build_inputs}" || cleanup_failed=1
+          test ! -e "${build_inputs}" || cleanup_failed=1
+          test ! -L "${build_inputs}" || cleanup_failed=1
         fi
-        if test -n "${LOCAL_REFERENCE}"; then
-          buildah rmi "${LOCAL_REFERENCE}" >/dev/null 2>&1 || true
-        fi
-        test ! -e "${authfile}"
-        test ! -L "${authfile}"
+        for reference in "${REMOTE_REFERENCE}" "${LATEST_REFERENCE}" "${LOCAL_REFERENCE}"; do
+          if test -n "${reference}" && docker image inspect "${reference}" >/dev/null 2>&1; then
+            docker image rm -f "${reference}" >/dev/null 2>&1 || cleanup_failed=1
+          fi
+        done
+        exit "${cleanup_failed}"
