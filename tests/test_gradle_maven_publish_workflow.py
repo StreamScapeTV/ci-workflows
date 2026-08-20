@@ -28,16 +28,24 @@ class GradleMavenPublishWorkflowTests(unittest.TestCase):
             set(call["inputs"]),
             {
                 "admitted_sha",
+                "expected_branch",
                 "working_directory",
                 "gradle_wrapper_path",
                 "version_file",
-                "publication_channel",
-                "publication_tasks_json",
+                "arguments_json",
             },
         )
         self.assertEqual(set(call["secrets"]), {"registry_username", "registry_token"})
-        self.assertEqual(set(call["outputs"]), {"result", "package_version", "gradle_wall_ms"})
-        for forbidden in ("registry_host", "registry_url", "runner", "runs_on", "shell", "command"):
+        self.assertEqual(set(call["outputs"]), {"result", "release_version"})
+        for forbidden in (
+            "registry_host",
+            "registry_url",
+            "publication_channel",
+            "runner",
+            "runs_on",
+            "shell",
+            "command",
+        ):
             self.assertNotIn(forbidden, call["inputs"])
 
     def test_one_mobile_job_has_one_gradle_publication_step_and_terminal_cleanup(self) -> None:
@@ -52,13 +60,12 @@ class GradleMavenPublishWorkflowTests(unittest.TestCase):
         self.assertEqual(ids.count("workspace_cleanup"), 1)
         publish = next(step for step in steps if step.get("id") == "maven")
         self.assertEqual(publish["uses"], "./.ciw/actions/publish-gradle-maven")
-        self.assertEqual(
-            publish["with"]["publication_tasks_json"],
-            "${{ inputs.publication_tasks_json }}",
-        )
+        self.assertEqual(publish["with"]["arguments_json"], "${{ inputs.arguments_json }}")
+        self.assertEqual(publish["with"]["expected_branch"], "${{ inputs.expected_branch }}")
         cleanup = next(step for step in steps if step.get("id") == "workspace_cleanup")
         self.assertEqual(cleanup["if"], "always()")
         self.assertNotIn("strategy", job)
+        self.assertNotIn("concurrency", self.workflow)
 
     def test_publication_has_no_github_artifact_cache_or_oidc_transport(self) -> None:
         lowered = self.source.casefold()
