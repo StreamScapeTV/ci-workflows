@@ -12,8 +12,9 @@ from typing import Mapping
 
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 _SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
+_BRANCH = re.compile(r"^[A-Za-z0-9._/-]{1,255}$")
 _TASK = re.compile(r"^:?[-A-Za-z0-9_.]+(?::[-A-Za-z0-9_.]+)*$")
-_MAX_TASKS = 24
+_MAX_TASKS = 16
 
 
 class GradleMavenPublishError(RuntimeError):
@@ -26,7 +27,7 @@ class GradleMavenPublishPlan:
     working_directory: Path
     wrapper: Path
     version_file: Path
-    package_version: str
+    release_version: str
     tasks: tuple[str, ...]
 
 
@@ -64,27 +65,36 @@ def parse_publication_tasks(raw: str) -> tuple[str, ...]:
     return tuple(tasks)
 
 
-def derive_package_version(base_version: str, channel: str, admitted_sha: str) -> str:
+def derive_release_version(
+    base_version: str,
+    *,
+    github_ref: str,
+    expected_branch: str,
+    admitted_sha: str,
+) -> str:
     if _SEMVER.fullmatch(base_version) is None:
         raise GradleMavenPublishError("VERSION must contain stable MAJOR.MINOR.PATCH")
     if _SHA.fullmatch(admitted_sha) is None:
         raise GradleMavenPublishError("admitted source must be an exact lowercase SHA")
-    if channel == "stable":
-        return base_version
-    if channel == "develop":
+    if _BRANCH.fullmatch(expected_branch) is None or expected_branch.startswith("/") or ".." in expected_branch.split("/"):
+        raise GradleMavenPublishError("expected branch is invalid")
+    if github_ref == f"refs/heads/{expected_branch}":
         return f"{base_version}-develop.{admitted_sha[:12]}"
-    raise GradleMavenPublishError("publication channel must be stable or develop")
+    if github_ref == f"refs/tags/v{base_version}":
+        return base_version
+    raise GradleMavenPublishError("publication ref is neither the expected development branch nor the exact stable tag")
 
 
 def resolve_plan(
     *,
     source_root: Path,
     admitted_sha: str,
+    github_ref: str,
+    expected_branch: str,
     working_directory: str,
     gradle_wrapper_path: str,
     version_file: str,
-    publication_channel: str,
-    publication_tasks_json: str,
+    arguments_json: str,
 ) -> GradleMavenPublishPlan:
     root = source_root.resolve()
     if not root.is_dir():
@@ -99,9 +109,14 @@ def resolve_plan(
     if not versions.is_file() or versions.is_symlink():
         raise GradleMavenPublishError("VERSION file is missing")
     base_version = versions.read_text(encoding="utf-8").strip()
-    package_version = derive_package_version(base_version, publication_channel, admitted_sha)
-    tasks = parse_publication_tasks(publication_tasks_json)
-    return GradleMavenPublishPlan(root, work, wrapper, versions, package_version, tasks)
+    release_version = derive_release_version(
+        base_version,
+        github_ref=github_ref,
+        expected_branch=expected_branch,
+        admitted_sha=admitted_sha,
+    )
+    tasks = parse_publication_tasks(arguments_json)
+    return GradleMavenPublishPlan(root, work, wrapper, versions, release_version, tasks)
 
 
 def publish(
@@ -116,11 +131,11 @@ def publish(
     runtime = dict(environment)
     runtime["CIW_MAVEN_REGISTRY_USERNAME"] = registry_username
     runtime["CIW_MAVEN_REGISTRY_TOKEN"] = registry_token
-    runtime["CI_MAVEN_PUBLICATION_VERSION"] = plan.package_version
+    runtime["CI_MAVEN_PUBLICATION_VERSION"] = plan.release_version
     command = [
         str(plan.wrapper),
         "--no-daemon",
-        f"-PciMavenPublicationVersion={plan.package_version}",
+        f"-PciMavenPublicationVersion={plan.release_version}",
         *plan.tasks,
     ]
     started = time.monotonic()
@@ -131,11 +146,11 @@ def publish(
     return wall_ms
 
 
-def append_github_outputs(path: str | None, *, package_version: str, wall_ms: int) -> None:
+def append_github_outputs(path: str | None, *, release_version: str, wall_ms: int) -> None:
     if not path:
         return
     with Path(path).open("a", encoding="utf-8") as handle:
-        handle.write(f"package_version={package_version}\n")
+        handle.write(f"release_version={release_version}\n")
         handle.write(f"gradle_wall_ms={wall_ms}\n")
 
 
@@ -144,11 +159,12 @@ def main() -> int:
         plan = resolve_plan(
             source_root=Path(os.environ.get("INPUT_SOURCE_ROOT", "source")),
             admitted_sha=os.environ.get("INPUT_ADMITTED_SHA", ""),
+            github_ref=os.environ.get("GITHUB_REF", ""),
+            expected_branch=os.environ.get("INPUT_EXPECTED_BRANCH", ""),
             working_directory=os.environ.get("INPUT_WORKING_DIRECTORY", "."),
             gradle_wrapper_path=os.environ.get("INPUT_GRADLE_WRAPPER_PATH", "gradlew"),
             version_file=os.environ.get("INPUT_VERSION_FILE", "VERSION"),
-            publication_channel=os.environ.get("INPUT_PUBLICATION_CHANNEL", ""),
-            publication_tasks_json=os.environ.get("INPUT_PUBLICATION_TASKS_JSON", ""),
+            arguments_json=os.environ.get("INPUT_ARGUMENTS_JSON", ""),
         )
         wall_ms = publish(
             plan,
@@ -158,10 +174,10 @@ def main() -> int:
         )
         append_github_outputs(
             os.environ.get("GITHUB_OUTPUT"),
-            package_version=plan.package_version,
+            release_version=plan.release_version,
             wall_ms=wall_ms,
         )
-        print(f"gradle-maven-publication version={plan.package_version} wall_ms={wall_ms}")
+        print(f"gradle-maven-publication version={plan.release_version} wall_ms={wall_ms}")
         return 0
     except (OSError, UnicodeError, GradleMavenPublishError) as error:
         print(f"gradle-maven-publication failed: {error}", file=os.sys.stderr)
