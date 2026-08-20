@@ -309,17 +309,13 @@ jobs:
           warm_ok=true
           if [[ "${WARM_REQUIRED}" == "true" ]]; then
             test "${WARM_OUTCOME}" = "success" || warm_ok=false
-            if [[ "${MAINTENANCE_MODE}" == "true" ]]; then
-              test "${WARM_SEED_OUTCOME}" = "success" || warm_ok=false
-            fi
+            if [[ "${MAINTENANCE_MODE}" == "true" ]]; then test "${WARM_SEED_OUTCOME}" = "success" || warm_ok=false; fi
             if [[ -n "${WARM_CACHE_MODE}" && -n "${WARM_WALL_MS}" ]]; then
               printf 'gradle-dependency-warm cache_mode=%s wall_ms=%s\n' "${WARM_CACHE_MODE}" "${WARM_WALL_MS}"
             fi
           fi
           dependency_ok=true
-          if [[ "${DEPENDENCY_REQUIRED}" == "true" ]]; then
-            test "${DEPENDENCY_OUTCOME}" = "success" || dependency_ok=false
-          fi
+          if [[ "${DEPENDENCY_REQUIRED}" == "true" ]]; then test "${DEPENDENCY_OUTCOME}" = "success" || dependency_ok=false; fi
           prebuild_ok=true
           if [[ "${PREBUILD_REQUIRED}" == "true" ]]; then
             test "${DEPENDENCY_REQUIRED}" = "true" || prebuild_ok=false
@@ -329,9 +325,7 @@ jobs:
             test "${PREBUILD_RESIDUE_OUTCOME}" = "success" || prebuild_ok=false
           fi
           execute_ok=true
-          if [[ "${EXECUTE_REQUIRED}" == "true" ]]; then
-            test "${EXECUTE_OUTCOME}" = "success" || execute_ok=false
-          fi
+          if [[ "${EXECUTE_REQUIRED}" == "true" ]]; then test "${EXECUTE_OUTCOME}" = "success" || execute_ok=false; fi
           if [[ "${PLAN_OUTCOME}" == "success" &&
                 "${CHECKOUT_OUTCOME}" == "success" &&
                 "${WORKSPACE_OUTCOME}" == "success" &&
