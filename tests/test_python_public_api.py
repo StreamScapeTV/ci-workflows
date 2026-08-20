@@ -50,7 +50,11 @@ class PythonPublicApiTests(unittest.TestCase):
         self.assertNotIn("supported_products", self.python)
         self.assertEqual(
             set(self.python["implementation_components"]),
-            {"ci_workflows.python.validate", "actions/validate-python"},
+            {
+                "ci_workflows.python.validate",
+                "ci_workflows.execution_backends.resolve_execution_backend",
+                "actions/validate-python",
+            },
         )
 
     def test_python_caller_fixture_accepts_bounded_intent_and_rejects_runner(self) -> None:
