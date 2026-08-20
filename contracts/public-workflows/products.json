@@ -171,6 +171,44 @@
       "max_reusable_workflow_depth": 2
     },
     {
+      "file": ".github/workflows/reusable-public-native-image-chart.yml",
+      "api_name": "release.public-native-image-chart",
+      "api_version": "1.0.0",
+      "status": "implemented",
+      "trust_class": "trusted-publication",
+      "permission_profile": "public-oci-publication",
+      "semantic_runner_profile": "contract:public-oci-publish",
+      "permitted_events": ["tag-push", "workflow_call"],
+      "inputs": [
+        {"name": "image_name", "required": true},
+        {"name": "chart_name", "required": true},
+        {"name": "chart_path", "required": true},
+        {"name": "dockerfile_path", "required": false, "default": "Dockerfile"},
+        {"name": "build_context", "required": false, "default": "."}
+      ],
+      "secrets": [],
+      "outputs": ["version", "source_sha", "image_reference", "image_digest", "chart_reference", "chart_digest", "chart_package_sha256"],
+      "stable_check_name": "Publish public native amd64 image and Helm chart",
+      "timeout_minutes": 180,
+      "matrix_max_jobs": 2,
+      "repository_owned_hooks": ["chart_path", "dockerfile_path", "build_context"],
+      "implementation_components": [
+        "ci_workflows.packaging_primitives.build_image",
+        "ci_workflows.packaging_primitives.inspect_image",
+        "ci_workflows.packaging_primitives.registry_authenticate",
+        "ci_workflows.packaging_primitives.push_image",
+        "ci_workflows.packaging_primitives.helm_lint",
+        "ci_workflows.packaging_primitives.helm_template",
+        "ci_workflows.packaging_primitives.helm_package",
+        "ci_workflows.packaging_primitives.helm_push",
+        "ci_workflows.packaging_primitives.registry_logout",
+        "ci_workflows.public_native_image_chart.readback_public",
+        "ci_workflows.release_tag_authority.resolve_release_authority",
+        "ci_workflows.release_tag_authority.revalidate_release_authority",
+        "actions/resolve-release-tag"
+      ]
+    },
+    {
       "file": ".github/workflows/reusable-flux-infrastructure-assets.yml",
       "api_name": "flux.assets",
       "api_version": "2.0.0",
