@@ -3,8 +3,13 @@ name: Reusable native amd64 image and Helm release
 on:
   workflow_call:
     inputs:
+      execution_backend:
+        description: organization or github-hosted
+        required: false
+        default: organization
+        type: string
       image_name:
-        description: Image repository slug under the fixed private registry namespace
+        description: Image repository slug under the centrally selected registry namespace
         required: true
         type: string
       chart_name:
@@ -27,11 +32,11 @@ on:
         type: string
     secrets:
       registry_username:
-        description: Private OCI registry username
-        required: true
+        description: Private OCI registry username for organization backend only
+        required: false
       registry_token:
-        description: Private OCI registry token
-        required: true
+        description: Private OCI registry token for organization backend only
+        required: false
     outputs:
       version:
         description: Exact validated release version
@@ -59,16 +64,57 @@ permissions:
   contents: read
 
 env:
-  REGISTRY: git.faruqi.dev
-  REGISTRY_NAMESPACE: mimranfaruqi
-  CHART_NAMESPACE: mimranfaruqi/helm-charts
   HELM_VERSION: v3.18.6
   HELM_IMAGE: docker.io/alpine/helm:3.18.6@sha256:b158d7f0fe1fb84abb59a15973ef25adf66affa2028a8328c083046c5ca04e91
 
 jobs:
+  plan:
+    name: Resolve bounded release execution backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      runs_on_json: ${{ steps.backend.outputs.runs_on_json }}
+      registry: ${{ steps.backend.outputs.registry }}
+      registry_namespace: ${{ steps.backend.outputs.registry_namespace }}
+      chart_namespace: ${{ steps.backend.outputs.chart_namespace }}
+      credential_mode: ${{ steps.backend.outputs.credential_mode }}
+    steps:
+      - name: Check out exact Central reusable-workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact Central workflow source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${{ job.workflow_sha }}"
+            test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          )
+
+      - id: backend
+        name: Resolve fixed runner, registry, and credential mode
+        shell: bash
+        env:
+          EXECUTION_BACKEND: ${{ inputs.execution_backend }}
+        run: |
+          set -Eeuo pipefail
+          python3 .ciw/scripts/ci/native_image_chart_backend.py \
+            --execution-backend "${EXECUTION_BACKEND}" \
+            --github-output "${GITHUB_OUTPUT}"
+
   admit:
     name: Resolve exact release tag authority
-    runs-on: [linux, amd64, buildah, high]
+    needs: plan
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
     timeout-minutes: 10
     outputs:
       version: ${{ steps.authority.outputs.release_version }}
@@ -105,9 +151,12 @@ jobs:
 
   publish:
     name: Publish native amd64 image and Helm chart
-    needs: admit
-    runs-on: [linux, amd64, buildah, high]
+    needs: [plan, admit]
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
     timeout-minutes: 180
+    permissions:
+      contents: read
+      packages: write
     outputs:
       version: ${{ needs.admit.outputs.version }}
       source_sha: ${{ needs.admit.outputs.source_sha }}
@@ -117,6 +166,11 @@ jobs:
       chart_digest: ${{ steps.readback.outputs.chart_digest }}
       chart_package_sha256: ${{ steps.readback.outputs.chart_package_sha256 }}
     env:
+      EXECUTION_BACKEND: ${{ inputs.execution_backend }}
+      CREDENTIAL_MODE: ${{ needs.plan.outputs.credential_mode }}
+      REGISTRY: ${{ needs.plan.outputs.registry }}
+      REGISTRY_NAMESPACE: ${{ needs.plan.outputs.registry_namespace }}
+      CHART_NAMESPACE: ${{ needs.plan.outputs.chart_namespace }}
       VERSION: ${{ needs.admit.outputs.version }}
       SOURCE_SHA: ${{ needs.admit.outputs.source_sha }}
       IMAGE_NAME: ${{ inputs.image_name }}
@@ -124,8 +178,10 @@ jobs:
       CHART_PATH: ${{ inputs.chart_path }}
       DOCKERFILE_PATH: ${{ inputs.dockerfile_path }}
       BUILD_CONTEXT: ${{ inputs.build_context }}
-      CIW_REGISTRY_USERNAME: ${{ secrets.registry_username }}
-      CIW_REGISTRY_TOKEN: ${{ secrets.registry_token }}
+      PRIVATE_REGISTRY_USERNAME: ${{ secrets.registry_username }}
+      PRIVATE_REGISTRY_TOKEN: ${{ secrets.registry_token }}
+      CIW_REGISTRY_USERNAME: ${{ needs.plan.outputs.credential_mode == 'github-token' && github.actor || secrets.registry_username }}
+      CIW_REGISTRY_TOKEN: ${{ needs.plan.outputs.credential_mode == 'github-token' && github.token || secrets.registry_token }}
     steps:
       - name: Check out exact Central reusable-workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -187,7 +243,7 @@ jobs:
           set -Eeuo pipefail
           python3 .ciw/scripts/ci/native_image_chart_validate.py
 
-      - name: Verify daemonless native-amd64 publication tools and credentials
+      - name: Verify execution, publication tools, and credential boundary
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -198,6 +254,30 @@ jobs:
           test "$(uname -m)" = x86_64
           test -n "${CIW_REGISTRY_USERNAME}"
           test -n "${CIW_REGISTRY_TOKEN}"
+          case "${CREDENTIAL_MODE}" in
+            github-token)
+              test "${EXECUTION_BACKEND}" = github-hosted
+              test "${REGISTRY}" = ghcr.io
+              test "${REGISTRY_NAMESPACE}" = streamscapetv
+              test "${CHART_NAMESPACE}" = streamscapetv/helm-charts
+              test "${RUNNER_ENVIRONMENT:-}" = github-hosted
+              test -z "${PRIVATE_REGISTRY_USERNAME}"
+              test -z "${PRIVATE_REGISTRY_TOKEN}"
+              printf 'BUILDAH_ISOLATION=chroot\n' >> "${GITHUB_ENV}"
+              ;;
+            private-secrets)
+              test "${EXECUTION_BACKEND}" = organization
+              test "${REGISTRY}" = git.faruqi.dev
+              test "${REGISTRY_NAMESPACE}" = mimranfaruqi
+              test "${CHART_NAMESPACE}" = mimranfaruqi/helm-charts
+              test -n "${PRIVATE_REGISTRY_USERNAME}"
+              test -n "${PRIVATE_REGISTRY_TOKEN}"
+              ;;
+            *)
+              echo "::error::invalid native release credential mode" >&2
+              exit 2
+              ;;
+          esac
 
       - name: Stage pinned Helm from immutable tool image
         shell: bash
@@ -254,11 +334,11 @@ jobs:
           registry_authenticate(os.environ["REGISTRY"], environment=env, tool="helm", cwd=Path("source"))
           PY
           chart_reference="${REGISTRY}/${CHART_NAMESPACE}/${CHART_NAME}:${VERSION}"
-          if skopeo inspect "docker://${IMAGE_REFERENCE}" >/dev/null 2>&1; then
+          if skopeo --authfile "${REGISTRY_AUTH_FILE}" inspect "docker://${IMAGE_REFERENCE}" >/dev/null 2>&1; then
             echo "::error::image version already exists: ${IMAGE_REFERENCE}" >&2
             exit 2
           fi
-          if skopeo inspect "docker://${chart_reference}" >/dev/null 2>&1; then
+          if skopeo --authfile "${REGISTRY_AUTH_FILE}" inspect "docker://${chart_reference}" >/dev/null 2>&1; then
             echo "::error::chart version already exists: ${chart_reference}" >&2
             exit 2
           fi
@@ -303,6 +383,7 @@ jobs:
         name: Independently read back immutable image and chart identities
         shell: bash
         env:
+          PYTHONPATH: ${{ github.workspace }}/.ciw/src
           IMAGE_REFERENCE: ${{ steps.prepare.outputs.image_reference }}
           CHART_PACKAGE_SHA256: ${{ steps.prepare.outputs.chart_package_sha256 }}
         run: |
@@ -312,8 +393,23 @@ jobs:
           image_raw="${state}/image-manifest.json"
           image_inspect="${state}/image-inspect.json"
           chart_raw="${state}/chart-manifest.json"
-          skopeo inspect --raw "docker://${IMAGE_REFERENCE}" > "${image_raw}"
-          skopeo inspect "docker://${IMAGE_REFERENCE}" > "${image_inspect}"
+          readback_auth="${REGISTRY_AUTH_FILE}"
+          if test "${CREDENTIAL_MODE}" = github-token; then
+            python3 - <<'PY'
+          import os
+          from pathlib import Path
+          from ci_workflows.packaging_primitives import registry_logout
+          env = dict(os.environ)
+          registry_logout(os.environ["REGISTRY"], environment=env, tool="helm", cwd=Path("source"))
+          registry_logout(os.environ["REGISTRY"], environment=env, tool="buildah", cwd=Path("source"))
+          PY
+            rm -f -- "${REGISTRY_AUTH_FILE}" "${HELM_REGISTRY_CONFIG}"
+            readback_auth="${state}/anonymous-auth.json"
+            umask 077
+            printf '{}\n' > "${readback_auth}"
+          fi
+          skopeo --authfile "${readback_auth}" inspect --raw "docker://${IMAGE_REFERENCE}" > "${image_raw}"
+          skopeo --authfile "${readback_auth}" inspect "docker://${IMAGE_REFERENCE}" > "${image_inspect}"
           image_digest="sha256:$(sha256sum "${image_raw}" | awk '{print $1}')"
           IMAGE_INSPECT="${image_inspect}" IMAGE_DIGEST="${image_digest}" python3 - <<'PY'
           import json
@@ -326,7 +422,7 @@ jobs:
               raise SystemExit("remote image digest does not match raw manifest")
           PY
           chart_reference="${REGISTRY}/${CHART_NAMESPACE}/${CHART_NAME}:${VERSION}"
-          skopeo inspect --raw "docker://${chart_reference}" > "${chart_raw}"
+          skopeo --authfile "${readback_auth}" inspect --raw "docker://${chart_reference}" > "${chart_raw}"
           chart_digest="sha256:$(sha256sum "${chart_raw}" | awk '{print $1}')"
           [[ "${image_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
           [[ "${chart_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
