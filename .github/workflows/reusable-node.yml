@@ -3,6 +3,11 @@ name: Reusable Node validation
 on:
   workflow_call:
     inputs:
+      execution_backend:
+        description: organization or github-hosted
+        required: false
+        default: organization
+        type: string
       admitted_sha:
         description: Exact lowercase source SHA admitted by source.resolve
         required: true
@@ -102,15 +107,17 @@ jobs:
     outputs:
       node_version: ${{ steps.plan.outputs.node_version }}
       runner_profile: ${{ steps.plan.outputs.runner_profile }}
+      runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
       workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
       timeout_minutes: ${{ steps.plan.outputs.timeout_minutes }}
       source_trust: ${{ steps.plan.outputs.source_trust }}
     steps:
       - id: plan
-        name: Resolve contract-owned Node command plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-node@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        name: Resolve contract-owned Node command and execution plan
+        uses: StreamScapeTV/ci-workflows/actions/validate-node@34d736612462f7ab4e7be83443760c59027478db # issue #405 execution-backend checkpoint
         with:
           phase: plan
+          execution_backend: ${{ inputs.execution_backend }}
           admitted_sha: ${{ inputs.admitted_sha }}
           validation_profile: ${{ inputs.validation_profile }}
           version_file: ${{ inputs.version_file }}
@@ -127,7 +134,7 @@ jobs:
   validate:
     name: CI / Node validation
     needs: plan
-    runs-on: [linux, amd64, general, small]
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
     timeout-minutes: 90
     outputs:
       result: ${{ steps.node.outcome == 'success' && steps.cleanup.outcome == 'success' && 'success' || 'failure' }}
@@ -168,9 +175,10 @@ jobs:
 
       - id: node
         name: Execute bounded Node validation
-        uses: StreamScapeTV/ci-workflows/actions/validate-node@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-node@34d736612462f7ab4e7be83443760c59027478db # issue #405 execution-backend checkpoint
         with:
           phase: execute
+          execution_backend: ${{ inputs.execution_backend }}
           admitted_sha: ${{ inputs.admitted_sha }}
           validation_profile: ${{ inputs.validation_profile }}
           version_file: ${{ inputs.version_file }}

@@ -24,6 +24,11 @@ on:
         required: false
         default: 1
         type: number
+      execution_backend:
+        description: organization or github-hosted
+        required: false
+        default: organization
+        type: string
     outputs:
       caller_repository:
         description: Validated caller repository
@@ -94,9 +99,25 @@ permissions:
   pull-requests: read
 
 jobs:
+  plan:
+    name: Resolve bounded source execution backend
+    runs-on: [linux, amd64, general, tiny]
+    timeout-minutes: 10
+    outputs:
+      runs_on_json: ${{ steps.backend.outputs.runs_on_json }}
+    steps:
+      - id: backend
+        name: Resolve bounded execution backend
+        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@34d736612462f7ab4e7be83443760c59027478db # issue #405 execution-backend checkpoint
+        with:
+          workflow_api: source.resolve
+          source_trust: trusted-exact
+          execution_backend: ${{ inputs.execution_backend }}
+
   admit:
     name: Shared / Source admission
-    runs-on: [linux, amd64, general, tiny]
+    needs: plan
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
     timeout-minutes: 10
     outputs:
       caller_repository: ${{ steps.resolve.outputs.caller_repository }}
