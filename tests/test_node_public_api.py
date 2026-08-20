@@ -32,6 +32,7 @@ class NodePublicApiTests(unittest.TestCase):
         self.assertEqual(
             {item["name"] for item in self.node["inputs"]},
             {
+                "execution_backend",
                 "admitted_sha",
                 "validation_profile",
                 "version_file",
