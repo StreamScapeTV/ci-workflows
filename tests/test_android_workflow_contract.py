@@ -161,16 +161,21 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             revision = item.rsplit("@", 1)[1]
             self.assertRegex(revision, r"^[0-9a-f]{40}$")
 
-    def test_dependency_warm_is_blocking_resolution_but_best_effort_promotion(self) -> None:
+    def test_dependency_warm_is_cache_maintenance_only(self) -> None:
         steps = self.workflow["jobs"]["validate"]["steps"]
         by_id = {step["id"]: step for step in steps}
         warm = by_id["dependency_warm"]
         warm_seed = by_id["dependency_warm_seed"]
+        prebuild_plan = by_id["prebuild_plan"]
         prebuild = by_id["prebuild_execute"]
         execute = by_id["execute"]
+        evidence = by_id["evidence"]
 
-        self.assertIn("inputs.validation_scope == 'protected-full'", warm["if"])
+        self.assertIn("inputs.validation_scope == 'gradle'", warm["if"])
+        self.assertIn("private_dependency_used == 'true'", warm["if"])
+        self.assertIn("inputs.dependency_prebuild_plan_json == ''", warm["if"])
         self.assertIn("steps.dependency.outcome == 'success'", warm["if"])
+        self.assertNotIn("protected-full", warm["if"])
         self.assertEqual(warm["with"]["admitted_sha"], "${{ inputs.admitted_sha }}")
         self.assertEqual(
             warm["with"]["private_dependency_subdirectory"],
@@ -184,12 +189,32 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertEqual(warm_seed["if"], "${{ steps.dependency_warm.outcome == 'success' }}")
         self.assertEqual(warm_seed["with"]["source_sha"], "${{ inputs.admitted_sha }}")
         self.assertLess(steps.index(warm), steps.index(warm_seed))
-        self.assertLess(steps.index(warm_seed), steps.index(prebuild))
-        self.assertLess(steps.index(warm_seed), steps.index(execute))
-        self.assertIn("steps.dependency_warm.outcome == 'success'", prebuild["if"])
-        self.assertIn("steps.dependency_warm.outcome == 'success'", execute["if"])
-        self.assertNotIn("steps.dependency_warm_seed.outcome", prebuild["if"])
-        self.assertNotIn("steps.dependency_warm_seed.outcome", execute["if"])
+
+        for step in (prebuild_plan, prebuild):
+            self.assertIn("inputs.validation_scope != 'gradle'", step["if"])
+            self.assertNotIn("dependency_warm", step["if"])
+        self.assertIn(
+            "inputs.validation_scope != 'gradle' || steps.plan.outputs.private_dependency_used != 'true'",
+            execute["if"],
+        )
+        self.assertNotIn("dependency_warm", execute["if"])
+        self.assertEqual(evidence["if"], "${{ steps.execute.outcome == 'success' }}")
+
+    def test_normal_protected_full_has_no_dependency_warm_prerequisite(self) -> None:
+        steps = self.workflow["jobs"]["validate"]["steps"]
+        by_id = {step["id"]: step for step in steps}
+        self.assertNotIn("protected-full", by_id["dependency_warm"]["if"])
+        self.assertNotIn("dependency_warm", by_id["prebuild_execute"]["if"])
+        self.assertNotIn("dependency_warm", by_id["execute"]["if"])
+        terminal = by_id["terminal"]
+        self.assertEqual(
+            terminal["env"]["MAINTENANCE_MODE"],
+            "${{ inputs.validation_scope == 'gradle' && steps.plan.outputs.private_dependency_used == 'true' && 'true' || 'false' }}",
+        )
+        self.assertEqual(
+            terminal["env"]["EXECUTE_REQUIRED"],
+            "${{ inputs.validation_scope == 'gradle' && steps.plan.outputs.private_dependency_used == 'true' && 'false' || 'true' }}",
+        )
 
     def test_optional_dependency_prebuild_reuses_grouped_android_primitive(self) -> None:
         steps = self.workflow["jobs"]["validate"]["steps"]
@@ -206,6 +231,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             "${{ inputs.dependency_prebuild_plan_json }}",
         )
         self.assertIn("private_dependency_used == 'true'", prebuild_plan["if"])
+        self.assertIn("inputs.validation_scope != 'gradle'", prebuild_plan["if"])
 
         self.assertEqual(prebuild_execute["with"]["validation_scope"], "protected-full")
         self.assertEqual(
@@ -214,6 +240,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         )
         self.assertIn("steps.prebuild_plan.outcome == 'success'", prebuild_execute["if"])
         self.assertIn("steps.dependency.outcome == 'success'", prebuild_execute["if"])
+        self.assertIn("inputs.validation_scope != 'gradle'", prebuild_execute["if"])
 
         self.assertEqual(prebuild_cleanup["with"]["phase"], "cleanup")
         self.assertEqual(prebuild_residue["with"]["phase"], "residue")
@@ -226,7 +253,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertIn("steps.prebuild_cleanup.outcome == 'success'", execute["if"])
         self.assertIn("steps.prebuild_residue.outcome == 'success'", execute["if"])
 
-    def test_internal_cache_sync_has_no_oidc_and_is_best_effort_before_cleanup(self) -> None:
+    def test_internal_cache_sync_has_no_oidc_and_maintenance_promotion_is_terminally_checked(self) -> None:
         self.assertEqual(self.workflow["permissions"], {"contents": "read"})
         job = self.workflow["jobs"]["validate"]
         self.assertNotIn("permissions", job)
@@ -250,10 +277,14 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         cleanup = steps[cleanup_index]
         self.assertEqual(cleanup["if"], "always()")
         terminal = next(step for step in steps if step["id"] == "terminal")
-        self.assertNotIn("dependency_warm_seed", json.dumps(terminal).casefold())
+        self.assertEqual(
+            terminal["env"]["WARM_SEED_OUTCOME"],
+            "${{ steps.dependency_warm_seed.outcome }}",
+        )
+        self.assertIn('test "${WARM_SEED_OUTCOME}" = "success"', terminal["run"])
         self.assertNotIn("gradle_seed", json.dumps(terminal).casefold())
 
-    def test_terminal_logs_bounded_warm_and_android_execution_summaries(self) -> None:
+    def test_terminal_logs_bounded_maintenance_and_android_execution_summaries(self) -> None:
         terminal = next(
             step
             for step in self.workflow["jobs"]["validate"]["steps"]
@@ -271,10 +302,14 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             terminal["env"]["WARM_WALL_MS"],
             "${{ steps.dependency_warm.outputs.warm_wall_ms }}",
         )
+        self.assertIn("MAINTENANCE_MODE", terminal["env"])
+        self.assertIn("WARM_SEED_OUTCOME", terminal["env"])
+        self.assertIn("EXECUTE_REQUIRED", terminal["env"])
         self.assertIn("warm_ok=true", terminal["run"])
         self.assertIn("gradle-dependency-warm cache_mode=%s wall_ms=%s", terminal["run"])
         self.assertIn("PREBUILD_REQUIRED", terminal["env"])
         self.assertIn("prebuild_ok=true", terminal["run"])
+        self.assertIn("execute_ok=true", terminal["run"])
         self.assertIn("android-test-summary=%s", terminal["run"])
         self.assertNotIn("github.event", terminal["run"])
         self.assertNotIn("env |", terminal["run"])
@@ -296,8 +331,8 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertIn("Check out exact admitted caller source once", self.source)
         self.assertIn("Prepare one isolated marker-bound Gradle state", self.source)
         self.assertIn("Check out exact private dependency at most once", self.source)
-        self.assertIn("Resolve Gradle dependency graph before protected build", self.source)
-        self.assertIn("Publish warmed Gradle dependency delta before build", self.source)
+        self.assertIn("Resolve Gradle dependency graph for cache maintenance", self.source)
+        self.assertIn("Publish cache-maintenance Gradle dependency delta", self.source)
         self.assertIn("Process-isolate optional private dependency Gradle prebuild", self.source)
         self.assertIn("Remove optional dependency-prebuild copied source state", self.source)
         self.assertIn("Verify zero optional dependency-prebuild residue", self.source)
