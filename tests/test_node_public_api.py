@@ -68,7 +68,11 @@ class NodePublicApiTests(unittest.TestCase):
         self.assertNotIn("supported_products", self.node)
         self.assertEqual(
             set(self.node["implementation_components"]),
-            {"ci_workflows.node.validate", "actions/validate-node"},
+            {
+                "ci_workflows.node.validate",
+                "ci_workflows.execution_backends.resolve_execution_backend",
+                "actions/validate-node",
+            },
         )
 
     def test_node_caller_accepts_bounded_intent_and_rejects_infrastructure(self) -> None:
