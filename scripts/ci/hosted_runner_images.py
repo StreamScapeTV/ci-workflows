@@ -13,6 +13,7 @@ if str(SRC) not in sys.path:
 
 from ci_workflows.hosted_runner_images import (  # noqa: E402
     HostedRunnerImageError,
+    cleanup_hosted_runner_state,
     collect_metrics,
     publish_exact_image,
     verify_anonymous_pullability,
@@ -41,6 +42,13 @@ def parser() -> argparse.ArgumentParser:
     anonymous.add_argument("--versioned-reference", required=True)
     anonymous.add_argument("--latest-reference", required=True)
     anonymous.add_argument("--expected-digest", required=True)
+
+    cleanup = sub.add_parser("cleanup")
+    cleanup.add_argument("--image", required=True)
+    cleanup.add_argument("--workspace", type=Path, required=True)
+    cleanup.add_argument("--runner-temp", type=Path, required=True)
+    cleanup.add_argument("--run-id", required=True)
+    cleanup.add_argument("--run-attempt", required=True)
     return result
 
 
@@ -78,11 +86,19 @@ def main(argv: list[str] | None = None) -> int:
                 source_sha=args.source_sha,
             )
             _write(args.github_output, {"image_digest": digest})
-        else:
+        elif args.command == "anonymous-readback":
             verify_anonymous_pullability(
                 versioned_reference=args.versioned_reference,
                 latest_reference=args.latest_reference,
                 expected_digest=args.expected_digest,
+            )
+        else:
+            cleanup_hosted_runner_state(
+                image_id=args.image,
+                workspace=args.workspace,
+                runner_temp=args.runner_temp,
+                run_id=args.run_id,
+                run_attempt=args.run_attempt,
             )
     except HostedRunnerImageError as error:
         print(f"hosted runner-image error: {error.code}", file=sys.stderr)
