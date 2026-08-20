@@ -3,7 +3,7 @@ description: Download, verify, or extract one caller-selected HTTP dependency in
 
 inputs:
   operation:
-    description: Bounded operation: download, verify, or extract
+    description: "Bounded operation: download, verify, or extract"
     required: true
   url:
     description: HTTPS URL used only by download
