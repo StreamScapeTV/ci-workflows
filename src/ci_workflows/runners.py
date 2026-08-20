@@ -14,7 +14,7 @@ INVENTORY_PATH = Path("contracts/workflow-inventory.json")
 MAPPINGS_PATH = Path("generated/runner-mappings.json")
 COMPATIBILITY_DOC_PATH = Path("docs/inventory/runner-compatibility.md")
 PROFILE_IDS = {
-    "general-tiny", "general-small", "general-medium", "mobile",
+    "general-tiny", "general-small", "general-medium", "service-small", "mobile",
     "buildah-tiny", "buildah-small", "buildah-medium", "buildah-high",
     "apple", "physical-device", "flux-control",
 }
@@ -24,6 +24,7 @@ FINAL_LINUX_ARC_SELECTORS = {
     "general-tiny": (("linux", "amd64", "general", "tiny"),),
     "general-small": (("linux", "amd64", "general", "small"),),
     "general-medium": (("linux", "amd64", "general", "medium"),),
+    "service-small": (("linux", "amd64", "service", "small"),),
     "mobile": (
         ("linux", "amd64", "mobile"),
         ("linux", "amd64", "android"),
