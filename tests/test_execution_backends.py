@@ -13,14 +13,61 @@ if str(SRC) not in sys.path:
 
 from ci_workflows.execution_backends import (
     ExecutionBackendError,
+    generate_execution_backend_mapping,
+    load_execution_backend_contract,
     resolve_execution_backend,
+    validate_generated_mapping,
 )
 from ci_workflows.validation_model import ActionsLoader
 
+BACKEND_ACTION_SHA = "3a93709b69bb09e962ae3debba6b575deea55392"
+
 
 class ExecutionBackendTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.contract = load_execution_backend_contract(ROOT)
+        validate_generated_mapping(ROOT, cls.contract)
+
+    def resolve(
+        self,
+        *,
+        workflow_api: str,
+        execution_backend: str,
+        execution_profile: str,
+        organization_runs_on: tuple[str, ...],
+    ):
+        return resolve_execution_backend(
+            contract=self.contract,
+            workflow_api=workflow_api,
+            execution_backend=execution_backend,
+            execution_profile=execution_profile,
+            organization_runs_on=organization_runs_on,
+        )
+
+    def test_contract_defaults_to_organization_and_generated_mapping_is_exact(self) -> None:
+        self.assertEqual(self.contract["default_backend"], "organization")
+        self.assertEqual(
+            self.contract["allowed_backends"],
+            ["organization", "github-hosted"],
+        )
+        self.assertEqual(
+            self.contract["organization"]["selector_authority"],
+            "contracts/runner-profiles.json",
+        )
+        self.assertTrue(self.contract["organization"]["preserve_semantic_selector"])
+        self.assertEqual(
+            self.contract["github-hosted"]["runs_on"],
+            ["ubuntu-latest"],
+        )
+        generated = generate_execution_backend_mapping(self.contract)
+        self.assertEqual(
+            generated["backends"]["github-hosted"]["runs_on"],
+            ["ubuntu-latest"],
+        )
+
     def test_organization_preserves_exact_existing_selector(self) -> None:
-        resolved = resolve_execution_backend(
+        resolved = self.resolve(
             workflow_api="validation.node",
             execution_backend="organization",
             execution_profile="general-small",
@@ -39,17 +86,17 @@ class ExecutionBackendTests(unittest.TestCase):
 
     def test_supported_portable_apis_map_to_fixed_ubuntu_latest(self) -> None:
         cases = (
-            ("source.resolve", "general-tiny"),
-            ("validation.node", "general-small"),
-            ("validation.python", "general-small"),
+            ("source.resolve", "general-tiny", ("linux", "amd64", "general", "tiny")),
+            ("validation.node", "general-small", ("linux", "amd64", "general", "small")),
+            ("validation.python", "general-small", ("linux", "amd64", "general", "small")),
         )
-        for workflow_api, execution_profile in cases:
+        for workflow_api, execution_profile, selector in cases:
             with self.subTest(workflow_api=workflow_api):
-                resolved = resolve_execution_backend(
+                resolved = self.resolve(
                     workflow_api=workflow_api,
                     execution_backend="github-hosted",
                     execution_profile=execution_profile,
-                    organization_runs_on=("linux", "amd64", "general", "small"),
+                    organization_runs_on=selector,
                 )
                 self.assertEqual(resolved.runs_on, ("ubuntu-latest",))
                 self.assertEqual(
@@ -65,7 +112,7 @@ class ExecutionBackendTests(unittest.TestCase):
         for profile, selector in selectors.items():
             with self.subTest(profile=profile):
                 with self.assertRaises(ExecutionBackendError) as raised:
-                    resolve_execution_backend(
+                    self.resolve(
                         workflow_api="validation.python",
                         execution_backend="github-hosted",
                         execution_profile=profile,
@@ -78,7 +125,7 @@ class ExecutionBackendTests(unittest.TestCase):
 
     def test_unknown_backend_fails_closed(self) -> None:
         with self.assertRaises(ExecutionBackendError) as raised:
-            resolve_execution_backend(
+            self.resolve(
                 workflow_api="validation.node",
                 execution_backend="some-runner-label",
                 execution_profile="general-small",
@@ -88,7 +135,7 @@ class ExecutionBackendTests(unittest.TestCase):
 
     def test_organization_selector_cannot_contain_self_hosted(self) -> None:
         with self.assertRaises(ExecutionBackendError) as raised:
-            resolve_execution_backend(
+            self.resolve(
                 workflow_api="validation.node",
                 execution_backend="organization",
                 execution_profile="general-small",
@@ -121,6 +168,20 @@ class ExecutionBackendTests(unittest.TestCase):
                     "runs-on: ${{ inputs.execution_backend }}",
                 ):
                     self.assertNotIn(forbidden, source)
+
+    def test_all_selected_workflows_pin_the_reconciled_backend_checkpoint(self) -> None:
+        expected_uses = {
+            "reusable-resolve-source.yml": "actions/resolve-execution-backend",
+            "reusable-node.yml": "actions/validate-node",
+            "reusable-python.yml": "actions/validate-python",
+        }
+        for filename, action in expected_uses.items():
+            with self.subTest(filename=filename):
+                source = (ROOT / ".github/workflows" / filename).read_text(encoding="utf-8")
+                self.assertIn(
+                    f"StreamScapeTV/ci-workflows/{action}@{BACKEND_ACTION_SHA}",
+                    source,
+                )
 
     def test_source_admission_consumes_backend_plan_output(self) -> None:
         path = ROOT / ".github/workflows/reusable-resolve-source.yml"
