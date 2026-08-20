@@ -48,12 +48,12 @@ class HostedRunnerImageTests(unittest.TestCase):
     def completed(stdout: str = "", returncode: int = 0) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess([], returncode, stdout=stdout, stderr="")
 
-    def test_publication_never_builds_and_publishes_same_local_image_twice(self) -> None:
+    def test_new_publication_never_builds_and_pushes_same_local_image_to_both_tags(self) -> None:
         versioned = "ghcr.io/streamscapetv/github-actions-runner-general:1.0"
         latest = "ghcr.io/streamscapetv/github-actions-runner-general:latest"
         source_sha = "a" * 40
         digest = "sha256:" + "b" * 64
-
+        config_digest = "sha256:" + "e" * 64
         commands: list[list[str]] = []
 
         def run(argv, **_kwargs):
@@ -63,6 +63,10 @@ class HostedRunnerImageTests(unittest.TestCase):
             return self.completed()
 
         with mock.patch.object(hosted, "_existing_revision", return_value=None), mock.patch.object(
+            hosted, "_local_config_digest", return_value=config_digest
+        ), mock.patch.object(
+            hosted, "_imagetools_config_digest", return_value=config_digest
+        ), mock.patch.object(
             hosted, "_imagetools_digest", side_effect=[digest, digest]
         ), mock.patch.object(hosted, "_completed", side_effect=run):
             actual = hosted.publish_exact_image(
@@ -77,41 +81,25 @@ class HostedRunnerImageTests(unittest.TestCase):
         self.assertEqual(sum(command[:2] == ["docker", "push"] for command in commands), 2)
         self.assertFalse(any("build" in command for command in commands))
 
-    def test_existing_version_tag_with_different_source_fails_before_push(self) -> None:
-        versioned = "ghcr.io/streamscapetv/github-actions-runner-general:1.0"
-        latest = "ghcr.io/streamscapetv/github-actions-runner-general:latest"
-        with mock.patch.object(
-            hosted,
-            "_existing_revision",
-            return_value=("b" * 40, "sha256:" + "c" * 64),
-        ), mock.patch.object(hosted, "_completed") as completed:
-            with self.assertRaises(hosted.HostedRunnerImageError) as context:
-                hosted.publish_exact_image(
-                    local_reference="ciw-runner-general:sha-aaaaaaaaaaaa",
-                    versioned_reference=versioned,
-                    latest_reference=latest,
-                    source_sha="a" * 40,
-                )
-        self.assertEqual(context.exception.code, "immutable_release_conflict")
-        completed.assert_not_called()
-
-    def test_idempotent_existing_version_requires_identical_digest_after_push(self) -> None:
+    def test_existing_version_tag_with_different_source_fails_before_registry_write(self) -> None:
         versioned = "ghcr.io/streamscapetv/github-actions-runner-general:1.0"
         latest = "ghcr.io/streamscapetv/github-actions-runner-general:latest"
         source_sha = "a" * 40
-        old_digest = "sha256:" + "b" * 64
-        new_digest = "sha256:" + "c" * 64
+        commands: list[list[str]] = []
 
         def run(argv, **_kwargs):
-            if argv[:3] == ["docker", "image", "inspect"]:
-                return self.completed(source_sha + "\n")
-            return self.completed()
+            commands.append(list(argv))
+            return self.completed(source_sha + "\n")
 
         with mock.patch.object(
-            hosted, "_existing_revision", return_value=(source_sha, old_digest)
+            hosted,
+            "_existing_revision",
+            return_value=("b" * 40, "sha256:" + "c" * 64, "sha256:" + "d" * 64),
         ), mock.patch.object(
-            hosted, "_imagetools_digest", side_effect=[new_digest, new_digest]
-        ), mock.patch.object(hosted, "_completed", side_effect=run):
+            hosted, "_local_config_digest", return_value="sha256:" + "d" * 64
+        ), mock.patch.object(hosted, "_completed", side_effect=run), mock.patch.object(
+            hosted, "_copy_exact_manifest_to_latest"
+        ) as copy_latest:
             with self.assertRaises(hosted.HostedRunnerImageError) as context:
                 hosted.publish_exact_image(
                     local_reference="ciw-runner-general:sha-aaaaaaaaaaaa",
@@ -120,6 +108,81 @@ class HostedRunnerImageTests(unittest.TestCase):
                     source_sha=source_sha,
                 )
         self.assertEqual(context.exception.code, "immutable_release_conflict")
+        copy_latest.assert_not_called()
+        self.assertFalse(any(command[:2] == ["docker", "push"] for command in commands))
+
+    def test_existing_same_source_requires_same_config_before_moving_latest(self) -> None:
+        versioned = "ghcr.io/streamscapetv/github-actions-runner-general:1.0"
+        latest = "ghcr.io/streamscapetv/github-actions-runner-general:latest"
+        source_sha = "a" * 40
+        version_digest = "sha256:" + "b" * 64
+        old_config = "sha256:" + "c" * 64
+        local_config = "sha256:" + "d" * 64
+
+        with mock.patch.object(
+            hosted,
+            "_existing_revision",
+            return_value=(source_sha, version_digest, old_config),
+        ), mock.patch.object(hosted, "_local_config_digest", return_value=local_config), mock.patch.object(
+            hosted, "_completed", return_value=self.completed(source_sha + "\n")
+        ), mock.patch.object(hosted, "_copy_exact_manifest_to_latest") as copy_latest:
+            with self.assertRaises(hosted.HostedRunnerImageError) as context:
+                hosted.publish_exact_image(
+                    local_reference="ciw-runner-general:sha-aaaaaaaaaaaa",
+                    versioned_reference=versioned,
+                    latest_reference=latest,
+                    source_sha=source_sha,
+                )
+        self.assertEqual(context.exception.code, "immutable_release_conflict")
+        copy_latest.assert_not_called()
+
+    def test_idempotent_replay_copies_existing_exact_manifest_to_latest_without_push(self) -> None:
+        versioned = "ghcr.io/streamscapetv/github-actions-runner-general:1.0"
+        latest = "ghcr.io/streamscapetv/github-actions-runner-general:latest"
+        source_sha = "a" * 40
+        version_digest = "sha256:" + "b" * 64
+        config_digest = "sha256:" + "c" * 64
+        commands: list[list[str]] = []
+
+        def run(argv, **_kwargs):
+            commands.append(list(argv))
+            return self.completed(source_sha + "\n")
+
+        with mock.patch.object(
+            hosted,
+            "_existing_revision",
+            return_value=(source_sha, version_digest, config_digest),
+        ), mock.patch.object(hosted, "_local_config_digest", return_value=config_digest), mock.patch.object(
+            hosted, "_completed", side_effect=run
+        ), mock.patch.object(
+            hosted, "_imagetools_digest", return_value=version_digest
+        ), mock.patch.object(hosted, "_copy_exact_manifest_to_latest") as copy_latest:
+            actual = hosted.publish_exact_image(
+                local_reference="ciw-runner-general:sha-aaaaaaaaaaaa",
+                versioned_reference=versioned,
+                latest_reference=latest,
+                source_sha=source_sha,
+            )
+
+        self.assertEqual(actual, version_digest)
+        copy_latest.assert_called_once_with(
+            versioned_reference=versioned,
+            latest_reference=latest,
+            digest=version_digest,
+        )
+        self.assertFalse(any(command[:2] == ["docker", "push"] for command in commands))
+
+    def test_exact_manifest_copy_disables_index_promotion(self) -> None:
+        digest = "sha256:" + "d" * 64
+        with mock.patch.object(hosted, "_completed", return_value=self.completed()) as completed:
+            hosted._copy_exact_manifest_to_latest(
+                versioned_reference="ghcr.io/streamscapetv/github-actions-runner-general:1.0",
+                latest_reference="ghcr.io/streamscapetv/github-actions-runner-general:latest",
+                digest=digest,
+            )
+        argv = completed.call_args.args[0]
+        self.assertIn("--prefer-index=false", argv)
+        self.assertNotIn("docker push", " ".join(argv))
 
     def test_anonymous_readback_requires_version_and_latest_digest_equality(self) -> None:
         versioned = "ghcr.io/streamscapetv/github-actions-runner-general:1.0"
