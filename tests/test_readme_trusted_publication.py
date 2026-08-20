@@ -45,19 +45,34 @@ class ReadmeTrustedPublicationTests(unittest.TestCase):
 
     def test_normal_release_example_is_tag_push_without_recovery_ceremony(self) -> None:
         source = README.read_text(encoding="utf-8")
-        self.assertIn('tags:\n      - "*.*.*"', source)
+        normal_release = source.split(
+            "The normal image + Helm release caller is the product tag-push path.", 1
+        )[1].split(
+            "The older exact-tag compatibility workflow retains separately reviewed recovery capabilities",
+            1,
+        )[0]
+        self.assertIn('tags:\n      - "*.*.*"', normal_release)
         self.assertIn(
             "uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-native-image-chart.yml@main",
-            source,
+            normal_release,
         )
-        self.assertIn("The product tag is release-version authority", source)
+        self.assertIn("The product tag is release-version authority", normal_release)
         for forbidden in (
             "workflow_dispatch:",
             "release_mode: existing-tag",
-            "release_source_sha: ${{ inputs.release_source_sha }}",
-            "uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-tag-image-chart.yml@main",
+            "release_source_sha:",
+            "uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-tag-image-chart.yml@",
         ):
-            self.assertNotIn(forbidden, source)
+            self.assertNotIn(forbidden, normal_release)
+
+    def test_legacy_existing_tag_reference_is_explicitly_not_normal_adoption(self) -> None:
+        source = README.read_text(encoding="utf-8")
+        self.assertIn(
+            "uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-tag-image-chart.yml@<compatibility-ref>",
+            source,
+        )
+        self.assertIn("release_mode: existing-tag", source)
+        self.assertIn("This is **not** the normal release skeleton", source)
 
 
 if __name__ == "__main__":
