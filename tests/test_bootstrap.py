@@ -82,10 +82,8 @@ class BootstrapContractTests(unittest.TestCase):
             for profile in runner_contract["profiles"]
             if profile["id"] == "general-small"
         )
-        self.assertEqual(
-            source.count("runs-on: [linux, amd64, general, small]"),
-            1,
-        )
+        self.assertEqual(source.count("runs-on: [ubuntu-latest]"), 1)
+        self.assertNotIn("runs-on: [linux, amd64, general, small]", source)
         self.assertNotIn("runs-on: [linux, amd64, general]", source)
         self.assertNotIn("runs-on: portable", source)
         self.assertNotIn("runs-on: macOS", source)
