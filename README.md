@@ -111,6 +111,26 @@ uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-node.yml@v1
 
 `.github/workflows/reusable-tag-image-chart.yml` is a `workflow_call`-only legacy compatibility release primitive. Its default `tag-push` mode preserves genuine tag-push behavior. Its explicit `existing-tag` mode accepts only the complete exact version/source tuple from its reviewed trusted caller class. The fixed recovery authority is a narrower exceptional mode; none of these compatibility paths defines the normal consumer adoption skeleton above.
 
+For reference only, a separately reviewed legacy compatibility caller can still select an already-existing exact tag through that older surface. This is **not** the normal release skeleton and is not an adoption/bootstrap requirement:
+
+```yaml
+jobs:
+  compatibility_release:
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-tag-image-chart.yml@<compatibility-ref>
+    with:
+      release_mode: existing-tag
+      release_version: TODO_EXISTING_TAG
+      release_source_sha: TODO_EXACT_TAGGED_SHA
+      image_name: TODO_IMAGE_NAME
+      chart_name: TODO_CHART_NAME
+      chart_path: TODO_CHART_PATH
+      dockerfile_path: TODO_DOCKERFILE_PATH
+      build_context: TODO_BUILD_CONTEXT
+    secrets:
+      registry_username: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+      registry_token: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
+```
+
 The workflow uses the exact validated version for a multi-platform OCI image and Helm OCI chart, independently reads both products back, retains zero Actions artifacts, and performs no deployment. Authenticated image and chart tag listings fail closed. A present chart is pulled and compared with the exact local package; confirmed absence permits one push followed by tag, package checksum, metadata, dependency, and OCI layer verification. It does not publish `latest`, create a GitHub Release, accept a branch as release identity, update production values, restart workloads, or access a cluster. The caller passes only bounded product inputs and explicit named registry secrets; broad secret inheritance is prohibited.
 
 Accepted product tags are `MAJOR.MINOR.PATCH` with an optional OCI-safe prerelease suffix such as `1.2.3-rc.1`. A tag can point to any approved historical commit:
