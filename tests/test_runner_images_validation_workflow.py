@@ -76,7 +76,7 @@ class RunnerImageValidationWorkflowTests(unittest.TestCase):
             },
             job["strategy"],
         )
-        self.assertEqual("ubuntu-latest", job["runs-on"])
+        self.assertEqual(["ubuntu-latest"], job["runs-on"])
         self.assertEqual("180", job["timeout-minutes"])
         self.assertEqual(
             "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}",
@@ -110,6 +110,13 @@ class RunnerImageValidationWorkflowTests(unittest.TestCase):
             "${{ steps.image.outputs.hosted_metrics_json }}",
         )
         self.assertIn("GITHUB_STEP_SUMMARY", metrics["run"])
+        cleanup = next(
+            step for step in steps
+            if step.get("name") == "Remove runner-image validation residue"
+        )
+        self.assertEqual("always()", cleanup["if"])
+        self.assertIn("ciw-runner-docker-", cleanup["run"])
+        self.assertIn(".ciw-build-inputs", cleanup["run"])
         checkout = steps[0]
         self.assertEqual(
             "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
