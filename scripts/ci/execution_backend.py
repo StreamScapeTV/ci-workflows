@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Resolve one bounded execution backend from the central runner contracts."""
+"""Resolve one bounded execution backend."""
 from __future__ import annotations
 
 import argparse
@@ -14,12 +14,7 @@ if str(SRC) not in sys.path:
 
 from ci_workflows import runners
 from ci_workflows.ciw_types import write_command_file
-from ci_workflows.execution_backends import (
-    ExecutionBackendError,
-    load_execution_backend_contract,
-    resolve_execution_backend,
-    validate_generated_mapping,
-)
+from ci_workflows.execution_backends import ExecutionBackendError, resolve_execution_backend
 
 
 def parser() -> argparse.ArgumentParser:
@@ -43,18 +38,13 @@ def main() -> int:
             source_trust=args.source_trust,
             requested_profile=args.profile,
         )
-        backend_contract = load_execution_backend_contract(root)
-        validate_generated_mapping(root, backend_contract)
         resolved = resolve_execution_backend(
-            contract=backend_contract,
-            workflow_api=args.workflow_api,
             execution_backend=args.execution_backend,
             execution_profile=organization.execution_profile,
             organization_runs_on=organization.runs_on,
         )
     except (runners.RunnerContractError, ExecutionBackendError) as error:
-        code = getattr(error, "code", str(error))
-        print(code, file=sys.stderr)
+        print(getattr(error, "code", str(error)), file=sys.stderr)
         return 2
 
     payload = resolved.as_dict()
