@@ -81,6 +81,7 @@ on:
         description: Optional bounded dependency identity
         required: false
         default: ""
+        type: string
     secrets:
       private_dependency_token:
         description: Optional transient contents-read token used only by exact private dependency checkout
