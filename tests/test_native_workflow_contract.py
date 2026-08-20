@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/reusable-native.yml"
 ACTION_PATH = ROOT / "actions/validate-native/action.yml"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-NATIVE_ACTION_SHA = "7f83425d53edcc7fd2287adbb347fa320fc24e56"
+NATIVE_ACTION_SHA = "89e101e4dea01c797a24284c1b8b8cdbdd67ba61"
 
 
 class NativeWorkflowContractTests(unittest.TestCase):
