@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import io
-import json
 import os
 import re
 import subprocess
@@ -353,23 +352,18 @@ class AndroidPolicyFacadeTests(unittest.TestCase):
             rule_id="tracked_secret_detected",
             subject=SAFE_PATH,
         )
-        ciw_android._failure_outputs(context, error)
+        projected = ciw_android._failure_outputs(context, error)
+        self.assertEqual(projected.code, "tracked_secret_detected")
         values = dict(
             line.split("=", 1)
             for line in output.read_text(encoding="utf-8").splitlines()
         )
-        summary = json.loads(values["test_summary"])
-        self.assertEqual(
-            summary["failure_code"],
-            "tracked_secret_detected",
-        )
-        self.assertEqual(
-            summary["policy_rule"],
-            "tracked_secret_detected",
-        )
-        self.assertEqual(summary["policy_subject"], SAFE_PATH)
+        self.assertEqual(values["result"], "failure")
+        self.assertEqual(values["failure_code"], "tracked_secret_detected")
+        self.assertEqual(values["cleanup_result"], "not-run")
         combined = output.read_text(encoding="utf-8") + stderr.getvalue()
         self.assertNotIn(str(self.root), combined)
+        self.assertNotIn(SAFE_PATH, combined)
         self.assertIsNone(
             re.search(r"ghp_[A-Za-z0-9]{20,}", combined)
         )

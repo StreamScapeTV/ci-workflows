@@ -9,7 +9,7 @@ inputs:
     description: Exact ci-workflows source SHA
     required: true
   release_tag:
-    description: Optional human-readable Git release tag used as the OCI tag
+    description: Optional human-readable Git release tag used as the versioned OCI tag
     required: false
     default: ""
   publish:
@@ -27,7 +27,7 @@ inputs:
 
 outputs:
   image_reference:
-    description: Fixed registry reference when release_tag is supplied
+    description: Fixed versioned registry reference when release_tag is supplied
     value: ${{ steps.plan.outputs.remote_reference }}
 
 runs:
@@ -160,24 +160,41 @@ runs:
           "${REGISTRY_HOST}"
         chmod 0600 "${authfile}"
 
-    - name: Publish and confirm the human-readable release tag
+    - name: Publish and confirm the versioned and latest tags
       if: ${{ inputs.publish == 'true' }}
       shell: bash
       env:
         IMAGE: ${{ inputs.image }}
         LOCAL_REFERENCE: ${{ steps.plan.outputs.local_reference }}
         REMOTE_REFERENCE: ${{ steps.plan.outputs.remote_reference }}
+        LATEST_REFERENCE: ${{ steps.plan.outputs.latest_reference }}
       run: |
         set -Eeuo pipefail
         authfile="${RUNNER_TEMP}/ciw-runner-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${IMAGE}.json"
+        push_tmp=/var/tmp/buildah
         test -f "${authfile}"
         test ! -L "${authfile}"
+        test -d "${push_tmp}"
+        test ! -L "${push_tmp}"
+        test -w "${push_tmp}"
         test -n "${REMOTE_REFERENCE}"
+        test -n "${LATEST_REFERENCE}"
+        test "${REMOTE_REFERENCE}" != "${LATEST_REFERENCE}"
+        export TMPDIR="${push_tmp}"
+        export TMP="${push_tmp}"
+        export TEMP="${push_tmp}"
+
         buildah push \
           --authfile "${authfile}" \
           "${LOCAL_REFERENCE}" \
           "docker://${REMOTE_REFERENCE}"
         skopeo inspect --authfile "${authfile}" "docker://${REMOTE_REFERENCE}" >/dev/null
+
+        buildah push \
+          --authfile "${authfile}" \
+          "${LOCAL_REFERENCE}" \
+          "docker://${LATEST_REFERENCE}"
+        skopeo inspect --authfile "${authfile}" "docker://${LATEST_REFERENCE}" >/dev/null
 
     - name: Remove exact runner-image build and authentication state
       if: always()

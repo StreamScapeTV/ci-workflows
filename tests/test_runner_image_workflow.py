@@ -40,9 +40,10 @@ class RunnerImageContractTests(unittest.TestCase):
             context.mkdir(parents=True)
             (context / "Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
             (context / "smoke.sh").write_text("#!/bin/sh\n", encoding="utf-8")
-            plan = build_plan(root, image_id="general", source_sha=sha, release_tag="v1.2.3")
+            plan = build_plan(root, image_id="general", source_sha=sha, release_tag="1.0")
         self.assertEqual(plan.local_reference, f"ciw-runner-general:sha-{sha[:12]}")
-        self.assertEqual(plan.remote_reference, "git.faruqi.dev/mimranfaruqi/github-actions-runner-general:v1.2.3")
+        self.assertEqual(plan.remote_reference, "git.faruqi.dev/mimranfaruqi/github-actions-runner-general:1.0")
+        self.assertEqual(plan.latest_reference, "git.faruqi.dev/mimranfaruqi/github-actions-runner-general:latest")
         self.assertEqual(plan.smoke_command, "/usr/local/bin/runner-image-smoke")
 
     def test_invalid_inputs_fail_closed(self) -> None:
@@ -95,7 +96,7 @@ class RunnerImageWorkflowTests(unittest.TestCase):
             "if: always()",
         ):
             self.assertIn(expected, self.action)
-        self.assertGreaterEqual(self.action.count('--authfile "${authfile}"'), 4)
+        self.assertGreaterEqual(self.action.count('--authfile "${authfile}"'), 6)
         self.assertNotIn(".config/containers/auth.json", self.action)
         for forbidden in ("actions/cache", "upload-artifact", "kubectl apply", "flux reconcile"):
             self.assertNotIn(forbidden, self.action)
@@ -161,7 +162,7 @@ class RunnerImageWorkflowTests(unittest.TestCase):
         build = self._action_step_run("Build exact runner image")
         smoke = self._action_step_run("Run image-owned smoke as the configured image user")
         authenticate = self._action_step_run("Authenticate to the fixed runner registry")
-        publish = self._action_step_run("Publish and confirm the human-readable release tag")
+        publish = self._action_step_run("Publish and confirm the versioned and latest tags")
         for script in (build, smoke, authenticate, publish):
             self.assertIn('test -f "${authfile}"', script)
             self.assertIn('test ! -L "${authfile}"', script)
@@ -169,7 +170,31 @@ class RunnerImageWorkflowTests(unittest.TestCase):
         self.assertIn("buildah bud", build)
         self.assertIn("buildah from", smoke)
         self.assertIn("buildah login", authenticate)
-        self.assertIn("buildah push", publish)
+        self.assertEqual(publish.count("buildah push"), 2)
+        self.assertEqual(publish.count("skopeo inspect"), 2)
+        self.assertIn('docker://${REMOTE_REFERENCE}', publish)
+        self.assertIn('docker://${LATEST_REFERENCE}', publish)
+        self.assertLess(
+            publish.index('docker://${REMOTE_REFERENCE}'),
+            publish.index('docker://${LATEST_REFERENCE}'),
+        )
+
+    def test_publication_uses_dedicated_buildah_push_scratch_only(self) -> None:
+        build = self._action_step_run("Build exact runner image")
+        smoke = self._action_step_run("Run image-owned smoke as the configured image user")
+        publish = self._action_step_run("Publish and confirm the versioned and latest tags")
+
+        self.assertNotIn("/var/tmp/buildah", build)
+        self.assertNotIn("/var/tmp/buildah", smoke)
+        self.assertIn("push_tmp=/var/tmp/buildah", publish)
+        self.assertIn('test -d "${push_tmp}"', publish)
+        self.assertIn('test ! -L "${push_tmp}"', publish)
+        self.assertIn('test -w "${push_tmp}"', publish)
+        self.assertIn('export TMPDIR="${push_tmp}"', publish)
+        self.assertIn('export TMP="${push_tmp}"', publish)
+        self.assertIn('export TEMP="${push_tmp}"', publish)
+        self.assertLess(publish.index('export TMPDIR="${push_tmp}"'), publish.index("buildah push"))
+        self.assertEqual(publish.count("buildah push"), 2)
 
     def test_internal_leaf_is_shallow_and_delegates_to_composite_action(self) -> None:
         self.assertIn("workflow_call:", self.internal)
@@ -183,6 +208,7 @@ class RunnerImageWorkflowTests(unittest.TestCase):
 
     def test_release_has_fixed_repository_tag_matrix_without_reusable_nesting(self) -> None:
         self.assertIn("push:\n    tags:", self.release)
+        self.assertIn('      - "*"', self.release)
         self.assertIn("workflow_dispatch:", self.release)
         self.assertIn("Existing ci-workflows Git tag to rebuild", self.release)
         self.assertIn("refs/tags/${RELEASE_TAG}^{commit}", self.release)

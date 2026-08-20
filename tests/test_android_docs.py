@@ -8,6 +8,8 @@ ROOT = Path(__file__).resolve().parents[1]
 ANDROID_DOC = ROOT / "docs/workflows/android.md"
 ACTION_LOCK = ROOT / "contracts/action-tool-lock.json"
 VALIDATE_ANDROID_ACTION = "StreamScapeTV/ci-workflows/actions/validate-android"
+WARM_GRADLE_ACTION = "StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies"
+UPLOAD_GRADLE_SEED_ACTION = "StreamScapeTV/ci-workflows/actions/upload-gradle-seed"
 EXACT_CHECKOUT_ACTION = "StreamScapeTV/ci-workflows/actions/exact-checkout"
 PRIVATE_DEPENDENCY_ACTION = (
     "StreamScapeTV/ci-workflows/actions/checkout-private-dependency"
@@ -23,6 +25,8 @@ class AndroidDocumentationTests(unittest.TestCase):
         lock = json.loads(ACTION_LOCK.read_text(encoding="utf-8"))
         required = {
             VALIDATE_ANDROID_ACTION,
+            WARM_GRADLE_ACTION,
+            UPLOAD_GRADLE_SEED_ACTION,
             EXACT_CHECKOUT_ACTION,
             PRIVATE_DEPENDENCY_ACTION,
         }
@@ -38,6 +42,9 @@ class AndroidDocumentationTests(unittest.TestCase):
             self.assertEqual("composite", item["runtime"])
             self.assertIn(item["sha"], guide)
             self.assertIn(item["release"], guide)
+        self.assertIn("--no-daemon --write-verification-metadata sha256", guide)
+        self.assertIn("Dependency-resolution failure blocks", guide)
+        self.assertIn("cache-promotion failure does not", guide)
         self.assertNotIn(OBSOLETE_GUIDANCE, guide)
 
 

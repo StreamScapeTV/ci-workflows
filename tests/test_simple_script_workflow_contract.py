@@ -143,14 +143,15 @@ class SimpleScriptWorkflowContractTests(unittest.TestCase):
         index = json.loads(INDEX.read_text(encoding="utf-8"))
         validation = json.loads(VALIDATION.read_text(encoding="utf-8"))
         operations = json.loads(OPERATIONS.read_text(encoding="utf-8"))
-        self.assertEqual(20, index["workflow_count"])
+        self.assertEqual(23, index["workflow_count"])
         api_names = {row["api_name"] for row in index["workflows"]}
         self.assertIn("validation.script", api_names)
         self.assertNotIn("maintenance.conformance", api_names)
         validation_rows = {row["api_name"]: row for row in validation["workflows"]}
         script = validation_rows["validation.script"]
         self.assertEqual("validation-read", script["permission_profile"])
-        self.assertEqual("StreamScapeTV/*", script["supported_consumers"][0])
+        self.assertNotIn("supported_consumers", script)
+        self.assertNotIn("supported_products", script)
         self.assertEqual(["script_path", "working_directory"], script["repository_owned_hooks"])
         self.assertNotIn(
             "maintenance.conformance",

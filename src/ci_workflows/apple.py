@@ -31,6 +31,10 @@ from .apple_types import (
     AppleValidationResult,
 )
 
+# The action exposes both legacy profile inputs and the v2 protected-full fields.
+# Legacy planning ignores the v2-only values, but they remain explicitly
+# allowlisted here so adding the compatibility selector does not make an
+# otherwise valid legacy request fail as a forbidden INPUT_* value.
 _ALLOWED_INPUT_KEYS = {
     "admitted_sha",
     "artifact_exception_id",
@@ -42,8 +46,21 @@ _ALLOWED_INPUT_KEYS = {
     "script_path",
     "source_trust",
     "validation_profile",
+    "validation_scope",
+    "validation_plan_json",
     "version_file",
     "working_directory",
+    "private_dependency_repository",
+    "private_dependency_sha",
+    "private_dependency_subdirectory",
+    "private_dependency_id",
+    "private_dependency_verified",
+    "private_dependency_remotes_erased",
+    "private_dependency_credentials_erased",
+    "private_dependency_head_sha",
+    "private_dependency_checkout_repository",
+    "private_dependency_checkout_id",
+    "private_dependency_expected_subpath",
 }
 
 

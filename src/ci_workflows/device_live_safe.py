@@ -1,9 +1,9 @@
-"""Secret-minimized live-device execution wrappers.
+"""Secret-minimized generic live-device execution wrappers.
 
-The production device-lock and owner-authorization receipts are Central authority.
-They are required for verification immediately before mutation, but product-owned
-scripts must not inherit those receipts, the lock backend root, checkout tokens,
-or Central lock internals in their subprocess environment.
+Production lock and owner-authorization receipts are Central authority. Product
+scripts receive only a bounded host/runtime environment, the caller's validated
+non-secret environment map, generic device metadata, and the runner-provided raw
+identifier required to address the selected device.
 """
 from __future__ import annotations
 
@@ -12,29 +12,32 @@ from pathlib import Path
 from typing import Mapping
 
 from .device_contract_common import require
-from .device_live import (
-    _run_product_stage,
-    load_selected_device,
-    verify_production_lock,
-)
+from .device_live import _run_product_stage, load_selected_device, verify_production_lock
 from .device_types import (
     DeviceFamily,
     DevicePlan,
     DeviceResult,
-    DeviceValidationError,
     SelectedDevice,
     canonical_json,
 )
 
-_DENIED_PRODUCT_ENVIRONMENT = {
-    "CHECKOUT_TOKEN",
-    "CIW_DEVICE_AUTHORIZATION_RECEIPT",
-    "CIW_DEVICE_LOCK_ROOT",
-    "GITHUB_TOKEN",
-    "GH_TOKEN",
-    "INPUT_RESOURCE_LOCK_RECEIPT",
+_ALLOWED_HOST_ENVIRONMENT = {
+    "ANDROID_HOME",
+    "ANDROID_SDK_ROOT",
+    "DEVELOPER_DIR",
+    "HOME",
+    "JAVA_HOME",
+    "LANG",
+    "LC_ALL",
+    "LOGNAME",
+    "PATH",
+    "RUNNER_TEMP",
+    "RUNNER_TOOL_CACHE",
+    "SHELL",
+    "TMP",
+    "TMPDIR",
+    "USER",
 }
-_DENIED_PRODUCT_PREFIXES = ("CIW_LOCK_",)
 
 
 def product_environment(
@@ -43,27 +46,28 @@ def product_environment(
     plan: DevicePlan,
     selected: SelectedDevice,
 ) -> dict[str, str]:
-    """Return the trusted product environment without Central authority material."""
+    """Return the bounded product environment without Central authority material."""
 
     result = {
         key: value
         for key, value in environment.items()
-        if key not in _DENIED_PRODUCT_ENVIRONMENT
-        and not any(key.startswith(prefix) for prefix in _DENIED_PRODUCT_PREFIXES)
+        if key in _ALLOWED_HOST_ENVIRONMENT or key.startswith("LC_")
     }
+    result.update(plan.profile.command_profile.environment)
     result.update(
         {
             "CI": "true",
             "GITHUB_ACTIONS": "true",
             "CIW_DEVICE_REQUEST_ID": plan.request.request_id,
             "CIW_DEVICE_SOURCE_SHA": plan.request.admitted_sha,
+            "CIW_DEVICE_FAMILY": plan.request.family.value,
+            "CIW_DEVICE_CAPABILITY": plan.request.capability,
+            "CIW_DEVICE_HOST_CAPACITY": plan.request.host_capacity,
+            "CIW_DEVICE_IDENTIFIER": selected._raw_identifier,
         }
     )
     if selected.family is DeviceFamily.ANDROID:
         result["ANDROID_SERIAL"] = selected._raw_identifier
-    else:
-        result["STREAMSCAPE_APPLE_DEVICE"] = selected._raw_identifier
-        result["STREAMSCAPE_APPLE_HARDWARE_UDID"] = selected._raw_identifier
     return result
 
 
@@ -78,7 +82,7 @@ def cleanup_live_device(
     resource_lock_receipt: str,
     environment: Mapping[str, str],
 ) -> None:
-    """Restore product-owned device state while the exact fencing receipt is valid."""
+    """Run the caller's one restoration/cleanup stage while the lock is valid."""
 
     selected = load_selected_device(
         state_root=state_root,
@@ -118,7 +122,7 @@ def execute_live_device(
     resource_lock_receipt: str,
     environment: Mapping[str, str],
 ) -> DeviceResult:
-    """Execute one reviewed product profile after exact receipt revalidation."""
+    """Run prepare/test/evidence only; workflow restoration performs cleanup once."""
 
     require(
         plan.execution_authorized and not plan.profile.synthetic_only,
@@ -148,49 +152,40 @@ def execute_live_device(
     )
     profile = plan.profile.command_profile
     failure_code = ""
-    cleanup_result = "success"
     timeout_seconds = max(60, plan.request.max_duration_minutes * 60)
-    try:
-        _run_product_stage(
-            source_root,
+    stages = (
+        (
             profile.prepare_script,
-            args=(),
-            environment=runtime_environment,
-            timeout_seconds=min(timeout_seconds, 900),
-            failure_code="prepare_failed",
-        )
-        _run_product_stage(
-            source_root,
+            (),
+            min(timeout_seconds, 900),
+            "prepare_failed",
+        ),
+        (
             profile.test_script,
-            args=profile.fixed_arguments,
-            environment=runtime_environment,
-            timeout_seconds=timeout_seconds,
-            failure_code="stage_failed",
-        )
-        _run_product_stage(
-            source_root,
+            profile.fixed_arguments,
+            timeout_seconds,
+            "stage_failed",
+        ),
+        (
             profile.evidence_script,
-            args=(),
-            environment=runtime_environment,
-            timeout_seconds=min(timeout_seconds, 900),
-            failure_code="evidence_policy_failed",
-        )
-    except DeviceValidationError as error:
-        failure_code = error.code
-    finally:
+            (),
+            min(timeout_seconds, 900),
+            "evidence_policy_failed",
+        ),
+    )
+    for script, args, stage_timeout, code in stages:
         try:
             _run_product_stage(
                 source_root,
-                profile.cleanup_script,
-                args=(),
+                script,
+                args=args,
                 environment=runtime_environment,
-                timeout_seconds=min(timeout_seconds, 900),
-                failure_code="cleanup_failed",
+                timeout_seconds=stage_timeout,
+                failure_code=code,
             )
-        except DeviceValidationError:
-            cleanup_result = "failure"
-            if not failure_code:
-                failure_code = "cleanup_failed"
+        except Exception as error:
+            failure_code = getattr(error, "code", code)
+            break
 
     result = "failure" if failure_code else "success"
     stable_basis = {
@@ -199,9 +194,10 @@ def execute_live_device(
         "run_id": plan.request.run_id,
         "request_id": plan.request.request_id,
         "device_family": plan.request.family.value,
-        "validation_profile": plan.profile.profile_id,
+        "device_capability": plan.request.capability,
+        "host_capacity": plan.request.host_capacity,
         "result": result,
-        "cleanup_result": cleanup_result,
+        "cleanup_result": "deferred-to-restoration",
     }
     evidence_digest = hashlib.sha256(
         canonical_json(stable_basis).encode("utf-8")
@@ -211,7 +207,7 @@ def execute_live_device(
         evidence_id=evidence_digest,
         result=result,
         failure_code=failure_code,
-        cleanup_result=cleanup_result,
+        cleanup_result="deferred-to-restoration",
         artifact_exception_used=False,
         selected_device_hash=selected.identity_hash,
         evidence_packet={**stable_basis, "evidence_id": evidence_digest},

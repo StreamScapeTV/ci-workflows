@@ -28,7 +28,7 @@ class NodePublicApiTests(unittest.TestCase):
         self.assertEqual(self.node["matrix_max_jobs"], 1)
         self.assertEqual(self.node["timeout_minutes"], 90)
 
-    def test_node_inputs_outputs_consumers_and_components_are_exact(self) -> None:
+    def test_node_inputs_outputs_identity_boundary_and_components_are_exact(self) -> None:
         self.assertEqual(
             {item["name"] for item in self.node["inputs"]},
             {
@@ -63,14 +63,8 @@ class NodePublicApiTests(unittest.TestCase):
                 "evidence_id",
             },
         )
-        self.assertEqual(
-            set(self.node["supported_consumers"]),
-            {
-                "StreamScapeTV/StreamScapeWeb",
-                "StreamScapeTV/agent-state",
-                "StreamScapeTV/finance-hub",
-            },
-        )
+        self.assertNotIn("supported_consumers", self.node)
+        self.assertNotIn("supported_products", self.node)
         self.assertEqual(
             set(self.node["implementation_components"]),
             {"ci_workflows.node.validate", "actions/validate-node"},
@@ -93,12 +87,7 @@ class NodePublicApiTests(unittest.TestCase):
             },
         }
         self.assertIsNone(
-            public_api.validate_caller(
-                base,
-                self.data,
-                self.workflows,
-                self.profiles,
-            )
+            public_api.validate_caller(base, self.data, self.workflows, self.profiles)
         )
         for forbidden in (
             "runner",
@@ -111,10 +100,7 @@ class NodePublicApiTests(unittest.TestCase):
             invalid["inputs"][forbidden] = "caller-selected"
             self.assertEqual(
                 public_api.validate_caller(
-                    invalid,
-                    self.data,
-                    self.workflows,
-                    self.profiles,
+                    invalid, self.data, self.workflows, self.profiles
                 ),
                 "forbidden-caller-field",
             )
@@ -131,6 +117,7 @@ class NodePublicApiTests(unittest.TestCase):
         self.assertIn("`output_digest`", section)
         self.assertNotIn("runner_labels", section)
         self.assertNotIn("registry_host", section)
+        self.assertNotIn("StreamScapeTV/", section)
 
 
 if __name__ == "__main__":

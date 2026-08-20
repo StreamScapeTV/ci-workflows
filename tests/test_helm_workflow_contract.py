@@ -29,49 +29,28 @@ class HelmWorkflowContractTests(unittest.TestCase):
         cls.publish_action_text = PUBLISH_ACTION.read_text(encoding="utf-8")
         cls.validate_action = yaml.load(cls.validate_action_text, Loader=ActionsLoader)
         cls.publish_action = yaml.load(cls.publish_action_text, Loader=ActionsLoader)
-        product_contract = json.loads(
-            (ROOT / "contracts/public-workflows/products.json").read_text(
-                encoding="utf-8"
-            )
+        publication_contract = json.loads(
+            (ROOT / "contracts/public-workflows/products.json").read_text(encoding="utf-8")
         )
-        cls.public_validate = next(
-            item
-            for item in product_contract["workflows"]
-            if item["api_name"] == "helm.validate"
-        )
-        cls.public_publish = next(
-            item
-            for item in product_contract["workflows"]
-            if item["api_name"] == "helm.publish"
-        )
+        cls.public_validate = next(item for item in publication_contract["workflows"] if item["api_name"] == "helm.validate")
+        cls.public_publish = next(item for item in publication_contract["workflows"] if item["api_name"] == "helm.publish")
 
-    def test_workflow_call_shapes_remain_backward_compatible(self) -> None:
+    def test_public_v2_contract_is_identity_free_while_yaml_migration_is_pending(self) -> None:
         self.assertEqual(set(self.validate["on"]), {"workflow_call"})
         self.assertEqual(set(self.publish["on"]), {"workflow_call"})
-        validate_call = self.validate["on"]["workflow_call"]
-        publish_call = self.publish["on"]["workflow_call"]
-        self.assertEqual(
-            {entry["name"] for entry in self.public_validate["inputs"]},
-            set(validate_call["inputs"]),
-        )
-        self.assertEqual(
-            set(self.public_validate["outputs"]),
-            set(validate_call["outputs"]),
-        )
-        self.assertEqual(
-            {entry["name"] for entry in self.public_publish["inputs"]},
-            set(publish_call["inputs"]),
-        )
-        self.assertEqual(
-            set(self.public_publish["outputs"]),
-            set(publish_call["outputs"]),
-        )
-        self.assertEqual(
-            set(publish_call["secrets"]),
-            {"registry_username", "registry_token"},
-        )
-        self.assertEqual(self.public_validate["status"], "implemented")
-        self.assertEqual(self.public_publish["status"], "implemented")
+        self.assertEqual("2.0.0", self.public_validate["api_version"])
+        self.assertEqual("2.0.0", self.public_publish["api_version"])
+        self.assertEqual("migration-pending", self.public_validate["status"])
+        self.assertEqual("migration-pending", self.public_publish["status"])
+        validate_inputs = {entry["name"] for entry in self.public_validate["inputs"]}
+        publish_inputs = {entry["name"] for entry in self.public_publish["inputs"]}
+        self.assertTrue({"chart_name", "chart_path", "values_path", "policy_path"} <= validate_inputs)
+        self.assertTrue({"chart_name", "chart_path", "values_path", "policy_path"} <= publish_inputs)
+        self.assertNotIn("product_id", validate_inputs)
+        self.assertNotIn("product_id", publish_inputs)
+        self.assertEqual(set(self.public_validate["outputs"]), set(self.validate["on"]["workflow_call"]["outputs"]))
+        self.assertEqual(set(self.public_publish["outputs"]), set(self.publish["on"]["workflow_call"]["outputs"]))
+        self.assertEqual(set(self.publish["on"]["workflow_call"]["secrets"]), {"registry_username", "registry_token"})
 
     def test_reusable_workflows_use_reviewed_simple_helm_checkpoint(self) -> None:
         for text in (self.validate_text, self.publish_text):
@@ -80,30 +59,11 @@ class HelmWorkflowContractTests(unittest.TestCase):
             self.assertNotIn("${{ job.workflow_sha }}", text)
             self.assertNotIn("path: .ciw", text)
             self.assertNotIn("secrets: inherit", text)
-            self.assertIn(
-                f"StreamScapeTV/ci-workflows/actions/exact-checkout@{FOUNDATION_SHA}",
-                text,
-            )
-            self.assertIn(
-                f"StreamScapeTV/ci-workflows/actions/prepare-workspace@{FOUNDATION_SHA}",
-                text,
-            )
-            self.assertIn(
-                f"StreamScapeTV/ci-workflows/actions/cleanup-workspace@{FOUNDATION_SHA}",
-                text,
-            )
-        self.assertEqual(
-            self.validate_text.count(
-                f"StreamScapeTV/ci-workflows/actions/validate-helm@{HELM_CORE_SHA}"
-            ),
-            4,
-        )
-        self.assertEqual(
-            self.publish_text.count(
-                f"StreamScapeTV/ci-workflows/actions/publish-helm@{HELM_CORE_SHA}"
-            ),
-            4,
-        )
+            self.assertIn(f"StreamScapeTV/ci-workflows/actions/exact-checkout@{FOUNDATION_SHA}", text)
+            self.assertIn(f"StreamScapeTV/ci-workflows/actions/prepare-workspace@{FOUNDATION_SHA}", text)
+            self.assertIn(f"StreamScapeTV/ci-workflows/actions/cleanup-workspace@{FOUNDATION_SHA}", text)
+        self.assertEqual(self.validate_text.count(f"StreamScapeTV/ci-workflows/actions/validate-helm@{HELM_CORE_SHA}"), 4)
+        self.assertEqual(self.publish_text.count(f"StreamScapeTV/ci-workflows/actions/publish-helm@{HELM_CORE_SHA}"), 4)
 
     def test_publication_event_and_version_policy_are_caller_owned(self) -> None:
         self.assertNotIn("Require an exact product tag push", self.publish_text)
@@ -121,44 +81,20 @@ class HelmWorkflowContractTests(unittest.TestCase):
         self.assertIn("image_digest:", self.publish_text)
         self.assertIn("immutable_references_json:", self.publish_text)
         self.assertNotIn("image_digest: ${{ inputs.image_digest }}", self.publish_text)
-        self.assertNotIn(
-            "immutable_references_json: ${{ inputs.immutable_references_json }}",
-            self.publish_text,
-        )
-        for retired in (
-            "actions/measure-helm",
-            "resolve-release-tag",
-            "scripts/ci/helm_release.py",
-            "skopeo",
-            "pull read-back",
-            "read_back",
-            "remote_manifest",
-            "runner evidence",
-        ):
+        self.assertNotIn("immutable_references_json: ${{ inputs.immutable_references_json }}", self.publish_text)
+        for retired in ("actions/measure-helm", "resolve-release-tag", "scripts/ci/helm_release.py", "skopeo", "pull read-back", "read_back", "remote_manifest", "runner evidence"):
             self.assertNotIn(retired, lowered)
 
     def test_jobs_use_contract_resolved_runner_without_caller_control(self) -> None:
-        for workflow, text, job in (
-            (self.validate, self.validate_text, "validate"),
-            (self.publish, self.publish_text, "publish"),
-        ):
+        for workflow, text, job in ((self.validate, self.validate_text, "validate"), (self.publish, self.publish_text, "publish")):
             self.assertEqual(workflow["permissions"], {"contents": "read"})
-            self.assertEqual(
-                workflow["jobs"]["plan"]["runs-on"],
-                ["linux", "amd64", "general", "small"],
-            )
-            self.assertEqual(
-                workflow["jobs"][job]["runs-on"],
-                "${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
-            )
+            self.assertEqual(workflow["jobs"]["plan"]["runs-on"], ["linux", "amd64", "general", "small"])
+            self.assertEqual(workflow["jobs"][job]["runs-on"], "${{ fromJSON(needs.plan.outputs.runs_on_json) }}")
             self.assertNotIn("self-hosted", text)
             self.assertIn("if: always()", text)
 
     def test_actions_are_thin_and_do_not_require_action_lock_bootstrap(self) -> None:
-        for action, text, operation in (
-            (self.validate_action, self.validate_action_text, "validate"),
-            (self.publish_action, self.publish_action_text, "publish"),
-        ):
+        for action, text, operation in ((self.validate_action, self.validate_action_text, "validate"), (self.publish_action, self.publish_action_text, "publish")):
             self.assertEqual(action["runs"]["using"], "composite")
             self.assertEqual(len(action["runs"]["steps"]), 1)
             run = action["runs"]["steps"][0]["run"]
@@ -180,20 +116,9 @@ class HelmWorkflowContractTests(unittest.TestCase):
 
     def test_publish_workflow_forbids_deployment_cache_and_artifacts(self) -> None:
         lowered = self.publish_text.casefold()
-        for token in (
-            "upload-artifact",
-            "download-artifact",
-            "actions/cache",
-            "kubectl",
-            "kubeconfig",
-            "sops",
-            "flux reconcile",
-        ):
+        for token in ("upload-artifact", "download-artifact", "actions/cache", "kubectl", "kubeconfig", "sops", "flux reconcile"):
             self.assertNotIn(token, lowered)
-        self.assertIn(
-            "Remove Helm package, registry, and credential state",
-            self.publish_text,
-        )
+        self.assertIn("Remove Helm package, registry, and credential state", self.publish_text)
         self.assertIn("Verify zero Helm publication residue", self.publish_text)
 
 

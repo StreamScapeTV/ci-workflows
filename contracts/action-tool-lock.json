@@ -9,6 +9,13 @@
       "source": "https://github.com/actions/checkout"
     },
     {
+      "uses": "actions/upload-artifact",
+      "sha": "ea165f8d65b6e75b540449e92b4886f43607fa02",
+      "release": "v4.6.2",
+      "runtime": "node20",
+      "source": "https://github.com/actions/upload-artifact"
+    },
+    {
       "uses": "actions/setup-node",
       "sha": "249970729cb0ef3589644e2896645e5dc5ba9c38",
       "release": "v6.5.0",
@@ -38,17 +45,17 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/resolve-source",
-      "sha": "87a7454aaa59cb680db8f580d22551b749ac4193",
-      "release": "issue #132 immutable mode-aware source checkpoint",
+      "sha": "0b55b5f4bc2623815e47759d186e4955b6444075",
+      "release": "issue #350 PR-merge snapshot race checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/87a7454aaa59cb680db8f580d22551b749ac4193/actions/resolve-source"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/0b55b5f4bc2623815e47759d186e4955b6444075/actions/resolve-source"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-device",
-      "sha": "092d26777aebaf87a0a07d39a1660b4bc5cb658d",
-      "release": "issue #14 complete CIW checkpoint",
+      "sha": "47afb4b6f14742bdddd3998095d719011c3ef549",
+      "release": "issue #341 product-neutral device v2 checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/092d26777aebaf87a0a07d39a1660b4bc5cb658d/actions/validate-device"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/47afb4b6f14742bdddd3998095d719011c3ef549/actions/validate-device"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/device-lock",
@@ -94,10 +101,38 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-android",
-      "sha": "aef024030a7e96da74bb98b24bd67b532f289fc1",
-      "release": "issue #256 immutable Media lifecycle sentinel checkpoint",
+      "sha": "8eaa37ad0fe3231b202e878b26f66aa23753e38a",
+      "release": "issue #373 compile Gradle isolation checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/aef024030a7e96da74bb98b24bd67b532f289fc1/actions/validate-android"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/8eaa37ad0fe3231b202e878b26f66aa23753e38a/actions/validate-android"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies",
+      "sha": "13de46c51efcf65df798dfec82a620c484350dfa",
+      "release": "issue #346 dependency warm checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/13de46c51efcf65df798dfec82a620c484350dfa/actions/warm-gradle-dependencies"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/upload-gradle-seed",
+      "sha": "fa67b6a1580ff2eb7386a9e58de09896b9990696",
+      "release": "issue #346 bounded Gradle cache sync diagnostics checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/fa67b6a1580ff2eb7386a9e58de09896b9990696/actions/upload-gradle-seed"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/validate-android-live-service",
+      "sha": "2ecbe22ac6d10aa25d79bc046cc205e4df1e08cc",
+      "release": "issue #338 Android completion checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/2ecbe22ac6d10aa25d79bc046cc205e4df1e08cc/actions/validate-android-live-service"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/validate-android-release",
+      "sha": "2ecbe22ac6d10aa25d79bc046cc205e4df1e08cc",
+      "release": "issue #338 Android completion checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/2ecbe22ac6d10aa25d79bc046cc205e4df1e08cc/actions/validate-android-release"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/checkout-private-dependency",
@@ -129,10 +164,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-apple",
-      "sha": "702b950b6a5baf208e7b21f16e3f7df9b8f0f96e",
-      "release": "issue #187 integrated Media tvOS consumer checkpoint",
+      "sha": "f682622a1a659368cba78c071c72b8b6e8953d88",
+      "release": "issue #372 bounded Apple failure diagnostics checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/702b950b6a5baf208e7b21f16e3f7df9b8f0f96e/actions/validate-apple"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/f682622a1a659368cba78c071c72b8b6e8953d88/actions/validate-apple"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-oci",

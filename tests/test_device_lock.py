@@ -89,6 +89,7 @@ class DeviceLockTests(unittest.TestCase):
     def make_root(self, parent: str) -> Path:
         root = Path(parent) / "device-lock-root"
         root.mkdir(mode=0o700)
+        root.chmod(0o700)
         return root
 
     def backend(

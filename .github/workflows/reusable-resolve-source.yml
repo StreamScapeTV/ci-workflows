@@ -123,7 +123,7 @@ jobs:
     steps:
       - id: resolve
         name: Resolve exact source through immutable trusted helper
-        uses: StreamScapeTV/ci-workflows/actions/resolve-source@87a7454aaa59cb680db8f580d22551b749ac4193 # issue #132 immutable mode-aware source checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/resolve-source@0b55b5f4bc2623815e47759d186e4955b6444075 # issue #350 PR-merge snapshot race checkpoint
         with:
           source_mode: ${{ inputs.source_mode }}
           requested_sha: ${{ inputs.requested_sha }}
