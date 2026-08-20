@@ -80,7 +80,7 @@ jobs:
     steps:
       - id: plan
         name: Validate technology-level Android request
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@b878e56f978cb23bc8a0dd300d24b0799c943503 # issue #373 pre-unit Gradle isolation checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@8eaa37ad0fe3231b202e878b26f66aa23753e38a # issue #373 compile Gradle isolation checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -96,7 +96,7 @@ jobs:
       - id: prebuild_plan
         name: Validate optional private dependency prebuild plan
         if: ${{ inputs.dependency_prebuild_plan_json != '' && steps.plan.outputs.private_dependency_used == 'true' }}
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@b878e56f978cb23bc8a0dd300d24b0799c943503 # issue #373 pre-unit Gradle isolation checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@8eaa37ad0fe3231b202e878b26f66aa23753e38a # issue #373 compile Gradle isolation checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -138,10 +138,28 @@ jobs:
           fetch_depth: "1"
           token: ${{ secrets.private_dependency_token }}
 
+      - id: dependency_warm
+        name: Resolve Gradle dependency graph before protected build
+        if: ${{ inputs.validation_scope == 'protected-full' && (steps.plan.outputs.private_dependency_used != 'true' || steps.dependency.outcome == 'success') }}
+        uses: StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies@13de46c51efcf65df798dfec82a620c484350dfa # issue #346 dependency warm checkpoint
+        with:
+          admitted_sha: ${{ inputs.admitted_sha }}
+          working_directory: ${{ inputs.working_directory }}
+          gradle_wrapper_path: ${{ inputs.gradle_wrapper_path }}
+          private_dependency_subdirectory: ${{ steps.plan.outputs.private_dependency_subdirectory }}
+
+      - id: dependency_warm_seed
+        name: Publish warmed Gradle dependency delta before build
+        if: ${{ steps.dependency_warm.outcome == 'success' }}
+        continue-on-error: true
+        uses: StreamScapeTV/ci-workflows/actions/upload-gradle-seed@fa67b6a1580ff2eb7386a9e58de09896b9990696 # issue #346 bounded Gradle cache sync diagnostics checkpoint
+        with:
+          source_sha: ${{ inputs.admitted_sha }}
+
       - id: prebuild_execute
         name: Process-isolate optional private dependency Gradle prebuild
-        if: ${{ inputs.dependency_prebuild_plan_json != '' && steps.prebuild_plan.outcome == 'success' && steps.dependency.outcome == 'success' }}
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@b878e56f978cb23bc8a0dd300d24b0799c943503 # issue #373 pre-unit Gradle isolation checkpoint
+        if: ${{ inputs.dependency_prebuild_plan_json != '' && steps.prebuild_plan.outcome == 'success' && steps.dependency.outcome == 'success' && (inputs.validation_scope != 'protected-full' || steps.dependency_warm.outcome == 'success') }}
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@8eaa37ad0fe3231b202e878b26f66aa23753e38a # issue #373 compile Gradle isolation checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -164,7 +182,7 @@ jobs:
       - id: prebuild_cleanup
         name: Remove optional dependency-prebuild copied source state
         if: ${{ always() && inputs.dependency_prebuild_plan_json != '' && steps.workspace.outcome == 'success' }}
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@b878e56f978cb23bc8a0dd300d24b0799c943503 # issue #373 pre-unit Gradle isolation checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@8eaa37ad0fe3231b202e878b26f66aa23753e38a # issue #373 compile Gradle isolation checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -173,7 +191,7 @@ jobs:
       - id: prebuild_residue
         name: Verify zero optional dependency-prebuild residue
         if: ${{ always() && inputs.dependency_prebuild_plan_json != '' && steps.workspace.outcome == 'success' }}
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@b878e56f978cb23bc8a0dd300d24b0799c943503 # issue #373 pre-unit Gradle isolation checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@8eaa37ad0fe3231b202e878b26f66aa23753e38a # issue #373 compile Gradle isolation checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -181,8 +199,8 @@ jobs:
 
       - id: execute
         name: Execute one primitive-backed Android validation plan
-        if: ${{ success() && (inputs.dependency_prebuild_plan_json == '' || (steps.prebuild_plan.outcome == 'success' && steps.prebuild_execute.outcome == 'success' && steps.prebuild_cleanup.outcome == 'success' && steps.prebuild_residue.outcome == 'success')) }}
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@b878e56f978cb23bc8a0dd300d24b0799c943503 # issue #373 pre-unit Gradle isolation checkpoint
+        if: ${{ success() && (inputs.validation_scope != 'protected-full' || steps.dependency_warm.outcome == 'success') && (inputs.dependency_prebuild_plan_json == '' || (steps.prebuild_plan.outcome == 'success' && steps.prebuild_execute.outcome == 'success' && steps.prebuild_cleanup.outcome == 'success' && steps.prebuild_residue.outcome == 'success')) }}
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@8eaa37ad0fe3231b202e878b26f66aa23753e38a # issue #373 compile Gradle isolation checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -216,7 +234,7 @@ jobs:
       - id: android_cleanup
         name: Remove Android-specific copied source state once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@b878e56f978cb23bc8a0dd300d24b0799c943503 # issue #373 pre-unit Gradle isolation checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@8eaa37ad0fe3231b202e878b26f66aa23753e38a # issue #373 compile Gradle isolation checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -225,7 +243,7 @@ jobs:
       - id: residue
         name: Verify zero Android-specific residue once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@b878e56f978cb23bc8a0dd300d24b0799c943503 # issue #373 pre-unit Gradle isolation checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@8eaa37ad0fe3231b202e878b26f66aa23753e38a # issue #373 compile Gradle isolation checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -260,6 +278,10 @@ jobs:
         shell: bash
         env:
           PLAN_OUTCOME: ${{ steps.plan.outcome }}
+          WARM_REQUIRED: ${{ inputs.validation_scope == 'protected-full' && 'true' || 'false' }}
+          WARM_OUTCOME: ${{ steps.dependency_warm.outcome }}
+          WARM_CACHE_MODE: ${{ steps.dependency_warm.outputs.gradle_dependency_cache_mode }}
+          WARM_WALL_MS: ${{ steps.dependency_warm.outputs.warm_wall_ms }}
           PREBUILD_REQUIRED: ${{ inputs.dependency_prebuild_plan_json != '' && 'true' || 'false' }}
           PREBUILD_PLAN_OUTCOME: ${{ steps.prebuild_plan.outcome }}
           PREBUILD_EXECUTE_OUTCOME: ${{ steps.prebuild_execute.outcome }}
@@ -280,6 +302,13 @@ jobs:
           if [[ -n "${ANDROID_TEST_SUMMARY}" ]]; then
             printf 'android-test-summary=%s\n' "${ANDROID_TEST_SUMMARY}"
           fi
+          warm_ok=true
+          if [[ "${WARM_REQUIRED}" == "true" ]]; then
+            test "${WARM_OUTCOME}" = "success" || warm_ok=false
+            if [[ -n "${WARM_CACHE_MODE}" && -n "${WARM_WALL_MS}" ]]; then
+              printf 'gradle-dependency-warm cache_mode=%s wall_ms=%s\n' "${WARM_CACHE_MODE}" "${WARM_WALL_MS}"
+            fi
+          fi
           dependency_ok=true
           if [[ "${DEPENDENCY_REQUIRED}" == "true" ]]; then
             test "${DEPENDENCY_OUTCOME}" = "success" || dependency_ok=false
@@ -295,6 +324,7 @@ jobs:
           if [[ "${PLAN_OUTCOME}" == "success" &&
                 "${CHECKOUT_OUTCOME}" == "success" &&
                 "${WORKSPACE_OUTCOME}" == "success" &&
+                "${warm_ok}" == "true" &&
                 "${dependency_ok}" == "true" &&
                 "${prebuild_ok}" == "true" &&
                 "${EXECUTE_OUTCOME}" == "success" &&

@@ -61,11 +61,13 @@ class ProtectedFullPlan:
     schema_tasks: tuple[str, ...] = ()
     schema_script: ScriptPlan | None = None
     pre_unit_tasks: tuple[str, ...] = ()
+    compile_tasks: tuple[str, ...] = ()
 
     @property
     def gradle_tasks(self) -> tuple[str, ...]:
         return (
             *self.pre_unit_tasks,
+            *self.compile_tasks,
             *self.unit_tasks,
             *self.lint_tasks,
             *self.assemble_tasks,
@@ -76,6 +78,7 @@ class ProtectedFullPlan:
     def gradle_groups(self) -> tuple[tuple[str, tuple[str, ...]], ...]:
         return (
             ("pre_unit", self.pre_unit_tasks),
+            ("compile", self.compile_tasks),
             ("unit", self.unit_tasks),
             ("lint", self.lint_tasks),
             ("assemble", self.assemble_tasks),
@@ -226,13 +229,18 @@ def _script_plan(value: Mapping[str, object], code: str) -> ScriptPlan:
 
 def _protected_full_plan(value: Mapping[str, object], code: str) -> ProtectedFullPlan:
     required = {"unit_tasks", "lint_tasks", "assemble_tasks", "schema"}
-    allowed = required | {"pre_unit_tasks"}
+    allowed = required | {"pre_unit_tasks", "compile_tasks"}
     keys = set(value)
     if not required.issubset(keys) or not keys.issubset(allowed):
         raise CIWError(_DOMAIN, code)
     pre_unit_tasks = (
         _tasks(value["pre_unit_tasks"], code, maximum_items=16)
         if "pre_unit_tasks" in value
+        else ()
+    )
+    compile_tasks = (
+        _tasks(value["compile_tasks"], code, maximum_items=16)
+        if "compile_tasks" in value
         else ()
     )
     unit_tasks = _tasks(value["unit_tasks"], code, maximum_items=16)
@@ -259,6 +267,7 @@ def _protected_full_plan(value: Mapping[str, object], code: str) -> ProtectedFul
         raise CIWError(_DOMAIN, code)
     combined = (
         *pre_unit_tasks,
+        *compile_tasks,
         *unit_tasks,
         *lint_tasks,
         *assemble_tasks,
@@ -274,6 +283,7 @@ def _protected_full_plan(value: Mapping[str, object], code: str) -> ProtectedFul
         schema_tasks,
         schema_script,
         pre_unit_tasks,
+        compile_tasks,
     )
 
 

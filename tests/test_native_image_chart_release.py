@@ -11,10 +11,9 @@ CALLER_SMOKE_PATH = ROOT / ".github/workflows/native-image-chart-call-parse-smok
 PRODUCTS_PATH = ROOT / "contracts/public-workflows/products.json"
 AGGREGATE_PATH = ROOT / "contracts/public-workflows.json"
 REFERENCE_PATH = ROOT / "docs/workflows/public-api-reference.md"
-PARSER_FIX_CHECKPOINT = "6fa19fe73c709c6fb81a30b926edac95a2fb674e"
 
 
-class NativeImageChartExistingTagContractTest(unittest.TestCase):
+class NativeImageChartNormalReleaseContractTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
@@ -27,73 +26,85 @@ class NativeImageChartExistingTagContractTest(unittest.TestCase):
             for row in products["workflows"]
             if row["api_name"] == "release.native-image-chart"
         )
+        cls.bootstrap_contract = next(
+            row
+            for row in products["workflows"]
+            if row["api_name"] == "release.tag-image-chart-bootstrap"
+        )
         cls.aggregate = next(
             row
             for row in aggregate["workflows"]
             if row["api_name"] == "release.native-image-chart"
         )
 
-    def test_public_api_adds_only_optional_existing_tag_authority_inputs(self) -> None:
-        self.assertEqual("1.0.0", self.contract["api_version"])
-        self.assertEqual("1.0.0", self.aggregate["api_version"])
+    def test_public_api_v2_is_normal_tag_push_only(self) -> None:
+        self.assertEqual("2.0.0", self.contract["api_version"])
+        self.assertEqual("2.0.0", self.aggregate["api_version"])
         self.assertEqual("implemented", self.contract["status"])
         self.assertEqual(
-            ["tag-push", "workflow_call", "workflow_dispatch-existing-tag"],
+            ["tag-push", "workflow_call"],
             self.contract["permitted_events"],
         )
         inputs = {row["name"]: row for row in self.contract["inputs"]}
-        self.assertEqual("tag-push", inputs["release_mode"]["default"])
-        self.assertFalse(inputs["release_mode"]["required"])
-        self.assertFalse(inputs["release_version"]["required"])
-        self.assertFalse(inputs["release_source_sha"]["required"])
+        self.assertEqual(
+            {"image_name", "chart_name", "chart_path", "dockerfile_path", "build_context"},
+            set(inputs),
+        )
         for required in ("image_name", "chart_name", "chart_path"):
             self.assertTrue(inputs[required]["required"])
+        self.assertEqual("Dockerfile", inputs["dockerfile_path"]["default"])
+        self.assertEqual(".", inputs["build_context"]["default"])
 
-    def test_generated_reference_matches_additive_native_api(self) -> None:
+    def test_recovery_semantics_remain_on_the_separate_deprecated_surface(self) -> None:
+        self.assertEqual(
+            ["tag-push", "workflow_call", "workflow_dispatch-existing-tag"],
+            self.bootstrap_contract["permitted_events"],
+        )
+        bootstrap_inputs = {row["name"] for row in self.bootstrap_contract["inputs"]}
+        self.assertTrue(
+            {"release_mode", "release_version", "release_source_sha"} <= bootstrap_inputs
+        )
+
+    def test_generated_reference_matches_normal_native_api(self) -> None:
         self.assertTrue(self.reference.endswith("\n"))
         section = self.reference.split("### `release.native-image-chart`", 1)[1].split(
             "### `release.orchestrate`", 1
         )[0]
+        self.assertIn("- Events: `tag-push`, `workflow_call`", section)
         self.assertIn(
-            "- Events: `tag-push`, `workflow_call`, `workflow_dispatch-existing-tag`",
-            section,
-        )
-        self.assertIn(
-            "- Inputs: `release_mode` (default `tag-push`), `release_version`, "
-            "`release_source_sha`, `image_name` (required), `chart_name` (required), "
+            "- Inputs: `image_name` (required), `chart_name` (required), "
             "`chart_path` (required), `dockerfile_path` (default `Dockerfile`), "
             "`build_context` (default `.`)",
             section,
         )
+        self.assertNotIn("workflow_dispatch-existing-tag", section)
+        self.assertNotIn("release_mode", section)
+        self.assertNotIn("release_source_sha", section)
         self.assertIn(
-            "| `release.native-image-chart` `1.0.0` |",
+            "| `release.native-image-chart` `2.0.0` |",
             self.reference,
         )
 
-    def test_initial_authority_uses_caller_mode_and_exact_optional_tuple(self) -> None:
-        self.assertRegex(
-            self.workflow,
-            r"release_mode:\n"
-            r"\s+description: tag-push by default, or existing-tag with the complete exact tuple\n"
-            r"\s+required: false\n"
-            r"\s+default: tag-push",
-        )
-        self.assertIn("release_mode: ${{ steps.authority.outputs.release_mode }}", self.workflow)
+    def test_initial_authority_is_fixed_to_normal_tag_push(self) -> None:
+        caller_inputs = self.workflow.split("  workflow_call:\n    inputs:\n", 1)[1].split(
+            "    secrets:\n", 1
+        )[0]
+        self.assertNotIn("release_mode:", caller_inputs)
+        self.assertNotIn("release_version:", caller_inputs)
+        self.assertNotIn("release_source_sha:", caller_inputs)
         authority = self.workflow.split("- id: authority", 1)[1].split("\n\n  publish:", 1)[0]
         self.assertIn("uses: ./.ciw/actions/resolve-release-tag", authority)
-        self.assertIn("release_mode: ${{ inputs.release_mode }}", authority)
-        self.assertIn("release_version: ${{ inputs.release_version }}", authority)
-        self.assertIn("release_source_sha: ${{ inputs.release_source_sha }}", authority)
+        self.assertIn("release_mode: tag-push", authority)
+        self.assertNotIn("inputs.release_mode", authority)
+        self.assertNotIn("inputs.release_version", authority)
+        self.assertNotIn("inputs.release_source_sha", authority)
 
     def test_both_privileged_revalidations_preserve_admitted_exact_tuple(self) -> None:
         self.assertEqual(
             3,
             self.workflow.count("uses: ./.ciw/actions/resolve-release-tag"),
         )
-        self.assertEqual(
-            2,
-            self.workflow.count("release_mode: ${{ needs.admit.outputs.release_mode }}"),
-        )
+        self.assertEqual(3, self.workflow.count("release_mode: tag-push"))
         self.assertEqual(
             2,
             self.workflow.count("release_version: ${{ needs.admit.outputs.version }}"),
@@ -111,7 +122,7 @@ class NativeImageChartExistingTagContractTest(unittest.TestCase):
             self.workflow.count("expected_tag_commit_sha: ${{ needs.admit.outputs.tag_commit_sha }}"),
         )
 
-    def test_existing_tag_extension_keeps_native_amd64_publication_contract(self) -> None:
+    def test_normal_release_keeps_native_amd64_publication_contract(self) -> None:
         self.assertEqual(
             2,
             self.workflow.count("runs-on: [linux, amd64, buildah, high]"),
@@ -124,15 +135,22 @@ class NativeImageChartExistingTagContractTest(unittest.TestCase):
         self.assertIn("Independently read back immutable image and chart identities", self.workflow)
         self.assertIn("chart_package_sha256", self.workflow)
 
-    def test_workflow_consumes_its_exact_central_authority_source(self) -> None:
+    def test_workflow_consumes_called_reusable_identity_not_caller_identity(self) -> None:
         self.assertEqual(
             2,
-            self.workflow.count("ref: ${{ github.workflow_sha }}"),
+            self.workflow.count("repository: ${{ job.workflow_repository }}"),
+        )
+        self.assertEqual(
+            2,
+            self.workflow.count("ref: ${{ job.workflow_sha }}"),
         )
         self.assertEqual(
             3,
-            self.workflow.count('test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"'),
+            self.workflow.count('test "$(git rev-parse HEAD)" = "${{ job.workflow_sha }}"'),
         )
+        self.assertNotIn("${{ github.workflow_sha }}", self.workflow)
+        self.assertNotIn("${GITHUB_WORKFLOW_SHA}", self.workflow)
+        self.assertNotIn("repository: StreamScapeTV/ci-workflows", self.workflow)
         self.assertNotIn("reusable-tag-image-chart.yml", self.workflow)
         self.assertNotRegex(
             self.workflow,
@@ -159,7 +177,7 @@ class NativeImageChartExistingTagContractTest(unittest.TestCase):
         )
         self.assertIn('} >> "${GITHUB_ENV}"', initialize)
 
-    def test_github_smoke_compiles_the_exact_fixed_reusable_without_publication(self) -> None:
+    def test_github_smoke_compiles_thin_main_caller_without_publication(self) -> None:
         self.assertIn("pull_request:", self.caller_smoke)
         self.assertIn(
             '".github/workflows/reusable-native-image-chart.yml"',
@@ -172,15 +190,14 @@ class NativeImageChartExistingTagContractTest(unittest.TestCase):
         )
         self.assertIn(
             "uses: StreamScapeTV/ci-workflows/.github/workflows/"
-            f"reusable-native-image-chart.yml@{PARSER_FIX_CHECKPOINT}",
+            "reusable-native-image-chart.yml@main",
             self.caller_smoke,
         )
-        self.assertIn("release_mode: existing-tag", self.caller_smoke)
-        self.assertIn('release_version: "0.0.0"', self.caller_smoke)
-        self.assertIn(
-            'release_source_sha: "0000000000000000000000000000000000000000"',
-            self.caller_smoke,
-        )
+        self.assertNotIn("release_mode:", self.caller_smoke)
+        self.assertNotIn("release_version:", self.caller_smoke)
+        self.assertNotIn("release_source_sha:", self.caller_smoke)
+        for required in ("image_name: parser-smoke", "chart_name: parser-smoke", "chart_path: ."):
+            self.assertIn(required, self.caller_smoke)
         self.assertIn(
             'test "${{ needs.reusable_call.result }}" = "skipped"',
             self.caller_smoke,

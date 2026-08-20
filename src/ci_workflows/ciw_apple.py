@@ -4,11 +4,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Mapping, Sequence
 
 from . import apple as apple_validation
+from . import apple_execution
 from . import apple_multistage
 from . import apple_plan_guard
 from .apple_contract_fragments import load_apple_contract
@@ -21,6 +24,128 @@ try:
 except ImportError:  # pragma: no cover - standalone fixture use
     CIWContext = object  # type: ignore[assignment,misc]
     CIWResult = object  # type: ignore[assignment,misc]
+
+
+_DIAGNOSTIC_MAX_LINES = 80
+_DIAGNOSTIC_MAX_CHARS = 12 * 1024
+_DIAGNOSTIC_COMMANDS = {"bash", "python3", "swift", "xcodebuild"}
+_URL = re.compile(
+    r"(?i)(?:(?:https?|ssh|file)://[^\s]+|git@[^\s:]+:[^\s]+)"
+)
+_AUTHORIZATION = re.compile(r"(?im)^(\s*authorization)\s*[:=].*$")
+_ENV_ASSIGNMENT = re.compile(r"(?m)^([A-Z][A-Z0-9_]{1,63})=.*$")
+_TOKEN = re.compile(
+    r"(?i)\b(?:github_pat_[A-Za-z0-9_]{12,}|gh[pousr]_[A-Za-z0-9_]{12,}|"
+    r"bearer\s+[A-Za-z0-9._~+/=-]{8,})\b"
+)
+_JWT = re.compile(
+    r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"
+)
+
+
+def _stream_text(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
+
+
+def _bounded_failure_diagnostic(text: str, roots: Sequence[Path]) -> str:
+    """Return one bounded fail-closed diagnostic safe for ordinary job logs."""
+
+    sanitized = apple_execution.sanitize(text, roots)
+    sanitized = _URL.sub("<url>", sanitized)
+    sanitized = _AUTHORIZATION.sub(r"\1=<redacted>", sanitized)
+    sanitized = _ENV_ASSIGNMENT.sub(r"\1=<redacted>", sanitized)
+    sanitized = _TOKEN.sub("<redacted>", sanitized)
+    sanitized = _JWT.sub("<redacted>", sanitized)
+    bounded = "\n".join(sanitized.splitlines()[-_DIAGNOSTIC_MAX_LINES:]).strip()
+    if len(bounded) > _DIAGNOSTIC_MAX_CHARS:
+        bounded = bounded[-_DIAGNOSTIC_MAX_CHARS:]
+        if "\n" in bounded:
+            bounded = bounded.split("\n", 1)[1]
+    return bounded
+
+
+class _FailureDiagnosticRunner:
+    """Emit only failing command diagnostics before Apple cleanup removes state."""
+
+    def __init__(
+        self,
+        delegate: apple_execution.CommandRunner,
+        roots: Sequence[Path],
+    ) -> None:
+        self._delegate = delegate
+        self._roots = tuple(dict.fromkeys(Path(root) for root in roots))
+
+    @staticmethod
+    def _eligible(argv: Sequence[str]) -> bool:
+        return bool(argv) and argv[0] in _DIAGNOSTIC_COMMANDS
+
+    def _emit(self, summary: str, text: str, cwd: Path) -> None:
+        print(f"CIW Apple command failure: {summary}.", file=sys.stderr)
+        diagnostic = _bounded_failure_diagnostic(
+            text,
+            (*self._roots, cwd),
+        )
+        if not diagnostic:
+            return
+        print("CIW Apple bounded sanitized diagnostic:", file=sys.stderr)
+        # Prefix every payload line so compiler output cannot become a GitHub
+        # workflow command such as ::error:: or ::add-mask::.
+        for line in diagnostic.splitlines():
+            print(f"| {line}", file=sys.stderr)
+
+    def run(
+        self,
+        argv: Sequence[str],
+        *,
+        cwd: Path,
+        env: Mapping[str, str],
+        timeout_seconds: int,
+    ) -> apple_execution.CommandOutcome:
+        eligible = self._eligible(argv)
+        try:
+            outcome = self._delegate.run(
+                argv,
+                cwd=cwd,
+                env=env,
+                timeout_seconds=timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as error:
+            if eligible:
+                self._emit(
+                    f"timed out after {timeout_seconds} seconds",
+                    _stream_text(error.stdout) + _stream_text(error.stderr),
+                    cwd,
+                )
+            raise
+        except apple_validation.AppleValidationError as error:
+            if eligible and error.code == "command_failed":
+                self._emit("could not be launched", "", cwd)
+            raise
+        except OSError:
+            if eligible:
+                self._emit("could not be launched", "", cwd)
+            raise
+        if eligible and outcome.returncode != 0:
+            self._emit(
+                f"exited with status {outcome.returncode}",
+                outcome.stdout + outcome.stderr,
+                cwd,
+            )
+        return outcome
+
+
+def _diagnostic_runner(
+    source: Path,
+    state: Path,
+) -> _FailureDiagnosticRunner:
+    return _FailureDiagnosticRunner(
+        SimulatorLeaseArgumentRunner(),
+        (source, state, state.parent),
+    )
 
 
 def configure_apple_validate(parser: argparse.ArgumentParser) -> None:
@@ -142,7 +267,7 @@ def _run_plan(
         plan=plan,
         source_root=source,
         state_root=state,
-        runner=SimulatorLeaseArgumentRunner(),
+        runner=_diagnostic_runner(source, state),
         environment=environment,
     )
 
@@ -224,7 +349,7 @@ def _execute_protected_apple_validate(
 
     source = _source_path(context.root, args.source_root, context.environment)
     state = _resolved_state_root(context.root, context.environment)
-    runner = SimulatorLeaseArgumentRunner()
+    runner = _diagnostic_runner(source, state)
     if args.phase == "cleanup":
         apple_multistage.cleanup_protected_full(
             plan,

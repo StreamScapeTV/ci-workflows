@@ -8,16 +8,18 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/runner-images-validation.yml"
 
-EXPECTED_IMAGES = ["general", "docker", "flux-control"]
+EXPECTED_IMAGES = ["general", "mobile", "docker", "flux-control"]
 EXPECTED_PATHS = [
     ".github/workflows/runner-images-validation.yml",
     "actions/runner-image/**",
     "runner-images/general/**",
+    "runner-images/mobile/**",
     "runner-images/docker/**",
     "runner-images/flux-control/**",
     "scripts/ci/runner_images.py",
     "src/ci_workflows/runner_images.py",
     "tests/test_runner_image_general.py",
+    "tests/test_mobile_runner_image_assembly.py",
     "tests/test_runner_image_docker.py",
     "tests/test_runner_image_flux_control.py",
     "tests/test_runner_images_validation_workflow.py",
@@ -64,6 +66,26 @@ class RunnerImageValidationWorkflowTests(unittest.TestCase):
             "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}",
             job["env"]["SOURCE_SHA"],
         )
+
+    def test_buildah_publication_scratch_is_proven_before_image_validation(self) -> None:
+        steps = self.document["jobs"]["images"]["steps"]
+        scratch_index = next(
+            index
+            for index, step in enumerate(steps)
+            if step.get("name") == "Verify dedicated Buildah publication scratch"
+        )
+        shared_index = next(
+            index
+            for index, step in enumerate(steps)
+            if step.get("name") == "Build and smoke through the shared runner-image action"
+        )
+        scratch = steps[scratch_index]
+        self.assertLess(scratch_index, shared_index)
+        self.assertEqual("bash", scratch["shell"])
+        self.assertIn("push_tmp=/var/tmp/buildah", scratch["run"])
+        self.assertIn('test -d "${push_tmp}"', scratch["run"])
+        self.assertIn('test ! -L "${push_tmp}"', scratch["run"])
+        self.assertIn('test -w "${push_tmp}"', scratch["run"])
 
     def test_each_matrix_entry_uses_shared_nonpublishing_action(self) -> None:
         job = self.document["jobs"]["images"]

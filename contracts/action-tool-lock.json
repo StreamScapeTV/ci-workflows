@@ -101,10 +101,17 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-android",
-      "sha": "b878e56f978cb23bc8a0dd300d24b0799c943503",
-      "release": "issue #373 pre-unit Gradle isolation checkpoint",
+      "sha": "8eaa37ad0fe3231b202e878b26f66aa23753e38a",
+      "release": "issue #373 compile Gradle isolation checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/b878e56f978cb23bc8a0dd300d24b0799c943503/actions/validate-android"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/8eaa37ad0fe3231b202e878b26f66aa23753e38a/actions/validate-android"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies",
+      "sha": "13de46c51efcf65df798dfec82a620c484350dfa",
+      "release": "issue #346 dependency warm checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/13de46c51efcf65df798dfec82a620c484350dfa/actions/warm-gradle-dependencies"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/upload-gradle-seed",
@@ -157,10 +164,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-apple",
-      "sha": "2dacd98d19c5e136ce4803ab70b0f7ebd45414bf",
-      "release": "issue-336 final Apple v2 checkpoint",
+      "sha": "f682622a1a659368cba78c071c72b8b6e8953d88",
+      "release": "issue #372 bounded Apple failure diagnostics checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/2dacd98d19c5e136ce4803ab70b0f7ebd45414bf/actions/validate-apple"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/f682622a1a659368cba78c071c72b8b6e8953d88/actions/validate-apple"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-oci",

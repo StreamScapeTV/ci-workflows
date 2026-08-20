@@ -216,6 +216,42 @@ class FlutterWorkflowContractTests(unittest.TestCase):
         self.assertLess(mobile.index("uses: actions/setup-java@"), mobile.index("uses: subosito/flutter-action@"))
         self.assertNotIn("uses: actions/setup-java@", apple)
 
+    def test_mobile_and_apple_flutter_setup_retry_is_bounded_and_cleans_state(self) -> None:
+        mobile = self.reusable.split("  mobile:", 1)[1].split("  apple:", 1)[0]
+        apple = self.reusable.split("  apple:", 1)[1].split("  validate:", 1)[0]
+        for block in (mobile, apple):
+            self.assertEqual(2, block.count("uses: subosito/flutter-action@"))
+            self.assertEqual(1, block.count("- id: flutter_setup_primary"))
+            self.assertEqual(1, block.count("- id: flutter_setup_reset"))
+            self.assertEqual(1, block.count("- id: flutter_setup_retry"))
+            primary = block.split("- id: flutter_setup_primary", 1)[1].split(
+                "- id: flutter_setup_reset", 1
+            )[0]
+            reset = block.split("- id: flutter_setup_reset", 1)[1].split(
+                "- id: flutter_setup_retry", 1
+            )[0]
+            retry = block.split("- id: flutter_setup_retry", 1)[1].split(
+                "- id: pub_cache_bind", 1
+            )[0]
+            self.assertIn("continue-on-error: true", primary)
+            expected_condition = "if: ${{ steps.flutter_setup_primary.outcome == 'failure' }}"
+            self.assertIn(expected_condition, reset)
+            self.assertIn(expected_condition, retry)
+            self.assertIn('case "${FLUTTER_CACHE_PATH}" in "${CI_TOOL_ROOT}/flutter-sdk-"*', reset)
+            self.assertIn('test ! -L "${FLUTTER_CACHE_PATH}" && test ! -L "${PUB_CACHE_PATH}"', reset)
+            self.assertIn('rm -rf -- "${FLUTTER_CACHE_PATH}" "${PUB_CACHE_PATH}"', reset)
+            self.assertIn('mkdir -p -- "${PUB_CACHE_PATH}"', reset)
+            self.assertIn("sleep 5", reset)
+            run_block = reset.split("run: |", 1)[1]
+            self.assertLess(
+                len([line for line in run_block.splitlines() if line.strip()]),
+                8,
+            )
+            self.assertLess(
+                block.index("- id: flutter_setup_retry"),
+                block.index("phase: pub-cache-bind"),
+            )
+
     def test_smoke_verifies_jdk_before_flutter_project_generation(self) -> None:
         android = self.mobile_smoke.split("  android:", 1)[1].split("  zero_artifacts:", 1)[0]
         self.assertLess(android.index("uses: actions/setup-java@"), android.index("phase: verify-toolchain"))

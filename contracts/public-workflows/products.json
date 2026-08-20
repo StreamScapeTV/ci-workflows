@@ -110,16 +110,13 @@
     {
       "file": ".github/workflows/reusable-native-image-chart.yml",
       "api_name": "release.native-image-chart",
-      "api_version": "1.0.0",
+      "api_version": "2.0.0",
       "status": "implemented",
       "trust_class": "trusted-publication",
       "permission_profile": "oci-publication",
       "semantic_runner_profile": "contract:oci-publish",
-      "permitted_events": ["tag-push", "workflow_call", "workflow_dispatch-existing-tag"],
+      "permitted_events": ["tag-push", "workflow_call"],
       "inputs": [
-        {"name": "release_mode", "required": false, "default": "tag-push"},
-        {"name": "release_version", "required": false},
-        {"name": "release_source_sha", "required": false},
         {"name": "image_name", "required": true},
         {"name": "chart_name", "required": true},
         {"name": "chart_path", "required": true},

@@ -81,6 +81,7 @@ on:
         description: Optional bounded dependency identity
         required: false
         default: ""
+        type: string
     secrets:
       private_dependency_token:
         description: Optional transient contents-read token used only by exact private dependency checkout
@@ -119,7 +120,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve one Apple executor plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@2dacd98d19c5e136ce4803ab70b0f7ebd45414bf # issue-336 final Apple v2 checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@f682622a1a659368cba78c071c72b8b6e8953d88 # issue #372 bounded Apple failure diagnostics checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -212,7 +213,7 @@ jobs:
 
       - id: execute
         name: Execute one sequential Apple validation plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@2dacd98d19c5e136ce4803ab70b0f7ebd45414bf # issue-336 final Apple v2 checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@f682622a1a659368cba78c071c72b8b6e8953d88 # issue #372 bounded Apple failure diagnostics checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -255,7 +256,7 @@ jobs:
       - id: apple_cleanup
         name: Remove Apple-specific state once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@2dacd98d19c5e136ce4803ab70b0f7ebd45414bf # issue-336 final Apple v2 checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@f682622a1a659368cba78c071c72b8b6e8953d88 # issue #372 bounded Apple failure diagnostics checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -279,7 +280,7 @@ jobs:
       - id: residue
         name: Verify zero Apple-specific residue once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@2dacd98d19c5e136ce4803ab70b0f7ebd45414bf # issue-336 final Apple v2 checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@f682622a1a659368cba78c071c72b8b6e8953d88 # issue #372 bounded Apple failure diagnostics checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
