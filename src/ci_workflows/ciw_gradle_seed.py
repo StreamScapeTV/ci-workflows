@@ -1,4 +1,4 @@
-"""Thin CLI adapter for the trusted Gradle seed upload function."""
+"""Thin CLI adapter for internal Gradle dependency-cache synchronization."""
 from __future__ import annotations
 
 import argparse
@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .ciw_types import CIWContext, CIWError, CIWResult, input_value, project_error
-from .gradle_seed import GradleSeedError, promote_gradle_seed
+from .gradle_seed import GradleSeedError
+from .gradle_seed_internal import sync_gradle_seed
 
 
 def configure_gradle_seed_upload(parser: argparse.ArgumentParser) -> None:
@@ -16,7 +17,7 @@ def configure_gradle_seed_upload(parser: argparse.ArgumentParser) -> None:
 
 
 def _require_registered_gradle_home(environment: Mapping[str, str]) -> None:
-    """Bind promotion to ``prepare-workspace profile: gradle`` state."""
+    """Bind synchronization to ``prepare-workspace profile: gradle`` state."""
 
     raw_root = environment.get("CI_WORKFLOW_ROOT", "")
     raw_home = environment.get("GRADLE_USER_HOME", "")
@@ -48,10 +49,17 @@ def execute_gradle_seed_upload(
     )
     if not source_sha:
         raise CIWError("gradle-seed", "gradle_seed_source_sha_required")
+
+    def report_selection(file_count: int, total_bytes: int) -> None:
+        context.stdout.write(
+            f"gradle-seed delta file_count={file_count} total_bytes={total_bytes}\n"
+        )
+
     try:
-        result = promote_gradle_seed(
+        result = sync_gradle_seed(
             source_sha=source_sha,
             environment=context.environment,
+            report_selection=report_selection,
         )
     except GradleSeedError as error:
         raise CIWError("gradle-seed", error.code) from None
@@ -65,7 +73,7 @@ def execute_gradle_seed_upload(
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
         prog="gradle-seed",
-        description="Upload one trusted Gradle dependency seed delta.",
+        description="Sync one Gradle dependency delta to the internal cache plane.",
     )
     result.add_argument("--root", type=Path, default=Path.cwd())
     configure_gradle_seed_upload(result)

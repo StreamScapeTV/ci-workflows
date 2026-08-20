@@ -103,7 +103,7 @@ class AndroidCIWDispatchTests(unittest.TestCase):
         )
         self.assertNotIn("product", " ".join(result.outputs).casefold())
 
-    def test_protected_full_rejects_compile_leg_duplicates_and_duplicate_json_keys(self) -> None:
+    def test_protected_full_rejects_unknown_controls_task_duplicates_and_duplicate_json_keys(self) -> None:
         invalid_plans = (
             json.dumps(
                 {
@@ -111,7 +111,16 @@ class AndroidCIWDispatchTests(unittest.TestCase):
                     "lint_tasks": ["lintDebug"],
                     "assemble_tasks": ["assembleDebug"],
                     "schema": {"mode": "none"},
-                    "compile_tasks": ["compileDebugKotlin"],
+                    "compile_options": ["--max-workers=1"],
+                }
+            ),
+            json.dumps(
+                {
+                    "compile_tasks": ["check"],
+                    "unit_tasks": ["check"],
+                    "lint_tasks": ["lintDebug"],
+                    "assemble_tasks": ["assembleDebug"],
+                    "schema": {"mode": "none"},
                 }
             ),
             json.dumps(
@@ -140,7 +149,7 @@ class AndroidCIWDispatchTests(unittest.TestCase):
                     execute_android_validate(self._args("plan"), context)
                 self.assertEqual(failure.exception.code, "validation_plan_invalid")
 
-    def test_protected_full_executes_unit_lint_assemble_and_schema_in_one_gradle_invocation(self) -> None:
+    def test_protected_full_executes_unit_lint_assemble_and_schema_in_ordered_gradle_invocations(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             workspace, _source, state = self._filesystem(root)
@@ -170,27 +179,36 @@ class AndroidCIWDispatchTests(unittest.TestCase):
                 result = execute_android_validate(self._args("execute"), context)
 
             self.assertEqual(exact.call_count, 2)
-            gradle.assert_called_once()
-            self.assertEqual(gradle.call_args.args[0], Path("gradlew"))
+            self.assertEqual(gradle.call_count, 4)
             self.assertEqual(
-                gradle.call_args.args[1],
-                (
-                    "testDebugUnitTest",
-                    "lintDebug",
-                    "assembleDebug",
-                    "kspDebugKotlin",
-                    "verifySchema",
-                ),
+                [call.args[1] for call in gradle.call_args_list],
+                [
+                    ("testDebugUnitTest",),
+                    ("lintDebug",),
+                    ("assembleDebug",),
+                    ("kspDebugKotlin", "verifySchema"),
+                ],
             )
-            self.assertEqual(gradle.call_args.kwargs["operation"], "android.protected_full")
-            environment = gradle.call_args.kwargs["environment"]
+            self.assertEqual(
+                [call.kwargs["operation"] for call in gradle.call_args_list],
+                [
+                    "android.protected_full.unit",
+                    "android.protected_full.lint",
+                    "android.protected_full.assemble",
+                    "android.protected_full.schema",
+                ],
+            )
+            environment = gradle.call_args_list[0].kwargs["environment"]
+            for call in gradle.call_args_list:
+                self.assertEqual(call.args[0], Path("gradlew"))
+                self.assertIs(call.kwargs["environment"], environment)
             self.assertEqual(environment["LANG"], "C.UTF-8")
             self.assertEqual(environment["LC_ALL"], "C.UTF-8")
             self.assertNotIn("GITHUB_TOKEN", environment)
             self.assertNotIn("PRIVATE_DEPENDENCY_TOKEN", environment)
             summary = json.loads(result.outputs["test_summary"])
             self.assertEqual(summary["execution_model"], "single-executor")
-            self.assertEqual(summary["gradle_invocations"], 1)
+            self.assertEqual(summary["gradle_invocations"], 4)
             self.assertEqual(summary["script_invocations"], 0)
             self.assertEqual(summary["schema_mode"], "gradle")
             self.assertEqual(summary["task_count"], 5)
@@ -228,10 +246,10 @@ class AndroidCIWDispatchTests(unittest.TestCase):
             ):
                 result = execute_android_validate(self._args("execute"), context)
 
-            gradle.assert_called_once()
+            self.assertEqual(gradle.call_count, 3)
             self.assertEqual(
-                gradle.call_args.args[1],
-                ("testDebugUnitTest", "lintDebug", "assembleDebug"),
+                [call.args[1] for call in gradle.call_args_list],
+                [("testDebugUnitTest",), ("lintDebug",), ("assembleDebug",)],
             )
             process.assert_called_once()
             argv = process.call_args.args[0]
@@ -239,7 +257,7 @@ class AndroidCIWDispatchTests(unittest.TestCase):
             self.assertEqual(argv[1:], ("--check",))
             self.assertEqual(process.call_args.kwargs["cwd"], state / "tmp/android-source")
             summary = json.loads(result.outputs["test_summary"])
-            self.assertEqual(summary["gradle_invocations"], 1)
+            self.assertEqual(summary["gradle_invocations"], 3)
             self.assertEqual(summary["script_invocations"], 1)
             self.assertEqual(summary["schema_mode"], "script")
 

@@ -4,10 +4,7 @@ issues:
   18:
     blocked_by: []
   19:
-    blocked_by:
-      - 18
-      - 283
-      - 324
+    blocked_by: []
   21:
     blocked_by:
       - 283
@@ -92,12 +89,7 @@ issues:
   265:
     blocked_by: []
   266:
-    blocked_by:
-      - 21
-      - 22
-      - 23
-      - 24
-      - 25
+    blocked_by: []
   278:
     blocked_by: []
   279:
@@ -117,6 +109,11 @@ issues:
       - 338
       - 336
       - 341
+      - 359
+      - 360
+      - 361
+      - 362
+      - 363
   284:
     blocked_by: []
   285:
@@ -152,10 +149,7 @@ issues:
     blocked_by:
       - https://github.com/StreamScapeTV/organization-rules/issues/66
   324:
-    blocked_by:
-      - 283
-      - 322
-      - 323
+    blocked_by: []
   332:
     blocked_by: []
   336:
@@ -166,3 +160,18 @@ issues:
   341:
     blocked_by:
       - 284
+  359:
+    blocked_by:
+      - 382
+  360:
+    blocked_by: []
+  361:
+    blocked_by: []
+  362:
+    blocked_by: []
+  363:
+    blocked_by: []
+  364:
+    blocked_by: []
+  382:
+    blocked_by: []

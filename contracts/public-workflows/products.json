@@ -110,7 +110,7 @@
     {
       "file": ".github/workflows/reusable-native-image-chart.yml",
       "api_name": "release.native-image-chart",
-      "api_version": "1.0.0",
+      "api_version": "2.0.0",
       "status": "implemented",
       "trust_class": "trusted-publication",
       "permission_profile": "oci-publication",

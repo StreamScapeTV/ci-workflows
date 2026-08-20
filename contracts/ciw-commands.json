@@ -615,7 +615,7 @@
       "side_effects": [
         "validates one product-neutral Android plan on semantic mobile capacity",
         "copies exact admitted source into registered state and validates JDK 25 before execution",
-        "runs protected-full unit, lint, assemble, and optional Gradle schema tasks in one Gradle invocation",
+        "runs protected-full unit, lint, assemble, and optional Gradle schema task groups as sequential --no-daemon invocations in one executor/workspace",
         "optionally executes one checked-in schema script in the same copied workspace",
         "uses an exact private dependency only after checkout identity and credential erasure are verified",
         "enforces exact-source recheck, token-scrubbed product environment, Android copied-source cleanup, residue verification, and zero Actions artifacts"

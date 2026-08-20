@@ -60,14 +60,29 @@ class ProtectedFullPlan:
     schema_mode: str
     schema_tasks: tuple[str, ...] = ()
     schema_script: ScriptPlan | None = None
+    pre_unit_tasks: tuple[str, ...] = ()
+    compile_tasks: tuple[str, ...] = ()
 
     @property
     def gradle_tasks(self) -> tuple[str, ...]:
         return (
+            *self.pre_unit_tasks,
+            *self.compile_tasks,
             *self.unit_tasks,
             *self.lint_tasks,
             *self.assemble_tasks,
             *self.schema_tasks,
+        )
+
+    @property
+    def gradle_groups(self) -> tuple[tuple[str, tuple[str, ...]], ...]:
+        return (
+            ("pre_unit", self.pre_unit_tasks),
+            ("compile", self.compile_tasks),
+            ("unit", self.unit_tasks),
+            ("lint", self.lint_tasks),
+            ("assemble", self.assemble_tasks),
+            ("schema", self.schema_tasks),
         )
 
 
@@ -213,7 +228,21 @@ def _script_plan(value: Mapping[str, object], code: str) -> ScriptPlan:
 
 
 def _protected_full_plan(value: Mapping[str, object], code: str) -> ProtectedFullPlan:
-    _exact_keys(value, {"unit_tasks", "lint_tasks", "assemble_tasks", "schema"}, code)
+    required = {"unit_tasks", "lint_tasks", "assemble_tasks", "schema"}
+    allowed = required | {"pre_unit_tasks", "compile_tasks"}
+    keys = set(value)
+    if not required.issubset(keys) or not keys.issubset(allowed):
+        raise CIWError(_DOMAIN, code)
+    pre_unit_tasks = (
+        _tasks(value["pre_unit_tasks"], code, maximum_items=16)
+        if "pre_unit_tasks" in value
+        else ()
+    )
+    compile_tasks = (
+        _tasks(value["compile_tasks"], code, maximum_items=16)
+        if "compile_tasks" in value
+        else ()
+    )
     unit_tasks = _tasks(value["unit_tasks"], code, maximum_items=16)
     lint_tasks = _tasks(value["lint_tasks"], code, maximum_items=16)
     assemble_tasks = _tasks(value["assemble_tasks"], code, maximum_items=16)
@@ -236,7 +265,14 @@ def _protected_full_plan(value: Mapping[str, object], code: str) -> ProtectedFul
         )
     else:
         raise CIWError(_DOMAIN, code)
-    combined = (*unit_tasks, *lint_tasks, *assemble_tasks, *schema_tasks)
+    combined = (
+        *pre_unit_tasks,
+        *compile_tasks,
+        *unit_tasks,
+        *lint_tasks,
+        *assemble_tasks,
+        *schema_tasks,
+    )
     if len(set(combined)) != len(combined):
         raise CIWError(_DOMAIN, code)
     return ProtectedFullPlan(
@@ -246,6 +282,8 @@ def _protected_full_plan(value: Mapping[str, object], code: str) -> ProtectedFul
         str(mode),
         schema_tasks,
         schema_script,
+        pre_unit_tasks,
+        compile_tasks,
     )
 
 
@@ -630,17 +668,20 @@ def _execute_request(
             full = request.protected_full
             if full is None:
                 raise CIWError(_DOMAIN, "validation_plan_invalid")
-            gradle_started = time.monotonic_ns()
-            run_gradle_tasks(
-                wrapper,
-                full.gradle_tasks,
-                operation="android.protected_full",
-                **common,
-            )
-            gradle_wall_ms = _elapsed_ms(gradle_started)
-            gradle_invocations = 1
             task_count = len(full.gradle_tasks)
             schema_mode = full.schema_mode
+            for group_name, group_tasks in full.gradle_groups:
+                if not group_tasks:
+                    continue
+                gradle_started = time.monotonic_ns()
+                run_gradle_tasks(
+                    wrapper,
+                    group_tasks,
+                    operation=f"android.protected_full.{group_name}",
+                    **common,
+                )
+                gradle_wall_ms += _elapsed_ms(gradle_started)
+                gradle_invocations += 1
             if full.schema_script is not None:
                 script_started = time.monotonic_ns()
                 _execute_script(full.schema_script, project=project, environment=environment)

@@ -1,90 +1,72 @@
 # Android validation workflow
 
-Central exposes two product-neutral Android/Gradle validation entry points that share the same typed Android implementation and immutable helper set but have different explicit token permissions:
+`validation.android` version `2.0.0` is the public Android/Gradle validation API implemented by `.github/workflows/reusable-android.yml`. Its stable check name is **CI / Android validation**.
 
-- `validation.android` version `2.0.0`, implemented by `.github/workflows/reusable-android.yml`, is the routine read-only API with stable check **CI / Android validation** and `contents: read` only.
-- `validation.android-seed-warm` version `1.0.0`, implemented by `.github/workflows/reusable-android-seed-warm.yml`, is the protected-push seed-warming API with stable check **CI / Android protected seed validation** and exactly `contents: read` plus `id-token: write`.
+## Build model
 
-A consumer selects exactly one entry point for a validation event. PR, manual, and ordinary work-branch validation use the routine API. A protected integration-branch push may use the seed-warm API. The two APIs do not run as consecutive build stages and never require two Gradle builds for one event.
+One reusable call creates one mobile executor and one Gradle workspace. `protected-full` first resolves the real project's complete Gradle dependency graph into that job's private writable Gradle home, then continues with the caller-owned validation task families. The dependency warm phase uses a disposable copy of the admitted source, the same exact private dependency checkout when present, and Gradle's bounded `--no-daemon --write-verification-metadata sha256` bootstrap operation. That operation resolves all resolvable configurations, including root/subprojects, `buildSrc`, included builds, and plugin configurations, without selecting an application build/test/lint task. The generated verification metadata exists only inside the disposable copy and is removed before product validation.
 
-## Public technology boundary
+When the admitted Android plan includes a private dependency subdirectory, Central passes that already-validated bounded subdirectory into the warm primitive. The warm runtime resolves it beneath the exact private-dependency checkout before exporting `CI_PRIVATE_DEPENDENCY_PATH` to Gradle. This keeps composite builds pointed at the same verified build root used by authoritative Android execution instead of accidentally exposing the repository root.
 
-Both reusable workflows accept the same technology-level caller data: an exact admitted source SHA, a validation scope, a bounded working directory, a checked-in Gradle wrapper path, and one strict bounded `validation_plan_json`. The plan contains only repository-owned Gradle task names, an exact targeted-unit selector, or a checked-in executable script path with bounded argv values. Optional private dependency coordinates are an exact repository, full SHA, bounded identity, and bounded subdirectory.
+After the warm phase succeeds, Central immediately attempts one best-effort `caches/modules-*` delta sync while the job-private `GRADLE_USER_HOME` is still available. The normal Android validation then proceeds in the same executor/private Gradle home. Dependency-resolution failure blocks the expensive build early; cache-promotion failure does not, because the updater remains acceleration-only and `continue-on-error`.
 
-There is **no public cache-control or promotion input**. The seed-warm API differs only in its explicit reviewed permission profile and internal post-validation promotion step. No caller can select a cache path, endpoint, host, audience, repository identity, runner, credential, or transport. There is no central product ID, repository-specific task registry, runner-label input, shell string, callback, container engine, registry host, signing identity, keystore, release, Helm, Flux, or physical-device input.
+The authoritative `protected-full` pass preserves the caller-owned unit, lint, assemble, and applicable Gradle-backed KSP/Room/schema task groups in that same executor/workspace, but executes each non-empty group sequentially through its own `--no-daemon` Gradle invocation. A caller may additionally provide optional `pre_unit_tasks` and `compile_tasks` inside the existing bounded `validation_plan_json`. When present, `pre_unit_tasks` runs first and `compile_tasks` runs immediately afterward, before the semantic unit group. This supports caller-owned code generation followed by main compilation in separate short-lived Gradle processes, without changing Gradle memory, worker, Kotlin, or test settings. Duplicate tasks across pre-unit, compile, unit, lint, assemble, and Gradle-schema groups are rejected. Existing plans that omit both optional fields keep the previous unit → lint → assemble → schema ordering; callers that already use only `pre_unit_tasks` keep pre-unit → unit → lint → assemble → schema.
 
-Supported validation scopes are `protected-full`, `compile`, `unit`, `assemble`, `lint`, `targeted-unit`, `gradle`, and `script`. Single-purpose Gradle scopes use `{"tasks":[...]}`. `targeted-unit` additionally requires one grammar-bounded JVM `test_selector`. `script` accepts only `{"path":"...","arguments":[...]}` and executes that checked-in file directly without a shell command string.
+A caller with a verified private dependency may additionally provide `dependency_prebuild_plan_json`. This is another strict `protected-full` Gradle plan executed after dependency warming and before the authoritative validation plan on the same mobile executor, private writable Gradle home, read-only dependency seed, and exact private dependency checkout. Its copied caller source is removed and residue-checked before the authoritative execution starts, while build outputs in the verified private dependency checkout remain available. The protected-full task groups therefore provide bounded process-isolation layers for dependency preparation without changing Gradle memory/worker settings or adding another runner. The prebuild is optional and does not replace authoritative pre-unit/compile/unit/lint/assemble/schema coverage.
 
-`protected-full` has exactly `unit_tasks`, `lint_tasks`, `assemble_tasks`, and `schema`. Unit, lint, and assemble task lists are non-empty. The schema mode is `none`, `gradle`, or `script`. A Gradle schema plan contributes bounded KSP/Room/schema tasks to the same one Gradle invocation; a script schema plan executes one checked-in repository-owned verifier after the combined Gradle invocation in the same copied source and workspace. There is no standalone protected-full compile leg when the unit/assemble graph already compiles the application.
+The workflow exposes only Android technology inputs: admitted source SHA, validation scope, working directory, Gradle wrapper path, one bounded authoritative validation plan, an optional bounded private-dependency prebuild plan, and optional exact private-dependency coordinates. Dependency warming is Central-owned behavior and adds no caller cache path, cache endpoint, promotion flag, memory/worker setting, runner selector, signing, release, Docker, Helm, or device input.
 
-Each entry point runs directly on semantic `mobile` capacity (`[linux, amd64, mobile]`). Callers cannot select runner labels or hosts. The runner-provided Android SDK is required and Java is resolved and validated as JDK major 25 before Android work executes.
+## Shared Gradle dependency cache
 
-## Single-executor protected-full model
+Every job has a private writable `GRADLE_USER_HOME`. On mobile runners, Central additionally forwards the runner-provided `GRADLE_RO_DEP_CACHE` when it points to `/opt/gradle-ro-cache`. Gradle can therefore reuse dependencies already present in the shared cache while writing misses only to the job-private Gradle home.
 
-One reusable workflow call creates exactly one heavy mobile executor job. That job performs one exact Android checkout, prepares one private Gradle workspace, optionally checks out one exact private dependency, executes one Android plan, and crosses one terminal cleanup/residue boundary.
+If the shared cache is absent, the warm phase and later validation resolve dependencies normally from the configured repositories. Cache availability is an acceleration, not a correctness requirement.
 
-For `protected-full`, unit + lint + assemble + any Gradle-backed Room/KSP/schema tasks are flattened in order into one `run_gradle_tasks` invocation. This lets one Gradle process reuse configuration, dependency resolution, and compiled graph state instead of allocating separate cold mobile jobs. A checked-in schema script, when selected, runs afterward against the same copied source, dependency path, Gradle state, SDK, and JDK. `compile` remains a targeted scope for branch smoke/manual use.
+For `protected-full`, dependency resolution is deliberately moved to the front of the pipeline. `actions/warm-gradle-dependencies` runs against a disposable exact-source copy and records only bounded cache mode/wall-time evidence. It passes the same filtered `GRADLE_USER_HOME`, fixed read-only seed, Android SDK/JDK state, and verified `CI_PRIVATE_DEPENDENCY_PATH` that the subsequent Android execution uses, while filtering GitHub/private-dependency credentials. If the private checkout declares a verified subdirectory, only that bounded subdirectory is exported to Gradle. The warm source copy is removed before the build continues, so Gradle's generated verification metadata cannot modify the admitted checkout.
 
-Neither public Android reusable has a matrix or a nested reusable mobile job. The protected consumer chooses the seed-warm reusable **instead of** the routine reusable, so warming adds no second executor or second Gradle graph.
+Immediately after a successful warm, the same executor attempts a first best-effort dependency-delta sync. That sync reads only `caches/modules-*`, streams bounded content to the fixed internal Flux service, and never runs Gradle itself. If it succeeds, later runners can reuse those modules through the Flux-owned shared read-only seed. The current job also benefits immediately from the same already-populated private Gradle home.
 
-## Bounded performance telemetry
+After successful authoritative Android execution plus Android cleanup/residue verification, the same executor performs the existing second best-effort delta sync before workspace cleanup. This captures dependencies that are discovered only during task execution or optional private-dependency prebuild work and were not part of the initial all-resolvable-configuration warm pass. Both sync attempts are `continue-on-error`, so an unavailable updater cannot fail a correct dependency resolution or product build.
 
-Android execution measures performance inside the existing executor; it creates no monitoring job, service, artifact, cache, or background infrastructure. `test_summary` records finite integer milliseconds for the complete Android execute function, the Gradle invocation, and any checked-in script phase. On Linux cgroup v2 runners, one lightweight in-process sampler reads the process cgroup's `memory.current` and `pids.current` during execution and records observed peak bytes/process count. Child CPU time is reported as a bounded millisecond delta when POSIX child usage is available.
+The sync emits only the selected private delta file count and total bytes so cache-miss activity is measurable without exposing dependency paths or content. A concurrent writer returns the stable `gradle_seed_writer_busy` code; a writer-side promotion rejection returns `gradle_seed_promotion_rejected`; other non-success HTTP responses become `gradle_seed_upload_rejected`.
 
-Unsupported host metrics are emitted as JSON `null` with `resource_measurement: "unavailable"`; the adapter never invents zero usage. Evidence contains no command arguments, environment values, absolute cgroup paths, credentials, source payloads, or arbitrary process listings.
+Central owns both same-executor sync points because it owns the lifetime of the registered Gradle workspace. Flux owns the internal service and single-writer generation merge; the Android product repository only selects the reviewed Central revision and provides bounded task data rather than implementing cache transport or Gradle orchestration in product YAML.
 
-## Immutable central helpers
+Routine Android validation requires no GitHub OIDC permission. PR, manual, work-branch, and integration runs use the same cache read/update model. The initial implementation warms automatically only for `protected-full`; consumer repositories may later avoid unnecessary warm work by using dependency-file event filters without changing the Central warm primitive.
 
-Private callers do not clone Central with caller-scoped credentials. Both Android reusables compose reviewed immutable central helpers from `contracts/action-tool-lock.json`:
+Workspace preparation still uses Central `cache_mode: disabled` because Central does not create a GitHub Actions cache or a shared writable Gradle home. The shared read-only dependency cache is runner infrastructure and is independent from the private job workspace.
 
-- `StreamScapeTV/ci-workflows/actions/validate-android` is pinned to `a01e29210603dc8b4cb9e31b9b0c926c2ab5cf37`, recorded with release `issues #344/#346 Android telemetry and Gradle read-only seed checkpoint`.
-- `StreamScapeTV/ci-workflows/actions/upload-gradle-seed` is pinned to `7a0977db839468aac24448831a9a0ffd97b3067b`, recorded with release `issue #347 trusted Gradle seed client`; it appears only in `validation.android-seed-warm`.
-- `StreamScapeTV/ci-workflows/actions/exact-checkout`, `prepare-workspace`, `render-evidence`, and `cleanup-workspace` remain pinned to `70e08d4ddf8930046632a7135950e924b82e22bf`, recorded as `issue #116 immutable private-action checkpoint`.
-- `StreamScapeTV/ci-workflows/actions/checkout-private-dependency` is pinned to `70e08d4ddf8930046632a7135950e924b82e22bf`, recorded as `issue #104 immutable private-action checkpoint`.
+## Performance telemetry
 
-The caller cannot select a helper revision, central-source token, mutable helper ref, or `secrets: inherit` surface.
+The dependency warm phase reports `gradle_dependency_cache_mode=read-only-seed|cold` and bounded warm wall time before the product build begins. Terminal logging projects only those two fields. This makes the dependency bootstrap cost separately observable from Media preparation and application compilation.
 
-## Exact source, private writable state, and owner-managed dependency reuse
+Authoritative Android execution records bounded wall times for the full execute function, the aggregate of all Gradle task-group invocations, and any checked-in script phase. `test_summary.gradle_invocations` reports the actual number of non-empty authoritative Gradle groups, including optional `pre_unit_tasks` and `compile_tasks` when requested. On supported Linux runners it also records sampled cgroup peak memory/process count and child CPU time. `test_summary` reports `gradle_dependency_cache_mode` as `read-only-seed` or `cold`, allowing cold/warm measurements without another monitoring job. When the optional dependency prebuild is enabled, its action outcome remains separately visible in the same job while end-to-end workflow duration captures its cost; the public `test_summary` continues to describe the authoritative validation pass.
 
-The admitted caller SHA is checked out exactly once into `source`. Workspace preparation uses the `gradle` profile with Central cache mode `disabled`; Central creates no shared writable cache and uses no GitHub Actions cache transport. Before execution, the adapter revalidates exact source SHA/cleanliness and copies the admitted source through the symlink-rejecting Android copy primitive into marker-bound workflow state.
+Failed or timed-out reviewed Android operations emit only a sanitized bounded diagnostic tail before preserving the existing stable error code. The dependency-warm primitive likewise emits only a sanitized bounded diagnostic tail on failure and never prints dependency paths, credentials, or arbitrary environment content.
 
-Every job retains its own writable `GRADLE_USER_HOME`. On Flux-owned mobile runners, the adapter may additionally forward runner-provided `GRADLE_RO_DEP_CACHE` only when it is exactly `/opt/gradle-ro-cache`, resolves to a real non-symlink directory, and does not alias the writable home. That path is read-only shared dependency seed state. If the fixed seed is absent, execution falls back to ordinary cold dependency resolution into the private writable home; an unexpected non-empty cache path is rejected.
+## Central helper checkpoints
 
-Only a fixed non-secret runtime environment is forwarded to product execution: isolated `HOME`, `TMPDIR`, private `GRADLE_USER_HOME`, runner `PATH`, JDK/Android SDK locations, locale/UTC, the optional fixed read-only Gradle dependency seed, and an optional verified private-dependency path. GitHub tokens, private dependency checkout tokens, arbitrary caller environment, workflow metadata, and secret-bearing variables are not forwarded. Gradle execution policy remains owned by the Android adapter/product contract.
+The reusable workflow uses reviewed immutable Central helper checkpoints:
 
-## Permission split and protected-push trusted seed warming
+- `StreamScapeTV/ci-workflows/actions/validate-android@8eaa37ad0fe3231b202e878b26f66aa23753e38a` — `issue #373 compile Gradle isolation checkpoint`.
+- `StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies@13de46c51efcf65df798dfec82a620c484350dfa` — `issue #346 dependency warm checkpoint`.
+- `StreamScapeTV/ci-workflows/actions/upload-gradle-seed@fa67b6a1580ff2eb7386a9e58de09896b9990696` — `issue #346 bounded Gradle cache sync diagnostics checkpoint`.
+- `StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`.
+- `StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`.
+- `StreamScapeTV/ci-workflows/actions/render-evidence@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`.
+- `StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`.
+- `StreamScapeTV/ci-workflows/actions/checkout-private-dependency@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #104 immutable private-action checkpoint`.
 
-GitHub reusable workflows cannot elevate the caller token. Central therefore does not model seed warming as an optional permission inside `validation.android`.
+The checked-in action lock must record the same helper identities before the candidate is merge-state.
 
-`validation.android` declares exactly:
+## Private dependency and cleanup
 
-- `contents: read`
+When a private dependency is requested, it is checked out once at the exact planned revision before dependency warming and only its verified build subpath is passed into the warm/build runtimes. The dependency token is confined to that checkout step and is not forwarded to Gradle or either cache sync.
 
-`validation.android-seed-warm` declares exactly:
+The warm primitive creates and removes its own disposable source copy. When `dependency_prebuild_plan_json` is present, Central then executes it through the immutable grouped Android primitive, removes that pass's copied caller source, and verifies zero Android residue. Terminal success requires dependency warming plus every requested prebuild plan/execute/cleanup/residue phase to succeed. The authoritative Android copied-source cleanup and residue verification then run after product validation. Registered workspace cleanup finally removes the private writable Gradle home, dependency state, temporary files, and evidence. A final source check verifies the admitted checkout remained exact and clean.
 
-- `contents: read`
-- `id-token: write`
-
-The seed-warm public contract permits only `push` and `workflow_call`; the consuming repository further restricts its call to the protected integration-branch push. PR/manual/work-branch callers never call this entry point and never receive OIDC authority. There is no behavioral `promote_gradle_seed` flag.
-
-Inside the seed-warm executor, promotion is considered only when the event is a protected `push` and GitHub actually exposed the OIDC request URL/token. After authoritative Android execution succeeds and copied-source cleanup/residue is verified, the immutable #347 client reads portable `caches/modules-*` from the **same marker-bound private `GRADLE_USER_HOME` that just executed validation**. No second Gradle home, runner job, artifact handoff, GitHub cache, caller-selected endpoint, PAT, deploy key, S3, or OCI transport is introduced.
-
-The seed client fixes the OIDC audience, endpoint, candidate policy, framing, file/hash bounds, and request semantics. Promotion uses `continue-on-error`, so cache availability never becomes product correctness. Its cleanup remains authoritative: if the uploader does not prove marker-bound cleanup, the reusable workflow invokes ordinary immutable workspace cleanup as fallback. Terminal success still requires exact-source cleanliness, Android cleanup/residue, and one verified workspace cleanup path.
-
-## Exact private dependency boundary
-
-Private dependency coordinates are all-or-none. When requested, either reusable passes `private_dependency_token` only to immutable `checkout-private-dependency`. That action checks out the exact SHA into registered state, detaches HEAD, erases remotes and credential-bearing Git configuration, verifies the bounded subdirectory, and exposes only the verified dependency path.
-
-The Android adapter refuses the dependency unless repository/id/SHA/subdirectory and credential-erasure state match the planned request. Product execution receives only the verified subdirectory path. The checkout token never reaches planning, Gradle/script execution, evidence rendering, seed promotion, or cleanup.
-
-## Outputs, cleanup, and artifacts
-
-Both APIs expose `result`, bounded `test_summary`, and `cleanup_result`. The summary contains only technology-level status and measurements: scope, single-executor model, task count, JDK major, Gradle/script invocation counts and wall times, complete execute wall time, schema mode, private-dependency use, `gradle_dependency_cache_mode` (`read-only-seed` or `cold`), bounded child CPU time, and sampled cgroup peak memory/process count when available.
-
-Routine validation always performs ordinary registered-workspace cleanup after Android cleanup/residue. Seed-warm validation allows the immutable uploader to consume only eligible private Gradle dependency-module content and perform marker-bound cleanup; ordinary workspace cleanup runs whenever the uploader did not prove cleanup. The runner-owned read-only seed is outside job-owned cleanup. A final exact-source check proves the admitted checkout remained unchanged.
-
-Routine runs retain zero GitHub Actions artifacts. There is no `actions/cache`, artifact bridge, signing, publication, ADB, emulator, or physical-device authority in either validation entry point.
+Routine Android validation retains zero GitHub Actions artifacts and does not use `actions/cache`.
 
 ## Repository-owned smoke
 
-`.github/workflows/android-validation-smoke.yml` directly exercises the read-only Android reusable surface on pull requests that change Android reusable code. It uses the checked-in synthetic Gradle project under `tests/fixtures/android-validation/smoke-project` and executes one protected-full plan with three distinct synthetic Gradle tasks, including `verifyToolchainSmoke`. The fixture verifies JDK 25, Android API 37, Android Build Tools 37, single-executor composition, exact source handling, and terminal cleanup. The protected OIDC path is contract-tested statically and is live-proven only by an authorized protected consumer push; PR smoke never receives seed-promotion authority.
+`.github/workflows/android-validation-smoke.yml` exercises one real synthetic `protected-full` validation on mobile capacity and verifies the dependency warm phase, expected Android/JDK toolchain, ordered Gradle task-group execution, and cleanup. Application performance proof and any product-specific dependency prebuild or optional pre-unit/compile plan belong in the Android consumer repository after Central source/contract checks are green.

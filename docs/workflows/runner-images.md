@@ -18,6 +18,8 @@ An image may additionally own `runner-images/<image>/prepare_inputs.py` when its
 
 Callers cannot choose a registry, container engine, runner labels, arbitrary shell command, Kubernetes target, cache backend, or storage path. The shared path uses the organization Buildah high-capacity runner, builds the image, executes the image-owned smoke command, and optionally publishes that same local image. It does not use GitHub Actions cache and does not create or manage PVs or cache services.
 
+The Buildah runner owns a dedicated job-private publication scratch directory at `/var/tmp/buildah`. Ordinary checkout/action temporary state remains under `RUNNER_TEMP`; only the registry publication step overrides `TMPDIR`, `TMP`, and `TEMP` to the fixed publication scratch after verifying that path is a real writable directory and not a symlink. This keeps large containers/image layer staging and compression off the smaller Actions work volume without exposing a caller-selectable storage path or changing Flux-owned capacity.
+
 ## Reusable non-publishing path
 
 `.github/workflows/internal-runner-image.yml` is a shallow `workflow_call` leaf for central/infrastructure callers. It checks out one exact `ci-workflows` SHA, delegates build/smoke/optional publication to the composite action, verifies credential cleanup, and verifies the source checkout remains clean. It does not call another reusable workflow.
@@ -26,8 +28,19 @@ A runner-image implementation can call this leaf with `publish: false`, its fixe
 
 ## Repository release
 
-`.github/workflows/runner-images-release.yml` is the thin repository-level release caller. A Git tag event publishes all five images from the exact tagged `ci-workflows` commit using that human-readable Git tag as the OCI tag. Manual dispatch accepts an already-existing Git tag, verifies the tag resolves to the checked-out commit, and rebuilds the same five-image release set.
+`.github/workflows/runner-images-release.yml` is the thin repository-level release caller. **Every repository Git tag** matches the workflow's `push.tags: ["*"]` trigger; no `runner-images-` prefix is required. The exact repository Git tag is passed through unchanged as the versioned OCI tag for all five images built from that tagged `ci-workflows` commit.
 
-The release workflow calls the same `actions/runner-image` composite action directly rather than nesting reusable workflows. The Git tag and commit are the release source of truth. `latest` is rejected. Registry-side tag immutability, provenance manifests, digest ledgers, canary state, and rollback state are not acceptance requirements for this workflow. Publication performs a simple authenticated registry inspection after push so an immediately unreadable tag fails the release job.
+For example, repository tag `1.0` publishes each fixed image twice:
+
+- `git.faruqi.dev/mimranfaruqi/github-actions-runner-<image>:1.0`
+- `git.faruqi.dev/mimranfaruqi/github-actions-runner-<image>:latest`
+
+A tag such as `runner-images-2026.08.19-hotfix` likewise publishes both the corresponding `:runner-images-2026.08.19-hotfix` version and `:latest`.
+
+The exact Git tag remains the immutable/versioned release authority. `latest` is only a mutable convenience alias for the most recently published runner-image artifact and is not accepted as the repository release tag itself.
+
+Manual dispatch accepts an already-existing Git tag, verifies the tag resolves to the checked-out commit, and rebuilds the same five-image release set using that exact versioned tag again. Because `latest` is intentionally mutable, manually replaying an historical tag also moves `latest` to the replayed artifact; use historical replay deliberately.
+
+The release workflow calls the same `actions/runner-image` composite action directly rather than nesting reusable workflows. Publication uses the dedicated Buildah publication scratch, pushes and authenticated-read-backs the exact versioned tag first, then pushes and authenticated-read-backs `latest`. Either push/read-back failure fails that image job. Registry-side tag immutability, provenance manifests, digest ledgers, canary state, and rollback state are not acceptance requirements for this workflow.
 
 The release caller expects repository secrets `RUNNER_REGISTRY_USERNAME` and `RUNNER_REGISTRY_TOKEN`. They are passed only into the build/publish action. Authentication state is stored under `RUNNER_TEMP`, removed in the action's unconditional cleanup, and independently checked absent by the calling workflow.

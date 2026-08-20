@@ -24,9 +24,12 @@ class NativeImageChartWorkflowContractTests(unittest.TestCase):
     def test_is_generic_reusable_exact_tag_publisher(self) -> None:
         text = self.text
         self.assertIn("workflow_call:", text)
-        self.assertIn("Resolve exact tag-push authority", text)
+        self.assertIn("Resolve exact release tag authority", text)
         self.assertIn("Revalidate tag immediately before publication", text)
-        self.assertIn("${{ github.workflow_sha }}", text)
+        self.assertEqual(2, text.count("repository: ${{ job.workflow_repository }}"))
+        self.assertEqual(2, text.count("ref: ${{ job.workflow_sha }}"))
+        self.assertNotIn("${{ github.workflow_sha }}", text)
+        self.assertNotIn("${GITHUB_WORKFLOW_SHA}", text)
         self.assertIn("repository: ${{ github.repository }}", text)
         self.assertNotIn("product_id", self.implementation)
         self.assertNotIn("supported_consumers", self.implementation)
@@ -88,7 +91,10 @@ class NativeImageChartWorkflowContractTests(unittest.TestCase):
         self.assertIn("registry_token:", text)
         self.assertIn("CIW_REGISTRY_USERNAME", text)
         self.assertIn("CIW_REGISTRY_TOKEN", text)
-        self.assertIn("release versions are not aligned", self.validate)
+        self.assertNotIn("package.json", self.validate)
+        self.assertNotIn("release versions are not aligned", self.validate)
+        self.assertIn('version=os.environ["VERSION"]', self.prepare)
+        self.assertIn('app_version=os.environ["VERSION"]', self.prepare)
 
     def test_public_api_index_and_release_fixture_use_the_native_api(self) -> None:
         index = json.loads(PUBLIC_INDEX.read_text(encoding="utf-8"))

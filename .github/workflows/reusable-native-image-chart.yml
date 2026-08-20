@@ -79,8 +79,8 @@ jobs:
       - name: Check out exact Central reusable-workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: StreamScapeTV/ci-workflows
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: .ciw
           fetch-depth: 1
           clean: true
@@ -93,12 +93,12 @@ jobs:
           set -Eeuo pipefail
           (
             cd .ciw
-            test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
+            test "$(git rev-parse HEAD)" = "${{ job.workflow_sha }}"
             test -z "$(git status --porcelain=v1 --untracked-files=all)"
           )
 
       - id: authority
-        name: Resolve exact tag-push authority
+        name: Resolve exact release tag authority
         uses: ./.ciw/actions/resolve-release-tag
         with:
           release_mode: tag-push
@@ -126,15 +126,12 @@ jobs:
       BUILD_CONTEXT: ${{ inputs.build_context }}
       CIW_REGISTRY_USERNAME: ${{ secrets.registry_username }}
       CIW_REGISTRY_TOKEN: ${{ secrets.registry_token }}
-      REGISTRY_AUTH_FILE: ${{ runner.temp }}/native-image-chart/auth.json
-      HELM_REGISTRY_CONFIG: ${{ runner.temp }}/native-image-chart/helm-registry.json
-      PACKAGE_ROOT: ${{ runner.temp }}/native-image-chart/packages
     steps:
       - name: Check out exact Central reusable-workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: StreamScapeTV/ci-workflows
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: .ciw
           fetch-depth: 1
           clean: true
@@ -147,9 +144,20 @@ jobs:
           set -Eeuo pipefail
           (
             cd .ciw
-            test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
+            test "$(git rev-parse HEAD)" = "${{ job.workflow_sha }}"
             test -z "$(git status --porcelain=v1 --untracked-files=all)"
           )
+
+      - name: Initialize runner-local publication paths
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          state_root="${RUNNER_TEMP}/native-image-chart"
+          {
+            printf 'REGISTRY_AUTH_FILE=%s\n' "${state_root}/auth.json"
+            printf 'HELM_REGISTRY_CONFIG=%s\n' "${state_root}/helm-registry.json"
+            printf 'PACKAGE_ROOT=%s\n' "${state_root}/packages"
+          } >> "${GITHUB_ENV}"
 
       - id: revalidate
         name: Revalidate exact tag immediately before privileged work
@@ -157,6 +165,8 @@ jobs:
         with:
           phase: revalidate
           release_mode: tag-push
+          release_version: ${{ needs.admit.outputs.version }}
+          release_source_sha: ${{ needs.admit.outputs.source_sha }}
           expected_tag_object_sha: ${{ needs.admit.outputs.tag_object_sha }}
           expected_tag_commit_sha: ${{ needs.admit.outputs.tag_commit_sha }}
 
@@ -171,7 +181,7 @@ jobs:
           persist-credentials: false
           set-safe-directory: false
 
-      - name: Validate bounded caller inputs and release-version alignment
+      - name: Validate bounded caller release inputs
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -258,6 +268,8 @@ jobs:
         with:
           phase: revalidate
           release_mode: tag-push
+          release_version: ${{ needs.admit.outputs.version }}
+          release_source_sha: ${{ needs.admit.outputs.source_sha }}
           expected_tag_object_sha: ${{ needs.admit.outputs.tag_object_sha }}
           expected_tag_commit_sha: ${{ needs.admit.outputs.tag_commit_sha }}
 
@@ -362,7 +374,7 @@ jobs:
           )
           (
             cd .ciw
-            test "$(git rev-parse HEAD)" = "${GITHUB_WORKFLOW_SHA}"
+            test "$(git rev-parse HEAD)" = "${{ job.workflow_sha }}"
             test -z "$(git status --porcelain=v1 --untracked-files=all)"
           )
           test ! -e "${RUNNER_TEMP}/native-image-chart"

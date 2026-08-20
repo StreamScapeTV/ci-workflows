@@ -11,12 +11,14 @@ Trust is derived from the current GitHub event and current repository metadata. 
 | Event and admitted transition | Resulting trust | Exact source | Required current evidence |
 |---|---|---|---|
 | `pull_request` with `pr-head` | `untrusted-validation` | current PR head commit, including a fork repository | event head/base agree with the current PR API response; PR base is the asserted integration branch; an explicitly asserted merge SHA must still match, but an unselected synthetic merge ref may be regenerated independently |
-| `pull_request` with `pr-merge` | `untrusted-validation` | current GitHub merge commit | event head/base/merge agree with the current PR API response; PR base is the asserted integration branch and the current merge SHA is non-null |
+| `pull_request` with `pr-merge` | `untrusted-validation` | current GitHub merge commit | event head/base agree with one current PR API response; that same current snapshot supplies a non-null merge SHA for the asserted integration branch; an explicitly requested or expected merge SHA must match, while event-time synthetic merge identity may be regenerated independently |
 | protected branch `push` | `trusted-validation` | exact pushed commit | pushed branch is the asserted integration branch and its current tip still equals `github.sha` |
 | `workflow_dispatch` | `trusted-validation` | exact requested full SHA, or the exact dispatch SHA | triggering actor has write, maintain, or admin permission and the commit exists |
 | reusable call with `workflow-call` | event-derived validation trust | exact caller-provided full SHA | the original triggering event is still validated; a PR remains untrusted, a branch push remains branch-bound, and a tag remains tag-bound |
 | tag `push` | `tag-release` | recursively dereferenced tag commit | exact tag ref and tag objects resolve to one commit and `github.sha` agrees with the tag object or resolved commit |
 | trusted metadata or maintenance | `trusted-maintenance` | current default-branch helper commit only | authorized actor, exact current default branch, and current PR evidence when supplied |
+
+Pull-request admission reads one current PR metadata snapshot for the selected candidate. For `pr-merge`, the validated head SHA, base SHA, base branch, and merge SHA are therefore selected from one coherent current tuple after the event head/base freshness checks. The event’s synthetic merge SHA is not a second freshness read and is not compared with that current tuple; callers that supply `requested_sha` or `expected_pr_merge_sha` still make an explicit exact assertion that must match the selected current merge SHA.
 
 `workflow_run`, `issue_comment`, and `pull_request_target` are metadata/coordination contexts only. They never admit a PR head, downloaded artifact, dependency, caller script path, or fork checkout as trusted executable source. Their admitted source is the current protected default-branch helper code.
 
