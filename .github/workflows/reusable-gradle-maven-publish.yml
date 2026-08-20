@@ -1,0 +1,162 @@
+name: Reusable Gradle Maven publication
+
+on:
+  workflow_call:
+    inputs:
+      admitted_sha:
+        description: Exact lowercase caller source SHA
+        required: true
+        type: string
+      working_directory:
+        description: Repository-relative Gradle project directory
+        required: false
+        default: .
+        type: string
+      gradle_wrapper_path:
+        description: Checked-in Gradle wrapper path relative to working_directory
+        required: false
+        default: gradlew
+        type: string
+      version_file:
+        description: Repository-relative stable VERSION file
+        required: false
+        default: VERSION
+        type: string
+      publication_channel:
+        description: stable or develop
+        required: true
+        type: string
+      publication_tasks_json:
+        description: Bounded JSON array of Gradle Maven publication tasks
+        required: true
+        type: string
+    secrets:
+      registry_username:
+        description: Private Maven registry username
+        required: true
+      registry_token:
+        description: Private Maven registry token
+        required: true
+    outputs:
+      result:
+        description: Success only after publication and terminal cleanup succeed
+        value: ${{ jobs.publish.outputs.result }}
+      package_version:
+        description: Exact Maven version published
+        value: ${{ jobs.publish.outputs.package_version }}
+      gradle_wall_ms:
+        description: Publication Gradle wall time in milliseconds
+        value: ${{ jobs.publish.outputs.gradle_wall_ms }}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gradle-maven-publish-${{ github.repository }}-${{ inputs.publication_channel }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Release / Gradle Maven publication
+    runs-on: [linux, amd64, mobile]
+    timeout-minutes: 120
+    outputs:
+      result: ${{ steps.terminal.outputs.result }}
+      package_version: ${{ steps.maven.outputs.package_version }}
+      gradle_wall_ms: ${{ steps.maven.outputs.gradle_wall_ms }}
+    steps:
+      - name: Check out exact Central workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact Central workflow source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C .ciw rev-parse HEAD)" = "${{ job.workflow_sha }}"
+          test -z "$(git -C .ciw status --porcelain=v1 --untracked-files=all)"
+
+      - id: checkout
+        name: Check out exact admitted caller source
+        uses: ./.ciw/actions/exact-checkout
+        with:
+          repository: ${{ github.repository }}
+          admitted_sha: ${{ inputs.admitted_sha }}
+          path: source
+          fetch_depth: "1"
+
+      - id: workspace
+        name: Prepare one private Gradle publication workspace
+        uses: ./.ciw/actions/prepare-workspace
+        with:
+          profile: gradle
+          cache_mode: disabled
+          source_sha: ${{ inputs.admitted_sha }}
+
+      - id: maven
+        name: Publish Maven packages in one Gradle invocation
+        if: ${{ steps.checkout.outcome == 'success' && steps.workspace.outcome == 'success' }}
+        uses: ./.ciw/actions/publish-gradle-maven
+        with:
+          admitted_sha: ${{ inputs.admitted_sha }}
+          source_root: source
+          working_directory: ${{ inputs.working_directory }}
+          gradle_wrapper_path: ${{ inputs.gradle_wrapper_path }}
+          version_file: ${{ inputs.version_file }}
+          publication_channel: ${{ inputs.publication_channel }}
+          publication_tasks_json: ${{ inputs.publication_tasks_json }}
+          registry_username: ${{ secrets.registry_username }}
+          registry_token: ${{ secrets.registry_token }}
+
+      - id: clean_source
+        name: Verify admitted source remained exact and tracked-clean
+        if: always() && steps.checkout.outcome == 'success'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C source rev-parse HEAD)" = "${{ inputs.admitted_sha }}"
+          git -C source diff --exit-code
+          git -C source diff --cached --exit-code
+          test -z "$(git -C source status --porcelain=v1 --untracked-files=all)"
+
+      - name: Remove ignored publication build state
+        if: always() && steps.checkout.outcome == 'success'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git -C source clean -ffdX
+
+      - id: workspace_cleanup
+        name: Remove and verify private Gradle publication workspace
+        if: always()
+        uses: ./.ciw/actions/cleanup-workspace
+
+      - id: terminal
+        name: Project terminal Maven publication status
+        if: always()
+        shell: bash
+        env:
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+          WORKSPACE_OUTCOME: ${{ steps.workspace.outcome }}
+          MAVEN_OUTCOME: ${{ steps.maven.outcome }}
+          CLEAN_SOURCE_OUTCOME: ${{ steps.clean_source.outcome }}
+          WORKSPACE_CLEANUP_OUTCOME: ${{ steps.workspace_cleanup.outcome }}
+        run: |
+          set -Eeuo pipefail
+          if [[ "${CHECKOUT_OUTCOME}" == "success" &&
+                "${WORKSPACE_OUTCOME}" == "success" &&
+                "${MAVEN_OUTCOME}" == "success" &&
+                "${CLEAN_SOURCE_OUTCOME}" == "success" &&
+                "${WORKSPACE_CLEANUP_OUTCOME}" == "success" ]]; then
+            echo "result=success" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          echo "result=failure" >> "${GITHUB_OUTPUT}"
+          exit 1
