@@ -15,9 +15,12 @@ PUBLIC_REUSABLE_CALL = re.compile(
     r"uses:\s+StreamScapeTV/ci-workflows/\.github/workflows/reusable-[^\s`]+@([^\s`]+)"
 )
 ACTIVE_CHANNEL_GUIDANCE = (
-    "During active development/bootstrap, repository consumers call public reusable\n"
-    "`ci-workflows` workflows at `@main`. Full-SHA and stable-tag references remain\n"
-    "supported, but they are not the current default consumer channel"
+    "During active Central development, repository consumers call public reusable\n"
+    "`ci-workflows` workflows at `@main` as ordinary shared-library references. No\n"
+    "per-product bootstrap or registration step, consumer-maintained Central SHA, or\n"
+    "synchronization handshake is required. Human-readable compatibility tags and\n"
+    "full-SHA references remain supported, and a later reviewed policy may prefer a\n"
+    "stable tag such as `@v1`."
 )
 
 
@@ -30,10 +33,7 @@ class WorkflowConsumerChannelDocsTests(unittest.TestCase):
                 self.assertGreaterEqual(len(refs), 1)
                 self.assertEqual(set(refs), {"main"})
                 self.assertIn(ACTIVE_CHANNEL_GUIDANCE, source)
-                self.assertIn(
-                    "a later\nexplicit stable-release/cutover decision may make an immutable channel preferred\nor required",
-                    source,
-                )
+                self.assertNotIn("active development/bootstrap", source)
 
     def test_public_main_examples_do_not_weaken_private_helper_immutability(self) -> None:
         flutter = (WORKFLOW_DOCS / "flutter.md").read_text(encoding="utf-8")
@@ -52,6 +52,21 @@ class WorkflowConsumerChannelDocsTests(unittest.TestCase):
                 "This does not weaken internal/private helper pins, which remain\nexact immutable SHAs.",
                 source,
             )
+
+    def test_policy_docs_do_not_describe_main_as_a_bootstrap_channel(self) -> None:
+        sources = {
+            "AGENTS.md": (ROOT / "AGENTS.md").read_text(encoding="utf-8"),
+            "CONTRIBUTING.md": (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8"),
+            "source-and-trust.md": (
+                ROOT / "docs" / "architecture" / "source-and-trust.md"
+            ).read_text(encoding="utf-8"),
+        }
+        for name, source in sources.items():
+            with self.subTest(name=name):
+                self.assertIn("ordinary shared-library", source)
+                self.assertNotIn("initial bootstrap consumer channel", source)
+                self.assertNotIn("During bootstrap, consumers", source)
+                self.assertNotIn("active-development/bootstrap phase", source)
 
 
 if __name__ == "__main__":
