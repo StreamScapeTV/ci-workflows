@@ -31,12 +31,27 @@ class PythonPublicApiTests(unittest.TestCase):
     def test_python_inputs_outputs_and_identity_boundary_are_exact(self) -> None:
         self.assertEqual(
             {item["name"] for item in self.python["inputs"]},
-            {"admitted_sha", "validation_profile", "version_file", "working_directory", "command_profile", "script_path", "artifact_exception_id"},
+            {
+                "execution_backend",
+                "admitted_sha",
+                "validation_profile",
+                "version_file",
+                "working_directory",
+                "command_profile",
+                "script_path",
+                "artifact_exception_id",
+            },
         )
-        self.assertEqual(set(self.python["outputs"]), {"result", "test_summary", "artifact_exception_used"})
+        self.assertEqual(
+            set(self.python["outputs"]),
+            {"result", "test_summary", "artifact_exception_used"},
+        )
         self.assertNotIn("supported_consumers", self.python)
         self.assertNotIn("supported_products", self.python)
-        self.assertEqual(set(self.python["implementation_components"]), {"ci_workflows.python.validate", "actions/validate-python"})
+        self.assertEqual(
+            set(self.python["implementation_components"]),
+            {"ci_workflows.python.validate", "actions/validate-python"},
+        )
 
     def test_python_caller_fixture_accepts_bounded_intent_and_rejects_runner(self) -> None:
         base = {
@@ -46,12 +61,21 @@ class PythonPublicApiTests(unittest.TestCase):
             "event": "pull_request",
             "permissions": {"contents": "read"},
             "secrets": [],
-            "inputs": {"admitted_sha": "0" * 40, "validation_profile": "audit", "command_profile": "source-audit"},
+            "inputs": {
+                "admitted_sha": "0" * 40,
+                "validation_profile": "audit",
+                "command_profile": "source-audit",
+            },
         }
-        self.assertIsNone(public_api.validate_caller(base, self.data, self.workflows, self.profiles))
+        self.assertIsNone(
+            public_api.validate_caller(base, self.data, self.workflows, self.profiles)
+        )
         invalid = json.loads(json.dumps(base))
         invalid["inputs"]["runner"] = "buildah-high"
-        self.assertEqual(public_api.validate_caller(invalid, self.data, self.workflows, self.profiles), "forbidden-caller-field")
+        self.assertEqual(
+            public_api.validate_caller(invalid, self.data, self.workflows, self.profiles),
+            "forbidden-caller-field",
+        )
 
     def test_generated_public_reference_contains_the_implemented_python_api(self) -> None:
         rendered = public_api.render(self.data)
