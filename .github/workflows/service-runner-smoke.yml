@@ -164,6 +164,7 @@ jobs:
           fi
           test -z "$(podman ps -aq --filter "label=io.podman.compose.project=${COMPOSE_PROJECT_NAME}")"
           test -z "$(podman pod ps -q --filter "label=io.podman.compose.project=${COMPOSE_PROJECT_NAME}" 2>/dev/null || true)"
+          test -z "$(podman volume ls -q --filter "label=io.podman.compose.project=${COMPOSE_PROJECT_NAME}")"
 
       - name: Verify exact source remained clean
         if: ${{ always() && !cancelled() }}
