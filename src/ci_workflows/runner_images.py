@@ -69,6 +69,11 @@ _IMAGES = (
         f"{REGISTRY_HOST}/{REGISTRY_NAMESPACE}/github-actions-runner-buildah",
     ),
     RunnerImage(
+        "service",
+        "runner-images/service",
+        f"{REGISTRY_HOST}/{REGISTRY_NAMESPACE}/github-actions-runner-service",
+    ),
+    RunnerImage(
         "docker",
         "runner-images/docker",
         f"{REGISTRY_HOST}/{REGISTRY_NAMESPACE}/github-actions-runner-docker",
