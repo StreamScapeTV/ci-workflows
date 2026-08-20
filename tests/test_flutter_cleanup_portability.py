@@ -1,3 +1,4 @@
+"""Focused regressions for Flutter cleanup process-discovery portability."""
 from __future__ import annotations
 
 import sys
