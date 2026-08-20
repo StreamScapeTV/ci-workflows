@@ -9,7 +9,7 @@ from unittest import mock
 
 from ci_workflows.gradle_maven_publish import (
     GradleMavenPublishError,
-    derive_package_version,
+    derive_release_version,
     parse_publication_tasks,
     publish,
     resolve_plan,
@@ -20,17 +20,40 @@ SHA = "a" * 40
 
 
 class GradleMavenPublishTests(unittest.TestCase):
-    def test_versions_are_stable_or_source_unique_develop(self) -> None:
-        self.assertEqual(derive_package_version("1.2.3", "stable", SHA), "1.2.3")
+    def test_versions_are_stable_tag_or_source_unique_develop(self) -> None:
         self.assertEqual(
-            derive_package_version("1.2.3", "develop", SHA),
+            derive_release_version(
+                "1.2.3",
+                github_ref="refs/tags/v1.2.3",
+                expected_branch="develop",
+                admitted_sha=SHA,
+            ),
+            "1.2.3",
+        )
+        self.assertEqual(
+            derive_release_version(
+                "1.2.3",
+                github_ref="refs/heads/develop",
+                expected_branch="develop",
+                admitted_sha=SHA,
+            ),
             "1.2.3-develop.aaaaaaaaaaaa",
         )
-        for bad in ("1.2", "01.2.3", "1.2.3-alpha"):
-            with self.subTest(version=bad), self.assertRaises(GradleMavenPublishError):
-                derive_package_version(bad, "stable", SHA)
+        for version in ("1.2", "01.2.3", "1.2.3-alpha"):
+            with self.subTest(version=version), self.assertRaises(GradleMavenPublishError):
+                derive_release_version(
+                    version,
+                    github_ref=f"refs/tags/v{version}",
+                    expected_branch="develop",
+                    admitted_sha=SHA,
+                )
         with self.assertRaises(GradleMavenPublishError):
-            derive_package_version("1.2.3", "latest", SHA)
+            derive_release_version(
+                "1.2.3",
+                github_ref="refs/heads/feature/not-authorized",
+                expected_branch="develop",
+                admitted_sha=SHA,
+            )
 
     def test_publication_tasks_are_bounded_gradle_tasks_only(self) -> None:
         tasks = parse_publication_tasks(
@@ -49,7 +72,7 @@ class GradleMavenPublishTests(unittest.TestCase):
             with self.subTest(raw=raw), self.assertRaises(GradleMavenPublishError):
                 parse_publication_tasks(raw)
 
-    def test_plan_requires_exact_bounded_source_paths(self) -> None:
+    def test_plan_requires_exact_bounded_source_paths_and_authorized_ref(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = root / "source"
@@ -62,23 +85,25 @@ class GradleMavenPublishTests(unittest.TestCase):
             plan = resolve_plan(
                 source_root=source,
                 admitted_sha=SHA,
+                github_ref="refs/heads/develop",
+                expected_branch="develop",
                 working_directory="android",
                 gradle_wrapper_path="gradlew",
                 version_file="VERSION",
-                publication_channel="develop",
-                publication_tasks_json='[":x:publishAllPublicationsToForgejoRepository"]',
+                arguments_json='[":x:publishAllPublicationsToForgejoRepository"]',
             )
-            self.assertEqual(plan.package_version, "1.0.0-develop.aaaaaaaaaaaa")
+            self.assertEqual(plan.release_version, "1.0.0-develop.aaaaaaaaaaaa")
             self.assertEqual(plan.working_directory, android.resolve())
             with self.assertRaises(GradleMavenPublishError):
                 resolve_plan(
                     source_root=source,
                     admitted_sha=SHA,
+                    github_ref="refs/heads/develop",
+                    expected_branch="develop",
                     working_directory="../escape",
                     gradle_wrapper_path="gradlew",
                     version_file="VERSION",
-                    publication_channel="develop",
-                    publication_tasks_json='["publish"]',
+                    arguments_json='["publish"]',
                 )
 
     def test_publish_runs_one_gradle_command_and_confines_registry_credentials(self) -> None:
@@ -93,11 +118,12 @@ class GradleMavenPublishTests(unittest.TestCase):
             plan = resolve_plan(
                 source_root=source,
                 admitted_sha=SHA,
+                github_ref="refs/heads/develop",
+                expected_branch="develop",
                 working_directory="android",
                 gradle_wrapper_path="gradlew",
                 version_file="VERSION",
-                publication_channel="develop",
-                publication_tasks_json='[":a:publishAllPublicationsToForgejoRepository",":b:publishAllPublicationsToForgejoRepository"]',
+                arguments_json='[":a:publishAllPublicationsToForgejoRepository",":b:publishAllPublicationsToForgejoRepository"]',
             )
             completed = mock.Mock(returncode=0)
             with mock.patch("subprocess.run", return_value=completed) as run:
@@ -134,11 +160,12 @@ class GradleMavenPublishTests(unittest.TestCase):
             plan = resolve_plan(
                 source_root=source,
                 admitted_sha=SHA,
+                github_ref="refs/tags/v1.0.0",
+                expected_branch="develop",
                 working_directory="android",
                 gradle_wrapper_path="gradlew",
                 version_file="VERSION",
-                publication_channel="stable",
-                publication_tasks_json='["publish"]',
+                arguments_json='["publish"]',
             )
             with mock.patch("subprocess.run") as run, self.assertRaises(GradleMavenPublishError):
                 publish(plan, environment={}, registry_username="", registry_token="")
