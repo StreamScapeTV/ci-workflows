@@ -19,6 +19,7 @@ from ci_workflows.runner_images import (
     validate_release_tag,
     validate_source_sha,
 )
+from ci_workflows.validation_model import ActionsLoader
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_IMAGES = (
@@ -101,11 +102,11 @@ class RunnerImageWorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.action = (ROOT / "actions/runner-image/action.yml").read_text(encoding="utf-8")
-        cls.action_document = yaml.safe_load(cls.action)
+        cls.action_document = yaml.load(cls.action, Loader=ActionsLoader)
         cls.internal = (ROOT / ".github/workflows/internal-runner-image.yml").read_text(encoding="utf-8")
-        cls.internal_document = yaml.safe_load(cls.internal)
+        cls.internal_document = yaml.load(cls.internal, Loader=ActionsLoader)
         cls.release = (ROOT / ".github/workflows/runner-images-release.yml").read_text(encoding="utf-8")
-        cls.release_document = yaml.safe_load(cls.release)
+        cls.release_document = yaml.load(cls.release, Loader=ActionsLoader)
 
     @classmethod
     def _action_step_run(cls, name: str) -> str:
