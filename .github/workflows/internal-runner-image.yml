@@ -28,9 +28,6 @@ on:
       image_digest:
         description: Published GHCR manifest digest in publish mode
         value: ${{ jobs.image.outputs.image_digest }}
-      hosted_metrics_json:
-        description: Hosted-runner feasibility measurements
-        value: ${{ jobs.image.outputs.hosted_metrics_json }}
 
 permissions:
   contents: read
@@ -44,7 +41,6 @@ jobs:
     outputs:
       image_reference: ${{ steps.runner_image.outputs.image_reference }}
       image_digest: ${{ steps.runner_image.outputs.image_digest }}
-      hosted_metrics_json: ${{ steps.runner_image.outputs.hosted_metrics_json }}
     steps:
       - name: Check out exact runner-image source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -66,13 +62,26 @@ jobs:
           test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
 
       - id: runner_image
-        name: Build smoke and optionally publish fixed runner image
+        name: Build smoke and optionally publish with shared Buildah action
         uses: ./actions/runner-image
         with:
           image: ${{ inputs.image }}
           source_sha: ${{ inputs.source_sha }}
           release_tag: ${{ inputs.release_tag }}
           publish: ${{ inputs.publish }}
+
+      - name: Remove runner-image residue
+        if: always()
+        shell: bash
+        env:
+          IMAGE: ${{ inputs.image }}
+        run: >-
+          python3 scripts/ci/runner_images.py cleanup
+          --image "${IMAGE}"
+          --workspace "${GITHUB_WORKSPACE}"
+          --runner-temp "${RUNNER_TEMP}"
+          --run-id "${GITHUB_RUN_ID}"
+          --run-attempt "${GITHUB_RUN_ATTEMPT}"
 
       - name: Verify exact source remained clean
         if: ${{ always() && !cancelled() }}
