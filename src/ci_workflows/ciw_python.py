@@ -113,7 +113,12 @@ def execute_python_validate(
                     organization_runs_on=organization.runs_on,
                 )
             except ExecutionBackendError as error:
-                raise python_validation.PythonValidationError(error.code) from error
+                code = (
+                    "unsupported_profile"
+                    if error.code == "unsupported_execution_backend_profile"
+                    else "invalid_input"
+                )
+                raise python_validation.PythonValidationError(code) from error
             outputs = plan.planning_outputs()
             outputs.update(
                 {
