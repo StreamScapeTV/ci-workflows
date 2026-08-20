@@ -1,59 +1,47 @@
 # Runner image build and release
 
-`ci-workflows` owns one shared build/smoke/publication implementation for the organization runner images. Image composition stays under `runner-images/<image>/`; Flux owns ARC/K3s deployment, runner labels and resources, persistent/shared caching, and the immutable image reference selected for live runners. This workflow does not modify Flux deployment state.
+`ci-workflows` owns one shared runner-image action: `actions/runner-image`. The workflows only choose the fixed image ID and whether publication is enabled.
 
-## Fixed image family
+## Images and registry
 
-The shared contract accepts only these image IDs and public GHCR repositories:
+The fixed image family is:
 
-- `general` -> `ghcr.io/streamscapetv/github-actions-runner-general`
-- `mobile` -> `ghcr.io/streamscapetv/github-actions-runner-mobile`
-- `buildah` -> `ghcr.io/streamscapetv/github-actions-runner-buildah`
-- `service` -> `ghcr.io/streamscapetv/github-actions-runner-service`
-- `docker` -> `ghcr.io/streamscapetv/github-actions-runner-docker`
-- `flux-control` -> `ghcr.io/streamscapetv/github-actions-runner-flux-control`
+- `general`
+- `mobile`
+- `buildah`
+- `service`
+- `docker`
+- `flux-control`
 
-Each image provides `runner-images/<image>/Dockerfile`, `runner-images/<image>/smoke.sh`, and `/usr/local/bin/runner-image-smoke` in the built image. The typed resolver owns the fixed source paths and GHCR destinations. `actions/runner-image` is the single Docker build/smoke/publish implementation used by both the internal reusable leaf and the repository validation/release workflows.
+Each image publishes only to:
 
-An image may additionally own `runner-images/<image>/prepare_inputs.py` when its Dockerfile needs checksum-verified build-context inputs. The shared action runs that fixed product-local preparer only when it exists, requires it to create a real `.ciw-build-inputs` directory before the build, and removes that generated directory in terminal cleanup. Images without a preparer go directly from planning to build; Central does not own per-product download URLs or tool definitions.
+`ghcr.io/streamscapetv/github-actions-runner-<image>`
 
-Callers cannot choose a registry, runner label, arbitrary shell command, Kubernetes target, cache backend, or storage path. Runner-image build and smoke use a fresh standard GitHub-hosted `ubuntu-latest` VM. The action verifies `RUNNER_ENVIRONMENT=github-hosted`, Linux/x64, Docker, and Buildx before it builds. It does not fall back to organization ARC capacity when hosted capacity or disk is insufficient.
+`git.faruqi.dev` and private runner-registry credentials are not part of this path.
 
-The action builds each image exactly once with Docker, adds `org.opencontainers.image.source=https://github.com/StreamScapeTV/ci-workflows` and the exact `org.opencontainers.image.revision`, measures image size, largest uncompressed layer, workspace free space, and Docker-root free space, then runs the image-owned smoke command against that exact local image. No Actions cache or runner-image archive artifact is used.
+## Build and smoke
 
-## Hosted feasibility and GHCR limits
+Runner-image validation and release use standard GitHub-hosted `[ubuntu-latest]` jobs. The shared action uses the Buildah and Skopeo tools already provided by that runner image.
 
-Every validation/release matrix entry records its hosted feasibility measurements in the job summary. Layer measurement fails closed before release when a layer reaches GitHub Container Registry's 10 GB limit; Central reserves additional headroom and reports a bounded blocker rather than changing builders or registries.
+For each image the action:
 
-GitHub currently documents a 10-minute timeout for an individual Container Registry layer upload. Central does not reinterpret that as a ten-minute timeout for the entire multi-layer push. Docker commands remain bounded by the workflow/job timeout while GitHub enforces its registry-side layer constraint.
+1. resolves the fixed source directory and GHCR reference;
+2. builds the image once with Buildah;
+3. runs the image-owned `/usr/local/bin/runner-image-smoke` from that same local image;
+4. optionally logs in to GHCR with the repository `GITHUB_TOKEN` and pushes the version plus `latest`;
+5. verifies the version and `latest` digests match and are anonymously readable; and
+6. performs terminal cleanup under `if: always()`.
 
-## Reusable internal leaf
-
-`.github/workflows/internal-runner-image.yml` is a shallow `workflow_call` leaf for central/infrastructure callers. It checks out one exact `ci-workflows` SHA, runs on `ubuntu-latest`, delegates build/smoke/optional GHCR publication to the composite action, and verifies the source checkout remains clean. It does not call another reusable workflow and exposes no registry credential input.
-
-Because GitHub permissions cannot be made conditional on a boolean workflow input, this optional-publication internal leaf grants `contents: read` and `packages: write`. Non-publishing pull-request validation does not use this leaf: `.github/workflows/runner-images-validation.yml` calls the local action directly with only `contents: read` and `publish: false`.
+There is no Docker/Buildx implementation, no private-registry mirror, and no GitHub Actions image artifact handoff.
 
 ## Pull-request validation
 
-`.github/workflows/runner-images-validation.yml` validates all six current images independently. The matrix creates one fresh `ubuntu-latest` job per image, checks out the exact pull-request head, builds once, runs the image-owned smoke against the same local image, records hosted feasibility metrics, and verifies the source tree remains exact and clean.
+`.github/workflows/runner-images-validation.yml` creates one independent `[ubuntu-latest]` matrix job for each of the six images. It calls the shared action with `publish: false`, so validation has no package-write permission.
 
-Validation has no `packages: write`, registry token, private-registry secret, cache, or artifact upload. A failure for one image does not silently move that image to ARC/Buildah capacity.
+## Release
 
-## Repository release
+`.github/workflows/runner-images-release.yml` triggers for every repository Git tag and may also replay an existing Git tag through manual dispatch. The release job grants only `contents: read` and `packages: write`, checks out the exact tagged commit, and calls the same shared action with `publish: true`.
 
-`.github/workflows/runner-images-release.yml` is the thin repository-level release caller. **Every repository Git tag** matches the workflow's `push.tags: ["*"]` trigger; no `runner-images-` prefix is required. Manual dispatch accepts an already-existing Git tag. In both cases the resolve job checks out the exact tag, verifies its commit identity, and emits the complete six-image release family.
+The exact Git tag is the versioned image tag. `latest` is only the mutable convenience alias. A pre-existing version tag with a different `org.opencontainers.image.revision` is rejected before publication.
 
-For example, repository tag `1.0` publishes each fixed image as:
-
-- `ghcr.io/streamscapetv/github-actions-runner-<image>:1.0`
-- `ghcr.io/streamscapetv/github-actions-runner-<image>:latest`
-
-The exact Git tag remains the immutable/versioned release authority. `latest` is only a mutable convenience alias and is not accepted as the repository release tag itself.
-
-Each release matrix entry runs on a fresh `ubuntu-latest` VM with only `contents: read` and `packages: write`. It checks out the exact tagged commit, builds the image once, smokes that exact local image, and only then authenticates to `ghcr.io` using the repository `GITHUB_TOKEN`. There is no PAT or private-registry credential surface.
-
-For a new version tag, the already-smoked local image is tagged and pushed as the version and `latest`; the publisher does not rebuild. If the immutable version already exists, replay succeeds only when both the recorded source revision and image config digest match the newly smoke-tested local image. The version tag is never overwritten; `latest` is moved by copying the exact existing manifest with Buildx `--prefer-index=false`.
-
-After publication, Central independently resolves the versioned and `latest` manifest digests and requires equality. It then drops GHCR authentication, removes the authenticated Docker config, and repeats both manifest reads anonymously. Release succeeds only when the public references remain anonymously readable and match the expected digest.
-
-Runner-image releases retain zero routine GitHub Actions artifacts. Public GHCR is the only runner-image publication target in this workflow. Live Flux runner references are updated separately through reviewed Flux deployment work.
+Live ARC/Kubernetes deployment remains Flux-owned and is not changed by this workflow.
