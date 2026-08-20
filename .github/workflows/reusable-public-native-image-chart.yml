@@ -149,7 +149,6 @@ jobs:
           echo "REGISTRY_AUTH_FILE=${state_root}/auth.json" >> "${GITHUB_ENV}"
           echo "HELM_REGISTRY_CONFIG=${state_root}/helm-registry.json" >> "${GITHUB_ENV}"
           echo "PACKAGE_ROOT=${state_root}/packages" >> "${GITHUB_ENV}"
-          echo "PUBLIC_RELEASE_STATE_ROOT=${state_root}" >> "${GITHUB_ENV}"
 
       - name: Revalidate exact tag immediately before privileged work
         uses: ./.ciw/actions/resolve-release-tag
@@ -234,7 +233,7 @@ jobs:
           set -Eeuo pipefail
           python3 .ciw/scripts/ci/public_native_image_chart.py readback \
             --image-name "${IMAGE_NAME}" --chart-name "${CHART_NAME}" \
-            --version "${VERSION}" --state-root "${PUBLIC_RELEASE_STATE_ROOT}" \
+            --version "${VERSION}" --state-root "${RUNNER_TEMP}/public-native-image-chart" \
             --github-output "${GITHUB_OUTPUT}"
 
       - name: Clean public publication credentials and build state
@@ -246,7 +245,7 @@ jobs:
           set -Eeuo pipefail
           python3 .ciw/scripts/ci/public_native_image_chart.py cleanup \
             --image-name "${IMAGE_NAME}" --version "${VERSION}" \
-            --state-root "${PUBLIC_RELEASE_STATE_ROOT}"
+            --state-root "${RUNNER_TEMP}/public-native-image-chart"
 
       - name: Verify exact caller and Central sources remained clean
         if: ${{ always() && !cancelled() }}
@@ -257,4 +256,4 @@ jobs:
           test -z "$(git -C source status --porcelain=v1 --untracked-files=all)"
           test "$(git -C .ciw rev-parse HEAD)" = "${{ job.workflow_sha }}"
           test -z "$(git -C .ciw status --porcelain=v1 --untracked-files=all)"
-          test ! -e "${PUBLIC_RELEASE_STATE_ROOT}"
+          test ! -e "${RUNNER_TEMP}/public-native-image-chart"
