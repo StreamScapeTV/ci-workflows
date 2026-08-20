@@ -90,9 +90,11 @@ class AppleWorkflowContractTests(unittest.TestCase):
 
     def test_semantic_runner_selection_uses_one_heavy_apple_executor(self) -> None:
         direct_general_selector = "runs-on: [linux, amd64, general, small]"
+        hosted_control_selector = "runs-on: [ubuntu-latest]"
         self.assertIn(direct_general_selector, self.workflow)
         self.assertNotIn(direct_general_selector, self.smoke)
-        self.assertEqual(self.smoke.count("runs-on: ubuntu-latest"), 2)
+        self.assertEqual(self.smoke.count(hosted_control_selector), 2)
+        self.assertNotIn("runs-on: ubuntu-latest", self.smoke)
         self.assertEqual(
             self.workflow.count(
                 "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}"
