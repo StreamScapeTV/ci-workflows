@@ -20,11 +20,8 @@ jobs:
   reusable_call:
     name: Parse native image/chart reusable call
     if: ${{ false }}
-    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-native-image-chart.yml@6fa19fe73c709c6fb81a30b926edac95a2fb674e # issue #364 parser-fix checkpoint
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-native-image-chart.yml@main
     with:
-      release_mode: existing-tag
-      release_version: "0.0.0"
-      release_source_sha: "0000000000000000000000000000000000000000"
       image_name: parser-smoke
       chart_name: parser-smoke
       chart_path: .
