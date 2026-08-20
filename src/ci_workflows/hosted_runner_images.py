@@ -7,7 +7,7 @@ import shutil
 import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable, Mapping, Sequence
+from typing import Mapping, Sequence
 
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _SOURCE_SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -15,7 +15,6 @@ _DECIMAL_SIZE = re.compile(r"^([0-9]+(?:\.[0-9]+)?)(B|kB|MB|GB|TB)$")
 _GHCR_REFERENCE = re.compile(
     r"^ghcr\.io/streamscapetv/github-actions-runner-[a-z][a-z0-9-]{0,31}:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$"
 )
-_GHCR_HOST = "ghcr.io"
 _LAYER_HARD_LIMIT_BYTES = 10_000_000_000
 _LAYER_SAFETY_LIMIT_BYTES = 9_500_000_000
 _SOURCE_LABEL = "org.opencontainers.image.revision"
@@ -106,9 +105,7 @@ def _completed(
 
 
 def _docker_root() -> Path:
-    result = _completed(
-        ["docker", "info", "--format", "{{.DockerRootDir}}"],
-    )
+    result = _completed(["docker", "info", "--format", "{{.DockerRootDir}}"])
     value = result.stdout.strip()
     root = Path(value)
     require(value.startswith("/") and root.is_dir(), "invalid_docker_root")
@@ -126,11 +123,11 @@ def collect_metrics(
     validate_source_sha(source_sha)
     require(workspace.is_dir(), "invalid_workspace")
     size = _completed(
-        ["docker", "image", "inspect", image_reference, "--format", "{{.Size}}"],
+        ["docker", "image", "inspect", image_reference, "--format", "{{.Size}}"]
     ).stdout.strip()
     require(size.isdecimal() and int(size) > 0, "invalid_image_size")
     history = _completed(
-        ["docker", "history", "--no-trunc", "--format", "{{.Size}}", image_reference],
+        ["docker", "history", "--no-trunc", "--format", "{{.Size}}", image_reference]
     ).stdout.splitlines()
     largest = validate_layer_sizes(history)
     workspace_free = shutil.disk_usage(workspace).free
@@ -146,7 +143,15 @@ def collect_metrics(
     )
 
 
-def _imagetools_digest(reference: str) -> str:
+def _local_config_digest(reference: str) -> str:
+    value = _completed(
+        ["docker", "image", "inspect", reference, "--format", "{{.Id}}"]
+    ).stdout.strip()
+    require(_DIGEST.fullmatch(value) is not None, "invalid_local_config_digest")
+    return value
+
+
+def _imagetools_manifest(reference: str) -> Mapping[str, object]:
     validate_ghcr_reference(reference)
     result = _completed(
         [
@@ -156,19 +161,42 @@ def _imagetools_digest(reference: str) -> str:
             "inspect",
             reference,
             "--format",
-            "{{json .Manifest.Digest}}",
+            "{{json .Manifest}}",
         ]
     )
     try:
         value = json.loads(result.stdout.strip())
     except json.JSONDecodeError as error:
-        raise HostedRunnerImageError("invalid_registry_digest") from error
+        raise HostedRunnerImageError("invalid_registry_manifest") from error
+    require(isinstance(value, dict), "invalid_registry_manifest")
+    return value
+
+
+def _imagetools_digest(reference: str) -> str:
+    value = _imagetools_manifest(reference).get("digest")
     require(isinstance(value, str) and _DIGEST.fullmatch(value) is not None, "invalid_registry_digest")
     return value
 
 
-def _existing_revision(reference: str) -> tuple[str, str] | None:
-    """Return an existing tag's source revision and digest without pulling layers."""
+def _imagetools_config_digest(reference: str) -> str:
+    validate_ghcr_reference(reference)
+    result = _completed(
+        ["docker", "buildx", "imagetools", "inspect", reference, "--raw"]
+    )
+    try:
+        manifest = json.loads(result.stdout.strip())
+    except json.JSONDecodeError as error:
+        raise HostedRunnerImageError("invalid_registry_manifest") from error
+    require(isinstance(manifest, dict), "invalid_registry_manifest")
+    config = manifest.get("config")
+    require(isinstance(config, dict), "unsupported_registry_index")
+    value = config.get("digest")
+    require(isinstance(value, str) and _DIGEST.fullmatch(value) is not None, "invalid_registry_config_digest")
+    return value
+
+
+def _existing_revision(reference: str) -> tuple[str, str, str] | None:
+    """Return an existing tag's source revision and manifest/config digests."""
 
     validate_ghcr_reference(reference)
     result = _completed(
@@ -192,7 +220,25 @@ def _existing_revision(reference: str) -> tuple[str, str] | None:
     require(isinstance(labels, dict), "invalid_existing_manifest")
     revision = labels.get(_SOURCE_LABEL)
     require(isinstance(revision, str), "missing_source_revision")
-    return revision, _imagetools_digest(reference)
+    return revision, _imagetools_digest(reference), _imagetools_config_digest(reference)
+
+
+def _copy_exact_manifest_to_latest(
+    *, versioned_reference: str, latest_reference: str, digest: str
+) -> None:
+    require(_DIGEST.fullmatch(digest) is not None, "invalid_registry_digest")
+    _completed(
+        [
+            "docker",
+            "buildx",
+            "imagetools",
+            "create",
+            "--prefer-index=false",
+            "--tag",
+            latest_reference,
+            f"{versioned_reference}@{digest}",
+        ]
+    )
 
 
 def publish_exact_image(
@@ -209,13 +255,6 @@ def publish_exact_image(
     validate_ghcr_reference(latest_reference)
     require(versioned_reference != latest_reference, "duplicate_release_reference")
 
-    existing = _existing_revision(versioned_reference)
-    if existing is not None:
-        revision, existing_digest = existing
-        require(revision == source_sha, "immutable_release_conflict")
-    else:
-        existing_digest = ""
-
     local_revision = _completed(
         [
             "docker",
@@ -227,17 +266,35 @@ def publish_exact_image(
         ]
     ).stdout.strip()
     require(local_revision == source_sha, "local_source_revision_mismatch")
+    local_config_digest = _local_config_digest(local_reference)
+
+    existing = _existing_revision(versioned_reference)
+    if existing is not None:
+        revision, version_digest, remote_config_digest = existing
+        require(revision == source_sha, "immutable_release_conflict")
+        require(remote_config_digest == local_config_digest, "immutable_release_conflict")
+        _copy_exact_manifest_to_latest(
+            versioned_reference=versioned_reference,
+            latest_reference=latest_reference,
+            digest=version_digest,
+        )
+        require(
+            _imagetools_digest(latest_reference) == version_digest,
+            "registry_alias_digest_mismatch",
+        )
+        return version_digest
 
     _completed(["docker", "tag", local_reference, versioned_reference])
     _completed(["docker", "tag", local_reference, latest_reference])
     _completed(["docker", "push", versioned_reference])
-    _completed(["docker", "push", latest_reference])
-
     version_digest = _imagetools_digest(versioned_reference)
+    require(
+        _imagetools_config_digest(versioned_reference) == local_config_digest,
+        "registry_config_digest_mismatch",
+    )
+    _completed(["docker", "push", latest_reference])
     latest_digest = _imagetools_digest(latest_reference)
     require(version_digest == latest_digest, "registry_alias_digest_mismatch")
-    if existing_digest:
-        require(version_digest == existing_digest, "immutable_release_conflict")
     return version_digest
 
 
