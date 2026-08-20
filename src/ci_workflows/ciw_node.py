@@ -114,7 +114,12 @@ def execute_node_validate(
                     organization_runs_on=organization.runs_on,
                 )
             except ExecutionBackendError as error:
-                raise node_validation.NodeValidationError(error.code) from error
+                code = (
+                    "unsupported_profile"
+                    if error.code == "unsupported_execution_backend_profile"
+                    else "invalid_input"
+                )
+                raise node_validation.NodeValidationError(code) from error
             outputs = plan.planning_outputs()
             outputs.update(
                 {
