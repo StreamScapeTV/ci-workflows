@@ -17,6 +17,7 @@ _GHCR_REFERENCE = re.compile(
 )
 _LAYER_HARD_LIMIT_BYTES = 10_000_000_000
 _LAYER_SAFETY_LIMIT_BYTES = 9_500_000_000
+_COMMAND_TIMEOUT_SECONDS = 3600
 _SOURCE_LABEL = "org.opencontainers.image.revision"
 
 
@@ -98,7 +99,7 @@ def _completed(
             input=input_text,
             capture_output=True,
             env=None if environment is None else dict(environment),
-            timeout=600,
+            timeout=_COMMAND_TIMEOUT_SECONDS,
         )
     except (OSError, subprocess.SubprocessError) as error:
         raise HostedRunnerImageError("docker_command_failed") from error
