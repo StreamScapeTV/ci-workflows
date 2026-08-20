@@ -1,6 +1,4 @@
-# SCAFFOLDING ONLY.
-# TODO(#324 after #283/#322/#323): replace the reusable workflow filename,
-# central ref, and bounded input placeholder with the final generic API.
+# COPY/ADAPT EXAMPLE.
 # TODO(consumer): choose product-owned paths OR paths-ignore; do not keep both.
 name: TODO Android / Gradle validation
 
@@ -15,7 +13,6 @@ name: TODO Android / Gradle validation
   push:
     branches:
       - TODO_PROTECTED_BRANCH
-      - TODO_OPTIONAL_FEATURE_BRANCH_GLOB
     paths:
       - TODO_PRODUCT_PATH/**
       - .github/workflows/TODO_CALLER_WORKFLOW.yml
@@ -25,11 +22,23 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
-
 jobs:
-  validate:
-    uses: StreamScapeTV/ci-workflows/.github/workflows/TODO_REUSABLE_ANDROID_WORKFLOW.yml@TODO_CENTRAL_REF
+  source:
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-resolve-source.yml@main
     with:
-      TODO_BOUNDED_ANDROID_INPUT: TODO_PRODUCT_OWNED_VALUE
+      source_mode: auto
+      expected_branch: TODO_PROTECTED_BRANCH
+
+  validate:
+    needs: source
+    permissions:
+      contents: read
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-android.yml@main
+    with:
+      admitted_sha: ${{ needs.source.outputs.source_sha }}
+      validation_scope: TODO_ANDROID_VALIDATION_SCOPE
+      working_directory: TODO_ANDROID_WORKING_DIRECTORY
+      validation_plan_json: "TODO_ANDROID_VALIDATION_PLAN_JSON"

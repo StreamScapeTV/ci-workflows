@@ -1,20 +1,20 @@
 # COPY/ADAPT EXAMPLE.
 # TODO(consumer): choose product-owned paths OR paths-ignore; do not keep both.
-name: TODO Node validation
+name: TODO Helm validation
 
 "on":
   pull_request:
     branches:
       - TODO_PROTECTED_BRANCH
     paths:
-      - TODO_PRODUCT_PATH/**
+      - TODO_CHART_PATH/**
       - .github/workflows/TODO_CALLER_WORKFLOW.yml
       - TODO_PRODUCT_CONFIGURATION_PATH
   push:
     branches:
       - TODO_PROTECTED_BRANCH
     paths:
-      - TODO_PRODUCT_PATH/**
+      - TODO_CHART_PATH/**
       - .github/workflows/TODO_CALLER_WORKFLOW.yml
       - TODO_PRODUCT_CONFIGURATION_PATH
 
@@ -36,11 +36,10 @@ jobs:
     needs: source
     permissions:
       contents: read
-    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-node.yml@main
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-helm-validate.yml@main
     with:
       admitted_sha: ${{ needs.source.outputs.source_sha }}
-      validation_profile: TODO_NODE_VALIDATION_PROFILE
-      version_file: TODO_NODE_VERSION_FILE
-      working_directory: TODO_NODE_WORKING_DIRECTORY
-      install_profile: TODO_NODE_INSTALL_PROFILE
-      command_profile: TODO_NODE_COMMAND_PROFILE
+      # Caller-owned chart identity; this is not a Central registration key.
+      product_id: TODO_HELM_CALLER_IDENTITY
+      values_profile: TODO_HELM_VALUES_PROFILE
+      policy_path: TODO_HELM_POLICY_PATH
