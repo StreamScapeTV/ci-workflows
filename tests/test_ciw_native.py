@@ -120,6 +120,32 @@ class NativeAdapterTests(unittest.TestCase):
                 with self.assertRaisesRegex(ciw_native.NativeValidationError, f"^{code}$"):
                     ciw_native.request_from_environment(environment)
 
+    def test_invalid_source_never_reaches_github_output_as_raw_text(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / "github-output"
+            output.touch()
+            environment = self.environment(
+                INPUT_ADMITTED_SHA="bad\nsha",
+                GITHUB_OUTPUT=str(output),
+            )
+
+            exit_code = ciw_native.main(
+                ["--root", str(root), "--workspace", str(root / "workspace")],
+                environment=environment,
+            )
+
+            self.assertEqual(exit_code, 2)
+            values = dict(
+                line.split("=", 1)
+                for line in output.read_text(encoding="utf-8").splitlines()
+            )
+            self.assertEqual(values["result"], "failure")
+            self.assertEqual(values["source_sha"], "")
+            self.assertEqual(values["failure_code"], "invalid_admitted_sha")
+            self.assertEqual(json.loads(values["test_summary"]), {"status": "failed"})
+            self.assertNotIn("bad", output.read_text(encoding="utf-8"))
+
     def test_native_build_output_never_targets_source_tree(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
