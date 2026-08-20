@@ -196,7 +196,7 @@ class RunnerImageWorkflowTests(unittest.TestCase):
         self.assertIn("workflow_call", self.internal_document["on"])
         self.assertNotIn("workflow_dispatch", self.internal_document["on"])
         self.assertNotIn("pull_request", self.internal_document["on"])
-        self.assertEqual(self.internal_document["jobs"]["image"]["runs-on"], "ubuntu-latest")
+        self.assertEqual(self.internal_document["jobs"]["image"]["runs-on"], ["ubuntu-latest"])
         self.assertEqual(
             self.internal_document["permissions"],
             {"contents": "read", "packages": "write"},
@@ -216,9 +216,9 @@ class RunnerImageWorkflowTests(unittest.TestCase):
 
     def test_release_is_six_independent_hosted_public_ghcr_jobs(self) -> None:
         document = self.release_document
-        self.assertEqual(document["jobs"]["resolve"]["runs-on"], "ubuntu-latest")
+        self.assertEqual(document["jobs"]["resolve"]["runs-on"], ["ubuntu-latest"])
         release_job = document["jobs"]["release"]
-        self.assertEqual(release_job["runs-on"], "ubuntu-latest")
+        self.assertEqual(release_job["runs-on"], ["ubuntu-latest"])
         self.assertEqual(
             release_job["permissions"],
             {"contents": "read", "packages": "write"},
@@ -231,6 +231,14 @@ class RunnerImageWorkflowTests(unittest.TestCase):
         self.assertIn("uses: ./actions/runner-image", self.release)
         self.assertIn('publish: "true"', self.release)
         self.assertIn("Record hosted feasibility and public GHCR identity", self.release)
+        self.assertIn("Remove runner-image release residue", self.release)
+        cleanup = next(
+            step for step in release_job["steps"]
+            if step.get("name") == "Remove runner-image release residue"
+        )
+        self.assertEqual(cleanup["if"], "always()")
+        self.assertIn("ciw-runner-docker-", cleanup["run"])
+        self.assertIn(".ciw-build-inputs", cleanup["run"])
         self.assertNotIn("uses: ./.github/workflows/internal-runner-image.yml", self.release)
         for forbidden in (
             "registry_username",
