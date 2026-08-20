@@ -19,7 +19,7 @@ assert SPEC and SPEC.loader
 BOOTSTRAP = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(BOOTSTRAP)
 ORIGINAL_READ_TEXT = BOOTSTRAP.read_text
-SELECTOR_LINE = "runs-on: [linux, amd64, general, small]"
+SELECTOR_LINE = "runs-on: ubuntu-latest"
 
 
 def workflow_source() -> str:
@@ -114,21 +114,21 @@ class GeneralLinuxSelfCheckTest(unittest.TestCase):
                     run_admission(event, mismatch=True).returncode,
                 )
 
-    def test_central_uses_only_final_general_linux_selector(self) -> None:
+    def test_central_uses_only_standard_github_hosted_linux(self) -> None:
         source = workflow_source()
         workflow = yaml.safe_load(source)
         self.assertEqual(
             workflow["jobs"]["validate"]["runs-on"],
-            ["linux", "amd64", "general", "small"],
+            "ubuntu-latest",
         )
         self.assertEqual(1, source.count(SELECTOR_LINE))
         for forbidden in (
             "runs-on: portable",
+            "runs-on: [linux, amd64, general, small]",
             "runs-on: [linux, amd64, general]",
             "runs-on: macOS",
             "runs-on: apple",
             "macos-latest",
-            "ubuntu-latest",
             "windows-latest",
             "self-hosted",
             "runs-on: mobile",
@@ -144,13 +144,14 @@ class GeneralLinuxSelfCheckTest(unittest.TestCase):
             "runs-on: portable",
             "runs-on: [linux]",
             "runs-on: [linux, amd64]",
+            "runs-on: [linux, amd64, general, small]",
             "runs-on: [linux, amd64, general]",
             "runs-on: [linux, amd64, general, mobile]",
             "runs-on: [linux, amd64, portable]",
             "runs-on: macOS",
             "runs-on: apple",
             "runs-on: macos-latest",
-            "runs-on: ubuntu-latest",
+            "runs-on: ubuntu-24.04",
             "runs-on: windows-latest",
             "runs-on: self-hosted",
             "runs-on: ${{ inputs.runner }}",
@@ -168,6 +169,15 @@ class GeneralLinuxSelfCheckTest(unittest.TestCase):
                 self.assertNotEqual(original, mutated)
                 with self.assertRaises(SystemExit):
                     validate_mutation(mutated)
+
+    def test_hosted_selector_is_bound_to_backend_contract(self) -> None:
+        contract = json.loads(
+            (ROOT / "contracts/runner-execution-backends.json").read_text()
+        )
+        self.assertEqual(contract["github-hosted"]["runs_on"], ["ubuntu-latest"])
+        mutated = workflow_source().replace(SELECTOR_LINE, "runs-on: ubuntu-24.04")
+        with self.assertRaises(SystemExit):
+            validate_mutation(mutated)
 
     def test_runtime_setup_and_privilege_escalation_are_rejected(self) -> None:
         original = workflow_source()
@@ -206,9 +216,7 @@ class GeneralLinuxSelfCheckTest(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     validate_mutation(mutated)
 
-    def test_portable_runtime_uses_minor_contract_and_locked_dependencies(
-        self,
-    ) -> None:
+    def test_portable_organization_runtime_contract_remains_unchanged(self) -> None:
         source = workflow_source()
         self.assertIn('[[ "${version}" == 3.12.* ]]', source)
         self.assertNotIn('[[ "${version}" == "3.12.13" ]]', source)
@@ -307,7 +315,7 @@ class GeneralLinuxSelfCheckTest(unittest.TestCase):
             self.assertIn("${VERIFIED_PYTHON}", after_checkout)
             self.assertIn(command, after_checkout)
 
-    def test_general_linux_gate_grants_no_sensitive_apple_capability(self) -> None:
+    def test_hosted_general_linux_gate_grants_no_sensitive_capability(self) -> None:
         source = workflow_source().lower()
         for forbidden in (
             "secrets.",
