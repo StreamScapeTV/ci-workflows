@@ -54,9 +54,7 @@ jobs:
 
       - name: Verify release checkout remained clean
         shell: bash
-        run: |
-          set -Eeuo pipefail
-          test -z "$(git status --porcelain --untracked-files=all)"
+        run: test -z "$(git status --porcelain --untracked-files=all)"
 
   release:
     name: Publish ${{ matrix.image }} runner image to public GHCR
@@ -97,7 +95,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
 
       - id: image
-        name: Build smoke and publish the exact local image
+        name: Build smoke and publish with shared Buildah action
         uses: ./actions/runner-image
         with:
           image: ${{ matrix.image }}
@@ -105,21 +103,16 @@ jobs:
           release_tag: ${{ needs.resolve.outputs.release_tag }}
           publish: "true"
 
-      - name: Record hosted feasibility and public GHCR identity
+      - name: Record published GHCR identity
         shell: bash
         env:
-          IMAGE: ${{ matrix.image }}
           IMAGE_REFERENCE: ${{ steps.image.outputs.image_reference }}
           IMAGE_DIGEST: ${{ steps.image.outputs.image_digest }}
-          HOSTED_METRICS_JSON: ${{ steps.image.outputs.hosted_metrics_json }}
         run: |
           set -Eeuo pipefail
           test -n "${IMAGE_REFERENCE}"
           [[ "${IMAGE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
-          test -n "${HOSTED_METRICS_JSON}"
-          printf '### Runner image `%s` release\n\n- Reference: `%s`\n- Digest: `%s`\n\n```json\n%s\n```\n' \
-            "${IMAGE}" "${IMAGE_REFERENCE}" "${IMAGE_DIGEST}" "${HOSTED_METRICS_JSON}" \
-            >> "${GITHUB_STEP_SUMMARY}"
+          printf -- '- `%s@%s`\n' "${IMAGE_REFERENCE}" "${IMAGE_DIGEST}" >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Remove runner-image release residue
         if: always()
@@ -127,7 +120,7 @@ jobs:
         env:
           IMAGE: ${{ matrix.image }}
         run: >-
-          python3 scripts/ci/hosted_runner_images.py cleanup
+          python3 scripts/ci/runner_images.py cleanup
           --image "${IMAGE}"
           --workspace "${GITHUB_WORKSPACE}"
           --runner-temp "${RUNNER_TEMP}"
