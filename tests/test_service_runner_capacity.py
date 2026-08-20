@@ -22,6 +22,9 @@ class ServiceRunnerCapacityTests(unittest.TestCase):
         cls.product = json.loads((ROOT / "runner-images/service/product.json").read_text(encoding="utf-8"))
         cls.lock = json.loads((ROOT / "runner-images/service/toolchain.lock.json").read_text(encoding="utf-8"))
         cls.canary = (ROOT / ".github/workflows/service-runner-smoke.yml").read_text(encoding="utf-8")
+        cls.validation_workflow = (ROOT / ".github/workflows/runner-images-validation.yml").read_text(encoding="utf-8")
+        cls.release_workflow = (ROOT / ".github/workflows/runner-images-release.yml").read_text(encoding="utf-8")
+        cls.dependabot = (ROOT / ".github/dependabot.yml").read_text(encoding="utf-8")
 
     def test_service_profile_is_fixed_pr_safe_semantic_capacity(self) -> None:
         self.assertEqual(self.service["internal_selectors"], [["linux", "amd64", "service", "small"]])
@@ -109,6 +112,12 @@ class ServiceRunnerCapacityTests(unittest.TestCase):
             plan.registry_repository,
             "git.faruqi.dev/mimranfaruqi/github-actions-runner-service",
         )
+
+    def test_service_image_lifecycle_is_registered(self) -> None:
+        self.assertEqual(self.validation_workflow.count("          - service"), 1)
+        self.assertEqual(self.release_workflow.count("          - service"), 1)
+        self.assertIn('directory: "/runner-images/service"', self.dependabot)
+        self.assertIn('"runner-images/service/**"', self.validation_workflow)
 
     def test_exact_source_canary_proves_rootless_compose_and_cleanup(self) -> None:
         for expected in (
