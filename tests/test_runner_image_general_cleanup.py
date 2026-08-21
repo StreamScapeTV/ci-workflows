@@ -10,15 +10,18 @@ def test_general_runner_removes_build_phase_npm_state_before_final_image() -> No
     source = DOCKERFILE.read_text(encoding="utf-8")
 
     smoke_index = source.index("RUN /usr/local/bin/runner-image-smoke")
-    cleanup_block = (
-        "USER root\n"
-        "RUN rm -rf /home/runner/.npm /home/runner/.cache; \\\n"
-        "    chown -R 1001:1001 /home/runner"
+    cleanup_user_index = source.index("USER root", smoke_index)
+    cleanup_index = source.index(
+        "RUN rm -rf /home/runner/.npm /home/runner/.cache;",
+        cleanup_user_index,
     )
-    cleanup_index = source.index(cleanup_block)
+    ownership_index = source.index(
+        "chown -R 1001:1001 /home/runner",
+        cleanup_index,
+    )
     final_runner_index = source.rindex("USER 1001:1001")
 
-    assert smoke_index < cleanup_index < final_runner_index
+    assert smoke_index < cleanup_user_index < cleanup_index < ownership_index < final_runner_index
     assert source.rstrip().endswith("USER 1001:1001\nCMD []")
     assert source.count("RUN /usr/local/bin/runner-image-smoke") == 1
     assert "sudo chown" not in source
