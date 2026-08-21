@@ -11,7 +11,7 @@ from ci_workflows.apple_types import AppleProfile, AppleValidationRequest
 
 ROOT = Path(__file__).resolve().parents[1]
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-APPLE_HELPER_SHA = "f682622a1a659368cba78c071c72b8b6e8953d88"
+APPLE_HELPER_SHA = "8a360dfe04a42840fb3675d96746e8e9c465f465"
 
 
 class AppleWorkflowContractTests(unittest.TestCase):
