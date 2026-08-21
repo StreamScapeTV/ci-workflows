@@ -11,7 +11,7 @@ from ci_workflows.apple_types import AppleProfile, AppleValidationRequest
 
 ROOT = Path(__file__).resolve().parents[1]
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-APPLE_HELPER_SHA = "8a360dfe04a42840fb3675d96746e8e9c465f465"
+APPLE_HELPER_SHA = "c82cd9fba134ff736621b8bbd636594c2a6fe923"
 
 
 class AppleWorkflowContractTests(unittest.TestCase):
@@ -338,6 +338,9 @@ class AppleWorkflowContractTests(unittest.TestCase):
         self.assertIn("simulator_ownership_identity_mismatch", self.execution)
         self.assertIn("simulator_unowned", self.execution)
         self.assertIn("simulator_ambiguous", self.execution)
+        self.assertIn("External Display", self.execution)
+        self.assertIn("_recorded_owned_companion_candidates", self.execution)
+        self.assertIn("_delete_recorded_owned_objects", self.execution)
         self.assertNotIn("state_root.resolve()", self.execution)
         self.assertNotIn('destination = "generic/', self.execution.lower())
         self.assertIn("generic/platform=", self.multistage)
