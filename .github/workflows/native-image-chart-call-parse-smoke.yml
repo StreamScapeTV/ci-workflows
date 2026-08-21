@@ -33,11 +33,10 @@ jobs:
     name: CI / native image-chart reusable call parsed
     needs: reusable_call
     if: ${{ always() }}
-    runs-on: [linux, amd64, general, small]
+    runs-on: [ubuntu-latest]
     timeout-minutes: 5
     steps:
       - name: Confirm parse and clean zero runtime state
-        if: ${{ always() }}
         shell: bash
         run: |
           set -Eeuo pipefail
