@@ -13,6 +13,9 @@ from ci_workflows.validation_model import ActionsLoader
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/reusable-gradle-maven-publish.yml"
 ACTION = ROOT / "actions/publish-gradle-maven/action.yml"
+ACTION_LOCK = ROOT / "contracts/action-tool-lock.json"
+PUBLISH_ACTION = "StreamScapeTV/ci-workflows/actions/publish-gradle-maven"
+PUBLISH_SHA = "af95ac60ec2751897765178b7006caadc3903b88"
 SHA = re.compile(r"^StreamScapeTV/ci-workflows/actions/[a-z0-9-]+@[0-9a-f]{40}$")
 
 
@@ -114,6 +117,21 @@ class GradleMavenPublishWorkflowTests(unittest.TestCase):
             serialized = json.dumps(step)
             self.assertNotIn("registry_username", serialized)
             self.assertNotIn("registry_token", serialized)
+
+    def test_publication_action_checkpoint_is_locked(self) -> None:
+        lock = json.loads(ACTION_LOCK.read_text(encoding="utf-8"))
+        entry = next(
+            item
+            for item in lock["third_party_actions"]
+            if item["uses"] == PUBLISH_ACTION
+        )
+        self.assertEqual(entry["sha"], PUBLISH_SHA)
+        self.assertEqual(entry["release"], "issue #418 immutable action checkpoint")
+        self.assertEqual(entry["runtime"], "composite")
+        self.assertEqual(
+            entry["source"],
+            f"https://github.com/StreamScapeTV/ci-workflows/tree/{PUBLISH_SHA}/actions/publish-gradle-maven",
+        )
 
     def test_action_is_a_phase_adapter_without_registry_endpoint_or_gradle_shell(self) -> None:
         self.assertEqual(self.action["runs"]["using"], "composite")
