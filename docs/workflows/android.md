@@ -1,6 +1,6 @@
 # Android validation workflow
 
-`validation.android` version `2.0.0` is the public Android/Gradle validation API implemented by `.github/workflows/reusable-android.yml`. Its stable check name is **CI / Android validation**.
+`validation.android` version `2.1.0` is the public Android/Gradle validation API implemented by `.github/workflows/reusable-android.yml`. Its stable check name is **CI / Android validation**.
 
 ## Build model
 
@@ -71,4 +71,4 @@ Routine Android validation retains zero GitHub Actions artifacts and does not us
 
 ## Repository-owned smoke
 
-`.github/workflows/android-validation-smoke.yml` directly exercises the primitive-backed protected-full execution and the dependency-warm helper on mobile capacity. Product-specific performance proof, private-dependency prebuilds, and cache-maintenance acceptance remain consumer/integration evidence after Central source and contract tests are green.
+The public `ci-workflows` smoke runs its Android planning/contract checks and terminal zero-artifact verification on `ubuntu-latest`. Its real mobile executor is private-context gated and is skipped in this public repository. Product-specific performance proof, private-dependency prebuilds, and cache-maintenance acceptance belong in an appropriate consumer/private execution path after Central source and contract tests are green.

@@ -655,14 +655,67 @@ def verify_private_dependency(
     return resolved
 
 
+def _tracked_container_hash(source_root: Path, relative: str) -> str:
+    container = bounded_path(source_root, relative, must_exist=True)
+    if not container.is_dir():
+        _fail("container_invalid")
+    listing = apple_execution._git_output(
+        source_root,
+        ("ls-files", "-z", "--", relative),
+        "source_mismatch",
+    )
+    tracked = tuple(sorted(item for item in listing.split("\0") if item))
+    if not tracked:
+        _fail("container_invalid")
+    prefix = f"{relative.rstrip('/')}/"
+    digest = hashlib.sha256()
+    for tracked_relative in tracked:
+        if not tracked_relative.startswith(prefix):
+            _fail("container_invalid")
+        candidate = bounded_path(source_root, tracked_relative)
+        digest.update(tracked_relative.encode("utf-8"))
+        digest.update(b"\0")
+        if not candidate.exists():
+            digest.update(b"<missing>")
+            continue
+        if candidate.is_symlink() or not candidate.is_file():
+            _fail("path_rejected")
+        digest.update(hashlib.sha256(candidate.read_bytes()).digest())
+    return digest.hexdigest()
+
+
+def _stage_protected_hashes(
+    stage: ProtectedAppleStage,
+    source_root: Path,
+) -> dict[str, str]:
+    container = stage.plan.container
+    if (
+        container is None
+        or container.kind not in {"project", "workspace"}
+        or not apple_execution._has_git(source_root)
+    ):
+        return apple_execution.protected_hashes(source_root, stage.plan)
+
+    result: dict[str, str] = {}
+    for relative in stage.plan.protected_paths:
+        if relative == container.path:
+            result[relative] = _tracked_container_hash(source_root, relative)
+        else:
+            path = bounded_path(source_root, relative, must_exist=True)
+            result[relative] = apple_execution._tree_hash(path)
+    for relative in container.resolved_files:
+        path = bounded_path(source_root, relative, must_exist=True)
+        if path.is_symlink() or not path.is_file():
+            _fail("package_resolution_rejected")
+        result[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return result
+
+
 def _protected_hashes(
     plan: ProtectedApplePlan,
     source_root: Path,
 ) -> tuple[dict[str, str], ...]:
-    return tuple(
-        apple_execution.protected_hashes(source_root, stage.plan)
-        for stage in plan.stages
-    )
+    return tuple(_stage_protected_hashes(stage, source_root) for stage in plan.stages)
 
 
 def _require_protected_unchanged(
@@ -671,7 +724,7 @@ def _require_protected_unchanged(
     before: Sequence[Mapping[str, str]],
 ) -> None:
     for stage, expected in zip(plan.stages, before, strict=True):
-        actual = apple_execution.protected_hashes(source_root, stage.plan)
+        actual = _stage_protected_hashes(stage, source_root)
         if dict(expected) != actual:
             resolved = set(stage.plan.container.resolved_files) if stage.plan.container else set()
             if any(expected.get(path) != actual.get(path) for path in resolved):
