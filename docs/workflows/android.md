@@ -8,6 +8,8 @@ One reusable call creates one mobile executor and one registered Gradle workspac
 
 Normal `protected-full`, compile, unit, lint, assemble, targeted-unit, script, and ordinary Gradle validation go directly to the caller-owned product operation after source/private-dependency admission. They do **not** run a separate dependency-warm Gradle invocation first. The actual Android executor receives the fixed read-only seed when present, resolves misses through the configured repositories into the job-private Gradle home, and records `gradle_dependency_cache_mode=read-only-seed|cold` in its bounded execution summary.
 
+The optional workflow-call secret `maven_package_read_token` is materialized only on the authoritative product-execution step as the fixed `CIW_MAVEN_PACKAGE_READ_TOKEN` key. The reviewed Android execution checkpoint forwards only that fixed key into the bounded child-process environment used by Gradle. Planning, private-dependency checkout/prebuild, evidence, cleanup, residue, cache maintenance/sync, and artifact handling do not receive the package credential, and callers cannot choose another environment-key name or arbitrary environment map.
+
 The authoritative `protected-full` pass preserves the caller-owned unit, lint, assemble, and applicable Gradle-backed KSP/Room/schema task groups in the same executor/workspace. Optional `pre_unit_tasks` and `compile_tasks` inside the existing bounded `validation_plan_json` remain supported. Each non-empty group runs through its own `--no-daemon` Gradle invocation so task-family class metadata is released between groups. Duplicate tasks across pre-unit, compile, unit, lint, assemble, and Gradle-schema groups fail closed.
 
 A caller with a verified private dependency may provide `dependency_prebuild_plan_json`. Central executes that strict `protected-full` plan before the authoritative application plan on the same mobile executor, private writable Gradle home, read-only seed, and exact private dependency checkout. The prebuild copied caller source is removed and residue-checked before the authoritative execution starts; verified dependency build outputs remain available. The prebuild changes task shape only and does not alter caller-owned Gradle memory, worker, Kotlin, or test settings.
@@ -50,7 +52,7 @@ Failed or timed-out reviewed Android operations emit a sanitized bounded diagnos
 
 The reusable workflow uses reviewed immutable Central helper checkpoints:
 
-- `StreamScapeTV/ci-workflows/actions/validate-android@8eaa37ad0fe3231b202e878b26f66aa23753e38a` — `issue #373 compile Gradle isolation checkpoint`.
+- `StreamScapeTV/ci-workflows/actions/validate-android@b8b6f7ad2e8ea8b37d12a73df19ed02ff497f971` — `issue #443 package credential process checkpoint`.
 - `StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies@13de46c51efcf65df798dfec82a620c484350dfa` — `issue #346 dependency warm checkpoint`.
 - `StreamScapeTV/ci-workflows/actions/upload-gradle-seed@fa67b6a1580ff2eb7386a9e58de09896b9990696` — `issue #346 bounded Gradle cache sync diagnostics checkpoint`.
 - `StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`.
@@ -58,6 +60,8 @@ The reusable workflow uses reviewed immutable Central helper checkpoints:
 - `StreamScapeTV/ci-workflows/actions/render-evidence@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`.
 - `StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`.
 - `StreamScapeTV/ci-workflows/actions/checkout-private-dependency@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #104 immutable private-action checkpoint`.
+
+The live-service and unsigned-release reusable workflows use their corresponding `validate-android-live-service` and `validate-android-release` actions at the same `b8b6f7ad2e8ea8b37d12a73df19ed02ff497f971` issue #443 checkpoint so their bounded child-process environments preserve the same fixed package-read key.
 
 The checked-in action lock must record the same helper identities before the candidate is merge-state.
 
