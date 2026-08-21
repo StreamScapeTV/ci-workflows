@@ -132,6 +132,7 @@
     "trust_mode": {"type": "string"},
     "tag_name": {"type": "string", "nullable": true},
     "version": {"type": "string", "nullable": true},
+    "release_version": {"type": "string", "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$", "nullable": true},
     "request_id": {"type": "string"},
     "result": {"type": "string", "enum": ["success", "failure", "skipped"]},
     "test_summary": {"type": "json-object", "nullable": true},

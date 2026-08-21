@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       expected_branch:
-        description: Protected development branch authorized for source-specific package publication
+        description: Expected caller branch; Gradle Maven publication accepts develop only
         required: true
         type: string
       working_directory:
@@ -57,27 +57,9 @@ jobs:
       result: ${{ steps.terminal.outputs.result }}
       release_version: ${{ steps.maven.outputs.release_version }}
     steps:
-      - name: Check out exact Central workflow source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          path: .ciw
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
-
-      - name: Verify exact Central workflow source
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          test "$(git -C .ciw rev-parse HEAD)" = "${{ job.workflow_sha }}"
-          test -z "$(git -C .ciw status --porcelain=v1 --untracked-files=all)"
-
       - id: checkout
         name: Check out exact admitted caller source
-        uses: ./.ciw/actions/exact-checkout
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           repository: ${{ github.repository }}
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -86,17 +68,32 @@ jobs:
 
       - id: workspace
         name: Prepare one private Gradle publication workspace
-        uses: ./.ciw/actions/prepare-workspace
+        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           profile: gradle
           cache_mode: disabled
           source_sha: ${{ inputs.admitted_sha }}
 
+      - id: maven_plan
+        name: Validate bounded Maven publication plan
+        if: ${{ steps.checkout.outcome == 'success' && steps.workspace.outcome == 'success' }}
+        uses: StreamScapeTV/ci-workflows/actions/publish-gradle-maven@96819df9003f7916f4e6a13483ca4d6c2c93808b # temporary #418 action checkpoint; repinned before candidate validation
+        with:
+          phase: plan
+          admitted_sha: ${{ inputs.admitted_sha }}
+          source_root: source
+          expected_branch: ${{ inputs.expected_branch }}
+          working_directory: ${{ inputs.working_directory }}
+          gradle_wrapper_path: ${{ inputs.gradle_wrapper_path }}
+          version_file: ${{ inputs.version_file }}
+          arguments_json: ${{ inputs.arguments_json }}
+
       - id: maven
         name: Publish Maven packages in one Gradle invocation
-        if: ${{ steps.checkout.outcome == 'success' && steps.workspace.outcome == 'success' }}
-        uses: ./.ciw/actions/publish-gradle-maven
+        if: ${{ steps.maven_plan.outcome == 'success' }}
+        uses: StreamScapeTV/ci-workflows/actions/publish-gradle-maven@96819df9003f7916f4e6a13483ca4d6c2c93808b # temporary #418 action checkpoint; repinned before candidate validation
         with:
+          phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
           source_root: source
           expected_branch: ${{ inputs.expected_branch }}
@@ -107,28 +104,28 @@ jobs:
           registry_username: ${{ secrets.registry_username }}
           registry_token: ${{ secrets.registry_token }}
 
-      - id: clean_source
-        name: Verify admitted source remained exact and tracked-clean
-        if: always() && steps.checkout.outcome == 'success'
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          test "$(git -C source rev-parse HEAD)" = "${{ inputs.admitted_sha }}"
-          git -C source diff --exit-code
-          git -C source diff --cached --exit-code
-          test -z "$(git -C source status --porcelain=v1 --untracked-files=all)"
+      - id: source_cleanup
+        name: Remove ignored Maven publication build state
+        if: ${{ always() && steps.checkout.outcome == 'success' }}
+        uses: StreamScapeTV/ci-workflows/actions/publish-gradle-maven@96819df9003f7916f4e6a13483ca4d6c2c93808b # temporary #418 action checkpoint; repinned before candidate validation
+        with:
+          phase: cleanup
+          admitted_sha: ${{ inputs.admitted_sha }}
+          source_root: source
 
-      - name: Remove ignored publication build state
-        if: always() && steps.checkout.outcome == 'success'
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          git -C source clean -ffdX
+      - id: source_residue
+        name: Verify zero Maven publication source residue
+        if: ${{ always() && steps.source_cleanup.outcome == 'success' }}
+        uses: StreamScapeTV/ci-workflows/actions/publish-gradle-maven@96819df9003f7916f4e6a13483ca4d6c2c93808b # temporary #418 action checkpoint; repinned before candidate validation
+        with:
+          phase: residue
+          admitted_sha: ${{ inputs.admitted_sha }}
+          source_root: source
 
       - id: workspace_cleanup
         name: Remove and verify private Gradle publication workspace
         if: always()
-        uses: ./.ciw/actions/cleanup-workspace
+        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
 
       - id: terminal
         name: Project terminal Maven publication status
@@ -137,15 +134,19 @@ jobs:
         env:
           CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
           WORKSPACE_OUTCOME: ${{ steps.workspace.outcome }}
+          MAVEN_PLAN_OUTCOME: ${{ steps.maven_plan.outcome }}
           MAVEN_OUTCOME: ${{ steps.maven.outcome }}
-          CLEAN_SOURCE_OUTCOME: ${{ steps.clean_source.outcome }}
+          SOURCE_CLEANUP_OUTCOME: ${{ steps.source_cleanup.outcome }}
+          SOURCE_RESIDUE_OUTCOME: ${{ steps.source_residue.outcome }}
           WORKSPACE_CLEANUP_OUTCOME: ${{ steps.workspace_cleanup.outcome }}
         run: |
           set -Eeuo pipefail
           if [[ "${CHECKOUT_OUTCOME}" == "success" &&
                 "${WORKSPACE_OUTCOME}" == "success" &&
+                "${MAVEN_PLAN_OUTCOME}" == "success" &&
                 "${MAVEN_OUTCOME}" == "success" &&
-                "${CLEAN_SOURCE_OUTCOME}" == "success" &&
+                "${SOURCE_CLEANUP_OUTCOME}" == "success" &&
+                "${SOURCE_RESIDUE_OUTCOME}" == "success" &&
                 "${WORKSPACE_CLEANUP_OUTCOME}" == "success" ]]; then
             echo "result=success" >> "${GITHUB_OUTPUT}"
             exit 0
