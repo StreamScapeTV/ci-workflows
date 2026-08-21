@@ -19,9 +19,13 @@ The reusable accepts the shared bounded `execution_backend` input:
   ARC capacity;
 - repository visibility does not select a backend automatically.
 
-The small planning job itself uses GitHub-hosted Ubuntu so deciding between
-backends never consumes organization capacity. Product source behavior, tools,
-cleanup, evidence, and zero-artifact semantics are identical after selection.
+Planner capacity follows the selected backend rather than creating a hidden
+cross-backend dependency. An explicit `github-hosted` call uses a small
+`ubuntu-latest` planner; the default/explicit `organization` call uses the
+existing `general-small` organization planner. Those planners are mutually
+exclusive and the validation job consumes only the successful planner's
+Central-owned selector. Product source behavior, tools, cleanup, evidence, and
+zero-artifact semantics are identical after selection.
 
 ## Profiles
 
