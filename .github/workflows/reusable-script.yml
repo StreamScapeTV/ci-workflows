@@ -85,7 +85,7 @@ jobs:
 
       - id: backend
         name: Resolve bounded execution backend
-        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@7d5d839c6e90491e165f1358ecb5e80129805764 # issue #405 simplified execution-backend checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@01d1d10bafcc4fc1e4c51663f72b08f694dc4e35 # issue #447 portable backend checkpoint
         with:
           workflow_api: validation.script
           source_trust: ${{ steps.plan.outputs.source_trust }}
