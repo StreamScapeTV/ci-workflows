@@ -65,7 +65,7 @@ class FlutterWorkflowContractTests(unittest.TestCase):
     def test_private_central_helpers_are_immutable_without_central_clone(self) -> None:
         self.assertNotIn("actions/checkout@", self.reusable)
         self.assertNotIn("repository: ${{ job.workflow_repository }}", self.reusable)
-        self.assertNotIn("ref: ${{ github.workflow_sha }}", self.reusable)
+        self.assertNotIn("ref: ${{ job.workflow_sha }}", self.reusable)
         self.assertNotIn("path: .ciw", self.reusable)
         self.assertNotIn("./.ciw/actions/", self.reusable)
         self.assertNotIn("secrets: inherit", self.reusable)
