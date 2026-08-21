@@ -9,16 +9,18 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 GITOPS_SHA = "8445e63dd9fa9468b60b6d0c61e543da9681b47b"
+EXECUTION_BACKEND_SHA = "7d5d839c6e90491e165f1358ecb5e80129805764"
 
 
 class GitOpsWorkflowContractTests(unittest.TestCase):
-    def test_reusable_workflow_exposes_only_bounded_source_inputs(self) -> None:
+    def test_reusable_workflow_exposes_bounded_backend_and_source_inputs(self) -> None:
         path = ROOT / ".github/workflows/reusable-gitops-validation.yml"
         source = path.read_text(encoding="utf-8")
         workflow = yaml.safe_load(source)
         inputs = workflow[True]["workflow_call"]["inputs"]
         self.assertEqual(
             {
+                "execution_backend",
                 "admitted_sha",
                 "validation_profile",
                 "consumer_contract",
@@ -28,6 +30,7 @@ class GitOpsWorkflowContractTests(unittest.TestCase):
             },
             set(inputs),
         )
+        self.assertEqual("organization", inputs["execution_backend"]["default"])
         for forbidden in (
             "runner",
             "runs_on",
@@ -49,11 +52,23 @@ class GitOpsWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("self-hosted", source)
         self.assertNotIn("runs-on: portable", source)
         self.assertNotIn("runs-on: [linux, amd64, general]", source)
+        self.assertEqual(["ubuntu-latest"], workflow["jobs"]["plan"]["runs-on"])
         self.assertEqual(
-            ["linux", "amd64", "general", "small"],
-            workflow["jobs"]["plan"]["runs-on"],
+            "${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
+            workflow["jobs"]["validate"]["runs-on"],
         )
-        self.assertIn("fromJSON(needs.plan.outputs.runs_on_json)", source)
+        backend = next(
+            step
+            for step in workflow["jobs"]["plan"]["steps"]
+            if step.get("id") == "backend"
+        )
+        self.assertEqual(
+            f"StreamScapeTV/ci-workflows/actions/resolve-execution-backend@{EXECUTION_BACKEND_SHA}",
+            backend["uses"],
+        )
+        self.assertEqual("validation.gitops", backend["with"]["workflow_api"])
+        self.assertEqual("${{ inputs.execution_backend }}", backend["with"]["execution_backend"])
+        self.assertEqual("${{ steps.plan.outputs.runner_profile }}", backend["with"]["runner_profile"])
         self.assertIn("CI / GitOps validation", source)
         self.assertIn("if: always()", source)
         self.assertIn("Confirm zero Actions artifacts", source)
@@ -84,6 +99,7 @@ class GitOpsWorkflowContractTests(unittest.TestCase):
         self.assertEqual(
             {
                 "StreamScapeTV/ci-workflows/actions/validate-gitops": GITOPS_SHA,
+                "StreamScapeTV/ci-workflows/actions/resolve-execution-backend": EXECUTION_BACKEND_SHA,
                 "StreamScapeTV/ci-workflows/actions/exact-checkout": FOUNDATION_SHA,
                 "StreamScapeTV/ci-workflows/actions/prepare-workspace": FOUNDATION_SHA,
                 "StreamScapeTV/ci-workflows/actions/render-evidence": FOUNDATION_SHA,
