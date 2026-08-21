@@ -124,7 +124,7 @@ jobs:
 
       - id: execute
         name: Execute only the checked-in live-service gate
-        uses: StreamScapeTV/ci-workflows/actions/validate-android-live-service@2ecbe22ac6d10aa25d79bc046cc205e4df1e08cc # issue #338 Android completion checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android-live-service@8d8f72c41901e1f1d8fd257e6f7ce71d6c9a0bef # issue #443 package-read execution checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
