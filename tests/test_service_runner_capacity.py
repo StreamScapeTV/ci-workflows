@@ -187,25 +187,23 @@ class ServiceRunnerCapacityTests(unittest.TestCase):
                     )
             self.assertTrue(work.exists())
 
-    def test_exact_source_canary_is_thin_and_uses_trusted_planner_output(self) -> None:
+    def test_central_canary_is_hosted_contract_only(self) -> None:
         for expected in (
             "on:\n  workflow_dispatch:",
+            "runs-on: [ubuntu-latest]",
             "--api validation.service-compose",
             "--source-trust trusted-exact",
             "--profile service-small",
-            "runs_on_json",
-            "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
-            "scripts/ci/service_runner_smoke.py verify-runtime",
-            "scripts/ci/service_runner_smoke.py run",
-            "scripts/ci/service_runner_smoke.py cleanup",
-            "name: Cleanup run-owned service canary state",
-            "if: always()",
+            "'[\"linux\",\"amd64\",\"service\",\"small\"]'",
+            "tests.test_service_runner_capacity",
         ):
             self.assertIn(expected, self.canary)
+        self.assertNotIn("runs-on: ${{ fromJSON", self.canary)
+        self.assertNotIn("scripts/ci/service_runner_smoke.py verify-runtime", self.canary)
+        self.assertNotIn("scripts/ci/service_runner_smoke.py run", self.canary)
+        self.assertNotIn("scripts/ci/service_runner_smoke.py cleanup", self.canary)
         self.assertNotIn("pull_request:", self.canary)
         self.assertNotIn("push:", self.canary)
-        self.assertNotIn("for i in", self.canary)
-        self.assertNotIn("cat >", self.canary)
         for forbidden in (
             "actions/cache",
             "upload-artifact",
