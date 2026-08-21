@@ -27,7 +27,7 @@ After source admission, one exact source checkout, one registered Gradle workspa
 
 The Android execution runtime forwards `GRADLE_RO_DEP_CACHE=/opt/gradle-ro-cache` only when that runner-owned directory is present and valid. It cannot alias the private `GRADLE_USER_HOME`. If the seed is present, Gradle consumes cached modules from it and writes misses to the private home. If the seed is absent, the same real product build resolves dependencies from configured repositories into its private home. Cache presence changes acceleration, not correctness.
 
-The optional package-read secret crosses only the authoritative execution boundary. The reusable workflow maps it to the fixed `CIW_MAVEN_PACKAGE_READ_TOKEN` environment key on the execute action, and the reviewed `ciw` runtime copies that one fixed key into the child-process environment used by Gradle. It is not accepted as a generic environment-map input and is not forwarded to planning, private-dependency checkout/prebuild, evidence, cleanup, residue, cache maintenance, cache sync, or unrelated helper execution. The live-service and unsigned-release runtimes apply the same fixed-key filtering.
+The optional package-read secret crosses only the authoritative execution boundary. The reusable workflow maps it to the fixed `CIW_MAVEN_PACKAGE_READ_TOKEN` environment key on the execute action. The composite action intentionally exposes no package-token input and defines no same-named environment assignment, so the execute-step environment is inherited by its child shell rather than shadowed. The reviewed `ciw` runtime then copies only that fixed key into the child-process environment used by Gradle. It is not accepted as a generic environment-map input and is not forwarded to planning, private-dependency checkout/prebuild, evidence, cleanup, residue, cache maintenance, cache sync, or unrelated helper execution. The live-service and unsigned-release action/runtime pairs apply the same inherited fixed-key boundary.
 
 `protected-full` keeps the request inside one mobile executor and one registered workspace. Caller-owned task groups run as optional pre-unit, optional compile, unit, lint, assemble, and Gradle-schema groups. Each non-empty group uses the existing `--no-daemon` primitive, releasing task-family process/class metadata before the next group. A checked-in schema script, when selected, runs afterward in the same workspace.
 
@@ -79,7 +79,7 @@ Failed dependency-warm or Android operations emit sanitized bounded diagnostic t
 
 `reusable-android.yml` composes reviewed Central helpers by immutable source identity:
 
-- `validate-android@b8b6f7ad2e8ea8b37d12a73df19ed02ff497f971` — `issue #443 package credential process checkpoint`;
+- `validate-android@68a6450d6576e0744969cd170cc581856a44312a` — `issue #443 inherited package credential checkpoint`;
 - `warm-gradle-dependencies@13de46c51efcf65df798dfec82a620c484350dfa` — `issue #346 dependency warm checkpoint`;
 - `upload-gradle-seed@fa67b6a1580ff2eb7386a9e58de09896b9990696` — `issue #346 bounded Gradle cache sync diagnostics checkpoint`;
 - `exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`;
@@ -88,7 +88,7 @@ Failed dependency-warm or Android operations emit sanitized bounded diagnostic t
 - `cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`;
 - `checkout-private-dependency@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #104 immutable private-action checkpoint`.
 
-`reusable-android-live-service.yml` and `reusable-android-release.yml` bind `validate-android-live-service` and `validate-android-release` to the same `b8b6f7ad2e8ea8b37d12a73df19ed02ff497f971` issue #443 checkpoint so their filtered child-process environments preserve the package-read key without adding a generic secret or environment channel.
+`reusable-android-live-service.yml` and `reusable-android-release.yml` bind `validate-android-live-service` and `validate-android-release` to the same `68a6450d6576e0744969cd170cc581856a44312a` issue #443 checkpoint. All three composite action surfaces omit a package-token input and same-named environment override; the fixed execute-step environment is inherited and then filtered by the bounded runtime.
 
 The action lock must record the same helper identities before the candidate is merge-state.
 
