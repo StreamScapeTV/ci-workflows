@@ -205,6 +205,13 @@
       "source": "https://github.com/StreamScapeTV/ci-workflows/tree/f867827a41174ea5a9ad554eeea91dbb2c2c0bfa/actions/publish-helm"
     },
     {
+      "uses": "StreamScapeTV/ci-workflows/actions/publish-gradle-maven",
+      "sha": "c4b85851ac650906103f116c95d9d16c546dd538",
+      "release": "issue #418 immutable action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/c4b85851ac650906103f116c95d9d16c546dd538/actions/publish-gradle-maven"
+    },
+    {
       "uses": "StreamScapeTV/ci-workflows/actions/measure-helm",
       "sha": "1f2c0ae5bec042adc9f94e87ebfbba1e7ba48994",
       "release": "issue #18 immutable Helm measurement CIW checkpoint",

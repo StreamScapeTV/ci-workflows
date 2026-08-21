@@ -17,6 +17,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 | `maintenance.runner-retry` `1.0.0` | `.github/workflows/reusable-runner-infrastructure-retry.yml` | `planned` | `trusted-maintenance` | Maintenance / Runner retry |
 | `oci.build` `2.0.0` | `.github/workflows/reusable-oci-build.yml` | `migration-pending` | `read-only-validation` | CI / OCI build validation |
 | `oci.publish` `2.0.0` | `.github/workflows/reusable-oci-publish.yml` | `migration-pending` | `trusted-publication` | Release / OCI publication |
+| `release.gradle-maven` `1.0.0` | `.github/workflows/reusable-gradle-maven-publish.yml` | `implemented` | `trusted-publication` | Release / Gradle Maven publication |
 | `release.native-image-chart` `2.0.0` | `.github/workflows/reusable-native-image-chart.yml` | `implemented` | `trusted-publication` | Publish native amd64 image and Helm chart |
 | `release.orchestrate` `2.0.0` | `.github/workflows/reusable-release.yml` | `planned` | `trusted-publication` | Release / Verified outputs |
 | `release.public-native-image-chart` `1.0.0` | `.github/workflows/reusable-public-native-image-chart.yml` | `implemented` | `trusted-publication` | Publish public native amd64 image and Helm chart |
@@ -106,6 +107,14 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 - Secrets: `registry_username`, `registry_token`
 - Outputs: `result`, `image_digest`, `platform_digests_json`, `immutable_references_json`
 - Repository-owned hooks: `dockerfile_path`, `build_context`
+
+### `release.gradle-maven`
+
+- Events: `workflow_call`
+- Inputs: `admitted_sha` (required), `expected_branch` (required), `working_directory` (default `.`), `gradle_wrapper_path` (default `gradlew`), `version_file` (default `VERSION`), `arguments_json` (required)
+- Secrets: `registry_username`, `registry_token`
+- Outputs: `result`, `release_version`
+- Repository-owned hooks: `working_directory`, `gradle_wrapper_path`, `version_file`, `arguments_json`
 
 ### `release.native-image-chart`
 
