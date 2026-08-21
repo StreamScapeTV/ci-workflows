@@ -1,6 +1,6 @@
 # Public workflow API reference
 
-Contract version: `3.0.0`
+Contract version: `3.1.0`
 
 Generated from `contracts/public-workflows.json` and its checked-in fragments. Application repository/product identity is intentionally not part of this compatibility contract.
 
@@ -17,13 +17,15 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 | `maintenance.runner-retry` `1.0.0` | `.github/workflows/reusable-runner-infrastructure-retry.yml` | `planned` | `trusted-maintenance` | Maintenance / Runner retry |
 | `oci.build` `2.0.0` | `.github/workflows/reusable-oci-build.yml` | `migration-pending` | `read-only-validation` | CI / OCI build validation |
 | `oci.publish` `2.0.0` | `.github/workflows/reusable-oci-publish.yml` | `migration-pending` | `trusted-publication` | Release / OCI publication |
+| `release.gradle-maven` `1.0.0` | `.github/workflows/reusable-gradle-maven-publish.yml` | `implemented` | `trusted-publication` | Release / Gradle Maven publication |
 | `release.native-image-chart` `2.0.0` | `.github/workflows/reusable-native-image-chart.yml` | `implemented` | `trusted-publication` | Publish native amd64 image and Helm chart |
 | `release.orchestrate` `2.0.0` | `.github/workflows/reusable-release.yml` | `planned` | `trusted-publication` | Release / Verified outputs |
+| `release.public-native-image-chart` `1.0.0` | `.github/workflows/reusable-public-native-image-chart.yml` | `implemented` | `trusted-publication` | Publish public native amd64 image and Helm chart |
 | `release.tag-image-chart-bootstrap` `1.2.0` | `.github/workflows/reusable-tag-image-chart.yml` | `deprecated-bootstrap-exception` | `trusted-publication` | Release / Bootstrap image and chart |
 | `source.resolve` `1.0.0` | `.github/workflows/reusable-resolve-source.yml` | `implemented` | `source-admission` | Shared / Source admission |
-| `validation.android` `2.0.0` | `.github/workflows/reusable-android.yml` | `implemented` | `read-only-validation` | CI / Android validation |
-| `validation.android-live-service` `1.0.0` | `.github/workflows/reusable-android-live-service.yml` | `implemented` | `read-only-validation` | CI / Android live-service acceptance |
-| `validation.android-release` `1.0.0` | `.github/workflows/reusable-android-release.yml` | `implemented` | `read-only-validation` | CI / Android unsigned release validation |
+| `validation.android` `2.1.0` | `.github/workflows/reusable-android.yml` | `implemented` | `read-only-validation` | CI / Android validation |
+| `validation.android-live-service` `1.1.0` | `.github/workflows/reusable-android-live-service.yml` | `implemented` | `read-only-validation` | CI / Android live-service acceptance |
+| `validation.android-release` `1.1.0` | `.github/workflows/reusable-android-release.yml` | `implemented` | `read-only-validation` | CI / Android unsigned release validation |
 | `validation.apple` `2.0.0` | `.github/workflows/reusable-apple.yml` | `implemented` | `read-only-validation` | CI / Apple validation |
 | `validation.device` `2.0.0` | `.github/workflows/reusable-device.yml` | `implemented` | `physical-device-validation` | CI / Physical device validation |
 | `validation.flutter` `1.0.0` | `.github/workflows/reusable-flutter.yml` | `implemented` | `read-only-validation` | CI / Flutter validation |
@@ -106,6 +108,14 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 - Outputs: `result`, `image_digest`, `platform_digests_json`, `immutable_references_json`
 - Repository-owned hooks: `dockerfile_path`, `build_context`
 
+### `release.gradle-maven`
+
+- Events: `workflow_call`
+- Inputs: `admitted_sha` (required), `expected_branch` (required), `working_directory` (default `.`), `gradle_wrapper_path` (default `gradlew`), `version_file` (default `VERSION`), `arguments_json` (required)
+- Secrets: `registry_username`, `registry_token`
+- Outputs: `result`, `release_version`
+- Repository-owned hooks: `working_directory`, `gradle_wrapper_path`, `version_file`, `arguments_json`
+
 ### `release.native-image-chart`
 
 - Events: `tag-push`, `workflow_call`
@@ -122,6 +132,14 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 - Outputs: `result`, `immutable_references_json`, `release_manifest_sha256`, `handoff_state`, `request_id`
 - Repository-owned hooks: `release_manifest_path`
 
+### `release.public-native-image-chart`
+
+- Events: `tag-push`, `workflow_call`
+- Inputs: `image_name` (required), `chart_name` (required), `chart_path` (required), `dockerfile_path` (default `Dockerfile`), `build_context` (default `.`)
+- Secrets: none
+- Outputs: `version`, `source_sha`, `image_reference`, `image_digest`, `chart_reference`, `chart_digest`, `chart_package_sha256`
+- Repository-owned hooks: `chart_path`, `dockerfile_path`, `build_context`
+
 ### `release.tag-image-chart-bootstrap`
 
 - Events: `tag-push`, `workflow_call`, `workflow_dispatch-existing-tag`
@@ -133,7 +151,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 ### `source.resolve`
 
 - Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`, `tag-push`, `workflow_run`, `issue_comment`, `pull_request_target`
-- Inputs: `source_mode` (required), `requested_sha`, `expected_branch`, `release_contract`, `history_depth` (default `1`)
+- Inputs: `source_mode` (required), `requested_sha`, `expected_branch`, `release_contract`, `history_depth` (default `1`), `execution_backend` (default `organization`)
 - Secrets: none
 - Outputs: `caller_repository`, `caller_default_branch`, `caller_integration_branch`, `trust_mode`, `source_repository`, `source_sha`, `requested_sha`, `resolved_sha`, `pr_number`, `pr_head_repository`, `pr_head_sha`, `pr_base_branch`, `pr_base_sha`, `pr_merge_sha`, `tag_name`, `tag_object_sha`, `tag_commit_sha`, `requires_freshness`, `history_depth`, `request_id`, `evidence_id`
 - Repository-owned hooks: none
@@ -142,7 +160,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 
 - Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
 - Inputs: `admitted_sha` (required), `validation_scope` (required), `working_directory` (default `.`), `gradle_wrapper_path` (default `gradlew`), `validation_plan_json` (required), `dependency_prebuild_plan_json` (default ``), `private_dependency_repository` (default ``), `private_dependency_sha` (default ``), `private_dependency_subdirectory` (default `.`), `private_dependency_id` (default ``)
-- Secrets: `private_dependency_token`
+- Secrets: `private_dependency_token`, `maven_package_read_token`
 - Outputs: `result`, `test_summary`, `cleanup_result`
 - Repository-owned hooks: `validation_plan_json`, `dependency_prebuild_plan_json`
 
@@ -150,7 +168,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 
 - Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
 - Inputs: `admitted_sha` (required), `working_directory` (default `.`), `validation_plan_json` (required), `private_dependency_repository` (default ``), `private_dependency_sha` (default ``), `private_dependency_subdirectory` (default `.`), `private_dependency_id` (default ``)
-- Secrets: `service_username`, `service_password`, `private_dependency_token`
+- Secrets: `service_username`, `service_password`, `private_dependency_token`, `maven_package_read_token`
 - Outputs: `result`, `test_summary`, `cleanup_result`
 - Repository-owned hooks: `validation_plan_json`
 
@@ -158,7 +176,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 
 - Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
 - Inputs: `admitted_sha` (required), `working_directory` (default `.`), `gradle_wrapper_path` (default `gradlew`), `validation_plan_json` (required), `private_dependency_repository` (default ``), `private_dependency_sha` (default ``), `private_dependency_subdirectory` (default `.`), `private_dependency_id` (default ``)
-- Secrets: `private_dependency_token`
+- Secrets: `private_dependency_token`, `maven_package_read_token`
 - Outputs: `result`, `test_summary`, `cleanup_result`, `artifact_manifest_json`
 - Repository-owned hooks: `validation_plan_json`
 
@@ -197,7 +215,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 ### `validation.node`
 
 - Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
-- Inputs: `admitted_sha` (required), `validation_profile` (required), `version_file`, `node_version`, `working_directory` (default `.`), `install_profile` (required), `command_profile` (required), `script_path`, `static_output_directory`, `output_verifier_path`, `public_environment` (default `{}`), `artifact_exception_id`
+- Inputs: `execution_backend` (default `organization`), `admitted_sha` (required), `validation_profile` (required), `version_file`, `node_version`, `working_directory` (default `.`), `install_profile` (required), `command_profile` (required), `script_path`, `static_output_directory`, `output_verifier_path`, `public_environment` (default `{}`), `artifact_exception_id`
 - Secrets: none
 - Outputs: `result`, `node_version`, `npm_version`, `install_result`, `test_summary`, `build_result`, `output_verified`, `output_digest`, `clean_tree`, `cleanup_result`, `artifact_exception_used`, `evidence_id`
 - Repository-owned hooks: `command_profile`, `script_path`, `static_output_directory`, `output_verifier_path`
@@ -205,7 +223,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 ### `validation.python`
 
 - Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
-- Inputs: `admitted_sha` (required), `validation_profile` (required), `version_file`, `working_directory` (default `.`), `command_profile` (required), `script_path`, `artifact_exception_id`
+- Inputs: `execution_backend` (default `organization`), `admitted_sha` (required), `validation_profile` (required), `version_file`, `working_directory` (default `.`), `command_profile` (required), `script_path`, `artifact_exception_id`
 - Secrets: none
 - Outputs: `result`, `test_summary`, `artifact_exception_used`
 - Repository-owned hooks: `command_profile`, `script_path`

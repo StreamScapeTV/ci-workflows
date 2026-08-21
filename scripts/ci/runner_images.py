@@ -15,6 +15,7 @@ if str(SRC) not in sys.path:
 from ci_workflows.runner_images import (  # noqa: E402
     RunnerImageError,
     build_plan,
+    cleanup_runner_state,
     plan_outputs,
     release_outputs,
     write_github_outputs,
@@ -44,6 +45,13 @@ def parser() -> argparse.ArgumentParser:
     release.add_argument("--tag", required=True)
     release.add_argument("--source-sha", required=True)
     release.add_argument("--github-output")
+
+    cleanup = subparsers.add_parser("cleanup")
+    cleanup.add_argument("--image", required=True)
+    cleanup.add_argument("--workspace", type=Path, required=True)
+    cleanup.add_argument("--runner-temp", type=Path, required=True)
+    cleanup.add_argument("--run-id", required=True)
+    cleanup.add_argument("--run-attempt", required=True)
     return result
 
 
@@ -58,8 +66,16 @@ def main(argv: list[str] | None = None) -> int:
                 release_tag=args.release_tag or None,
             )
             _output(plan_outputs(plan), args.github_output)
-        else:
+        elif args.command == "release":
             _output(release_outputs(args.tag, args.source_sha), args.github_output)
+        else:
+            cleanup_runner_state(
+                image_id=args.image,
+                workspace=args.workspace,
+                runner_temp=args.runner_temp,
+                run_id=args.run_id,
+                run_attempt=args.run_attempt,
+            )
     except RunnerImageError as error:
         print(f"runner-image contract error: {error}", file=sys.stderr)
         return 2

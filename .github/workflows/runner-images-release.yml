@@ -21,11 +21,12 @@ concurrency:
 jobs:
   resolve:
     name: Resolve exact repository release tag
-    runs-on: [linux, amd64, general, small]
+    runs-on: [ubuntu-latest]
     timeout-minutes: 10
     outputs:
       release_tag: ${{ steps.release.outputs.release_tag }}
       source_sha: ${{ steps.release.outputs.source_sha }}
+      images_json: ${{ steps.release.outputs.images_json }}
     steps:
       - name: Check out exact release tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -53,13 +54,14 @@ jobs:
 
       - name: Verify release checkout remained clean
         shell: bash
-        run: |
-          set -Eeuo pipefail
-          test -z "$(git status --porcelain --untracked-files=all)"
+        run: test -z "$(git status --porcelain --untracked-files=all)"
 
   release:
-    name: Publish ${{ matrix.image }} runner image
+    name: Publish ${{ matrix.image }} runner image to public GHCR
     needs: resolve
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
@@ -67,9 +69,10 @@ jobs:
           - general
           - mobile
           - buildah
+          - service
           - docker
           - flux-control
-    runs-on: [linux, amd64, buildah, high]
+    runs-on: [ubuntu-latest]
     timeout-minutes: 180
     steps:
       - name: Check out exact tagged runner-image source
@@ -88,28 +91,41 @@ jobs:
           SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
         run: |
           set -Eeuo pipefail
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
 
-      - name: Build smoke and publish fixed runner image
+      - id: image
+        name: Build smoke and publish with shared Buildah action
         uses: ./actions/runner-image
         with:
           image: ${{ matrix.image }}
           source_sha: ${{ needs.resolve.outputs.source_sha }}
           release_tag: ${{ needs.resolve.outputs.release_tag }}
           publish: "true"
-          registry_username: ${{ secrets.RUNNER_REGISTRY_USERNAME }}
-          registry_token: ${{ secrets.RUNNER_REGISTRY_TOKEN }}
 
-      - name: Verify runner-image credential cleanup
+      - name: Record published GHCR identity
+        shell: bash
+        env:
+          IMAGE_REFERENCE: ${{ steps.image.outputs.image_reference }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.image_digest }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${IMAGE_REFERENCE}"
+          [[ "${IMAGE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf -- '- `%s@%s`\n' "${IMAGE_REFERENCE}" "${IMAGE_DIGEST}" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Remove runner-image release residue
         if: always()
         shell: bash
         env:
           IMAGE: ${{ matrix.image }}
-        run: |
-          set -Eeuo pipefail
-          authfile="${RUNNER_TEMP}/ciw-runner-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${IMAGE}.json"
-          test ! -e "${authfile}"
-          test ! -L "${authfile}"
+        run: >-
+          python3 scripts/ci/runner_images.py cleanup
+          --image "${IMAGE}"
+          --workspace "${GITHUB_WORKSPACE}"
+          --runner-temp "${RUNNER_TEMP}"
+          --run-id "${GITHUB_RUN_ID}"
+          --run-attempt "${GITHUB_RUN_ATTEMPT}"
 
       - name: Verify exact tagged source remained clean
         if: ${{ always() && !cancelled() }}

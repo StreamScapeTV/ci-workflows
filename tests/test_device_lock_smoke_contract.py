@@ -87,12 +87,10 @@ class DeviceLockSmokeContractTests(unittest.TestCase):
             self.assertIn(name, terminal["env"])
             self.assertIn(f'${{{name}}}', terminal["run"])
 
-    def test_zero_artifact_finalizer_is_independent_and_non_cancelled(self) -> None:
+    def test_zero_artifact_finalizer_is_hosted_independent_and_non_cancelled(self) -> None:
         finalizer = self.workflow["jobs"]["zero_artifacts"]
-        self.assertEqual(
-            ["linux", "amd64", "general", "small"], finalizer["runs-on"]
-        )
-        self.assertNotIn("runs-on: [linux, amd64, general]", self.source)
+        self.assertEqual(["ubuntu-latest"], finalizer["runs-on"])
+        self.assertNotIn("runs-on: [linux, amd64, general, small]", self.source)
         self.assertEqual("${{ always() && !cancelled() }}", finalizer["if"])
         run = finalizer["steps"][0]["run"]
         self.assertIn("/artifacts", run)

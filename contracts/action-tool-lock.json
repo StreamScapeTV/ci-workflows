@@ -51,6 +51,13 @@
       "source": "https://github.com/StreamScapeTV/ci-workflows/tree/0b55b5f4bc2623815e47759d186e4955b6444075/actions/resolve-source"
     },
     {
+      "uses": "StreamScapeTV/ci-workflows/actions/resolve-execution-backend",
+      "sha": "7d5d839c6e90491e165f1358ecb5e80129805764",
+      "release": "issue #405 simplified execution-backend checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/7d5d839c6e90491e165f1358ecb5e80129805764/actions/resolve-execution-backend"
+    },
+    {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-device",
       "sha": "47afb4b6f14742bdddd3998095d719011c3ef549",
       "release": "issue #341 product-neutral device v2 checkpoint",
@@ -66,10 +73,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-node",
-      "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
-      "release": "issue #116 immutable private-action checkpoint",
+      "sha": "7d5d839c6e90491e165f1358ecb5e80129805764",
+      "release": "issue #405 simplified execution-backend checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/validate-node"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/7d5d839c6e90491e165f1358ecb5e80129805764/actions/validate-node"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/exact-checkout",
@@ -143,10 +150,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-python",
-      "sha": "aece8d01efdd5482a1c3d42db357aed87a7917e9",
-      "release": "issue #235 general-runner Python primitives checkpoint",
+      "sha": "7d5d839c6e90491e165f1358ecb5e80129805764",
+      "release": "issue #405 simplified execution-backend checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/aece8d01efdd5482a1c3d42db357aed87a7917e9/actions/validate-python"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/7d5d839c6e90491e165f1358ecb5e80129805764/actions/validate-python"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/verify-toolchain",
@@ -164,10 +171,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-apple",
-      "sha": "f682622a1a659368cba78c071c72b8b6e8953d88",
-      "release": "issue #372 bounded Apple failure diagnostics checkpoint",
+      "sha": "c82cd9fba134ff736621b8bbd636594c2a6fe923",
+      "release": "issue #311 External Display companion cleanup checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/f682622a1a659368cba78c071c72b8b6e8953d88/actions/validate-apple"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/c82cd9fba134ff736621b8bbd636594c2a6fe923/actions/validate-apple"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-oci",
@@ -196,6 +203,13 @@
       "release": "issue #18 immutable Helm runtime checkpoint",
       "runtime": "composite",
       "source": "https://github.com/StreamScapeTV/ci-workflows/tree/f867827a41174ea5a9ad554eeea91dbb2c2c0bfa/actions/publish-helm"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/publish-gradle-maven",
+      "sha": "c4b85851ac650906103f116c95d9d16c546dd538",
+      "release": "issue #418 immutable action checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/c4b85851ac650906103f116c95d9d16c546dd538/actions/publish-gradle-maven"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/measure-helm",

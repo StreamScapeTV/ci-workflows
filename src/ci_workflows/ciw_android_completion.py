@@ -405,6 +405,13 @@ def _runtime_environment(context: CIWContext, dependency: Path | None, domain: s
         environment["JAVA_HOME"] = str(_runner_directory(java_home, "java_home_invalid"))
     if dependency is not None:
         environment["CI_PRIVATE_DEPENDENCY_PATH"] = str(dependency)
+    package_read_token = source.get("CIW_MAVEN_PACKAGE_READ_TOKEN", "")
+    if package_read_token:
+        environment["CIW_MAVEN_PACKAGE_READ_TOKEN"] = _plain(
+            package_read_token,
+            "maven_package_read_token_invalid",
+            maximum=4096,
+        )
     if credentials:
         username = source.get("CIW_SERVICE_USERNAME", "")
         password = source.get("CIW_SERVICE_PASSWORD", "")

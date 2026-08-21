@@ -11,7 +11,7 @@ from ci_workflows.apple_types import AppleProfile, AppleValidationRequest
 
 ROOT = Path(__file__).resolve().parents[1]
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-APPLE_HELPER_SHA = "f682622a1a659368cba78c071c72b8b6e8953d88"
+APPLE_HELPER_SHA = "c82cd9fba134ff736621b8bbd636594c2a6fe923"
 
 
 class AppleWorkflowContractTests(unittest.TestCase):
@@ -90,8 +90,12 @@ class AppleWorkflowContractTests(unittest.TestCase):
 
     def test_semantic_runner_selection_uses_one_heavy_apple_executor(self) -> None:
         direct_general_selector = "runs-on: [linux, amd64, general, small]"
+        hosted_control_selector = "runs-on: [ubuntu-latest]"
+        private_executor_gate = "if: ${{ github.event.repository.private && needs.plan.result == 'success' }}"
         self.assertIn(direct_general_selector, self.workflow)
-        self.assertEqual(self.smoke.count(direct_general_selector), 2)
+        self.assertNotIn(direct_general_selector, self.smoke)
+        self.assertEqual(self.smoke.count(hosted_control_selector), 2)
+        self.assertNotIn("runs-on: ubuntu-latest", self.smoke)
         self.assertEqual(
             self.workflow.count(
                 "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}"
@@ -104,12 +108,15 @@ class AppleWorkflowContractTests(unittest.TestCase):
             ),
             1,
         )
+        self.assertEqual(self.smoke.count(private_executor_gate), 1)
+        self.assertIn('APPLE_RESULT: ${{ needs.apple.result }}', self.smoke)
+        self.assertIn('test "${APPLE_RESULT}" = skipped', self.smoke)
         self.assertNotIn("runs-on: [linux, amd64, general]", self.workflow + self.smoke)
         self.assertNotIn("runs-on: portable", self.workflow + self.smoke)
         self.assertNotIn("runs-on: macOS", self.workflow + self.smoke)
         self.assertNotIn("runs-on: self-hosted", self.workflow + self.smoke)
         self.assertNotIn("macos-latest", self.workflow + self.smoke)
-        self.assertNotIn("ubuntu-latest", self.workflow + self.smoke)
+        self.assertNotIn("ubuntu-latest", self.workflow)
         self.assertEqual(self.contract["planner_runner_profile"], "portable")
         self.assertEqual(self.contract["execution_runner_profile"], "apple")
         self.assertIn('requested_profile="apple"', (
@@ -331,6 +338,9 @@ class AppleWorkflowContractTests(unittest.TestCase):
         self.assertIn("simulator_ownership_identity_mismatch", self.execution)
         self.assertIn("simulator_unowned", self.execution)
         self.assertIn("simulator_ambiguous", self.execution)
+        self.assertIn("External Display", self.execution)
+        self.assertIn("_recorded_owned_companion_candidates", self.execution)
+        self.assertIn("_delete_recorded_owned_objects", self.execution)
         self.assertNotIn("state_root.resolve()", self.execution)
         self.assertNotIn('destination = "generic/', self.execution.lower())
         self.assertIn("generic/platform=", self.multistage)

@@ -156,6 +156,15 @@
       "profile_under_test": "general-medium"
     },
     {
+      "id": "untrusted-service-compose",
+      "mode": "resolve",
+      "workflow_api": "validation.service-compose",
+      "source_trust": "untrusted-fork",
+      "requested_profile": "service-small",
+      "expected_error": "source-trust-not-allowed",
+      "profile_under_test": "service-small"
+    },
+    {
       "id": "untrusted-buildah",
       "mode": "resolve",
       "workflow_api": "oci.build",

@@ -21,6 +21,7 @@ class RunnerImageFreshnessTests(unittest.TestCase):
         expected_directories = (
             "/runner-images/mobile",
             "/runner-images/buildah",
+            "/runner-images/service",
             "/runner-images/docker",
             "/runner-images/flux-control",
         )

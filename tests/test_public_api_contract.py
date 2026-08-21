@@ -22,10 +22,10 @@ class PublicApiContractTests(unittest.TestCase):
         cls.workflows = contract.validate_workflows(cls.data, cls.profiles)
 
     def test_registry_is_complete_and_deterministic(self) -> None:
-        self.assertEqual(len(self.data.workflows), 23)
-        self.assertEqual(len(self.profiles), 12)
+        self.assertEqual(len(self.data.workflows), 25)
+        self.assertEqual(len(self.profiles), 13)
         self.assertEqual(len(self.data.types["trust_classes"]), 6)
-        self.assertEqual("3.0.0", self.data.index["contract_version"])
+        self.assertEqual("3.1.0", self.data.index["contract_version"])
         self.assertEqual(
             [row["api_name"] for row in self.data.workflows],
             sorted(row["api_name"] for row in self.data.workflows),
@@ -119,19 +119,25 @@ class PublicApiContractTests(unittest.TestCase):
             ".github/workflows/reusable-android-release.yml",
             release["file"],
         )
-        self.assertEqual("2.0.0", routine["api_version"])
-        self.assertEqual("1.0.0", live["api_version"])
-        self.assertEqual("1.0.0", release["api_version"])
+        self.assertEqual("2.1.0", routine["api_version"])
+        self.assertEqual("1.1.0", live["api_version"])
+        self.assertEqual("1.1.0", release["api_version"])
         self.assertEqual("mobile", live["semantic_runner_profile"])
         self.assertEqual("mobile", release["semantic_runner_profile"])
         self.assertEqual(1, live["matrix_max_jobs"])
         self.assertEqual(1, release["matrix_max_jobs"])
-        self.assertEqual(["private_dependency_token"], routine["secrets"])
         self.assertEqual(
-            ["service_username", "service_password", "private_dependency_token"],
+            ["private_dependency_token", "maven_package_read_token"],
+            routine["secrets"],
+        )
+        self.assertEqual(
+            ["service_username", "service_password", "private_dependency_token", "maven_package_read_token"],
             live["secrets"],
         )
-        self.assertEqual(["private_dependency_token"], release["secrets"])
+        self.assertEqual(
+            ["private_dependency_token", "maven_package_read_token"],
+            release["secrets"],
+        )
         self.assertEqual("bounded-evidence", release["artifact_policy"])
         self.assertEqual(7, release["artifact_retention_max_days"])
         for api, row in self.workflows.items():
@@ -150,6 +156,13 @@ class PublicApiContractTests(unittest.TestCase):
             self.assertTrue(
                 self.data.types["secret_catalog"][secret]["exposed_to_product_source"]
             )
+        self.assertEqual(
+            "package-read",
+            self.data.types["secret_catalog"]["maven_package_read_token"]["required_scope"],
+        )
+        self.assertTrue(
+            self.data.types["secret_catalog"]["maven_package_read_token"]["exposed_to_product_source"]
+        )
         for row in (live, release):
             self.assertNotIn("v1", row["file"])
             self.assertNotIn("v2", row["file"])
@@ -237,8 +250,10 @@ class PublicApiContractTests(unittest.TestCase):
         baseline["outputs"].remove("resolved_inputs_json")
         self.assertEqual("compatible", contract.classify_change(baseline, current))
         acknowledgements = self.data.types["breaking_change_acknowledgements"]
-        self.assertEqual(10, len(acknowledgements))
-        by_api = {item["api_name"]: item for item in acknowledgements}
+        self.assertEqual(13, len(acknowledgements))
+        by_api: dict[str, list[dict[str, str]]] = {}
+        for item in acknowledgements:
+            by_api.setdefault(item["api_name"], []).append(item)
         self.assertEqual(
             {
                 "oci.build",
@@ -249,6 +264,8 @@ class PublicApiContractTests(unittest.TestCase):
                 "flux.assets",
                 "flux.reconcile",
                 "validation.android",
+                "validation.android-live-service",
+                "validation.android-release",
                 "validation.apple",
                 "validation.device",
             },
@@ -257,16 +274,31 @@ class PublicApiContractTests(unittest.TestCase):
         self.assertTrue(
             all(
                 item["migration_issue"] == "#322"
-                for api, item in by_api.items()
-                if api not in {"validation.android", "validation.apple", "validation.device"}
+                for api, rows in by_api.items()
+                if api
+                not in {
+                    "validation.android",
+                    "validation.android-live-service",
+                    "validation.android-release",
+                    "validation.apple",
+                    "validation.device",
+                }
+                for item in rows
             )
         )
-        self.assertEqual("#332", by_api["validation.android"]["migration_issue"])
-        self.assertEqual("2.0.0", by_api["validation.android"]["effective_version"])
-        self.assertEqual("#336", by_api["validation.apple"]["migration_issue"])
-        self.assertEqual("2.0.0", by_api["validation.apple"]["effective_version"])
-        self.assertEqual("#341", by_api["validation.device"]["migration_issue"])
-        self.assertEqual("2.0.0", by_api["validation.device"]["effective_version"])
+        android = {item["id"]: item for item in by_api["validation.android"]}
+        self.assertEqual("#332", android["issue-332-android"]["migration_issue"])
+        self.assertEqual("2.0.0", android["issue-332-android"]["effective_version"])
+        self.assertEqual("#443", android["issue-443-android-package-read"]["migration_issue"])
+        self.assertEqual("2.1.0", android["issue-443-android-package-read"]["effective_version"])
+        self.assertEqual("#443", by_api["validation.android-live-service"][0]["migration_issue"])
+        self.assertEqual("1.1.0", by_api["validation.android-live-service"][0]["effective_version"])
+        self.assertEqual("#443", by_api["validation.android-release"][0]["migration_issue"])
+        self.assertEqual("1.1.0", by_api["validation.android-release"][0]["effective_version"])
+        self.assertEqual("#336", by_api["validation.apple"][0]["migration_issue"])
+        self.assertEqual("2.0.0", by_api["validation.apple"][0]["effective_version"])
+        self.assertEqual("#341", by_api["validation.device"][0]["migration_issue"])
+        self.assertEqual("2.0.0", by_api["validation.device"][0]["effective_version"])
 
     def test_existing_bootstrap_workflow_matches_its_versioned_api_record(self) -> None:
         row = self.workflows["release.tag-image-chart-bootstrap"]
@@ -304,8 +336,8 @@ class PublicApiContractTests(unittest.TestCase):
         self.assertIn("`image_name` (required)", rendered)
         self.assertIn("`workflow_dispatch-existing-tag`", rendered)
         self.assertIn("`validation_scope` (required)", rendered)
-        self.assertIn("`validation.android-live-service` `1.0.0`", rendered)
-        self.assertIn("`validation.android-release` `1.0.0`", rendered)
+        self.assertIn("`validation.android-live-service` `1.1.0`", rendered)
+        self.assertIn("`validation.android-release` `1.1.0`", rendered)
         self.assertIn("`validation.apple` `2.0.0`", rendered)
         self.assertIn("`validation.device` `2.0.0`", rendered)
         self.assertIn("`host_capacity` (required)", rendered)

@@ -46,12 +46,14 @@ class BootstrapContractTests(unittest.TestCase):
                 ".github/workflows/reusable-device.yml",
                 ".github/workflows/reusable-flutter.yml",
                 ".github/workflows/reusable-gitops-validation.yml",
+                ".github/workflows/reusable-gradle-maven-publish.yml",
                 ".github/workflows/reusable-helm-publish.yml",
                 ".github/workflows/reusable-helm-validate.yml",
                 ".github/workflows/reusable-native-image-chart.yml",
                 ".github/workflows/reusable-node.yml",
                 ".github/workflows/reusable-oci-build.yml",
                 ".github/workflows/reusable-oci-publish.yml",
+                ".github/workflows/reusable-public-native-image-chart.yml",
                 ".github/workflows/reusable-python.yml",
                 ".github/workflows/reusable-resolve-source.yml",
                 ".github/workflows/reusable-script.yml",
@@ -82,10 +84,8 @@ class BootstrapContractTests(unittest.TestCase):
             for profile in runner_contract["profiles"]
             if profile["id"] == "general-small"
         )
-        self.assertEqual(
-            source.count("runs-on: [linux, amd64, general, small]"),
-            1,
-        )
+        self.assertEqual(source.count("runs-on: [ubuntu-latest]"), 1)
+        self.assertNotIn("runs-on: [linux, amd64, general, small]", source)
         self.assertNotIn("runs-on: [linux, amd64, general]", source)
         self.assertNotIn("runs-on: portable", source)
         self.assertNotIn("runs-on: macOS", source)

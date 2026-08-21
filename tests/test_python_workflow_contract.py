@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/reusable-python.yml"
 ACTION_PATH = ROOT / "actions/validate-python/action.yml"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-PYTHON_ACTION_SHA = "aece8d01efdd5482a1c3d42db357aed87a7917e9"
+PYTHON_ACTION_SHA = "7d5d839c6e90491e165f1358ecb5e80129805764"
 PRIVATE_HELPERS = {
     "validate-python": PYTHON_ACTION_SHA,
     "exact-checkout": FOUNDATION_SHA,
@@ -48,6 +48,7 @@ class PythonWorkflowContractTests(unittest.TestCase):
         self.assertEqual(
             set(call["inputs"]),
             {
+                "execution_backend",
                 "admitted_sha",
                 "validation_profile",
                 "version_file",
@@ -57,6 +58,10 @@ class PythonWorkflowContractTests(unittest.TestCase):
                 "artifact_exception_id",
             },
         )
+        backend = call["inputs"]["execution_backend"]
+        self.assertFalse(backend["required"])
+        self.assertEqual(backend["default"], "organization")
+        self.assertEqual(backend["type"], "string")
         self.assertEqual(
             set(call["outputs"]),
             {"result", "test_summary", "artifact_exception_used"},
@@ -77,15 +82,22 @@ class PythonWorkflowContractTests(unittest.TestCase):
             "CI / Python validation",
         )
 
-    def test_workflow_uses_general_linux_planner_and_exact_planner_runner_output(self) -> None:
+    def test_workflow_uses_hosted_planner_and_exact_backend_runner_output(self) -> None:
         jobs = self.workflow["jobs"]
         self.assertEqual(set(jobs), {"plan", "validate"})
-        self.assertEqual(
-            jobs["plan"]["runs-on"], ["linux", "amd64", "general", "small"]
-        )
+        self.assertEqual(jobs["plan"]["runs-on"], ["ubuntu-latest"])
         self.assertEqual(
             jobs["validate"]["runs-on"],
             "${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
+        )
+        self.assertEqual(
+            jobs["plan"]["outputs"]["runs_on_json"],
+            "${{ steps.plan.outputs.runs_on_json }}",
+        )
+        planner = jobs["plan"]["steps"][0]
+        self.assertEqual(
+            planner["with"]["execution_backend"],
+            "${{ inputs.execution_backend }}",
         )
         self.assertEqual(jobs["validate"]["timeout-minutes"], 120)
         self.assertEqual(jobs["validate"]["name"], "CI / Python validation")
@@ -187,6 +199,7 @@ class PythonWorkflowContractTests(unittest.TestCase):
             inputs,
             {
                 "phase",
+                "execution_backend",
                 "admitted_sha",
                 "validation_profile",
                 "command_profile",
@@ -196,6 +209,7 @@ class PythonWorkflowContractTests(unittest.TestCase):
                 "artifact_exception_id",
             },
         )
+        self.assertEqual(self.action["inputs"]["execution_backend"]["default"], "organization")
         forbidden = set(self.python_contract["forbidden_inputs"])
         self.assertTrue(inputs.isdisjoint(forbidden))
         for token in (
@@ -238,7 +252,7 @@ class PythonWorkflowContractTests(unittest.TestCase):
                 self.assertRegex(runtime["digest"], r"^sha256:[0-9a-f]{64}$")
                 self.assertNotEqual(runtime["tag"], "latest")
 
-    def test_docs_and_command_registry_cover_the_public_workflow(self) -> None:
+    def test_docs_and_command_registry_cover_backend_and_public_workflow(self) -> None:
         workflow_doc = (ROOT / "docs/workflows/python.md").read_text(encoding="utf-8")
         architecture = (
             ROOT / "docs/architecture/python-validation.md"
@@ -253,6 +267,8 @@ class PythonWorkflowContractTests(unittest.TestCase):
         self.assertIn("validation.python", workflow_doc)
         self.assertIn("podman-postgres", workflow_doc)
         self.assertIn("runner-provided CPython 3.12", workflow_doc)
+        self.assertIn("execution_backend", workflow_doc)
+        self.assertIn("github-hosted", workflow_doc)
         self.assertIn("shared Python primitives", architecture)
         self.assertIn("ciw python validate", architecture)
         self.assertIn("python validate", commands)

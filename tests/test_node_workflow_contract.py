@@ -12,15 +12,17 @@ from ci_workflows.validation_model import ActionsLoader
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/reusable-node.yml"
 ACTION_PATH = ROOT / "actions/validate-node/action.yml"
-PRIVATE_HELPER_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-PRIVATE_HELPER_RELEASE = "issue #116 immutable private-action checkpoint"
-PRIVATE_HELPERS = (
-    "validate-node",
-    "exact-checkout",
-    "prepare-workspace",
-    "render-evidence",
-    "cleanup-workspace",
-)
+FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
+FOUNDATION_RELEASE = "issue #116 immutable private-action checkpoint"
+VALIDATE_NODE_SHA = "7d5d839c6e90491e165f1358ecb5e80129805764"
+VALIDATE_NODE_RELEASE = "issue #405 simplified execution-backend checkpoint"
+PRIVATE_HELPERS = {
+    "validate-node": (VALIDATE_NODE_SHA, VALIDATE_NODE_RELEASE),
+    "exact-checkout": (FOUNDATION_SHA, FOUNDATION_RELEASE),
+    "prepare-workspace": (FOUNDATION_SHA, FOUNDATION_RELEASE),
+    "render-evidence": (FOUNDATION_SHA, FOUNDATION_RELEASE),
+    "cleanup-workspace": (FOUNDATION_SHA, FOUNDATION_RELEASE),
+}
 
 
 class NodeWorkflowContractTests(unittest.TestCase):
@@ -53,6 +55,7 @@ class NodeWorkflowContractTests(unittest.TestCase):
         self.assertEqual(
             set(call["inputs"]),
             {
+                "execution_backend",
                 "admitted_sha",
                 "validation_profile",
                 "version_file",
@@ -67,6 +70,10 @@ class NodeWorkflowContractTests(unittest.TestCase):
                 "artifact_exception_id",
             },
         )
+        backend = call["inputs"]["execution_backend"]
+        self.assertFalse(backend["required"])
+        self.assertEqual(backend["default"], "organization")
+        self.assertEqual(backend["type"], "string")
         self.assertEqual(
             set(call["outputs"]),
             {
@@ -94,14 +101,22 @@ class NodeWorkflowContractTests(unittest.TestCase):
         )
         self.assertEqual(set(self.public_record["outputs"]), set(call["outputs"]))
 
-    def test_jobs_use_only_general_linux_capabilities_and_no_caller_matrix(self) -> None:
+    def test_planner_uses_hosted_control_and_execution_uses_bounded_output(self) -> None:
         jobs = self.workflow["jobs"]
         self.assertEqual(set(jobs), {"plan", "validate"})
+        self.assertEqual(jobs["plan"]["runs-on"], ["ubuntu-latest"])
         self.assertEqual(
-            jobs["plan"]["runs-on"], ["linux", "amd64", "general", "small"]
+            jobs["validate"]["runs-on"],
+            "${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
         )
         self.assertEqual(
-            jobs["validate"]["runs-on"], ["linux", "amd64", "general", "small"]
+            jobs["plan"]["outputs"]["runs_on_json"],
+            "${{ steps.plan.outputs.runs_on_json }}",
+        )
+        planner = jobs["plan"]["steps"][0]
+        self.assertEqual(
+            planner["with"]["execution_backend"],
+            "${{ inputs.execution_backend }}",
         )
         self.assertEqual(jobs["validate"]["name"], "CI / Node validation")
         self.assertEqual(jobs["validate"]["timeout-minutes"], 90)
@@ -110,7 +125,6 @@ class NodeWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("self-hosted", self.workflow_text)
         self.assertNotIn("runs-on: portable", self.workflow_text)
         self.assertNotIn("runs-on: [linux, amd64, general]", self.workflow_text)
-        self.assertNotIn("fromJSON(needs.plan.outputs.runs_on", self.workflow_text)
 
     def test_setup_node_is_exact_locked_and_cache_disabled(self) -> None:
         setup = "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38"
@@ -142,11 +156,11 @@ class NodeWorkflowContractTests(unittest.TestCase):
             item["uses"]: item
             for item in self.action_lock["third_party_actions"]
         }
-        for helper in PRIVATE_HELPERS:
+        for helper, (sha, release) in PRIVATE_HELPERS.items():
             uses = f"StreamScapeTV/ci-workflows/actions/{helper}"
             self.assertIn(uses, locked)
-            self.assertEqual(PRIVATE_HELPER_SHA, locked[uses]["sha"])
-            self.assertEqual(PRIVATE_HELPER_RELEASE, locked[uses]["release"])
+            self.assertEqual(sha, locked[uses]["sha"])
+            self.assertEqual(release, locked[uses]["release"])
             self.assertEqual("composite", locked[uses]["runtime"])
 
         plan_steps = self.workflow["jobs"]["plan"]["steps"]
@@ -154,19 +168,23 @@ class NodeWorkflowContractTests(unittest.TestCase):
         plan = plan_steps[0]
         self.assertEqual(
             plan["uses"],
-            f"StreamScapeTV/ci-workflows/actions/validate-node@{PRIVATE_HELPER_SHA}",
+            f"StreamScapeTV/ci-workflows/actions/validate-node@{VALIDATE_NODE_SHA}",
         )
         self.assertEqual(plan["with"]["phase"], "plan")
+        self.assertEqual(
+            plan["with"]["execution_backend"],
+            "${{ inputs.execution_backend }}",
+        )
 
         validate_steps = self.workflow["jobs"]["validate"]["steps"]
         uses = [item.get("uses") for item in validate_steps if item.get("uses")]
         expected = [
-            f"StreamScapeTV/ci-workflows/actions/exact-checkout@{PRIVATE_HELPER_SHA}",
-            f"StreamScapeTV/ci-workflows/actions/prepare-workspace@{PRIVATE_HELPER_SHA}",
+            f"StreamScapeTV/ci-workflows/actions/exact-checkout@{FOUNDATION_SHA}",
+            f"StreamScapeTV/ci-workflows/actions/prepare-workspace@{FOUNDATION_SHA}",
             "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38",
-            f"StreamScapeTV/ci-workflows/actions/validate-node@{PRIVATE_HELPER_SHA}",
-            f"StreamScapeTV/ci-workflows/actions/render-evidence@{PRIVATE_HELPER_SHA}",
-            f"StreamScapeTV/ci-workflows/actions/cleanup-workspace@{PRIVATE_HELPER_SHA}",
+            f"StreamScapeTV/ci-workflows/actions/validate-node@{VALIDATE_NODE_SHA}",
+            f"StreamScapeTV/ci-workflows/actions/render-evidence@{FOUNDATION_SHA}",
+            f"StreamScapeTV/ci-workflows/actions/cleanup-workspace@{FOUNDATION_SHA}",
         ]
         positions = [uses.index(value) for value in expected]
         self.assertEqual(positions, sorted(positions))
@@ -174,14 +192,18 @@ class NodeWorkflowContractTests(unittest.TestCase):
             item
             for item in validate_steps
             if item.get("uses")
-            == f"StreamScapeTV/ci-workflows/actions/validate-node@{PRIVATE_HELPER_SHA}"
+            == f"StreamScapeTV/ci-workflows/actions/validate-node@{VALIDATE_NODE_SHA}"
         )
         self.assertEqual(execute["with"]["phase"], "execute")
+        self.assertEqual(
+            execute["with"]["execution_backend"],
+            "${{ inputs.execution_backend }}",
+        )
         cleanup = next(
             item
             for item in validate_steps
             if item.get("uses")
-            == f"StreamScapeTV/ci-workflows/actions/cleanup-workspace@{PRIVATE_HELPER_SHA}"
+            == f"StreamScapeTV/ci-workflows/actions/cleanup-workspace@{FOUNDATION_SHA}"
         )
         self.assertEqual(cleanup["if"], "always()")
 
@@ -191,9 +213,9 @@ class NodeWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("ref: ${{ job.workflow_sha }}", self.workflow_text)
         self.assertNotIn("path: .ciw", self.workflow_text)
         self.assertNotIn("./.ciw/actions/", self.workflow_text)
-        for helper in PRIVATE_HELPERS:
+        for helper, (sha, _) in PRIVATE_HELPERS.items():
             self.assertIn(
-                f"StreamScapeTV/ci-workflows/actions/{helper}@{PRIVATE_HELPER_SHA}",
+                f"StreamScapeTV/ci-workflows/actions/{helper}@{sha}",
                 self.workflow_text,
             )
         self.assertEqual(self.workflow.get("permissions"), {"contents": "read"})
@@ -202,7 +224,7 @@ class NodeWorkflowContractTests(unittest.TestCase):
 
     def test_exact_caller_source_is_still_verified_and_clean(self) -> None:
         self.assertIn(
-            f"uses: StreamScapeTV/ci-workflows/actions/exact-checkout@{PRIVATE_HELPER_SHA}",
+            f"uses: StreamScapeTV/ci-workflows/actions/exact-checkout@{FOUNDATION_SHA}",
             self.workflow_text,
         )
         self.assertIn("admitted_sha: ${{ inputs.admitted_sha }}", self.workflow_text)
@@ -219,6 +241,7 @@ class NodeWorkflowContractTests(unittest.TestCase):
         self.assertIn("scripts/ci/ciw.py", step["run"])
         self.assertIn("node validate", step["run"])
         self.assertIn("--phase", step["run"])
+        self.assertEqual(self.action["inputs"]["execution_backend"]["default"], "organization")
         inputs = set(self.action["inputs"])
         forbidden = set(self.node_contract["forbidden_inputs"])
         self.assertTrue(inputs.isdisjoint(forbidden))
@@ -241,7 +264,7 @@ class NodeWorkflowContractTests(unittest.TestCase):
             self.assertNotIn(token, lowered)
         self.assertEqual(self.workflow["permissions"], {"contents": "read"})
 
-    def test_docs_record_api_runtime_environment_output_and_cleanup(self) -> None:
+    def test_docs_record_api_runtime_backend_output_and_cleanup(self) -> None:
         workflow_doc = (ROOT / "docs/workflows/node.md").read_text(encoding="utf-8")
         architecture = (
             ROOT / "docs/architecture/node-validation.md"
@@ -255,6 +278,8 @@ class NodeWorkflowContractTests(unittest.TestCase):
             "npm ci --no-audit --no-fund",
             "NEXT_PUBLIC_API_BASE_URL",
             "immutable private",
+            "execution_backend",
+            "github-hosted",
             "zero",
         ):
             self.assertIn(token, workflow_doc)
@@ -265,7 +290,7 @@ class NodeWorkflowContractTests(unittest.TestCase):
             "symlink",
             "Worker",
             "descriptor-anchored",
-            PRIVATE_HELPER_SHA,
+            FOUNDATION_SHA,
         ):
             self.assertIn(token, architecture)
         self.assertRegex(
