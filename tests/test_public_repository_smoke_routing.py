@@ -1,3 +1,5 @@
+"""Regression coverage for public Central repository smoke runner routing."""
+
 from __future__ import annotations
 
 import re
