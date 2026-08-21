@@ -3,6 +3,11 @@ name: Reusable Helm validation
 on:
   workflow_call:
     inputs:
+      execution_backend:
+        description: organization or github-hosted
+        required: false
+        default: organization
+        type: string
       admitted_sha:
         description: Exact lowercase source SHA admitted by the caller
         required: true
@@ -44,10 +49,10 @@ permissions:
 jobs:
   plan:
     name: Resolve bounded Helm validation plan
-    runs-on: [linux, amd64, general, small]
+    runs-on: [ubuntu-latest]
     timeout-minutes: 10
     outputs:
-      runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
+      runs_on_json: ${{ steps.backend.outputs.runs_on_json }}
       workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
       source_trust: ${{ steps.plan.outputs.source_trust }}
     steps:
@@ -63,6 +68,15 @@ jobs:
           policy_path: ${{ inputs.policy_path }}
           artifact_exception_id: ${{ inputs.artifact_exception_id }}
           source_trust: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && github.event.pull_request.head.repo.full_name != github.repository && 'untrusted-fork' || (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && 'trusted-pr' || 'trusted-exact' }}
+
+      - id: backend
+        name: Resolve bounded execution backend
+        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@7d5d839c6e90491e165f1358ecb5e80129805764 # issue #405 simplified execution-backend checkpoint
+        with:
+          workflow_api: helm.validate
+          source_trust: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && github.event.pull_request.head.repo.full_name != github.repository && 'untrusted-fork' || (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && 'trusted-pr' || 'trusted-exact' }}
+          execution_backend: ${{ inputs.execution_backend }}
+          runner_profile: ${{ steps.plan.outputs.runner_profile }}
 
   validate:
     name: CI / Helm validation
