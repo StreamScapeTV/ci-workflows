@@ -376,14 +376,17 @@ class AndroidCompletionWorkflowTests(unittest.TestCase):
         self.assertEqual(self.release.count("actions/exact-checkout@"), 1)
         self.assertEqual(self.release.count("actions/prepare-workspace@"), 1)
 
+    @staticmethod
+    def assert_package_read_token_is_execute_env_only(workflow: str) -> None:
+        assert workflow.count("      maven_package_read_token:\n") == 1
+        assert workflow.count("CIW_MAVEN_PACKAGE_READ_TOKEN: ${{ secrets.maven_package_read_token }}") == 1
+        assert "          maven_package_read_token: ${{ secrets.maven_package_read_token }}" not in workflow
+
     def test_routine_package_read_token_is_execution_only_and_artifact_light(self) -> None:
         text = self.routine.casefold()
         self.assertNotIn("service_username", text)
         self.assertNotIn("service_password", text)
-        self.assertEqual(
-            1,
-            self.routine.count("maven_package_read_token: ${{ secrets.maven_package_read_token }}"),
-        )
+        self.assert_package_read_token_is_execute_env_only(self.routine)
         self.assertNotIn("upload-artifact", text)
         self.assertNotIn("actions/cache", text)
 
@@ -395,10 +398,7 @@ class AndroidCompletionWorkflowTests(unittest.TestCase):
         self.assertNotIn("secrets.service_password", plan)
         self.assertIn("service_username: ${{ secrets.service_username }}", self.live)
         self.assertIn("service_password: ${{ secrets.service_password }}", self.live)
-        self.assertEqual(
-            1,
-            self.live.count("maven_package_read_token: ${{ secrets.maven_package_read_token }}"),
-        )
+        self.assert_package_read_token_is_execute_env_only(self.live)
         self.assertNotIn("STREAMSCAPE_", self.live)
         self.assertNotIn("upload-artifact", self.live.lower())
         self.assertNotIn("actions/cache", self.live.lower())
@@ -411,10 +411,7 @@ class AndroidCompletionWorkflowTests(unittest.TestCase):
         self.assertNotIn("signing", lower)
         self.assertNotIn("play_store", lower)
         self.assertNotIn("registry", lower)
-        self.assertEqual(
-            1,
-            self.release.count("maven_package_read_token: ${{ secrets.maven_package_read_token }}"),
-        )
+        self.assert_package_read_token_is_execute_env_only(self.release)
         self.assertNotIn("actions/cache", lower)
         self.assertIn("artifact_paths_json", self.release)
         self.assertIn("retention-days: ${{ steps.execute.outputs.retention_days }}", self.release)

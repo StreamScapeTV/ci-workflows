@@ -332,13 +332,16 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         steps = self.workflow["jobs"]["validate"]["steps"]
         execute = next(step for step in steps if step["id"] == "execute")
         self.assertEqual(
-            execute["with"]["maven_package_read_token"],
+            execute["env"]["CIW_MAVEN_PACKAGE_READ_TOKEN"],
             "${{ secrets.maven_package_read_token }}",
         )
+        self.assertNotIn("maven_package_read_token", execute.get("with", {}))
         for step in steps:
             if step is execute:
                 continue
-            self.assertNotIn("maven_package_read_token", json.dumps(step))
+            serialized = json.dumps(step)
+            self.assertNotIn("maven_package_read_token", serialized)
+            self.assertNotIn("CIW_MAVEN_PACKAGE_READ_TOKEN", serialized)
 
     def test_workspace_uses_no_github_cache_or_artifact_transport_and_is_terminally_cleaned(self) -> None:
         self.assertNotIn("actions/cache", self.source)

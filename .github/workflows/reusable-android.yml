@@ -204,6 +204,8 @@ jobs:
         name: Execute one primitive-backed Android validation plan
         if: ${{ success() && (inputs.validation_scope != 'gradle' || steps.plan.outputs.private_dependency_used != 'true') && (inputs.dependency_prebuild_plan_json == '' || (steps.prebuild_plan.outcome == 'success' && steps.prebuild_execute.outcome == 'success' && steps.prebuild_cleanup.outcome == 'success' && steps.prebuild_residue.outcome == 'success')) }}
         uses: StreamScapeTV/ci-workflows/actions/validate-android@8eaa37ad0fe3231b202e878b26f66aa23753e38a # issue #373 compile Gradle isolation checkpoint
+        env:
+          CIW_MAVEN_PACKAGE_READ_TOKEN: ${{ secrets.maven_package_read_token }}
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -222,7 +224,6 @@ jobs:
           private_dependency_checkout_repository: ${{ steps.dependency.outputs.repository }}
           private_dependency_checkout_id: ${{ steps.dependency.outputs.dependency_id }}
           private_dependency_expected_subpath: ${{ steps.dependency.outputs.expected_subpath }}
-          maven_package_read_token: ${{ secrets.maven_package_read_token }}
 
       - id: evidence
         name: Render bounded Android validation evidence
