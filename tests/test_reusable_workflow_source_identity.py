@@ -210,9 +210,10 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
             if step.get("id") == "execute"
         )
         self.assertEqual(
-            execute["with"]["maven_package_read_token"],
+            execute["env"]["CIW_MAVEN_PACKAGE_READ_TOKEN"],
             "${{ secrets.maven_package_read_token }}",
         )
+        self.assertNotIn("maven_package_read_token", execute.get("with", {}))
         for job in workflow["jobs"].values():
             for step in job.get("steps", []):
                 if step is dependency or step is execute:
