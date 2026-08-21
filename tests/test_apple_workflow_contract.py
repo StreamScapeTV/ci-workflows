@@ -11,7 +11,7 @@ from ci_workflows.apple_types import AppleProfile, AppleValidationRequest
 
 ROOT = Path(__file__).resolve().parents[1]
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-APPLE_HELPER_SHA = "f682622a1a659368cba78c071c72b8b6e8953d88"
+APPLE_HELPER_SHA = "8a360dfe04a42840fb3675d96746e8e9c465f465"
 
 
 class AppleWorkflowContractTests(unittest.TestCase):
@@ -91,6 +91,7 @@ class AppleWorkflowContractTests(unittest.TestCase):
     def test_semantic_runner_selection_uses_one_heavy_apple_executor(self) -> None:
         direct_general_selector = "runs-on: [linux, amd64, general, small]"
         hosted_control_selector = "runs-on: [ubuntu-latest]"
+        private_executor_gate = "if: ${{ github.event.repository.private == true }}"
         self.assertIn(direct_general_selector, self.workflow)
         self.assertNotIn(direct_general_selector, self.smoke)
         self.assertEqual(self.smoke.count(hosted_control_selector), 2)
@@ -107,6 +108,9 @@ class AppleWorkflowContractTests(unittest.TestCase):
             ),
             1,
         )
+        self.assertEqual(self.smoke.count(private_executor_gate), 1)
+        self.assertIn('APPLE_RESULT: ${{ needs.apple.result }}', self.smoke)
+        self.assertIn('test "${APPLE_RESULT}" = skipped', self.smoke)
         self.assertNotIn("runs-on: [linux, amd64, general]", self.workflow + self.smoke)
         self.assertNotIn("runs-on: portable", self.workflow + self.smoke)
         self.assertNotIn("runs-on: macOS", self.workflow + self.smoke)
