@@ -1,6 +1,6 @@
 # Android validation workflow
 
-`validation.android` version `2.0.0` is the public Android/Gradle validation API implemented by `.github/workflows/reusable-android.yml`. Its stable check name is **CI / Android validation**.
+`validation.android` version `2.1.0` is the public Android/Gradle validation API implemented by `.github/workflows/reusable-android.yml`. Its stable check name is **CI / Android validation**.
 
 ## Build model
 
