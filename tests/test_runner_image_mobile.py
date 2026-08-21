@@ -142,6 +142,8 @@ def test_mobile_runner_bakes_cmake_license_and_runs_real_flutter_apk_smoke() -> 
     assert '--install "cmake;${ANDROID_CMAKE_VERSION}"' in source
     assert 'chown -R 0:0 "${ANDROID_HOME}/cmake" "${ANDROID_HOME}/licenses"' in source
     assert 'chmod -R a-w "${ANDROID_HOME}/cmake" "${ANDROID_HOME}/licenses"' in source
+    assert "chown 0:0 /tmp" in source
+    assert "chmod 1777 /tmp" in source
     assert "CIW_RUNNER_IMAGE_BUILD_PHASE=1 /usr/local/bin/runner-image-smoke" in source
 
     for token in (
@@ -149,9 +151,12 @@ def test_mobile_runner_bakes_cmake_license_and_runs_real_flutter_apk_smoke() -> 
         f"cmake version {cmake_runtime_version}",
         "ninja_version=",
         'test ! -w "${ANDROID_HOME}/cmake"',
-        'mkdir -p "${flutter_smoke_root}/tmp"',
+        'test "$(stat -c \'%a:%u:%g\' /tmp)" = "1777:0:0"',
+        'mkdir -p "${flutter_smoke_root}/tmp" "${flutter_smoke_root}/jvm-tmp"',
         'export TMPDIR="${flutter_smoke_root}/tmp"',
-        'test "$(stat -c \'%a\' "${TMPDIR}")" = "700"',
+        'export JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=${flutter_smoke_root}/jvm-tmp"',
+        'java -XshowSettings:properties -version',
+        'java.io.tmpdir = ${flutter_smoke_root}/jvm-tmp',
         "flutter create",
         "flutter pub get",
         "flutter build apk --debug --no-pub",
