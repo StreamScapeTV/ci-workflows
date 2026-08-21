@@ -16,7 +16,7 @@
     "portable": "general-small",
     "service-small": "service-small"
   },
-  "contract_version": "2.2.1",
+  "contract_version": "2.2.0",
   "generated_from": "contracts/runner-profiles.json",
   "profiles": {
     "apple": {
