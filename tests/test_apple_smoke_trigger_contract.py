@@ -23,8 +23,15 @@ EXPECTED_CONCURRENCY = {
     "routine": "group: apple-validation-smoke-pr-${{ github.event.pull_request.number }}",
     "release": "group: apple-release-certification-pr-${{ github.event.pull_request.number }}",
 }
+EXECUTOR_RESULT = {
+    "routine": "APPLE_RESULT",
+    "release": "RELEASE_RESULT",
+}
 APPLE_EXECUTOR_SELECTOR = "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}"
 HOSTED_CONTROL_SELECTOR = "runs-on: [ubuntu-latest]"
+PRIVATE_EXECUTOR_GATE = (
+    "if: ${{ github.event.repository.private && needs.plan.result == 'success' }}"
+)
 
 
 def pull_request_paths(source: str) -> set[str]:
@@ -61,18 +68,24 @@ class AppleSmokeTriggerContractTests(unittest.TestCase):
                 self.assertIn(EXPECTED_CONCURRENCY[name], source)
                 self.assertIn("cancel-in-progress: true", source)
 
-    def test_public_repository_linux_control_jobs_are_github_hosted(self) -> None:
+    def test_public_repository_control_jobs_are_hosted_and_private_executors_are_gated(self) -> None:
         for name, path in WORKFLOWS.items():
             with self.subTest(workflow=name):
                 source = path.read_text(encoding="utf-8")
                 self.assertEqual(source.count(HOSTED_CONTROL_SELECTOR), 2)
                 self.assertNotIn("runs-on: [linux, amd64, general, small]", source)
                 self.assertNotIn("runs-on: ubuntu-latest", source)
-                self.assertIn(APPLE_EXECUTOR_SELECTOR, source)
+                self.assertEqual(source.count(APPLE_EXECUTOR_SELECTOR), 1)
+                self.assertEqual(source.count(PRIVATE_EXECUTOR_GATE), 1)
+                self.assertIn("REPOSITORY_PRIVATE: ${{ github.event.repository.private }}", source)
+                self.assertIn(
+                    f'false) test "${{{EXECUTOR_RESULT[name]}}}" = skipped ;;',
+                    source,
+                )
+                self.assertIn('["macOS","ARM64"]', source)
 
         routine = WORKFLOWS["routine"].read_text(encoding="utf-8")
-        self.assertIn("macOS", routine)
-        self.assertIn("ARM64", routine)
+        self.assertIn("Real protected-full Apple smoke", routine)
 
 
 if __name__ == "__main__":
