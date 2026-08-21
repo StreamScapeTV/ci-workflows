@@ -103,7 +103,12 @@ scheduling label. Source admission and other contract-proven lightweight
 maintenance paths use `general-tiny`; ordinary validation defaults to
 `general-small`; `general-medium` requires an API that explicitly permits it.
 
-The repository Central self-check runs on `general-small`. It verifies its
+The public `ci-workflows` repository Central self-check runs on GitHub-hosted
+Linux using `[ubuntu-latest]`. Its repository-local Apple smoke planning and
+terminal zero-artifact control jobs use the same hosted selector so public PR
+validation does not require enabling organization self-hosted Linux capacity for
+a public repository. Reusable private-consumer semantic `portable` /
+`general-small` routing is unchanged. The Central self-check still verifies its
 pre-provisioned Linux runtime before checkout and does not install, elevate, or
 persist a host runtime. The former emergency macOS exception is retired and
 must not be restored.

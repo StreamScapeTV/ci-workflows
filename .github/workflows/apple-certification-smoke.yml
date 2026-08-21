@@ -37,7 +37,7 @@ jobs:
   plan:
     name: Resolve exact Apple Release selectors
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: [linux, amd64, general, small]
+    runs-on: [ubuntu-latest]
     timeout-minutes: 10
     outputs:
       runs_on_json: ${{ steps.ios.outputs.runs_on_json }}
@@ -133,10 +133,12 @@ jobs:
           test -n "${IOS_RUNS_ON}"
           test "${IOS_RUNS_ON}" = "${TVOS_RUNS_ON}"
           test "${IOS_RUNS_ON}" = "${MACOS_RUNS_ON}"
+          test "${IOS_RUNS_ON}" = '["macOS","ARM64"]'
 
   release:
     name: Release / ${{ matrix.label }} compile
     needs: plan
+    if: ${{ github.event.repository.private && needs.plan.result == 'success' }}
     strategy:
       fail-fast: false
       matrix:
@@ -270,19 +272,24 @@ jobs:
     name: Verify Apple Release smoke remains zero-artifact
     needs: [plan, release]
     if: ${{ always() && !cancelled() }}
-    runs-on: [linux, amd64, general, small]
+    runs-on: [ubuntu-latest]
     timeout-minutes: 10
     steps:
-      - name: Require all Release platforms and zero Actions artifacts
+      - name: Require public control success and private executor boundary
         env:
           PLAN_RESULT: ${{ needs.plan.result }}
           RELEASE_RESULT: ${{ needs.release.result }}
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
           GITHUB_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -Eeuo pipefail
           test "${PLAN_RESULT}" = success
-          test "${RELEASE_RESULT}" = success
+          case "${REPOSITORY_PRIVATE}" in
+            true) test "${RELEASE_RESULT}" = success ;;
+            false) test "${RELEASE_RESULT}" = skipped ;;
+            *) echo "unexpected repository privacy value: ${REPOSITORY_PRIVATE}" >&2; exit 1 ;;
+          esac
           python3 - <<'PY_ARTIFACTS'
           import json
           import os
