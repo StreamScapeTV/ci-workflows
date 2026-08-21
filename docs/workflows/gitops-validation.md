@@ -2,10 +2,26 @@
 
 `validation.gitops` version `1.0.0` is the product-neutral, source-only API for
 YAML, Helm, Kustomize, changed-tree, and checked-in policy validation. Its
-stable check is **CI / GitOps validation**. Planning and execution use the
-semantic `portable` general-Linux profile. A caller never selects a host,
-concrete label, tool URL, command, registry, cluster, namespace, service
-account, or deployment target.
+stable check is **CI / GitOps validation**. The semantic execution profile is
+`portable` / `general-small`. A caller never selects a host, concrete label,
+tool URL, command, registry, cluster, namespace, service account, or deployment
+target.
+
+## Execution backend
+
+The reusable accepts the shared bounded `execution_backend` input:
+
+- `organization` is the backwards-compatible default and resolves semantic
+  `general-small` to `[linux, amd64, general, small]`;
+- `github-hosted` explicitly resolves the same portable validation contract to
+  standard GitHub-hosted `ubuntu-latest`;
+- an explicit hosted request never falls back to StreamScapeTV organization or
+  ARC capacity;
+- repository visibility does not select a backend automatically.
+
+The small planning job itself uses GitHub-hosted Ubuntu so deciding between
+backends never consumes organization capacity. Product source behavior, tools,
+cleanup, evidence, and zero-artifact semantics are identical after selection.
 
 ## Profiles
 
@@ -18,11 +34,11 @@ account, or deployment target.
 | `changed-tree` | Select only contract targets intersecting an exact Git diff base. |
 | `full` | All targets and the optional contract-owned policy script. |
 
-The reusable workflow accepts only an exact admitted SHA, one registered
-consumer/profile, an exact base SHA for `changed-tree`, the profile's exact
-policy identifier, and the reserved empty artifact-exception field. Roots,
-values, schemas, tasks, scripts, tool identities, and assertions are checked-in
-contract data.
+The reusable workflow accepts only the bounded backend, an exact admitted SHA,
+one registered consumer/profile, an exact base SHA for `changed-tree`, the
+profile's exact policy identifier, and the reserved empty artifact-exception
+field. Roots, values, schemas, tasks, scripts, tool identities, and assertions
+are checked-in contract data.
 
 ## Immutable private helper reuse
 
@@ -31,7 +47,8 @@ with their caller-scoped token. The reusable planner and execution job invoke
 `validate-gitops` through immutable central revision
 `8445e63dd9fa9468b60b6d0c61e543da9681b47b`; exact checkout, workspace
 preparation, evidence rendering, and cleanup reuse the immutable foundation
-actions established by #116.
+actions established by #116. Backend resolution uses the reviewed immutable
+Central execution-backend helper and accepts no caller runner selector.
 
 The private action archives resolve their central scripts and Python modules
 relative to `GITHUB_ACTION_PATH`, so there is no `.ciw` checkout, central PAT,
@@ -44,7 +61,7 @@ foundation contract and is not retained.
 
 ## Exact tools
 
-The initial Linux contract installs and verifies:
+The Linux contract installs and verifies:
 
 - Helm 3.18.6 from the fixed official HTTPS archive and SHA-256;
 - Kustomize 5.8.1 from the fixed upstream release archive and SHA-256;
@@ -80,10 +97,10 @@ contents.
 Flux remains authoritative for desired state, target allowlists, policy,
 decryption, credentials, and live reconciliation. The `flux-source` consumer
 shape can validate checked-in YAML and changed paths but receives no Flux or
-Kubernetes authority. `iptv-backend` and `agent-state` remain owners of their
-chart values and product assertions; central validation supplies only the
-bounded source/render machinery. No consumer repository change is part of
-issue #15.
+Kubernetes authority. Selecting GitHub-hosted validation does not grant private
+cluster authority. `iptv-backend` and `agent-state` remain owners of their chart
+values and product assertions; central validation supplies only the bounded
+source/render machinery.
 
 ## Cleanup and artifacts
 
