@@ -66,7 +66,7 @@ on:
         value: ${{ jobs.validate.outputs.test_summary }}
       cleanup_result:
         description: Success only after Android state and workspace cleanup are residue-free
-        value: ${{ (inputs.dependency_prebuild_plan_json == '' || (steps.prebuild_cleanup.outcome == 'success' && steps.prebuild_residue.outcome == 'success')) && steps.android_cleanup.outcome == 'success' && steps.residue.outcome == 'success' && steps.workspace_cleanup.outcome == 'success' && 'success' || 'failure' }}
+        value: ${{ jobs.validate.outputs.cleanup_result }}
 
 permissions:
   contents: read
@@ -306,33 +306,19 @@ jobs:
           CLEAN_OUTCOME: ${{ steps.clean.outcome }}
         run: |
           set -Eeuo pipefail
-          if [[ -n "${ANDROID_TEST_SUMMARY}" ]]; then
-            printf 'android-test-summary=%s\n' "${ANDROID_TEST_SUMMARY}"
-          fi
+          if [[ -n "${ANDROID_TEST_SUMMARY}" ]]; then printf 'android-test-summary=%s\n' "${ANDROID_TEST_SUMMARY}"; fi
           warm_ok=true
           if [[ "${MAINTENANCE_MODE}" == "true" ]]; then
             test "${WARM_OUTCOME}" = "success" || warm_ok=false
             test "${WARM_SEED_OUTCOME}" = "success" || warm_ok=false
-            if [[ -n "${WARM_CACHE_MODE}" && -n "${WARM_WALL_MS}" ]]; then
-              printf 'gradle-dependency-warm cache_mode=%s wall_ms=%s\n' "${WARM_CACHE_MODE}" "${WARM_WALL_MS}"
-            fi
+            if [[ -n "${WARM_CACHE_MODE}" && -n "${WARM_WALL_MS}" ]]; then printf 'gradle-dependency-warm cache_mode=%s wall_ms=%s\n' "${WARM_CACHE_MODE}" "${WARM_WALL_MS}"; fi
           fi
-          dependency_ok=true
-          if [[ "${DEPENDENCY_REQUIRED}" == "true" ]]; then
-            test "${DEPENDENCY_OUTCOME}" = "success" || dependency_ok=false
-          fi
+          dependency_ok=true; if [[ "${DEPENDENCY_REQUIRED}" == "true" ]]; then test "${DEPENDENCY_OUTCOME}" = "success" || dependency_ok=false; fi
           prebuild_ok=true
           if [[ "${PREBUILD_REQUIRED}" == "true" ]]; then
-            test "${DEPENDENCY_REQUIRED}" = "true" || prebuild_ok=false
-            test "${PREBUILD_PLAN_OUTCOME}" = "success" || prebuild_ok=false
-            test "${PREBUILD_EXECUTE_OUTCOME}" = "success" || prebuild_ok=false
-            test "${PREBUILD_CLEANUP_OUTCOME}" = "success" || prebuild_ok=false
-            test "${PREBUILD_RESIDUE_OUTCOME}" = "success" || prebuild_ok=false
+            test "${DEPENDENCY_REQUIRED}" = "true" && test "${PREBUILD_PLAN_OUTCOME}" = "success" && test "${PREBUILD_EXECUTE_OUTCOME}" = "success" && test "${PREBUILD_CLEANUP_OUTCOME}" = "success" && test "${PREBUILD_RESIDUE_OUTCOME}" = "success" || prebuild_ok=false
           fi
-          execute_ok=true
-          if [[ "${EXECUTE_REQUIRED}" == "true" ]]; then
-            test "${EXECUTE_OUTCOME}" = "success" || execute_ok=false
-          fi
+          execute_ok=true; if [[ "${EXECUTE_REQUIRED}" == "true" ]]; then test "${EXECUTE_OUTCOME}" = "success" || execute_ok=false; fi
           if [[ "${PLAN_OUTCOME}" == "success" &&
                 "${CHECKOUT_OUTCOME}" == "success" &&
                 "${WORKSPACE_OUTCOME}" == "success" &&
