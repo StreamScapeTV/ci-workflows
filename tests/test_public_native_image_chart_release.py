@@ -11,6 +11,7 @@ from ci_workflows.validation_model import ActionsLoader
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_WORKFLOW = ROOT / ".github" / "workflows" / "reusable-public-native-image-chart.yml"
 PRIVATE_WORKFLOW = ROOT / ".github" / "workflows" / "reusable-native-image-chart.yml"
+READBACK = ROOT / "scripts" / "ci" / "public_native_image_chart_readback.py"
 PRODUCTS = ROOT / "contracts" / "public-workflows" / "products.json"
 PERMISSIONS = ROOT / "contracts" / "permission-profiles.json"
 
@@ -43,8 +44,10 @@ class PublicNativeImageChartReleaseTests(unittest.TestCase):
 
     def test_public_path_reuses_existing_packaging_primitives(self) -> None:
         text = PUBLIC_WORKFLOW.read_text(encoding="utf-8")
+        readback = READBACK.read_text(encoding="utf-8")
         self.assertEqual(text.count("native_image_chart_prepare.py"), 1)
         self.assertEqual(text.count("native_image_chart_validate.py"), 1)
+        self.assertEqual(text.count("public_native_image_chart_readback.py"), 1)
         for primitive in (
             "registry_authenticate",
             "push_image",
@@ -55,8 +58,8 @@ class PublicNativeImageChartReleaseTests(unittest.TestCase):
         ):
             self.assertIn(primitive, text)
         self.assertIn("Drop credentials and anonymously read back public artifacts", text)
-        self.assertIn('printf \'{}\\n\' > "${anon_authfile}"', text)
-        self.assertIn('skopeo inspect --authfile "${anon_authfile}" --raw', text)
+        self.assertIn('["skopeo", "inspect", "--authfile", str(authfile)]', readback)
+        self.assertIn('authfile.write_text("{}\\n", encoding="utf-8")', readback)
         self.assertNotIn("actions/upload-artifact", text)
         self.assertNotIn("git.faruqi.dev", text)
         self.assertNotIn("registry_username:", text)
@@ -117,20 +120,22 @@ class PublicNativeImageChartReleaseTests(unittest.TestCase):
         self.assertEqual(profile["named_secrets_allowed"], [])
 
     def test_versioned_references_are_fixed_and_latest_is_read_back_anonymously(self) -> None:
-        text = PUBLIC_WORKFLOW.read_text(encoding="utf-8")
+        workflow = PUBLIC_WORKFLOW.read_text(encoding="utf-8")
+        readback = READBACK.read_text(encoding="utf-8")
         self.assertIn(
             "ghcr.io/streamscapetv/${{ inputs.image_name }}:${{ needs.admit.outputs.version }}",
-            text,
+            workflow,
         )
         self.assertIn(
             'chart_reference="${REGISTRY}/${CHART_NAMESPACE}/${CHART_NAME}:${VERSION}"',
-            text,
+            workflow,
         )
-        self.assertGreaterEqual(text.count('skopeo inspect --authfile "${anon_authfile}"'), 5)
-        self.assertIn("anonymous image read-back identity mismatch", text)
-        self.assertIn("anonymous latest image read-back identity mismatch", text)
-        self.assertIn("latest image alias does not match immutable release image", text)
-        self.assertIn('if [[ "${PUBLISH_LATEST_IMAGE}" == "true" ]]; then', text)
+        self.assertIn("anonymous image read-back identity mismatch", readback)
+        self.assertIn("anonymous image read-back platform mismatch", readback)
+        self.assertIn("latest image alias does not match immutable release image", readback)
+        self.assertIn('os.environ.get("PUBLISH_LATEST_IMAGE", "false").lower() == "true"', readback)
+        self.assertIn("latest_digest != image_digest", readback)
+        self.assertIn("chart_digest = _manifest_digest(_inspect(chart_reference, authfile, raw=True))", readback)
 
 
 if __name__ == "__main__":
