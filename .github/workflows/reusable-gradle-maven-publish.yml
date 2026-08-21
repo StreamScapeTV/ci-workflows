@@ -77,7 +77,7 @@ jobs:
       - id: maven_plan
         name: Validate bounded Maven publication plan
         if: ${{ steps.checkout.outcome == 'success' && steps.workspace.outcome == 'success' }}
-        uses: StreamScapeTV/ci-workflows/actions/publish-gradle-maven@96819df9003f7916f4e6a13483ca4d6c2c93808b # temporary #418 action checkpoint; repinned before candidate validation
+        uses: StreamScapeTV/ci-workflows/actions/publish-gradle-maven@af95ac60ec2751897765178b7006caadc3903b88 # issue #418 immutable action checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -91,7 +91,7 @@ jobs:
       - id: maven
         name: Publish Maven packages in one Gradle invocation
         if: ${{ steps.maven_plan.outcome == 'success' }}
-        uses: StreamScapeTV/ci-workflows/actions/publish-gradle-maven@96819df9003f7916f4e6a13483ca4d6c2c93808b # temporary #418 action checkpoint; repinned before candidate validation
+        uses: StreamScapeTV/ci-workflows/actions/publish-gradle-maven@af95ac60ec2751897765178b7006caadc3903b88 # issue #418 immutable action checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -107,7 +107,7 @@ jobs:
       - id: source_cleanup
         name: Remove ignored Maven publication build state
         if: ${{ always() && steps.checkout.outcome == 'success' }}
-        uses: StreamScapeTV/ci-workflows/actions/publish-gradle-maven@96819df9003f7916f4e6a13483ca4d6c2c93808b # temporary #418 action checkpoint; repinned before candidate validation
+        uses: StreamScapeTV/ci-workflows/actions/publish-gradle-maven@af95ac60ec2751897765178b7006caadc3903b88 # issue #418 immutable action checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -116,7 +116,7 @@ jobs:
       - id: source_residue
         name: Verify zero Maven publication source residue
         if: ${{ always() && steps.source_cleanup.outcome == 'success' }}
-        uses: StreamScapeTV/ci-workflows/actions/publish-gradle-maven@96819df9003f7916f4e6a13483ca4d6c2c93808b # temporary #418 action checkpoint; repinned before candidate validation
+        uses: StreamScapeTV/ci-workflows/actions/publish-gradle-maven@af95ac60ec2751897765178b7006caadc3903b88 # issue #418 immutable action checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
