@@ -6,7 +6,7 @@ The required path is intentionally short:
 
 `product trigger -> reusable-script.yml -> checked-in product script`
 
-The product repository owns the script, tool versions, build/test commands, schemes, Gradle tasks, playback assertions, Dockerfiles, chart values, and product cleanup. Central owns only exact caller checkout, bounded semantic runner/backend placement, safe repository-relative script selection, direct zero-argument invocation, and a terminal clean-tree check.
+The product repository owns the script, tool versions, build/test commands, schemes, Gradle tasks, playback assertions, Dockerfiles, chart values, and product cleanup. Central owns only exact caller checkout, bounded semantic runner placement, safe repository-relative script selection, direct zero-argument invocation, and a terminal clean-tree check.
 
 ## Inputs
 
@@ -18,33 +18,22 @@ The product repository owns the script, tool versions, build/test commands, sche
 
 The reusable workflow does not accept arbitrary shell text or caller-provided arguments: product scripts always receive zero injected arguments from Central. If a product needs multiple behaviors, its checked-in script owns that bounded selection.
 
-## Semantic capacity, backend, and trust
+## Semantic capacity and trust
 
-With the default `execution_backend: organization`:
+The default `organization` backend preserves the existing semantic mapping:
 
-- `general` resolves through semantic `general-small` to `[linux, amd64, general, small]` for ordinary backend, Python, Node/Next, policy, and source work. Tokenless fork pull-request source may use this non-specialized capacity.
-- `mobile` resolves through semantic `mobile` to `[linux, amd64, mobile]` for Android/Gradle and other pre-provisioned mobile toolchains.
-- `apple` resolves through semantic `apple` to `[macOS, ARM64]` for Xcode/iOS/tvOS/macOS validation.
+- `general` -> `[linux, amd64, general, small]` for ordinary backend, Python, Node/Next, policy, and source work. Tokenless fork pull-request source may use this non-specialized capacity.
+- `mobile` -> `[linux, amd64, mobile]` for Android/Gradle and other pre-provisioned mobile toolchains.
+- `apple` -> `[macOS, ARM64]` for Xcode/iOS/tvOS/macOS validation.
 
-With explicit `execution_backend: github-hosted`, the currently portable `general` profile resolves only to standard GitHub-hosted `ubuntu-latest`. It never falls back to organization capacity. `mobile` and `apple` hosted requests currently fail closed before execution until their required hosted toolchains are separately proven; a caller cannot use this input to impersonate specialized capacity.
+`github-hosted` is deliberately narrower in this portable tranche:
 
-`mobile` and `apple` are admitted only for same-repository pull requests or exact `push`/`workflow_dispatch` source. Fork pull requests fail in the hosted planning job before either specialized runner can be scheduled. Products never select concrete runner hosts, raw labels, runner groups, scale sets, or engines.
+- `general` -> `[ubuntu-latest]`;
+- `mobile` and `apple` fail closed with the Central unsupported-profile boundary until their standard-hosted toolchain contracts are proven separately.
+
+`mobile` and `apple` are admitted only for same-repository pull requests or exact `push`/`workflow_dispatch` source. Fork pull requests fail in the hosted planning job before either specialized runner can be scheduled. Products never select concrete runner hosts or scale sets, and an explicit hosted request never falls back to organization capacity.
 
 ## Thin caller
-
-Default organization capacity remains backwards compatible:
-
-```yaml
-jobs:
-  validate:
-    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-script.yml@main
-    with:
-      admitted_sha: ${{ github.event.pull_request.head.sha || github.sha }}
-      validation_profile: general
-      script_path: scripts/ci/validate.sh
-```
-
-A portable caller can explicitly use GitHub-hosted Linux:
 
 ```yaml
 jobs:
@@ -57,7 +46,7 @@ jobs:
       script_path: scripts/ci/validate.sh
 ```
 
-The caller still owns its trigger, concurrency, and minimum permissions. During active development, `@main` remains the supported human-readable shared-library reference.
+Omit `execution_backend` to retain the organization/private default. The caller still owns its trigger, concurrency, and minimum permissions. During active Central development, `@main` is the normal shared-library reference.
 
 ## What is deliberately not required
 
