@@ -66,7 +66,7 @@ on:
         value: ${{ jobs.validate.outputs.test_summary }}
       cleanup_result:
         description: Success only after Android state and workspace cleanup are residue-free
-        value: ${{ jobs.validate.outputs.cleanup_result }}
+        value: ${{ (inputs.dependency_prebuild_plan_json == '' || (steps.prebuild_cleanup.outcome == 'success' && steps.prebuild_residue.outcome == 'success')) && steps.android_cleanup.outcome == 'success' && steps.residue.outcome == 'success' && steps.workspace_cleanup.outcome == 'success' && 'success' || 'failure' }}
 
 permissions:
   contents: read
@@ -333,17 +333,9 @@ jobs:
           if [[ "${EXECUTE_REQUIRED}" == "true" ]]; then
             test "${EXECUTE_OUTCOME}" = "success" || execute_ok=false
           fi
-          if [[ "${PLAN_OUTCOME}" == "success" &&
-                "${CHECKOUT_OUTCOME}" == "success" &&
-                "${WORKSPACE_OUTCOME}" == "success" &&
-                "${warm_ok}" == "true" &&
-                "${dependency_ok}" == "true" &&
-                "${prebuild_ok}" == "true" &&
-                "${execute_ok}" == "true" &&
-                "${ANDROID_CLEANUP_OUTCOME}" == "success" &&
-                "${RESIDUE_OUTCOME}" == "success" &&
-                "${WORKSPACE_CLEANUP_OUTCOME}" == "success" &&
-                "${CLEAN_OUTCOME}" == "success" ]]; then
+          if [[ "${PLAN_OUTCOME}" == "success" && "${CHECKOUT_OUTCOME}" == "success" && "${WORKSPACE_OUTCOME}" == "success" &&
+                "${warm_ok}" == "true" && "${dependency_ok}" == "true" && "${prebuild_ok}" == "true" && "${execute_ok}" == "true" &&
+                "${ANDROID_CLEANUP_OUTCOME}" == "success" && "${RESIDUE_OUTCOME}" == "success" && "${WORKSPACE_CLEANUP_OUTCOME}" == "success" && "${CLEAN_OUTCOME}" == "success" ]]; then
             echo "result=success" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
