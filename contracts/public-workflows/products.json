@@ -185,7 +185,8 @@
         {"name": "chart_name", "required": true},
         {"name": "chart_path", "required": true},
         {"name": "dockerfile_path", "required": false, "default": "Dockerfile"},
-        {"name": "build_context", "required": false, "default": "."}
+        {"name": "build_context", "required": false, "default": "."},
+        {"name": "publish_latest_image", "required": false, "default": false}
       ],
       "secrets": [],
       "outputs": ["version", "source_sha", "image_reference", "image_digest", "chart_reference", "chart_digest", "chart_package_sha256"],
@@ -198,6 +199,7 @@
         "ci_workflows.packaging_primitives.inspect_image",
         "ci_workflows.packaging_primitives.registry_authenticate",
         "ci_workflows.packaging_primitives.push_image",
+        "ci_workflows.packaging_primitives.tag_image",
         "ci_workflows.packaging_primitives.helm_lint",
         "ci_workflows.packaging_primitives.helm_template",
         "ci_workflows.packaging_primitives.helm_package",
