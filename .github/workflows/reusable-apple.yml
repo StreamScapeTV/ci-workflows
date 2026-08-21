@@ -120,7 +120,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve one Apple executor plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@f682622a1a659368cba78c071c72b8b6e8953d88 # issue #372 bounded Apple failure diagnostics checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@8a360dfe04a42840fb3675d96746e8e9c465f465 # issue #421 generated-state mutation guard checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -213,7 +213,7 @@ jobs:
 
       - id: execute
         name: Execute one sequential Apple validation plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@f682622a1a659368cba78c071c72b8b6e8953d88 # issue #372 bounded Apple failure diagnostics checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@8a360dfe04a42840fb3675d96746e8e9c465f465 # issue #421 generated-state mutation guard checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -256,7 +256,7 @@ jobs:
       - id: apple_cleanup
         name: Remove Apple-specific state once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@f682622a1a659368cba78c071c72b8b6e8953d88 # issue #372 bounded Apple failure diagnostics checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@8a360dfe04a42840fb3675d96746e8e9c465f465 # issue #421 generated-state mutation guard checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -280,7 +280,7 @@ jobs:
       - id: residue
         name: Verify zero Apple-specific residue once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@f682622a1a659368cba78c071c72b8b6e8953d88 # issue #372 bounded Apple failure diagnostics checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@8a360dfe04a42840fb3675d96746e8e9c465f465 # issue #421 generated-state mutation guard checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
