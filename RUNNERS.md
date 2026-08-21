@@ -55,7 +55,7 @@ the platform labels:
 | Purpose | Semantic profile API | Direct selector for central/infrastructure workflows | Main tools and resources | Trust boundary |
 |---|---|---|---|---|
 | Minimal source admission and lightweight maintenance/control | `general-tiny` | `[linux, amd64, general, tiny]` | Actions runner 2.336.0; 256 Mi / 1 Gi memory; 4 Gi local storage; 2 Gi disposable workspace | Tokenless, one job, ephemeral; may run untrusted source only when the workflow exposes no secret or privileged authority |
-| Ordinary policy, lint, Python/Node scripts, Helm, GitOps, and Central conformance | `general-small`; compatibility request `portable` | `[linux, amd64, general, small]` | Actions runner 2.336.0; 512 Mi / 2 Gi memory; 8 Gi local storage; 4 Gi disposable workspace | Same tokenless general boundary; `portable` is intent only and never a label |
+| Ordinary policy, lint, Python/Node/native scripts, Helm, GitOps, and Central conformance | `general-small`; compatibility request `portable`; `validation.native` | `[linux, amd64, general, small]` | Actions runner 2.336.0; CMake 4.4.2; GCC/G++ 14.2.0; GNU Make 4.4.1; 512 Mi / 2 Gi memory; 8 Gi local storage; 4 Gi disposable workspace | Same tokenless general boundary; `portable` is intent only and never a label |
 | Measured larger general work | `general-medium` | `[linux, amd64, general, medium]` | Actions runner 2.336.0; 1 / 4 Gi memory; 16 Gi local storage; 8 Gi disposable workspace | Opt in only through an API that explicitly permits the measured medium tier |
 | Read-only service/Compose validation | `service-small` | `[linux, amd64, service, small]` | Actions runner 2.336.0; rootless Podman 4.9.3; podman-compose 1.0.6; VFS container storage; 512 Mi / 2 Gi memory; 8 Gi local storage | Tokenless, non-privileged, one job; same-repository trusted PR or trusted exact source only; no Docker/DinD, Buildah/Skopeo, registry publication, Kubernetes token, or Agent State credential |
 | Android, Gradle, Flutter-on-Linux, JDK 25, or Node 24 validation | `mobile` | `[linux, amd64, mobile]`; narrower installed-tool selectors are listed below | JDK/Javac 25; Flutter 3.44.8; Dart 3.12.2; Node 24.19.0; Android API/Build Tools 36 and 37; NDK 28.2.13676358; 2 / 4 Gi memory; 6 Gi workspace; 20 Gi scratch; managed 20 Gi dependency cache | Tokenless, one job; trusted PR or exact source because the managed cache is shared; does not prove a physical Android device is attached |
@@ -102,6 +102,14 @@ Do not use `runs-on: portable`. `portable` is not a registered Linux ARC
 scheduling label. Source admission and other contract-proven lightweight
 maintenance paths use `general-tiny`; ordinary validation defaults to
 `general-small`; `general-medium` requires an API that explicitly permits it.
+
+`validation.native` is an ordinary validation API and resolves only to
+`general-small`. That image guarantees CMake 4.4.2, GCC/G++ 14.2.0, and GNU
+Make 4.4.1. Its image-owned smoke configures, builds, and tests a representative
+C++ CMake project with the `Unix Makefiles` generator as the unprivileged runner
+user. This native toolchain does not add a container engine, registry authority,
+Kubernetes credential, device authority, signing capability, or a separate
+native scheduling class.
 
 The public `ci-workflows` repository Central self-check runs on GitHub-hosted
 Linux using `[ubuntu-latest]`. Its repository-local Apple smoke planning and
@@ -342,6 +350,7 @@ The full receipt and cleanup contract is documented in
 |---|---|
 | Source admission and lightweight maintenance | `general-tiny`, resolved to `[linux, amd64, general, tiny]` |
 | Ordinary policy, lint, Python/Node, Helm, GitOps, or conformance | `general-small`; compatibility `portable` resolves to `[linux, amd64, general, small]` |
+| Native C/C++ CMake validation | `general-small` through `validation.native`, resolved to `[linux, amd64, general, small]` |
 | Measured larger general work | `general-medium`, resolved to `[linux, amd64, general, medium]` only where the API permits it |
 | Service/Compose validation | `service-small` through `validation.service-compose`, resolved to `[linux, amd64, service, small]` for trusted PR/exact source |
 | Android or Gradle validation | `mobile`, resolved to `[linux, amd64, mobile]` |
