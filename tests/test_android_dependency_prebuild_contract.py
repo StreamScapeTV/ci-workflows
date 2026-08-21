@@ -10,7 +10,7 @@ from ci_workflows.validation_model import ActionsLoader
 
 ROOT = Path(__file__).resolve().parents[1]
 REUSABLE = ROOT / ".github/workflows/reusable-android.yml"
-ANDROID_SHA = "8eaa37ad0fe3231b202e878b26f66aa23753e38a"
+ANDROID_SHA = "b8b6f7ad2e8ea8b37d12a73df19ed02ff497f971"
 
 
 class AndroidDependencyPrebuildContractTests(unittest.TestCase):

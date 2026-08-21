@@ -27,6 +27,8 @@ After source admission, one exact source checkout, one registered Gradle workspa
 
 The Android execution runtime forwards `GRADLE_RO_DEP_CACHE=/opt/gradle-ro-cache` only when that runner-owned directory is present and valid. It cannot alias the private `GRADLE_USER_HOME`. If the seed is present, Gradle consumes cached modules from it and writes misses to the private home. If the seed is absent, the same real product build resolves dependencies from configured repositories into its private home. Cache presence changes acceleration, not correctness.
 
+The optional package-read secret crosses only the authoritative execution boundary. The reusable workflow maps it to the fixed `CIW_MAVEN_PACKAGE_READ_TOKEN` environment key on the execute action, and the reviewed `ciw` runtime copies that one fixed key into the child-process environment used by Gradle. It is not accepted as a generic environment-map input and is not forwarded to planning, private-dependency checkout/prebuild, evidence, cleanup, residue, cache maintenance, cache sync, or unrelated helper execution. The live-service and unsigned-release runtimes apply the same fixed-key filtering.
+
 `protected-full` keeps the request inside one mobile executor and one registered workspace. Caller-owned task groups run as optional pre-unit, optional compile, unit, lint, assemble, and Gradle-schema groups. Each non-empty group uses the existing `--no-daemon` primitive, releasing task-family process/class metadata before the next group. A checked-in schema script, when selected, runs afterward in the same workspace.
 
 Optional `pre_unit_tasks` and `compile_tasks` are bounded fields inside `validation_plan_json`; they do not change memory, worker, Kotlin, or test settings. Duplicate task identities across pre-unit/compile/unit/lint/assemble/Gradle-schema groups fail closed.
@@ -77,7 +79,7 @@ Failed dependency-warm or Android operations emit sanitized bounded diagnostic t
 
 `reusable-android.yml` composes reviewed Central helpers by immutable source identity:
 
-- `validate-android@8eaa37ad0fe3231b202e878b26f66aa23753e38a` — `issue #373 compile Gradle isolation checkpoint`;
+- `validate-android@b8b6f7ad2e8ea8b37d12a73df19ed02ff497f971` — `issue #443 package credential process checkpoint`;
 - `warm-gradle-dependencies@13de46c51efcf65df798dfec82a620c484350dfa` — `issue #346 dependency warm checkpoint`;
 - `upload-gradle-seed@fa67b6a1580ff2eb7386a9e58de09896b9990696` — `issue #346 bounded Gradle cache sync diagnostics checkpoint`;
 - `exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`;
@@ -85,6 +87,8 @@ Failed dependency-warm or Android operations emit sanitized bounded diagnostic t
 - `render-evidence@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`;
 - `cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`;
 - `checkout-private-dependency@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #104 immutable private-action checkpoint`.
+
+`reusable-android-live-service.yml` and `reusable-android-release.yml` bind `validate-android-live-service` and `validate-android-release` to the same `b8b6f7ad2e8ea8b37d12a73df19ed02ff497f971` issue #443 checkpoint so their filtered child-process environments preserve the package-read key without adding a generic secret or environment channel.
 
 The action lock must record the same helper identities before the candidate is merge-state.
 
