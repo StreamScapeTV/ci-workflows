@@ -21,7 +21,7 @@
   ],
   "properties": {
     "schema_version": {"const": 1},
-    "contract_version": {"const": "2.2.1"},
+    "contract_version": {"const": "2.2.0"},
     "organization": {"const": "StreamScapeTV"},
     "authority": {
       "type": "object",
