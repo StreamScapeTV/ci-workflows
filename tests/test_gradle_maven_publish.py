@@ -153,7 +153,11 @@ class GradleMavenPublishTests(unittest.TestCase):
             with mock.patch("subprocess.run", return_value=completed) as run:
                 wall_ms = publish(
                     plan,
-                    environment={"PATH": os.environ.get("PATH", "/usr/bin:/bin")},
+                    environment={
+                        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                        "INPUT_REGISTRY_USERNAME": "publisher",
+                        "INPUT_REGISTRY_TOKEN": "secret-token",
+                    },
                     registry_username="publisher",
                     registry_token="secret-token",
                 )
@@ -167,6 +171,8 @@ class GradleMavenPublishTests(unittest.TestCase):
             runtime = run.call_args.kwargs["env"]
             self.assertEqual(runtime["FORGEJO_REGISTRY_USERNAME"], "publisher")
             self.assertEqual(runtime["FORGEJO_REGISTRY_TOKEN"], "secret-token")
+            self.assertNotIn("INPUT_REGISTRY_USERNAME", runtime)
+            self.assertNotIn("INPUT_REGISTRY_TOKEN", runtime)
 
     def test_missing_registry_credentials_fail_before_gradle(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

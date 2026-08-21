@@ -152,6 +152,8 @@ def publish(
     if not registry_username or not registry_token:
         raise GradleMavenPublishError("Maven registry credentials are required")
     runtime = dict(environment)
+    runtime.pop("INPUT_REGISTRY_USERNAME", None)
+    runtime.pop("INPUT_REGISTRY_TOKEN", None)
     runtime["FORGEJO_REGISTRY_USERNAME"] = registry_username
     runtime["FORGEJO_REGISTRY_TOKEN"] = registry_token
     runtime["CI_MAVEN_PUBLICATION_VERSION"] = plan.release_version
