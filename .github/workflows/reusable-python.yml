@@ -54,7 +54,7 @@ permissions:
 jobs:
   plan:
     name: Resolve bounded Python validation plan
-    runs-on: [linux, amd64, general, small]
+    runs-on: [ubuntu-latest]
     timeout-minutes: 10
     outputs:
       runner_profile: ${{ steps.plan.outputs.runner_profile }}

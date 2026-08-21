@@ -101,7 +101,7 @@ permissions:
 jobs:
   plan:
     name: Resolve bounded source execution backend
-    runs-on: [linux, amd64, general, tiny]
+    runs-on: [ubuntu-latest]
     timeout-minutes: 10
     outputs:
       runs_on_json: ${{ steps.backend.outputs.runs_on_json }}

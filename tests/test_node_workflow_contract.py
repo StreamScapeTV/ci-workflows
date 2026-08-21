@@ -101,12 +101,10 @@ class NodeWorkflowContractTests(unittest.TestCase):
         )
         self.assertEqual(set(self.public_record["outputs"]), set(call["outputs"]))
 
-    def test_planner_preserves_organization_capacity_and_execution_uses_bounded_output(self) -> None:
+    def test_planner_uses_hosted_control_and_execution_uses_bounded_output(self) -> None:
         jobs = self.workflow["jobs"]
         self.assertEqual(set(jobs), {"plan", "validate"})
-        self.assertEqual(
-            jobs["plan"]["runs-on"], ["linux", "amd64", "general", "small"]
-        )
+        self.assertEqual(jobs["plan"]["runs-on"], ["ubuntu-latest"])
         self.assertEqual(
             jobs["validate"]["runs-on"],
             "${{ fromJSON(needs.plan.outputs.runs_on_json) }}",

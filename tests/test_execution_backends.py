@@ -73,6 +73,15 @@ class ExecutionBackendTests(unittest.TestCase):
             self.assertEqual(backend["default"], "organization")
             self.assertEqual(backend["type"], "string")
 
+    def test_portable_backend_planners_never_require_organization_capacity(self) -> None:
+        for filename in ("reusable-resolve-source.yml", "reusable-node.yml", "reusable-python.yml"):
+            with self.subTest(filename=filename):
+                workflow = yaml.load(
+                    (ROOT / ".github/workflows" / filename).read_text(encoding="utf-8"),
+                    Loader=ActionsLoader,
+                )
+                self.assertEqual(workflow["jobs"]["plan"]["runs-on"], ["ubuntu-latest"])
+
     def test_execution_jobs_consume_only_central_planner_output(self) -> None:
         source = yaml.load(
             (ROOT / ".github/workflows/reusable-resolve-source.yml").read_text(encoding="utf-8"),

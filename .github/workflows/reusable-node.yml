@@ -102,7 +102,7 @@ permissions:
 jobs:
   plan:
     name: Resolve bounded Node validation plan
-    runs-on: [linux, amd64, general, small]
+    runs-on: [ubuntu-latest]
     timeout-minutes: 10
     outputs:
       node_version: ${{ steps.plan.outputs.node_version }}

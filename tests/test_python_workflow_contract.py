@@ -82,12 +82,10 @@ class PythonWorkflowContractTests(unittest.TestCase):
             "CI / Python validation",
         )
 
-    def test_workflow_uses_general_linux_planner_and_exact_backend_runner_output(self) -> None:
+    def test_workflow_uses_hosted_planner_and_exact_backend_runner_output(self) -> None:
         jobs = self.workflow["jobs"]
         self.assertEqual(set(jobs), {"plan", "validate"})
-        self.assertEqual(
-            jobs["plan"]["runs-on"], ["linux", "amd64", "general", "small"]
-        )
+        self.assertEqual(jobs["plan"]["runs-on"], ["ubuntu-latest"])
         self.assertEqual(
             jobs["validate"]["runs-on"],
             "${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
