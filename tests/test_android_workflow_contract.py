@@ -42,10 +42,13 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         cls.action_source = ACTION.read_text(encoding="utf-8")
         cls.action = yaml.safe_load(cls.action_source)
 
-    def test_public_surface_is_v2_technology_data_only(self) -> None:
+    def test_public_surface_is_v2_1_technology_data_only(self) -> None:
         call = self.workflow["on"]["workflow_call"]
         self.assertEqual(set(call["inputs"]), PUBLIC_INPUTS)
-        self.assertEqual(set(call["secrets"]), {"private_dependency_token"})
+        self.assertEqual(
+            set(call["secrets"]),
+            {"private_dependency_token", "maven_package_read_token"},
+        )
         self.assertEqual(set(call["outputs"]), {"result", "test_summary", "cleanup_result"})
         self.assertTrue(call["inputs"]["validation_plan_json"]["required"])
         self.assertFalse(call["inputs"]["dependency_prebuild_plan_json"]["required"])
@@ -287,6 +290,18 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             if step is dependency:
                 continue
             self.assertNotIn("private_dependency_token", json.dumps(step))
+
+    def test_package_read_token_is_confined_to_the_primary_product_execution(self) -> None:
+        steps = self.workflow["jobs"]["validate"]["steps"]
+        execute = next(step for step in steps if step["id"] == "execute")
+        self.assertEqual(
+            execute["with"]["maven_package_read_token"],
+            "${{ secrets.maven_package_read_token }}",
+        )
+        for step in steps:
+            if step is execute:
+                continue
+            self.assertNotIn("maven_package_read_token", json.dumps(step))
 
     def test_workspace_uses_no_github_cache_or_artifact_transport_and_is_terminally_cleaned(self) -> None:
         self.assertNotIn("actions/cache", self.source)

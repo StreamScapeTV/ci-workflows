@@ -193,18 +193,32 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
         android = next(item for item in public["workflows"] if item["api_name"] == "validation.android")
         self.assertNotIn("supported_consumers", android)
         self.assertNotIn("supported_products", android)
-        self.assertEqual(set(workflow["on"]["workflow_call"].get("secrets", {})), {"private_dependency_token"})
+        self.assertEqual(
+            set(workflow["on"]["workflow_call"].get("secrets", {})),
+            {"private_dependency_token", "maven_package_read_token"},
+        )
         self.assertNotIn("central_source", source)
         self.assertNotIn("secrets: inherit", source)
         self.assertNotIn("workflow_ref", source)
         self.assertNotIn("github.workflow", source)
         dependency = next(step for job in workflow["jobs"].values() for step in job.get("steps", []) if step.get("id") == "dependency")
         self.assertEqual(dependency["with"]["token"], "${{ secrets.private_dependency_token }}")
+        execute = next(
+            step
+            for job in workflow["jobs"].values()
+            for step in job.get("steps", [])
+            if step.get("id") == "execute"
+        )
+        self.assertEqual(
+            execute["with"]["maven_package_read_token"],
+            "${{ secrets.maven_package_read_token }}",
+        )
         for job in workflow["jobs"].values():
             for step in job.get("steps", []):
-                if step is dependency:
+                if step is dependency or step is execute:
                     continue
                 self.assertNotIn("private_dependency_token", json.dumps(step))
+                self.assertNotIn("maven_package_read_token", json.dumps(step))
 
 
 if __name__ == "__main__":

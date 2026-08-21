@@ -41,6 +41,9 @@ on:
       private_dependency_token:
         description: Optional transient contents-read dependency token
         required: false
+      maven_package_read_token:
+        description: Optional transient package-read token forwarded only to bounded product execution
+        required: false
     outputs:
       result:
         value: ${{ jobs.release.outputs.result }}
@@ -144,6 +147,7 @@ jobs:
           private_dependency_checkout_repository: ${{ steps.dependency.outputs.repository }}
           private_dependency_checkout_id: ${{ steps.dependency.outputs.dependency_id }}
           private_dependency_expected_subpath: ${{ steps.dependency.outputs.expected_subpath }}
+          maven_package_read_token: ${{ secrets.maven_package_read_token }}
 
       - id: upload_paths
         name: Convert only validated artifact identities into upload paths
