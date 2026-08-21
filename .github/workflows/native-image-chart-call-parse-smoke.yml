@@ -41,3 +41,10 @@ jobs:
         run: |
           set -Eeuo pipefail
           test "${{ needs.reusable_call.result }}" = "skipped"
+
+      - name: Cleanup parse smoke state
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test ! -e "${RUNNER_TEMP}/native-image-chart-parse-smoke"
