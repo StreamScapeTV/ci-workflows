@@ -65,7 +65,7 @@ jobs:
           RUNS_ON_JSON: ${{ steps.plan.outputs.runs_on_json }}
         run: |
           set -Eeuo pipefail
-          test "${RUNS_ON_JSON}" = '["linux","amd64","buildah","small"]'
+          test "${RUNS_ON_JSON}" = '["linux","amd64","buildah","tiny"]'
 
       - name: Run focused OCI contract, security, and media tests
         working-directory: .ciw
