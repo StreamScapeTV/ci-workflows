@@ -162,6 +162,7 @@ class AndroidCIWDispatchTests(unittest.TestCase):
                     "INPUT_VALIDATION_PLAN_JSON": self._full_plan(schema_mode="gradle"),
                     "GITHUB_TOKEN": "must-not-reach-product",
                     "PRIVATE_DEPENDENCY_TOKEN": "also-secret",
+                    "CIW_MAVEN_PACKAGE_READ_TOKEN": "package-read-token",
                     "LANG": "untrusted-locale",
                 },
             )
@@ -206,7 +207,9 @@ class AndroidCIWDispatchTests(unittest.TestCase):
             self.assertEqual(environment["LC_ALL"], "C.UTF-8")
             self.assertNotIn("GITHUB_TOKEN", environment)
             self.assertNotIn("PRIVATE_DEPENDENCY_TOKEN", environment)
+            self.assertEqual(environment["CIW_MAVEN_PACKAGE_READ_TOKEN"], "package-read-token")
             summary = json.loads(result.outputs["test_summary"])
+            self.assertNotIn("package-read-token", json.dumps(result.outputs))
             self.assertEqual(summary["execution_model"], "single-executor")
             self.assertEqual(summary["gradle_invocations"], 4)
             self.assertEqual(summary["script_invocations"], 0)

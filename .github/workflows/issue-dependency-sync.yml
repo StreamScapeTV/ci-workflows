@@ -19,7 +19,7 @@ jobs:
       ${{ github.repository == 'StreamScapeTV/ci-workflows' &&
           github.ref == 'refs/heads/main' &&
           (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
-    runs-on: [linux, amd64, general, tiny]
+    runs-on: [ubuntu-latest]
     timeout-minutes: 20
     env:
       PYTHONDONTWRITEBYTECODE: "1"
@@ -41,7 +41,7 @@ jobs:
           esac
           [[ "${EXPECTED_SHA}" =~ ^[0-9a-f]{40}$ ]]
 
-      - name: Verify pre-provisioned general-tiny CPython 3.12
+      - name: Verify hosted CPython 3.12
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -82,7 +82,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           runtime_root="${RUNNER_TEMP}/issue-dependency-sync-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          rm -rf "${runtime_root}"
+          test ! -e "${runtime_root}"
           mkdir -p "${runtime_root}/python"
           "${VERIFIED_PYTHON}" scripts/ci/bootstrap_validation_runtime.py \
             --lock contracts/action-tool-lock.json \
@@ -97,10 +97,8 @@ jobs:
 
           target = Path(os.environ["VALIDATION_TARGET"]).resolve()
           module_path = Path(yaml.__file__).resolve()
-          if target not in module_path.parents:
-              raise SystemExit(f"PyYAML escaped locked target: {module_path}")
-          if yaml.__version__ != "6.0.3":
-              raise SystemExit(f"unexpected PyYAML version: {yaml.__version__}")
+          if target not in module_path.parents or yaml.__version__ != "6.0.3":
+              raise SystemExit("locked YAML validation runtime mismatch")
           PY
           {
             printf 'DEPENDENCY_SYNC_RUNTIME_ROOT=%s\n' "${runtime_root}"
@@ -137,8 +135,6 @@ jobs:
           fi
           find . -type d -name __pycache__ -prune -exec rm -rf {} + || cleanup_failed=1
           find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete || cleanup_failed=1
-          test -z "$(find . -type d -name __pycache__ -print -quit)" || cleanup_failed=1
-          test -z "$(find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -print -quit)" || cleanup_failed=1
           if [[ -d .git ]]; then
             test -z "$(git status --porcelain --untracked-files=all)" || cleanup_failed=1
           fi

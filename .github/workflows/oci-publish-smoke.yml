@@ -25,7 +25,7 @@ jobs:
   mock_validation:
     name: CI / OCI publication mock validation
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: [linux, amd64, general, small]
+    runs-on: [ubuntu-latest]
     timeout-minutes: 15
     steps:
       - name: Check out exact same-repository pull-request head

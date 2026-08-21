@@ -53,6 +53,10 @@ inputs:
     description: Transient generic service password exposed only to execution
     required: false
     default: ""
+  maven_package_read_token:
+    description: Transient package-read token exposed only to bounded product execution
+    required: false
+    default: ""
 
 outputs:
   result:
@@ -106,6 +110,7 @@ runs:
         INPUT_PRIVATE_DEPENDENCY_EXPECTED_SUBPATH: ${{ inputs.private_dependency_expected_subpath }}
         CIW_SERVICE_USERNAME: ${{ inputs.service_username }}
         CIW_SERVICE_PASSWORD: ${{ inputs.service_password }}
+        CIW_MAVEN_PACKAGE_READ_TOKEN: ${{ inputs.maven_package_read_token }}
       run: |
         set -Eeuo pipefail
         python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/android_completion.py" live \
