@@ -69,4 +69,4 @@ runs:
         INPUT_REGISTRY_TOKEN: ${{ inputs.registry_token }}
       run: |
         set -Eeuo pipefail
-        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/gradle_maven_publish.py"
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" gradle-maven publish
