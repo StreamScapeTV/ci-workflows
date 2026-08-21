@@ -13,6 +13,7 @@
       "semantic_runner_profile": "mobile",
       "permitted_events": ["workflow_call"],
       "inputs": [
+        {"name": "execution_backend", "required": false, "default": "organization"},
         {"name": "admitted_sha", "required": true},
         {"name": "expected_branch", "required": true},
         {"name": "working_directory", "required": false, "default": "."},
