@@ -206,10 +206,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/publish-gradle-maven",
-      "sha": "af95ac60ec2751897765178b7006caadc3903b88",
+      "sha": "c4b85851ac650906103f116c95d9d16c546dd538",
       "release": "issue #418 immutable action checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/af95ac60ec2751897765178b7006caadc3903b88/actions/publish-gradle-maven"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/c4b85851ac650906103f116c95d9d16c546dd538/actions/publish-gradle-maven"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/measure-helm",

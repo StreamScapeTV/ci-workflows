@@ -14,8 +14,9 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/reusable-gradle-maven-publish.yml"
 ACTION = ROOT / "actions/publish-gradle-maven/action.yml"
 ACTION_LOCK = ROOT / "contracts/action-tool-lock.json"
+CIW = ROOT / "scripts" / "ci" / "ciw.py"
 PUBLISH_ACTION = "StreamScapeTV/ci-workflows/actions/publish-gradle-maven"
-PUBLISH_SHA = "af95ac60ec2751897765178b7006caadc3903b88"
+PUBLISH_SHA = "c4b85851ac650906103f116c95d9d16c546dd538"
 SHA = re.compile(r"^StreamScapeTV/ci-workflows/actions/[a-z0-9-]+@[0-9a-f]{40}$")
 
 
@@ -136,7 +137,12 @@ class GradleMavenPublishWorkflowTests(unittest.TestCase):
     def test_action_is_a_phase_adapter_without_registry_endpoint_or_gradle_shell(self) -> None:
         self.assertEqual(self.action["runs"]["using"], "composite")
         self.assertEqual(self.action["inputs"]["phase"]["default"], "execute")
-        self.assertIn("gradle_maven_publish.py", self.action_source)
+        self.assertIn("scripts/ci/ciw.py", self.action_source)
+        self.assertIn("gradle-maven publish", self.action_source)
+        self.assertNotIn("scripts/ci/gradle_maven_publish.py", self.action_source)
+        ciw_source = CIW.read_text(encoding="utf-8")
+        self.assertIn("gradle_maven_publish_main", ciw_source)
+        self.assertIn('arguments == ["gradle-maven", "publish"]', ciw_source)
         self.assertNotIn("./gradlew", self.action_source)
         self.assertNotIn("git.faruqi.dev", self.action_source)
         self.assertNotIn("registry_url", self.action_source)
