@@ -37,11 +37,11 @@ on:
         type: string
     secrets:
       registry_username:
-        description: Private Maven registry username
-        required: true
+        description: Private Maven registry username required only for organization publication
+        required: false
       registry_token:
-        description: Private Maven registry token
-        required: true
+        description: Private Maven registry token required only for organization publication
+        required: false
     outputs:
       result:
         description: Success only after publication and terminal cleanup succeed
