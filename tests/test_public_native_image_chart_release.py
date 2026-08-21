@@ -102,7 +102,7 @@ class PublicNativeImageChartReleaseTests(unittest.TestCase):
             for item in products["workflows"]
             if item["api_name"] == "release.public-native-image-chart"
         )
-        self.assertEqual(row["api_version"], "1.1.0")
+        self.assertEqual(row["api_version"], "1.0.0")
         self.assertEqual(row["permission_profile"], "public-oci-publication")
         self.assertEqual(row["secrets"], [])
         publish_latest = next(item for item in row["inputs"] if item["name"] == "publish_latest_image")
