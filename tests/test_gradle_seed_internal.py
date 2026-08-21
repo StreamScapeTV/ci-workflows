@@ -130,7 +130,45 @@ class InternalGradleSeedTests(unittest.TestCase):
         self.assertEqual(SOURCE_SHA, kwargs["headers"]["X-Gradle-Source-Sha"])
         self.assertNotIn("Authorization", kwargs["headers"])
         self.assertEqual(200, returned.status)
+        response.read.assert_called_once_with(gradle_seed_internal.MAX_RESPONSE_BYTES + 1)
         connection.close.assert_called_once()
+
+    def test_default_timeout_accepts_ack_beyond_legacy_thirty_seconds_but_is_bounded(self) -> None:
+        self.assertEqual(30 * 60, gradle_seed.HTTP_TIMEOUT_SECONDS)
+        self.assertGreater(gradle_seed.HTTP_TIMEOUT_SECONDS, 30)
+        self.assertLess(gradle_seed.HTTP_TIMEOUT_SECONDS, 120 * 60)
+
+        response = mock.Mock()
+        response.status = 200
+        response.read.return_value = b"{}"
+        response.getheader.return_value = "application/json"
+        observed_timeouts: list[int] = []
+
+        def connection_factory(_host: str, _port: int, *, timeout: int):
+            observed_timeouts.append(timeout)
+            connection = mock.Mock()
+            connection.request.return_value = None
+
+            def delayed_ack():
+                if timeout <= 30:
+                    raise TimeoutError("legacy 30-second acknowledgement budget")
+                return response
+
+            connection.getresponse.side_effect = delayed_ack
+            return connection
+
+        with mock.patch.object(
+            gradle_seed_internal.http.client,
+            "HTTPConnection",
+            side_effect=connection_factory,
+        ):
+            returned = gradle_seed_internal.InternalFluxSeedUploader().upload(
+                source_sha=SOURCE_SHA,
+                body=(b"streamed",),
+            )
+
+        self.assertEqual([30 * 60], observed_timeouts)
+        self.assertEqual(200, returned.status)
 
     def test_sync_preserves_modules_only_filter_and_response_validation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
