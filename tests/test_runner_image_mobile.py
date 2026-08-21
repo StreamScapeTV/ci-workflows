@@ -91,6 +91,7 @@ def test_mobile_runner_locks_compatible_toolchain() -> None:
         "independent_product": True,
     }
     assert toolchain["android_cmake_package"] == f"cmake;{toolchain['android_cmake']}"
+    assert toolchain["android_cmake_runtime_version"] == "3.22.1-g37088a8"
     assert toolchain["android_ninja_minimum"] == "1.10"
     for name, value in argument_values.items():
         assert f"ARG {name}={value}" in source
@@ -134,6 +135,7 @@ def test_mobile_runner_bakes_cmake_license_and_runs_real_flutter_apk_smoke() -> 
     smoke = SMOKE.read_text(encoding="utf-8")
     lock = _lock()
     cmake_version = lock["toolchain"]["android_cmake"]
+    cmake_runtime_version = lock["toolchain"]["android_cmake_runtime_version"]
 
     assert f"ARG ANDROID_CMAKE_VERSION={cmake_version}" in source
     assert "--channel=0" in source
@@ -144,7 +146,7 @@ def test_mobile_runner_bakes_cmake_license_and_runs_real_flutter_apk_smoke() -> 
 
     for token in (
         'cmake_root="${ANDROID_HOME}/cmake/3.22.1"',
-        "cmake version 3.22.1",
+        f"cmake version {cmake_runtime_version}",
         "ninja_version=",
         'test ! -w "${ANDROID_HOME}/cmake"',
         "flutter create",
@@ -209,7 +211,7 @@ def test_mobile_runner_product_and_smoke_contract() -> None:
         f"Dart SDK version: {toolchain['dart']}",
         toolchain["android_build_tools"][1],
         toolchain["android_ndk"],
-        f"cmake version {toolchain['android_cmake']}",
+        f"cmake version {toolchain['android_cmake_runtime_version']}",
     )
     for value in expected_versions:
         assert value in smoke

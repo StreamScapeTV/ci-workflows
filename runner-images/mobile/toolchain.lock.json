@@ -27,6 +27,7 @@
     "android_ndk": "28.2.13676358",
     "android_cmake": "3.22.1",
     "android_cmake_package": "cmake;3.22.1",
+    "android_cmake_runtime_version": "3.22.1-g37088a8",
     "android_ninja_minimum": "1.10"
   },
   "licenses": {

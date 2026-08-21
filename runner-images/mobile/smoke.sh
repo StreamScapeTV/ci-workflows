@@ -36,7 +36,7 @@ cmake_root="${ANDROID_HOME}/cmake/3.22.1"
 test -x "${cmake_root}/bin/cmake"
 test -x "${cmake_root}/bin/ninja"
 test -s "${cmake_root}/package.xml"
-"${cmake_root}/bin/cmake" --version | head -n1 | grep -Fx 'cmake version 3.22.1'
+"${cmake_root}/bin/cmake" --version | head -n1 | grep -Fx 'cmake version 3.22.1-g37088a8'
 ninja_version="$("${cmake_root}/bin/ninja" --version)"
 [[ "${ninja_version}" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]
 IFS=. read -r ninja_major ninja_minor _ <<< "${ninja_version}"
