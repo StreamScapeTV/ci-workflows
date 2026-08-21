@@ -47,7 +47,7 @@ class SourceWorkflowContractTests(unittest.TestCase):
             self.workflow,
             r"uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@[0-9a-f]{40}",
         )
-        self.assertIn("runs-on: [linux, amd64, general, tiny]", self.workflow)
+        self.assertIn("runs-on: [ubuntu-latest]", self.workflow)
         self.assertIn(
             "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
             self.workflow,
@@ -66,7 +66,7 @@ class SourceWorkflowContractTests(unittest.TestCase):
         self.assertEqual(public_inputs["execution_backend"]["default"], "organization")
         plan = self.parsed["jobs"]["plan"]
         admit = self.parsed["jobs"]["admit"]
-        self.assertEqual(plan["runs-on"], ["linux", "amd64", "general", "tiny"])
+        self.assertEqual(plan["runs-on"], ["ubuntu-latest"])
         self.assertEqual(
             admit["runs-on"],
             "${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
