@@ -100,6 +100,7 @@ def _inputs(contract: dict[str, Any]) -> tuple[Asset, ...]:
     node_compat = _required(probes, "setup_node_linux_x64")
     node_release = _required(probes, "setup_node_linux_x64_release")
     zstd = _required(toolchain, "zstd")
+    cmake = _required(toolchain, "cmake")
     jq = _required(toolchain, "jq")
     yq = _required(toolchain, "yq")
     kubectl = _required(toolchain, "kubectl")
@@ -127,6 +128,13 @@ def _inputs(contract: dict[str, Any]) -> tuple[Asset, ...]:
             f"zstd-{zstd}.tar.gz",
             _asset_digest(assets, "zstd_source"),
             4_194_304,
+        ),
+        Asset(
+            f"cmake-{cmake}-linux-x86_64.tar.gz",
+            f"https://github.com/Kitware/CMake/releases/download/v{cmake}/"
+            f"cmake-{cmake}-linux-x86_64.tar.gz",
+            _asset_digest(assets, "cmake"),
+            83_886_080,
         ),
         Asset(
             f"jq-{jq}-linux-amd64",

@@ -66,17 +66,26 @@ def test_general_runner_build_is_networkless_and_engine_free() -> None:
         assert token not in source
     assert ".ciw-build-inputs/actions-runner-linux-x64-2.336.0.tar.gz" in source
     assert ".ciw-build-inputs/node-26.7.0-linux-x64.tar.gz" in source
+    assert ".ciw-build-inputs/cmake-4.4.2-linux-x86_64.tar.gz" in source
     assert "rm -f" in source and "/usr/bin/apt-get" in source
     assert "for forbidden in docker dockerd containerd ctr runc buildah podman skopeo sudo" in source
+    assert "native_packages=" in source
+    assert "gcc-14-x86-64-linux-gnu" in source
+    assert "g++-14-x86-64-linux-gnu" in source
+    assert "libstdc++-14-dev" in source
+    assert "libc6-dev" in source
+    assert "linux-libc-dev" in source
+    assert "dpkg-query -L" in source
+    assert "copy --from=build-tools /native-root/ /" in source
     assert "for path in /usr/bin/bash" in source
     assert "for path in /bin/bash" not in source
     assert "/usr/bin/unzip" not in source
     assert "copy --chmod=0755 unzip.py /usr/local/bin/unzip" in source
     assert "cp --parents -a /usr/lib/git-core /out" in source
     assert "cp --parents -a /usr/share/git-core /out" in source
-    assert raw.count('library_dir="$(readlink -f "$(dirname "${library}")")"') == 2
+    assert raw.count('library_dir="$(readlink -f "$(dirname "${library}")")"') == 3
     assert raw.count('cp -pl "${library}"') == 0
-    assert raw.count('cp -pL "${library}"') == 2
+    assert raw.count('cp -pL "${library}"') == 3
     assert "ldconfig -p" in source
     assert 'libatomic.so.1" {print $nf; exit}' in source
     assert "/out/usr/lib/x86_64-linux-gnu/libatomic.so.1" in source
@@ -109,6 +118,12 @@ def test_general_runner_preparer_derives_exact_reviewed_inputs() -> None:
             "https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz",
             "eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3",
             4_194_304,
+        ),
+        "cmake-4.4.2-linux-x86_64.tar.gz": (
+            "https://github.com/Kitware/CMake/releases/download/v4.4.2/"
+            "cmake-4.4.2-linux-x86_64.tar.gz",
+            "3ada9a3f5d8a85413579bdd0ea6aa8e8da86efdd6d15c91a1afa517f2021956c",
+            83_886_080,
         ),
         "jq-1.8.2-linux-amd64": (
             "https://github.com/jqlang/jq/releases/download/jq-1.8.2/jq-linux-amd64",
@@ -162,6 +177,9 @@ def test_general_runner_toolchain_is_release_readable() -> None:
         "actions_runner": "2.336.0",
         "python": "3.12.14",
         "node": "24.19.0",
+        "cmake": "4.4.2",
+        "gcc": "14.2.0",
+        "make": "4.4.1",
         "jq": "1.8.2",
         "yq": "4.53.3",
         "zstd": "1.5.7",
@@ -218,6 +236,14 @@ def test_general_runner_smoke_proves_runtime_and_trust_boundary() -> None:
         "v4.2.4",
         "v5.8.1",
         "v1.36.2",
+        "cmake version 4.4.2",
+        "gcc -dumpfullversion",
+        "g++ -dumpfullversion",
+        "GNU Make 4.4.1",
+        "project(ciw_native_smoke LANGUAGES CXX)",
+        "-G 'Unix Makefiles'",
+        "ctest --test-dir",
+        "native-ready",
         "/home/runner/.kube",
         "/var/run/secrets/kubernetes.io/serviceaccount/token",
     ):
@@ -270,6 +296,7 @@ class GeneralRunnerInputPreparationTests(unittest.TestCase):
         "actions_runner",
         "node_26_compat",
         "zstd_source",
+        "cmake",
         "jq",
         "yq",
         "kubectl",
