@@ -59,7 +59,7 @@ concurrency:
 jobs:
   source_tests:
     name: Device source contracts
-    runs-on: [linux, amd64, general, small]
+    runs-on: [ubuntu-latest]
     timeout-minutes: 20
     steps:
       - name: Check out exact source
@@ -91,7 +91,7 @@ jobs:
 
   synthetic:
     name: Synthetic ${{ matrix.family }} device contract
-    runs-on: [linux, amd64, general, small]
+    runs-on: [ubuntu-latest]
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -163,7 +163,7 @@ jobs:
     name: Verify zero routine device artifacts
     needs: [source_tests, synthetic]
     if: ${{ always() && !cancelled() }}
-    runs-on: [linux, amd64, general, small]
+    runs-on: [ubuntu-latest]
     timeout-minutes: 5
     steps:
       - name: Require all device smoke jobs green
