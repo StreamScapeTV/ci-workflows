@@ -65,7 +65,7 @@ class FlutterWorkflowContractTests(unittest.TestCase):
     def test_private_central_helpers_are_immutable_without_central_clone(self) -> None:
         self.assertNotIn("actions/checkout@", self.reusable)
         self.assertNotIn("repository: ${{ job.workflow_repository }}", self.reusable)
-        self.assertNotIn("ref: ${{ job.workflow_sha }}", self.reusable)
+        self.assertNotIn("ref: ${{ github.workflow_sha }}", self.reusable)
         self.assertNotIn("path: .ciw", self.reusable)
         self.assertNotIn("./.ciw/actions/", self.reusable)
         self.assertNotIn("secrets: inherit", self.reusable)
@@ -143,19 +143,40 @@ class FlutterWorkflowContractTests(unittest.TestCase):
             )
         for job in ("source_audit", "focused_tests", "plan", "zero_artifacts"):
             self.assertIn(
-                "runs-on: [linux, amd64, general, small]",
+                "runs-on: [ubuntu-latest]",
                 job_block(self.mobile_smoke, job),
             )
         for job in ("plan", "zero_artifacts"):
             self.assertIn(
-                "runs-on: [linux, amd64, general, small]",
+                "runs-on: [ubuntu-latest]",
                 job_block(self.apple_smoke, job),
             )
         for source, job in ((self.mobile_smoke, "android"), (self.apple_smoke, "ios")):
+            block = job_block(source, job)
             self.assertIn(
                 "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
-                job_block(source, job),
+                block,
             )
+            self.assertIn("github.event.repository.private", block)
+            self.assertIn("needs.plan.result == 'success'", block)
+        self.assertIn(
+            '== ["linux", "amd64", "mobile"]',
+            self.mobile_smoke,
+        )
+        self.assertIn(
+            '== ["macOS", "ARM64"]',
+            self.apple_smoke,
+        )
+        for source, result_name in (
+            (self.mobile_smoke, "ANDROID_RESULT"),
+            (self.apple_smoke, "IOS_RESULT"),
+        ):
+            terminal = job_block(source, "zero_artifacts")
+            self.assertIn(
+                "REPOSITORY_PRIVATE: ${{ github.event.repository.private }}",
+                terminal,
+            )
+            self.assertIn(f'test "${{{result_name}}}" = skipped', terminal)
 
     def test_smoke_zero_artifact_checks_do_not_survive_workflow_cancellation(self) -> None:
         def job_block(source: str) -> str:
