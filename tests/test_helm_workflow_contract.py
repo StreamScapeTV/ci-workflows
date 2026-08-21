@@ -16,7 +16,7 @@ VALIDATE_ACTION = ROOT / "actions/validate-helm/action.yml"
 PUBLISH_ACTION = ROOT / "actions/publish-helm/action.yml"
 HELM_CORE_SHA = "7b17879f21fbf029708d6a404a9dd12d75503a52"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-EXECUTION_BACKEND_SHA = "7d5d839c6e90491e165f1358ecb5e80129805764"
+EXECUTION_BACKEND_SHA = "01d1d10bafcc4fc1e4c51663f72b08f694dc4e35"
 
 
 class HelmWorkflowContractTests(unittest.TestCase):
