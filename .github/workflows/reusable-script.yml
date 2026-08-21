@@ -3,6 +3,11 @@ name: Reusable product script validation
 on:
   workflow_call:
     inputs:
+      execution_backend:
+        description: organization or github-hosted
+        required: false
+        default: organization
+        type: string
       admitted_sha:
         description: Exact lowercase caller source SHA to validate
         required: true
@@ -31,12 +36,15 @@ permissions:
 jobs:
   plan:
     name: Select script validation capacity
-    runs-on: [linux, amd64, general, small]
+    runs-on: [ubuntu-latest]
     timeout-minutes: 5
     outputs:
-      runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
+      runs_on_json: ${{ steps.backend.outputs.runs_on_json }}
+      runner_profile: ${{ steps.plan.outputs.runner_profile }}
+      source_trust: ${{ steps.plan.outputs.source_trust }}
     steps:
-      - name: Admit specialized runner trust
+      - id: plan
+        name: Admit source trust and select semantic script profile
         shell: bash
         env:
           ADMITTED_SHA: ${{ inputs.admitted_sha }}
@@ -47,32 +55,42 @@ jobs:
         run: |
           set -Eeuo pipefail
           [[ "${ADMITTED_SHA}" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::admitted_sha must be an exact lowercase commit SHA' >&2; exit 2; }
+
+          source_trust=trusted-exact
+          if [[ "${EVENT_NAME}" == pull_request ]]; then
+            if [[ -n "${PR_HEAD_REPOSITORY}" && "${PR_HEAD_REPOSITORY}" == "${CALLER_REPOSITORY}" ]]; then
+              source_trust=trusted-pr
+            else
+              source_trust=untrusted-fork
+            fi
+          fi
+
           case "${VALIDATION_PROFILE}" in
-            general) ;;
+            general)
+              runner_profile=general-small
+              ;;
             mobile|apple)
               case "${EVENT_NAME}" in
-                pull_request) [[ -n "${PR_HEAD_REPOSITORY}" && "${PR_HEAD_REPOSITORY}" == "${CALLER_REPOSITORY}" ]] || { echo '::error::specialized script validation rejects fork pull requests' >&2; exit 2; } ;;
+                pull_request) [[ "${source_trust}" == trusted-pr ]] || { echo '::error::specialized script validation rejects fork pull requests' >&2; exit 2; } ;;
                 push|workflow_dispatch) ;;
                 *) echo '::error::specialized script validation requires same-repository PR or exact non-PR source' >&2; exit 2 ;;
               esac
+              runner_profile="${VALIDATION_PROFILE}"
               ;;
             *) echo '::error::validation_profile must be general, mobile, or apple' >&2; exit 2 ;;
           esac
 
-      - id: plan
-        name: Resolve bounded semantic runner
-        shell: bash
-        env:
-          VALIDATION_PROFILE: ${{ inputs.validation_profile }}
-        run: |
-          set -Eeuo pipefail
-          case "${VALIDATION_PROFILE}" in
-            general) runs_on='["linux","amd64","general","small"]' ;;
-            mobile) runs_on='["linux","amd64","mobile"]' ;;
-            apple) runs_on='["macOS","ARM64"]' ;;
-            *) echo '::error::validation_profile must be general, mobile, or apple' >&2; exit 2 ;;
-          esac
-          printf 'runs_on_json=%s\n' "${runs_on}" >> "${GITHUB_OUTPUT}"
+          printf 'runner_profile=%s\n' "${runner_profile}" >> "${GITHUB_OUTPUT}"
+          printf 'source_trust=%s\n' "${source_trust}" >> "${GITHUB_OUTPUT}"
+
+      - id: backend
+        name: Resolve bounded execution backend
+        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@7d5d839c6e90491e165f1358ecb5e80129805764 # issue #405 simplified execution-backend checkpoint
+        with:
+          workflow_api: validation.script
+          source_trust: ${{ steps.plan.outputs.source_trust }}
+          execution_backend: ${{ inputs.execution_backend }}
+          runner_profile: ${{ steps.plan.outputs.runner_profile }}
 
   validate:
     name: CI / Script validation
