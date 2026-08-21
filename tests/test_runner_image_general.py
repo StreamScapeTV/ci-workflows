@@ -75,7 +75,7 @@ def test_general_runner_build_is_networkless_and_engine_free() -> None:
     assert "libstdc++-14-dev" in source
     assert "libc6-dev" in source
     assert "linux-libc-dev" in source
-    assert "dpkg-query -L" in source
+    assert "dpkg-query -L" in raw
     assert "copy --from=build-tools /native-root/ /" in source
     assert "for path in /usr/bin/bash" in source
     assert "for path in /bin/bash" not in source
