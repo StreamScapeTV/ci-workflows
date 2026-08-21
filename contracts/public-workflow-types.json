@@ -107,6 +107,7 @@
     "chart_path": {"type": "path", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$", "nullable": true},
     "dockerfile_path": {"type": "path", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$", "nullable": true},
     "build_context": {"type": "path", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$", "default": "."},
+    "publish_latest_image": {"type": "boolean", "default": false},
     "static_output_directory": {"type": "path", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$", "nullable": true},
     "postgres_enabled": {"type": "boolean", "default": false},
     "history_depth": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 1},
