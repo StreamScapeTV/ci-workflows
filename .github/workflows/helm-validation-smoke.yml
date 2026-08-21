@@ -42,7 +42,7 @@ permissions:
 jobs:
   contracts:
     name: CI / Helm workflow contract smoke
-    runs-on: [linux, amd64, general, small]
+    runs-on: [ubuntu-latest]
     timeout-minutes: 20
     env:
       PYTHONDONTWRITEBYTECODE: "1"
@@ -62,7 +62,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
-      - name: Verify pre-provisioned general-Linux CPython 3.12
+      - name: Verify hosted Linux CPython 3.12
         shell: bash
         run: |
           set -Eeuo pipefail

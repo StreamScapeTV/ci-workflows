@@ -166,13 +166,14 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("download-artifact", text)
         self.assertIn("Verify zero routine device artifacts", self.smoke)
 
-    def test_smoke_runs_all_families_on_general_small_only(self) -> None:
+    def test_public_smoke_runs_all_synthetic_families_on_hosted_linux(self) -> None:
         self.assertIn("phase: synthetic", self.smoke)
         for family in ("android", "ios", "tvos"):
             self.assertIn(f"family: {family}", self.smoke)
         direct = re.findall(r"^    runs-on: (.+)$", self.smoke, re.M)
         self.assertTrue(direct)
-        self.assertTrue(all(value == "[linux, amd64, general, small]" for value in direct))
+        self.assertTrue(all(value == "[ubuntu-latest]" for value in direct))
+        self.assertNotIn("[linux, amd64, general, small]", self.smoke)
         self.assertNotIn("device_authorization_receipt", self.smoke)
 
     def test_documentation_states_required_boundaries(self) -> None:
