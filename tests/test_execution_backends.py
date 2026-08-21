@@ -89,11 +89,21 @@ class ExecutionBackendTests(unittest.TestCase):
                 self.assertEqual(backend["default"], "organization")
                 self.assertEqual(backend["type"], "string")
 
-    def test_portable_backend_planners_never_require_organization_capacity(self) -> None:
+    def test_existing_source_node_python_hosted_planners_stay_hosted_until_follow_up(self) -> None:
         for filename in (
             "reusable-resolve-source.yml",
             "reusable-node.yml",
             "reusable-python.yml",
+        ):
+            with self.subTest(filename=filename):
+                workflow = yaml.load(
+                    (ROOT / ".github/workflows" / filename).read_text(encoding="utf-8"),
+                    Loader=ActionsLoader,
+                )
+                self.assertEqual(workflow["jobs"]["plan"]["runs-on"], ["ubuntu-latest"])
+
+    def test_new_portable_families_have_backend_aware_planners(self) -> None:
+        for filename in (
             "reusable-gitops-validation.yml",
             "reusable-script.yml",
             "reusable-helm-validate.yml",
@@ -103,30 +113,53 @@ class ExecutionBackendTests(unittest.TestCase):
                     (ROOT / ".github/workflows" / filename).read_text(encoding="utf-8"),
                     Loader=ActionsLoader,
                 )
-                self.assertEqual(workflow["jobs"]["plan"]["runs-on"], ["ubuntu-latest"])
+                hosted = workflow["jobs"]["plan"]
+                organization = workflow["jobs"]["plan_organization"]
+                self.assertEqual(hosted["runs-on"], ["ubuntu-latest"])
+                self.assertEqual(hosted["if"], "${{ inputs.execution_backend == 'github-hosted' }}")
+                self.assertEqual(organization["runs-on"], ["linux", "amd64", "general", "small"])
+                self.assertEqual(
+                    organization["if"],
+                    "${{ inputs.execution_backend != 'github-hosted' }}",
+                )
 
-    def test_execution_jobs_consume_only_central_planner_output(self) -> None:
+    def test_execution_jobs_consume_only_successful_planner_output(self) -> None:
         source = yaml.load(
             (ROOT / ".github/workflows/reusable-resolve-source.yml").read_text(encoding="utf-8"),
             Loader=ActionsLoader,
         )
         self.assertEqual(source["jobs"]["admit"]["runs-on"], "${{ fromJSON(needs.plan.outputs.runs_on_json) }}")
-        cases = {
-            "reusable-node.yml": "validate",
-            "reusable-python.yml": "validate",
-            "reusable-gitops-validation.yml": "validate",
-            "reusable-script.yml": "validate",
-            "reusable-helm-validate.yml": "validate",
-        }
-        for filename, job in cases.items():
+
+        for filename in ("reusable-node.yml", "reusable-python.yml"):
             with self.subTest(filename=filename):
                 workflow = yaml.load(
                     (ROOT / ".github/workflows" / filename).read_text(encoding="utf-8"),
                     Loader=ActionsLoader,
                 )
                 self.assertEqual(
-                    workflow["jobs"][job]["runs-on"],
+                    workflow["jobs"]["validate"]["runs-on"],
                     "${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
+                )
+
+        for filename in (
+            "reusable-gitops-validation.yml",
+            "reusable-script.yml",
+            "reusable-helm-validate.yml",
+        ):
+            with self.subTest(filename=filename):
+                workflow = yaml.load(
+                    (ROOT / ".github/workflows" / filename).read_text(encoding="utf-8"),
+                    Loader=ActionsLoader,
+                )
+                execute = workflow["jobs"]["validate"]
+                self.assertEqual(execute["needs"], ["plan", "plan_organization"])
+                self.assertEqual(
+                    execute["if"],
+                    "${{ always() && (needs.plan.result == 'success' || needs.plan_organization.result == 'success') }}",
+                )
+                self.assertEqual(
+                    execute["runs-on"],
+                    "${{ fromJSON(needs.plan.outputs.runs_on_json || needs.plan_organization.outputs.runs_on_json) }}",
                 )
 
 
