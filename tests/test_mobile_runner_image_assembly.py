@@ -106,7 +106,7 @@ class RunnerImageReleaseTagContractTests(unittest.TestCase):
                     )
                     self.assertEqual(
                         plan.remote_reference,
-                        f"git.faruqi.dev/mimranfaruqi/github-actions-runner-general:{tag}",
+                        f"ghcr.io/streamscapetv/github-actions-runner-general:{tag}",
                     )
 
     def test_release_workflow_accepts_any_repository_git_tag(self) -> None:

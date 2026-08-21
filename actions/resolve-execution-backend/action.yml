@@ -1,0 +1,57 @@
+name: Resolve bounded execution backend
+description: Resolve an organization or standard GitHub-hosted runner from Central policy
+inputs:
+  workflow_api:
+    description: Exact Central workflow API name
+    required: true
+  source_trust:
+    description: Exact source trust class already admitted by Central
+    required: true
+  execution_backend:
+    description: organization or github-hosted
+    required: false
+    default: organization
+  runner_profile:
+    description: Optional semantic runner profile selected by Central workload planning
+    required: false
+    default: ""
+outputs:
+  execution_backend:
+    description: Validated bounded backend
+    value: ${{ steps.resolve.outputs.execution_backend }}
+  execution_profile:
+    description: Resolved semantic execution profile
+    value: ${{ steps.resolve.outputs.execution_profile }}
+  runs_on_json:
+    description: Exact Central-owned runs-on selector JSON
+    value: ${{ steps.resolve.outputs.runs_on_json }}
+runs:
+  using: composite
+  steps:
+    - id: resolve
+      name: Resolve bounded backend from Central contracts
+      shell: bash
+      env:
+        CIW_WORKFLOW_API: ${{ inputs.workflow_api }}
+        CIW_SOURCE_TRUST: ${{ inputs.source_trust }}
+        CIW_EXECUTION_BACKEND: ${{ inputs.execution_backend }}
+        CIW_RUNNER_PROFILE: ${{ inputs.runner_profile }}
+      run: |
+        set -Eeuo pipefail
+        interpreter="$(type -P python3.12 || true)"
+        if [[ -z "${interpreter}" ]]; then
+          interpreter="$(type -P python3 || true)"
+        fi
+        [[ -n "${interpreter}" && "${interpreter}" == /* && -x "${interpreter}" ]]
+        args=(
+          --root "${GITHUB_ACTION_PATH}/../.."
+          --workflow-api "${CIW_WORKFLOW_API}"
+          --source-trust "${CIW_SOURCE_TRUST}"
+          --execution-backend "${CIW_EXECUTION_BACKEND}"
+          --github-output "${GITHUB_OUTPUT}"
+        )
+        if [[ -n "${CIW_RUNNER_PROFILE}" ]]; then
+          args+=(--profile "${CIW_RUNNER_PROFILE}")
+        fi
+        PYTHONPATH="${GITHUB_ACTION_PATH}/../../src" \
+          "${interpreter}" "${GITHUB_ACTION_PATH}/../../scripts/ci/execution_backend.py" "${args[@]}"

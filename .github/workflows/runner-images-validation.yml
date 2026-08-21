@@ -8,14 +8,18 @@ on:
       - "actions/runner-image/**"
       - "runner-images/general/**"
       - "runner-images/mobile/**"
+      - "runner-images/buildah/**"
+      - "runner-images/service/**"
       - "runner-images/docker/**"
       - "runner-images/flux-control/**"
       - "scripts/ci/runner_images.py"
       - "src/ci_workflows/runner_images.py"
       - "tests/test_runner_image_general.py"
       - "tests/test_mobile_runner_image_assembly.py"
+      - "tests/test_service_runner_capacity.py"
       - "tests/test_runner_image_docker.py"
       - "tests/test_runner_image_flux_control.py"
+      - "tests/test_runner_image_workflow.py"
       - "tests/test_runner_images_validation_workflow.py"
   workflow_dispatch:
 
@@ -35,9 +39,11 @@ jobs:
         image:
           - general
           - mobile
+          - buildah
+          - service
           - docker
           - flux-control
-    runs-on: [linux, amd64, buildah, high]
+    runs-on: [ubuntu-latest]
     timeout-minutes: 180
     env:
       SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
@@ -59,32 +65,25 @@ jobs:
           [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
 
-      - name: Verify dedicated Buildah publication scratch
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          push_tmp=/var/tmp/buildah
-          test -d "${push_tmp}"
-          test ! -L "${push_tmp}"
-          test -w "${push_tmp}"
-
-      - name: Build and smoke through the shared runner-image action
+      - name: Build and smoke with shared Buildah action
         uses: ./actions/runner-image
         with:
           image: ${{ matrix.image }}
           source_sha: ${{ env.SOURCE_SHA }}
           publish: "false"
 
-      - name: Verify runner-image credential cleanup
+      - name: Remove runner-image validation residue
         if: always()
         shell: bash
         env:
           IMAGE: ${{ matrix.image }}
-        run: |
-          set -Eeuo pipefail
-          authfile="${RUNNER_TEMP}/ciw-runner-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${IMAGE}.json"
-          test ! -e "${authfile}"
-          test ! -L "${authfile}"
+        run: >-
+          python3 scripts/ci/runner_images.py cleanup
+          --image "${IMAGE}"
+          --workspace "${GITHUB_WORKSPACE}"
+          --runner-temp "${RUNNER_TEMP}"
+          --run-id "${GITHUB_RUN_ID}"
+          --run-attempt "${GITHUB_RUN_ATTEMPT}"
 
       - name: Verify exact source remained clean
         if: ${{ always() && !cancelled() }}

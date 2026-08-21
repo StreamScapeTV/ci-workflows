@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "organization": "StreamScapeTV",
+  "group": "publication",
+  "workflows": [
+    {
+      "file": ".github/workflows/reusable-gradle-maven-publish.yml",
+      "api_name": "release.gradle-maven",
+      "api_version": "1.0.0",
+      "status": "implemented",
+      "trust_class": "trusted-publication",
+      "permission_profile": "oci-publication",
+      "semantic_runner_profile": "mobile",
+      "permitted_events": ["workflow_call"],
+      "inputs": [
+        {"name": "admitted_sha", "required": true},
+        {"name": "expected_branch", "required": true},
+        {"name": "working_directory", "required": false, "default": "."},
+        {"name": "gradle_wrapper_path", "required": false, "default": "gradlew"},
+        {"name": "version_file", "required": false, "default": "VERSION"},
+        {"name": "arguments_json", "required": true}
+      ],
+      "secrets": ["registry_username", "registry_token"],
+      "outputs": ["result", "release_version"],
+      "stable_check_name": "Release / Gradle Maven publication",
+      "timeout_minutes": 120,
+      "matrix_max_jobs": 1,
+      "repository_owned_hooks": ["working_directory", "gradle_wrapper_path", "version_file", "arguments_json"],
+      "implementation_components": ["ci_workflows.gradle_maven_publish.publish", "actions/publish-gradle-maven"]
+    }
+  ]
+}

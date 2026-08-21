@@ -1,0 +1,59 @@
+name: Service runner contract smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact 40-character ci-workflows source SHA to test
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Validate service runner contract
+    runs-on: [ubuntu-latest]
+    timeout-minutes: 15
+    env:
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - name: Validate exact source input
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+
+      - name: Check out exact Central source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify semantic service capacity remains consumer-owned
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+          resolved="$(python3 scripts/ci/runner_contract.py resolve --api validation.service-compose --source-trust trusted-exact --profile service-small)"
+          test "$(jq -r '.runs_on_json' <<<"${resolved}")" = '["linux","amd64","service","small"]'
+
+      - name: Run focused service capacity contract tests
+        shell: bash
+        env:
+          PYTHONPATH: src
+        run: python3 -m unittest -v tests.test_service_runner_capacity
+
+      - name: Verify exact source remained clean
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+          test -z "$(git status --porcelain --untracked-files=all)"

@@ -30,7 +30,7 @@ permissions:
 jobs:
   source_audit:
     name: Flutter portable source-audit smoke
-    runs-on: [linux, amd64, general, small]
+    runs-on: [ubuntu-latest]
     timeout-minutes: 20
     steps:
       - name: Check out exact pull request source
@@ -100,7 +100,7 @@ jobs:
 
   focused_tests:
     name: Flutter focused contract tests
-    runs-on: [linux, amd64, general, small]
+    runs-on: [ubuntu-latest]
     timeout-minutes: 20
     env:
       PYTHONDONTWRITEBYTECODE: "1"
@@ -148,7 +148,7 @@ jobs:
 
   plan:
     name: Resolve Flutter mobile smoke selector and toolchain tuple
-    runs-on: [linux, amd64, general, small]
+    runs-on: [ubuntu-latest]
     timeout-minutes: 10
     outputs:
       runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
@@ -183,10 +183,23 @@ jobs:
           command_profile: synthetic-smoke
           platform: android
           source_trust: trusted-pr
+      - name: Require unchanged semantic mobile selector
+        shell: bash
+        env:
+          RUNS_ON_JSON: ${{ steps.plan.outputs.runs_on_json }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+
+          assert json.loads(os.environ["RUNS_ON_JSON"]) == ["linux", "amd64", "mobile"]
+          PY
 
   android:
     name: Flutter mobile Android debug smoke
     needs: plan
+    if: ${{ github.event.repository.private && needs.plan.result == 'success' }}
     runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
     timeout-minutes: 100
     steps:
@@ -321,7 +334,7 @@ jobs:
     name: Verify mobile routine artifacts remain zero
     needs: [source_audit, focused_tests, plan, android]
     if: ${{ always() && !cancelled() }}
-    runs-on: [linux, amd64, general, small]
+    runs-on: [ubuntu-latest]
     timeout-minutes: 10
     steps:
       - name: Require mobile smoke paths and zero Actions artifacts
@@ -330,6 +343,7 @@ jobs:
           FOCUSED_RESULT: ${{ needs.focused_tests.result }}
           PLAN_RESULT: ${{ needs.plan.result }}
           ANDROID_RESULT: ${{ needs.android.result }}
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
           GITHUB_TOKEN: ${{ github.token }}
         shell: bash
         run: |
@@ -337,7 +351,11 @@ jobs:
           test "${SOURCE_RESULT}" = success
           test "${FOCUSED_RESULT}" = success
           test "${PLAN_RESULT}" = success
-          test "${ANDROID_RESULT}" = success
+          if [[ "${REPOSITORY_PRIVATE}" == "true" ]]; then
+            test "${ANDROID_RESULT}" = success
+          else
+            test "${ANDROID_RESULT}" = skipped
+          fi
           python3 - <<'PY'
           import json
           import os

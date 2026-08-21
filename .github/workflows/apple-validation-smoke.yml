@@ -50,7 +50,7 @@ jobs:
   plan:
     name: Validate protected-full Apple smoke plan
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: [linux, amd64, general, small]
+    runs-on: [ubuntu-latest]
     timeout-minutes: 10
     outputs:
       runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
@@ -125,6 +125,7 @@ jobs:
   apple:
     name: Real protected-full Apple smoke
     needs: plan
+    if: ${{ github.event.repository.private && needs.plan.result == 'success' }}
     runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
     timeout-minutes: 120
     steps:
@@ -266,16 +267,23 @@ jobs:
     name: Verify Apple routine artifacts remain zero
     needs: [plan, apple]
     if: ${{ always() && !cancelled() }}
-    runs-on: [linux, amd64, general, small]
+    runs-on: [ubuntu-latest]
     timeout-minutes: 10
     steps:
-      - name: Require real protected-full smoke success
+      - name: Require public control success and private executor boundary
         shell: bash
         env:
+          PLAN_RESULT: ${{ needs.plan.result }}
           APPLE_RESULT: ${{ needs.apple.result }}
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
         run: |
           set -Eeuo pipefail
-          test "${APPLE_RESULT}" = success
+          test "${PLAN_RESULT}" = success
+          case "${REPOSITORY_PRIVATE}" in
+            true) test "${APPLE_RESULT}" = success ;;
+            false) test "${APPLE_RESULT}" = skipped ;;
+            *) echo "unexpected repository privacy value: ${REPOSITORY_PRIVATE}" >&2; exit 1 ;;
+          esac
 
       - name: Verify zero workflow artifacts
         shell: bash

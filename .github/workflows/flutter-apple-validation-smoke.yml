@@ -30,7 +30,7 @@ permissions:
 jobs:
   plan:
     name: Resolve Flutter Apple smoke selector and runtime tuple
-    runs-on: [linux, amd64, general, small]
+    runs-on: [ubuntu-latest]
     timeout-minutes: 10
     outputs:
       runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
@@ -62,10 +62,23 @@ jobs:
           command_profile: synthetic-smoke
           platform: ios-simulator
           source_trust: trusted-pr
+      - name: Require unchanged semantic Apple selector
+        shell: bash
+        env:
+          RUNS_ON_JSON: ${{ steps.plan.outputs.runs_on_json }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+
+          assert json.loads(os.environ["RUNS_ON_JSON"]) == ["macOS", "ARM64"]
+          PY
 
   ios:
     name: Flutter Apple iOS simulator smoke
     needs: plan
+    if: ${{ github.event.repository.private && needs.plan.result == 'success' }}
     runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
     timeout-minutes: 100
     steps:
@@ -199,19 +212,24 @@ jobs:
     name: Verify Apple routine artifacts remain zero
     needs: [plan, ios]
     if: ${{ always() && !cancelled() }}
-    runs-on: [linux, amd64, general, small]
+    runs-on: [ubuntu-latest]
     timeout-minutes: 10
     steps:
       - name: Require Apple smoke paths and zero Actions artifacts
         env:
           PLAN_RESULT: ${{ needs.plan.result }}
           IOS_RESULT: ${{ needs.ios.result }}
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
           GITHUB_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -Eeuo pipefail
           test "${PLAN_RESULT}" = success
-          test "${IOS_RESULT}" = success
+          if [[ "${REPOSITORY_PRIVATE}" == "true" ]]; then
+            test "${IOS_RESULT}" = success
+          else
+            test "${IOS_RESULT}" = skipped
+          fi
           python3 - <<'PY'
           import json
           import os

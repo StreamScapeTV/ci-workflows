@@ -110,7 +110,7 @@ class GitOpsWorkflowContractTests(unittest.TestCase):
         self.assertEqual("issue #125 immutable private-action checkpoint", gitops["release"])
         self.assertEqual("composite", gitops["runtime"])
 
-    def test_smoke_is_exact_head_direct_general_linux_and_zero_artifact(self) -> None:
+    def test_smoke_is_exact_head_hosted_linux_and_zero_artifact(self) -> None:
         source = (ROOT / ".github/workflows/gitops-validation-smoke.yml").read_text()
         workflow = yaml.safe_load(source)
         self.assertEqual({"actions": "read", "contents": "read"}, workflow["permissions"])
@@ -125,18 +125,12 @@ class GitOpsWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("macOS", source)
         self.assertNotIn("runs-on: portable", source)
         self.assertNotIn("runs-on: [linux, amd64, general]", source)
-        self.assertEqual(
-            ["linux", "amd64", "general", "small"],
-            workflow["jobs"]["plan"]["runs-on"],
-        )
-        self.assertEqual(
-            ["linux", "amd64", "general", "small"],
-            workflow["jobs"]["artifacts"]["runs-on"],
-        )
-        self.assertEqual(
-            "${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
-            workflow["jobs"]["execute"]["runs-on"],
-        )
+        self.assertNotIn("runs-on: [linux, amd64, general, small]", source)
+        self.assertEqual(["ubuntu-latest"], workflow["jobs"]["plan"]["runs-on"])
+        self.assertEqual(["ubuntu-latest"], workflow["jobs"]["execute"]["runs-on"])
+        self.assertEqual(["ubuntu-latest"], workflow["jobs"]["artifacts"]["runs-on"])
+        self.assertIn("PLANNED_RUNNER_JSON", source)
+        self.assertIn("needs.plan.outputs.runs_on_json", source)
         self.assertEqual(
             "${{ always() && !cancelled() && needs.plan.result != 'skipped' }}",
             workflow["jobs"]["artifacts"]["if"],

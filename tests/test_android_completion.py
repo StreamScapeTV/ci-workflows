@@ -217,6 +217,7 @@ class AndroidCompletionExecutionTests(unittest.TestCase):
                     "INPUT_VALIDATION_PLAN_JSON": live_json(),
                     "CIW_SERVICE_USERNAME": "user-value",
                     "CIW_SERVICE_PASSWORD": "password-value",
+                    "CIW_MAVEN_PACKAGE_READ_TOKEN": "package-read-token",
                     "STREAMSCAPE_BACKEND_USERNAME": "must-not-pass",
                     "STREAMSCAPE_BACKEND_PASSWORD": "must-not-pass",
                     "GITHUB_TOKEN": "must-not-pass",
@@ -236,11 +237,13 @@ class AndroidCompletionExecutionTests(unittest.TestCase):
         environment = process.call_args.kwargs["environment"]
         self.assertEqual(environment["CIW_SERVICE_USERNAME"], "user-value")
         self.assertEqual(environment["CIW_SERVICE_PASSWORD"], "password-value")
+        self.assertEqual(environment["CIW_MAVEN_PACKAGE_READ_TOKEN"], "package-read-token")
         self.assertNotIn("STREAMSCAPE_BACKEND_USERNAME", environment)
         self.assertNotIn("STREAMSCAPE_BACKEND_PASSWORD", environment)
         self.assertNotIn("GITHUB_TOKEN", environment)
         self.assertNotIn("user-value", json.dumps(result.outputs))
         self.assertNotIn("password-value", json.dumps(result.outputs))
+        self.assertNotIn("package-read-token", json.dumps(result.outputs))
         summary = json.loads(result.outputs["test_summary"])
         self.assertTrue(summary["credentialed"])
         self.assertEqual(summary["script_invocations"], 1)
@@ -295,6 +298,7 @@ class AndroidCompletionExecutionTests(unittest.TestCase):
                     "INPUT_GRADLE_WRAPPER_PATH": "gradlew",
                     "INPUT_VALIDATION_PLAN_JSON": release_json(),
                     "GITHUB_TOKEN": "must-not-pass",
+                    "CIW_MAVEN_PACKAGE_READ_TOKEN": "package-read-token",
                 },
             )
             gradle_calls: list[tuple[str, ...]] = []
@@ -302,6 +306,7 @@ class AndroidCompletionExecutionTests(unittest.TestCase):
             def gradle(_wrapper, tasks, **kwargs):
                 gradle_calls.append(tuple(tasks))
                 self.assertNotIn("GITHUB_TOKEN", kwargs["environment"])
+                self.assertEqual(kwargs["environment"]["CIW_MAVEN_PACKAGE_READ_TOKEN"], "package-read-token")
                 return OperationResult("android.unsigned_release", 0, "", "")
 
             with (
@@ -333,6 +338,7 @@ class AndroidCompletionExecutionTests(unittest.TestCase):
         self.assertEqual(len(paths), 3)
         self.assertTrue(all(str(state / "tmp/android-release-source") in path for path in paths))
         self.assertNotIn("GITHUB_TOKEN", result.outputs["test_summary"])
+        self.assertNotIn("package-read-token", json.dumps(result.outputs))
         self.assertEqual(result.outputs["retention_days"], "7")
 
     def test_cleanup_and_residue_remove_only_completion_copy(self) -> None:
@@ -370,10 +376,14 @@ class AndroidCompletionWorkflowTests(unittest.TestCase):
         self.assertEqual(self.release.count("actions/exact-checkout@"), 1)
         self.assertEqual(self.release.count("actions/prepare-workspace@"), 1)
 
-    def test_routine_protected_full_stays_credential_free_and_artifact_light(self) -> None:
+    def test_routine_package_read_token_is_execution_only_and_artifact_light(self) -> None:
         text = self.routine.casefold()
         self.assertNotIn("service_username", text)
         self.assertNotIn("service_password", text)
+        self.assertEqual(
+            1,
+            self.routine.count("maven_package_read_token: ${{ secrets.maven_package_read_token }}"),
+        )
         self.assertNotIn("upload-artifact", text)
         self.assertNotIn("actions/cache", text)
 
@@ -385,6 +395,10 @@ class AndroidCompletionWorkflowTests(unittest.TestCase):
         self.assertNotIn("secrets.service_password", plan)
         self.assertIn("service_username: ${{ secrets.service_username }}", self.live)
         self.assertIn("service_password: ${{ secrets.service_password }}", self.live)
+        self.assertEqual(
+            1,
+            self.live.count("maven_package_read_token: ${{ secrets.maven_package_read_token }}"),
+        )
         self.assertNotIn("STREAMSCAPE_", self.live)
         self.assertNotIn("upload-artifact", self.live.lower())
         self.assertNotIn("actions/cache", self.live.lower())
@@ -397,6 +411,10 @@ class AndroidCompletionWorkflowTests(unittest.TestCase):
         self.assertNotIn("signing", lower)
         self.assertNotIn("play_store", lower)
         self.assertNotIn("registry", lower)
+        self.assertEqual(
+            1,
+            self.release.count("maven_package_read_token: ${{ secrets.maven_package_read_token }}"),
+        )
         self.assertNotIn("actions/cache", lower)
         self.assertIn("artifact_paths_json", self.release)
         self.assertIn("retention-days: ${{ steps.execute.outputs.retention_days }}", self.release)

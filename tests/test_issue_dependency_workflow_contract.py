@@ -19,11 +19,11 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotIn("pull_request:", self.text)
         self.assertNotIn("\npush:", self.text)
 
-    def test_protected_main_and_general_tiny_linux_selector(self):
+    def test_protected_main_uses_standard_github_hosted_linux(self):
         self.assertIn("github.repository == 'StreamScapeTV/ci-workflows'", self.text)
         self.assertIn("github.ref == 'refs/heads/main'", self.text)
-        self.assertIn("runs-on: [linux, amd64, general, tiny]", self.text)
-        self.assertNotIn("runs-on: [linux, amd64, general]", self.text)
+        self.assertIn("runs-on: [ubuntu-latest]", self.text)
+        self.assertNotIn("runs-on: [linux, amd64", self.text)
         self.assertNotIn("macOS", self.text)
         self.assertNotIn("ARM64", self.text)
         self.assertNotRegex(self.text, r"runs-on:\s*portable\b")
@@ -70,8 +70,6 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertEqual(self.text.count("GH_TOKEN:"), 1)
 
     def test_no_arbitrary_dispatch_inputs(self):
-        # Input-free recovery means the workflow cannot let a caller select
-        # repository, ref, path, command, runner, or credential.
         for token in (
             "${{ inputs.",
             "runner_label",
@@ -79,7 +77,6 @@ class WorkflowContractTests(unittest.TestCase):
             "working-directory: ${{",
         ):
             if token == "repository:":
-                # github.repository expression is allowed; YAML input key is not.
                 self.assertNotRegex(self.text, r"^\s{6,}repository:\s*\$\{\{\s*inputs\.", re.M)
             else:
                 self.assertNotIn(token, self.text)

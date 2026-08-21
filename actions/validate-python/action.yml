@@ -6,6 +6,10 @@ inputs:
     description: Bounded internal phase, plan or execute
     required: false
     default: execute
+  execution_backend:
+    description: organization or github-hosted
+    required: false
+    default: organization
   admitted_sha:
     description: Exact admitted caller source SHA
     required: true
@@ -69,6 +73,7 @@ runs:
       shell: bash
       env:
         PYTHONDONTWRITEBYTECODE: "1"
+        INPUT_EXECUTION_BACKEND: ${{ inputs.execution_backend }}
         INPUT_ADMITTED_SHA: ${{ inputs.admitted_sha }}
         INPUT_VALIDATION_PROFILE: ${{ inputs.validation_profile }}
         INPUT_COMMAND_PROFILE: ${{ inputs.command_profile }}

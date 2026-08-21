@@ -17,7 +17,8 @@
         {"name": "requested_sha", "required": false},
         {"name": "expected_branch", "required": false},
         {"name": "release_contract", "required": false},
-        {"name": "history_depth", "required": false, "default": 1}
+        {"name": "history_depth", "required": false, "default": 1},
+        {"name": "execution_backend", "required": false, "default": "organization"}
       ],
       "secrets": [],
       "outputs": ["caller_repository", "caller_default_branch", "caller_integration_branch", "trust_mode", "source_repository", "source_sha", "requested_sha", "resolved_sha", "pr_number", "pr_head_repository", "pr_head_sha", "pr_base_branch", "pr_base_sha", "pr_merge_sha", "tag_name", "tag_object_sha", "tag_commit_sha", "requires_freshness", "history_depth", "request_id", "evidence_id"],
@@ -25,7 +26,7 @@
       "timeout_minutes": 10,
       "matrix_max_jobs": 1,
       "repository_owned_hooks": [],
-      "implementation_components": ["ci_workflows.source_admission.admit_source", "ci_workflows.source_admission.revalidate_admission", "actions/resolve-source", "actions/exact-checkout"]
+      "implementation_components": ["ci_workflows.source_admission.admit_source", "ci_workflows.source_admission.revalidate_admission", "ci_workflows.execution_backends.resolve_execution_backend", "actions/resolve-source", "actions/resolve-execution-backend", "actions/exact-checkout"]
     }
   ]
 }

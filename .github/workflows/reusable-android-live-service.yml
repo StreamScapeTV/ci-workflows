@@ -42,6 +42,9 @@ on:
       private_dependency_token:
         description: Optional transient contents-read dependency token
         required: false
+      maven_package_read_token:
+        description: Optional transient package-read token forwarded only to bounded product execution
+        required: false
     outputs:
       result:
         value: ${{ jobs.live.outputs.result }}
@@ -140,6 +143,7 @@ jobs:
           private_dependency_expected_subpath: ${{ steps.dependency.outputs.expected_subpath }}
           service_username: ${{ secrets.service_username }}
           service_password: ${{ secrets.service_password }}
+          maven_package_read_token: ${{ secrets.maven_package_read_token }}
 
       - id: android_cleanup
         name: Remove live-service copied source state once

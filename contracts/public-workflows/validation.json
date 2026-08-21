@@ -13,6 +13,7 @@
       "semantic_runner_profile": "contract:python",
       "permitted_events": ["pull_request", "push", "workflow_dispatch", "workflow_call"],
       "inputs": [
+        {"name": "execution_backend", "required": false, "default": "organization"},
         {"name": "admitted_sha", "required": true},
         {"name": "validation_profile", "required": true},
         {"name": "version_file", "required": false},
@@ -27,7 +28,7 @@
       "timeout_minutes": 120,
       "matrix_max_jobs": 1,
       "repository_owned_hooks": ["command_profile", "script_path"],
-      "implementation_components": ["ci_workflows.python.validate", "actions/validate-python"]
+      "implementation_components": ["ci_workflows.python.validate", "ci_workflows.execution_backends.resolve_execution_backend", "actions/validate-python"]
     },
     {
       "file": ".github/workflows/reusable-node.yml",
@@ -39,6 +40,7 @@
       "semantic_runner_profile": "contract:node",
       "permitted_events": ["pull_request", "push", "workflow_dispatch", "workflow_call"],
       "inputs": [
+        {"name": "execution_backend", "required": false, "default": "organization"},
         {"name": "admitted_sha", "required": true},
         {"name": "validation_profile", "required": true},
         {"name": "version_file", "required": false},
@@ -58,12 +60,12 @@
       "timeout_minutes": 90,
       "matrix_max_jobs": 1,
       "repository_owned_hooks": ["command_profile", "script_path", "static_output_directory", "output_verifier_path"],
-      "implementation_components": ["ci_workflows.node.validate", "actions/validate-node"]
+      "implementation_components": ["ci_workflows.node.validate", "ci_workflows.execution_backends.resolve_execution_backend", "actions/validate-node"]
     },
     {
       "file": ".github/workflows/reusable-android.yml",
       "api_name": "validation.android",
-      "api_version": "2.0.0",
+      "api_version": "2.1.0",
       "status": "implemented",
       "trust_class": "read-only-validation",
       "permission_profile": "validation-read",
@@ -81,7 +83,7 @@
         {"name": "private_dependency_subdirectory", "required": false, "default": "."},
         {"name": "private_dependency_id", "required": false, "default": ""}
       ],
-      "secrets": ["private_dependency_token"],
+      "secrets": ["private_dependency_token", "maven_package_read_token"],
       "outputs": ["result", "test_summary", "cleanup_result"],
       "stable_check_name": "CI / Android validation",
       "timeout_minutes": 120,
@@ -92,7 +94,7 @@
     {
       "file": ".github/workflows/reusable-android-live-service.yml",
       "api_name": "validation.android-live-service",
-      "api_version": "1.0.0",
+      "api_version": "1.1.0",
       "status": "implemented",
       "trust_class": "read-only-validation",
       "permission_profile": "validation-read",
@@ -107,7 +109,7 @@
         {"name": "private_dependency_subdirectory", "required": false, "default": "."},
         {"name": "private_dependency_id", "required": false, "default": ""}
       ],
-      "secrets": ["service_username", "service_password", "private_dependency_token"],
+      "secrets": ["service_username", "service_password", "private_dependency_token", "maven_package_read_token"],
       "outputs": ["result", "test_summary", "cleanup_result"],
       "stable_check_name": "CI / Android live-service acceptance",
       "timeout_minutes": 120,
@@ -118,7 +120,7 @@
     {
       "file": ".github/workflows/reusable-android-release.yml",
       "api_name": "validation.android-release",
-      "api_version": "1.0.0",
+      "api_version": "1.1.0",
       "status": "implemented",
       "trust_class": "read-only-validation",
       "permission_profile": "validation-read",
@@ -134,7 +136,7 @@
         {"name": "private_dependency_subdirectory", "required": false, "default": "."},
         {"name": "private_dependency_id", "required": false, "default": ""}
       ],
-      "secrets": ["private_dependency_token"],
+      "secrets": ["private_dependency_token", "maven_package_read_token"],
       "outputs": ["result", "test_summary", "cleanup_result", "artifact_manifest_json"],
       "stable_check_name": "CI / Android unsigned release validation",
       "timeout_minutes": 120,

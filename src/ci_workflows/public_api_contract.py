@@ -198,7 +198,7 @@ def permission_profiles(data: ContractData) -> dict[str, Mapping[str, Any]]:
         require(set(secrets) <= set(secret_catalog), f"{identifier} uses an unknown secret")
         nonempty(row.get("notes"), f"{identifier}.notes")
         profiles[identifier] = row
-    require(len(profiles) == 12, f"expected 12 permission profiles, found {len(profiles)}")
+    require(len(profiles) == 13, f"expected 13 permission profiles, found {len(profiles)}")
     return profiles
 
 
@@ -302,7 +302,7 @@ def validate_workflows(data: ContractData, profiles: Mapping[str, Mapping[str, A
             require(replacement != api, f"{api} cannot replace itself")
         by_api[api] = row
     require(set(trust_classes) <= represented_trust, "not every trust class has a public API")
-    require(len(by_api) == 23, f"public API registry must contain 23 workflows, found {len(by_api)}")
+    require(len(by_api) == 25, f"public API registry must contain 25 workflows, found {len(by_api)}")
     for api, row in by_api.items():
         deprecation = row.get("deprecation")
         if isinstance(deprecation, dict):

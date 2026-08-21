@@ -11,8 +11,8 @@ from ci_workflows.validation_model import ActionsLoader
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_SHA = "0b55b5f4bc2623815e47759d186e4955b6444075"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
+BACKEND_SHA = "7d5d839c6e90491e165f1358ecb5e80129805764"
 FLUTTER_SHA = "d2e1c7a7601e1caeeb976311fb13cf41fef94d4a"
-PYTHON_SHA = "aece8d01efdd5482a1c3d42db357aed87a7917e9"
 ANDROID_SHA = "8eaa37ad0fe3231b202e878b26f66aa23753e38a"
 GRADLE_WARM_SHA = "13de46c51efcf65df798dfec82a620c484350dfa"
 GRADLE_SEED_SHA = "fa67b6a1580ff2eb7386a9e58de09896b9990696"
@@ -25,12 +25,12 @@ RELEASE_TAG_SHA = "2b0443fdad002d47625386a959ebe68545cfe022"
 
 FOUNDATION = "issue #116 immutable private-action checkpoint"
 ISSUE_350 = "issue #350 PR-merge snapshot race checkpoint"
+ISSUE_405 = "issue #405 simplified execution-backend checkpoint"
 ISSUE_104 = "issue #104 immutable private-action checkpoint"
 ISSUE_373_ANDROID_GROUPS = "issue #373 compile Gradle isolation checkpoint"
 ISSUE_346_WARM = "issue #346 dependency warm checkpoint"
 ISSUE_346_CACHE = "issue #346 bounded Gradle cache sync diagnostics checkpoint"
 ISSUE_125 = "issue #125 immutable private-action checkpoint"
-ISSUE_235 = "issue #235 general-runner Python primitives checkpoint"
 ISSUE_150 = "issue #150 immutable OCI input checkpoint"
 ISSUE_372_APPLE = "issue #372 bounded Apple failure diagnostics checkpoint"
 ISSUE_59 = "issue #59 immutable helper checkpoint"
@@ -38,7 +38,7 @@ ISSUE_27 = "issue #27 Finance composition publication checkpoint"
 
 PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
     ".github/workflows/reusable-node.yml": {
-        "StreamScapeTV/ci-workflows/actions/validate-node": (FOUNDATION_SHA, FOUNDATION),
+        "StreamScapeTV/ci-workflows/actions/validate-node": (BACKEND_SHA, ISSUE_405),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/render-evidence": (FOUNDATION_SHA, FOUNDATION),
@@ -55,7 +55,7 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
     },
     ".github/workflows/reusable-python.yml": {
-        "StreamScapeTV/ci-workflows/actions/validate-python": (PYTHON_SHA, ISSUE_235),
+        "StreamScapeTV/ci-workflows/actions/validate-python": (BACKEND_SHA, ISSUE_405),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
@@ -193,18 +193,32 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
         android = next(item for item in public["workflows"] if item["api_name"] == "validation.android")
         self.assertNotIn("supported_consumers", android)
         self.assertNotIn("supported_products", android)
-        self.assertEqual(set(workflow["on"]["workflow_call"].get("secrets", {})), {"private_dependency_token"})
+        self.assertEqual(
+            set(workflow["on"]["workflow_call"].get("secrets", {})),
+            {"private_dependency_token", "maven_package_read_token"},
+        )
         self.assertNotIn("central_source", source)
         self.assertNotIn("secrets: inherit", source)
         self.assertNotIn("workflow_ref", source)
         self.assertNotIn("github.workflow", source)
         dependency = next(step for job in workflow["jobs"].values() for step in job.get("steps", []) if step.get("id") == "dependency")
         self.assertEqual(dependency["with"]["token"], "${{ secrets.private_dependency_token }}")
+        execute = next(
+            step
+            for job in workflow["jobs"].values()
+            for step in job.get("steps", [])
+            if step.get("id") == "execute"
+        )
+        self.assertEqual(
+            execute["with"]["maven_package_read_token"],
+            "${{ secrets.maven_package_read_token }}",
+        )
         for job in workflow["jobs"].values():
             for step in job.get("steps", []):
-                if step is dependency:
+                if step is dependency or step is execute:
                     continue
                 self.assertNotIn("private_dependency_token", json.dumps(step))
+                self.assertNotIn("maven_package_read_token", json.dumps(step))
 
 
 if __name__ == "__main__":
