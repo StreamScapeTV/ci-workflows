@@ -1,3 +1,5 @@
+"""Regression coverage for public Central Android completion smoke routing."""
+
 from __future__ import annotations
 
 import unittest
