@@ -44,6 +44,12 @@
       "required_follow_up": []
     },
     {
+      "path": ".github/workflows/reusable-gradle-maven-publish.yml",
+      "issue": 418,
+      "status": "implemented-public-workflow",
+      "required_follow_up": []
+    },
+    {
       "path": ".github/workflows/reusable-helm-publish.yml",
       "issue": 18,
       "status": "implemented-public-workflow",
