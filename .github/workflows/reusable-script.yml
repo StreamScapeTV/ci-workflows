@@ -57,6 +57,18 @@ jobs:
           set -Eeuo pipefail
           [[ "${ADMITTED_SHA}" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::admitted_sha must be an exact lowercase commit SHA' >&2; exit 2; }
 
+          case "${VALIDATION_PROFILE}" in
+            general) runner_profile=general-small ;;
+            mobile|apple)
+              case "${EVENT_NAME}" in
+                pull_request|push|workflow_dispatch) ;;
+                *) echo '::error::specialized script validation requires same-repository PR or exact non-PR source' >&2; exit 2 ;;
+              esac
+              runner_profile="${VALIDATION_PROFILE}"
+              ;;
+            *) echo '::error::validation_profile must be general, mobile, or apple' >&2; exit 2 ;;
+          esac
+
           source_trust=trusted-exact
           if [[ "${EVENT_NAME}" == pull_request ]]; then
             if [[ -n "${PR_HEAD_REPOSITORY}" && "${PR_HEAD_REPOSITORY}" == "${CALLER_REPOSITORY}" ]]; then
@@ -65,19 +77,9 @@ jobs:
               source_trust=untrusted-fork
             fi
           fi
-
-          case "${VALIDATION_PROFILE}" in
-            general) runner_profile=general-small ;;
-            mobile|apple)
-              case "${EVENT_NAME}" in
-                pull_request) [[ "${source_trust}" == trusted-pr ]] || { echo '::error::specialized script validation rejects fork pull requests' >&2; exit 2; } ;;
-                push|workflow_dispatch) ;;
-                *) echo '::error::specialized script validation requires same-repository PR or exact non-PR source' >&2; exit 2 ;;
-              esac
-              runner_profile="${VALIDATION_PROFILE}"
-              ;;
-            *) echo '::error::validation_profile must be general, mobile, or apple' >&2; exit 2 ;;
-          esac
+          if [[ "${VALIDATION_PROFILE}" == mobile || "${VALIDATION_PROFILE}" == apple ]]; then
+            [[ "${source_trust}" == trusted-pr || "${source_trust}" == trusted-exact ]] || { echo '::error::specialized script validation rejects fork pull requests' >&2; exit 2; }
+          fi
 
           printf 'runner_profile=%s\n' "${runner_profile}" >> "${GITHUB_OUTPUT}"
           printf 'source_trust=%s\n' "${source_trust}" >> "${GITHUB_OUTPUT}"
