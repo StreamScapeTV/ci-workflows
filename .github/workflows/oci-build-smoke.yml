@@ -41,12 +41,13 @@ jobs:
           set-safe-directory: false
 
       - name: Verify exact Central source
+        working-directory: .ciw
         shell: bash
         env:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -Eeuo pipefail
-          test "$(git -C .ciw rev-parse HEAD)" = "${EXPECTED_SHA}"
+          test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
 
       - id: plan
         name: Resolve contract-owned OCI smoke product and consumer runner
@@ -76,13 +77,14 @@ jobs:
 
       - name: Verify focused tests left exact source clean
         if: always()
+        working-directory: .ciw
         shell: bash
         env:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -Eeuo pipefail
-          test "$(git -C .ciw rev-parse HEAD)" = "${EXPECTED_SHA}"
-          test -z "$(git -C .ciw status --porcelain=v1 --untracked-files=all)"
+          test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
 
   zero_artifacts:
     name: Verify OCI contract smoke retains zero artifacts
