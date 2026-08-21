@@ -347,9 +347,13 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             self.assertNotIn(forbidden, self.action["inputs"])
 
     def test_smoke_directly_exercises_one_protected_full_mobile_executor(self) -> None:
-        self.assertEqual(set(self.smoke["jobs"]), {"android"})
+        self.assertEqual(set(self.smoke["jobs"]), {"contracts", "android", "terminal"})
+        self.assertEqual(self.smoke["jobs"]["contracts"]["runs-on"], ["ubuntu-latest"])
+        self.assertEqual(self.smoke["jobs"]["terminal"]["runs-on"], ["ubuntu-latest"])
         job = self.smoke["jobs"]["android"]
         self.assertEqual(job["name"], "Android reusable-workflow smoke")
+        self.assertEqual(job["needs"], "contracts")
+        self.assertIn("github.event.repository.private", job["if"])
         self.assertEqual(job["runs-on"], ["linux", "amd64", "mobile"])
         self.assertNotIn("strategy", job)
         self.assertNotIn("uses", job)
