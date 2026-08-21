@@ -134,7 +134,7 @@ class OciWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("phase: execute", self.smoke)
         self.assertIn("product_id: ciw-oci-input-smoke", self.smoke)
         self.assertIn("platform_set: linux-amd64", self.smoke)
-        self.assertIn("'[\"linux\",\"amd64\",\"buildah\",\"small\"]'", self.smoke)
+        self.assertIn("'[\"linux\",\"amd64\",\"buildah\",\"tiny\"]'", self.smoke)
         self.assertIn("Run focused OCI contract, security, and media tests", self.smoke)
         self.assertIn("python3 -m unittest discover -s tests -p 'test_oci_*.py' -v", self.smoke)
         self.assertIn("Verify focused tests left exact source clean", self.smoke)
