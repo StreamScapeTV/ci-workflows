@@ -40,7 +40,7 @@ The Mobile image is self-contained for the checked-in Flutter Android APK contra
 
 The resulting `${ANDROID_SDK_ROOT}/cmake/3.22.1` package contains both CMake and its Ninja backend. The CMake package and Android license state are read-only to the non-root runner user. The lightweight Docker build-phase smoke verifies the fixed toolchain without restoring a project. The shared runner-image action then executes the finished image's full smoke, which creates a fresh Flutter Android project, performs normal isolated Pub/Gradle dependency restore, and runs `flutter build apk --debug` without disabling Flutter native assets. The smoke fails if the APK is missing, if CMake/Ninja changes, or if the build attempts runtime CMake installation or reports an unaccepted CMake license.
 
-The Flutter smoke keeps `PUB_CACHE` and `GRADLE_USER_HOME` under its disposable runner work directory so project dependency state is removed after the check and is never baked into the image.
+The Flutter smoke keeps `TMPDIR`, `PUB_CACHE`, and `GRADLE_USER_HOME` under its disposable runner work directory. This mirrors the job-private temporary-state boundary used by real runners while ensuring the standalone Buildah smoke does not depend on a runner-managed temp mount and leaves no project dependency or temporary state in the image.
 
 ## Pull-request validation
 

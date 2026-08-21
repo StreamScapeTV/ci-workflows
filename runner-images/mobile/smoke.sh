@@ -83,14 +83,20 @@ test -z "${KUBECONFIG:-}"
 if [[ "${CIW_RUNNER_IMAGE_BUILD_PHASE:-0}" != "1" ]]; then
   flutter_smoke_root=/home/runner/_work/runner-mobile-flutter-apk-smoke
   rm -rf "${flutter_smoke_root}"
-  mkdir -p "${flutter_smoke_root}"
+  mkdir -p "${flutter_smoke_root}/tmp"
+  chmod 0700 "${flutter_smoke_root}/tmp"
   cleanup_flutter_smoke() {
     rm -rf "${flutter_smoke_root}"
   }
   trap cleanup_flutter_smoke EXIT
 
+  export TMPDIR="${flutter_smoke_root}/tmp"
   export PUB_CACHE="${flutter_smoke_root}/pub-cache"
   export GRADLE_USER_HOME="${flutter_smoke_root}/gradle"
+  test -d "${TMPDIR}"
+  test ! -L "${TMPDIR}"
+  test -w "${TMPDIR}"
+  test "$(stat -c '%a' "${TMPDIR}")" = "700"
   app_root="${flutter_smoke_root}/app"
   create_log="${flutter_smoke_root}/flutter-create.log"
   pub_log="${flutter_smoke_root}/flutter-pub-get.log"
