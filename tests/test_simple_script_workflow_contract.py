@@ -48,28 +48,63 @@ class SimpleScriptWorkflowContractTests(unittest.TestCase):
 
     def test_runner_selection_is_semantic_and_backend_bounded(self) -> None:
         jobs = self.workflow["jobs"]
-        self.assertEqual(["ubuntu-latest"], jobs["plan"]["runs-on"])
+        hosted = jobs["plan"]
+        organization = jobs["plan_organization"]
+        execute = jobs["validate"]
+        self.assertEqual(["ubuntu-latest"], hosted["runs-on"])
         self.assertEqual(
-            "${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
-            jobs["validate"]["runs-on"],
+            "${{ inputs.execution_backend == 'github-hosted' }}",
+            hosted["if"],
         )
-        plan_step = next(step for step in jobs["plan"]["steps"] if step.get("id") == "plan")
-        plan = plan_step["run"]
-        self.assertIn("general-small", plan)
-        self.assertIn("mobile|apple", plan)
-        self.assertNotIn('["linux","amd64","general","small"]', plan)
-        self.assertNotIn('["linux","amd64","mobile"]', plan)
-        self.assertNotIn('["macOS","ARM64"]', plan)
+        self.assertEqual(
+            ["linux", "amd64", "general", "small"],
+            organization["runs-on"],
+        )
+        self.assertEqual(
+            "${{ inputs.execution_backend != 'github-hosted' }}",
+            organization["if"],
+        )
+        self.assertEqual(["plan", "plan_organization"], execute["needs"])
+        self.assertEqual(
+            "${{ always() && (needs.plan.result == 'success' || needs.plan_organization.result == 'success') }}",
+            execute["if"],
+        )
+        self.assertEqual(
+            "${{ fromJSON(needs.plan.outputs.runs_on_json || needs.plan_organization.outputs.runs_on_json) }}",
+            execute["runs-on"],
+        )
 
-        backend = next(step for step in jobs["plan"]["steps"] if step.get("id") == "backend")
-        self.assertEqual(
-            f"StreamScapeTV/ci-workflows/actions/resolve-execution-backend@{EXECUTION_BACKEND_SHA}",
-            backend["uses"],
-        )
-        self.assertEqual("validation.script", backend["with"]["workflow_api"])
-        self.assertEqual("${{ inputs.execution_backend }}", backend["with"]["execution_backend"])
-        self.assertEqual("${{ steps.plan.outputs.runner_profile }}", backend["with"]["runner_profile"])
-        self.assertEqual("${{ steps.plan.outputs.source_trust }}", backend["with"]["source_trust"])
+        for planner in (hosted, organization):
+            plan_step = next(
+                step for step in planner["steps"] if step.get("id") == "plan"
+            )
+            plan = plan_step["run"]
+            self.assertIn("general-small", plan)
+            self.assertIn("mobile|apple", plan)
+            self.assertNotIn('["linux","amd64","general","small"]', plan)
+            self.assertNotIn('["linux","amd64","mobile"]', plan)
+            self.assertNotIn('["macOS","ARM64"]', plan)
+
+            backend = next(
+                step for step in planner["steps"] if step.get("id") == "backend"
+            )
+            self.assertEqual(
+                f"StreamScapeTV/ci-workflows/actions/resolve-execution-backend@{EXECUTION_BACKEND_SHA}",
+                backend["uses"],
+            )
+            self.assertEqual("validation.script", backend["with"]["workflow_api"])
+            self.assertEqual(
+                "${{ inputs.execution_backend }}",
+                backend["with"]["execution_backend"],
+            )
+            self.assertEqual(
+                "${{ steps.plan.outputs.runner_profile }}",
+                backend["with"]["runner_profile"],
+            )
+            self.assertEqual(
+                "${{ steps.plan.outputs.source_trust }}",
+                backend["with"]["source_trust"],
+            )
         for forbidden in ("self-hosted", "runner_labels", "scale-set"):
             self.assertNotIn(forbidden, self.source)
 
@@ -94,24 +129,24 @@ class SimpleScriptWorkflowContractTests(unittest.TestCase):
         self.assertIn("Semantic profile IDs are not GitHub runner labels", guide)
         self.assertIn("runs-on: [macOS, ARM64]", guide)
 
-    def test_specialized_capacity_fails_closed_before_backend_resolution(self) -> None:
-        steps = self.workflow["jobs"]["plan"]["steps"]
-        plan = steps[0]
-        self.assertEqual("Admit source trust and select semantic script profile", plan["name"])
-        self.assertEqual("${{ github.repository }}", plan["env"]["CALLER_REPOSITORY"])
-        self.assertEqual("${{ github.event_name }}", plan["env"]["EVENT_NAME"])
-        self.assertIn("pull_request.head.repo.full_name", plan["env"]["PR_HEAD_REPOSITORY"])
-        script = plan["run"]
-        self.assertIn("^[0-9a-f]{40}$", script)
-        self.assertIn("mobile|apple", script)
-        self.assertIn('"${PR_HEAD_REPOSITORY}" == "${CALLER_REPOSITORY}"', script)
-        self.assertIn("push|workflow_dispatch", script)
-        self.assertIn("rejects fork pull requests", script)
-        self.assertIn("same-repository PR or exact non-PR source", script)
-        self.assertLess(
-            self.source.index("Admit source trust and select semantic script profile"),
-            self.source.index("Resolve bounded execution backend"),
-        )
+    def test_specialized_capacity_is_admitted_before_bounded_backend_resolution(self) -> None:
+        for planner_name in ("plan", "plan_organization"):
+            with self.subTest(planner=planner_name):
+                steps = self.workflow["jobs"][planner_name]["steps"]
+                plan = steps[0]
+                self.assertEqual("Admit source trust and select semantic script profile", plan["name"])
+                self.assertEqual("${{ github.repository }}", plan["env"]["CALLER_REPOSITORY"])
+                self.assertEqual("${{ github.event_name }}", plan["env"]["EVENT_NAME"])
+                self.assertIn("pull_request.head.repo.full_name", plan["env"]["PR_HEAD_REPOSITORY"])
+                script = plan["run"]
+                self.assertIn("^[0-9a-f]{40}$", script)
+                self.assertIn("mobile|apple", script)
+                self.assertIn('"${PR_HEAD_REPOSITORY}" == "${CALLER_REPOSITORY}"', script)
+                self.assertIn("push|workflow_dispatch", script)
+                self.assertIn("rejects fork pull requests", script)
+                self.assertIn("same-repository PR or exact non-PR source", script)
+                backend = next(step for step in steps if step.get("id") == "backend")
+                self.assertEqual("${{ steps.plan.outputs.runner_profile }}", backend["with"]["runner_profile"])
 
     def test_exact_checkout_and_direct_zero_argument_script_execution(self) -> None:
         steps = self.workflow["jobs"]["validate"]["steps"]
