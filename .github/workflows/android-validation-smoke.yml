@@ -23,6 +23,7 @@ on:
       - docs/workflows/android.md
       - tests/fixtures/android-validation/smoke-project/**
       - tests/test_android_*.py
+      - tests/test_android_validation_public_smoke_routing.py
       - tests/test_gradle_dependency_warm.py
       - tests/test_reusable_workflow_source_identity.py
   workflow_dispatch:
@@ -36,8 +37,73 @@ permissions:
   contents: read
 
 jobs:
+  contracts:
+    name: Validate Android reusable-workflow contracts
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: [ubuntu-latest]
+    timeout-minutes: 20
+    steps:
+      - name: Stage exact candidate implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact candidate implementation
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -Eeuo pipefail
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+            test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          )
+
+      - id: plan
+        name: Validate bounded protected-full plan
+        uses: ./.ciw/actions/validate-android
+        with:
+          phase: plan
+          admitted_sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          validation_scope: protected-full
+          working_directory: tests/fixtures/android-validation/smoke-project
+          gradle_wrapper_path: gradlew
+          validation_plan_json: '{"unit_tasks":["help"],"lint_tasks":["tasks"],"assemble_tasks":["verifyToolchainSmoke"],"schema":{"mode":"none"}}'
+
+      - id: reject_escape
+        name: Reject arbitrary Gradle task injection before execution
+        continue-on-error: true
+        uses: ./.ciw/actions/validate-android
+        with:
+          phase: plan
+          admitted_sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          validation_scope: protected-full
+          working_directory: tests/fixtures/android-validation/smoke-project
+          gradle_wrapper_path: gradlew
+          validation_plan_json: '{"unit_tasks":["help;arbitrary"],"lint_tasks":["tasks"],"assemble_tasks":["verifyToolchainSmoke"],"schema":{"mode":"none"}}'
+
+      - name: Require bounded hosted planning outcomes
+        shell: bash
+        env:
+          PLAN_OUTCOME: ${{ steps.plan.outcome }}
+          REJECT_ESCAPE_OUTCOME: ${{ steps.reject_escape.outcome }}
+        run: |
+          set -Eeuo pipefail
+          test "${PLAN_OUTCOME}" = success
+          test "${REJECT_ESCAPE_OUTCOME}" = failure
+          test -z "$(git -C .ciw status --porcelain=v1 --untracked-files=all)"
+
   android:
     name: Android reusable-workflow smoke
+    needs: contracts
+    if: ${{ github.event.repository.private && needs.contracts.result == 'success' }}
     runs-on: [linux, amd64, mobile]
     timeout-minutes: 45
     steps:
@@ -206,3 +272,47 @@ jobs:
           test "${WORKSPACE_CLEANUP_OUTCOME}" = "success"
           test "${CLEAN_OUTCOME}" = "success"
           test "${ARTIFACT_OUTCOME}" = "success"
+
+  terminal:
+    name: Verify public Android reusable routing and artifacts
+    needs: [contracts, android]
+    if: ${{ always() && !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    runs-on: [ubuntu-latest]
+    timeout-minutes: 10
+    steps:
+      - name: Require hosted contracts, expected mobile state, and zero artifacts
+        env:
+          CONTRACTS_RESULT: ${{ needs.contracts.result }}
+          ANDROID_RESULT: ${{ needs.android.result }}
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "${CONTRACTS_RESULT}" = success
+          if [[ "${REPOSITORY_PRIVATE}" == "true" ]]; then
+            test "${ANDROID_RESULT}" = success
+          else
+            test "${ANDROID_RESULT}" = skipped
+          fi
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          request = urllib.request.Request(
+              f"{os.environ['GITHUB_API_URL'].rstrip('/')}/repos/"
+              f"{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
+              f"{os.environ['GITHUB_RUN_ID']}/artifacts",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              payload = json.load(response)
+          if payload.get("total_count") != 0 or payload.get("artifacts"):
+              raise SystemExit("Android reusable smoke retained Actions artifacts")
+          print("Android reusable public routing and zero-artifact policy passed.")
+          PY
