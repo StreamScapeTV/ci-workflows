@@ -48,7 +48,7 @@ class AndroidPackageTokenActionPinTest(unittest.TestCase):
                 action = (ROOT / action_path).read_text(encoding="utf-8")
 
                 self.assertIn(
-                    f"uses: {action_ref}@{PACKAGE_TOKEN_ACTION_CHECKPOINT} # issue #443 package-read execution checkpoint",
+                    f"uses: {action_ref}@{PACKAGE_TOKEN_ACTION_CHECKPOINT} # issue #443 package-read runtime checkpoint",
                     execute,
                 )
                 self.assertIn(PACKAGE_TOKEN_SECRET_FORWARD, execute)
