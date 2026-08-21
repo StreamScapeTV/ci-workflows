@@ -31,7 +31,7 @@ The default `organization` backend preserves the existing semantic mapping:
 - `general` -> `[ubuntu-latest]`;
 - `mobile` and `apple` fail closed with the Central unsupported-profile boundary until their standard-hosted toolchain contracts are proven separately.
 
-`mobile` and `apple` are admitted only for same-repository pull requests or exact `push`/`workflow_dispatch` source. Fork pull requests fail in the hosted planning job before either specialized runner can be scheduled. Products never select concrete runner hosts or scale sets, and an explicit hosted request never falls back to organization capacity.
+Planner placement follows the backend instead of introducing a hidden cross-backend dependency. An explicit hosted call performs trust/profile planning on `ubuntu-latest`; the default/explicit organization call uses `[linux, amd64, general, small]` for planning and then resolves the selected semantic profile through Central. The planners are mutually exclusive and the script executor consumes only the successful planner's selector. `mobile` and `apple` are admitted only for same-repository pull requests or exact `push`/`workflow_dispatch` source, so fork pull requests fail during the selected planner before specialized execution can be scheduled. Products never select concrete runner hosts or scale sets, and an explicit hosted request never falls back to organization capacity.
 
 ## Thin caller
 
