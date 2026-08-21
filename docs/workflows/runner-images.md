@@ -34,6 +34,14 @@ For each image the action:
 
 There is no Docker/Buildx implementation, no private-registry mirror, and no GitHub Actions image artifact handoff.
 
+### Mobile Android/Flutter native-build contract
+
+The Mobile image is self-contained for the checked-in Flutter Android APK contract. Alongside the pinned Android platforms, build tools and NDK, image construction installs the fixed stable Android SDK package `cmake;3.22.1`. The owner-authorized Android SDK license fingerprints needed by that package are checked into `runner-images/mobile/toolchain.lock.json` and materialized only while the image is being constructed; consumer jobs do not run `sdkmanager --licenses`, interactive acceptance, or CMake/SDK installation.
+
+The resulting `${ANDROID_SDK_ROOT}/cmake/3.22.1` package contains both CMake and its Ninja backend. The CMake package and Android license state are read-only to the non-root runner user. The lightweight Docker build-phase smoke verifies the fixed toolchain without restoring a project. The shared runner-image action then executes the finished image's full smoke, which creates a fresh Flutter Android project, performs normal isolated Pub/Gradle dependency restore, and runs `flutter build apk --debug` without disabling Flutter native assets. The smoke fails if the APK is missing, if CMake/Ninja changes, or if the build attempts runtime CMake installation or reports an unaccepted CMake license.
+
+The build-tools stage carries the runner archive through an `/out/tmp` staging directory, so the final image explicitly restores `/tmp` to standard root-owned mode `1777` after that cross-stage copy. The full Flutter smoke does not rely on shared `/tmp`: shell/Dart temporary state and Java/Kotlin `java.io.tmpdir` are separate `0700` directories under the disposable runner work root, alongside isolated `PUB_CACHE` and `GRADLE_USER_HOME`. This mirrors the job-private temporary-state boundary used by real runners while leaving no project dependency or temporary state in the image.
+
 ## Pull-request validation
 
 `.github/workflows/runner-images-validation.yml` creates one independent `[ubuntu-latest]` matrix job for each of the six images. It calls the shared action with `publish: false`, so validation has no package-write permission.
