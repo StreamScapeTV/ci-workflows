@@ -52,12 +52,24 @@ SDK build; shared state does not imply that one platform binary satisfies
 another platform.
 
 A test stage may acquire only the contract-owned iOS or tvOS simulator matching
-its platform. The existing host-user ownership registry, exact runtime/device-
-type checks, stale-row reconciliation, exclusive ownership lock, redacted
-simulator identity, and no-follow cleanup are reused unchanged. Test stages run
-sequentially; a created simulator is reclaimed before a later simulator stage
-can acquire its device. Terminal cleanup rechecks all planned simulator families
-and fails if owned residue remains.
+its platform. The host-user ownership registry, exact runtime/device-type checks,
+stale-row reconciliation, exclusive ownership lock, redacted simulator identity,
+and no-follow cleanup remain authoritative. Test stages run sequentially; a
+created simulator is reclaimed before a later simulator stage can acquire its
+device.
+
+CoreSimulator may materialize an `– External Display` companion beside a CIW-owned
+primary simulator. That companion is cleanup-eligible only when its name is the
+exact persisted CIW primary name plus the exact External Display suffix, it is in
+the same runtime, and it has a bounded valid simulator identity. The persisted
+primary ownership row remains the authority: unrelated display simulators are
+never selected by suffix alone, ambiguous duplicate companions fail closed, and
+the row is removed only after inventory readback proves both the primary and its
+exact companion are absent. This also allows a later preflight to recover a
+companion left behind by hard cancellation.
+
+Terminal cleanup rechecks all planned simulator families and fails if CIW-owned
+primary or exact companion residue remains.
 
 ## Caller-owned plan safety
 
@@ -136,13 +148,14 @@ imports a keychain, reaches Kubernetes, or deploys a product.
 ## Immutable helper reuse
 
 The reusable workflow invokes `actions/validate-apple` through the reviewed issue
-#421 checkpoint `8a360dfe04a42840fb3675d96746e8e9c465f465`.
+#311 checkpoint `c82cd9fba134ff736621b8bbd636594c2a6fe923`.
 The corresponding action-lock release label is
-`issue #421 generated-state mutation guard checkpoint`.
-That checkpoint includes the bounded #372 failure diagnostics and the
-Git-index-aware protected Xcode container snapshot used by protected-full, while
-preserving the existing planner/executor, public plan filesystem guard, cleanup,
-residue, source-exactness, and simulator ownership boundaries.
+`issue #311 External Display companion cleanup checkpoint`.
+That checkpoint is based on the protected `main` containing completed #421, so it
+preserves the Git-index-aware protected Xcode container snapshot and bounded #372
+failure diagnostics while adding exact CIW-owned CoreSimulator companion cleanup.
+It preserves the existing planner/executor, public plan filesystem guard,
+cleanup/residue, source-exactness, and simulator ownership boundaries.
 
 Exact source checkout, workspace preparation, optional private dependency
 checkout, evidence rendering, and registered-state cleanup continue to use their
@@ -183,8 +196,8 @@ Actions cache. Structured summaries and evidence stay bounded/redacted.
 Apple-specific state is marker-bound and removed with lexical, `lstat`-based
 no-follow cleanup. The workflow separately removes the exact source checkout and
 then calls the registered workspace cleanup action. Cleanup/residue failure,
-source mutation, or workspace-cleanup failure makes the terminal Apple result
-fail.
+source mutation, simulator companion residue, or workspace-cleanup failure makes
+the terminal Apple result fail.
 
 ## Repository-local smoke workflow
 
