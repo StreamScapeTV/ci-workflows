@@ -171,10 +171,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-apple",
-      "sha": "8a360dfe04a42840fb3675d96746e8e9c465f465",
-      "release": "issue #421 generated-state mutation guard checkpoint",
+      "sha": "c82cd9fba134ff736621b8bbd636594c2a6fe923",
+      "release": "issue #311 External Display companion cleanup checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/8a360dfe04a42840fb3675d96746e8e9c465f465/actions/validate-apple"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/c82cd9fba134ff736621b8bbd636594c2a6fe923/actions/validate-apple"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-oci",

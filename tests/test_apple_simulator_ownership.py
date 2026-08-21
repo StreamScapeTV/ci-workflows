@@ -42,6 +42,10 @@ from tests.test_apple_validation import (  # noqa: E402
 STALE_IOS_UDID = "11111111-2222-3333-4444-555555555555"
 STALE_TVOS_UDID = "66666666-7777-8888-9999-AAAAAAAAAAAA"
 UNRELATED_UDID = "99999999-8888-7777-6666-555555555555"
+EXTERNAL_DISPLAY_UDID = "BBBBBBBB-CCCC-DDDD-EEEE-FFFFFFFFFFFF"
+SECOND_EXTERNAL_DISPLAY_UDID = "CCCCCCCC-DDDD-EEEE-FFFF-AAAAAAAAAAAA"
+EXTERNAL_DISPLAY_TYPE = "com.apple.CoreSimulator.SimDeviceType.External-Display"
+EXTERNAL_DISPLAY_SUFFIX = " – External Display"
 
 
 class ForcedCancellation(BaseException):
@@ -141,6 +145,78 @@ class TransientCleanupRunner(FakeRunner):
         )
 
 
+class ExternalDisplayRunner(FakeRunner):
+    def __init__(
+        self,
+        *,
+        devices: Sequence[Mapping[str, object]] = (),
+        add_companion_on_create: bool = True,
+        companion_delete_failures: int = 0,
+    ) -> None:
+        super().__init__(devices=devices)
+        self.add_companion_on_create = add_companion_on_create
+        self.companion_delete_failures = companion_delete_failures
+
+    def run(
+        self,
+        argv: Sequence[str],
+        *,
+        cwd: Path,
+        env: Mapping[str, str],
+        timeout_seconds: int,
+    ) -> CommandOutcome:
+        command = tuple(argv)
+        if (
+            command[:3] == ("xcrun", "simctl", "delete")
+            and command[3] == EXTERNAL_DISPLAY_UDID
+            and self.companion_delete_failures
+        ):
+            self.calls.append(command)
+            self.companion_delete_failures -= 1
+            return CommandOutcome(1, "", "companion delete failure")
+        outcome = super().run(
+            argv,
+            cwd=cwd,
+            env=env,
+            timeout_seconds=timeout_seconds,
+        )
+        if command[:3] == ("xcrun", "simctl", "create") and self.add_companion_on_create:
+            self.devices.append(
+                {
+                    "name": f"{command[3]}{EXTERNAL_DISPLAY_SUFFIX}",
+                    "udid": EXTERNAL_DISPLAY_UDID,
+                    "state": "Shutdown",
+                    "isAvailable": True,
+                    "deviceTypeIdentifier": EXTERNAL_DISPLAY_TYPE,
+                }
+            )
+        return outcome
+
+
+class ExternalDisplayBootCancellationRunner(ExternalDisplayRunner):
+    def __init__(self) -> None:
+        super().__init__()
+        self.cancel_after_boot = True
+
+    def run(
+        self,
+        argv: Sequence[str],
+        *,
+        cwd: Path,
+        env: Mapping[str, str],
+        timeout_seconds: int,
+    ) -> CommandOutcome:
+        outcome = super().run(
+            argv,
+            cwd=cwd,
+            env=env,
+            timeout_seconds=timeout_seconds,
+        )
+        if tuple(argv)[:3] == ("xcrun", "simctl", "boot") and self.cancel_after_boot:
+            raise ForcedCancellation("cancelled with External Display companion present")
+        return outcome
+
+
 class AppleSimulatorOwnershipTests(unittest.TestCase):
     def setUp(self) -> None:
         self.contract = apple.load_apple_contract(ROOT)
@@ -224,6 +300,22 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
             "state": state,
             "isAvailable": available,
             "deviceTypeIdentifier": plan.simulator.device_type_identifier,
+        }
+
+    @staticmethod
+    def companion(
+        plan,
+        udid: str = EXTERNAL_DISPLAY_UDID,
+        *,
+        available: bool = True,
+        state: str = "Shutdown",
+    ):
+        return {
+            "name": f"{_simulator_device_name(plan)}{EXTERNAL_DISPLAY_SUFFIX}",
+            "udid": udid,
+            "state": state,
+            "isAvailable": available,
+            "deviceTypeIdentifier": EXTERNAL_DISPLAY_TYPE,
         }
 
     def test_contract_owned_name_is_independent_of_ephemeral_state_root(self) -> None:
@@ -327,6 +419,246 @@ class AppleSimulatorOwnershipTests(unittest.TestCase):
         self.assertEqual(result.status, "success")
         self.assertGreaterEqual(
             runner.calls.count(("xcrun", "simctl", "delete", GOOD_UDID)),
+            2,
+        )
+        self.assertEqual(
+            json.loads(registry_path.read_text(encoding="utf-8"))["owners"],
+            [],
+        )
+
+    def test_owned_external_display_companion_is_removed_with_primary(self) -> None:
+        temporary, source, sha = self.make_repo()
+        self.addCleanup(temporary.cleanup)
+        _, environment, workspace = self.host_environment()
+        plan = self.scoped_plan(sha)
+        unrelated = {
+            "name": "Personal Unrelated Simulator",
+            "udid": UNRELATED_UDID,
+            "state": "Shutdown",
+            "isAvailable": True,
+            "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
+        }
+        runner = ExternalDisplayRunner(devices=[unrelated])
+
+        result = execute_apple_plan(
+            plan=plan,
+            source_root=source,
+            state_root=workspace.parent / "external-display-cleanup",
+            runner=runner,
+            environment=environment,
+        )
+
+        self.assertEqual(result.status, "success")
+        self.assertIn(("xcrun", "simctl", "delete", GOOD_UDID), runner.calls)
+        self.assertIn(
+            ("xcrun", "simctl", "delete", EXTERNAL_DISPLAY_UDID),
+            runner.calls,
+        )
+        self.assertTrue(any(row.get("udid") == UNRELATED_UDID for row in runner.devices))
+        self.assertFalse(
+            any(
+                row.get("name")
+                in {
+                    _simulator_device_name(plan),
+                    f"{_simulator_device_name(plan)}{EXTERNAL_DISPLAY_SUFFIX}",
+                }
+                for row in runner.devices
+            )
+        )
+        registry_path = workspace / _OWNERSHIP_DIRECTORY / _OWNERSHIP_REGISTRY
+        self.assertEqual(
+            json.loads(registry_path.read_text(encoding="utf-8"))["owners"],
+            [],
+        )
+
+    def test_stale_companion_without_primary_is_reaped_before_new_selection(self) -> None:
+        temporary, source, sha = self.make_repo()
+        self.addCleanup(temporary.cleanup)
+        _, environment, workspace = self.host_environment()
+        current_plan = self.scoped_plan(sha)
+        stale_plan = self.scoped_plan("b" * 40)
+        self.write_registry(
+            workspace,
+            [_ownership_record(stale_plan, status="owned", udid=SECOND_UDID)],
+        )
+        runner = FakeRunner(devices=[self.companion(stale_plan)])
+
+        result = execute_apple_plan(
+            plan=current_plan,
+            source_root=source,
+            state_root=workspace.parent / "stale-external-display",
+            runner=runner,
+            environment=environment,
+        )
+
+        self.assertEqual(result.status, "success")
+        companion_delete = ("xcrun", "simctl", "delete", EXTERNAL_DISPLAY_UDID)
+        current_create = (
+            "xcrun",
+            "simctl",
+            "create",
+            _simulator_device_name(current_plan),
+            current_plan.simulator.device_type_identifier,  # type: ignore[union-attr]
+            current_plan.simulator.runtime_identifier,  # type: ignore[union-attr]
+        )
+        self.assertIn(companion_delete, runner.calls)
+        self.assertLess(runner.calls.index(companion_delete), runner.calls.index(current_create))
+        registry_path = workspace / _OWNERSHIP_DIRECTORY / _OWNERSHIP_REGISTRY
+        self.assertEqual(
+            json.loads(registry_path.read_text(encoding="utf-8"))["owners"],
+            [],
+        )
+
+    def test_companion_delete_failure_retains_registry_row(self) -> None:
+        temporary, source, sha = self.make_repo()
+        self.addCleanup(temporary.cleanup)
+        _, environment, workspace = self.host_environment()
+        current_plan = self.scoped_plan(sha)
+        stale_plan = self.scoped_plan("b" * 40)
+        self.write_registry(
+            workspace,
+            [_ownership_record(stale_plan, status="owned", udid=SECOND_UDID)],
+        )
+        runner = ExternalDisplayRunner(
+            devices=[self.companion(stale_plan)],
+            add_companion_on_create=False,
+            companion_delete_failures=99,
+        )
+
+        with self.assertRaises(apple.AppleValidationError) as captured:
+            execute_apple_plan(
+                plan=current_plan,
+                source_root=source,
+                state_root=workspace.parent / "external-display-delete-failure",
+                runner=runner,
+                environment=environment,
+            )
+
+        self.assertEqual(captured.exception.code, "cleanup_failed")
+        self.assertTrue(captured.exception.cleanup_failed)
+        self.assertTrue(
+            any(row.get("udid") == EXTERNAL_DISPLAY_UDID for row in runner.devices)
+        )
+        assert current_plan.simulator is not None
+        self.assertNotIn(
+            (
+                "xcrun",
+                "simctl",
+                "create",
+                _simulator_device_name(current_plan),
+                current_plan.simulator.device_type_identifier,
+                current_plan.simulator.runtime_identifier,
+            ),
+            runner.calls,
+        )
+        registry_path = workspace / _OWNERSHIP_DIRECTORY / _OWNERSHIP_REGISTRY
+        owners = json.loads(registry_path.read_text(encoding="utf-8"))["owners"]
+        self.assertEqual(len(owners), 1)
+        self.assertEqual(owners[0]["owner_key"], _ownership_record(stale_plan, status="owned", udid=SECOND_UDID)["owner_key"])
+
+    def test_unrelated_external_display_lookalike_is_preserved(self) -> None:
+        temporary, source, sha = self.make_repo()
+        self.addCleanup(temporary.cleanup)
+        _, environment, workspace = self.host_environment()
+        current_plan = self.scoped_plan(sha)
+        stale_plan = self.scoped_plan("b" * 40)
+        other_plan = self.scoped_plan("c" * 40)
+        self.write_registry(
+            workspace,
+            [_ownership_record(stale_plan, status="owned", udid=SECOND_UDID)],
+        )
+        lookalike = self.companion(other_plan, UNRELATED_UDID)
+        runner = FakeRunner(devices=[lookalike])
+
+        result = execute_apple_plan(
+            plan=current_plan,
+            source_root=source,
+            state_root=workspace.parent / "unrelated-external-display",
+            runner=runner,
+            environment=environment,
+        )
+
+        self.assertEqual(result.status, "success")
+        self.assertTrue(any(row.get("udid") == UNRELATED_UDID for row in runner.devices))
+        self.assertNotIn(("xcrun", "simctl", "delete", UNRELATED_UDID), runner.calls)
+
+    def test_duplicate_exact_companions_fail_closed_and_retain_row(self) -> None:
+        temporary, source, sha = self.make_repo()
+        self.addCleanup(temporary.cleanup)
+        _, environment, workspace = self.host_environment()
+        current_plan = self.scoped_plan(sha)
+        stale_plan = self.scoped_plan("b" * 40)
+        row = _ownership_record(stale_plan, status="owned", udid=SECOND_UDID)
+        self.write_registry(workspace, [row])
+        runner = FakeRunner(
+            devices=[
+                self.companion(stale_plan, EXTERNAL_DISPLAY_UDID),
+                self.companion(stale_plan, SECOND_EXTERNAL_DISPLAY_UDID),
+            ]
+        )
+
+        with self.assertRaises(apple.AppleValidationError) as captured:
+            execute_apple_plan(
+                plan=current_plan,
+                source_root=source,
+                state_root=workspace.parent / "ambiguous-external-display",
+                runner=runner,
+                environment=environment,
+            )
+
+        self.assertEqual(captured.exception.code, "simulator_ambiguous")
+        self.assertTrue(captured.exception.cleanup_failed)
+        self.assertNotIn(
+            ("xcrun", "simctl", "delete", EXTERNAL_DISPLAY_UDID),
+            runner.calls,
+        )
+        registry_path = workspace / _OWNERSHIP_DIRECTORY / _OWNERSHIP_REGISTRY
+        self.assertEqual(
+            json.loads(registry_path.read_text(encoding="utf-8"))["owners"],
+            [row],
+        )
+
+    def test_boot_cancellation_recovers_primary_and_companion_on_rerun(self) -> None:
+        temporary, source, sha = self.make_repo()
+        self.addCleanup(temporary.cleanup)
+        _, environment, workspace = self.host_environment()
+        plan = self.scoped_plan(sha)
+        runner = ExternalDisplayBootCancellationRunner()
+
+        with self.assertRaises(ForcedCancellation):
+            execute_apple_plan(
+                plan=plan,
+                source_root=source,
+                state_root=workspace.parent / "external-display-boot-cancelled",
+                runner=runner,
+                environment=environment,
+            )
+
+        registry_path = workspace / _OWNERSHIP_DIRECTORY / _OWNERSHIP_REGISTRY
+        owners = json.loads(registry_path.read_text(encoding="utf-8"))["owners"]
+        self.assertEqual(len(owners), 1)
+        self.assertEqual(owners[0]["status"], "owned")
+        self.assertTrue(any(row.get("udid") == GOOD_UDID for row in runner.devices))
+        self.assertTrue(
+            any(row.get("udid") == EXTERNAL_DISPLAY_UDID for row in runner.devices)
+        )
+        runner.cancel_after_boot = False
+
+        result = execute_apple_plan(
+            plan=plan,
+            source_root=source,
+            state_root=workspace.parent / "external-display-boot-recovery",
+            runner=runner,
+            environment=environment,
+        )
+
+        self.assertEqual(result.status, "success")
+        self.assertGreaterEqual(
+            runner.calls.count(("xcrun", "simctl", "delete", GOOD_UDID)),
+            2,
+        )
+        self.assertGreaterEqual(
+            runner.calls.count(("xcrun", "simctl", "delete", EXTERNAL_DISPLAY_UDID)),
             2,
         )
         self.assertEqual(
