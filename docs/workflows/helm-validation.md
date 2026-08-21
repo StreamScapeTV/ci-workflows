@@ -15,7 +15,7 @@ The public workflow keeps the older optional `image_digest` and `immutable_refer
 
 `helm.validate` accepts the shared optional `execution_backend` input. `organization` remains the default and preserves semantic `general-small` organization capacity. Explicit `github-hosted` runs the same read-only validation contract on standard GitHub-hosted `ubuntu-latest`; it never falls back to StreamScapeTV private/ARC capacity. Repository visibility does not select the backend automatically, and callers cannot pass raw runner labels.
 
-The lightweight plan/backend-resolution job itself uses hosted Ubuntu. The validation job then:
+Planner capacity follows that same bounded choice. Explicit `github-hosted` calls use a lightweight `ubuntu-latest` plan/backend-resolution job; default or explicit `organization` calls use the existing `[linux, amd64, general, small]` planner. The two planners are mutually exclusive, and validation consumes only the successful planner's Central-owned selector. The validation job then:
 
 1. admits the exact caller SHA and checks out that source without persistent credentials;
 2. loads the product-owned Helm metadata;
