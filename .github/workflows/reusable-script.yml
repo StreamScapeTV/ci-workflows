@@ -35,7 +35,8 @@ permissions:
 
 jobs:
   plan:
-    name: Select script validation capacity
+    name: Select hosted script validation capacity
+    if: ${{ inputs.execution_backend == 'github-hosted' }}
     runs-on: [ubuntu-latest]
     timeout-minutes: 5
     outputs:
@@ -66,9 +67,7 @@ jobs:
           fi
 
           case "${VALIDATION_PROFILE}" in
-            general)
-              runner_profile=general-small
-              ;;
+            general) runner_profile=general-small ;;
             mobile|apple)
               case "${EVENT_NAME}" in
                 pull_request) [[ "${source_trust}" == trusted-pr ]] || { echo '::error::specialized script validation rejects fork pull requests' >&2; exit 2; } ;;
@@ -84,7 +83,64 @@ jobs:
           printf 'source_trust=%s\n' "${source_trust}" >> "${GITHUB_OUTPUT}"
 
       - id: backend
-        name: Resolve bounded execution backend
+        name: Resolve bounded hosted execution backend
+        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@01d1d10bafcc4fc1e4c51663f72b08f694dc4e35 # issue #447 portable backend checkpoint
+        with:
+          workflow_api: validation.script
+          source_trust: ${{ steps.plan.outputs.source_trust }}
+          execution_backend: ${{ inputs.execution_backend }}
+          runner_profile: ${{ steps.plan.outputs.runner_profile }}
+
+  plan_organization:
+    name: Select organization script validation capacity
+    if: ${{ inputs.execution_backend != 'github-hosted' }}
+    runs-on: [linux, amd64, general, small]
+    timeout-minutes: 5
+    outputs:
+      runs_on_json: ${{ steps.backend.outputs.runs_on_json }}
+      runner_profile: ${{ steps.plan.outputs.runner_profile }}
+      source_trust: ${{ steps.plan.outputs.source_trust }}
+    steps:
+      - id: plan
+        name: Admit source trust and select semantic script profile
+        shell: bash
+        env:
+          ADMITTED_SHA: ${{ inputs.admitted_sha }}
+          CALLER_REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || '' }}
+          VALIDATION_PROFILE: ${{ inputs.validation_profile }}
+        run: |
+          set -Eeuo pipefail
+          [[ "${ADMITTED_SHA}" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::admitted_sha must be an exact lowercase commit SHA' >&2; exit 2; }
+
+          source_trust=trusted-exact
+          if [[ "${EVENT_NAME}" == pull_request ]]; then
+            if [[ -n "${PR_HEAD_REPOSITORY}" && "${PR_HEAD_REPOSITORY}" == "${CALLER_REPOSITORY}" ]]; then
+              source_trust=trusted-pr
+            else
+              source_trust=untrusted-fork
+            fi
+          fi
+
+          case "${VALIDATION_PROFILE}" in
+            general) runner_profile=general-small ;;
+            mobile|apple)
+              case "${EVENT_NAME}" in
+                pull_request) [[ "${source_trust}" == trusted-pr ]] || { echo '::error::specialized script validation rejects fork pull requests' >&2; exit 2; } ;;
+                push|workflow_dispatch) ;;
+                *) echo '::error::specialized script validation requires same-repository PR or exact non-PR source' >&2; exit 2 ;;
+              esac
+              runner_profile="${VALIDATION_PROFILE}"
+              ;;
+            *) echo '::error::validation_profile must be general, mobile, or apple' >&2; exit 2 ;;
+          esac
+
+          printf 'runner_profile=%s\n' "${runner_profile}" >> "${GITHUB_OUTPUT}"
+          printf 'source_trust=%s\n' "${source_trust}" >> "${GITHUB_OUTPUT}"
+
+      - id: backend
+        name: Resolve bounded organization execution backend
         uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@01d1d10bafcc4fc1e4c51663f72b08f694dc4e35 # issue #447 portable backend checkpoint
         with:
           workflow_api: validation.script
@@ -94,8 +150,9 @@ jobs:
 
   validate:
     name: CI / Script validation
-    needs: plan
-    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
+    needs: [plan, plan_organization]
+    if: ${{ always() && (needs.plan.result == 'success' || needs.plan_organization.result == 'success') }}
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json || needs.plan_organization.outputs.runs_on_json) }}
     timeout-minutes: 120
     outputs:
       result: ${{ steps.execute.outcome == 'success' && steps.clean.outcome == 'success' && 'success' || 'failure' }}
