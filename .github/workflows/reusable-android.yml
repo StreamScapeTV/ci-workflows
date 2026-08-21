@@ -54,6 +54,9 @@ on:
       private_dependency_token:
         description: Optional transient contents-read token used only by exact private dependency checkout
         required: false
+      maven_package_read_token:
+        description: Optional transient package-read token forwarded only to bounded product execution
+        required: false
     outputs:
       result:
         description: Success only after execution and all terminal cleanup checks succeed
@@ -95,7 +98,7 @@ jobs:
 
       - id: prebuild_plan
         name: Validate optional private dependency prebuild plan
-        if: ${{ inputs.dependency_prebuild_plan_json != '' && steps.plan.outputs.private_dependency_used == 'true' }}
+        if: ${{ inputs.validation_scope != 'gradle' && inputs.dependency_prebuild_plan_json != '' && steps.plan.outputs.private_dependency_used == 'true' }}
         uses: StreamScapeTV/ci-workflows/actions/validate-android@8eaa37ad0fe3231b202e878b26f66aa23753e38a # issue #373 compile Gradle isolation checkpoint
         with:
           phase: plan
@@ -139,8 +142,8 @@ jobs:
           token: ${{ secrets.private_dependency_token }}
 
       - id: dependency_warm
-        name: Resolve Gradle dependency graph before protected build
-        if: ${{ inputs.validation_scope == 'protected-full' && (steps.plan.outputs.private_dependency_used != 'true' || steps.dependency.outcome == 'success') }}
+        name: Resolve Gradle dependency graph for cache maintenance
+        if: ${{ inputs.validation_scope == 'gradle' && inputs.dependency_prebuild_plan_json == '' && steps.plan.outputs.private_dependency_used == 'true' && steps.dependency.outcome == 'success' }}
         uses: StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies@13de46c51efcf65df798dfec82a620c484350dfa # issue #346 dependency warm checkpoint
         with:
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -149,7 +152,7 @@ jobs:
           private_dependency_subdirectory: ${{ steps.plan.outputs.private_dependency_subdirectory }}
 
       - id: dependency_warm_seed
-        name: Publish warmed Gradle dependency delta before build
+        name: Publish cache-maintenance Gradle dependency delta
         if: ${{ steps.dependency_warm.outcome == 'success' }}
         continue-on-error: true
         uses: StreamScapeTV/ci-workflows/actions/upload-gradle-seed@fa67b6a1580ff2eb7386a9e58de09896b9990696 # issue #346 bounded Gradle cache sync diagnostics checkpoint
@@ -158,7 +161,7 @@ jobs:
 
       - id: prebuild_execute
         name: Process-isolate optional private dependency Gradle prebuild
-        if: ${{ inputs.dependency_prebuild_plan_json != '' && steps.prebuild_plan.outcome == 'success' && steps.dependency.outcome == 'success' && (inputs.validation_scope != 'protected-full' || steps.dependency_warm.outcome == 'success') }}
+        if: ${{ inputs.validation_scope != 'gradle' && inputs.dependency_prebuild_plan_json != '' && steps.prebuild_plan.outcome == 'success' && steps.dependency.outcome == 'success' }}
         uses: StreamScapeTV/ci-workflows/actions/validate-android@8eaa37ad0fe3231b202e878b26f66aa23753e38a # issue #373 compile Gradle isolation checkpoint
         with:
           phase: execute
@@ -181,7 +184,7 @@ jobs:
 
       - id: prebuild_cleanup
         name: Remove optional dependency-prebuild copied source state
-        if: ${{ always() && inputs.dependency_prebuild_plan_json != '' && steps.workspace.outcome == 'success' }}
+        if: ${{ always() && inputs.validation_scope != 'gradle' && inputs.dependency_prebuild_plan_json != '' && steps.workspace.outcome == 'success' }}
         uses: StreamScapeTV/ci-workflows/actions/validate-android@8eaa37ad0fe3231b202e878b26f66aa23753e38a # issue #373 compile Gradle isolation checkpoint
         with:
           phase: cleanup
@@ -190,7 +193,7 @@ jobs:
 
       - id: prebuild_residue
         name: Verify zero optional dependency-prebuild residue
-        if: ${{ always() && inputs.dependency_prebuild_plan_json != '' && steps.workspace.outcome == 'success' }}
+        if: ${{ always() && inputs.validation_scope != 'gradle' && inputs.dependency_prebuild_plan_json != '' && steps.workspace.outcome == 'success' }}
         uses: StreamScapeTV/ci-workflows/actions/validate-android@8eaa37ad0fe3231b202e878b26f66aa23753e38a # issue #373 compile Gradle isolation checkpoint
         with:
           phase: residue
@@ -199,7 +202,7 @@ jobs:
 
       - id: execute
         name: Execute one primitive-backed Android validation plan
-        if: ${{ success() && (inputs.validation_scope != 'protected-full' || steps.dependency_warm.outcome == 'success') && (inputs.dependency_prebuild_plan_json == '' || (steps.prebuild_plan.outcome == 'success' && steps.prebuild_execute.outcome == 'success' && steps.prebuild_cleanup.outcome == 'success' && steps.prebuild_residue.outcome == 'success')) }}
+        if: ${{ success() && (inputs.validation_scope != 'gradle' || steps.plan.outputs.private_dependency_used != 'true') && (inputs.dependency_prebuild_plan_json == '' || (steps.prebuild_plan.outcome == 'success' && steps.prebuild_execute.outcome == 'success' && steps.prebuild_cleanup.outcome == 'success' && steps.prebuild_residue.outcome == 'success')) }}
         uses: StreamScapeTV/ci-workflows/actions/validate-android@8eaa37ad0fe3231b202e878b26f66aa23753e38a # issue #373 compile Gradle isolation checkpoint
         with:
           phase: execute
@@ -219,9 +222,11 @@ jobs:
           private_dependency_checkout_repository: ${{ steps.dependency.outputs.repository }}
           private_dependency_checkout_id: ${{ steps.dependency.outputs.dependency_id }}
           private_dependency_expected_subpath: ${{ steps.dependency.outputs.expected_subpath }}
+          maven_package_read_token: ${{ secrets.maven_package_read_token }}
 
       - id: evidence
         name: Render bounded Android validation evidence
+        if: ${{ steps.execute.outcome == 'success' }}
         uses: StreamScapeTV/ci-workflows/actions/render-evidence@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           source_sha: ${{ inputs.admitted_sha }}
@@ -278,11 +283,12 @@ jobs:
         shell: bash
         env:
           PLAN_OUTCOME: ${{ steps.plan.outcome }}
-          WARM_REQUIRED: ${{ inputs.validation_scope == 'protected-full' && 'true' || 'false' }}
+          MAINTENANCE_MODE: ${{ inputs.validation_scope == 'gradle' && steps.plan.outputs.private_dependency_used == 'true' && 'true' || 'false' }}
           WARM_OUTCOME: ${{ steps.dependency_warm.outcome }}
+          WARM_SEED_OUTCOME: ${{ steps.dependency_warm_seed.outcome }}
           WARM_CACHE_MODE: ${{ steps.dependency_warm.outputs.gradle_dependency_cache_mode }}
           WARM_WALL_MS: ${{ steps.dependency_warm.outputs.warm_wall_ms }}
-          PREBUILD_REQUIRED: ${{ inputs.dependency_prebuild_plan_json != '' && 'true' || 'false' }}
+          PREBUILD_REQUIRED: ${{ inputs.validation_scope != 'gradle' && inputs.dependency_prebuild_plan_json != '' && 'true' || 'false' }}
           PREBUILD_PLAN_OUTCOME: ${{ steps.prebuild_plan.outcome }}
           PREBUILD_EXECUTE_OUTCOME: ${{ steps.prebuild_execute.outcome }}
           PREBUILD_CLEANUP_OUTCOME: ${{ steps.prebuild_cleanup.outcome }}
@@ -291,6 +297,7 @@ jobs:
           WORKSPACE_OUTCOME: ${{ steps.workspace.outcome }}
           DEPENDENCY_REQUIRED: ${{ steps.plan.outputs.private_dependency_used }}
           DEPENDENCY_OUTCOME: ${{ steps.dependency.outcome }}
+          EXECUTE_REQUIRED: ${{ inputs.validation_scope == 'gradle' && steps.plan.outputs.private_dependency_used == 'true' && 'false' || 'true' }}
           EXECUTE_OUTCOME: ${{ steps.execute.outcome }}
           ANDROID_TEST_SUMMARY: ${{ steps.execute.outputs.test_summary }}
           ANDROID_CLEANUP_OUTCOME: ${{ steps.android_cleanup.outcome }}
@@ -299,35 +306,26 @@ jobs:
           CLEAN_OUTCOME: ${{ steps.clean.outcome }}
         run: |
           set -Eeuo pipefail
-          if [[ -n "${ANDROID_TEST_SUMMARY}" ]]; then
-            printf 'android-test-summary=%s\n' "${ANDROID_TEST_SUMMARY}"
-          fi
+          if [[ -n "${ANDROID_TEST_SUMMARY}" ]]; then printf 'android-test-summary=%s\n' "${ANDROID_TEST_SUMMARY}"; fi
           warm_ok=true
-          if [[ "${WARM_REQUIRED}" == "true" ]]; then
+          if [[ "${MAINTENANCE_MODE}" == "true" ]]; then
             test "${WARM_OUTCOME}" = "success" || warm_ok=false
-            if [[ -n "${WARM_CACHE_MODE}" && -n "${WARM_WALL_MS}" ]]; then
-              printf 'gradle-dependency-warm cache_mode=%s wall_ms=%s\n' "${WARM_CACHE_MODE}" "${WARM_WALL_MS}"
-            fi
+            test "${WARM_SEED_OUTCOME}" = "success" || warm_ok=false
+            if [[ -n "${WARM_CACHE_MODE}" && -n "${WARM_WALL_MS}" ]]; then printf 'gradle-dependency-warm cache_mode=%s wall_ms=%s\n' "${WARM_CACHE_MODE}" "${WARM_WALL_MS}"; fi
           fi
-          dependency_ok=true
-          if [[ "${DEPENDENCY_REQUIRED}" == "true" ]]; then
-            test "${DEPENDENCY_OUTCOME}" = "success" || dependency_ok=false
-          fi
+          dependency_ok=true; if [[ "${DEPENDENCY_REQUIRED}" == "true" ]]; then test "${DEPENDENCY_OUTCOME}" = "success" || dependency_ok=false; fi
           prebuild_ok=true
           if [[ "${PREBUILD_REQUIRED}" == "true" ]]; then
-            test "${DEPENDENCY_REQUIRED}" = "true" || prebuild_ok=false
-            test "${PREBUILD_PLAN_OUTCOME}" = "success" || prebuild_ok=false
-            test "${PREBUILD_EXECUTE_OUTCOME}" = "success" || prebuild_ok=false
-            test "${PREBUILD_CLEANUP_OUTCOME}" = "success" || prebuild_ok=false
-            test "${PREBUILD_RESIDUE_OUTCOME}" = "success" || prebuild_ok=false
+            test "${DEPENDENCY_REQUIRED}" = "true" && test "${PREBUILD_PLAN_OUTCOME}" = "success" && test "${PREBUILD_EXECUTE_OUTCOME}" = "success" && test "${PREBUILD_CLEANUP_OUTCOME}" = "success" && test "${PREBUILD_RESIDUE_OUTCOME}" = "success" || prebuild_ok=false
           fi
+          execute_ok=true; if [[ "${EXECUTE_REQUIRED}" == "true" ]]; then test "${EXECUTE_OUTCOME}" = "success" || execute_ok=false; fi
           if [[ "${PLAN_OUTCOME}" == "success" &&
                 "${CHECKOUT_OUTCOME}" == "success" &&
                 "${WORKSPACE_OUTCOME}" == "success" &&
                 "${warm_ok}" == "true" &&
                 "${dependency_ok}" == "true" &&
                 "${prebuild_ok}" == "true" &&
-                "${EXECUTE_OUTCOME}" == "success" &&
+                "${execute_ok}" == "true" &&
                 "${ANDROID_CLEANUP_OUTCOME}" == "success" &&
                 "${RESIDUE_OUTCOME}" == "success" &&
                 "${WORKSPACE_CLEANUP_OUTCOME}" == "success" &&

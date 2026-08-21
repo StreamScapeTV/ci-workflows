@@ -583,6 +583,13 @@ def _runtime_environment(
         environment["GRADLE_RO_DEP_CACHE"] = str(gradle_cache)
     if dependency is not None:
         environment["CI_PRIVATE_DEPENDENCY_PATH"] = str(dependency)
+    package_read_token = source.get("CIW_MAVEN_PACKAGE_READ_TOKEN", "")
+    if package_read_token:
+        environment["CIW_MAVEN_PACKAGE_READ_TOKEN"] = _plain(
+            package_read_token,
+            "maven_package_read_token_invalid",
+            maximum=4096,
+        )
     for name, value in environment.items():
         _plain(name, "runtime_environment_invalid", maximum=128)
         _plain(value, "runtime_environment_invalid", maximum=32768)

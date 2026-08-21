@@ -107,6 +107,13 @@
       "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/cleanup-workspace"
     },
     {
+      "uses": "StreamScapeTV/ci-workflows/actions/network",
+      "sha": "cb28865f7990d2f4592ebc9d16e4c9bace56b805",
+      "release": "issue #363 immutable network checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/cb28865f7990d2f4592ebc9d16e4c9bace56b805/actions/network"
+    },
+    {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-android",
       "sha": "8eaa37ad0fe3231b202e878b26f66aa23753e38a",
       "release": "issue #373 compile Gradle isolation checkpoint",
@@ -171,10 +178,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-apple",
-      "sha": "f682622a1a659368cba78c071c72b8b6e8953d88",
-      "release": "issue #372 bounded Apple failure diagnostics checkpoint",
+      "sha": "c82cd9fba134ff736621b8bbd636594c2a6fe923",
+      "release": "issue #311 External Display companion cleanup checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/f682622a1a659368cba78c071c72b8b6e8953d88/actions/validate-apple"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/c82cd9fba134ff736621b8bbd636594c2a6fe923/actions/validate-apple"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-oci",

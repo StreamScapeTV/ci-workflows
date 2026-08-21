@@ -52,12 +52,24 @@ SDK build; shared state does not imply that one platform binary satisfies
 another platform.
 
 A test stage may acquire only the contract-owned iOS or tvOS simulator matching
-its platform. The existing host-user ownership registry, exact runtime/device-
-type checks, stale-row reconciliation, exclusive ownership lock, redacted
-simulator identity, and no-follow cleanup are reused unchanged. Test stages run
-sequentially; a created simulator is reclaimed before a later simulator stage
-can acquire its device. Terminal cleanup rechecks all planned simulator families
-and fails if owned residue remains.
+its platform. The host-user ownership registry, exact runtime/device-type checks,
+stale-row reconciliation, exclusive ownership lock, redacted simulator identity,
+and no-follow cleanup remain authoritative. Test stages run sequentially; a
+created simulator is reclaimed before a later simulator stage can acquire its
+device.
+
+CoreSimulator may materialize an `– External Display` companion beside a CIW-owned
+primary simulator. That companion is cleanup-eligible only when its name is the
+exact persisted CIW primary name plus the exact External Display suffix, it is in
+the same runtime, and it has a bounded valid simulator identity. The persisted
+primary ownership row remains the authority: unrelated display simulators are
+never selected by suffix alone, ambiguous duplicate companions fail closed, and
+the row is removed only after inventory readback proves both the primary and its
+exact companion are absent. This also allows a later preflight to recover a
+companion left behind by hard cancellation.
+
+Terminal cleanup rechecks all planned simulator families and fails if CIW-owned
+primary or exact companion residue remains.
 
 ## Caller-owned plan safety
 
@@ -78,6 +90,23 @@ Caller cleanup paths are likewise not arbitrary deletion authority. They must be
 relative generated leaves such as `build`, `.build`, `.swiftpm`, or `xcuserdata`;
 other cleanup targets fail before expensive execution. No-follow removal and the
 final exact-source clean check remain mandatory.
+
+## Protected Xcode source identity
+
+Protected-full treats the Git index as the source-of-truth boundary for declared
+Xcode project/workspace containers. For a container inside a Git checkout,
+Central hashes every tracked descendant with its repository-relative path before
+and after execution. This keeps tracked project/workspace changes fail-closed
+while excluding ordinary ignored Xcode/SwiftPM generated state such as
+`xcuserdata` and generated workspace package-resolution data from the protected
+source digest.
+
+This is not an ignore-pattern bypass. Central does not learn product-specific
+ignored paths. Non-ignored untracked files remain rejected by the exact-source
+Git cleanliness check, and tracked file mutation or deletion still changes the
+protected digest and fails `source_mutation`. Non-Git synthetic callers retain
+the recursive protected-tree hashing behavior. Resolved-file mutation
+classification remains unchanged.
 
 ## Legacy profiles
 
@@ -118,21 +147,26 @@ imports a keychain, reaches Kubernetes, or deploys a product.
 
 ## Immutable helper reuse
 
-The reusable workflow invokes `actions/validate-apple` through guarded issue
-#372 checkpoint `f682622a1a659368cba78c071c72b8b6e8953d88`.
+The reusable workflow invokes `actions/validate-apple` through the reviewed issue
+#311 checkpoint `c82cd9fba134ff736621b8bbd636594c2a6fe923`.
 The corresponding action-lock release label is
-`issue #372 bounded Apple failure diagnostics checkpoint`.
-That checkpoint preserves the protected-full planner/executor and public plan
-filesystem guard while adding bounded fail-closed command diagnostics before
-terminal cleanup removes runner-local Apple validation state. Exact source
-checkout, workspace preparation, optional private dependency checkout, evidence
-rendering, and registered-state cleanup use the reviewed immutable foundation
-helpers.
+`issue #311 External Display companion cleanup checkpoint`.
+That checkpoint is based on the protected `main` containing completed #421, so it
+preserves the Git-index-aware protected Xcode container snapshot and bounded #372
+failure diagnostics while adding exact CIW-owned CoreSimulator companion cleanup.
+It preserves the existing planner/executor, public plan filesystem guard,
+cleanup/residue, source-exactness, and simulator ownership boundaries.
+
+Exact source checkout, workspace preparation, optional private dependency
+checkout, evidence rendering, and registered-state cleanup continue to use their
+reviewed immutable foundation helpers.
 
 The action archive supplies its Python modules relative to `GITHUB_ACTION_PATH`;
 the reusable workflow does not clone a second central checkout or use a caller-
 selected helper version. The helper identity is recorded in
-`contracts/action-tool-lock.json`.
+`contracts/action-tool-lock.json`. Product callers consume the reusable workflow
+through the active library channel such as `@main`; they do not configure this
+internal helper checkpoint themselves.
 
 ## Private dependency boundary
 
@@ -162,20 +196,30 @@ Actions cache. Structured summaries and evidence stay bounded/redacted.
 Apple-specific state is marker-bound and removed with lexical, `lstat`-based
 no-follow cleanup. The workflow separately removes the exact source checkout and
 then calls the registered workspace cleanup action. Cleanup/residue failure,
-source mutation, or workspace-cleanup failure makes the terminal Apple result
-fail.
+source mutation, simulator companion residue, or workspace-cleanup failure makes
+the terminal Apple result fail.
 
-## Smoke workflow
+## Repository-local smoke workflow
 
-`.github/workflows/apple-validation-smoke.yml` is the repository-owned exact-head
-acceptance caller. It has one general-small planner, one real semantic Apple job,
-and one general-small zero-artifact finalizer. The real Apple job runs the
-product-neutral fixture's iOS, tvOS, and macOS compile stages sequentially from
-one exact checkout/workspace, proving the protected-full capacity shape without
-booting simulators for compile-only work.
+`.github/workflows/apple-validation-smoke.yml` is the public Central repository's
+exact-head contract caller. Because `ci-workflows` is public while organization
+self-hosted runner groups remain private-repository capacity, its planning and
+zero-artifact control jobs use canonical GitHub-hosted `[ubuntu-latest]`.
+They prove exact source, Apple plan/contract behavior, and that the real executor
+selector remains exactly `["macOS","ARM64"]`.
+
+The real Apple job definition remains in the workflow with the centrally resolved
+selector and complete native implementation, but is gated to private repository
+context. It is therefore skipped, rather than left queued on inaccessible private
+Mac capacity, when the public Central repository validates a pull request.
+Pre-merge native execution evidence for an Apple implementation change is supplied
+by a private product consumer calling the Central issue branch by branch name;
+after merge, normal product callers return to the active `@main` library channel.
+Exact resolved commits are evidence, not product configuration.
 
 The smoke workflow watches Apple implementation, guard, contract-fragment,
 public-API, and test authority paths. It directly invokes the local composite
-implementation rather than nesting `reusable-apple.yml`, preserving the maximum
-reusable-workflow depth. The smoke is unsigned simulator/macOS validation only;
-it is not physical-device, signing, release-publication, or store evidence.
+implementation for hosted contract validation rather than nesting
+`reusable-apple.yml`, preserving the maximum reusable-workflow depth. This public
+smoke is not physical-device, signing, release-publication, store, or native Mac
+execution evidence.

@@ -65,7 +65,7 @@
     {
       "file": ".github/workflows/reusable-android.yml",
       "api_name": "validation.android",
-      "api_version": "2.0.0",
+      "api_version": "2.1.0",
       "status": "implemented",
       "trust_class": "read-only-validation",
       "permission_profile": "validation-read",
@@ -83,7 +83,7 @@
         {"name": "private_dependency_subdirectory", "required": false, "default": "."},
         {"name": "private_dependency_id", "required": false, "default": ""}
       ],
-      "secrets": ["private_dependency_token"],
+      "secrets": ["private_dependency_token", "maven_package_read_token"],
       "outputs": ["result", "test_summary", "cleanup_result"],
       "stable_check_name": "CI / Android validation",
       "timeout_minutes": 120,
@@ -94,7 +94,7 @@
     {
       "file": ".github/workflows/reusable-android-live-service.yml",
       "api_name": "validation.android-live-service",
-      "api_version": "1.0.0",
+      "api_version": "1.1.0",
       "status": "implemented",
       "trust_class": "read-only-validation",
       "permission_profile": "validation-read",
@@ -109,7 +109,7 @@
         {"name": "private_dependency_subdirectory", "required": false, "default": "."},
         {"name": "private_dependency_id", "required": false, "default": ""}
       ],
-      "secrets": ["service_username", "service_password", "private_dependency_token"],
+      "secrets": ["service_username", "service_password", "private_dependency_token", "maven_package_read_token"],
       "outputs": ["result", "test_summary", "cleanup_result"],
       "stable_check_name": "CI / Android live-service acceptance",
       "timeout_minutes": 120,
@@ -120,7 +120,7 @@
     {
       "file": ".github/workflows/reusable-android-release.yml",
       "api_name": "validation.android-release",
-      "api_version": "1.0.0",
+      "api_version": "1.1.0",
       "status": "implemented",
       "trust_class": "read-only-validation",
       "permission_profile": "validation-read",
@@ -136,7 +136,7 @@
         {"name": "private_dependency_subdirectory", "required": false, "default": "."},
         {"name": "private_dependency_id", "required": false, "default": ""}
       ],
-      "secrets": ["private_dependency_token"],
+      "secrets": ["private_dependency_token", "maven_package_read_token"],
       "outputs": ["result", "test_summary", "cleanup_result", "artifact_manifest_json"],
       "stable_check_name": "CI / Android unsigned release validation",
       "timeout_minutes": 120,
@@ -265,6 +265,33 @@
       "matrix_max_jobs": 1,
       "repository_owned_hooks": ["policy_script_profile"],
       "implementation_components": ["ci_workflows.gitops.validate", "actions/validate-gitops"]
+    },
+    {
+      "file": ".github/workflows/reusable-network-download.yml",
+      "api_name": "network.download",
+      "api_version": "1.0.0",
+      "status": "implemented",
+      "trust_class": "read-only-validation",
+      "permission_profile": "validation-read",
+      "semantic_runner_profile": "portable",
+      "permitted_events": ["pull_request", "push", "workflow_dispatch", "workflow_call"],
+      "inputs": [
+        {"name": "url", "required": true},
+        {"name": "relative_path", "required": false, "default": "dependency.bin"},
+        {"name": "expected_sha256", "required": false, "default": ""},
+        {"name": "expected_size", "required": false, "default": ""},
+        {"name": "expected_content_type", "required": false, "default": ""},
+        {"name": "maximum_bytes", "required": false, "default": 536870912},
+        {"name": "archive_format", "required": false, "default": "none"},
+        {"name": "relative_destination", "required": false, "default": "extracted"}
+      ],
+      "secrets": [],
+      "outputs": ["result", "download_result_json", "extraction_result_json", "cleanup_result"],
+      "stable_check_name": "CI / Network download",
+      "timeout_minutes": 15,
+      "matrix_max_jobs": 1,
+      "repository_owned_hooks": [],
+      "implementation_components": ["ci_workflows.network_primitives.download_file", "ci_workflows.network_primitives.extract_archive", "ci_workflows.ciw_network.execute_network", "actions/network"]
     },
     {
       "file": ".github/workflows/reusable-script.yml",
