@@ -64,10 +64,10 @@ on:
         description: Current exact pull-request head SHA when applicable
         value: ${{ jobs.admit.outputs.pr_head_sha }}
       pr_base_branch:
-        description: Current pull-request base branch
+        description: Current pull-request base branch when applicable
         value: ${{ jobs.admit.outputs.pr_base_branch }}
       pr_base_sha:
-        description: Current exact pull-request base SHA
+        description: Current exact pull-request base SHA when applicable
         value: ${{ jobs.admit.outputs.pr_base_sha }}
       pr_merge_sha:
         description: Current exact pull-request merge SHA when available
