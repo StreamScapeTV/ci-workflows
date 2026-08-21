@@ -3,6 +3,11 @@ name: Reusable Gradle Maven publication
 on:
   workflow_call:
     inputs:
+      execution_backend:
+        description: organization or github-hosted
+        required: false
+        default: organization
+        type: string
       admitted_sha:
         description: Exact lowercase caller source SHA
         required: true
@@ -49,8 +54,33 @@ permissions:
   contents: read
 
 jobs:
+  reject_hosted:
+    name: Reject unsupported hosted Maven publication
+    if: ${{ inputs.execution_backend == 'github-hosted' }}
+    runs-on: [ubuntu-latest]
+    timeout-minutes: 5
+    steps:
+      - name: Reject hosted private-registry publication authority
+        shell: bash
+        run: |
+          echo '::error::release.gradle-maven does not support github-hosted execution because private Maven publication authority is organization-only.' >&2
+          exit 2
+
+  reject_invalid:
+    name: Reject invalid Maven execution backend
+    if: ${{ inputs.execution_backend != 'organization' && inputs.execution_backend != 'github-hosted' }}
+    runs-on: [linux, amd64, general, tiny]
+    timeout-minutes: 5
+    steps:
+      - name: Reject invalid bounded execution backend
+        shell: bash
+        run: |
+          echo '::error::execution_backend must be organization or github-hosted.' >&2
+          exit 2
+
   publish:
     name: Release / Gradle Maven publication
+    if: ${{ inputs.execution_backend == 'organization' }}
     runs-on: [linux, amd64, mobile]
     timeout-minutes: 120
     outputs:
