@@ -138,6 +138,31 @@ class RunnerContractTests(unittest.TestCase):
         )
         self.assertNotIn("portable", resolved.runs_on)
 
+    def test_native_validation_is_fixed_to_general_small_toolchain(self) -> None:
+        profile = self.profiles["general-small"]
+        self.assertIn("validation.native", profile["allowed_workflow_apis"])
+        tools = {tool["name"]: tool["version"] for tool in profile["tools"]}
+        self.assertEqual(tools["cmake"], "4.4.2")
+        self.assertEqual(tools["gcc"], "14.2.0")
+        self.assertEqual(tools["make"], "4.4.1")
+        self.assertFalse(any(profile["privilege"].values()))
+        self.assertEqual(profile["trust"]["credential_baseline"], "tokenless")
+        binding = runners.workflow_binding_index(self.contract)["validation.native"]
+        self.assertEqual(binding, {"api": "validation.native", "profiles": ["general-small"], "strategy": "fixed"})
+        for source_trust in ("untrusted-fork", "trusted-pr", "trusted-exact"):
+            with self.subTest(source_trust=source_trust):
+                resolved = runners.resolve_runner_profile(
+                    self.contract,
+                    workflow_api="validation.native",
+                    source_trust=source_trust,
+                )
+                self.assertEqual(resolved.profile, "general-small")
+                self.assertEqual(resolved.execution_profile, "general-small")
+                self.assertEqual(
+                    resolved.runs_on,
+                    ("linux", "amd64", "general", "small"),
+                )
+
     def test_general_selectors_are_exactly_sized(self) -> None:
         expected = {
             "general-tiny": ("linux", "amd64", "general", "tiny"),
