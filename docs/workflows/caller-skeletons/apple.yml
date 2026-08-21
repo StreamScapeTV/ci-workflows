@@ -1,0 +1,44 @@
+# COPY/ADAPT EXAMPLE.
+# TODO(consumer): choose product-owned paths OR paths-ignore; do not keep both.
+name: TODO Apple validation
+
+"on":
+  pull_request:
+    branches:
+      - TODO_PROTECTED_BRANCH
+    paths:
+      - TODO_PRODUCT_PATH/**
+      - .github/workflows/TODO_CALLER_WORKFLOW.yml
+      - TODO_PRODUCT_CONFIGURATION_PATH
+  push:
+    branches:
+      - TODO_PROTECTED_BRANCH
+    paths:
+      - TODO_PRODUCT_PATH/**
+      - .github/workflows/TODO_CALLER_WORKFLOW.yml
+      - TODO_PRODUCT_CONFIGURATION_PATH
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source:
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-resolve-source.yml@main
+    with:
+      source_mode: auto
+      expected_branch: TODO_PROTECTED_BRANCH
+
+  validate:
+    needs: source
+    permissions:
+      contents: read
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-apple.yml@main
+    with:
+      admitted_sha: ${{ needs.source.outputs.source_sha }}
+      validation_scope: protected-full
+      validation_plan_json: "TODO_APPLE_VALIDATION_PLAN_JSON"
+      working_directory: TODO_APPLE_WORKING_DIRECTORY

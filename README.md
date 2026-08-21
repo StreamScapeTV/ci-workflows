@@ -36,33 +36,60 @@ Ordinary validation does not require a provenance ledger, canary/rollback framew
 
 ## Consumer channel
 
-During the current active-development/bootstrap phase, **all consumer repositories should reference shared `ci-workflows` workflows at `@main`**, including trusted publication and release callers. This is deliberate: a fix merged into central `main` becomes available to every consumer without a separate mass-repin change across the organization.
+During active Central development, **consumer repositories call shared `ci-workflows` workflows at `@main`**. This is ordinary shared-library consumption: there is no per-product Central bootstrap, registration, product-ID enrollment, initialization pipeline, request-ID exchange, synchronization handshake, or consumer-maintained Central SHA required before a repository can use a public reusable workflow.
 
-Using `@main` selects the current reviewed central workflow implementation; it does **not** weaken the exact product/source authority enforced by that workflow. Trusted publication still requires the exact admitted caller source, exact release tag/source tuple, bounded checked-in product identity, explicit named credentials, independent remote read-back, cleanup, and the existing no-`latest`/no-deployment boundaries.
+A fix merged into Central `main` is therefore available to consumers without a mass repin. Using `@main` selects the current reviewed Central workflow implementation; it does **not** weaken the exact product/source authority enforced by the called workflow.
 
-Full 40-character `ci-workflows` SHAs and published stable tags remain supported reference forms, but they are not the required/default consumer channel during this rapid-development phase. A later explicit stable-release/cutover decision may switch consumers to an immutable channel; until then, do not mass-repin consumers away from `@main` merely because a new central fix lands.
+Full 40-character `ci-workflows` SHAs and published compatibility tags remain supported GitHub reference forms, but full SHAs are optional for ordinary consumers unless a later reviewed policy explicitly requires them. A future human-readable compatibility tag such as `@v1` can replace `@main` without redesigning caller workflows.
 
-Existing genuine tag-push callers retain their product trigger and bounded inputs:
+A thin validation caller resolves the exact product source and then invokes the technology API directly:
 
 ```yaml
-name: Publish tagged Backend image and chart
+jobs:
+  source:
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-resolve-source.yml@main
+    with:
+      source_mode: auto
+      expected_branch: develop
+
+  validate:
+    needs: source
+    permissions:
+      contents: read
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-node.yml@main
+    with:
+      admitted_sha: ${{ needs.source.outputs.source_sha }}
+      validation_profile: locked-node
+      version_file: .node-version
+      working_directory: .
+      install_profile: npm-ci
+      command_profile: project-quality
+```
+
+Consumer repositories own the pull-request/push triggers, path filters, stable ref-scoped concurrency, project paths and bounded product configuration around that call. Copy/adapt examples live under [`docs/workflows/caller-skeletons/`](docs/workflows/caller-skeletons/).
+
+The normal image + Helm release caller is the product tag-push path. The product tag is release-version authority; no consumer-maintained Central SHA or existing-tag recovery ceremony is part of ordinary release adoption:
+
+```yaml
+name: Publish tagged image and chart
 
 on:
   push:
     tags:
-      - "*"
-
-permissions:
-  actions: read
-  contents: read
+      - "*.*.*"
 
 jobs:
   release:
-    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-tag-image-chart.yml@main
+    permissions:
+      contents: read
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-native-image-chart.yml@main
     with:
-      image_name: iptv-backend
-      chart_name: iptv-backend
-      chart_path: charts/iptv-backend
+      image_name: my-app
+      chart_name: my-app
+      chart_path: charts/my-app
       dockerfile_path: Dockerfile
       build_context: .
     secrets:
@@ -70,59 +97,39 @@ jobs:
       registry_token: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
 ```
 
-When the exact tag already exists and no synthetic tag-push event can be relied on, a reviewed same-repository caller may expose a bounded manual tuple and select `existing-tag` explicitly:
+The older exact-tag compatibility workflow retains separately reviewed recovery capabilities for exceptional cases. Those are not the normal consumer skeleton and should not be copied into ordinary tag-push callers.
+
+After an approved stable `ci-workflows` compatibility tag exists and a later policy selects that channel, a consumer can substitute it directly, for example:
 
 ```yaml
-name: Publish an existing exact Backend tag
-
-on:
-  workflow_dispatch:
-    inputs:
-      release_version:
-        description: Existing canonical SemVer tag, for example 1.0.4
-        required: true
-        type: string
-      release_source_sha:
-        description: Exact lowercase commit currently named by that tag
-        required: true
-        type: string
-
-permissions:
-  actions: read
-  contents: read
-
-jobs:
-  release:
-    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-tag-image-chart.yml@main
-    with:
-      release_mode: existing-tag
-      release_version: ${{ inputs.release_version }}
-      release_source_sha: ${{ inputs.release_source_sha }}
-      image_name: iptv-backend
-      chart_name: iptv-backend
-      chart_path: charts/iptv-backend
-      dockerfile_path: Dockerfile
-      build_context: .
-    secrets:
-      registry_username: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
-      registry_token: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
-```
-
-The explicit caller must execute from the current default branch of the same non-fork repository under a write-authorized actor. The central workflow resolves `refs/tags/<release_version>` through GitHub’s read-only API, supports lightweight and bounded annotated tags, requires the final commit to equal `release_source_sha`, checks out only that detached commit, and revalidates the tag immediately before publication. A branch or caller ref is never accepted as release authority.
-
-One incident-specific recovery exception is available through the optional `image_recovery_authority` string. It is not a manual-dispatch field or a caller-selected set of hashes: the trusted Backend caller hard-codes the complete reviewed JSON authority from central issue #92. Central admission requires its exact schema, repository, version, source, historical publisher run and attempt, historical caller and central revisions, remote image digest, and exactly the `linux/amd64` and `linux/arm64` config digests. It then verifies the immutable historical run, jobs, steps, logs, zero artifacts, and current default-branch caller before publication credentials are used. Empty remains the default for every ordinary release.
-
-After an approved stable `ci-workflows` release tag actually exists, a later explicit cutover may authorize consumers to follow that stable channel instead of `@main`. The following is illustrative only until that decision is made:
-
-```yaml
-uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-tag-image-chart.yml@v1.0.0
+uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-node.yml@v1
 ```
 
 `ci-workflows` releases are Git tags only. This repository does not need a GitHub Release object, ZIP attachment, image, chart, or other release artifact.
 
 ## Exact-tag image and Helm publication
 
-`.github/workflows/reusable-tag-image-chart.yml` is a `workflow_call`-only compatibility/bootstrap product release primitive. Its default `tag-push` mode preserves genuine tag-push behavior. Its explicit `existing-tag` mode accepts only the complete exact version/source tuple from the trusted caller class described above. Both ordinary modes produce the same immutable version and source outputs and enter identical daemonless image and chart publication stages. The fixed recovery authority is a narrower `existing-tag` sub-mode: it performs authenticated read-only verification of the already-published image before and after chart handling and cannot build, copy, push, delete, or retag an image.
+`.github/workflows/reusable-tag-image-chart.yml` is a `workflow_call`-only legacy compatibility release primitive. Its default `tag-push` mode preserves genuine tag-push behavior. Its explicit `existing-tag` mode accepts only the complete exact version/source tuple from its reviewed trusted caller class. The fixed recovery authority is a narrower exceptional mode; none of these compatibility paths defines the normal consumer adoption skeleton above.
+
+For reference only, a separately reviewed legacy compatibility caller can still select an already-existing exact tag through that older surface. This is **not** the normal release skeleton and is not an adoption/bootstrap requirement:
+
+```yaml
+jobs:
+  compatibility_release:
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-tag-image-chart.yml@<compatibility-ref>
+    with:
+      release_mode: existing-tag
+      release_version: TODO_EXISTING_TAG
+      release_source_sha: TODO_EXACT_TAGGED_SHA
+      image_name: TODO_IMAGE_NAME
+      chart_name: TODO_CHART_NAME
+      chart_path: TODO_CHART_PATH
+      dockerfile_path: TODO_DOCKERFILE_PATH
+      build_context: TODO_BUILD_CONTEXT
+    secrets:
+      registry_username: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+      registry_token: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
+```
 
 The workflow uses the exact validated version for a multi-platform OCI image and Helm OCI chart, independently reads both products back, retains zero Actions artifacts, and performs no deployment. Authenticated image and chart tag listings fail closed. A present chart is pulled and compared with the exact local package; confirmed absence permits one push followed by tag, package checksum, metadata, dependency, and OCI layer verification. It does not publish `latest`, create a GitHub Release, accept a branch as release identity, update production values, restart workloads, or access a cluster. The caller passes only bounded product inputs and explicit named registry secrets; broad secret inheritance is prohibited.
 

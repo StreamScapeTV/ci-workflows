@@ -1,0 +1,45 @@
+# COPY/ADAPT EXAMPLE.
+# TODO(consumer): choose product-owned paths OR paths-ignore; do not keep both.
+name: TODO Python validation
+
+"on":
+  pull_request:
+    branches:
+      - TODO_PROTECTED_BRANCH
+    paths:
+      - TODO_PRODUCT_PATH/**
+      - .github/workflows/TODO_CALLER_WORKFLOW.yml
+      - TODO_PRODUCT_CONFIGURATION_PATH
+  push:
+    branches:
+      - TODO_PROTECTED_BRANCH
+    paths:
+      - TODO_PRODUCT_PATH/**
+      - .github/workflows/TODO_CALLER_WORKFLOW.yml
+      - TODO_PRODUCT_CONFIGURATION_PATH
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source:
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-resolve-source.yml@main
+    with:
+      source_mode: auto
+      expected_branch: TODO_PROTECTED_BRANCH
+
+  validate:
+    needs: source
+    permissions:
+      contents: read
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-python.yml@main
+    with:
+      admitted_sha: ${{ needs.source.outputs.source_sha }}
+      validation_profile: TODO_PYTHON_VALIDATION_PROFILE
+      version_file: TODO_PYTHON_VERSION_FILE
+      working_directory: TODO_PYTHON_WORKING_DIRECTORY
+      command_profile: TODO_PYTHON_COMMAND_PROFILE

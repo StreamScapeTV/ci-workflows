@@ -9,18 +9,20 @@ README = ROOT / "README.md"
 
 
 class ReadmeTrustedPublicationTests(unittest.TestCase):
-    def test_trusted_workflow_examples_follow_active_main_channel(self) -> None:
+    def test_consumer_examples_follow_active_main_library_channel(self) -> None:
         source = README.read_text(encoding="utf-8")
         main_refs = re.findall(
             r"StreamScapeTV/ci-workflows/\.github/workflows/[^\s`]+@main\b",
             source,
         )
-        self.assertGreaterEqual(len(main_refs), 2)
+        self.assertGreaterEqual(len(main_refs), 3)
         self.assertNotIn("@<APPROVED_CI_WORKFLOWS_SHA>", source)
         self.assertIn(
-            "all consumer repositories should reference shared `ci-workflows` workflows at `@main`",
+            "consumer repositories call shared `ci-workflows` workflows at `@main`",
             source,
         )
+        self.assertIn("ordinary shared-library consumption", source)
+        self.assertNotIn("active-development/bootstrap phase", source)
 
     def test_public_api_guidance_matches_current_registry_model(self) -> None:
         source = README.read_text(encoding="utf-8")
@@ -29,21 +31,48 @@ class ReadmeTrustedPublicationTests(unittest.TestCase):
         self.assertNotIn("sole bootstrap public API exception", source)
         self.assertNotIn("before additional public workflows are published", source)
 
-    def test_immutable_references_are_supported_but_not_currently_required(self) -> None:
+    def test_full_sha_is_optional_and_future_v1_is_a_drop_in_channel(self) -> None:
         source = README.read_text(encoding="utf-8")
-        self.assertNotIn(
-            "Trusted publication and release callers must pin an approved immutable 40-character",
-            source,
-        )
         self.assertIn(
-            "not the required/default consumer channel during this rapid-development phase",
+            "full SHAs are optional for ordinary consumers unless a later reviewed policy explicitly requires them",
             source,
         )
-        self.assertIn("illustrative only until that decision is made", source)
+        self.assertIn("future human-readable compatibility tag such as `@v1`", source)
         self.assertIn(
-            "uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-tag-image-chart.yml@v1.0.0",
+            "uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-node.yml@v1",
             source,
         )
+
+    def test_normal_release_example_is_tag_push_without_recovery_ceremony(self) -> None:
+        source = README.read_text(encoding="utf-8")
+        normal_release = source.split(
+            "The normal image + Helm release caller is the product tag-push path.", 1
+        )[1].split(
+            "The older exact-tag compatibility workflow retains separately reviewed recovery capabilities",
+            1,
+        )[0]
+        self.assertIn('tags:\n      - "*.*.*"', normal_release)
+        self.assertIn(
+            "uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-native-image-chart.yml@main",
+            normal_release,
+        )
+        self.assertIn("The product tag is release-version authority", normal_release)
+        for forbidden in (
+            "workflow_dispatch:",
+            "release_mode: existing-tag",
+            "release_source_sha:",
+            "uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-tag-image-chart.yml@",
+        ):
+            self.assertNotIn(forbidden, normal_release)
+
+    def test_legacy_existing_tag_reference_is_explicitly_not_normal_adoption(self) -> None:
+        source = README.read_text(encoding="utf-8")
+        self.assertIn(
+            "uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-tag-image-chart.yml@<compatibility-ref>",
+            source,
+        )
+        self.assertIn("release_mode: existing-tag", source)
+        self.assertIn("This is **not** the normal release skeleton", source)
 
 
 if __name__ == "__main__":

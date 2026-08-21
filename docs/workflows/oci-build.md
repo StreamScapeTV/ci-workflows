@@ -65,12 +65,13 @@ zero-artifact contract are unchanged by this helper-distribution mechanism.
 
 ## Product examples
 
-During active development/bootstrap, repository consumers call public reusable
-`ci-workflows` workflows at `@main`. Full-SHA and stable-tag references remain
-supported, but they are not the current default consumer channel; a later
-explicit stable-release/cutover decision may make an immutable channel preferred
-or required. This does not weaken internal/private helper pins, which remain
-exact immutable SHAs.
+During active Central development, repository consumers call public reusable
+`ci-workflows` workflows at `@main` as ordinary shared-library references. No
+per-product bootstrap or registration step, consumer-maintained Central SHA, or
+synchronization handshake is required. Human-readable compatibility tags and
+full-SHA references remain supported, and a later reviewed policy may prefer a
+stable tag such as `@v1`. This does not weaken internal/private helper pins,
+which remain exact immutable SHAs.
 
 ```yaml
 jobs:

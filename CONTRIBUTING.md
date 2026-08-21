@@ -24,7 +24,7 @@ Only a reviewed multi-job orchestration may use one internal reusable-workflow l
 
 ## Public compatibility
 
-During bootstrap, consumers may reference `@main`. Tags and full commit SHAs are also supported. Public changes still require machine-readable compatibility updates so a later immutable-tag migration is reviewable.
+During active Central development, consumers reference public reusable workflows at `@main` as ordinary shared-library calls; no per-product bootstrap or registration step is required. Human-readable compatibility tags and full commit SHAs are also supported. Full-SHA references are optional for ordinary consumers unless later reviewed policy requires them, and a future stable tag such as `@v1` can replace `@main` without redesigning callers. Public changes still require machine-readable compatibility updates so any later channel migration is reviewable.
 
 A change is breaking when it removes or renames an input, output, secret, check name, trust mode, supported product, or permission; changes a default incompatibly; expands required permissions or secrets; changes runner trust; or changes behavior that callers rely on. Breaking changes require an explicit migration plan.
 
@@ -38,7 +38,7 @@ Merge only the unchanged validated head with expected-head protection and the re
 
 ## Releases
 
-The repository release is a Git tag only. No GitHub Release object or attached artifact is required. A tag identifies an exact compatible shared-workflow commit and can be referenced as `@<tag>`; `@main` remains the initial rapid-update channel until the owner changes the policy.
+The repository release is a Git tag only. No GitHub Release object or attached artifact is required. A tag identifies an exact compatible shared-workflow commit and can be referenced as `@<tag>`; `@main` remains the normal active-development channel until the owner changes the policy.
 
 Do not delete a tag that is still referenced by a supported consumer. Record rollback tags and compatibility notes in source-controlled manifests when release management is implemented.
 
