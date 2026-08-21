@@ -38,13 +38,21 @@ class ExecutionBackendTests(unittest.TestCase):
                 self.assertEqual(resolved.runs_on, ("ubuntu-latest",))
                 self.assertEqual(resolved.as_dict()["runs_on_json"], '["ubuntu-latest"]')
 
-    def test_hosted_rejects_python_buildah_profiles_instead_of_switching_engines(self) -> None:
-        for profile in ("buildah-medium", "buildah-high"):
+    def test_hosted_rejects_unproven_specialized_profiles_instead_of_falling_back(self) -> None:
+        selectors = {
+            "mobile": ("linux", "amd64", "mobile"),
+            "apple": ("macOS", "ARM64"),
+            "service-small": ("linux", "amd64", "service", "small"),
+            "buildah-medium": ("linux", "amd64", "buildah", "medium"),
+            "buildah-high": ("linux", "amd64", "buildah", "high"),
+            "flux-control": ("linux", "amd64", "flux-control"),
+        }
+        for profile, selector in selectors.items():
             with self.subTest(profile=profile), self.assertRaises(ExecutionBackendError) as raised:
                 resolve_execution_backend(
                     execution_backend="github-hosted",
                     execution_profile=profile,
-                    organization_runs_on=("linux", "amd64", "buildah", "medium"),
+                    organization_runs_on=selector,
                 )
             self.assertEqual(raised.exception.code, "unsupported_execution_backend_profile")
 
@@ -62,19 +70,34 @@ class ExecutionBackendTests(unittest.TestCase):
                 organization_runs_on=("self-hosted",),
             )
 
-    def test_only_selected_reusable_workflows_expose_optional_backend(self) -> None:
-        for filename in ("reusable-resolve-source.yml", "reusable-node.yml", "reusable-python.yml"):
-            workflow = yaml.load(
-                (ROOT / ".github/workflows" / filename).read_text(encoding="utf-8"),
-                Loader=ActionsLoader,
-            )
-            backend = workflow["on"]["workflow_call"]["inputs"]["execution_backend"]
-            self.assertFalse(backend["required"])
-            self.assertEqual(backend["default"], "organization")
-            self.assertEqual(backend["type"], "string")
+    def test_portable_reusable_workflows_expose_optional_backend(self) -> None:
+        for filename in (
+            "reusable-resolve-source.yml",
+            "reusable-node.yml",
+            "reusable-python.yml",
+            "reusable-gitops-validation.yml",
+            "reusable-script.yml",
+            "reusable-helm-validate.yml",
+        ):
+            with self.subTest(filename=filename):
+                workflow = yaml.load(
+                    (ROOT / ".github/workflows" / filename).read_text(encoding="utf-8"),
+                    Loader=ActionsLoader,
+                )
+                backend = workflow["on"]["workflow_call"]["inputs"]["execution_backend"]
+                self.assertFalse(backend["required"])
+                self.assertEqual(backend["default"], "organization")
+                self.assertEqual(backend["type"], "string")
 
     def test_portable_backend_planners_never_require_organization_capacity(self) -> None:
-        for filename in ("reusable-resolve-source.yml", "reusable-node.yml", "reusable-python.yml"):
+        for filename in (
+            "reusable-resolve-source.yml",
+            "reusable-node.yml",
+            "reusable-python.yml",
+            "reusable-gitops-validation.yml",
+            "reusable-script.yml",
+            "reusable-helm-validate.yml",
+        ):
             with self.subTest(filename=filename):
                 workflow = yaml.load(
                     (ROOT / ".github/workflows" / filename).read_text(encoding="utf-8"),
@@ -88,12 +111,23 @@ class ExecutionBackendTests(unittest.TestCase):
             Loader=ActionsLoader,
         )
         self.assertEqual(source["jobs"]["admit"]["runs-on"], "${{ fromJSON(needs.plan.outputs.runs_on_json) }}")
-        for filename in ("reusable-node.yml", "reusable-python.yml"):
-            workflow = yaml.load(
-                (ROOT / ".github/workflows" / filename).read_text(encoding="utf-8"),
-                Loader=ActionsLoader,
-            )
-            self.assertEqual(workflow["jobs"]["validate"]["runs-on"], "${{ fromJSON(needs.plan.outputs.runs_on_json) }}")
+        cases = {
+            "reusable-node.yml": "validate",
+            "reusable-python.yml": "validate",
+            "reusable-gitops-validation.yml": "validate",
+            "reusable-script.yml": "validate",
+            "reusable-helm-validate.yml": "validate",
+        }
+        for filename, job in cases.items():
+            with self.subTest(filename=filename):
+                workflow = yaml.load(
+                    (ROOT / ".github/workflows" / filename).read_text(encoding="utf-8"),
+                    Loader=ActionsLoader,
+                )
+                self.assertEqual(
+                    workflow["jobs"][job]["runs-on"],
+                    "${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
+                )
 
 
 if __name__ == "__main__":
