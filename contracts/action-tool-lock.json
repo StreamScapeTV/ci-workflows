@@ -109,7 +109,7 @@
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-android",
       "sha": "b8b6f7ad2e8ea8b37d12a73df19ed02ff497f971",
-      "release": "issue #443 Maven package child-process checkpoint",
+      "release": "issue #443 package credential process checkpoint",
       "runtime": "composite",
       "source": "https://github.com/StreamScapeTV/ci-workflows/tree/b8b6f7ad2e8ea8b37d12a73df19ed02ff497f971/actions/validate-android"
     },
@@ -130,14 +130,14 @@
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-android-live-service",
       "sha": "b8b6f7ad2e8ea8b37d12a73df19ed02ff497f971",
-      "release": "issue #443 Maven package child-process checkpoint",
+      "release": "issue #443 package credential process checkpoint",
       "runtime": "composite",
       "source": "https://github.com/StreamScapeTV/ci-workflows/tree/b8b6f7ad2e8ea8b37d12a73df19ed02ff497f971/actions/validate-android-live-service"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-android-release",
       "sha": "b8b6f7ad2e8ea8b37d12a73df19ed02ff497f971",
-      "release": "issue #443 Maven package child-process checkpoint",
+      "release": "issue #443 package credential process checkpoint",
       "runtime": "composite",
       "source": "https://github.com/StreamScapeTV/ci-workflows/tree/b8b6f7ad2e8ea8b37d12a73df19ed02ff497f971/actions/validate-android-release"
     },
