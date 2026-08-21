@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REUSABLE = ROOT / ".github/workflows/reusable-android.yml"
 SMOKE = ROOT / ".github/workflows/android-validation-smoke.yml"
 ACTION = ROOT / "actions/validate-android/action.yml"
-ANDROID_SHA = "b8b6f7ad2e8ea8b37d12a73df19ed02ff497f971"
+ANDROID_SHA = "68a6450d6576e0744969cd170cc581856a44312a"
 WARM_SHA = "13de46c51efcf65df798dfec82a620c484350dfa"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 GRADLE_SYNC_SHA = "fa67b6a1580ff2eb7386a9e58de09896b9990696"
@@ -398,6 +398,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             "arbitrary_command",
             "container_engine",
             "runner_labels",
+            "maven_package_read_token",
         ):
             self.assertNotIn(forbidden, self.action["inputs"])
 

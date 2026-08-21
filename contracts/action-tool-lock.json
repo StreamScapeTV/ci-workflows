@@ -108,10 +108,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-android",
-      "sha": "b8b6f7ad2e8ea8b37d12a73df19ed02ff497f971",
-      "release": "issue #443 package credential process checkpoint",
+      "sha": "68a6450d6576e0744969cd170cc581856a44312a",
+      "release": "issue #443 inherited package credential checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/b8b6f7ad2e8ea8b37d12a73df19ed02ff497f971/actions/validate-android"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/68a6450d6576e0744969cd170cc581856a44312a/actions/validate-android"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies",
@@ -129,17 +129,17 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-android-live-service",
-      "sha": "b8b6f7ad2e8ea8b37d12a73df19ed02ff497f971",
-      "release": "issue #443 package credential process checkpoint",
+      "sha": "68a6450d6576e0744969cd170cc581856a44312a",
+      "release": "issue #443 inherited package credential checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/b8b6f7ad2e8ea8b37d12a73df19ed02ff497f971/actions/validate-android-live-service"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/68a6450d6576e0744969cd170cc581856a44312a/actions/validate-android-live-service"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-android-release",
-      "sha": "b8b6f7ad2e8ea8b37d12a73df19ed02ff497f971",
-      "release": "issue #443 package credential process checkpoint",
+      "sha": "68a6450d6576e0744969cd170cc581856a44312a",
+      "release": "issue #443 inherited package credential checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/b8b6f7ad2e8ea8b37d12a73df19ed02ff497f971/actions/validate-android-release"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/68a6450d6576e0744969cd170cc581856a44312a/actions/validate-android-release"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/checkout-private-dependency",
