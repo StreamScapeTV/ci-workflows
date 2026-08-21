@@ -276,48 +276,7 @@ jobs:
           registry_logout("ghcr.io", environment=env, tool="helm", cwd=Path("source"))
           registry_logout("ghcr.io", environment=env, tool="buildah", cwd=Path("source"))
           PY
-          state="${RUNNER_TEMP}/public-native-image-chart"
-          anon_authfile="${state}/anonymous-auth.json"
-          printf '{}\n' > "${anon_authfile}"
-          chmod 0600 "${anon_authfile}"
-          image_raw="${state}/image-manifest.json"
-          image_inspect="${state}/image-inspect.json"
-          chart_raw="${state}/chart-manifest.json"
-          chart_reference="${REGISTRY}/${CHART_NAMESPACE}/${CHART_NAME}:${VERSION}"
-          skopeo inspect --authfile "${anon_authfile}" --raw "docker://${IMAGE_REFERENCE}" > "${image_raw}"
-          skopeo inspect --authfile "${anon_authfile}" "docker://${IMAGE_REFERENCE}" > "${image_inspect}"
-          skopeo inspect --authfile "${anon_authfile}" --raw "docker://${chart_reference}" > "${chart_raw}"
-          image_digest="sha256:$(sha256sum "${image_raw}" | awk '{print $1}')"
-          chart_digest="sha256:$(sha256sum "${chart_raw}" | awk '{print $1}')"
-          latest_digest=""
-          latest_inspect=""
-          if [[ "${PUBLISH_LATEST_IMAGE}" == "true" ]]; then
-            latest_raw="${state}/latest-image-manifest.json"
-            latest_inspect="${state}/latest-image-inspect.json"
-            skopeo inspect --authfile "${anon_authfile}" --raw "docker://${LATEST_IMAGE_REFERENCE}" > "${latest_raw}"
-            skopeo inspect --authfile "${anon_authfile}" "docker://${LATEST_IMAGE_REFERENCE}" > "${latest_inspect}"
-            latest_digest="sha256:$(sha256sum "${latest_raw}" | awk '{print $1}')"
-          fi
-          IMAGE_INSPECT="${image_inspect}" IMAGE_DIGEST="${image_digest}" LATEST_INSPECT="${latest_inspect}" LATEST_DIGEST="${latest_digest}" python3 - <<'PY'
-          import json, os
-          from pathlib import Path
-          data = json.loads(Path(os.environ["IMAGE_INSPECT"]).read_text(encoding="utf-8"))
-          if data.get("Os") != "linux" or data.get("Architecture") != "amd64" or data.get("Digest") != os.environ["IMAGE_DIGEST"]:
-              raise SystemExit("anonymous image read-back identity mismatch")
-          latest_inspect = os.environ["LATEST_INSPECT"]
-          if latest_inspect:
-              latest = json.loads(Path(latest_inspect).read_text(encoding="utf-8"))
-              if latest.get("Os") != "linux" or latest.get("Architecture") != "amd64":
-                  raise SystemExit("anonymous latest image read-back platform mismatch")
-              if latest.get("Digest") != os.environ["LATEST_DIGEST"]:
-                  raise SystemExit("anonymous latest image read-back identity mismatch")
-              if os.environ["LATEST_DIGEST"] != os.environ["IMAGE_DIGEST"]:
-                  raise SystemExit("latest image alias does not match immutable release image")
-          PY
-          echo "image_reference=${IMAGE_REFERENCE}" >> "${GITHUB_OUTPUT}"
-          echo "image_digest=${image_digest}" >> "${GITHUB_OUTPUT}"
-          echo "chart_reference=oci://${chart_reference}" >> "${GITHUB_OUTPUT}"
-          echo "chart_digest=${chart_digest}" >> "${GITHUB_OUTPUT}"
+          python3 .ciw/scripts/ci/public_native_image_chart_readback.py
 
       - name: Clean public publication credentials and build state
         if: always()
