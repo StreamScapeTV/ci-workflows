@@ -91,7 +91,7 @@ class AppleWorkflowContractTests(unittest.TestCase):
     def test_semantic_runner_selection_uses_one_heavy_apple_executor(self) -> None:
         direct_general_selector = "runs-on: [linux, amd64, general, small]"
         hosted_control_selector = "runs-on: [ubuntu-latest]"
-        private_executor_gate = "if: ${{ github.event.repository.private == true }}"
+        private_executor_gate = "if: ${{ github.event.repository.private && needs.plan.result == 'success' }}"
         self.assertIn(direct_general_selector, self.workflow)
         self.assertNotIn(direct_general_selector, self.smoke)
         self.assertEqual(self.smoke.count(hosted_control_selector), 2)
