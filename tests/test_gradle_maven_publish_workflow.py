@@ -12,6 +12,7 @@ from ci_workflows.validation_model import ActionsLoader
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/reusable-gradle-maven-publish.yml"
+PUBLIC_CONTRACT = ROOT / "contracts/public-workflows/gradle-packages.json"
 ACTION = ROOT / "actions/publish-gradle-maven/action.yml"
 ACTION_LOCK = ROOT / "contracts/action-tool-lock.json"
 CIW = ROOT / "scripts" / "ci" / "ciw.py"
@@ -25,6 +26,7 @@ class GradleMavenPublishWorkflowTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.source = WORKFLOW.read_text(encoding="utf-8")
         cls.workflow = yaml.load(cls.source, Loader=ActionsLoader)
+        cls.public = json.loads(PUBLIC_CONTRACT.read_text(encoding="utf-8"))["workflows"][0]
         cls.action_source = ACTION.read_text(encoding="utf-8")
         cls.action = yaml.safe_load(cls.action_source)
 
@@ -33,6 +35,7 @@ class GradleMavenPublishWorkflowTests(unittest.TestCase):
         self.assertEqual(
             set(call["inputs"]),
             {
+                "execution_backend",
                 "admitted_sha",
                 "expected_branch",
                 "working_directory",
@@ -41,6 +44,13 @@ class GradleMavenPublishWorkflowTests(unittest.TestCase):
                 "arguments_json",
             },
         )
+        backend = call["inputs"]["execution_backend"]
+        self.assertFalse(backend["required"])
+        self.assertEqual(backend["default"], "organization")
+        self.assertEqual(backend["type"], "string")
+        public_inputs = {item["name"]: item for item in self.public["inputs"]}
+        self.assertEqual(set(call["inputs"]), set(public_inputs))
+        self.assertEqual(public_inputs["execution_backend"]["default"], "organization")
         self.assertEqual(set(call["secrets"]), {"registry_username", "registry_token"})
         self.assertEqual(set(call["outputs"]), {"result", "release_version"})
         for forbidden in (
@@ -54,8 +64,36 @@ class GradleMavenPublishWorkflowTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, call["inputs"])
 
+    def test_backend_classification_preserves_organization_and_fails_hosted_closed(self) -> None:
+        jobs = self.workflow["jobs"]
+        self.assertEqual(set(jobs), {"reject_hosted", "reject_invalid", "publish"})
+
+        hosted = jobs["reject_hosted"]
+        self.assertEqual(hosted["runs-on"], ["ubuntu-latest"])
+        self.assertEqual(hosted["if"], "${{ inputs.execution_backend == 'github-hosted' }}")
+        self.assertEqual(hosted["timeout-minutes"], 5)
+        hosted_serialized = json.dumps(hosted)
+        self.assertNotIn("secrets.", hosted_serialized)
+        self.assertNotIn("uses", hosted)
+        self.assertIn("private Maven publication authority is organization-only", hosted_serialized)
+
+        invalid = jobs["reject_invalid"]
+        self.assertEqual(invalid["runs-on"], ["linux", "amd64", "general", "tiny"])
+        self.assertEqual(
+            invalid["if"],
+            "${{ inputs.execution_backend != 'organization' && inputs.execution_backend != 'github-hosted' }}",
+        )
+        self.assertEqual(invalid["timeout-minutes"], 5)
+        invalid_serialized = json.dumps(invalid)
+        self.assertNotIn("secrets.", invalid_serialized)
+        self.assertNotIn("uses", invalid)
+        self.assertIn("execution_backend must be organization or github-hosted", invalid_serialized)
+
+        publish = jobs["publish"]
+        self.assertEqual(publish["if"], "${{ inputs.execution_backend == 'organization' }}")
+        self.assertEqual(publish["runs-on"], ["linux", "amd64", "mobile"])
+
     def test_one_mobile_job_runs_one_gradle_publication_with_terminal_cleanup(self) -> None:
-        self.assertEqual(set(self.workflow["jobs"]), {"publish"})
         job = self.workflow["jobs"]["publish"]
         self.assertEqual(job["runs-on"], ["linux", "amd64", "mobile"])
         self.assertEqual(job["timeout-minutes"], 120)
@@ -116,6 +154,10 @@ class GradleMavenPublishWorkflowTests(unittest.TestCase):
             if step is execute:
                 continue
             serialized = json.dumps(step)
+            self.assertNotIn("registry_username", serialized)
+            self.assertNotIn("registry_token", serialized)
+        for job_id in ("reject_hosted", "reject_invalid"):
+            serialized = json.dumps(self.workflow["jobs"][job_id])
             self.assertNotIn("registry_username", serialized)
             self.assertNotIn("registry_token", serialized)
 
