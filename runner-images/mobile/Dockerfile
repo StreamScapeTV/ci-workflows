@@ -183,6 +183,9 @@ RUN set -eux; \
     rm -rf /root/.android "${ANDROID_HOME}/.temp"; \
     rm -rf /tmp/runner.tar.gz /tmp/flutter.tar.xz /tmp/android-*.zip \
       /tmp/cmdline /tmp/platform-tools /tmp/platform-* /tmp/build-tools-* /tmp/ndk; \
+    chown 0:0 /tmp; \
+    chmod 1777 /tmp; \
+    test "$(stat -c '%a:%u:%g' /tmp)" = "1777:0:0"; \
     rm -f /usr/local/bin/runner-mobile-assemble; \
     rm -f \
       /usr/bin/apt /usr/bin/apt-cache /usr/bin/apt-cdrom /usr/bin/apt-config \
