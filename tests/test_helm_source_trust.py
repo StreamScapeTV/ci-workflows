@@ -27,7 +27,7 @@ class HelmSourceTrustWorkflowTests(unittest.TestCase):
         self.assertIn(expected, text)
         self.assertIn("admitted_sha: ${{ inputs.admitted_sha }}", text)
 
-    def test_validation_remains_tokenless_portable_with_hosted_planner(self) -> None:
+    def test_validation_remains_tokenless_portable_with_backend_aware_planners(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("permissions:\n  contents: read", text)
         self.assertNotIn("registry_token", text)
@@ -35,8 +35,12 @@ class HelmSourceTrustWorkflowTests(unittest.TestCase):
         public_inputs = text.split("secrets:", 1)[0] if "secrets:" in text else text
         self.assertNotIn("source_trust:\n        description:", public_inputs)
         self.assertIn("runs-on: [ubuntu-latest]", text)
+        self.assertIn("runs-on: [linux, amd64, general, small]", text)
         self.assertIn("runner_profile: ${{ steps.plan.outputs.runner_profile }}", text)
-        self.assertIn("runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}", text)
+        self.assertIn(
+            "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json || needs.plan_organization.outputs.runs_on_json) }}",
+            text,
+        )
         self.assertNotIn("runs-on: [linux, amd64, general]", text)
         self.assertNotIn("runs-on: portable", text)
 
