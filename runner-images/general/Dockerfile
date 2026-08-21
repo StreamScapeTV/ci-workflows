@@ -1,5 +1,5 @@
-# Build-only stage for common Debian utilities, GCC's runtime libraries, the
-# setup-node compatibility probe, and the zstd binary. Every network asset is
+# Build-only stage for common Debian utilities, the bounded native toolchain,
+# the setup-node compatibility probe, and zstd. Every network asset is
 # materialized and checksum-verified by the product-local input preparer before
 # Buildah starts; Dockerfile execution itself is networkless.
 FROM docker.io/library/buildpack-deps@sha256:3c55df66bea98808f842d6d59aa498012888f4cf82874c4a7f2b3a42a2c9c82e AS build-tools
@@ -7,15 +7,53 @@ FROM docker.io/library/buildpack-deps@sha256:3c55df66bea98808f842d6d59aa49801288
 COPY .ciw-build-inputs/actions-runner-linux-x64-2.336.0.tar.gz /tmp/runner.tar.gz
 COPY .ciw-build-inputs/node-26.7.0-linux-x64.tar.gz /tmp/node26.tar.gz
 COPY .ciw-build-inputs/zstd-1.5.7.tar.gz /tmp/zstd.tar.gz
+COPY .ciw-build-inputs/cmake-4.4.2-linux-x86_64.tar.gz /tmp/cmake.tar.gz
 RUN set -eux; \
-    mkdir -p /tmp/runner /tmp/zstd /node26-compat /out/usr/local/bin; \
+    mkdir -p /tmp/runner /tmp/zstd /node26-compat /out/usr/local/bin \
+      /native-root/opt/cmake /native-root/usr/local/bin; \
     tar -xzf /tmp/runner.tar.gz -C /tmp/runner; \
     tar -xzf /tmp/node26.tar.gz -C /node26-compat --strip-components=1; \
     tar -xzf /tmp/zstd.tar.gz -C /tmp/zstd --strip-components=1; \
+    tar -xzf /tmp/cmake.tar.gz -C /native-root/opt/cmake --strip-components=1; \
     test -x /node26-compat/bin/node; \
     test -f /node26-compat/lib/node_modules/npm/bin/npm-cli.js; \
+    /native-root/opt/cmake/bin/cmake --version | head -n1 | grep -Fx 'cmake version 4.4.2'; \
+    test "$(gcc -dumpfullversion)" = '14.2.0'; \
+    test "$(g++ -dumpfullversion)" = '14.2.0'; \
+    make --version | head -n1 | grep -Fx 'GNU Make 4.4.1'; \
     make -C /tmp/zstd -j2 zstd; \
     install -m 0755 /tmp/zstd/programs/zstd /out/usr/local/bin/zstd; \
+    for tool in cmake ctest cpack; do \
+      ln -s "/opt/cmake/bin/${tool}" "/native-root/usr/local/bin/${tool}"; \
+    done; \
+    native_packages='binutils binutils-common binutils-x86-64-linux-gnu cpp cpp-x86-64-linux-gnu cpp-14-x86-64-linux-gnu g++ g++-x86-64-linux-gnu g++-14-x86-64-linux-gnu gcc gcc-x86-64-linux-gnu gcc-14-x86-64-linux-gnu libc6-dev libgcc-14-dev libgcc-s1 libstdc++-14-dev libstdc++6 linux-libc-dev make'; \
+    for package in ${native_packages}; do \
+      dpkg-query -W -f='${db:Status-Abbrev}\n' "${package}" | grep -Fx 'ii '; \
+      dpkg-query -L "${package}"; \
+    done | sort -u | while IFS= read -r path; do \
+      case "${path}" in /usr/share/*) continue ;; esac; \
+      if test -f "${path}" || test -L "${path}"; then \
+        mkdir -p "/native-root$(dirname "${path}")"; \
+        cp -a "${path}" "/native-root${path}"; \
+      fi; \
+    done; \
+    { \
+      for executable in \
+        /usr/bin/gcc /usr/bin/g++ /usr/bin/cpp /usr/bin/make \
+        /usr/bin/x86_64-linux-gnu-as /usr/bin/x86_64-linux-gnu-ld \
+        /native-root/opt/cmake/bin/cmake /native-root/opt/cmake/bin/ctest; do \
+        ldd "${executable}" 2>/dev/null || true; \
+      done; \
+      find /usr/lib/gcc/x86_64-linux-gnu/14 -type f -perm /111 -print0 \
+        | xargs -0 -r -n1 sh -c 'ldd "$1" 2>/dev/null || true' sh; \
+    } | awk '/=> \/.+ \(/ {print $(NF-1)} /^\/.+ \(/ {print $1}' \
+      | sort -u \
+      | while IFS= read -r library; do \
+          library_dir="$(readlink -f "$(dirname "${library}")")"; \
+          test -d "${library_dir}"; \
+          mkdir -p "/native-root${library_dir}"; \
+          cp -pL "${library}" "/native-root${library_dir}/$(basename "${library}")"; \
+        done; \
     for path in /usr/bin/bash /usr/bin/curl /usr/bin/git /usr/bin/gzip /usr/bin/tar; do \
       cp --parents -a "${path}" /out; \
     done; \
@@ -59,7 +97,7 @@ RUN set -eux; \
     cp -pL "${atomic_real}" "/out/usr/lib/x86_64-linux-gnu/$(basename "${atomic_real}")"; \
     ln -s "$(basename "${atomic_real}")" /out/usr/lib/x86_64-linux-gnu/libatomic.so.1; \
     test -e /out/usr/lib/x86_64-linux-gnu/libatomic.so.1; \
-    rm -rf /tmp/runner /tmp/zstd /tmp/runner.tar.gz /tmp/node26.tar.gz /tmp/zstd.tar.gz
+    rm -rf /tmp/runner /tmp/zstd /tmp/runner.tar.gz /tmp/node26.tar.gz /tmp/zstd.tar.gz /tmp/cmake.tar.gz
 
 FROM docker.io/library/node@sha256:0711b541c1c33a8a530ac4f0d391baa9a15b3d804695b1b24a47daa5fb60e74d AS node-runtime
 RUN set -eux; \
@@ -86,6 +124,7 @@ ENV PATH=/usr/local/bin:/home/runner/bin:${PATH} \
 
 COPY --from=build-tools /out/ /
 COPY --from=node-runtime /node-root/ /
+COPY --from=build-tools /native-root/ /
 
 COPY .ciw-build-inputs/actions-runner-linux-x64-2.336.0.tar.gz /tmp/runner.tar.gz
 COPY --chmod=0755 .ciw-build-inputs/jq-1.8.2-linux-amd64 /usr/local/bin/jq

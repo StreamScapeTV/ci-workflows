@@ -334,6 +334,7 @@
       "allowed_workflow_apis": [
         "validation.python",
         "validation.node",
+        "validation.native",
         "validation.gitops",
         "validation.script",
         "helm.validate",
@@ -692,6 +693,12 @@
       "strategy": "platform"
     },
     "validation.gitops": {
+      "profiles": [
+        "general-small"
+      ],
+      "strategy": "fixed"
+    },
+    "validation.native": {
       "profiles": [
         "general-small"
       ],

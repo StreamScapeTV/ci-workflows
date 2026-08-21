@@ -26,7 +26,8 @@ node --version | grep -F 'v24.19.0'
 npm --version >/dev/null
 corepack --version >/dev/null
 
-command -v git bash curl jq yq tar zstd gzip unzip zip helm kustomize kubectl >/dev/null
+command -v git bash curl jq yq tar zstd gzip unzip zip helm kustomize kubectl \
+  cmake ctest gcc g++ make >/dev/null
 git --version >/dev/null
 test -x "$(git --exec-path)/git-remote-https"
 test -d /usr/share/git-core/templates
@@ -44,6 +45,32 @@ zip --version | grep -F 'ci-workflows zip 1.0'
 helm version --short | grep -F 'v4.2.4'
 kustomize version | grep -F 'v5.8.1'
 kubectl version --client=true --output=yaml | grep -F 'gitVersion: v1.36.2'
+cmake --version | head -n1 | grep -Fx 'cmake version 4.4.2'
+test "$(gcc -dumpfullversion)" = '14.2.0'
+test "$(g++ -dumpfullversion)" = '14.2.0'
+make --version | head -n1 | grep -Fx 'GNU Make 4.4.1'
+
+native_source="${venv_root}/native-source"
+native_build="${venv_root}/native-build"
+mkdir -p "${native_source}"
+cat > "${native_source}/CMakeLists.txt" <<'CMAKE'
+cmake_minimum_required(VERSION 3.20)
+project(ciw_native_smoke LANGUAGES CXX)
+enable_testing()
+add_executable(native-smoke main.cpp)
+add_test(NAME native-smoke COMMAND native-smoke)
+CMAKE
+cat > "${native_source}/main.cpp" <<'CPP'
+#include <iostream>
+int main() {
+    std::cout << "native-ready" << std::endl;
+    return 0;
+}
+CPP
+cmake -S "${native_source}" -B "${native_build}" -G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Release
+cmake --build "${native_build}" --parallel 2
+ctest --test-dir "${native_build}" --output-on-failure
+"${native_build}/native-smoke" | grep -Fx 'native-ready'
 
 for forbidden in docker dockerd containerd ctr runc buildah podman skopeo sudo apt apt-get dpkg; do
   ! command -v "${forbidden}"
