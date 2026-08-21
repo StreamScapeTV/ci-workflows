@@ -52,23 +52,50 @@ class GitOpsWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("self-hosted", source)
         self.assertNotIn("runs-on: portable", source)
         self.assertNotIn("runs-on: [linux, amd64, general]", source)
-        self.assertEqual(["ubuntu-latest"], workflow["jobs"]["plan"]["runs-on"])
+
+        hosted = workflow["jobs"]["plan"]
+        organization = workflow["jobs"]["plan_organization"]
+        validate = workflow["jobs"]["validate"]
+        self.assertEqual(["ubuntu-latest"], hosted["runs-on"])
         self.assertEqual(
-            "${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
-            workflow["jobs"]["validate"]["runs-on"],
-        )
-        backend = next(
-            step
-            for step in workflow["jobs"]["plan"]["steps"]
-            if step.get("id") == "backend"
+            "${{ inputs.execution_backend == 'github-hosted' }}",
+            hosted["if"],
         )
         self.assertEqual(
-            f"StreamScapeTV/ci-workflows/actions/resolve-execution-backend@{EXECUTION_BACKEND_SHA}",
-            backend["uses"],
+            ["linux", "amd64", "general", "small"],
+            organization["runs-on"],
         )
-        self.assertEqual("validation.gitops", backend["with"]["workflow_api"])
-        self.assertEqual("${{ inputs.execution_backend }}", backend["with"]["execution_backend"])
-        self.assertEqual("${{ steps.plan.outputs.runner_profile }}", backend["with"]["runner_profile"])
+        self.assertEqual(
+            "${{ inputs.execution_backend != 'github-hosted' }}",
+            organization["if"],
+        )
+        self.assertEqual(["plan", "plan_organization"], validate["needs"])
+        self.assertEqual(
+            "${{ always() && (needs.plan.result == 'success' || needs.plan_organization.result == 'success') }}",
+            validate["if"],
+        )
+        self.assertEqual(
+            "${{ fromJSON(needs.plan.outputs.runs_on_json || needs.plan_organization.outputs.runs_on_json) }}",
+            validate["runs-on"],
+        )
+
+        for planner in (hosted, organization):
+            backend = next(
+                step for step in planner["steps"] if step.get("id") == "backend"
+            )
+            self.assertEqual(
+                f"StreamScapeTV/ci-workflows/actions/resolve-execution-backend@{EXECUTION_BACKEND_SHA}",
+                backend["uses"],
+            )
+            self.assertEqual("validation.gitops", backend["with"]["workflow_api"])
+            self.assertEqual(
+                "${{ inputs.execution_backend }}",
+                backend["with"]["execution_backend"],
+            )
+            self.assertEqual(
+                "${{ steps.plan.outputs.runner_profile }}",
+                backend["with"]["runner_profile"],
+            )
         self.assertIn("CI / GitOps validation", source)
         self.assertIn("if: always()", source)
         self.assertIn("Confirm zero Actions artifacts", source)
