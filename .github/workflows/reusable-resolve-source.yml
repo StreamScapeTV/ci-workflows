@@ -100,14 +100,31 @@ permissions:
 
 jobs:
   plan:
-    name: Resolve bounded source execution backend
+    name: Resolve bounded hosted source execution backend
+    if: ${{ inputs.execution_backend == 'github-hosted' }}
     runs-on: [ubuntu-latest]
     timeout-minutes: 10
     outputs:
       runs_on_json: ${{ steps.backend.outputs.runs_on_json }}
     steps:
       - id: backend
-        name: Resolve bounded execution backend
+        name: Resolve bounded hosted execution backend
+        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@7d5d839c6e90491e165f1358ecb5e80129805764 # issue #405 simplified execution-backend checkpoint
+        with:
+          workflow_api: source.resolve
+          source_trust: trusted-exact
+          execution_backend: ${{ inputs.execution_backend }}
+
+  plan_organization:
+    name: Resolve bounded organization source execution backend
+    if: ${{ inputs.execution_backend != 'github-hosted' }}
+    runs-on: [linux, amd64, general, tiny]
+    timeout-minutes: 10
+    outputs:
+      runs_on_json: ${{ steps.backend.outputs.runs_on_json }}
+    steps:
+      - id: backend
+        name: Resolve bounded organization execution backend
         uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@7d5d839c6e90491e165f1358ecb5e80129805764 # issue #405 simplified execution-backend checkpoint
         with:
           workflow_api: source.resolve
@@ -116,8 +133,9 @@ jobs:
 
   admit:
     name: Shared / Source admission
-    needs: plan
-    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
+    needs: [plan, plan_organization]
+    if: ${{ always() && (needs.plan.result == 'success' || needs.plan_organization.result == 'success') }}
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json || needs.plan_organization.outputs.runs_on_json) }}
     timeout-minutes: 10
     outputs:
       caller_repository: ${{ steps.resolve.outputs.caller_repository }}

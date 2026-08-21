@@ -87,7 +87,10 @@ class ExecutionBackendTests(unittest.TestCase):
             (ROOT / ".github/workflows/reusable-resolve-source.yml").read_text(encoding="utf-8"),
             Loader=ActionsLoader,
         )
-        self.assertEqual(source["jobs"]["admit"]["runs-on"], "${{ fromJSON(needs.plan.outputs.runs_on_json) }}")
+        self.assertEqual(
+            source["jobs"]["admit"]["runs-on"],
+            "${{ fromJSON(needs.plan.outputs.runs_on_json || needs.plan_organization.outputs.runs_on_json) }}",
+        )
         for filename in ("reusable-node.yml", "reusable-python.yml"):
             workflow = yaml.load(
                 (ROOT / ".github/workflows" / filename).read_text(encoding="utf-8"),

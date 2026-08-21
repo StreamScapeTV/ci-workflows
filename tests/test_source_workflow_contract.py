@@ -43,20 +43,26 @@ class SourceWorkflowContractTests(unittest.TestCase):
             self.workflow,
             r"uses: StreamScapeTV/ci-workflows/actions/resolve-source@[0-9a-f]{40}",
         )
-        self.assertRegex(
-            self.workflow,
-            r"uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@[0-9a-f]{40}",
+        self.assertEqual(
+            2,
+            len(
+                re.findall(
+                    r"uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@[0-9a-f]{40}",
+                    self.workflow,
+                )
+            ),
         )
         self.assertIn("runs-on: [ubuntu-latest]", self.workflow)
+        self.assertIn("runs-on: [linux, amd64, general, tiny]", self.workflow)
         self.assertIn(
-            "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
+            "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json || needs.plan_organization.outputs.runs_on_json) }}",
             self.workflow,
         )
         self.assertNotIn("runs-on: [linux, amd64, general]", self.workflow)
         self.assertNotIn("runs-on: portable", self.workflow)
         self.assertNotIn("run: |", self.workflow)
 
-    def test_execution_backend_is_optional_and_organization_default(self) -> None:
+    def test_execution_backend_is_optional_and_selects_one_bounded_planner(self) -> None:
         call = self.parsed["on"]["workflow_call"]
         backend = call["inputs"]["execution_backend"]
         self.assertFalse(backend["required"])
@@ -64,19 +70,42 @@ class SourceWorkflowContractTests(unittest.TestCase):
         self.assertEqual(backend["type"], "string")
         public_inputs = {item["name"]: item for item in self.public["inputs"]}
         self.assertEqual(public_inputs["execution_backend"]["default"], "organization")
-        plan = self.parsed["jobs"]["plan"]
+
+        hosted = self.parsed["jobs"]["plan"]
+        organization = self.parsed["jobs"]["plan_organization"]
         admit = self.parsed["jobs"]["admit"]
-        self.assertEqual(plan["runs-on"], ["ubuntu-latest"])
+        self.assertEqual(hosted["runs-on"], ["ubuntu-latest"])
+        self.assertEqual(
+            hosted["if"],
+            "${{ inputs.execution_backend == 'github-hosted' }}",
+        )
+        self.assertEqual(
+            organization["runs-on"],
+            ["linux", "amd64", "general", "tiny"],
+        )
+        self.assertEqual(
+            organization["if"],
+            "${{ inputs.execution_backend != 'github-hosted' }}",
+        )
+        self.assertEqual(
+            admit["needs"],
+            ["plan", "plan_organization"],
+        )
+        self.assertEqual(
+            admit["if"],
+            "${{ always() && (needs.plan.result == 'success' || needs.plan_organization.result == 'success') }}",
+        )
         self.assertEqual(
             admit["runs-on"],
-            "${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
+            "${{ fromJSON(needs.plan.outputs.runs_on_json || needs.plan_organization.outputs.runs_on_json) }}",
         )
-        backend_step = plan["steps"][0]
-        self.assertEqual(backend_step["with"]["workflow_api"], "source.resolve")
-        self.assertEqual(
-            backend_step["with"]["execution_backend"],
-            "${{ inputs.execution_backend }}",
-        )
+        for planner in (hosted, organization):
+            backend_step = planner["steps"][0]
+            self.assertEqual(backend_step["with"]["workflow_api"], "source.resolve")
+            self.assertEqual(
+                backend_step["with"]["execution_backend"],
+                "${{ inputs.execution_backend }}",
+            )
 
     def test_workflow_and_machine_contract_publish_the_same_typed_outputs(self) -> None:
         workflow_output_block = self.workflow.split("    outputs:\n", 1)[1].split("\npermissions:\n", 1)[0]
