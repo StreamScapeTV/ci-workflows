@@ -7,7 +7,7 @@ import re
 import time
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Mapping
+from typing import Mapping, Sequence
 
 from . import android_execution
 from .android_resource_metrics import AndroidResourceSampler
@@ -44,6 +44,23 @@ _TEST_SELECTOR = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*(?:\.[A-Za-z_][A-Za-z0-9_$
 _COPY_RELATIVE = "tmp/android-source"
 _MAX_PLAN_BYTES = 16 * 1024
 _GRADLE_RO_DEP_CACHE_PATH = Path("/opt/gradle-ro-cache")
+_PROTECTED_FULL_FAMILY_TIMEOUT_SECONDS = 45 * 60
+
+
+class _BoundedGradleRunner:
+    def run(
+        self,
+        argv: Sequence[str],
+        *,
+        cwd: Path,
+        env: Mapping[str, str],
+    ):
+        return run_process(
+            argv,
+            cwd=cwd,
+            environment=env,
+            timeout_seconds=_PROTECTED_FULL_FAMILY_TIMEOUT_SECONDS,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -626,6 +643,48 @@ def _elapsed_ms(started_ns: int) -> int:
     return max(0, (time.monotonic_ns() - started_ns) // 1_000_000)
 
 
+def _run_protected_full_group(
+    wrapper: Path,
+    group_name: str,
+    group_tasks: tuple[str, ...],
+    *,
+    project: Path,
+    environment: Mapping[str, str],
+    context: CIWContext,
+) -> int:
+    context.stdout.write(
+        f"android-protected-full-family-start name={group_name} "
+        f"timeout_seconds={_PROTECTED_FULL_FAMILY_TIMEOUT_SECONDS}\n"
+    )
+    context.stdout.flush()
+    started = time.monotonic_ns()
+    try:
+        run_gradle_tasks(
+            wrapper,
+            group_tasks,
+            project_directory=project,
+            options=("--no-daemon",),
+            environment=environment,
+            runner=_BoundedGradleRunner(),
+            operation=f"android.protected_full.{group_name}",
+        )
+    except LanguagePrimitiveError as error:
+        wall_ms = _elapsed_ms(started)
+        returncode = "none" if error.returncode is None else str(error.returncode)
+        context.stderr.write(
+            f"android-protected-full-family-failure name={group_name} "
+            f"code={error.code} returncode={returncode} wall_ms={wall_ms}\n"
+        )
+        context.stderr.flush()
+        raise
+    wall_ms = _elapsed_ms(started)
+    context.stdout.write(
+        f"android-protected-full-family-complete name={group_name} wall_ms={wall_ms}\n"
+    )
+    context.stdout.flush()
+    return wall_ms
+
+
 def _execute_request(
     request: AndroidPrimitiveRequest,
     args: argparse.Namespace,
@@ -673,14 +732,14 @@ def _execute_request(
             for group_name, group_tasks in full.gradle_groups:
                 if not group_tasks:
                     continue
-                gradle_started = time.monotonic_ns()
-                run_gradle_tasks(
+                gradle_wall_ms += _run_protected_full_group(
                     wrapper,
+                    group_name,
                     group_tasks,
-                    operation=f"android.protected_full.{group_name}",
-                    **common,
+                    project=project,
+                    environment=environment,
+                    context=context,
                 )
-                gradle_wall_ms += _elapsed_ms(gradle_started)
                 gradle_invocations += 1
             if full.schema_script is not None:
                 script_started = time.monotonic_ns()
