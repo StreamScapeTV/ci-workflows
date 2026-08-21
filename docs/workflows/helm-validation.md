@@ -13,7 +13,9 @@ The public workflow keeps the older optional `image_digest` and `immutable_refer
 
 ## Validation
 
-`helm.validate`:
+`helm.validate` accepts the shared optional `execution_backend` input. `organization` remains the default and preserves semantic `general-small` organization capacity. Explicit `github-hosted` runs the same read-only validation contract on standard GitHub-hosted `ubuntu-latest`; it never falls back to StreamScapeTV private/ARC capacity. Repository visibility does not select the backend automatically, and callers cannot pass raw runner labels.
+
+The lightweight plan/backend-resolution job itself uses hosted Ubuntu. The validation job then:
 
 1. admits the exact caller SHA and checks out that source without persistent credentials;
 2. loads the product-owned Helm metadata;
@@ -27,7 +29,7 @@ No package is retained as a routine GitHub Actions artifact.
 
 ## Publication
 
-`helm.publish` is an ordinary trusted publication path. The caller owns whether the release authority is a Git tag push, GitHub release, or another reviewed product release trigger; it also owns version policy and the registry destination/credentials. Central receives the exact admitted source SHA plus release version and does not inspect or enforce the caller event kind.
+`helm.publish` is an ordinary trusted publication path. Its existing runner and permission behavior is unchanged by the hosted validation option. The caller owns whether the release authority is a Git tag push, GitHub release, or another reviewed product release trigger; it also owns version policy and the registry destination/credentials. Central receives the exact admitted source SHA plus release version and does not inspect or enforce the caller event kind.
 
 The publication job then:
 
@@ -43,6 +45,6 @@ Mandatory OCI pull/read-back, Skopeo manifest proof, provenance/canary evidence,
 
 ## Security boundary
 
-Validation may run for ordinary admitted source according to the existing Helm trust model. Publication requires `trusted-exact` source before registry credentials are used, but the caller decides which reviewed release event supplies that exact source. The workflows do not accept runner labels, shell commands, Kubernetes/Flux targets, kubeconfigs, SOPS material, or cache backends. They never reconcile Flux or install a chart into Kubernetes.
+Validation may run for ordinary admitted source according to the existing Helm trust model on either supported backend. Publication requires `trusted-exact` source before registry credentials are used, but the caller decides which reviewed release event supplies that exact source. The workflows do not accept runner labels, shell commands, Kubernetes/Flux targets, kubeconfigs, SOPS material, or cache backends. They never reconcile Flux or install a chart into Kubernetes.
 
-The workflows use semantic runner capacity selected by the central runner contract; callers cannot choose concrete runner labels. Registry authentication and temporary Helm state are removed under terminal cleanup, and routine Actions artifacts remain zero.
+Central owns backend and semantic runner mapping. Registry authentication and temporary Helm state are removed under terminal cleanup, and routine Actions artifacts remain zero.
