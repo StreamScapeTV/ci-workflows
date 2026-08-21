@@ -16,6 +16,7 @@ OPERATIONS = ROOT / "contracts/public-workflows/operations.json"
 RUNNER_PROFILES = ROOT / "contracts/runner-profiles.json"
 RUNNERS_DOC = ROOT / "RUNNERS.md"
 DOC = ROOT / "docs/workflows/simple-validation.md"
+EXECUTION_BACKEND_SHA = "7d5d839c6e90491e165f1358ecb5e80129805764"
 
 
 class SimpleScriptWorkflowContractTests(unittest.TestCase):
@@ -28,70 +29,89 @@ class SimpleScriptWorkflowContractTests(unittest.TestCase):
         self.assertEqual({"contents": "read"}, self.workflow["permissions"])
         call = self.workflow["on"]["workflow_call"]
         self.assertEqual(
-            {"admitted_sha", "validation_profile", "working_directory", "script_path"},
+            {
+                "execution_backend",
+                "admitted_sha",
+                "validation_profile",
+                "working_directory",
+                "script_path",
+            },
             set(call["inputs"]),
         )
         self.assertEqual({"result"}, set(call["outputs"]))
         self.assertNotIn("secrets", call)
+        self.assertEqual("organization", call["inputs"]["execution_backend"]["default"])
         self.assertTrue(call["inputs"]["admitted_sha"]["required"])
         self.assertTrue(call["inputs"]["validation_profile"]["required"])
         self.assertTrue(call["inputs"]["script_path"]["required"])
         self.assertEqual(".", call["inputs"]["working_directory"]["default"])
 
-    def test_runner_selection_is_bounded_and_product_cannot_select_labels(self) -> None:
+    def test_runner_selection_is_semantic_and_backend_bounded(self) -> None:
         jobs = self.workflow["jobs"]
-        self.assertEqual(["linux", "amd64", "general", "small"], jobs["plan"]["runs-on"])
+        self.assertEqual(["ubuntu-latest"], jobs["plan"]["runs-on"])
         self.assertEqual(
             "${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
             jobs["validate"]["runs-on"],
         )
-        plan = next(step for step in jobs["plan"]["steps"] if step.get("id") == "plan")["run"]
-        for profile, selector in (
-            ("general", '["linux","amd64","general","small"]'),
-            ("mobile", '["linux","amd64","mobile"]'),
-            ("apple", '["macOS","ARM64"]'),
-        ):
-            self.assertIn(profile, plan)
-            self.assertIn(selector, plan)
+        plan_step = next(step for step in jobs["plan"]["steps"] if step.get("id") == "plan")
+        plan = plan_step["run"]
+        self.assertIn("general-small", plan)
+        self.assertIn("mobile|apple", plan)
+        self.assertNotIn('["linux","amd64","general","small"]', plan)
+        self.assertNotIn('["linux","amd64","mobile"]', plan)
+        self.assertNotIn('["macOS","ARM64"]', plan)
+
+        backend = next(step for step in jobs["plan"]["steps"] if step.get("id") == "backend")
+        self.assertEqual(
+            f"StreamScapeTV/ci-workflows/actions/resolve-execution-backend@{EXECUTION_BACKEND_SHA}",
+            backend["uses"],
+        )
+        self.assertEqual("validation.script", backend["with"]["workflow_api"])
+        self.assertEqual("${{ inputs.execution_backend }}", backend["with"]["execution_backend"])
+        self.assertEqual("${{ steps.plan.outputs.runner_profile }}", backend["with"]["runner_profile"])
+        self.assertEqual("${{ steps.plan.outputs.source_trust }}", backend["with"]["source_trust"])
         for forbidden in ("self-hosted", "runner_labels", "scale-set"):
             self.assertNotIn(forbidden, self.source)
 
-    def test_apple_profile_uses_runner_authority_selector_not_semantic_label(self) -> None:
+    def test_script_profiles_are_authorized_by_runner_contract(self) -> None:
         contract = json.loads(RUNNER_PROFILES.read_text(encoding="utf-8"))
         profiles = {row["id"]: row for row in contract["profiles"]}
-        apple = profiles["apple"]
-        selector = apple["default_internal_selector"]
-        encoded = json.dumps(selector, separators=(",", ":"))
-
-        plan = next(
-            step
-            for step in self.workflow["jobs"]["plan"]["steps"]
-            if step.get("id") == "plan"
-        )["run"]
-        self.assertEqual(["macOS", "ARM64"], selector)
-        self.assertEqual([selector], apple["internal_selectors"])
-        self.assertNotIn("apple", selector)
-        self.assertIn(f"apple) runs_on='{encoded}'", plan)
+        bindings = {row["api"]: row for row in contract["workflow_bindings"]}
+        self.assertEqual(
+            ["general-small", "mobile", "apple"],
+            bindings["validation.script"]["profiles"],
+        )
+        self.assertEqual("profile-contract", bindings["validation.script"]["strategy"])
+        for profile in ("general-small", "mobile", "apple"):
+            self.assertIn("validation.script", profiles[profile]["allowed_workflow_apis"])
+        self.assertEqual(["macOS", "ARM64"], profiles["apple"]["default_internal_selector"])
+        self.assertEqual(
+            [["macOS", "ARM64"]],
+            profiles["apple"]["internal_selectors"],
+        )
 
         guide = RUNNERS_DOC.read_text(encoding="utf-8")
         self.assertIn("Semantic profile IDs are not GitHub runner labels", guide)
         self.assertIn("runs-on: [macOS, ARM64]", guide)
 
-    def test_specialized_capacity_fails_closed_before_runner_selection(self) -> None:
+    def test_specialized_capacity_fails_closed_before_backend_resolution(self) -> None:
         steps = self.workflow["jobs"]["plan"]["steps"]
-        trust = steps[0]
-        self.assertEqual("Admit specialized runner trust", trust["name"])
-        self.assertEqual("${{ github.repository }}", trust["env"]["CALLER_REPOSITORY"])
-        self.assertEqual("${{ github.event_name }}", trust["env"]["EVENT_NAME"])
-        self.assertIn("pull_request.head.repo.full_name", trust["env"]["PR_HEAD_REPOSITORY"])
-        script = trust["run"]
-        self.assertIn('^[[0-9a-f]{40}$'.replace('[[', '['), script)
+        plan = steps[0]
+        self.assertEqual("Admit source trust and select semantic script profile", plan["name"])
+        self.assertEqual("${{ github.repository }}", plan["env"]["CALLER_REPOSITORY"])
+        self.assertEqual("${{ github.event_name }}", plan["env"]["EVENT_NAME"])
+        self.assertIn("pull_request.head.repo.full_name", plan["env"]["PR_HEAD_REPOSITORY"])
+        script = plan["run"]
+        self.assertIn("^[0-9a-f]{40}$", script)
         self.assertIn("mobile|apple", script)
         self.assertIn('"${PR_HEAD_REPOSITORY}" == "${CALLER_REPOSITORY}"', script)
         self.assertIn("push|workflow_dispatch", script)
         self.assertIn("rejects fork pull requests", script)
         self.assertIn("same-repository PR or exact non-PR source", script)
-        self.assertLess(self.source.index("Admit specialized runner trust"), self.source.index("Resolve bounded semantic runner"))
+        self.assertLess(
+            self.source.index("Admit source trust and select semantic script profile"),
+            self.source.index("Resolve bounded execution backend"),
+        )
 
     def test_exact_checkout_and_direct_zero_argument_script_execution(self) -> None:
         steps = self.workflow["jobs"]["validate"]["steps"]
