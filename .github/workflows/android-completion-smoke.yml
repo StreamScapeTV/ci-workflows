@@ -37,6 +37,7 @@ permissions:
 jobs:
   completion:
     name: Android live-service and unsigned-release smoke
+    if: ${{ github.event.repository.private && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: [linux, amd64, mobile]
     timeout-minutes: 60
     steps:
