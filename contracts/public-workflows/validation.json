@@ -65,7 +65,7 @@
     {
       "file": ".github/workflows/reusable-android.yml",
       "api_name": "validation.android",
-      "api_version": "2.0.0",
+      "api_version": "2.1.0",
       "status": "implemented",
       "trust_class": "read-only-validation",
       "permission_profile": "validation-read",
@@ -83,7 +83,7 @@
         {"name": "private_dependency_subdirectory", "required": false, "default": "."},
         {"name": "private_dependency_id", "required": false, "default": ""}
       ],
-      "secrets": ["private_dependency_token"],
+      "secrets": ["private_dependency_token", "maven_package_read_token"],
       "outputs": ["result", "test_summary", "cleanup_result"],
       "stable_check_name": "CI / Android validation",
       "timeout_minutes": 120,
@@ -94,7 +94,7 @@
     {
       "file": ".github/workflows/reusable-android-live-service.yml",
       "api_name": "validation.android-live-service",
-      "api_version": "1.0.0",
+      "api_version": "1.1.0",
       "status": "implemented",
       "trust_class": "read-only-validation",
       "permission_profile": "validation-read",
@@ -109,7 +109,7 @@
         {"name": "private_dependency_subdirectory", "required": false, "default": "."},
         {"name": "private_dependency_id", "required": false, "default": ""}
       ],
-      "secrets": ["service_username", "service_password", "private_dependency_token"],
+      "secrets": ["service_username", "service_password", "private_dependency_token", "maven_package_read_token"],
       "outputs": ["result", "test_summary", "cleanup_result"],
       "stable_check_name": "CI / Android live-service acceptance",
       "timeout_minutes": 120,
@@ -120,7 +120,7 @@
     {
       "file": ".github/workflows/reusable-android-release.yml",
       "api_name": "validation.android-release",
-      "api_version": "1.0.0",
+      "api_version": "1.1.0",
       "status": "implemented",
       "trust_class": "read-only-validation",
       "permission_profile": "validation-read",
@@ -136,7 +136,7 @@
         {"name": "private_dependency_subdirectory", "required": false, "default": "."},
         {"name": "private_dependency_id", "required": false, "default": ""}
       ],
-      "secrets": ["private_dependency_token"],
+      "secrets": ["private_dependency_token", "maven_package_read_token"],
       "outputs": ["result", "test_summary", "cleanup_result", "artifact_manifest_json"],
       "stable_check_name": "CI / Android unsigned release validation",
       "timeout_minutes": 120,

@@ -54,6 +54,9 @@ on:
       private_dependency_token:
         description: Optional transient contents-read token used only by exact private dependency checkout
         required: false
+      maven_package_read_token:
+        description: Optional transient package-read token forwarded only to bounded product execution
+        required: false
     outputs:
       result:
         description: Success only after execution and all terminal cleanup checks succeed
@@ -219,6 +222,7 @@ jobs:
           private_dependency_checkout_repository: ${{ steps.dependency.outputs.repository }}
           private_dependency_checkout_id: ${{ steps.dependency.outputs.dependency_id }}
           private_dependency_expected_subpath: ${{ steps.dependency.outputs.expected_subpath }}
+          maven_package_read_token: ${{ secrets.maven_package_read_token }}
 
       - id: evidence
         name: Render bounded Android validation evidence

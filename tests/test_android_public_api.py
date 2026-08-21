@@ -24,8 +24,8 @@ class AndroidPublicApiTests(unittest.TestCase):
             row for row in cls.public["workflows"] if row["api_name"] == "validation.android"
         )
 
-    def test_android_api_v2_matches_reusable_workflow(self) -> None:
-        self.assertEqual(self.android["api_version"], "2.0.0")
+    def test_android_api_v2_1_matches_reusable_workflow(self) -> None:
+        self.assertEqual(self.android["api_version"], "2.1.0")
         self.assertEqual(self.android["status"], "implemented")
         self.assertEqual(self.android["semantic_runner_profile"], "mobile")
         self.assertEqual(self.android["matrix_max_jobs"], 1)
@@ -110,14 +110,17 @@ class AndroidPublicApiTests(unittest.TestCase):
         )
 
     def test_android_breaking_change_is_explicitly_acknowledged(self) -> None:
-        acknowledgement = next(
-            row
+        acknowledgements = {
+            row["id"]: row
             for row in self.types["breaking_change_acknowledgements"]
             if row["api_name"] == "validation.android"
-        )
-        self.assertEqual(acknowledgement["migration_issue"], "#332")
-        self.assertEqual(acknowledgement["effective_version"], "2.0.0")
-        self.assertEqual(acknowledgement["kind"], "technology-input-decoupling")
+        }
+        self.assertEqual(acknowledgements["issue-332-android"]["migration_issue"], "#332")
+        self.assertEqual(acknowledgements["issue-332-android"]["effective_version"], "2.0.0")
+        self.assertEqual(acknowledgements["issue-332-android"]["kind"], "technology-input-decoupling")
+        self.assertEqual(acknowledgements["issue-443-android-package-read"]["migration_issue"], "#443")
+        self.assertEqual(acknowledgements["issue-443-android-package-read"]["effective_version"], "2.1.0")
+        self.assertEqual(acknowledgements["issue-443-android-package-read"]["kind"], "fixed-credential-projection")
 
 
 if __name__ == "__main__":

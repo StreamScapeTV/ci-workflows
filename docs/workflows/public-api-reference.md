@@ -1,6 +1,6 @@
 # Public workflow API reference
 
-Contract version: `3.0.0`
+Contract version: `3.1.0`
 
 Generated from `contracts/public-workflows.json` and its checked-in fragments. Application repository/product identity is intentionally not part of this compatibility contract.
 
@@ -23,9 +23,9 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 | `release.public-native-image-chart` `1.0.0` | `.github/workflows/reusable-public-native-image-chart.yml` | `implemented` | `trusted-publication` | Publish public native amd64 image and Helm chart |
 | `release.tag-image-chart-bootstrap` `1.2.0` | `.github/workflows/reusable-tag-image-chart.yml` | `deprecated-bootstrap-exception` | `trusted-publication` | Release / Bootstrap image and chart |
 | `source.resolve` `1.0.0` | `.github/workflows/reusable-resolve-source.yml` | `implemented` | `source-admission` | Shared / Source admission |
-| `validation.android` `2.0.0` | `.github/workflows/reusable-android.yml` | `implemented` | `read-only-validation` | CI / Android validation |
-| `validation.android-live-service` `1.0.0` | `.github/workflows/reusable-android-live-service.yml` | `implemented` | `read-only-validation` | CI / Android live-service acceptance |
-| `validation.android-release` `1.0.0` | `.github/workflows/reusable-android-release.yml` | `implemented` | `read-only-validation` | CI / Android unsigned release validation |
+| `validation.android` `2.1.0` | `.github/workflows/reusable-android.yml` | `implemented` | `read-only-validation` | CI / Android validation |
+| `validation.android-live-service` `1.1.0` | `.github/workflows/reusable-android-live-service.yml` | `implemented` | `read-only-validation` | CI / Android live-service acceptance |
+| `validation.android-release` `1.1.0` | `.github/workflows/reusable-android-release.yml` | `implemented` | `read-only-validation` | CI / Android unsigned release validation |
 | `validation.apple` `2.0.0` | `.github/workflows/reusable-apple.yml` | `implemented` | `read-only-validation` | CI / Apple validation |
 | `validation.device` `2.0.0` | `.github/workflows/reusable-device.yml` | `implemented` | `physical-device-validation` | CI / Physical device validation |
 | `validation.flutter` `1.0.0` | `.github/workflows/reusable-flutter.yml` | `implemented` | `read-only-validation` | CI / Flutter validation |
@@ -160,7 +160,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 
 - Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
 - Inputs: `admitted_sha` (required), `validation_scope` (required), `working_directory` (default `.`), `gradle_wrapper_path` (default `gradlew`), `validation_plan_json` (required), `dependency_prebuild_plan_json` (default ``), `private_dependency_repository` (default ``), `private_dependency_sha` (default ``), `private_dependency_subdirectory` (default `.`), `private_dependency_id` (default ``)
-- Secrets: `private_dependency_token`
+- Secrets: `private_dependency_token`, `maven_package_read_token`
 - Outputs: `result`, `test_summary`, `cleanup_result`
 - Repository-owned hooks: `validation_plan_json`, `dependency_prebuild_plan_json`
 
@@ -168,7 +168,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 
 - Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
 - Inputs: `admitted_sha` (required), `working_directory` (default `.`), `validation_plan_json` (required), `private_dependency_repository` (default ``), `private_dependency_sha` (default ``), `private_dependency_subdirectory` (default `.`), `private_dependency_id` (default ``)
-- Secrets: `service_username`, `service_password`, `private_dependency_token`
+- Secrets: `service_username`, `service_password`, `private_dependency_token`, `maven_package_read_token`
 - Outputs: `result`, `test_summary`, `cleanup_result`
 - Repository-owned hooks: `validation_plan_json`
 
@@ -176,7 +176,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 
 - Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
 - Inputs: `admitted_sha` (required), `working_directory` (default `.`), `gradle_wrapper_path` (default `gradlew`), `validation_plan_json` (required), `private_dependency_repository` (default ``), `private_dependency_sha` (default ``), `private_dependency_subdirectory` (default `.`), `private_dependency_id` (default ``)
-- Secrets: `private_dependency_token`
+- Secrets: `private_dependency_token`, `maven_package_read_token`
 - Outputs: `result`, `test_summary`, `cleanup_result`, `artifact_manifest_json`
 - Repository-owned hooks: `validation_plan_json`
 
