@@ -53,6 +53,7 @@ _OWNERSHIP_ROW_KEYS = {
     "device_family",
 }
 _SIMULATOR_DELETE_BACKOFF_SECONDS = (0.05, 0.15)
+_SIMULATOR_EXTERNAL_DISPLAY_SUFFIX = " – External Display"
 
 
 @dataclass(frozen=True, slots=True)
@@ -732,6 +733,66 @@ def _require_record_identity(plan: AppleValidationPlan, row: Mapping[str, str]) 
             fail("simulator_ownership_identity_mismatch")
 
 
+def _external_display_name(row: Mapping[str, str]) -> str:
+    return f"{row['device_name']}{_SIMULATOR_EXTERNAL_DISPLAY_SUFFIX}"
+
+
+def _recorded_owned_companion_candidates(
+    row: Mapping[str, str],
+    payload: object,
+    *,
+    require_available: bool = False,
+) -> list[dict[str, str]]:
+    """Find only the exact External Display companion derived from one CIW row."""
+
+    devices = payload.get("devices") if isinstance(payload, dict) else None
+    if not isinstance(devices, dict):
+        fail("simulator_malformed")
+    rows = devices.get(row["runtime_identifier"], [])
+    if not isinstance(rows, list):
+        fail("simulator_malformed")
+    expected_name = _external_display_name(row)
+    candidates: list[dict[str, str]] = []
+    for raw in rows:
+        if not isinstance(raw, dict) or raw.get("name") != expected_name:
+            continue
+        udid = raw.get("udid")
+        state = raw.get("state")
+        available = raw.get("isAvailable", True)
+        device_type_identifier = raw.get("deviceTypeIdentifier")
+        availability_invalid = (
+            available is not True
+            if require_available
+            else not isinstance(available, bool)
+        )
+        if (
+            not isinstance(udid, str)
+            or _UDID.fullmatch(udid) is None
+            or (row.get("udid") and udid == row.get("udid"))
+            or state not in {"Shutdown", "Booted"}
+            or availability_invalid
+            or not isinstance(device_type_identifier, str)
+            or not device_type_identifier.startswith(
+                "com.apple.CoreSimulator.SimDeviceType."
+            )
+            or len(device_type_identifier) > 512
+            or any(character in device_type_identifier for character in ("\x00", "\n", "\r"))
+        ):
+            fail("simulator_malformed")
+        candidates.append(
+            {
+                "name": expected_name,
+                "udid": udid,
+                "state": str(state),
+                "runtime_identifier": row["runtime_identifier"],
+                "device_type_identifier": device_type_identifier,
+            }
+        )
+    if len(candidates) > 1:
+        fail("simulator_ambiguous")
+    return candidates
+
+
 def _exact_owned_candidates(
     plan: AppleValidationPlan,
     payload: object,
@@ -787,7 +848,13 @@ def _exact_owned_candidates(
         )
     if len(candidates) > 1:
         fail("simulator_ambiguous")
-    return candidates
+    if candidates:
+        return candidates
+    return _recorded_owned_companion_candidates(
+        _ownership_record(plan, status="pending-create"),
+        payload,
+        require_available=require_available,
+    )
 
 
 def _recorded_owned_candidates(
@@ -994,6 +1061,99 @@ def _delete_recorded_owned_simulator(
     )
 
 
+def _delete_recorded_owned_companion(
+    runner: CommandRunner,
+    *,
+    source_root: Path,
+    state_root: Path,
+    env: Mapping[str, str],
+    row: Mapping[str, str],
+    udid: str,
+    failure_code: str,
+) -> None:
+    """Delete one exact External Display companion derived from a persisted row."""
+
+    _delete_owned_simulator_with_retry(
+        runner,
+        source_root=source_root,
+        state_root=state_root,
+        env=env,
+        udid=udid,
+        failure_code=failure_code,
+        stage_prefix="simulator-external-display",
+        candidates_for=lambda payload: _recorded_owned_companion_candidates(
+            row,
+            payload,
+        ),
+    )
+
+
+def _delete_recorded_owned_objects(
+    runner: CommandRunner,
+    *,
+    source_root: Path,
+    state_root: Path,
+    env: Mapping[str, str],
+    row: Mapping[str, str],
+    failure_code: str,
+) -> None:
+    """Delete a recorded primary and its exact companion before releasing the row."""
+
+    payload = _device_inventory(
+        runner,
+        source_root=source_root,
+        state_root=state_root,
+        env=env,
+        available_only=False,
+        failure_code=failure_code,
+    )
+    primary = _recorded_owned_candidates(row, payload)
+    if primary:
+        _delete_recorded_owned_simulator(
+            runner,
+            source_root=source_root,
+            state_root=state_root,
+            env=env,
+            row=row,
+            udid=primary[0]["udid"],
+            failure_code=failure_code,
+        )
+
+    payload = _device_inventory(
+        runner,
+        source_root=source_root,
+        state_root=state_root,
+        env=env,
+        available_only=False,
+        failure_code=failure_code,
+    )
+    companions = _recorded_owned_companion_candidates(row, payload)
+    if companions:
+        _delete_recorded_owned_companion(
+            runner,
+            source_root=source_root,
+            state_root=state_root,
+            env=env,
+            row=row,
+            udid=companions[0]["udid"],
+            failure_code=failure_code,
+        )
+
+    payload = _device_inventory(
+        runner,
+        source_root=source_root,
+        state_root=state_root,
+        env=env,
+        available_only=False,
+        failure_code=failure_code,
+    )
+    if _recorded_owned_candidates(row, payload) or _recorded_owned_companion_candidates(
+        row,
+        payload,
+    ):
+        fail(failure_code)
+
+
 def _reconcile_stale_ownership_rows(
     plan: AppleValidationPlan,
     source_root: Path,
@@ -1008,26 +1168,12 @@ def _reconcile_stale_ownership_rows(
     for row in tuple(ownership.rows):
         if row["owner_key"] == current_owner_key:
             continue
-        payload = _device_inventory(
-            runner,
-            source_root=source_root,
-            state_root=state_root,
-            env=env,
-            available_only=False,
-            failure_code="cleanup_failed",
-        )
-        candidates = _recorded_owned_candidates(row, payload)
-        if not candidates:
-            ownership.replace(row["owner_key"], None)
-            continue
-        candidate = candidates[0]
-        _delete_recorded_owned_simulator(
+        _delete_recorded_owned_objects(
             runner,
             source_root=source_root,
             state_root=state_root,
             env=env,
             row=row,
-            udid=candidate["udid"],
             failure_code="cleanup_failed",
         )
         ownership.replace(row["owner_key"], None)
@@ -1069,18 +1215,12 @@ def _recover_stale_owned_simulator(
             fail("simulator_unowned")
         return
     _require_record_identity(plan, row)
-    candidates = _recorded_owned_candidates(row, payload)
-    if not candidates:
-        ownership.replace(owner_key, None)
-        return
-    candidate = candidates[0]
-    _delete_recorded_owned_simulator(
+    _delete_recorded_owned_objects(
         runner,
         source_root=source_root,
         state_root=state_root,
         env=env,
         row=row,
-        udid=candidate["udid"],
         failure_code="cleanup_failed",
     )
     ownership.replace(owner_key, None)
@@ -1560,18 +1700,12 @@ def _cleanup_simulator_locked(
             fail("cleanup_failed")
         return
     _require_record_identity(plan, row)
-    candidates = _recorded_owned_candidates(row, payload)
-    if not candidates:
-        ownership.replace(owner_key, None)
-        return
-    candidate = candidates[0]
-    _delete_recorded_owned_simulator(
+    _delete_recorded_owned_objects(
         runner,
         source_root=source_root,
         state_root=state_root,
         env=environment,
         row=row,
-        udid=candidate["udid"],
         failure_code="cleanup_failed",
     )
     ownership.replace(owner_key, None)
