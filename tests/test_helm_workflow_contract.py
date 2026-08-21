@@ -86,28 +86,56 @@ class HelmWorkflowContractTests(unittest.TestCase):
         for retired in ("actions/measure-helm", "resolve-release-tag", "scripts/ci/helm_release.py", "skopeo", "pull read-back", "read_back", "remote_manifest", "runner evidence"):
             self.assertNotIn(retired, lowered)
 
-    def test_validation_has_bounded_backend_while_publication_keeps_current_runner(self) -> None:
+    def test_validation_has_backend_aware_planners_while_publication_keeps_current_runner(self) -> None:
         validate_inputs = self.validate["on"]["workflow_call"]["inputs"]
         self.assertEqual("organization", validate_inputs["execution_backend"]["default"])
         self.assertEqual(self.validate["permissions"], {"contents": "read"})
         self.assertEqual(self.publish["permissions"], {"contents": "read"})
-        self.assertEqual(self.validate["jobs"]["plan"]["runs-on"], ["ubuntu-latest"])
+
+        hosted = self.validate["jobs"]["plan"]
+        organization = self.validate["jobs"]["plan_organization"]
+        execute = self.validate["jobs"]["validate"]
+        self.assertEqual(["ubuntu-latest"], hosted["runs-on"])
         self.assertEqual(
-            self.validate["jobs"]["validate"]["runs-on"],
-            "${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
-        )
-        backend = next(
-            step
-            for step in self.validate["jobs"]["plan"]["steps"]
-            if step.get("id") == "backend"
+            "${{ inputs.execution_backend == 'github-hosted' }}",
+            hosted["if"],
         )
         self.assertEqual(
-            f"StreamScapeTV/ci-workflows/actions/resolve-execution-backend@{EXECUTION_BACKEND_SHA}",
-            backend["uses"],
+            ["linux", "amd64", "general", "small"],
+            organization["runs-on"],
         )
-        self.assertEqual("helm.validate", backend["with"]["workflow_api"])
-        self.assertEqual("${{ inputs.execution_backend }}", backend["with"]["execution_backend"])
-        self.assertEqual("${{ steps.plan.outputs.runner_profile }}", backend["with"]["runner_profile"])
+        self.assertEqual(
+            "${{ inputs.execution_backend != 'github-hosted' }}",
+            organization["if"],
+        )
+        self.assertEqual(["plan", "plan_organization"], execute["needs"])
+        self.assertEqual(
+            "${{ always() && (needs.plan.result == 'success' || needs.plan_organization.result == 'success') }}",
+            execute["if"],
+        )
+        self.assertEqual(
+            "${{ fromJSON(needs.plan.outputs.runs_on_json || needs.plan_organization.outputs.runs_on_json) }}",
+            execute["runs-on"],
+        )
+
+        for planner in (hosted, organization):
+            backend = next(
+                step for step in planner["steps"] if step.get("id") == "backend"
+            )
+            self.assertEqual(
+                f"StreamScapeTV/ci-workflows/actions/resolve-execution-backend@{EXECUTION_BACKEND_SHA}",
+                backend["uses"],
+            )
+            self.assertEqual("helm.validate", backend["with"]["workflow_api"])
+            self.assertEqual(
+                "${{ inputs.execution_backend }}",
+                backend["with"]["execution_backend"],
+            )
+            self.assertEqual(
+                "${{ steps.plan.outputs.runner_profile }}",
+                backend["with"]["runner_profile"],
+            )
+
         self.assertEqual(self.publish["jobs"]["plan"]["runs-on"], ["linux", "amd64", "general", "small"])
         self.assertEqual(
             self.publish["jobs"]["publish"]["runs-on"],
