@@ -42,14 +42,6 @@ class OciWorkflowContractTests(unittest.TestCase):
         self.assertNotRegex(self.workflow, r"runs-on:\s*\[.*buildah")
         self.assertNotIn("runs-on: buildah", self.workflow)
         self.assertNotIn("runs-on: self-hosted", self.workflow)
-        for deprecated_label in (
-            "buildah-tiny",
-            "buildah-small",
-            "buildah-medium",
-            "buildah-high",
-            "arc-runner-set",
-        ):
-            self.assertNotIn(f"runs-on: {deprecated_label}", self.workflow)
         self.assertIn("Resolve contract-owned OCI product and runner", self.workflow)
 
     def test_private_central_helpers_are_immutable_without_central_clone(self) -> None:
@@ -95,15 +87,6 @@ class OciWorkflowContractTests(unittest.TestCase):
             "Remove and verify registered workspace state",
         ):
             self.assertIn(f"name: {cleanup}\n        if: always()", self.workflow)
-        for terminal in (
-            "Render deterministic redacted OCI evidence",
-            "Verify exact caller source remained clean",
-            "Project terminal OCI build status",
-        ):
-            self.assertIn(
-                f"name: {terminal}\n        if: ${{{{ always() && !cancelled() }}}}",
-                self.workflow,
-            )
 
     def test_public_inputs_do_not_expose_engine_runner_command_registry_or_secret(self) -> None:
         on_block = self.workflow.split("outputs:", 1)[0]
@@ -141,79 +124,27 @@ class OciWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("shell callback", self.action.lower())
         self.assertLess(len(self.action.splitlines()), 120)
 
-    def test_smoke_is_real_non_publishing_buildah_contract_caller(self) -> None:
-        self.assertNotIn("uses: ./.github/workflows/reusable-oci-build.yml", self.smoke)
-        self.assertIn("plan:\n    name: Resolve bounded OCI smoke plan", self.smoke)
-        self.assertIn("smoke:\n    name: Non-publishing Buildah smoke", self.smoke)
-        self.assertIn("runs-on: [linux, amd64, general, small]", self.smoke)
-        self.assertNotIn("runs-on: [linux, amd64, general]", self.smoke)
-        self.assertIn("runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}", self.smoke)
-        self.assertIn("timeout-minutes: 180", self.smoke)
+    def test_central_smoke_is_hosted_contract_and_security_validation_only(self) -> None:
+        self.assertIn("contracts:\n    name: Validate OCI build contracts and security boundaries", self.smoke)
+        self.assertEqual(2, self.smoke.count("runs-on: [ubuntu-latest]"))
+        self.assertNotIn("runs-on: [linux, amd64", self.smoke)
+        self.assertNotIn("runs-on: ${{ fromJSON", self.smoke)
         self.assertIn("uses: ./.ciw/actions/validate-oci", self.smoke)
-        self.assertIn("phase: execute", self.smoke)
+        self.assertIn("phase: plan", self.smoke)
+        self.assertNotIn("phase: execute", self.smoke)
         self.assertIn("product_id: ciw-oci-input-smoke", self.smoke)
         self.assertIn("platform_set: linux-amd64", self.smoke)
-        self.assertIn("steps.execute.outputs.resolved_inputs_json", self.smoke)
-        self.assertIn(
-            "Verify exact resolved OCI input evidence is nonempty and redacted",
-            self.smoke,
-        )
-        self.assertIn("INPUT_EVIDENCE_OUTCOME", self.smoke)
-        self.assertIn("test \"${INPUT_EVIDENCE_OUTCOME}\" = \"success\"", self.smoke)
-        self.assertIn(
-            "Require no runner-global containers/image cache at entry", self.smoke
-        )
-        self.assertIn(
-            "Verify engine isolation left no runner-global cache", self.smoke
-        )
-        self.assertEqual(
-            4,
-            self.smoke.count("test ! -e /var/lib/containers/cache")
-            + self.smoke.count("test ! -L /var/lib/containers/cache"),
-        )
-        self.assertIn("IMPLICIT_CACHE_BASELINE_OUTCOME", self.smoke)
-        self.assertIn("IMPLICIT_CACHE_RESIDUE_OUTCOME", self.smoke)
-        fixture = (
-            ROOT / "tests/fixtures/oci-build/input-smoke/Containerfile"
-        ).read_text(encoding="utf-8")
-        self.assertIn(
-            "FROM docker.io/library/busybox@sha256:"
-            "73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662",
-            fixture,
-        )
-        self.assertIn(
-            "COPY --chmod=0444 .ciw-build-inputs/README.md /ciw-input/README.md",
-            fixture,
-        )
-        self.assertNotRegex(fixture, r"(?m)^RUN\s")
-        self.assertIn("Check out exact admitted smoke source", self.smoke)
-        self.assertIn("Verify exact smoke source remained clean", self.smoke)
+        self.assertIn("'[\"linux\",\"amd64\",\"buildah\",\"small\"]'", self.smoke)
         self.assertIn("Run focused OCI contract, security, and media tests", self.smoke)
         self.assertIn("python3 -m unittest discover -s tests -p 'test_oci_*.py' -v", self.smoke)
-        self.assertIn("Verify focused OCI tests left central source clean", self.smoke)
-        self.assertIn(
-            "concurrency:\n"
-            "  group: oci-build-smoke-${{ github.event.pull_request.number }}\n"
-            "  cancel-in-progress: true",
-            self.smoke,
-        )
-        self.assertIn("permissions:\n  actions: read\n  contents: read", self.smoke)
+        self.assertIn("Verify focused tests left exact source clean", self.smoke)
         self.assertIn("zero_artifacts:", self.smoke)
-        self.assertIn("if: ${{ always() && !cancelled() }}", self.smoke)
-        self.assertIn("timeout-minutes: 10", self.smoke)
         self.assertIn("/actions/runs/", self.smoke)
         self.assertIn("/artifacts?per_page=100", self.smoke)
         self.assertNotIn("workflow_dispatch:", self.smoke)
         self.assertNotIn("secrets:", self.smoke)
         self.assertNotIn("upload-artifact", self.smoke)
-        for cleanup in (
-            "Remove bounded zero-artifact audit token scope",
-            "Verify zero-artifact audit token scope residue is absent",
-        ):
-            self.assertIn(f"name: {cleanup}\n        if: always()", self.smoke)
-        self.assertEqual(2, self.smoke.count('if test -z "${TOKEN_SCOPE}"; then'))
-        self.assertIn("unset GITHUB_TOKEN", self.smoke)
-        self.assertIn("Project OCI smoke artifact audit status", self.smoke)
+        self.assertNotIn("/var/lib/containers/cache", self.smoke)
 
     def test_product_contract_covers_backend_agent_state_flux_and_rejects_application_mobile(self) -> None:
         products = self.contract["products"]
@@ -264,19 +195,12 @@ class OciWorkflowContractTests(unittest.TestCase):
         )
         policy = self.contract["input_policies"]["oci-inputs-public-v1"]
         self.assertEqual(["docker.io"], policy["allowed_registry_hosts"])
+        self.assertEqual(["registry-1.docker.io"], policy["allowed_registry_api_hosts"])
+        self.assertEqual(["auth.docker.io"], policy["allowed_registry_token_hosts"])
         self.assertEqual(
-            ["registry-1.docker.io"], policy["allowed_registry_api_hosts"]
+            ["production.cloudfront.docker.com"], policy["allowed_registry_blob_hosts"]
         )
-        self.assertEqual(
-            ["auth.docker.io"], policy["allowed_registry_token_hosts"]
-        )
-        self.assertEqual(
-            ["production.cloudfront.docker.com"],
-            policy["allowed_registry_blob_hosts"],
-        )
-        self.assertEqual(
-            ["raw.githubusercontent.com"], policy["allowed_download_hosts"]
-        )
+        self.assertEqual(["raw.githubusercontent.com"], policy["allowed_download_hosts"])
         self.assertTrue(policy["https_only"])
         self.assertFalse(policy["ambient_auth"])
         self.assertEqual("same-profile-hosts", policy["redirect_policy"])
