@@ -203,7 +203,7 @@ jobs:
       - id: execute
         name: Execute one primitive-backed Android validation plan
         if: ${{ success() && (inputs.validation_scope != 'gradle' || steps.plan.outputs.private_dependency_used != 'true') && (inputs.dependency_prebuild_plan_json == '' || (steps.prebuild_plan.outcome == 'success' && steps.prebuild_execute.outcome == 'success' && steps.prebuild_cleanup.outcome == 'success' && steps.prebuild_residue.outcome == 'success')) }}
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@8eaa37ad0fe3231b202e878b26f66aa23753e38a # issue #373 compile Gradle isolation checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@8d8f72c41901e1f1d8fd257e6f7ce71d6c9a0bef # issue #443 package-read execution checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
