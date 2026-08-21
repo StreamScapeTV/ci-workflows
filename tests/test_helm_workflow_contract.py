@@ -63,7 +63,8 @@ class HelmWorkflowContractTests(unittest.TestCase):
             self.assertIn(f"StreamScapeTV/ci-workflows/actions/exact-checkout@{FOUNDATION_SHA}", text)
             self.assertIn(f"StreamScapeTV/ci-workflows/actions/prepare-workspace@{FOUNDATION_SHA}", text)
             self.assertIn(f"StreamScapeTV/ci-workflows/actions/cleanup-workspace@{FOUNDATION_SHA}", text)
-        self.assertEqual(self.validate_text.count(f"StreamScapeTV/ci-workflows/actions/validate-helm@{HELM_CORE_SHA}"), 4)
+        # Validation now has one planning action per backend plus execute/cleanup/residue.
+        self.assertEqual(self.validate_text.count(f"StreamScapeTV/ci-workflows/actions/validate-helm@{HELM_CORE_SHA}"), 5)
         self.assertEqual(self.publish_text.count(f"StreamScapeTV/ci-workflows/actions/publish-helm@{HELM_CORE_SHA}"), 4)
 
     def test_publication_event_and_version_policy_are_caller_owned(self) -> None:
