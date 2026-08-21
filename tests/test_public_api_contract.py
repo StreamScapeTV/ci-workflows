@@ -22,8 +22,8 @@ class PublicApiContractTests(unittest.TestCase):
         cls.workflows = contract.validate_workflows(cls.data, cls.profiles)
 
     def test_registry_is_complete_and_deterministic(self) -> None:
-        self.assertEqual(len(self.data.workflows), 24)
-        self.assertEqual(len(self.profiles), 12)
+        self.assertEqual(len(self.data.workflows), 25)
+        self.assertEqual(len(self.profiles), 13)
         self.assertEqual(len(self.data.types["trust_classes"]), 6)
         self.assertEqual("3.0.0", self.data.index["contract_version"])
         self.assertEqual(
