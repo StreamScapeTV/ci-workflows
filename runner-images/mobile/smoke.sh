@@ -32,6 +32,26 @@ adb version >/dev/null
 "${ANDROID_HOME}/build-tools/37.0.0/aapt2" version >/dev/null
 "${ANDROID_HOME}/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/clang" --version >/dev/null
 
+cmake_root="${ANDROID_HOME}/cmake/3.22.1"
+test -x "${cmake_root}/bin/cmake"
+test -x "${cmake_root}/bin/ninja"
+test -s "${cmake_root}/package.xml"
+"${cmake_root}/bin/cmake" --version | head -n1 | grep -Fx 'cmake version 3.22.1'
+ninja_version="$("${cmake_root}/bin/ninja" --version)"
+[[ "${ninja_version}" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]
+IFS=. read -r ninja_major ninja_minor _ <<< "${ninja_version}"
+(( ninja_major > 1 || (ninja_major == 1 && ninja_minor >= 10) ))
+
+test -s "${ANDROID_HOME}/licenses/android-sdk-license"
+for license_hash in \
+  8933bad161af4178b1185d1a37fbf41ea5269c55 \
+  d56f5187479451eabf01fb78af6dfcb131a6481e \
+  24333f8a63b6825ea9c5514f83c2829b004d1fee; do
+  grep -Fx "${license_hash}" "${ANDROID_HOME}/licenses/android-sdk-license"
+done
+test ! -w "${ANDROID_HOME}/cmake"
+test ! -w "${ANDROID_HOME}/licenses/android-sdk-license"
+
 command -v git bash curl tar gzip zip unzip >/dev/null
 git --version >/dev/null
 test -x "$(git --exec-path)/git-remote-https"
@@ -59,3 +79,53 @@ test ! -e /home/runner/.docker
 test ! -e /home/runner/.kube
 test ! -e /var/run/secrets/kubernetes.io/serviceaccount/token
 test -z "${KUBECONFIG:-}"
+
+if [[ "${CIW_RUNNER_IMAGE_BUILD_PHASE:-0}" != "1" ]]; then
+  flutter_smoke_root=/home/runner/_work/runner-mobile-flutter-apk-smoke
+  rm -rf "${flutter_smoke_root}"
+  mkdir -p "${flutter_smoke_root}"
+  cleanup_flutter_smoke() {
+    rm -rf "${flutter_smoke_root}"
+  }
+  trap cleanup_flutter_smoke EXIT
+
+  export PUB_CACHE="${flutter_smoke_root}/pub-cache"
+  export GRADLE_USER_HOME="${flutter_smoke_root}/gradle"
+  app_root="${flutter_smoke_root}/app"
+  create_log="${flutter_smoke_root}/flutter-create.log"
+  pub_log="${flutter_smoke_root}/flutter-pub-get.log"
+  build_log="${flutter_smoke_root}/flutter-build-apk.log"
+
+  if ! flutter create \
+      --platforms=android \
+      --project-name runner_mobile_smoke \
+      --org dev.streamscapetv \
+      --no-pub \
+      "${app_root}" >"${create_log}" 2>&1; then
+    cat "${create_log}" >&2
+    exit 1
+  fi
+
+  if ! (cd "${app_root}" && flutter pub get >"${pub_log}" 2>&1); then
+    cat "${pub_log}" >&2
+    exit 1
+  fi
+
+  cmake_sha_before="$(sha256sum "${cmake_root}/bin/cmake" | awk '{print $1}')"
+  ninja_sha_before="$(sha256sum "${cmake_root}/bin/ninja" | awk '{print $1}')"
+  if ! (cd "${app_root}" && flutter build apk --debug --no-pub >"${build_log}" 2>&1); then
+    cat "${build_log}" >&2
+    exit 1
+  fi
+
+  test -s "${app_root}/build/app/outputs/flutter-apk/app-debug.apk"
+  test "$(sha256sum "${cmake_root}/bin/cmake" | awk '{print $1}')" = "${cmake_sha_before}"
+  test "$(sha256sum "${cmake_root}/bin/ninja" | awk '{print $1}')" = "${ninja_sha_before}"
+  if grep -E 'Preparing "Install CMake|Installing CMake|LicenceNotAcceptedException|License for package CMake .* not accepted' "${build_log}"; then
+    cat "${build_log}" >&2
+    exit 1
+  fi
+
+  cleanup_flutter_smoke
+  trap - EXIT
+fi

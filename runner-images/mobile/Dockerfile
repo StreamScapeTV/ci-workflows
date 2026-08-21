@@ -1,6 +1,7 @@
 # Mobile Android/Flutter runner image. Base image digests are retained as build
-# hygiene, while tool downloads are ordinary HTTPS inputs verified by the small
-# checked-in toolchain lock rather than the retired central input/provenance path.
+# hygiene. Direct tool downloads are verified by the checked-in toolchain lock;
+# the Android CMake package is installed only while constructing the image from
+# its fixed SDK package ID after materializing owner-authorized license hashes.
 FROM docker.io/library/gcc:15-trixie@sha256:486d5379b2d679f18bca957901d628952aa0ebc2d82817047bbef1dbfbc13d70 AS build-tools
 
 ARG ACTIONS_RUNNER_URL=https://github.com/actions/runner/releases/download/v2.336.0/actions-runner-linux-x64-2.336.0.tar.gz
@@ -94,6 +95,10 @@ ARG ANDROID_PLATFORM_PACKAGE_VERSION=37.0
 ARG ANDROID_COMPAT_BUILD_TOOLS_VERSION=36.0.0
 ARG ANDROID_BUILD_TOOLS_VERSION=37.0.0
 ARG ANDROID_NDK_VERSION=28.2.13676358
+ARG ANDROID_CMAKE_VERSION=3.22.1
+ARG ANDROID_SDK_LICENSE_1=8933bad161af4178b1185d1a37fbf41ea5269c55
+ARG ANDROID_SDK_LICENSE_2=d56f5187479451eabf01fb78af6dfcb131a6481e
+ARG ANDROID_SDK_LICENSE_3=24333f8a63b6825ea9c5514f83c2829b004d1fee
 
 ARG FLUTTER_URL=https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.44.8-stable.tar.xz
 ARG FLUTTER_SHA256=672089e001571a9fbb209a495c583580c0c6c73ef98999264ba07fa93ace332d
@@ -121,7 +126,7 @@ ENV JAVA_HOME=/opt/java/openjdk \
     RUNNER_MANUALLY_TRAP_SIG=1 \
     ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT=1 \
     CI=true \
-    PATH=/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:/opt/java/openjdk/bin:/usr/local/bin:/home/runner/bin:${PATH}
+    PATH=/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:/opt/android-sdk/cmake/3.22.1/bin:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:/opt/java/openjdk/bin:/usr/local/bin:/home/runner/bin:${PATH}
 
 COPY --from=build-tools /out/ /
 COPY --from=build-tools /etc/ssl/certs /etc/ssl/certs
@@ -158,8 +163,24 @@ RUN set -eux; \
     /usr/local/bin/runner-mobile-assemble; \
     ln -sfn "android-${ANDROID_PLATFORM_PACKAGE_VERSION}" \
       "${ANDROID_HOME}/platforms/android-${ANDROID_PLATFORM_VERSION}"; \
+    mkdir -p "${ANDROID_HOME}/licenses"; \
+    printf '%s\n' \
+      "${ANDROID_SDK_LICENSE_1}" \
+      "${ANDROID_SDK_LICENSE_2}" \
+      "${ANDROID_SDK_LICENSE_3}" \
+      > "${ANDROID_HOME}/licenses/android-sdk-license"; \
+    sdkmanager \
+      --sdk_root="${ANDROID_HOME}" \
+      --channel=0 \
+      --install "cmake;${ANDROID_CMAKE_VERSION}"; \
+    test -x "${ANDROID_HOME}/cmake/${ANDROID_CMAKE_VERSION}/bin/cmake"; \
+    test -x "${ANDROID_HOME}/cmake/${ANDROID_CMAKE_VERSION}/bin/ninja"; \
+    test -s "${ANDROID_HOME}/cmake/${ANDROID_CMAKE_VERSION}/package.xml"; \
     git config --system --add safe.directory /opt/flutter; \
     chown -R 1001:1001 /home/runner /opt/android-sdk /opt/flutter /opt/runner-cache; \
+    chown -R 0:0 "${ANDROID_HOME}/cmake" "${ANDROID_HOME}/licenses"; \
+    chmod -R a-w "${ANDROID_HOME}/cmake" "${ANDROID_HOME}/licenses"; \
+    rm -rf /root/.android "${ANDROID_HOME}/.temp"; \
     rm -rf /tmp/runner.tar.gz /tmp/flutter.tar.xz /tmp/android-*.zip \
       /tmp/cmdline /tmp/platform-tools /tmp/platform-* /tmp/build-tools-* /tmp/ndk; \
     rm -f /usr/local/bin/runner-mobile-assemble; \
@@ -175,7 +196,7 @@ RUN set -eux; \
 
 USER 1001:1001
 WORKDIR /home/runner
-RUN /usr/local/bin/runner-image-smoke
+RUN CIW_RUNNER_IMAGE_BUILD_PHASE=1 /usr/local/bin/runner-image-smoke
 
 USER root
 RUN rm -rf \
