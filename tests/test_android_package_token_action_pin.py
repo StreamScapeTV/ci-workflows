@@ -8,7 +8,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 CHECKPOINT = "b8b6f7ad2e8ea8b37d12a73df19ed02ff497f971"
-RELEASE = "issue #443 Maven package child-process checkpoint"
+RELEASE = "issue #443 package credential process checkpoint"
 PACKAGE_TOKEN_ENV_FORWARD = "CIW_MAVEN_PACKAGE_READ_TOKEN: ${{ secrets.maven_package_read_token }}"
 PACKAGE_TOKEN_UNKNOWN_INPUT_FORWARD = "maven_package_read_token: ${{ secrets.maven_package_read_token }}"
 
