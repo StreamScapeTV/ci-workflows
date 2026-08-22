@@ -59,10 +59,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-device",
-      "sha": "47afb4b6f14742bdddd3998095d719011c3ef549",
-      "release": "issue #341 product-neutral device v2 checkpoint",
+      "sha": "4a7865f420e7ff37893907bbd0c4ad557a0e9ca6",
+      "release": "issue #479 same-repository PR event checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/47afb4b6f14742bdddd3998095d719011c3ef549/actions/validate-device"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/4a7865f420e7ff37893907bbd0c4ad557a0e9ca6/actions/validate-device"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/device-lock",
