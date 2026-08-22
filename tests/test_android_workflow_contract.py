@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REUSABLE = ROOT / ".github/workflows/reusable-android.yml"
 SMOKE = ROOT / ".github/workflows/android-validation-smoke.yml"
 ACTION = ROOT / "actions/validate-android/action.yml"
-ANDROID_SHA = "8eaa37ad0fe3231b202e878b26f66aa23753e38a"
+ANDROID_SHA = "68a6450d6576e0744969cd170cc581856a44312a"
 WARM_SHA = "13de46c51efcf65df798dfec82a620c484350dfa"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 GRADLE_SYNC_SHA = "fa67b6a1580ff2eb7386a9e58de09896b9990696"
@@ -332,13 +332,16 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         steps = self.workflow["jobs"]["validate"]["steps"]
         execute = next(step for step in steps if step["id"] == "execute")
         self.assertEqual(
-            execute["with"]["maven_package_read_token"],
+            execute["env"]["CIW_MAVEN_PACKAGE_READ_TOKEN"],
             "${{ secrets.maven_package_read_token }}",
         )
+        self.assertNotIn("maven_package_read_token", execute.get("with", {}))
         for step in steps:
             if step is execute:
                 continue
-            self.assertNotIn("maven_package_read_token", json.dumps(step))
+            serialized = json.dumps(step)
+            self.assertNotIn("maven_package_read_token", serialized)
+            self.assertNotIn("CIW_MAVEN_PACKAGE_READ_TOKEN", serialized)
 
     def test_workspace_uses_no_github_cache_or_artifact_transport_and_is_terminally_cleaned(self) -> None:
         self.assertNotIn("actions/cache", self.source)
@@ -395,6 +398,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             "arbitrary_command",
             "container_engine",
             "runner_labels",
+            "maven_package_read_token",
         ):
             self.assertNotIn(forbidden, self.action["inputs"])
 

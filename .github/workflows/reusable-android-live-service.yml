@@ -72,7 +72,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve bounded Android live-service plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-android-live-service@2ecbe22ac6d10aa25d79bc046cc205e4df1e08cc # issue #338 Android completion checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android-live-service@68a6450d6576e0744969cd170cc581856a44312a # issue #443 inherited package credential checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -124,7 +124,9 @@ jobs:
 
       - id: execute
         name: Execute only the checked-in live-service gate
-        uses: StreamScapeTV/ci-workflows/actions/validate-android-live-service@2ecbe22ac6d10aa25d79bc046cc205e4df1e08cc # issue #338 Android completion checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android-live-service@68a6450d6576e0744969cd170cc581856a44312a # issue #443 inherited package credential checkpoint
+        env:
+          CIW_MAVEN_PACKAGE_READ_TOKEN: ${{ secrets.maven_package_read_token }}
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -143,12 +145,11 @@ jobs:
           private_dependency_expected_subpath: ${{ steps.dependency.outputs.expected_subpath }}
           service_username: ${{ secrets.service_username }}
           service_password: ${{ secrets.service_password }}
-          maven_package_read_token: ${{ secrets.maven_package_read_token }}
 
       - id: android_cleanup
         name: Remove live-service copied source state once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-android-live-service@2ecbe22ac6d10aa25d79bc046cc205e4df1e08cc # issue #338 Android completion checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android-live-service@68a6450d6576e0744969cd170cc581856a44312a # issue #443 inherited package credential checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -157,7 +158,7 @@ jobs:
       - id: residue
         name: Verify zero live-service copied-source residue
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-android-live-service@2ecbe22ac6d10aa25d79bc046cc205e4df1e08cc # issue #338 Android completion checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android-live-service@68a6450d6576e0744969cd170cc581856a44312a # issue #443 inherited package credential checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}

@@ -64,6 +64,7 @@
       "semantic_runner_profile": "portable",
       "permitted_events": ["pull_request", "push", "workflow_dispatch", "workflow_call"],
       "inputs": [
+        {"name": "execution_backend", "required": false, "default": "organization"},
         {"name": "admitted_sha", "required": true},
         {"name": "chart_name", "required": true},
         {"name": "chart_path", "required": true},
@@ -78,7 +79,7 @@
       "timeout_minutes": 60,
       "matrix_max_jobs": 12,
       "repository_owned_hooks": ["chart_path", "values_path", "policy_path"],
-      "implementation_components": ["ci_workflows.helm.validate", "ci_workflows.helm.package"]
+      "implementation_components": ["ci_workflows.helm.validate", "ci_workflows.helm.package", "ci_workflows.execution_backends.resolve_execution_backend"]
     },
     {
       "file": ".github/workflows/reusable-helm-publish.yml",

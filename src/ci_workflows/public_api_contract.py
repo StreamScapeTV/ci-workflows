@@ -302,7 +302,7 @@ def validate_workflows(data: ContractData, profiles: Mapping[str, Mapping[str, A
             require(replacement != api, f"{api} cannot replace itself")
         by_api[api] = row
     require(set(trust_classes) <= represented_trust, "not every trust class has a public API")
-    require(len(by_api) == 25, f"public API registry must contain 25 workflows, found {len(by_api)}")
+    require(len(by_api) == 26, f"public API registry must contain 26 workflows, found {len(by_api)}")
     for api, row in by_api.items():
         deprecation = row.get("deprecation")
         if isinstance(deprecation, dict):

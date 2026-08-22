@@ -52,10 +52,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/resolve-execution-backend",
-      "sha": "7d5d839c6e90491e165f1358ecb5e80129805764",
-      "release": "issue #405 simplified execution-backend checkpoint",
+      "sha": "01d1d10bafcc4fc1e4c51663f72b08f694dc4e35",
+      "release": "issue #447 portable backend checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/7d5d839c6e90491e165f1358ecb5e80129805764/actions/resolve-execution-backend"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/01d1d10bafcc4fc1e4c51663f72b08f694dc4e35/actions/resolve-execution-backend"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-device",
@@ -107,11 +107,18 @@
       "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/cleanup-workspace"
     },
     {
-      "uses": "StreamScapeTV/ci-workflows/actions/validate-android",
-      "sha": "8eaa37ad0fe3231b202e878b26f66aa23753e38a",
-      "release": "issue #373 compile Gradle isolation checkpoint",
+      "uses": "StreamScapeTV/ci-workflows/actions/network",
+      "sha": "cb28865f7990d2f4592ebc9d16e4c9bace56b805",
+      "release": "issue #363 immutable network checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/8eaa37ad0fe3231b202e878b26f66aa23753e38a/actions/validate-android"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/cb28865f7990d2f4592ebc9d16e4c9bace56b805/actions/network"
+    },
+    {
+      "uses": "StreamScapeTV/ci-workflows/actions/validate-android",
+      "sha": "68a6450d6576e0744969cd170cc581856a44312a",
+      "release": "issue #443 inherited package credential checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/68a6450d6576e0744969cd170cc581856a44312a/actions/validate-android"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies",
@@ -129,17 +136,17 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-android-live-service",
-      "sha": "2ecbe22ac6d10aa25d79bc046cc205e4df1e08cc",
-      "release": "issue #338 Android completion checkpoint",
+      "sha": "68a6450d6576e0744969cd170cc581856a44312a",
+      "release": "issue #443 inherited package credential checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/2ecbe22ac6d10aa25d79bc046cc205e4df1e08cc/actions/validate-android-live-service"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/68a6450d6576e0744969cd170cc581856a44312a/actions/validate-android-live-service"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-android-release",
-      "sha": "2ecbe22ac6d10aa25d79bc046cc205e4df1e08cc",
-      "release": "issue #338 Android completion checkpoint",
+      "sha": "68a6450d6576e0744969cd170cc581856a44312a",
+      "release": "issue #443 inherited package credential checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/2ecbe22ac6d10aa25d79bc046cc205e4df1e08cc/actions/validate-android-release"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/68a6450d6576e0744969cd170cc581856a44312a/actions/validate-android-release"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/checkout-private-dependency",
