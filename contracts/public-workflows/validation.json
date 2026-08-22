@@ -268,6 +268,33 @@
       "implementation_components": ["ci_workflows.gitops.validate", "actions/validate-gitops"]
     },
     {
+      "file": ".github/workflows/reusable-network-download.yml",
+      "api_name": "network.download",
+      "api_version": "1.0.0",
+      "status": "implemented",
+      "trust_class": "read-only-validation",
+      "permission_profile": "validation-read",
+      "semantic_runner_profile": "portable",
+      "permitted_events": ["pull_request", "push", "workflow_dispatch", "workflow_call"],
+      "inputs": [
+        {"name": "url", "required": true},
+        {"name": "relative_path", "required": false, "default": "dependency.bin"},
+        {"name": "expected_sha256", "required": false, "default": ""},
+        {"name": "expected_size", "required": false, "default": ""},
+        {"name": "expected_content_type", "required": false, "default": ""},
+        {"name": "maximum_bytes", "required": false, "default": 536870912},
+        {"name": "archive_format", "required": false, "default": "none"},
+        {"name": "relative_destination", "required": false, "default": "extracted"}
+      ],
+      "secrets": [],
+      "outputs": ["result", "download_result_json", "extraction_result_json", "cleanup_result"],
+      "stable_check_name": "CI / Network download",
+      "timeout_minutes": 15,
+      "matrix_max_jobs": 1,
+      "repository_owned_hooks": [],
+      "implementation_components": ["ci_workflows.network_primitives.download_file", "ci_workflows.network_primitives.extract_archive", "ci_workflows.ciw_network.execute_network", "actions/network"]
+    },
+    {
       "file": ".github/workflows/reusable-script.yml",
       "api_name": "validation.script",
       "api_version": "1.0.0",

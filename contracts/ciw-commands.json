@@ -268,6 +268,36 @@
       "trust_class": "read-only-validation"
     },
     {
+      "cleanup": "registered workflow workspace cleanup under if: always()",
+      "domain": "network",
+      "failure": "NetworkPrimitiveError.code or CIWError.code",
+      "handler": "ci_workflows.ciw.handle_network",
+      "inputs": [
+        "operation",
+        "url",
+        "relative_path",
+        "expected_sha256",
+        "expected_size",
+        "expected_content_type",
+        "maximum_bytes",
+        "archive_format",
+        "relative_destination",
+        "marker-bound workflow environment"
+      ],
+      "operation": "run",
+      "outputs": [
+        "result",
+        "local_path",
+        "network_result_json"
+      ],
+      "side_effects": [
+        "downloads one bounded HTTPS object into registered dependency state",
+        "verifies exact size, checksum, or content type when requested",
+        "extracts ZIP or TAR content into registered generated state"
+      ],
+      "trust_class": "read-only-validation"
+    },
+    {
       "cleanup": "ciw workspace cleanup under if: always()",
       "domain": "helm",
       "failure": "HelmValidationError.code",

@@ -15,6 +15,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 | `maintenance.artifacts` `1.0.0` | `.github/workflows/reusable-artifact-cleanup.yml` | `planned` | `trusted-maintenance` | Maintenance / Artifact cleanup |
 | `maintenance.branches` `1.0.0` | `.github/workflows/reusable-branch-hygiene.yml` | `planned` | `trusted-maintenance` | Maintenance / Branch hygiene |
 | `maintenance.runner-retry` `1.0.0` | `.github/workflows/reusable-runner-infrastructure-retry.yml` | `planned` | `trusted-maintenance` | Maintenance / Runner retry |
+| `network.download` `1.0.0` | `.github/workflows/reusable-network-download.yml` | `implemented` | `read-only-validation` | CI / Network download |
 | `oci.build` `2.0.0` | `.github/workflows/reusable-oci-build.yml` | `migration-pending` | `read-only-validation` | CI / OCI build validation |
 | `oci.publish` `2.0.0` | `.github/workflows/reusable-oci-publish.yml` | `migration-pending` | `trusted-publication` | Release / OCI publication |
 | `release.gradle-maven` `1.0.0` | `.github/workflows/reusable-gradle-maven-publish.yml` | `implemented` | `trusted-publication` | Release / Gradle Maven publication |
@@ -90,6 +91,14 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 - Inputs: `project_id` (required), `run_id` (required), `expected_head_sha` (required), `dry_run` (default `True`), `request_id` (required)
 - Secrets: `organization_maintenance_token`
 - Outputs: `result`, `retry_run_id`, `request_id`
+- Repository-owned hooks: none
+
+### `network.download`
+
+- Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
+- Inputs: `url` (required), `relative_path` (default `dependency.bin`), `expected_sha256` (default ``), `expected_size` (default ``), `expected_content_type` (default ``), `maximum_bytes` (default `536870912`), `archive_format` (default `none`), `relative_destination` (default `extracted`)
+- Secrets: none
+- Outputs: `result`, `download_result_json`, `extraction_result_json`, `cleanup_result`
 - Repository-owned hooks: none
 
 ### `oci.build`

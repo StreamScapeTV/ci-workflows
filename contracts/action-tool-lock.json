@@ -107,6 +107,13 @@
       "source": "https://github.com/StreamScapeTV/ci-workflows/tree/70e08d4ddf8930046632a7135950e924b82e22bf/actions/cleanup-workspace"
     },
     {
+      "uses": "StreamScapeTV/ci-workflows/actions/network",
+      "sha": "cb28865f7990d2f4592ebc9d16e4c9bace56b805",
+      "release": "issue #363 immutable network checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/cb28865f7990d2f4592ebc9d16e4c9bace56b805/actions/network"
+    },
+    {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-android",
       "sha": "68a6450d6576e0744969cd170cc581856a44312a",
       "release": "issue #443 inherited package credential checkpoint",
