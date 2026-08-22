@@ -26,7 +26,7 @@ RUN set -eux; \
     for tool in cmake ctest cpack; do \
       ln -s "/opt/cmake/bin/${tool}" "/native-root/usr/local/bin/${tool}"; \
     done; \
-    native_packages='binutils binutils-common binutils-x86-64-linux-gnu cpp cpp-x86-64-linux-gnu cpp-14-x86-64-linux-gnu g++ g++-x86-64-linux-gnu g++-14-x86-64-linux-gnu gcc gcc-x86-64-linux-gnu gcc-14-x86-64-linux-gnu libc6-dev libgcc-14-dev libgcc-s1 libstdc++-14-dev libstdc++6 linux-libc-dev make'; \
+    native_packages='binutils binutils-common binutils-x86-64-linux-gnu cpp cpp-14 cpp-x86-64-linux-gnu cpp-14-x86-64-linux-gnu g++ g++-14 g++-x86-64-linux-gnu g++-14-x86-64-linux-gnu gcc gcc-14 gcc-x86-64-linux-gnu gcc-14-x86-64-linux-gnu libc6-dev libgcc-14-dev libgcc-s1 libstdc++-14-dev libstdc++6 linux-libc-dev make'; \
     for package in ${native_packages}; do \
       dpkg-query -W -f='${db:Status-Abbrev}\n' "${package}" | grep -Fx 'ii '; \
       dpkg-query -L "${package}"; \
