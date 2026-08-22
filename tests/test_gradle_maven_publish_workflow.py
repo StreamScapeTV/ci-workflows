@@ -12,8 +12,10 @@ from ci_workflows.validation_model import ActionsLoader
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/reusable-gradle-maven-publish.yml"
+PUBLIC_CONTRACT = ROOT / "contracts/public-workflows/gradle-packages.json"
 ACTION = ROOT / "actions/publish-gradle-maven/action.yml"
 ACTION_LOCK = ROOT / "contracts/action-tool-lock.json"
+GRADLE_MAVEN_SOURCE = ROOT / "src/ci_workflows/gradle_maven_publish.py"
 CIW = ROOT / "scripts" / "ci" / "ciw.py"
 PUBLISH_ACTION = "StreamScapeTV/ci-workflows/actions/publish-gradle-maven"
 PUBLISH_SHA = "c4b85851ac650906103f116c95d9d16c546dd538"
@@ -25,14 +27,17 @@ class GradleMavenPublishWorkflowTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.source = WORKFLOW.read_text(encoding="utf-8")
         cls.workflow = yaml.load(cls.source, Loader=ActionsLoader)
+        cls.public = json.loads(PUBLIC_CONTRACT.read_text(encoding="utf-8"))["workflows"][0]
         cls.action_source = ACTION.read_text(encoding="utf-8")
         cls.action = yaml.safe_load(cls.action_source)
+        cls.publication_source = GRADLE_MAVEN_SOURCE.read_text(encoding="utf-8")
 
     def test_public_surface_is_bounded_and_registry_host_is_not_caller_input(self) -> None:
         call = self.workflow["on"]["workflow_call"]
         self.assertEqual(
             set(call["inputs"]),
             {
+                "execution_backend",
                 "admitted_sha",
                 "expected_branch",
                 "working_directory",
@@ -41,7 +46,16 @@ class GradleMavenPublishWorkflowTests(unittest.TestCase):
                 "arguments_json",
             },
         )
+        backend = call["inputs"]["execution_backend"]
+        self.assertFalse(backend["required"])
+        self.assertEqual(backend["default"], "organization")
+        self.assertEqual(backend["type"], "string")
+        public_inputs = {item["name"]: item for item in self.public["inputs"]}
+        self.assertEqual(set(call["inputs"]), set(public_inputs))
+        self.assertEqual(public_inputs["execution_backend"]["default"], "organization")
         self.assertEqual(set(call["secrets"]), {"registry_username", "registry_token"})
+        for secret in call["secrets"].values():
+            self.assertFalse(secret["required"])
         self.assertEqual(set(call["outputs"]), {"result", "release_version"})
         for forbidden in (
             "registry_host",
@@ -54,8 +68,36 @@ class GradleMavenPublishWorkflowTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, call["inputs"])
 
+    def test_backend_classification_preserves_organization_and_fails_hosted_closed(self) -> None:
+        jobs = self.workflow["jobs"]
+        self.assertEqual(set(jobs), {"reject_hosted", "reject_invalid", "publish"})
+
+        hosted = jobs["reject_hosted"]
+        self.assertEqual(hosted["runs-on"], ["ubuntu-latest"])
+        self.assertEqual(hosted["if"], "${{ inputs.execution_backend == 'github-hosted' }}")
+        self.assertEqual(hosted["timeout-minutes"], 5)
+        hosted_serialized = json.dumps(hosted)
+        self.assertNotIn("secrets.", hosted_serialized)
+        self.assertNotIn("uses", hosted)
+        self.assertIn("private Maven publication authority is organization-only", hosted_serialized)
+
+        invalid = jobs["reject_invalid"]
+        self.assertEqual(invalid["runs-on"], ["linux", "amd64", "general", "tiny"])
+        self.assertEqual(
+            invalid["if"],
+            "${{ inputs.execution_backend != 'organization' && inputs.execution_backend != 'github-hosted' }}",
+        )
+        self.assertEqual(invalid["timeout-minutes"], 5)
+        invalid_serialized = json.dumps(invalid)
+        self.assertNotIn("secrets.", invalid_serialized)
+        self.assertNotIn("uses", invalid)
+        self.assertIn("execution_backend must be organization or github-hosted", invalid_serialized)
+
+        publish = jobs["publish"]
+        self.assertEqual(publish["if"], "${{ inputs.execution_backend == 'organization' }}")
+        self.assertEqual(publish["runs-on"], ["linux", "amd64", "mobile"])
+
     def test_one_mobile_job_runs_one_gradle_publication_with_terminal_cleanup(self) -> None:
-        self.assertEqual(set(self.workflow["jobs"]), {"publish"})
         job = self.workflow["jobs"]["publish"]
         self.assertEqual(job["runs-on"], ["linux", "amd64", "mobile"])
         self.assertEqual(job["timeout-minutes"], 120)
@@ -107,7 +149,11 @@ class GradleMavenPublishWorkflowTests(unittest.TestCase):
             self.assertNotIn(forbidden, lowered)
         self.assertEqual(self.workflow["permissions"], {"contents": "read"})
 
-    def test_registry_secrets_reach_only_execute_phase(self) -> None:
+    def test_registry_secrets_reach_only_execute_phase_and_org_execute_requires_them(self) -> None:
+        call = self.workflow["on"]["workflow_call"]
+        for secret_name in ("registry_username", "registry_token"):
+            self.assertFalse(call["secrets"][secret_name]["required"])
+
         steps = self.workflow["jobs"]["publish"]["steps"]
         execute = next(step for step in steps if step.get("id") == "maven")
         self.assertEqual(execute["with"]["registry_username"], "${{ secrets.registry_username }}")
@@ -118,6 +164,15 @@ class GradleMavenPublishWorkflowTests(unittest.TestCase):
             serialized = json.dumps(step)
             self.assertNotIn("registry_username", serialized)
             self.assertNotIn("registry_token", serialized)
+        for job_id in ("reject_hosted", "reject_invalid"):
+            serialized = json.dumps(self.workflow["jobs"][job_id])
+            self.assertNotIn("registry_username", serialized)
+            self.assertNotIn("registry_token", serialized)
+
+        self.assertIn(
+            'raise GradleMavenPublishError("Maven registry credentials are required")',
+            self.publication_source,
+        )
 
     def test_publication_action_checkpoint_is_locked(self) -> None:
         lock = json.loads(ACTION_LOCK.read_text(encoding="utf-8"))

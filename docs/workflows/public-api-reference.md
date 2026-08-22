@@ -120,7 +120,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 ### `release.gradle-maven`
 
 - Events: `workflow_call`
-- Inputs: `admitted_sha` (required), `expected_branch` (required), `working_directory` (default `.`), `gradle_wrapper_path` (default `gradlew`), `version_file` (default `VERSION`), `arguments_json` (required)
+- Inputs: `execution_backend` (default `organization`), `admitted_sha` (required), `expected_branch` (required), `working_directory` (default `.`), `gradle_wrapper_path` (default `gradlew`), `version_file` (default `VERSION`), `arguments_json` (required)
 - Secrets: `registry_username`, `registry_token`
 - Outputs: `result`, `release_version`
 - Repository-owned hooks: `working_directory`, `gradle_wrapper_path`, `version_file`, `arguments_json`
