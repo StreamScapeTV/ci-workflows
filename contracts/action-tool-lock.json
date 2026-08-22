@@ -52,10 +52,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/resolve-execution-backend",
-      "sha": "7d5d839c6e90491e165f1358ecb5e80129805764",
-      "release": "issue #405 simplified execution-backend checkpoint",
+      "sha": "01d1d10bafcc4fc1e4c51663f72b08f694dc4e35",
+      "release": "issue #447 portable backend checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/7d5d839c6e90491e165f1358ecb5e80129805764/actions/resolve-execution-backend"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/01d1d10bafcc4fc1e4c51663f72b08f694dc4e35/actions/resolve-execution-backend"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-device",

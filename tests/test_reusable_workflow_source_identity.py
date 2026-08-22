@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_SHA = "0b55b5f4bc2623815e47759d186e4955b6444075"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 BACKEND_SHA = "7d5d839c6e90491e165f1358ecb5e80129805764"
+EXECUTION_BACKEND_SHA = "01d1d10bafcc4fc1e4c51663f72b08f694dc4e35"
 FLUTTER_SHA = "d2e1c7a7601e1caeeb976311fb13cf41fef94d4a"
 ANDROID_SHA = "68a6450d6576e0744969cd170cc581856a44312a"
 GRADLE_WARM_SHA = "13de46c51efcf65df798dfec82a620c484350dfa"
@@ -26,6 +27,7 @@ RELEASE_TAG_SHA = "2b0443fdad002d47625386a959ebe68545cfe022"
 FOUNDATION = "issue #116 immutable private-action checkpoint"
 ISSUE_350 = "issue #350 PR-merge snapshot race checkpoint"
 ISSUE_405 = "issue #405 simplified execution-backend checkpoint"
+ISSUE_447 = "issue #447 portable backend checkpoint"
 ISSUE_104 = "issue #104 immutable private-action checkpoint"
 ISSUE_443_MAVEN = "issue #443 inherited package credential checkpoint"
 ISSUE_346_WARM = "issue #346 dependency warm checkpoint"
@@ -83,6 +85,7 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
     },
     ".github/workflows/reusable-gitops-validation.yml": {
         "StreamScapeTV/ci-workflows/actions/validate-gitops": (GITOPS_SHA, ISSUE_125),
+        "StreamScapeTV/ci-workflows/actions/resolve-execution-backend": (EXECUTION_BACKEND_SHA, ISSUE_447),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/render-evidence": (FOUNDATION_SHA, FOUNDATION),
