@@ -3,6 +3,11 @@ name: Reusable Helm validation
 on:
   workflow_call:
     inputs:
+      execution_backend:
+        description: organization or github-hosted
+        required: false
+        default: organization
+        type: string
       admitted_sha:
         description: Exact lowercase source SHA admitted by the caller
         required: true
@@ -43,11 +48,12 @@ permissions:
 
 jobs:
   plan:
-    name: Resolve bounded Helm validation plan
-    runs-on: [linux, amd64, general, small]
+    name: Resolve bounded hosted Helm validation plan
+    if: ${{ inputs.execution_backend == 'github-hosted' }}
+    runs-on: [ubuntu-latest]
     timeout-minutes: 10
     outputs:
-      runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
+      runs_on_json: ${{ steps.backend.outputs.runs_on_json }}
       workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
       source_trust: ${{ steps.plan.outputs.source_trust }}
     steps:
@@ -64,10 +70,52 @@ jobs:
           artifact_exception_id: ${{ inputs.artifact_exception_id }}
           source_trust: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && github.event.pull_request.head.repo.full_name != github.repository && 'untrusted-fork' || (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && 'trusted-pr' || 'trusted-exact' }}
 
+      - id: backend
+        name: Resolve bounded hosted execution backend
+        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@01d1d10bafcc4fc1e4c51663f72b08f694dc4e35 # issue #447 portable backend checkpoint
+        with:
+          workflow_api: helm.validate
+          source_trust: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && github.event.pull_request.head.repo.full_name != github.repository && 'untrusted-fork' || (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && 'trusted-pr' || 'trusted-exact' }}
+          execution_backend: ${{ inputs.execution_backend }}
+          runner_profile: ${{ steps.plan.outputs.runner_profile }}
+
+  plan_organization:
+    name: Resolve bounded organization Helm validation plan
+    if: ${{ inputs.execution_backend != 'github-hosted' }}
+    runs-on: [linux, amd64, general, small]
+    timeout-minutes: 10
+    outputs:
+      runs_on_json: ${{ steps.backend.outputs.runs_on_json }}
+      workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
+      source_trust: ${{ steps.plan.outputs.source_trust }}
+    steps:
+      - id: plan
+        name: Resolve shared Helm runner mechanics
+        uses: StreamScapeTV/ci-workflows/actions/validate-helm@7b17879f21fbf029708d6a404a9dd12d75503a52 # issue #18 simplified Helm runtime checkpoint
+        with:
+          phase: plan
+          admitted_sha: ${{ inputs.admitted_sha }}
+          product_id: ${{ inputs.product_id }}
+          release_version: ${{ inputs.release_version }}
+          values_profile: ${{ inputs.values_profile }}
+          policy_path: ${{ inputs.policy_path }}
+          artifact_exception_id: ${{ inputs.artifact_exception_id }}
+          source_trust: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && github.event.pull_request.head.repo.full_name != github.repository && 'untrusted-fork' || (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && 'trusted-pr' || 'trusted-exact' }}
+
+      - id: backend
+        name: Resolve bounded organization execution backend
+        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@01d1d10bafcc4fc1e4c51663f72b08f694dc4e35 # issue #447 portable backend checkpoint
+        with:
+          workflow_api: helm.validate
+          source_trust: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && github.event.pull_request.head.repo.full_name != github.repository && 'untrusted-fork' || (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && 'trusted-pr' || 'trusted-exact' }}
+          execution_backend: ${{ inputs.execution_backend }}
+          runner_profile: ${{ steps.plan.outputs.runner_profile }}
+
   validate:
     name: CI / Helm validation
-    needs: plan
-    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
+    needs: [plan, plan_organization]
+    if: ${{ always() && (needs.plan.result == 'success' || needs.plan_organization.result == 'success') }}
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json || needs.plan_organization.outputs.runs_on_json) }}
     timeout-minutes: 60
     outputs:
       result: ${{ steps.helm.outcome == 'success' && steps.helm_cleanup.outcome == 'success' && steps.residue.outcome == 'success' && steps.workspace_cleanup.outcome == 'success' && 'success' || 'failure' }}
@@ -84,10 +132,10 @@ jobs:
       - name: Prepare isolated Helm state
         uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
-          profile: ${{ needs.plan.outputs.workspace_profile }}
+          profile: ${{ needs.plan.outputs.workspace_profile || needs.plan_organization.outputs.workspace_profile }}
           cache_mode: disabled
           source_sha: ${{ inputs.admitted_sha }}
-          trust_mode: ${{ needs.plan.outputs.source_trust }}
+          trust_mode: ${{ needs.plan.outputs.source_trust || needs.plan_organization.outputs.source_trust }}
       - id: helm
         name: Lint, render, and package caller Helm chart
         continue-on-error: true
@@ -100,7 +148,7 @@ jobs:
           values_profile: ${{ inputs.values_profile }}
           policy_path: ${{ inputs.policy_path }}
           artifact_exception_id: ${{ inputs.artifact_exception_id }}
-          source_trust: ${{ needs.plan.outputs.source_trust }}
+          source_trust: ${{ needs.plan.outputs.source_trust || needs.plan_organization.outputs.source_trust }}
       - id: helm_cleanup
         name: Remove Helm package and temporary state
         if: always()
@@ -109,7 +157,7 @@ jobs:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
           product_id: ${{ inputs.product_id }}
-          source_trust: ${{ needs.plan.outputs.source_trust }}
+          source_trust: ${{ needs.plan.outputs.source_trust || needs.plan_organization.outputs.source_trust }}
       - id: residue
         name: Verify zero Helm-specific residue
         if: always()
@@ -118,7 +166,7 @@ jobs:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
           product_id: ${{ inputs.product_id }}
-          source_trust: ${{ needs.plan.outputs.source_trust }}
+          source_trust: ${{ needs.plan.outputs.source_trust || needs.plan_organization.outputs.source_trust }}
       - id: workspace_cleanup
         name: Remove and verify all registered workspace state
         if: always()

@@ -18,7 +18,12 @@ from .validation_model import (
     ParsedDocument,
 )
 
-_TRUSTED_PLANNER_RUNNER = "${{ fromJSON(needs.plan.outputs.runs_on_json) }}"
+_TRUSTED_PLANNER_RUNNERS = frozenset(
+    {
+        "${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
+        "${{ fromJSON(needs.plan.outputs.runs_on_json || needs.plan_organization.outputs.runs_on_json) }}",
+    }
+)
 
 
 def _finding(
@@ -308,13 +313,13 @@ def _validate_runner(
         )
     for label in labels:
         if "${{" in label:
-            if label != _TRUSTED_PLANNER_RUNNER:
+            if label not in _TRUSTED_PLANNER_RUNNERS:
                 _finding(
                     findings,
                     config,
                     "dynamic-runner",
                     relative_path,
-                    "runner expressions must use the exact trusted planner output",
+                    "runner expressions must use an exact trusted planner output projection",
                 )
         elif label == "self-hosted":
             continue

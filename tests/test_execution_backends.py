@@ -38,13 +38,21 @@ class ExecutionBackendTests(unittest.TestCase):
                 self.assertEqual(resolved.runs_on, ("ubuntu-latest",))
                 self.assertEqual(resolved.as_dict()["runs_on_json"], '["ubuntu-latest"]')
 
-    def test_hosted_rejects_python_buildah_profiles_instead_of_switching_engines(self) -> None:
-        for profile in ("buildah-medium", "buildah-high"):
+    def test_hosted_rejects_unproven_specialized_profiles_instead_of_falling_back(self) -> None:
+        selectors = {
+            "mobile": ("linux", "amd64", "mobile"),
+            "apple": ("macOS", "ARM64"),
+            "service-small": ("linux", "amd64", "service", "small"),
+            "buildah-medium": ("linux", "amd64", "buildah", "medium"),
+            "buildah-high": ("linux", "amd64", "buildah", "high"),
+            "flux-control": ("linux", "amd64", "flux-control"),
+        }
+        for profile, selector in selectors.items():
             with self.subTest(profile=profile), self.assertRaises(ExecutionBackendError) as raised:
                 resolve_execution_backend(
                     execution_backend="github-hosted",
                     execution_profile=profile,
-                    organization_runs_on=("linux", "amd64", "buildah", "medium"),
+                    organization_runs_on=selector,
                 )
             self.assertEqual(raised.exception.code, "unsupported_execution_backend_profile")
 
@@ -62,38 +70,118 @@ class ExecutionBackendTests(unittest.TestCase):
                 organization_runs_on=("self-hosted",),
             )
 
-    def test_only_selected_reusable_workflows_expose_optional_backend(self) -> None:
-        for filename in ("reusable-resolve-source.yml", "reusable-node.yml", "reusable-python.yml"):
-            workflow = yaml.load(
-                (ROOT / ".github/workflows" / filename).read_text(encoding="utf-8"),
-                Loader=ActionsLoader,
-            )
-            backend = workflow["on"]["workflow_call"]["inputs"]["execution_backend"]
-            self.assertFalse(backend["required"])
-            self.assertEqual(backend["default"], "organization")
-            self.assertEqual(backend["type"], "string")
+    def test_portable_reusable_workflows_expose_optional_backend(self) -> None:
+        for filename in (
+            "reusable-resolve-source.yml",
+            "reusable-node.yml",
+            "reusable-python.yml",
+            "reusable-gitops-validation.yml",
+            "reusable-script.yml",
+            "reusable-helm-validate.yml",
+        ):
+            with self.subTest(filename=filename):
+                workflow = yaml.load(
+                    (ROOT / ".github/workflows" / filename).read_text(encoding="utf-8"),
+                    Loader=ActionsLoader,
+                )
+                backend = workflow["on"]["workflow_call"]["inputs"]["execution_backend"]
+                self.assertFalse(backend["required"])
+                self.assertEqual(backend["default"], "organization")
+                self.assertEqual(backend["type"], "string")
 
-    def test_portable_backend_planners_never_require_organization_capacity(self) -> None:
-        for filename in ("reusable-resolve-source.yml", "reusable-node.yml", "reusable-python.yml"):
+    def test_source_planners_are_backend_aware_after_issue_449(self) -> None:
+        source = yaml.load(
+            (ROOT / ".github/workflows/reusable-resolve-source.yml").read_text(encoding="utf-8"),
+            Loader=ActionsLoader,
+        )
+        hosted = source["jobs"]["plan"]
+        organization = source["jobs"]["plan_organization"]
+        self.assertEqual(hosted["runs-on"], ["ubuntu-latest"])
+        self.assertEqual(hosted["if"], "${{ inputs.execution_backend == 'github-hosted' }}")
+        self.assertEqual(organization["runs-on"], ["linux", "amd64", "general", "tiny"])
+        self.assertEqual(
+            organization["if"],
+            "${{ inputs.execution_backend != 'github-hosted' }}",
+        )
+
+    def test_node_python_hosted_planners_stay_hosted_until_issue_454(self) -> None:
+        for filename in ("reusable-node.yml", "reusable-python.yml"):
             with self.subTest(filename=filename):
                 workflow = yaml.load(
                     (ROOT / ".github/workflows" / filename).read_text(encoding="utf-8"),
                     Loader=ActionsLoader,
                 )
                 self.assertEqual(workflow["jobs"]["plan"]["runs-on"], ["ubuntu-latest"])
+                self.assertNotIn("plan_organization", workflow["jobs"])
 
-    def test_execution_jobs_consume_only_central_planner_output(self) -> None:
+    def test_new_portable_families_have_backend_aware_planners(self) -> None:
+        for filename in (
+            "reusable-gitops-validation.yml",
+            "reusable-script.yml",
+            "reusable-helm-validate.yml",
+        ):
+            with self.subTest(filename=filename):
+                workflow = yaml.load(
+                    (ROOT / ".github/workflows" / filename).read_text(encoding="utf-8"),
+                    Loader=ActionsLoader,
+                )
+                hosted = workflow["jobs"]["plan"]
+                organization = workflow["jobs"]["plan_organization"]
+                self.assertEqual(hosted["runs-on"], ["ubuntu-latest"])
+                self.assertEqual(hosted["if"], "${{ inputs.execution_backend == 'github-hosted' }}")
+                self.assertEqual(organization["runs-on"], ["linux", "amd64", "general", "small"])
+                self.assertEqual(
+                    organization["if"],
+                    "${{ inputs.execution_backend != 'github-hosted' }}",
+                )
+
+    def test_execution_jobs_consume_only_successful_planner_output(self) -> None:
         source = yaml.load(
             (ROOT / ".github/workflows/reusable-resolve-source.yml").read_text(encoding="utf-8"),
             Loader=ActionsLoader,
         )
-        self.assertEqual(source["jobs"]["admit"]["runs-on"], "${{ fromJSON(needs.plan.outputs.runs_on_json) }}")
+        source_admit = source["jobs"]["admit"]
+        self.assertEqual(source_admit["needs"], ["plan", "plan_organization"])
+        self.assertEqual(
+            source_admit["if"],
+            "${{ always() && (needs.plan.result == 'success' || needs.plan_organization.result == 'success') }}",
+        )
+        self.assertEqual(
+            source_admit["runs-on"],
+            "${{ fromJSON(needs.plan.outputs.runs_on_json || needs.plan_organization.outputs.runs_on_json) }}",
+        )
+
         for filename in ("reusable-node.yml", "reusable-python.yml"):
-            workflow = yaml.load(
-                (ROOT / ".github/workflows" / filename).read_text(encoding="utf-8"),
-                Loader=ActionsLoader,
-            )
-            self.assertEqual(workflow["jobs"]["validate"]["runs-on"], "${{ fromJSON(needs.plan.outputs.runs_on_json) }}")
+            with self.subTest(filename=filename):
+                workflow = yaml.load(
+                    (ROOT / ".github/workflows" / filename).read_text(encoding="utf-8"),
+                    Loader=ActionsLoader,
+                )
+                self.assertEqual(
+                    workflow["jobs"]["validate"]["runs-on"],
+                    "${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
+                )
+
+        for filename in (
+            "reusable-gitops-validation.yml",
+            "reusable-script.yml",
+            "reusable-helm-validate.yml",
+        ):
+            with self.subTest(filename=filename):
+                workflow = yaml.load(
+                    (ROOT / ".github/workflows" / filename).read_text(encoding="utf-8"),
+                    Loader=ActionsLoader,
+                )
+                execute = workflow["jobs"]["validate"]
+                self.assertEqual(execute["needs"], ["plan", "plan_organization"])
+                self.assertEqual(
+                    execute["if"],
+                    "${{ always() && (needs.plan.result == 'success' || needs.plan_organization.result == 'success') }}",
+                )
+                self.assertEqual(
+                    execute["runs-on"],
+                    "${{ fromJSON(needs.plan.outputs.runs_on_json || needs.plan_organization.outputs.runs_on_json) }}",
+                )
 
 
 if __name__ == "__main__":

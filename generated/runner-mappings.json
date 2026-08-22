@@ -27,7 +27,8 @@
       "allowed_workflow_apis": [
         "validation.apple",
         "validation.flutter",
-        "validation.device"
+        "validation.device",
+        "validation.script"
       ],
       "approved_selectors": [
         [
@@ -333,7 +334,9 @@
       "allowed_workflow_apis": [
         "validation.python",
         "validation.node",
+        "validation.native",
         "validation.gitops",
+        "validation.script",
         "helm.validate",
         "maintenance.conformance",
         "release.orchestrate",
@@ -423,7 +426,8 @@
       "allowed_workflow_apis": [
         "validation.android",
         "validation.flutter",
-        "validation.device"
+        "validation.device",
+        "validation.script"
       ],
       "approved_selectors": [
         [
@@ -694,6 +698,12 @@
       ],
       "strategy": "fixed"
     },
+    "validation.native": {
+      "profiles": [
+        "general-small"
+      ],
+      "strategy": "fixed"
+    },
     "validation.node": {
       "profiles": [
         "general-small"
@@ -706,6 +716,14 @@
         "general-medium",
         "buildah-medium",
         "buildah-high"
+      ],
+      "strategy": "profile-contract"
+    },
+    "validation.script": {
+      "profiles": [
+        "general-small",
+        "mobile",
+        "apple"
       ],
       "strategy": "profile-contract"
     },

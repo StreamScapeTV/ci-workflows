@@ -64,7 +64,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 ### `helm.validate`
 
 - Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
-- Inputs: `admitted_sha` (required), `chart_name` (required), `chart_path` (required), `release_version`, `values_path`, `policy_path`, `artifact_exception_id`
+- Inputs: `execution_backend` (default `organization`), `admitted_sha` (required), `chart_name` (required), `chart_path` (required), `release_version`, `values_path`, `policy_path`, `artifact_exception_id`
 - Secrets: none
 - Outputs: `result`, `chart_digest`, `artifact_exception_used`
 - Repository-owned hooks: `chart_path`, `values_path`, `policy_path`
@@ -144,7 +144,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 ### `release.public-native-image-chart`
 
 - Events: `tag-push`, `workflow_call`
-- Inputs: `image_name` (required), `chart_name` (required), `chart_path` (required), `dockerfile_path` (default `Dockerfile`), `build_context` (default `.`)
+- Inputs: `image_name` (required), `chart_name` (required), `chart_path` (required), `dockerfile_path` (default `Dockerfile`), `build_context` (default `.`), `publish_latest_image` (default `False`)
 - Secrets: none
 - Outputs: `version`, `source_sha`, `image_reference`, `image_digest`, `chart_reference`, `chart_digest`, `chart_package_sha256`
 - Repository-owned hooks: `chart_path`, `dockerfile_path`, `build_context`
@@ -216,7 +216,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 ### `validation.gitops`
 
 - Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
-- Inputs: `admitted_sha` (required), `validation_profile` (required), `consumer_contract` (required), `change_base_sha` (default ``), `policy_script_profile` (default ``), `artifact_exception_id`
+- Inputs: `execution_backend` (default `organization`), `admitted_sha` (required), `validation_profile` (required), `consumer_contract` (required), `change_base_sha` (default ``), `policy_script_profile` (default ``), `artifact_exception_id`
 - Secrets: none
 - Outputs: `result`, `test_summary`, `render_digest`, `cleanup_result`, `evidence_id`
 - Repository-owned hooks: `policy_script_profile`
@@ -240,7 +240,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 ### `validation.script`
 
 - Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
-- Inputs: `admitted_sha` (required), `validation_profile` (required), `working_directory` (default `.`), `script_path` (required)
+- Inputs: `execution_backend` (default `organization`), `admitted_sha` (required), `validation_profile` (required), `working_directory` (default `.`), `script_path` (required)
 - Secrets: none
 - Outputs: `result`
 - Repository-owned hooks: `script_path`, `working_directory`
