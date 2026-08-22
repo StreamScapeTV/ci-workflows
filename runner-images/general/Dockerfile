@@ -162,4 +162,10 @@ RUN --mount=type=bind,from=build-tools,source=/node26-compat,target=/tmp/node26-
     /tmp/node26-compat/bin/node --version | grep -Fx 'v26.7.0'; \
     /tmp/node26-compat/bin/node /tmp/node26-compat/lib/node_modules/npm/bin/npm-cli.js --version >/dev/null
 RUN /usr/local/bin/runner-image-smoke
+
+USER root
+RUN rm -rf /home/runner/.npm /home/runner/.cache; \
+    chown -R 1001:1001 /home/runner
+
+USER 1001:1001
 CMD []
