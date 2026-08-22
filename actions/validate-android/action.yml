@@ -58,9 +58,6 @@ inputs:
   private_dependency_expected_subpath:
     description: Internal checked-out dependency subpath
     required: false
-  maven_package_read_token:
-    description: Transient package-read token exposed only to bounded product execution
-    required: false
 
 outputs:
   result:
@@ -120,7 +117,6 @@ runs:
         INPUT_PRIVATE_DEPENDENCY_CHECKOUT_REPOSITORY: ${{ inputs.private_dependency_checkout_repository }}
         INPUT_PRIVATE_DEPENDENCY_CHECKOUT_ID: ${{ inputs.private_dependency_checkout_id }}
         INPUT_PRIVATE_DEPENDENCY_EXPECTED_SUBPATH: ${{ inputs.private_dependency_expected_subpath }}
-        CIW_MAVEN_PACKAGE_READ_TOKEN: ${{ inputs.maven_package_read_token }}
       run: |
         set -Eeuo pipefail
         python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
