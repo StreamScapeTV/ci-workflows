@@ -33,6 +33,10 @@ class AdmissionAndPlanTests(unittest.TestCase):
         self.assertEqual("exact-family-runtime-receipt", self.contract["owner_authorization"]["mode"])
         self.assertFalse(self.contract["owner_authorization"]["runner_or_secret_is_authorization"])
         self.assertTrue(self.contract["lock_contract"]["cross_run_fencing_claimed"])
+        self.assertEqual(
+            ["pull_request", "workflow_call", "workflow_dispatch"],
+            self.contract["allowed_events"],
+        )
 
     def test_source_trust_is_derived_and_not_an_input(self) -> None:
         request = request_from_environment(synthetic_environment(), self.contract)
@@ -59,6 +63,44 @@ class AdmissionAndPlanTests(unittest.TestCase):
         environment = synthetic_environment()
         environment["CIW_DEVICE_EVENT_SHA"] = "b" * 40
         with self.assertRaisesRegex(DeviceValidationError, "source_mismatch"):
+            request_from_environment(environment, self.contract)
+
+    def test_same_repository_pull_request_is_trusted_exact_for_reusable_device(self) -> None:
+        environment = real_environment(
+            repository="StreamScapeTV/example-consumer",
+            family="ios",
+            capability="terminal-packet",
+            host_capacity="apple",
+        )
+        environment["GITHUB_EVENT_NAME"] = "pull_request"
+        environment["CIW_DEVICE_AUTHORIZATION_PRESENT"] = "true"
+        request = request_from_environment(environment, self.contract)
+        self.assertEqual("trusted-exact", request.source_trust)
+        self.assertEqual("pull_request", request.event_name)
+        plan = build_plan(self.contract, request)
+        self.assertTrue(plan.execution_authorized)
+        receipt = json.dumps(
+            {
+                "packet_version": "device-authorization/1",
+                "repository": plan.request.repository,
+                "source_sha": plan.request.admitted_sha,
+                "device_family": plan.request.family.value,
+                "device_capability": plan.request.capability,
+                "request_id": plan.request.request_id,
+                "not_after_epoch": 2000,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        self.assertRegex(
+            validate_authorization_receipt(receipt, plan=plan, now_epoch=1000),
+            r"^[0-9a-f]{64}$",
+        )
+
+    def test_unapproved_original_caller_event_is_source_rejected(self) -> None:
+        environment = real_environment()
+        environment["GITHUB_EVENT_NAME"] = "pull_request_target"
+        with self.assertRaisesRegex(DeviceValidationError, "source_admission_rejected"):
             request_from_environment(environment, self.contract)
 
     def test_raw_identifier_runner_and_retired_profile_inputs_are_rejected(self) -> None:
@@ -175,6 +217,9 @@ class AdmissionAndPlanTests(unittest.TestCase):
             validate_authorization_receipt(json.dumps(wrong, sort_keys=True, separators=(",", ":")), plan=plan, now_epoch=1000)
         with self.assertRaisesRegex(DeviceValidationError, "authorization_rejected"):
             validate_authorization_receipt(raw, plan=plan, now_epoch=2001)
+        noncanonical = json.dumps(receipt, sort_keys=True)
+        with self.assertRaisesRegex(DeviceValidationError, "authorization_rejected"):
+            validate_authorization_receipt(noncanonical, plan=plan, now_epoch=1000)
 
     def test_concurrency_is_generic_and_contract_owned(self) -> None:
         environment = real_environment(family="android", capability="vlc", host_capacity="apple")
