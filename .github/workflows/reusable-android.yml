@@ -83,7 +83,7 @@ jobs:
     steps:
       - id: plan
         name: Validate technology-level Android request
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@8eaa37ad0fe3231b202e878b26f66aa23753e38a # issue #373 compile Gradle isolation checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@68a6450d6576e0744969cd170cc581856a44312a # issue #443 inherited package credential checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -99,7 +99,7 @@ jobs:
       - id: prebuild_plan
         name: Validate optional private dependency prebuild plan
         if: ${{ inputs.validation_scope != 'gradle' && inputs.dependency_prebuild_plan_json != '' && steps.plan.outputs.private_dependency_used == 'true' }}
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@8eaa37ad0fe3231b202e878b26f66aa23753e38a # issue #373 compile Gradle isolation checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@68a6450d6576e0744969cd170cc581856a44312a # issue #443 inherited package credential checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -162,7 +162,7 @@ jobs:
       - id: prebuild_execute
         name: Process-isolate optional private dependency Gradle prebuild
         if: ${{ inputs.validation_scope != 'gradle' && inputs.dependency_prebuild_plan_json != '' && steps.prebuild_plan.outcome == 'success' && steps.dependency.outcome == 'success' }}
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@8eaa37ad0fe3231b202e878b26f66aa23753e38a # issue #373 compile Gradle isolation checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@68a6450d6576e0744969cd170cc581856a44312a # issue #443 inherited package credential checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -185,7 +185,7 @@ jobs:
       - id: prebuild_cleanup
         name: Remove optional dependency-prebuild copied source state
         if: ${{ always() && inputs.validation_scope != 'gradle' && inputs.dependency_prebuild_plan_json != '' && steps.workspace.outcome == 'success' }}
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@8eaa37ad0fe3231b202e878b26f66aa23753e38a # issue #373 compile Gradle isolation checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@68a6450d6576e0744969cd170cc581856a44312a # issue #443 inherited package credential checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -194,7 +194,7 @@ jobs:
       - id: prebuild_residue
         name: Verify zero optional dependency-prebuild residue
         if: ${{ always() && inputs.validation_scope != 'gradle' && inputs.dependency_prebuild_plan_json != '' && steps.workspace.outcome == 'success' }}
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@8eaa37ad0fe3231b202e878b26f66aa23753e38a # issue #373 compile Gradle isolation checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@68a6450d6576e0744969cd170cc581856a44312a # issue #443 inherited package credential checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -203,7 +203,9 @@ jobs:
       - id: execute
         name: Execute one primitive-backed Android validation plan
         if: ${{ success() && (inputs.validation_scope != 'gradle' || steps.plan.outputs.private_dependency_used != 'true') && (inputs.dependency_prebuild_plan_json == '' || (steps.prebuild_plan.outcome == 'success' && steps.prebuild_execute.outcome == 'success' && steps.prebuild_cleanup.outcome == 'success' && steps.prebuild_residue.outcome == 'success')) }}
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@8eaa37ad0fe3231b202e878b26f66aa23753e38a # issue #373 compile Gradle isolation checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@68a6450d6576e0744969cd170cc581856a44312a # issue #443 inherited package credential checkpoint
+        env:
+          CIW_MAVEN_PACKAGE_READ_TOKEN: ${{ secrets.maven_package_read_token }}
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -222,7 +224,6 @@ jobs:
           private_dependency_checkout_repository: ${{ steps.dependency.outputs.repository }}
           private_dependency_checkout_id: ${{ steps.dependency.outputs.dependency_id }}
           private_dependency_expected_subpath: ${{ steps.dependency.outputs.expected_subpath }}
-          maven_package_read_token: ${{ secrets.maven_package_read_token }}
 
       - id: evidence
         name: Render bounded Android validation evidence
@@ -239,7 +240,7 @@ jobs:
       - id: android_cleanup
         name: Remove Android-specific copied source state once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@8eaa37ad0fe3231b202e878b26f66aa23753e38a # issue #373 compile Gradle isolation checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@68a6450d6576e0744969cd170cc581856a44312a # issue #443 inherited package credential checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -248,7 +249,7 @@ jobs:
       - id: residue
         name: Verify zero Android-specific residue once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@8eaa37ad0fe3231b202e878b26f66aa23753e38a # issue #373 compile Gradle isolation checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@68a6450d6576e0744969cd170cc581856a44312a # issue #443 inherited package credential checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}

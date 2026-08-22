@@ -15,6 +15,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 | `maintenance.artifacts` `1.0.0` | `.github/workflows/reusable-artifact-cleanup.yml` | `planned` | `trusted-maintenance` | Maintenance / Artifact cleanup |
 | `maintenance.branches` `1.0.0` | `.github/workflows/reusable-branch-hygiene.yml` | `planned` | `trusted-maintenance` | Maintenance / Branch hygiene |
 | `maintenance.runner-retry` `1.0.0` | `.github/workflows/reusable-runner-infrastructure-retry.yml` | `planned` | `trusted-maintenance` | Maintenance / Runner retry |
+| `network.download` `1.0.0` | `.github/workflows/reusable-network-download.yml` | `implemented` | `read-only-validation` | CI / Network download |
 | `oci.build` `2.0.0` | `.github/workflows/reusable-oci-build.yml` | `migration-pending` | `read-only-validation` | CI / OCI build validation |
 | `oci.publish` `2.0.0` | `.github/workflows/reusable-oci-publish.yml` | `migration-pending` | `trusted-publication` | Release / OCI publication |
 | `release.gradle-maven` `1.0.0` | `.github/workflows/reusable-gradle-maven-publish.yml` | `implemented` | `trusted-publication` | Release / Gradle Maven publication |
@@ -63,7 +64,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 ### `helm.validate`
 
 - Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
-- Inputs: `admitted_sha` (required), `chart_name` (required), `chart_path` (required), `release_version`, `values_path`, `policy_path`, `artifact_exception_id`
+- Inputs: `execution_backend` (default `organization`), `admitted_sha` (required), `chart_name` (required), `chart_path` (required), `release_version`, `values_path`, `policy_path`, `artifact_exception_id`
 - Secrets: none
 - Outputs: `result`, `chart_digest`, `artifact_exception_used`
 - Repository-owned hooks: `chart_path`, `values_path`, `policy_path`
@@ -92,6 +93,14 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 - Outputs: `result`, `retry_run_id`, `request_id`
 - Repository-owned hooks: none
 
+### `network.download`
+
+- Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
+- Inputs: `url` (required), `relative_path` (default `dependency.bin`), `expected_sha256` (default ``), `expected_size` (default ``), `expected_content_type` (default ``), `maximum_bytes` (default `536870912`), `archive_format` (default `none`), `relative_destination` (default `extracted`)
+- Secrets: none
+- Outputs: `result`, `download_result_json`, `extraction_result_json`, `cleanup_result`
+- Repository-owned hooks: none
+
 ### `oci.build`
 
 - Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
@@ -111,7 +120,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 ### `release.gradle-maven`
 
 - Events: `workflow_call`
-- Inputs: `admitted_sha` (required), `expected_branch` (required), `working_directory` (default `.`), `gradle_wrapper_path` (default `gradlew`), `version_file` (default `VERSION`), `arguments_json` (required)
+- Inputs: `execution_backend` (default `organization`), `admitted_sha` (required), `expected_branch` (required), `working_directory` (default `.`), `gradle_wrapper_path` (default `gradlew`), `version_file` (default `VERSION`), `arguments_json` (required)
 - Secrets: `registry_username`, `registry_token`
 - Outputs: `result`, `release_version`
 - Repository-owned hooks: `working_directory`, `gradle_wrapper_path`, `version_file`, `arguments_json`
@@ -207,7 +216,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 ### `validation.gitops`
 
 - Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
-- Inputs: `admitted_sha` (required), `validation_profile` (required), `consumer_contract` (required), `change_base_sha` (default ``), `policy_script_profile` (default ``), `artifact_exception_id`
+- Inputs: `execution_backend` (default `organization`), `admitted_sha` (required), `validation_profile` (required), `consumer_contract` (required), `change_base_sha` (default ``), `policy_script_profile` (default ``), `artifact_exception_id`
 - Secrets: none
 - Outputs: `result`, `test_summary`, `render_digest`, `cleanup_result`, `evidence_id`
 - Repository-owned hooks: `policy_script_profile`
@@ -231,7 +240,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 ### `validation.script`
 
 - Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
-- Inputs: `admitted_sha` (required), `validation_profile` (required), `working_directory` (default `.`), `script_path` (required)
+- Inputs: `execution_backend` (default `organization`), `admitted_sha` (required), `validation_profile` (required), `working_directory` (default `.`), `script_path` (required)
 - Secrets: none
 - Outputs: `result`
 - Repository-owned hooks: `script_path`, `working_directory`

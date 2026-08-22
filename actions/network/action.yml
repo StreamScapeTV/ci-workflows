@@ -1,0 +1,70 @@
+name: Run bounded network operation
+description: Download, verify, or extract one caller-selected HTTP dependency inside registered CI state
+
+inputs:
+  operation:
+    description: "Bounded operation: download, verify, or extract"
+    required: true
+  url:
+    description: HTTPS URL used only by download
+    required: false
+    default: ""
+  relative_path:
+    description: Relative file path beneath the registered dependency root
+    required: true
+  expected_sha256:
+    description: Optional expected SHA-256 for download or verify
+    required: false
+    default: ""
+  expected_size:
+    description: Optional exact byte size for download or verify
+    required: false
+    default: ""
+  expected_content_type:
+    description: Optional exact media type for download
+    required: false
+    default: ""
+  maximum_bytes:
+    description: Maximum accepted download size in bytes
+    required: false
+    default: "536870912"
+  archive_format:
+    description: zip or tar; used only by extract
+    required: false
+    default: ""
+  relative_destination:
+    description: Relative extraction directory beneath the registered generated root
+    required: false
+    default: ""
+
+outputs:
+  result:
+    value: ${{ steps.network.outputs.result }}
+  local_path:
+    description: Runner-local absolute path for later steps in this same job
+    value: ${{ steps.network.outputs.local_path }}
+  network_result_json:
+    description: Bounded machine-readable operation result
+    value: ${{ steps.network.outputs.network_result_json }}
+
+runs:
+  using: composite
+  steps:
+    - id: network
+      name: Run one bounded network operation
+      shell: bash
+      env:
+        PYTHONDONTWRITEBYTECODE: "1"
+        INPUT_URL: ${{ inputs.url }}
+        INPUT_RELATIVE_PATH: ${{ inputs.relative_path }}
+        INPUT_EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
+        INPUT_EXPECTED_SIZE: ${{ inputs.expected_size }}
+        INPUT_EXPECTED_CONTENT_TYPE: ${{ inputs.expected_content_type }}
+        INPUT_MAXIMUM_BYTES: ${{ inputs.maximum_bytes }}
+        INPUT_ARCHIVE_FORMAT: ${{ inputs.archive_format }}
+        INPUT_RELATIVE_DESTINATION: ${{ inputs.relative_destination }}
+      run: |
+        set -Eeuo pipefail
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
+          network run \
+          --operation "${{ inputs.operation }}"
