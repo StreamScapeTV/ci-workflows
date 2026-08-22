@@ -24,6 +24,7 @@ from .ciw_helm import (
     execute_helm_publish,
     execute_helm_validate,
 )
+from .ciw_network import configure_network, execute_network
 from .ciw_node import configure_node_validate, execute_node_validate
 from .ciw_oci import (
     configure_oci_publish,
@@ -142,6 +143,10 @@ def _add_python_validate(parser: argparse.ArgumentParser) -> None:
 
 def _add_node_validate(parser: argparse.ArgumentParser) -> None:
     configure_node_validate(parser)
+
+
+def _add_network(parser: argparse.ArgumentParser) -> None:
+    configure_network(parser)
 
 
 def _add_helm_validate(parser: argparse.ArgumentParser) -> None:
@@ -501,6 +506,13 @@ def handle_node_validate(
     context: CIWContext,
 ) -> CIWResult:
     return execute_node_validate(args, context)
+
+
+def handle_network(
+    args: argparse.Namespace,
+    context: CIWContext,
+) -> CIWResult:
+    return execute_network(args, context)
 
 
 def handle_helm_validate(
@@ -1082,6 +1094,12 @@ def command_specs() -> tuple[CommandSpec, ...]:
             "validate",
             handle_node_validate,
             _add_node_validate,
+        ),
+        CommandSpec(
+            "network",
+            "run",
+            handle_network,
+            _add_network,
         ),
         CommandSpec(
             "helm",

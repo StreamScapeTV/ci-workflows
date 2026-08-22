@@ -31,7 +31,7 @@ class CIWContractTests(unittest.TestCase):
             for item in contract["commands"]
         }
         self.assertEqual(expected, set(runtime_command_index()))
-        self.assertEqual(30, len(expected))
+        self.assertEqual(31, len(expected))
         self.assertIn("android validate", expected)
         self.assertIn("apple validate", expected)
         self.assertIn("device lock", expected)
@@ -39,6 +39,7 @@ class CIWContractTests(unittest.TestCase):
         self.assertIn("flutter validate", expected)
         self.assertIn("helm publish", expected)
         self.assertIn("helm validate", expected)
+        self.assertIn("network run", expected)
         self.assertIn("python validate", expected)
         self.assertIn("node validate", expected)
         self.assertIn("gitops validate", expected)
@@ -61,6 +62,7 @@ class CIWContractTests(unittest.TestCase):
                 "device",
                 "flutter",
                 "helm",
+                "network",
                 "python",
                 "node",
                 "gitops",

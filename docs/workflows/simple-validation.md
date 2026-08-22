@@ -10,6 +10,7 @@ The product repository owns the script, tool versions, build/test commands, sche
 
 ## Inputs
 
+- `execution_backend`: optional `organization` or `github-hosted`; default `organization`.
 - `admitted_sha`: exact lowercase caller source commit.
 - `validation_profile`: exactly `general`, `mobile`, or `apple`.
 - `working_directory`: optional repository-relative working directory, default `.`.
@@ -19,11 +20,18 @@ The reusable workflow does not accept arbitrary shell text or caller-provided ar
 
 ## Semantic capacity and trust
 
+The default `organization` backend preserves the existing semantic mapping:
+
 - `general` -> `[linux, amd64, general, small]` for ordinary backend, Python, Node/Next, policy, and source work. Tokenless fork pull-request source may use this non-specialized capacity.
 - `mobile` -> `[linux, amd64, mobile]` for Android/Gradle and other pre-provisioned mobile toolchains.
-- `apple` -> `[macOS, ARM64, apple]` for Xcode/iOS/tvOS/macOS validation.
+- `apple` -> `[macOS, ARM64]` for Xcode/iOS/tvOS/macOS validation.
 
-`mobile` and `apple` are admitted only for same-repository pull requests or exact `push`/`workflow_dispatch` source. Fork pull requests fail in the general-Linux planner before either specialized runner can be scheduled. Products never select concrete runner hosts or scale sets.
+`github-hosted` is deliberately narrower in this portable tranche:
+
+- `general` -> `[ubuntu-latest]`;
+- `mobile` and `apple` fail closed with the Central unsupported-profile boundary until their standard-hosted toolchain contracts are proven separately.
+
+Planner placement follows the backend instead of introducing a hidden cross-backend dependency. An explicit hosted call performs trust/profile planning on `ubuntu-latest`; the default/explicit organization call uses `[linux, amd64, general, small]` for planning and then resolves the selected semantic profile through Central. The planners are mutually exclusive and the script executor consumes only the successful planner's selector. `mobile` and `apple` are admitted only for same-repository pull requests or exact `push`/`workflow_dispatch` source, so fork pull requests fail during the selected planner before specialized execution can be scheduled. Products never select concrete runner hosts or scale sets, and an explicit hosted request never falls back to organization capacity.
 
 ## Thin caller
 
@@ -32,12 +40,13 @@ jobs:
   validate:
     uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-script.yml@main
     with:
+      execution_backend: github-hosted
       admitted_sha: ${{ github.event.pull_request.head.sha || github.sha }}
       validation_profile: general
       script_path: scripts/ci/validate.sh
 ```
 
-The caller still owns its trigger, concurrency, and minimum permissions. During bootstrap, `@main` is supported so IPTV migrations are not blocked on per-release immutable central pinning ceremony.
+Omit `execution_backend` to retain the organization/private default. The caller still owns its trigger, concurrency, and minimum permissions. During active Central development, `@main` is the normal shared-library reference.
 
 ## What is deliberately not required
 
