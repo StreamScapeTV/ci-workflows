@@ -23,9 +23,9 @@ python3 -m venv "${venv_root}/venv"
 "${venv_root}/venv/bin/python" -m pip --version >/dev/null
 
 node --version | grep -F 'v24.19.0'
-test "${NPM_CONFIG_CACHE}" = /home/runner/_work/.npm-cache
-test -w /home/runner/_work
+export NPM_CONFIG_CACHE=/home/runner/.npm
 mkdir -p "${NPM_CONFIG_CACHE}"
+test "${NPM_CONFIG_CACHE}" = /home/runner/.npm
 test ! -L "${NPM_CONFIG_CACHE}"
 test -w "${NPM_CONFIG_CACHE}"
 npm --version >/dev/null

@@ -118,7 +118,6 @@ RUN set -eux; \
 FROM docker.io/library/python@sha256:0bdd92d1210a488ce24366c2e1d3b2390e923dcd70a0ce2f673b6f1ce090f556 AS final
 
 ENV PATH=/usr/local/bin:/home/runner/bin:${PATH} \
-    NPM_CONFIG_CACHE=/home/runner/_work/.npm-cache \
     RUNNER_MANUALLY_TRAP_SIG=1 \
     ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT=1 \
     CI=true
@@ -165,7 +164,7 @@ RUN --mount=type=bind,from=build-tools,source=/node26-compat,target=/tmp/node26-
 RUN /usr/local/bin/runner-image-smoke
 
 USER root
-RUN rm -rf /home/runner/.npm /home/runner/.cache "${NPM_CONFIG_CACHE}"; \
+RUN rm -rf /home/runner/.npm /home/runner/.cache; \
     chown -R 1001:1001 /home/runner
 
 USER 1001:1001
