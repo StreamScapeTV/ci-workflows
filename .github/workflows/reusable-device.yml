@@ -80,7 +80,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve product-neutral typed device plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-device@47afb4b6f14742bdddd3998095d719011c3ef549 # issue #341 product-neutral device v2 checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@4a7865f420e7ff37893907bbd0c4ad557a0e9ca6 # issue #479 same-repository PR event checkpoint
         env:
           CIW_DEVICE_AUTHORIZATION_PRESENT: ${{ secrets.device_authorization_receipt != '' && 'true' || 'false' }}
           CIW_DEVICE_AUTHORIZATION_RECEIPT: ${{ secrets.device_authorization_receipt }}
@@ -141,7 +141,7 @@ jobs:
       artifact_exception_used: ${{ steps.execute.outputs.artifact_exception_used }}
     steps:
       - name: Clear fixed exact-source root
-        uses: StreamScapeTV/ci-workflows/actions/validate-device@47afb4b6f14742bdddd3998095d719011c3ef549 # issue #341 product-neutral device v2 checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@4a7865f420e7ff37893907bbd0c4ad557a0e9ca6 # issue #479 same-repository PR event checkpoint
         with:
           phase: cleanup-checkout
           source_root: source
@@ -176,7 +176,7 @@ jobs:
       - id: discover
         name: Deterministically discover one eligible physical device
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/validate-device@47afb4b6f14742bdddd3998095d719011c3ef549 # issue #341 product-neutral device v2 checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@4a7865f420e7ff37893907bbd0c4ad557a0e9ca6 # issue #479 same-repository PR event checkpoint
         env:
           CIW_DEVICE_AUTHORIZATION_PRESENT: "true"
           CIW_DEVICE_AUTHORIZATION_RECEIPT: ${{ secrets.device_authorization_receipt }}
@@ -235,7 +235,7 @@ jobs:
         name: Execute only the exact typed plan emitted by the planner
         if: ${{ steps.verify_lock.outcome == 'success' }}
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/validate-device@47afb4b6f14742bdddd3998095d719011c3ef549 # issue #341 product-neutral device v2 checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@4a7865f420e7ff37893907bbd0c4ad557a0e9ca6 # issue #479 same-repository PR event checkpoint
         env:
           CIW_DEVICE_AUTHORIZATION_PRESENT: "true"
           CIW_DEVICE_AUTHORIZATION_RECEIPT: ${{ secrets.device_authorization_receipt }}
@@ -264,7 +264,7 @@ jobs:
         name: Restore caller-owned device state exactly once
         if: ${{ always() && steps.acquire_lock.outcome == 'success' && steps.discover.outcome == 'success' }}
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/validate-device@47afb4b6f14742bdddd3998095d719011c3ef549 # issue #341 product-neutral device v2 checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@4a7865f420e7ff37893907bbd0c4ad557a0e9ca6 # issue #479 same-repository PR event checkpoint
         env:
           CIW_DEVICE_AUTHORIZATION_PRESENT: "true"
           CIW_DEVICE_AUTHORIZATION_RECEIPT: ${{ secrets.device_authorization_receipt }}
@@ -325,7 +325,7 @@ jobs:
         name: Remove device-specific Central state
         if: always()
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/validate-device@47afb4b6f14742bdddd3998095d719011c3ef549 # issue #341 product-neutral device v2 checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@4a7865f420e7ff37893907bbd0c4ad557a0e9ca6 # issue #479 same-repository PR event checkpoint
         env:
           CIW_DEVICE_AUTHORIZATION_PRESENT: "true"
         with:
@@ -350,7 +350,7 @@ jobs:
         name: Verify zero device-specific Central residue
         if: always()
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/validate-device@47afb4b6f14742bdddd3998095d719011c3ef549 # issue #341 product-neutral device v2 checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@4a7865f420e7ff37893907bbd0c4ad557a0e9ca6 # issue #479 same-repository PR event checkpoint
         env:
           CIW_DEVICE_AUTHORIZATION_PRESENT: "true"
         with:
@@ -375,7 +375,7 @@ jobs:
         name: Remove exact admitted source
         if: always()
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/validate-device@47afb4b6f14742bdddd3998095d719011c3ef549 # issue #341 product-neutral device v2 checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@4a7865f420e7ff37893907bbd0c4ad557a0e9ca6 # issue #479 same-repository PR event checkpoint
         with:
           phase: cleanup-checkout
           source_root: source

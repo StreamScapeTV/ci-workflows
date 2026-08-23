@@ -3,6 +3,14 @@
   "default_backend": "organization",
   "allowed_backends": ["organization", "github-hosted"],
   "github-hosted": {
-    "runs_on": ["ubuntu-latest"]
+    "runs_on": ["ubuntu-latest"],
+    "repository_local_exceptions": [
+      {
+        "workflow": ".github/workflows/apple-test.yml",
+        "job": "apple_test",
+        "events": ["workflow_dispatch"],
+        "runs_on": ["macos-latest"]
+      }
+    ]
   }
 }

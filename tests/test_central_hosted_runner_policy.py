@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
 
@@ -9,7 +10,10 @@ from ci_workflows.validation_model import ActionsLoader
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
-HOSTED = ["ubuntu-latest"]
+HOSTED_LINUX = ["ubuntu-latest"]
+HOSTED_APPLE = ["macos-latest"]
+APPLE_PILOT = WORKFLOWS / "apple-test.yml"
+BACKEND_CONTRACT = ROOT / "contracts" / "runner-execution-backends.json"
 SELF_PREFIX = "StreamScapeTV/ci-workflows/.github/workflows/"
 
 
@@ -49,8 +53,14 @@ def _self_reusable(uses: object) -> Path | None:
     return path if path.is_file() else None
 
 
+def _expected_hosted_selector(path: Path, job_name: str) -> list[str]:
+    if path == APPLE_PILOT and job_name == "apple_test":
+        return HOSTED_APPLE
+    return HOSTED_LINUX
+
+
 class CentralHostedRunnerPolicyTests(unittest.TestCase):
-    def test_every_repository_local_runnable_job_is_github_hosted(self) -> None:
+    def test_every_repository_local_runnable_job_uses_reviewed_github_hosted_capacity(self) -> None:
         visited: set[Path] = set()
         failures: list[str] = []
 
@@ -62,9 +72,10 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
             for job_name, job in workflow.get("jobs", {}).items():
                 if _cannot_run_in_public_central(job):
                     continue
-                if "runs-on" in job and job["runs-on"] != HOSTED:
+                expected = _expected_hosted_selector(path, job_name)
+                if "runs-on" in job and job["runs-on"] != expected:
                     failures.append(
-                        f"{path.relative_to(ROOT)}:{job_name} uses {job['runs-on']!r}"
+                        f"{path.relative_to(ROOT)}:{job_name} uses {job['runs-on']!r}; expected {expected!r}"
                     )
                 called = _self_reusable(job.get("uses"))
                 if called is not None:
@@ -75,7 +86,33 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
             if _events(workflow) - {"workflow_call"}:
                 inspect(path)
 
-        self.assertEqual(failures, [], "Central runnable jobs must use ubuntu-latest:\n" + "\n".join(failures))
+        self.assertEqual(
+            failures,
+            [],
+            "Central runnable jobs must use their exact reviewed GitHub-hosted selector:\n"
+            + "\n".join(failures),
+        )
+
+    def test_manual_apple_pilot_is_the_only_named_macos_exception(self) -> None:
+        workflow = yaml.load(APPLE_PILOT.read_text(encoding="utf-8"), Loader=ActionsLoader)
+        self.assertEqual(_events(workflow), {"workflow_dispatch"})
+        self.assertEqual(set(workflow["jobs"]), {"apple_test"})
+        self.assertEqual(workflow["jobs"]["apple_test"]["runs-on"], HOSTED_APPLE)
+        self.assertNotIn("workflow_call", workflow["on"])
+
+        contract = json.loads(BACKEND_CONTRACT.read_text(encoding="utf-8"))
+        self.assertEqual(contract["github-hosted"]["runs_on"], HOSTED_LINUX)
+        self.assertEqual(
+            contract["github-hosted"]["repository_local_exceptions"],
+            [
+                {
+                    "workflow": ".github/workflows/apple-test.yml",
+                    "job": "apple_test",
+                    "events": ["workflow_dispatch"],
+                    "runs_on": HOSTED_APPLE,
+                }
+            ],
+        )
 
 
 if __name__ == "__main__":

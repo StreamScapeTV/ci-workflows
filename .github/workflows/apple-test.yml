@@ -1,0 +1,137 @@
+name: Apple test pilot
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apple-test-pilot
+  cancel-in-progress: false
+
+jobs:
+  apple_test:
+    name: Test configured private Apple branch
+    runs-on: [macos-latest]
+    timeout-minutes: 120
+    env:
+      TARGET_REPOSITORY_NAME: ${{ secrets.APPLE_TEST_REPOSITORY }}
+      TARGET_BRANCH: ${{ secrets.APPLE_TEST_BRANCH }}
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - name: Check out exact Central source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact Central source
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+
+      - name: Validate fixed Central configuration
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "${TARGET_REPOSITORY_NAME}"
+          test -n "${TARGET_BRANCH}"
+
+      - id: resolve
+        name: Resolve configured branch to one exact commit
+        shell: bash
+        env:
+          CHECKOUT_TOKEN: ${{ secrets.TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/ci/private_source.py \
+            --repository-name "${TARGET_REPOSITORY_NAME}" \
+            --branch "${TARGET_BRANCH}" \
+            --github-output "${GITHUB_OUTPUT}"
+
+      - id: checkout
+        name: Check out the exact private Apple commit
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        with:
+          repository: ${{ format('StreamScapeTV/{0}', secrets.APPLE_TEST_REPOSITORY) }}
+          admitted_sha: ${{ steps.resolve.outputs.sha }}
+          path: source
+          fetch_depth: "1"
+          token: ${{ secrets.TOKEN }}
+
+      - name: Run one real host-capable Apple integration test
+        shell: bash
+        env:
+          CHECKOUT_TOKEN: ${{ secrets.TOKEN }}
+          EXPECTED_SHA: ${{ steps.resolve.outputs.sha }}
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C source rev-parse HEAD)" = "${EXPECTED_SHA}"
+
+          derived_data="${RUNNER_TEMP}/apple-test-derived-data"
+          packages="${RUNNER_TEMP}/apple-test-packages"
+          diagnostic="${RUNNER_TEMP}/apple-test.log"
+          rm -rf "${derived_data}" "${packages}" "${diagnostic}"
+
+          basic_auth="$(printf 'x-access-token:%s' "${CHECKOUT_TOKEN}" | base64 | tr -d '\r\n')"
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0='http.https://github.com/.extraheader'
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${basic_auth}"
+          export GIT_TERMINAL_PROMPT=0
+
+          if xcodebuild test \
+            -workspace source/streamscapetv.xcworkspace \
+            -scheme streamscapetv \
+            -destination 'platform=macOS' \
+            -derivedDataPath "${derived_data}" \
+            -clonedSourcePackagesDirPath "${packages}" \
+            CODE_SIGNING_ALLOWED=NO \
+            -only-testing:streamscapetvTests/SelectedBackendStateSyncRoutingIntegrationTests \
+            >"${diagnostic}" 2>&1; then
+            echo "Apple host integration test passed."
+          else
+            echo "Apple host integration test failed; detailed private-source diagnostics were intentionally withheld from this public workflow log." >&2
+            exit 1
+          fi
+
+      - name: Verify exact private checkout remained clean
+        if: always() && steps.checkout.outcome == 'success'
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ steps.resolve.outputs.sha }}
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C source rev-parse HEAD)" = "${EXPECTED_SHA}"
+          test -z "$(git -C source status --porcelain=v1 --untracked-files=all)"
+
+      - name: Remove private source and Apple test residue
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import os
+          import shutil
+          from pathlib import Path
+
+          workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
+          runner_temp = Path(os.environ["RUNNER_TEMP"]).resolve()
+          targets = (
+              (workspace / "source", workspace),
+              (runner_temp / "apple-test-derived-data", runner_temp),
+              (runner_temp / "apple-test-packages", runner_temp),
+              (runner_temp / "apple-test.log", runner_temp),
+          )
+          for target, root in targets:
+              target.relative_to(root)
+              if target.is_symlink() or target.is_file():
+                  target.unlink(missing_ok=True)
+              elif target.exists():
+                  shutil.rmtree(target)
+          for target, _root in targets:
+              if target.exists() or target.is_symlink():
+                  raise SystemExit("Apple test residue remains after cleanup")
+          PY

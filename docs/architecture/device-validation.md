@@ -6,9 +6,11 @@ Central device orchestration is product-neutral. It contains generic family poli
 
 The planner derives source trust from current GitHub event metadata and binds the exact admitted SHA, family, capability, **semantic host capacity**, command plan, request identity, timeout, and evidence policy into canonical `device-plan/2` JSON. The executor must replay the exact typed-plan hash; changing a script path, argument, environment value, source SHA, family, capability, host capacity, or request identity fails closed.
 
+GitHub reusable workflows preserve the caller's original event metadata. Therefore a **same-repository pull request** invoking `reusable-device.yml` arrives as `pull_request`, not as `workflow_call`. Central treats that event as `trusted-exact` only when the event repository and PR head repository equal the caller repository, the PR is not a fork, and the event head SHA equals the admitted SHA. Forked/cross-repository PRs, moved SHAs, and unapproved events remain source-admission failures. `workflow_call` and `workflow_dispatch` remain valid exact-event forms for callers whose original GitHub event is actually one of those values.
+
 ## Authorization and private identity
 
-`device_authorization_receipt` is the only public secret. Receipt presence permits planning to schedule a real physical executor, but the executor validates the receipt again against repository, source SHA, family, capability, request ID, and expiry. Runner labels or another secret never constitute physical authorization.
+`device_authorization_receipt` is the only public secret. Receipt presence permits planning to schedule a real physical executor, but the planner/executor validates the receipt against repository, source SHA, family, capability, request ID, canonical encoding, and expiry before any device discovery or mutation. A same-repository PR source-trust result does **not** itself authorize physical execution; the exact owner receipt remains mandatory. Runner labels or another secret never constitute physical authorization.
 
 Raw device identity is discovered only on the selected runner. The raw device identifier is retained only in private runner state and is passed to the caller's checked-in script only as generic runtime metadata required to address the selected device. Public outputs and durable evidence use one-way identity hashes; raw device serials and UDIDs are never public inputs or durable evidence.
 

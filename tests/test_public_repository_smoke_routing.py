@@ -35,7 +35,7 @@ class PublicRepositorySmokeRoutingTests(unittest.TestCase):
         self.assertIn("host_capacity: mobile", source)
         self.assertIn("host_capacity: apple", source)
         self.assertIn("synthetic_mode: \"true\"", source)
-        self.assertEqual(3, source.count("runs-on: [ubuntu-latest]"))
+        self.assertEqual(4, source.count("runs-on: [ubuntu-latest]"))
 
     def test_device_lock_remains_synthetic_and_zero_artifact(self) -> None:
         source = (
