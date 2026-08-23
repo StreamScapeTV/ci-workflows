@@ -54,6 +54,8 @@ RUN set -eux; \
       done; \
       find /usr/lib/gcc/x86_64-linux-gnu/14 -type f -perm /111 -print0 \
         | xargs -0 -r -n1 sh -c 'ldd "$1" 2>/dev/null || true' sh; \
+      find /usr/libexec/gcc/x86_64-linux-gnu/14 -type f -perm /111 -print0 \
+        | xargs -0 -r -n1 sh -c 'ldd "$1" 2>/dev/null || true' sh; \
     } | awk '/=> \/.+ \(/ {print $(NF-1)} /^\/.+ \(/ {print $1}' \
       | sort -u \
       | while IFS= read -r library; do \
