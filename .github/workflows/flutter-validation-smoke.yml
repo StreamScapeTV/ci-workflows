@@ -212,7 +212,7 @@ jobs:
       ${{ github.event.pull_request.user.login == 'mimranfaruqi' &&
           github.event.pull_request.head.repo.full_name == github.repository &&
           needs.plan.result == 'success' }}
-    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
+    runs-on: [ubuntu-latest]
     timeout-minutes: 100
     steps:
       - name: Check out exact pull request source
