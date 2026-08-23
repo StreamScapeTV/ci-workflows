@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
 
@@ -9,7 +10,11 @@ from ci_workflows.validation_model import ActionsLoader
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
-HOSTED_SELECTORS = {("ubuntu-latest",), ("macos-latest",)}
+HOSTED_LINUX = ["ubuntu-latest"]
+HOSTED_APPLE = ["macos-latest"]
+APPLE_PILOT = WORKFLOWS / "apple-test.yml"
+BACKEND_CONTRACT = ROOT / "contracts" / "runner-execution-backends.json"
+SELF_PREFIX = "StreamScapeTV/ci-workflows/.github/workflows/"
 OWNER_GATE = "github.event.pull_request.user.login == 'mimranfaruqi'"
 REPOSITORY_GATE = "github.event.pull_request.head.repo.full_name == github.repository"
 
@@ -25,51 +30,136 @@ def _events(workflow: dict) -> set[str]:
     return set()
 
 
-def _disabled(job: dict) -> bool:
-    condition = "".join(str(job.get("if", "")).lower().split())
-    return condition in {"false", "${{false}}"}
+def _cannot_run_in_public_central(job: dict) -> bool:
+    condition = str(job.get("if", "")).replace(" ", "").lower()
+    if condition in {"false", "${{false}}"}:
+        return True
+    return (
+        "github.event.repository.private" in condition
+        and "!github.event.repository.private" not in condition
+        and "github.event.repository.private==false" not in condition
+        and "github.event.repository.private!=true" not in condition
+    )
+
+
+def _self_reusable(uses: object) -> Path | None:
+    if not isinstance(uses, str):
+        return None
+    if uses.startswith("./.github/workflows/"):
+        relative = uses.removeprefix("./")
+    elif uses.startswith(SELF_PREFIX):
+        relative = ".github/workflows/" + uses.removeprefix(SELF_PREFIX).split("@", 1)[0]
+    else:
+        return None
+    path = ROOT / relative
+    return path if path.is_file() else None
+
+
+def _backend_contract() -> dict:
+    return json.loads(BACKEND_CONTRACT.read_text(encoding="utf-8"))
+
+
+def _expected_hosted_selector(path: Path, job_name: str) -> list[str]:
+    relative = str(path.relative_to(ROOT))
+    contract = _backend_contract()
+    for exception in contract["github-hosted"].get("repository_local_exceptions", []):
+        if exception["workflow"] == relative and exception["job"] == job_name:
+            return list(exception["runs_on"])
+    return list(contract["github-hosted"]["runs_on"])
 
 
 class CentralHostedRunnerPolicyTests(unittest.TestCase):
-    def test_public_pr_jobs_allocate_only_after_exact_owner_same_repo_admission(self) -> None:
+    def test_every_repository_local_runnable_job_uses_reviewed_github_hosted_capacity(self) -> None:
+        visited: set[Path] = set()
+        failures: list[str] = []
+
+        def inspect(path: Path) -> None:
+            if path in visited:
+                return
+            visited.add(path)
+            workflow = yaml.load(path.read_text(encoding="utf-8"), Loader=ActionsLoader)
+            for job_name, job in workflow.get("jobs", {}).items():
+                if _cannot_run_in_public_central(job):
+                    continue
+                expected = _expected_hosted_selector(path, job_name)
+                if "runs-on" in job and job["runs-on"] != expected:
+                    failures.append(
+                        f"{path.relative_to(ROOT)}:{job_name} uses {job['runs-on']!r}; expected {expected!r}"
+                    )
+                called = _self_reusable(job.get("uses"))
+                if called is not None:
+                    inspect(called)
+
+        for path in sorted(WORKFLOWS.glob("*.y*ml")):
+            workflow = yaml.load(path.read_text(encoding="utf-8"), Loader=ActionsLoader)
+            if _events(workflow) - {"workflow_call"}:
+                inspect(path)
+
+        self.assertEqual(
+            failures,
+            [],
+            "Central runnable jobs must use their exact reviewed GitHub-hosted selector:\n"
+            + "\n".join(failures),
+        )
+
+    def test_pull_request_jobs_reject_before_runner_allocation_unless_publicly_disabled(self) -> None:
         failures: list[str] = []
         for path in sorted(WORKFLOWS.glob("*.y*ml")):
             workflow = yaml.load(path.read_text(encoding="utf-8"), Loader=ActionsLoader)
             if "pull_request" not in _events(workflow):
                 continue
             for job_name, job in workflow.get("jobs", {}).items():
-                if _disabled(job):
+                if _cannot_run_in_public_central(job):
                     continue
                 condition = " ".join(str(job.get("if", "")).split())
                 if OWNER_GATE not in condition or REPOSITORY_GATE not in condition:
                     failures.append(
-                        f"{path.relative_to(ROOT)}:{job_name} lacks exact owner/same-repo admission"
+                        f"{path.relative_to(ROOT)}:{job_name} lacks exact owner/same-repository admission"
                     )
         self.assertEqual(
             failures,
             [],
-            "Public Central PR jobs must reject before runner allocation:\n" + "\n".join(failures),
+            "Public Central pull_request jobs must reject before runner allocation:\n"
+            + "\n".join(failures),
         )
 
-    def test_public_pr_jobs_use_only_github_hosted_runners(self) -> None:
-        failures: list[str] = []
-        for path in sorted(WORKFLOWS.glob("*.y*ml")):
-            workflow = yaml.load(path.read_text(encoding="utf-8"), Loader=ActionsLoader)
-            if "pull_request" not in _events(workflow):
-                continue
-            for job_name, job in workflow.get("jobs", {}).items():
-                if _disabled(job):
-                    continue
-                selector = job.get("runs-on")
-                if not isinstance(selector, list) or tuple(selector) not in HOSTED_SELECTORS:
-                    failures.append(
-                        f"{path.relative_to(ROOT)}:{job_name} uses non-hosted self-CI selector {selector!r}"
-                    )
+    def test_reviewed_macos_exceptions_are_bounded_and_contract_owned(self) -> None:
+        workflow = yaml.load(APPLE_PILOT.read_text(encoding="utf-8"), Loader=ActionsLoader)
+        self.assertEqual(_events(workflow), {"workflow_dispatch"})
+        self.assertEqual(set(workflow["jobs"]), {"apple_test"})
+        self.assertEqual(workflow["jobs"]["apple_test"]["runs-on"], HOSTED_APPLE)
+        self.assertNotIn("workflow_call", workflow["on"])
+
+        contract = _backend_contract()
+        self.assertEqual(contract["github-hosted"]["runs_on"], HOSTED_LINUX)
         self.assertEqual(
-            failures,
-            [],
-            "Public ci-workflows pull-request self-CI must use GitHub-hosted ubuntu-latest or macos-latest only; reusable consumer semantic selectors must never schedule repository self-CI:\n"
-            + "\n".join(failures),
+            contract["github-hosted"]["repository_local_exceptions"],
+            [
+                {
+                    "workflow": ".github/workflows/apple-test.yml",
+                    "job": "apple_test",
+                    "events": ["workflow_dispatch"],
+                    "runs_on": HOSTED_APPLE,
+                },
+                {
+                    "workflow": ".github/workflows/apple-validation-smoke.yml",
+                    "job": "apple",
+                    "events": ["pull_request"],
+                    "runs_on": HOSTED_APPLE,
+                },
+                {
+                    "workflow": ".github/workflows/apple-certification-smoke.yml",
+                    "job": "release",
+                    "events": ["pull_request"],
+                    "runs_on": HOSTED_APPLE,
+                },
+                {
+                    "workflow": ".github/workflows/flutter-apple-validation-smoke.yml",
+                    "job": "ios",
+                    "events": ["pull_request"],
+                    "runs_on": HOSTED_APPLE,
+                },
+            ],
         )
 
 
