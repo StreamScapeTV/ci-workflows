@@ -37,6 +37,14 @@ RUN set -eux; \
         cp -a "${path}" "/native-root${path}"; \
       fi; \
     done; \
+    for executable in /usr/bin/gcc /usr/bin/g++ /usr/bin/cpp; do \
+      native_entrypoint="/native-root${executable}"; \
+      test -x "${executable}"; \
+      test -e "${native_entrypoint}" || test -L "${native_entrypoint}"; \
+      rm -f "${native_entrypoint}"; \
+      cp -pL "${executable}" "${native_entrypoint}"; \
+      test -x "${native_entrypoint}"; \
+    done; \
     { \
       for executable in \
         /usr/bin/gcc /usr/bin/g++ /usr/bin/cpp /usr/bin/make \
@@ -45,6 +53,8 @@ RUN set -eux; \
         ldd "${executable}" 2>/dev/null || true; \
       done; \
       find /usr/lib/gcc/x86_64-linux-gnu/14 -type f -perm /111 -print0 \
+        | xargs -0 -r -n1 sh -c 'ldd "$1" 2>/dev/null || true' sh; \
+      find /usr/libexec/gcc/x86_64-linux-gnu/14 -type f -perm /111 -print0 \
         | xargs -0 -r -n1 sh -c 'ldd "$1" 2>/dev/null || true' sh; \
     } | awk '/=> \/.+ \(/ {print $(NF-1)} /^\/.+ \(/ {print $1}' \
       | sort -u \
@@ -162,4 +172,10 @@ RUN --mount=type=bind,from=build-tools,source=/node26-compat,target=/tmp/node26-
     /tmp/node26-compat/bin/node --version | grep -Fx 'v26.7.0'; \
     /tmp/node26-compat/bin/node /tmp/node26-compat/lib/node_modules/npm/bin/npm-cli.js --version >/dev/null
 RUN /usr/local/bin/runner-image-smoke
+
+USER root
+RUN rm -rf /home/runner/.npm /home/runner/.cache; \
+    chown -R 1001:1001 /home/runner
+
+USER 1001:1001
 CMD []
