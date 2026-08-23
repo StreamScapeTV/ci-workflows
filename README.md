@@ -135,15 +135,19 @@ git push origin 1.2.3
 
 Publication remains separate from Flux selection and deployment.
 
-## Private repository access
+## Public repository access and self-CI admission
 
-Organization settings must allow supported private repositories to call workflows and actions from this private repository. See [`docs/consumers/access.md`](docs/consumers/access.md).
+This repository is public. Supported private or public consumers may call its reusable workflows and actions subject to the organization/repository GitHub Actions allow policy; no private-central-repository access exception is required.
+
+Public visibility does not make outside pull-request source trusted. `contracts/repository-policy.json` records every repository workflow's reviewed event/trust class. Same-repository branch pushes are the preferred self-CI path. Any retained Central `pull_request` job must require both exact author `mimranfaruqi` and an exact same-repository head before runner allocation; contributor association, organization membership, prior contribution, or collaborator status are not substitutes. Reusable workflows remain `workflow_call` only, release/tag paths remain independent of PR admission, and scheduled/manual maintenance keeps its reviewed event class.
+
+Repository owners must also configure GitHub **Settings → Actions → General → Fork pull request workflows from outside collaborators → Require approval for all external contributors**. That platform approval is defense in depth; the workflow-level pre-runner admission checks remain mandatory even when the setting is enabled.
 
 ## Security and artifact defaults
 
 - exact source and credential-free checkout;
 - least-privilege permissions and explicit named secrets;
-- no privileged execution of untrusted source;
+- no privileged execution or Central runner allocation for untrusted pull-request source;
 - no consumer-selected runner label or container engine;
 - zero routine Actions artifacts;
 - unconditional, residue-aware cleanup;
