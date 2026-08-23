@@ -11,7 +11,7 @@ from ci_workflows.apple_types import AppleProfile, AppleValidationRequest
 
 ROOT = Path(__file__).resolve().parents[1]
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-APPLE_HELPER_SHA = "c82cd9fba134ff736621b8bbd636594c2a6fe923"
+APPLE_HELPER_SHA = "2ea47520b9d84b9b0a71c23de3da03f02a5bea9c"
 OWNER_GATE = "github.event.pull_request.user.login == 'mimranfaruqi'"
 REPOSITORY_GATE = "github.event.pull_request.head.repo.full_name == github.repository"
 
