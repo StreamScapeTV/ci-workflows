@@ -22,6 +22,20 @@ def test_general_smoke_isolates_npm_probe_from_supplied_cache() -> None:
     assert "ENV NPM_CONFIG_CACHE" not in source
 
 
+def test_general_runner_materializes_compiler_frontends_for_final_smoke() -> None:
+    source = DOCKERFILE.read_text(encoding="utf-8")
+
+    # The package-copy pass preserves Debian's compiler symlinks. The final
+    # Python image does not carry the intermediate version alias in that chain,
+    # so materialize the three compiler frontends as real executable files.
+    assert "for executable in /usr/bin/gcc /usr/bin/g++ /usr/bin/cpp; do" in source
+    assert 'native_entrypoint="/native-root${executable}"' in source
+    assert 'test -e "${native_entrypoint}" || test -L "${native_entrypoint}"' in source
+    assert 'rm -f "${native_entrypoint}"' in source
+    assert 'cp -pL "${executable}" "${native_entrypoint}"' in source
+    assert source.count('test -x "${native_entrypoint}"') == 1
+
+
 def test_general_runner_removes_only_image_owned_build_phase_state() -> None:
     source = DOCKERFILE.read_text(encoding="utf-8")
 
