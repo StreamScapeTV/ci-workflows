@@ -1,15 +1,12 @@
-"""Small bounded execution-backend selector for Central work."""
+"""Small bounded execution-backend selector for portable Linux work."""
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
 from typing import Sequence
 
-_HOSTED_PROFILE_RUNS_ON = {
-    "general-tiny": ("ubuntu-latest",),
-    "general-small": ("ubuntu-latest",),
-    "apple": ("macos-latest",),
-}
+_HOSTED_RUNS_ON = ("ubuntu-latest",)
+_HOSTED_PROFILES = {"general-tiny", "general-small"}
 
 
 class ExecutionBackendError(RuntimeError):
@@ -40,7 +37,7 @@ def resolve_execution_backend(
     execution_profile: str,
     organization_runs_on: Sequence[str],
 ) -> ExecutionBackendResolution:
-    """Preserve organization scheduling or use a fixed hosted selector by profile."""
+    """Preserve organization scheduling or use fixed hosted Linux for portable work."""
 
     backend = execution_backend.strip()
     organization = tuple(str(label) for label in organization_runs_on)
@@ -50,10 +47,9 @@ def resolve_execution_backend(
         return ExecutionBackendResolution(backend, execution_profile, organization)
     if backend != "github-hosted":
         raise ExecutionBackendError("invalid_execution_backend")
-    hosted = _HOSTED_PROFILE_RUNS_ON.get(execution_profile)
-    if hosted is None:
+    if execution_profile not in _HOSTED_PROFILES:
         raise ExecutionBackendError("unsupported_execution_backend_profile")
-    return ExecutionBackendResolution(backend, execution_profile, hosted)
+    return ExecutionBackendResolution(backend, execution_profile, _HOSTED_RUNS_ON)
 
 
 __all__ = ("ExecutionBackendError", "ExecutionBackendResolution", "resolve_execution_backend")
