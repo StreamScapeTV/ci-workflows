@@ -1,0 +1,105 @@
+name: Central CI dispatch
+
+on:
+  workflow_dispatch:
+    inputs:
+      dispatch_id:
+        description: Opaque deterministic broker dispatch identity
+        required: true
+        type: string
+      dispatch_token:
+        description: Authenticated opaque broker execution envelope
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: central-ci-${{ inputs.dispatch_id }}
+  cancel-in-progress: false
+
+jobs:
+  execute:
+    name: Execute broker-admitted Central validation
+    runs-on: [macos-latest]
+    timeout-minutes: 120
+    steps:
+      - name: Check out exact Central source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact Central source
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+
+      - name: Execute one broker-admitted validation
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          CI_BROKER_URL: ${{ secrets.CI_BROKER_URL }}
+          CI_DISPATCH_ID: ${{ inputs.dispatch_id }}
+          CI_DISPATCH_TOKEN: ${{ inputs.dispatch_token }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/ci/ci_broker.py execute-apple-host
+
+      - name: Record unexpected Central failure
+        if: ${{ failure() && !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          CI_BROKER_URL: ${{ secrets.CI_BROKER_URL }}
+          CI_DISPATCH_ID: ${{ inputs.dispatch_id }}
+          CI_DISPATCH_TOKEN: ${{ inputs.dispatch_token }}
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/ci/ci_broker.py fail-if-active
+
+      - name: Record Central cancellation
+        if: ${{ cancelled() }}
+        continue-on-error: true
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          CI_BROKER_URL: ${{ secrets.CI_BROKER_URL }}
+          CI_DISPATCH_ID: ${{ inputs.dispatch_id }}
+          CI_DISPATCH_TOKEN: ${{ inputs.dispatch_token }}
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/ci/ci_broker.py cancel-if-active
+
+      - name: Remove private source and execution residue
+        if: ${{ always() }}
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/ci/ci_broker.py cleanup
+
+      - name: Verify Central checkout and workspace residue
+        if: ${{ always() }}
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          test ! -e source

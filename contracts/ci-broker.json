@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "private_config_path": ".github/central-ci.json",
+  "central_repository": "StreamScapeTV/ci-workflows",
+  "central_workflow": ".github/workflows/central-ci-dispatch.yml",
+  "central_ref": "main",
+  "oidc_audience": "streamscape-ci-broker",
+  "supported_capabilities": [
+    "apple-host-test"
+  ],
+  "dispatch": {
+    "inputs": [
+      "dispatch_id",
+      "dispatch_token"
+    ],
+    "public_metadata": "opaque_only",
+    "token_ttl_seconds": 21600,
+    "envelope_state": "self-contained-authenticated",
+    "duplicate_concurrency_key": "dispatch_id",
+    "replayed_accepted_request_recoverable": true
+  },
+  "agent_state": {
+    "schema": "agent_api",
+    "transport": "supabase-secret-api-key",
+    "rpc_only": true,
+    "source_repository_field": "repository",
+    "execution_repository_field": "external_repository",
+    "functions": [
+      "claim_ci_run",
+      "register_ci_run",
+      "transition_ci_run",
+      "get_ci_run",
+      "list_ci_runs"
+    ]
+  },
+  "webhooks": {
+    "agent_state": {
+      "path": "/hooks/agent-state",
+      "event": "ci_runs INSERT",
+      "authentication": "fixed-shared-header"
+    },
+    "github": {
+      "path": "/hooks/github",
+      "events": [
+        "push"
+      ],
+      "authentication": "x-hub-signature-256"
+    }
+  },
+  "actions": {
+    "route": "/actions/route",
+    "start": "/actions/start",
+    "finish": "/actions/finish",
+    "authentication": "github-actions-oidc"
+  },
+  "diagnostics": {
+    "path": "/diagnostics/{project_key}/{ci_run_id}",
+    "authorization": "unguessable-ci-run-id-capability",
+    "metadata_source": "agent-state",
+    "object_store": "r2",
+    "digest_required": true,
+    "maximum_compressed_bytes": 20971520
+  },
+  "private_config": {
+    "schema_version": 1,
+    "max_bytes": 65536,
+    "max_profiles": 16,
+    "automatic_events": [
+      "push",
+      "tag"
+    ],
+    "profile_fields": [
+      "workflow_key",
+      "capability",
+      "workspace",
+      "scheme",
+      "test_target"
+    ]
+  },
+  "fixed_environment": [
+    "GITHUB_SOURCE_APP_ID",
+    "GITHUB_SOURCE_APP_PRIVATE_KEY",
+    "GITHUB_SOURCE_WEBHOOK_SECRET",
+    "GITHUB_DISPATCH_APP_ID",
+    "GITHUB_DISPATCH_APP_PRIVATE_KEY",
+    "AGENT_STATE_SUPABASE_URL",
+    "AGENT_STATE_SUPABASE_SECRET_KEY",
+    "AGENT_STATE_WEBHOOK_SECRET",
+    "R2_ACCOUNT_ID",
+    "R2_BUCKET",
+    "R2_READ_ACCESS_KEY_ID",
+    "R2_READ_SECRET_ACCESS_KEY"
+  ],
+  "forbidden": [
+    "arbitrary-shell-command",
+    "caller-selected-secret-name",
+    "caller-selected-runner",
+    "public-private-repository-input",
+    "raw-agent-state-table-query",
+    "raw-log-storage-in-agent-state",
+    "polling-dispatch-loop"
+  ]
+}
