@@ -232,7 +232,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 ### `validation.python`
 
 - Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
-- Inputs: `execution_backend` (default `organization`), `admitted_sha` (required), `validation_profile` (required), `python_version` (required), `version_file`, `working_directory` (default `.`), `dependency_file`, `script_path` (required), `artifact_exception_id`
+- Inputs: `execution_backend` (default `organization`), `admitted_sha` (required), `validation_profile` (required), `python_version` (required), `version_file`, `dependency_file`, `working_directory` (default `.`), `script_path` (required), `artifact_exception_id`
 - Secrets: none
 - Outputs: `result`, `test_summary`, `artifact_exception_used`
 - Repository-owned hooks: `script_path`
