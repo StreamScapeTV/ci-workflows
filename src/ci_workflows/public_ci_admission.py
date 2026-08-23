@@ -11,17 +11,7 @@ from .validation_model import Finding, HarnessConfig, ParsedDocument
 _FORBIDDEN_PUBLIC_ENTRY_EVENTS = frozenset(
     {"issue_comment", "pull_request_target", "repository_dispatch", "workflow_run"}
 )
-_BROAD_PR_TRUST_MARKERS = (
-    "author_association",
-    "COLLABORATOR",
-    "CONTRIBUTOR",
-    "FIRST_TIMER",
-    "FIRST_TIME_CONTRIBUTOR",
-    "MANNEQUIN",
-    "MEMBER",
-    "NONE",
-    "OWNER",
-)
+_BROAD_PR_TRUST_MARKERS = ("author_association",)
 
 
 def _disabled_job(condition: object) -> bool:
@@ -214,7 +204,7 @@ def validate_public_ci_admission(
                 config,
                 "broad-public-ci-pr-trust",
                 path,
-                "PR runner admission must not use author-association/member/contributor trust classes",
+                "PR runner admission must not use author-association trust classes",
             )
         for job_id, job in _iter_jobs(document):
             condition = job.get("if", "")
