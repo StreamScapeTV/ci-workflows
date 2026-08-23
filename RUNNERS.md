@@ -111,12 +111,19 @@ user. This native toolchain does not add a container engine, registry authority,
 Kubernetes credential, device authority, signing capability, or a separate
 native scheduling class.
 
-The public `ci-workflows` repository Central self-check runs on GitHub-hosted
-Linux using `[ubuntu-latest]`. Its repository-local Apple smoke planning and
-terminal zero-artifact control jobs use the same hosted selector so public PR
-validation does not require enabling organization self-hosted Linux capacity for
-a public repository. Reusable private-consumer semantic `portable` /
-`general-small` routing is unchanged. The Central self-check still verifies its
+The public `ci-workflows` repository's own event-triggered self-CI is
+intentionally GitHub-hosted. Every pull-request-triggered repository-owned job
+must schedule directly on `[ubuntu-latest]` or `[macos-latest]`; it must not
+consume the organization ARC/mobile/Apple semantic selector it is testing.
+Linux, Android, and Flutter-on-Linux synthetic self-smokes use
+`[ubuntu-latest]`; Apple and Flutter-on-Apple synthetic self-smokes use
+`[macos-latest]`; lightweight planning and terminal control jobs use
+`[ubuntu-latest]`. Planner outputs such as `["linux","amd64","mobile"]` and
+`["macOS","ARM64"]` remain assertions of the reusable consumer contract only.
+Reusable private-consumer semantic routing is unchanged. This keeps public
+Central PR validation independent of organization self-hosted capacity and
+prevents a self-CI contract test from silently allocating the capacity it is
+only supposed to describe. The Central self-check still verifies its
 pre-provisioned Linux runtime before checkout and does not install, elevate, or
 persist a host runtime. The former emergency macOS exception is retired and
 must not be restored.
