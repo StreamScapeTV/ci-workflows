@@ -49,7 +49,9 @@ concurrency:
 jobs:
   plan:
     name: Validate protected-full Apple smoke plan
-    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    if: >-
+      ${{ github.event.pull_request.user.login == 'mimranfaruqi' &&
+          github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: [ubuntu-latest]
     timeout-minutes: 10
     outputs:
@@ -125,8 +127,11 @@ jobs:
   apple:
     name: Real protected-full Apple smoke
     needs: plan
-    if: ${{ github.event.repository.private && needs.plan.result == 'success' }}
-    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
+    if: >-
+      ${{ github.event.pull_request.user.login == 'mimranfaruqi' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          needs.plan.result == 'success' }}
+    runs-on: [macos-latest]
     timeout-minutes: 120
     steps:
       - name: Check out exact validation implementation
@@ -266,24 +271,22 @@ jobs:
   zero_artifacts:
     name: Verify Apple routine artifacts remain zero
     needs: [plan, apple]
-    if: ${{ always() && !cancelled() }}
+    if: >-
+      ${{ github.event.pull_request.user.login == 'mimranfaruqi' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          always() && !cancelled() }}
     runs-on: [ubuntu-latest]
     timeout-minutes: 10
     steps:
-      - name: Require public control success and private executor boundary
+      - name: Require trusted control and executor success
         shell: bash
         env:
           PLAN_RESULT: ${{ needs.plan.result }}
           APPLE_RESULT: ${{ needs.apple.result }}
-          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
         run: |
           set -Eeuo pipefail
           test "${PLAN_RESULT}" = success
-          case "${REPOSITORY_PRIVATE}" in
-            true) test "${APPLE_RESULT}" = success ;;
-            false) test "${APPLE_RESULT}" = skipped ;;
-            *) echo "unexpected repository privacy value: ${REPOSITORY_PRIVATE}" >&2; exit 1 ;;
-          esac
+          test "${APPLE_RESULT}" = success
 
       - name: Verify zero workflow artifacts
         shell: bash

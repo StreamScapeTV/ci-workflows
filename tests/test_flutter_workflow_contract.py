@@ -19,6 +19,8 @@ PRIVATE_HELPERS = (
     "prepare-workspace",
     "cleanup-workspace",
 )
+OWNER_GATE = "github.event.pull_request.user.login == 'mimranfaruqi'"
+REPOSITORY_GATE = "github.event.pull_request.head.repo.full_name == github.repository"
 
 
 class FlutterWorkflowContractTests(unittest.TestCase):
@@ -118,7 +120,7 @@ class FlutterWorkflowContractTests(unittest.TestCase):
             self.assertIn(f"{output}: ${{{{ steps.plan.outputs.{output} }}}}", self.reusable)
         self.assertIn("Resolve contract-owned Flutter Dart Gradle and JDK tuple", self.reusable)
 
-    def test_smoke_direct_runner_selectors_use_capabilities_not_semantic_profiles(self) -> None:
+    def test_reusable_semantic_selectors_and_hosted_self_ci_are_separated(self) -> None:
         def job_block(source: str, job: str) -> str:
             match = re.search(
                 rf"(?ms)^  {re.escape(job)}:\n(.*?)(?=^  [a-z_]+:\n|\Z)",
@@ -141,7 +143,7 @@ class FlutterWorkflowContractTests(unittest.TestCase):
                 "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
                 job_block(self.reusable, job),
             )
-        for job in ("source_audit", "focused_tests", "plan", "zero_artifacts"):
+        for job in ("source_audit", "focused_tests", "plan", "android", "zero_artifacts"):
             self.assertIn(
                 "runs-on: [ubuntu-latest]",
                 job_block(self.mobile_smoke, job),
@@ -151,13 +153,16 @@ class FlutterWorkflowContractTests(unittest.TestCase):
                 "runs-on: [ubuntu-latest]",
                 job_block(self.apple_smoke, job),
             )
+        self.assertIn("runs-on: [macos-latest]", job_block(self.apple_smoke, "ios"))
         for source, job in ((self.mobile_smoke, "android"), (self.apple_smoke, "ios")):
             block = job_block(source, job)
-            self.assertIn(
+            self.assertNotIn(
                 "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
                 block,
             )
-            self.assertIn("github.event.repository.private", block)
+            self.assertIn(OWNER_GATE, block)
+            self.assertIn(REPOSITORY_GATE, block)
+            self.assertNotIn("github.event.repository.private", block)
             self.assertIn("needs.plan.result == 'success'", block)
         self.assertIn(
             '== ["linux", "amd64", "mobile"]',
@@ -172,11 +177,11 @@ class FlutterWorkflowContractTests(unittest.TestCase):
             (self.apple_smoke, "IOS_RESULT"),
         ):
             terminal = job_block(source, "zero_artifacts")
-            self.assertIn(
-                "REPOSITORY_PRIVATE: ${{ github.event.repository.private }}",
-                terminal,
-            )
-            self.assertIn(f'test "${{{result_name}}}" = skipped', terminal)
+            self.assertIn(OWNER_GATE, terminal)
+            self.assertIn(REPOSITORY_GATE, terminal)
+            self.assertNotIn("REPOSITORY_PRIVATE", terminal)
+            self.assertNotIn("github.event.repository.private", terminal)
+            self.assertIn(f'test "${{{result_name}}}" = success', terminal)
 
     def test_smoke_zero_artifact_checks_do_not_survive_workflow_cancellation(self) -> None:
         def job_block(source: str) -> str:
@@ -189,7 +194,9 @@ class FlutterWorkflowContractTests(unittest.TestCase):
 
         for source in (self.mobile_smoke, self.apple_smoke):
             block = job_block(source)
-            self.assertIn("if: ${{ always() && !cancelled() }}", block)
+            self.assertIn(OWNER_GATE, block)
+            self.assertIn(REPOSITORY_GATE, block)
+            self.assertIn("always() && !cancelled()", block)
             self.assertNotIn("if: always()", block)
 
     def test_pub_cache_is_only_registered_workflow_state(self) -> None:
