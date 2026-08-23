@@ -86,6 +86,7 @@ runs:
   using: composite
   steps:
     - id: python
+      name: Dispatch product-neutral Python validation
       shell: bash
       env:
         INPUT_EXECUTION_BACKEND: ${{ inputs.execution_backend }}
