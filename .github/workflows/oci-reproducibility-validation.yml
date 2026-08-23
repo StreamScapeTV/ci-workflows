@@ -18,6 +18,7 @@ on:
       - scripts/ci/oci_reproducibility.py
       - src/ci_workflows/oci_reproducibility.py
       - src/ci_workflows/public_api_contract.py
+      - tests/test_bootstrap.py
       - tests/test_oci_reproducibility_workflow.py
       - tests/test_public_api_contract.py
       - tests/test_public_ci_admission.py
