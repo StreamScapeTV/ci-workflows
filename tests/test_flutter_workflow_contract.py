@@ -120,7 +120,7 @@ class FlutterWorkflowContractTests(unittest.TestCase):
             self.assertIn(f"{output}: ${{{{ steps.plan.outputs.{output} }}}}", self.reusable)
         self.assertIn("Resolve contract-owned Flutter Dart Gradle and JDK tuple", self.reusable)
 
-    def test_smoke_direct_runner_selectors_use_capabilities_not_semantic_profiles(self) -> None:
+    def test_reusable_semantic_selectors_and_hosted_self_ci_are_separated(self) -> None:
         def job_block(source: str, job: str) -> str:
             match = re.search(
                 rf"(?ms)^  {re.escape(job)}:\n(.*?)(?=^  [a-z_]+:\n|\Z)",
@@ -143,7 +143,7 @@ class FlutterWorkflowContractTests(unittest.TestCase):
                 "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
                 job_block(self.reusable, job),
             )
-        for job in ("source_audit", "focused_tests", "plan", "zero_artifacts"):
+        for job in ("source_audit", "focused_tests", "plan", "android", "zero_artifacts"):
             self.assertIn(
                 "runs-on: [ubuntu-latest]",
                 job_block(self.mobile_smoke, job),
@@ -153,9 +153,10 @@ class FlutterWorkflowContractTests(unittest.TestCase):
                 "runs-on: [ubuntu-latest]",
                 job_block(self.apple_smoke, job),
             )
+        self.assertIn("runs-on: [macos-latest]", job_block(self.apple_smoke, "ios"))
         for source, job in ((self.mobile_smoke, "android"), (self.apple_smoke, "ios")):
             block = job_block(source, job)
-            self.assertIn(
+            self.assertNotIn(
                 "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
                 block,
             )
