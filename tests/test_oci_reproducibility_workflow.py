@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import importlib.util
 import json
 import sys
 import tempfile
@@ -11,15 +10,17 @@ from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from ci_workflows import oci_reproducibility as repro
+
+
 WORKFLOW = ROOT / ".github" / "workflows" / "reusable-oci-reproducibility.yml"
 SCRIPT = ROOT / "scripts" / "ci" / "oci_reproducibility.py"
+MODULE = ROOT / "src" / "ci_workflows" / "oci_reproducibility.py"
 FIXTURE = ROOT / "tests" / "fixtures" / "oci-reproducibility"
-
-_spec = importlib.util.spec_from_file_location("ciw_oci_reproducibility", SCRIPT)
-assert _spec is not None and _spec.loader is not None
-repro = importlib.util.module_from_spec(_spec)
-sys.modules[_spec.name] = repro
-_spec.loader.exec_module(repro)
 
 
 class OciReproducibilityWorkflowTests(unittest.TestCase):
@@ -27,6 +28,7 @@ class OciReproducibilityWorkflowTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.workflow = WORKFLOW.read_text(encoding="utf-8")
         cls.script = SCRIPT.read_text(encoding="utf-8")
+        cls.module = MODULE.read_text(encoding="utf-8")
 
     def test_public_surface_is_bounded_product_neutral_and_non_publishing(self) -> None:
         text = self.workflow
@@ -67,6 +69,22 @@ class OciReproducibilityWorkflowTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, text)
 
+    def test_function_first_module_and_thin_cli_adapter_are_explicit(self) -> None:
+        self.assertIn("from ci_workflows.oci_reproducibility import main", self.script)
+        self.assertIn("raise SystemExit(main())", self.script)
+        for implementation_token in (
+            "class ReproducibilityError",
+            "class ProofInputs",
+            "def build_command",
+            "def raw_config_identity",
+            "def compare_builds",
+            "def run_proof",
+        ):
+            self.assertNotIn(implementation_token, self.script)
+            self.assertIn(implementation_token, self.module)
+        self.assertIn("PYTHONPATH: .ciw/src", self.workflow)
+        self.assertIn('PYTHONDONTWRITEBYTECODE: "1"', self.workflow)
+
     def test_exact_source_and_fixed_platform_contract_are_explicit(self) -> None:
         text = self.workflow
         self.assertIn("Check out exact admitted caller source", text)
@@ -105,6 +123,8 @@ class OciReproducibilityWorkflowTests(unittest.TestCase):
         self.assertIn("--storage-driver vfs", rendered)
         self.assertIn("--layers=false", rendered)
         self.assertIn("--no-cache", rendered)
+        self.assertIn("--http-proxy=false", rendered)
+        self.assertIn("--identity-label=false", rendered)
         self.assertIn("--timestamp 1700000000", rendered)
         self.assertIn("--platform linux/arm64/v8", rendered)
         self.assertIn("org.opencontainers.image.revision=" + "a" * 40, rendered)
@@ -155,17 +175,17 @@ class OciReproducibilityWorkflowTests(unittest.TestCase):
                     repro.compare_builds(bad, valid)
 
     def test_build_a_is_deleted_before_build_b_and_cleanup_is_terminal(self) -> None:
-        self.assertIn('first = _one_clean_build(inputs, "build-a")', self.script)
-        self.assertIn('not (inputs.state_root / "build-a").exists()', self.script)
-        self.assertIn('second = _one_clean_build(inputs, "build-b")', self.script)
+        self.assertIn('first = _one_clean_build(inputs, "build-a")', self.module)
+        self.assertIn('not (inputs.state_root / "build-a").exists()', self.module)
+        self.assertIn('second = _one_clean_build(inputs, "build-b")', self.module)
         self.assertLess(
-            self.script.index('first = _one_clean_build(inputs, "build-a")'),
-            self.script.index('second = _one_clean_build(inputs, "build-b")'),
+            self.module.index('first = _one_clean_build(inputs, "build-a")'),
+            self.module.index('second = _one_clean_build(inputs, "build-b")'),
         )
-        self.assertIn("finally:\n        cleanup_state(inputs.state_root)", self.script)
-        self.assertIn("buildah", self.script)
+        self.assertIn("finally:\n        cleanup_state(inputs.state_root)", self.module)
+        self.assertIn("buildah", self.module)
         for token in ("unmount", "rm", "rmi", "graphroot", "runroot", "cache", "runtime", "layouts"):
-            self.assertIn(token, self.script)
+            self.assertIn(token, self.module)
         self.assertIn("Remove all run-owned OCI reproducibility state", self.workflow)
         self.assertIn("Verify zero routine Actions artifact behavior", self.workflow)
 
@@ -176,6 +196,25 @@ class OciReproducibilityWorkflowTests(unittest.TestCase):
                     repro._safe_relative(value, "path")
         self.assertEqual("Dockerfile", str(repro._safe_relative("Dockerfile", "path")))
         self.assertEqual(".", str(repro._safe_relative(".", "path")))
+
+    def test_isolated_environment_drops_credential_like_inherited_variables(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            with mock.patch.dict(
+                repro.os.environ,
+                {
+                    "GITHUB_TOKEN": "sensitive",
+                    "REGISTRY_PASSWORD": "sensitive",
+                    "SAFE_TEST_VALUE": "keep",
+                },
+                clear=True,
+            ):
+                isolated = repro._isolated_environment(root)
+        self.assertNotIn("GITHUB_TOKEN", isolated)
+        self.assertNotIn("REGISTRY_PASSWORD", isolated)
+        self.assertEqual("keep", isolated["SAFE_TEST_VALUE"])
+        self.assertEqual(str(root / "home"), isolated["HOME"])
+        self.assertEqual(str(root / "auth" / "auth.json"), isolated["REGISTRY_AUTH_FILE"])
 
     def test_deterministic_fixture_is_scratch_only_and_has_no_network_or_clock_input(self) -> None:
         dockerfile = (FIXTURE / "Dockerfile").read_text(encoding="utf-8")

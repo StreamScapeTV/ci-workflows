@@ -45,6 +45,8 @@ jobs:
       DOCKERFILE_PATH: ${{ inputs.dockerfile_path }}
       BUILD_CONTEXT: ${{ inputs.build_context }}
       SOURCE_ROOT: source
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONPATH: .ciw/src
     steps:
       - name: Check out exact Central reusable-workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
