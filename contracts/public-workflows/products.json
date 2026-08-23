@@ -76,8 +76,7 @@
       "repository_owned_hooks": ["dockerfile_path", "build_context"],
       "implementation_components": [
         "ci_workflows.oci_reproducibility.run_proof",
-        "ci_workflows.oci_reproducibility.compare_builds",
-        "scripts/ci/oci_reproducibility.py"
+        "ci_workflows.oci_reproducibility.compare_builds"
       ]
     },
     {
