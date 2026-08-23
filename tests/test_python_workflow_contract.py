@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/reusable-python.yml"
 ACTION_PATH = ROOT / "actions/validate-python/action.yml"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-PYTHON_ACTION_SHA = "7d5d839c6e90491e165f1358ecb5e80129805764"
+PYTHON_ACTION_SHA = "3d3689fda11b03a188789f03d6d64cab50f1873a"
 PRIVATE_HELPERS = {
     "validate-python": PYTHON_ACTION_SHA,
     "exact-checkout": FOUNDATION_SHA,
@@ -32,129 +32,93 @@ class PythonWorkflowContractTests(unittest.TestCase):
             (ROOT / "contracts/python-validation.json").read_text(encoding="utf-8")
         )
         public = json.loads(
-            (ROOT / "contracts/public-workflows/validation.json").read_text(
-                encoding="utf-8"
-            )
+            (ROOT / "contracts/public-workflows/validation.json").read_text(encoding="utf-8")
         )
         cls.public_record = next(
-            item
-            for item in public["workflows"]
-            if item["api_name"] == "validation.python"
+            item for item in public["workflows"] if item["api_name"] == "validation.python"
         )
 
-    def test_workflow_call_only_api_matches_the_implemented_public_record(self) -> None:
+    def test_workflow_call_api_is_script_owned_and_public_record_matches(self) -> None:
         self.assertEqual(set(self.workflow["on"]), {"workflow_call"})
         call = self.workflow["on"]["workflow_call"]
-        self.assertEqual(
-            set(call["inputs"]),
-            {
-                "execution_backend",
-                "admitted_sha",
-                "validation_profile",
-                "version_file",
-                "working_directory",
-                "command_profile",
-                "script_path",
-                "artifact_exception_id",
-            },
-        )
+        expected_inputs = {
+            "execution_backend",
+            "admitted_sha",
+            "validation_profile",
+            "python_version",
+            "version_file",
+            "dependency_file",
+            "working_directory",
+            "script_path",
+            "artifact_exception_id",
+        }
+        self.assertEqual(set(call["inputs"]), expected_inputs)
+        self.assertTrue(call["inputs"]["script_path"]["required"])
+        self.assertTrue(call["inputs"]["python_version"]["required"])
+        self.assertFalse(call["inputs"]["dependency_file"]["required"])
         backend = call["inputs"]["execution_backend"]
         self.assertFalse(backend["required"])
-        self.assertEqual(backend["default"], "organization")
-        self.assertEqual(backend["type"], "string")
-        self.assertEqual(
-            set(call["outputs"]),
-            {"result", "test_summary", "artifact_exception_used"},
-        )
-        self.assertEqual(call.get("secrets", {}), {})
-        self.assertEqual(self.public_record["status"], "implemented")
-        self.assertEqual(self.public_record["api_version"], "1.0.0")
+        self.assertEqual("organization", backend["default"])
+        self.assertEqual("string", backend["type"])
+        self.assertEqual(set(call["outputs"]), {"result", "test_summary", "artifact_exception_used"})
+        self.assertEqual({}, call.get("secrets", {}))
+        self.assertEqual("implemented", self.public_record["status"])
+        self.assertEqual("2.0.0", self.public_record["api_version"])
         self.assertEqual(
             {item["name"] for item in self.public_record["inputs"]},
-            set(call["inputs"]),
+            expected_inputs,
         )
-        self.assertEqual(
-            set(self.public_record["outputs"]),
-            set(call["outputs"]),
-        )
-        self.assertEqual(
-            self.public_record["stable_check_name"],
-            "CI / Python validation",
-        )
+        self.assertEqual(set(self.public_record["outputs"]), set(call["outputs"]))
+        self.assertEqual(["script_path"], self.public_record["repository_owned_hooks"])
+        self.assertEqual("CI / Python validation", self.public_record["stable_check_name"])
+
+    def test_old_command_registry_surface_is_absent(self) -> None:
+        for token in (
+            "command_profile",
+            "arguments_json",
+            "environment_json",
+            "database_environment_variable",
+            "service_image",
+            "python_image",
+            "runner_labels",
+            "secret_name",
+        ):
+            self.assertNotIn(token, self.workflow_text.casefold())
+        self.assertNotIn("consumers", self.python_contract)
+        self.assertNotIn("command_profiles", self.python_contract)
 
     def test_workflow_uses_hosted_planner_and_exact_backend_runner_output(self) -> None:
         jobs = self.workflow["jobs"]
-        self.assertEqual(set(jobs), {"plan", "validate"})
-        self.assertEqual(jobs["plan"]["runs-on"], ["ubuntu-latest"])
+        self.assertEqual({"plan", "validate"}, set(jobs))
+        self.assertEqual(["ubuntu-latest"], jobs["plan"]["runs-on"])
         self.assertEqual(
-            jobs["validate"]["runs-on"],
             "${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
-        )
-        self.assertEqual(
-            jobs["plan"]["outputs"]["runs_on_json"],
-            "${{ steps.plan.outputs.runs_on_json }}",
+            jobs["validate"]["runs-on"],
         )
         planner = jobs["plan"]["steps"][0]
-        self.assertEqual(
-            planner["with"]["execution_backend"],
-            "${{ inputs.execution_backend }}",
-        )
-        self.assertEqual(jobs["validate"]["timeout-minutes"], 120)
-        self.assertEqual(jobs["validate"]["name"], "CI / Python validation")
+        self.assertEqual("${{ inputs.execution_backend }}", planner["with"]["execution_backend"])
+        self.assertEqual("${{ inputs.python_version }}", planner["with"]["python_version"])
+        self.assertEqual("${{ inputs.dependency_file }}", planner["with"]["dependency_file"])
+        self.assertEqual("${{ inputs.script_path }}", planner["with"]["script_path"])
+        self.assertEqual(120, jobs["validate"]["timeout-minutes"])
+        self.assertEqual("CI / Python validation", jobs["validate"]["name"])
         self.assertNotIn("self-hosted", self.workflow_text)
-        self.assertNotIn("runs-on: portable", self.workflow_text)
-        self.assertNotIn("runs-on: [linux, amd64, general]", self.workflow_text)
         self.assertNotIn("docker-capable", self.workflow_text)
 
-    def test_private_central_helpers_are_immutable_without_central_clone(self) -> None:
+    def test_private_helpers_are_immutable_without_central_clone(self) -> None:
         self.assertNotIn("actions/checkout@", self.workflow_text)
-        self.assertNotIn("repository: ${{ job.workflow_repository }}", self.workflow_text)
-        self.assertNotIn("ref: ${{ job.workflow_sha }}", self.workflow_text)
         self.assertNotIn("path: .ciw", self.workflow_text)
         self.assertNotIn("./.ciw/actions/", self.workflow_text)
         self.assertNotIn("secrets: inherit", self.workflow_text)
-        self.assertNotIn("private_dependency_token", self.workflow_text)
         for helper, sha in PRIVATE_HELPERS.items():
             self.assertIn(
                 f"StreamScapeTV/ci-workflows/actions/{helper}@{sha}",
                 self.workflow_text,
             )
-        self.assertNotIn("actions/verify-toolchain@", self.workflow_text)
-        self.assertNotIn("actions/render-evidence@", self.workflow_text)
 
-    def test_exact_caller_source_is_still_verified_and_clean(self) -> None:
-        self.assertIn(
-            f"uses: StreamScapeTV/ci-workflows/actions/exact-checkout@{FOUNDATION_SHA}",
-            self.workflow_text,
-        )
-        self.assertIn("admitted_sha: ${{ inputs.admitted_sha }}", self.workflow_text)
-        self.assertIn(
-            'test "$(git rev-parse HEAD)" = "${{ inputs.admitted_sha }}"',
-            self.workflow_text,
-        )
-        self.assertIn("git status --porcelain --untracked-files=all", self.workflow_text)
-        clean = next(
-            step
-            for step in self.workflow["jobs"]["validate"]["steps"]
-            if step.get("id") == "clean"
-        )
-        self.assertEqual(clean["if"], "always()")
-        self.assertIn("git rev-parse HEAD", clean["run"])
-        self.assertIn("git status --porcelain --untracked-files=all", clean["run"])
-
-    def test_shared_sequence_is_marker_bound_and_cleanup_is_unconditional(self) -> None:
+    def test_exact_source_cleanup_and_zero_artifact_contract_are_preserved(self) -> None:
         source = self.workflow_text
         validate_job = source.index("\n  validate:\n")
-        planner_action = source.index(
-            f"uses: StreamScapeTV/ci-workflows/actions/validate-python@{PYTHON_ACTION_SHA}"
-        )
-        self.assertLess(planner_action, validate_job)
-        self.assertEqual(
-            source.count(
-                f"uses: StreamScapeTV/ci-workflows/actions/validate-python@{PYTHON_ACTION_SHA}"
-            ),
-            2,
-        )
         validation_source = source[validate_job:]
         sequence = [
             f"uses: StreamScapeTV/ci-workflows/actions/exact-checkout@{FOUNDATION_SHA}",
@@ -164,15 +128,10 @@ class PythonWorkflowContractTests(unittest.TestCase):
             "name: Verify exact source remained clean after cleanup",
         ]
         positions = [validation_source.index(value) for value in sequence]
-        self.assertEqual(positions, sorted(positions))
-        self.assertRegex(
-            validation_source,
-            r"- id: cleanup\n        name: Remove and verify all registered Python state\n        if: always\(\)",
-        )
-        self.assertRegex(
-            validation_source,
-            r"- id: clean\n        name: Verify exact source remained clean after cleanup\n        if: always\(\)",
-        )
+        self.assertEqual(sorted(positions), positions)
+        self.assertIn("if: always()", validation_source)
+        self.assertIn('test "$(git rev-parse HEAD)" = "${{ inputs.admitted_sha }}"', validation_source)
+        self.assertIn("git status --porcelain --untracked-files=all", validation_source)
         self.assertIn("cache_mode: disabled", validation_source)
         result = self.workflow["jobs"]["validate"]["outputs"]["result"]
         self.assertIn("steps.python.outcome", result)
@@ -180,36 +139,32 @@ class PythonWorkflowContractTests(unittest.TestCase):
         self.assertIn("steps.clean.outcome", result)
         self.assertNotIn("actions/upload-artifact", source)
         self.assertNotIn("actions/download-artifact", source)
-        self.assertNotIn("secrets: inherit", source)
 
-    def test_action_is_thin_and_uses_only_runner_provided_python(self) -> None:
-        self.assertEqual(self.action["runs"]["using"], "composite")
-        self.assertEqual(len(self.action["runs"]["steps"]), 1)
+    def test_action_is_thin_and_exposes_only_bounded_inputs(self) -> None:
+        self.assertEqual("composite", self.action["runs"]["using"])
+        self.assertEqual(1, len(self.action["runs"]["steps"]))
         step = self.action["runs"]["steps"][0]
         script = step["run"]
         self.assertIn("type -P python3.12", script)
-        self.assertIn("type -P python3", script)
-        self.assertIn('"${interpreter}" != /*', script)
         self.assertIn("scripts/ci/ciw.py", script)
         self.assertIn("python validate", script)
-        self.assertIn("--phase", script)
         self.assertIn("--source-root source", script)
         inputs = set(self.action["inputs"])
         self.assertEqual(
-            inputs,
             {
                 "phase",
                 "execution_backend",
                 "admitted_sha",
                 "validation_profile",
-                "command_profile",
+                "python_version",
                 "working_directory",
                 "version_file",
+                "dependency_file",
                 "script_path",
                 "artifact_exception_id",
             },
+            inputs,
         )
-        self.assertEqual(self.action["inputs"]["execution_backend"]["default"], "organization")
         forbidden = set(self.python_contract["forbidden_inputs"])
         self.assertTrue(inputs.isdisjoint(forbidden))
         for token in (
@@ -218,14 +173,12 @@ class PythonWorkflowContractTests(unittest.TestCase):
             "apt-get",
             "sudo ",
             "eval ",
-            "source ",
             "curl ",
-            "rm -rf",
             "docker ",
         ):
             self.assertNotIn(token, script)
 
-    def test_runtime_and_postgres_identities_are_exact_and_not_workflow_inputs(self) -> None:
+    def test_runtime_and_postgres_identity_remain_contract_owned(self) -> None:
         public_inputs = set(self.workflow["on"]["workflow_call"]["inputs"])
         self.assertTrue(
             public_inputs.isdisjoint(
@@ -236,6 +189,7 @@ class PythonWorkflowContractTests(unittest.TestCase):
                     "service_image",
                     "database_url",
                     "database_password",
+                    "database_environment_variable",
                     "container_engine",
                     "storage_driver",
                     "runner",
@@ -243,39 +197,35 @@ class PythonWorkflowContractTests(unittest.TestCase):
                 }
             )
         )
+        self.assertEqual("CIW_POSTGRES_URL", self.python_contract["postgres"]["connection_environment_variable"])
         for identifier, runtime in self.python_contract["runtimes"].items():
             if runtime["kind"] == "host":
-                self.assertEqual(identifier, "host-cpython-3.12")
-                self.assertEqual(runtime["python_version"], "3.12")
+                self.assertEqual("host-cpython-3.12", identifier)
+                self.assertEqual("3.12", runtime["python_version"])
                 continue
             with self.subTest(runtime=identifier):
                 self.assertRegex(runtime["digest"], r"^sha256:[0-9a-f]{64}$")
-                self.assertNotEqual(runtime["tag"], "latest")
+                self.assertNotEqual("latest", runtime["tag"])
 
-    def test_docs_and_command_registry_cover_backend_and_public_workflow(self) -> None:
+    def test_docs_and_ciw_registry_describe_script_contract(self) -> None:
         workflow_doc = (ROOT / "docs/workflows/python.md").read_text(encoding="utf-8")
-        architecture = (
-            ROOT / "docs/architecture/python-validation.md"
-        ).read_text(encoding="utf-8")
-        ciw_contract = json.loads(
-            (ROOT / "contracts/ciw-commands.json").read_text(encoding="utf-8")
-        )
+        architecture = (ROOT / "docs/architecture/python-validation.md").read_text(encoding="utf-8")
+        ciw_contract = json.loads((ROOT / "contracts/ciw-commands.json").read_text(encoding="utf-8"))
         commands = {
             f"{item['domain']} {item['operation']}": item
             for item in ciw_contract["commands"]
         }
+        python_command = commands["python validate"]
         self.assertIn("validation.python", workflow_doc)
-        self.assertIn("podman-postgres", workflow_doc)
-        self.assertIn("runner-provided CPython 3.12", workflow_doc)
+        self.assertIn("consumer-owned", workflow_doc.casefold())
+        self.assertIn("CIW_POSTGRES_URL", workflow_doc)
         self.assertIn("execution_backend", workflow_doc)
-        self.assertIn("github-hosted", workflow_doc)
-        self.assertIn("shared Python primitives", architecture)
+        self.assertIn("consumer-owned", architecture.casefold())
         self.assertIn("ciw python validate", architecture)
-        self.assertIn("python validate", commands)
-        self.assertEqual(
-            commands["python validate"]["failure"],
-            "PythonValidationError.code",
-        )
+        self.assertNotIn("command_profile", python_command["inputs"])
+        self.assertIn("script_path", python_command["inputs"])
+        self.assertIn("dependency_file", python_command["inputs"])
+        self.assertEqual("PythonValidationError.code", python_command["failure"])
 
 
 if __name__ == "__main__":

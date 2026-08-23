@@ -1,11 +1,10 @@
-name: Validate exact Python source
-description: Plan or execute one checked-in Python validation profile through ciw
+name: Validate Python
+description: Plan or execute bounded product-neutral Python validation
 
 inputs:
   phase:
-    description: Bounded internal phase, plan or execute
-    required: false
-    default: execute
+    description: plan or execute
+    required: true
   execution_backend:
     description: organization or github-hosted
     required: false
@@ -16,81 +15,94 @@ inputs:
   validation_profile:
     description: audit, host, podman, or podman-postgres
     required: true
-  command_profile:
-    description: Checked-in reviewed command profile
+  python_version:
+    description: Reviewed Python family for host or exact reviewed container version
     required: true
   working_directory:
-    description: Contract-matched relative working directory
+    description: Repository-relative working directory
     required: false
     default: .
   version_file:
-    description: Optional contract-matched relative Python version file
+    description: Optional repository-relative Python version file
     required: false
+    default: ""
+  dependency_file:
+    description: Optional repository-relative exact requirements file
+    required: false
+    default: ""
   script_path:
-    description: Optional contract-matched reviewed script path
-    required: false
+    description: Required repository-relative executable validation script
+    required: true
   artifact_exception_id:
-    description: Optional central artifact exception; initial Python API requires empty
+    description: Reserved zero-artifact exception id; must remain empty
     required: false
+    default: ""
 
 outputs:
   result:
+    description: Planned or successful execution result
     value: ${{ steps.python.outputs.result }}
   test_summary:
+    description: Bounded generic validation summary
     value: ${{ steps.python.outputs.test_summary }}
   source_sha:
+    description: Exact validated source SHA
     value: ${{ steps.python.outputs.source_sha }}
   resolved_python_version:
+    description: Resolved Python version
     value: ${{ steps.python.outputs.resolved_python_version }}
   validation_profile:
+    description: Validated generic profile
     value: ${{ steps.python.outputs.validation_profile }}
-  command_profile:
-    value: ${{ steps.python.outputs.command_profile }}
   cleanup_result:
+    description: Registered cleanup result
     value: ${{ steps.python.outputs.cleanup_result }}
   failure_code:
+    description: Stable redacted failure code
     value: ${{ steps.python.outputs.failure_code }}
   artifact_exception_used:
+    description: Always false for this API
     value: ${{ steps.python.outputs.artifact_exception_used }}
   evidence_id:
+    description: Bounded deterministic evidence id
     value: ${{ steps.python.outputs.evidence_id }}
   runner_profile:
+    description: Internal semantic profile selected by Central
     value: ${{ steps.python.outputs.runner_profile }}
   runs_on_json:
+    description: Internal Central-owned runner selector JSON
     value: ${{ steps.python.outputs.runs_on_json }}
   workspace_profile:
+    description: Internal workspace profile
     value: ${{ steps.python.outputs.workspace_profile }}
   timeout_minutes:
+    description: Internal bounded timeout
     value: ${{ steps.python.outputs.timeout_minutes }}
   source_trust:
+    description: Derived source trust
     value: ${{ steps.python.outputs.source_trust }}
 
 runs:
   using: composite
   steps:
     - id: python
-      name: Dispatch bounded Python validation
+      name: Dispatch product-neutral Python validation
       shell: bash
       env:
-        PYTHONDONTWRITEBYTECODE: "1"
         INPUT_EXECUTION_BACKEND: ${{ inputs.execution_backend }}
         INPUT_ADMITTED_SHA: ${{ inputs.admitted_sha }}
         INPUT_VALIDATION_PROFILE: ${{ inputs.validation_profile }}
-        INPUT_COMMAND_PROFILE: ${{ inputs.command_profile }}
+        INPUT_PYTHON_VERSION: ${{ inputs.python_version }}
         INPUT_WORKING_DIRECTORY: ${{ inputs.working_directory }}
         INPUT_VERSION_FILE: ${{ inputs.version_file }}
+        INPUT_DEPENDENCY_FILE: ${{ inputs.dependency_file }}
         INPUT_SCRIPT_PATH: ${{ inputs.script_path }}
         INPUT_ARTIFACT_EXCEPTION_ID: ${{ inputs.artifact_exception_id }}
       run: |
         set -Eeuo pipefail
-        interpreter="$(type -P python3.12 || true)"
-        if [[ -z "${interpreter}" ]]; then
-          interpreter="$(type -P python3 || true)"
-        fi
-        if [[ -z "${interpreter}" || "${interpreter}" != /* || ! -x "${interpreter}" ]]; then
-          echo '::error::Runner-provided CPython 3.12 is unavailable.' >&2
-          exit 2
-        fi
+        interpreter="$(type -P python3.12 || type -P python3 || true)"
+        test -n "${interpreter}"
+        [[ "${interpreter}" == /* ]]
         "${interpreter}" "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
           python validate \
           --phase "${{ inputs.phase }}" \

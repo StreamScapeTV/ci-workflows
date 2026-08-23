@@ -1,91 +1,51 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "positive": [
     {
-      "id": "flux-source-audit",
-      "repository": "StreamScapeTV/flux",
+      "id": "fork-audit-script",
       "validation_profile": "audit",
-      "command_profile": "source-audit"
+      "python_version": "3.12",
+      "script_path": "ci/audit.sh",
+      "source_trust": "untrusted-fork"
     },
     {
-      "id": "agent-state-host-automation",
-      "repository": "StreamScapeTV/agent-state",
+      "id": "trusted-host-script",
       "validation_profile": "host",
-      "command_profile": "source-audit"
+      "python_version": "3.12",
+      "dependency_file": "requirements.lock",
+      "script_path": "ci/validate.sh",
+      "source_trust": "trusted-pr"
     },
     {
-      "id": "agent-state-postgres",
-      "repository": "StreamScapeTV/agent-state",
-      "validation_profile": "podman-postgres",
-      "command_profile": "postgres-test"
-    },
-    {
-      "id": "backend-full-isolation",
-      "repository": "StreamScapeTV/iptv-backend",
-      "validation_profile": "host",
-      "command_profile": "locked-test"
-    },
-    {
-      "id": "backend-full-isolation",
-      "repository": "StreamScapeTV/iptv-backend",
+      "id": "trusted-podman-script",
       "validation_profile": "podman",
-      "command_profile": "full-test"
+      "python_version": "3.12.13",
+      "dependency_file": "requirements.lock",
+      "script_path": "ci/validate.sh",
+      "source_trust": "trusted-exact"
     },
     {
-      "id": "backend-postgres-focus",
-      "repository": "StreamScapeTV/iptv-backend",
+      "id": "trusted-postgres-script",
       "validation_profile": "podman-postgres",
-      "command_profile": "postgres-test"
+      "python_version": "3.12.13",
+      "dependency_file": "requirements.lock",
+      "script_path": "ci/integration.sh",
+      "source_trust": "trusted-exact",
+      "database_handoff": "CIW_POSTGRES_URL"
     }
   ],
   "negative": [
-    {
-      "id": "unknown-profile",
-      "failure": "unsupported_profile"
-    },
-    {
-      "id": "unmapped-consumer-profile",
-      "failure": "unsupported_consumer_profile"
-    },
-    {
-      "id": "fork-podman-escalation",
-      "failure": "source_mismatch"
-    },
-    {
-      "id": "mutable-python-image",
-      "failure": "invalid_input"
-    },
-    {
-      "id": "mutable-postgres-image",
-      "failure": "invalid_input"
-    },
-    {
-      "id": "caller-selected-command",
-      "failure": "invalid_input"
-    },
-    {
-      "id": "caller-selected-runner",
-      "failure": "invalid_input"
-    },
-    {
-      "id": "caller-selected-database-url",
-      "failure": "invalid_input"
-    },
-    {
-      "id": "unpinned-dependency",
-      "failure": "dependency_lock_drift"
-    },
-    {
-      "id": "postgres-readiness-timeout",
-      "failure": "postgres_readiness_timeout"
-    },
-    {
-      "id": "cleanup-residue",
-      "failure": "cleanup_failed"
-    },
-    {
-      "id": "source-dirty-after-validation",
-      "failure": "dirty_tree"
-    }
+    {"id": "unknown-profile", "failure": "unsupported_profile"},
+    {"id": "fork-podman-escalation", "failure": "unsupported_profile"},
+    {"id": "missing-script", "failure": "invalid_input"},
+    {"id": "non-executable-script", "failure": "invalid_input"},
+    {"id": "caller-selected-command", "failure": "invalid_input"},
+    {"id": "caller-selected-environment", "failure": "invalid_input"},
+    {"id": "caller-selected-runner", "failure": "invalid_input"},
+    {"id": "caller-selected-database-url", "failure": "invalid_input"},
+    {"id": "unpinned-dependency", "failure": "dependency_lock_drift"},
+    {"id": "postgres-readiness-timeout", "failure": "postgres_readiness_timeout"},
+    {"id": "cleanup-residue", "failure": "cleanup_failed"},
+    {"id": "source-dirty-after-validation", "failure": "dirty_tree"}
   ]
 }

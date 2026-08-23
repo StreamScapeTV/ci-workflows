@@ -90,16 +90,17 @@ class CIWCLITests(unittest.TestCase):
         self.assertEqual(2, code)
         self.assertIn("ambiguous-general", errors.getvalue())
 
-    def test_python_plan_dispatch_resolves_contract_owned_runner(self) -> None:
+    def test_python_plan_dispatch_resolves_product_neutral_runner(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "output"
             environment = {
                 "GITHUB_OUTPUT": str(output),
-                "GITHUB_REPOSITORY": "StreamScapeTV/flux",
+                "GITHUB_REPOSITORY": "StreamScapeTV/example",
                 "GITHUB_EVENT_NAME": "push",
                 "INPUT_ADMITTED_SHA": "a" * 40,
                 "INPUT_VALIDATION_PROFILE": "audit",
-                "INPUT_COMMAND_PROFILE": "source-audit",
+                "INPUT_PYTHON_VERSION": "3.12",
+                "INPUT_SCRIPT_PATH": "ci/validate.sh",
                 "INPUT_WORKING_DIRECTORY": ".",
             }
             errors = io.StringIO()
@@ -128,7 +129,10 @@ class CIWCLITests(unittest.TestCase):
                 '["linux","amd64","general","small"]',
             )
             self.assertEqual(values["artifact_exception_used"], "false")
-            self.assertNotIn("callback", output.read_text(encoding="utf-8"))
+            self.assertIn("consumer-owned-executable", values["test_summary"])
+            serialized = output.read_text(encoding="utf-8")
+            self.assertNotIn("command_profile", serialized)
+            self.assertNotIn("callback", serialized)
 
     def test_gitops_plan_dispatch_resolves_contract_owned_runner(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
