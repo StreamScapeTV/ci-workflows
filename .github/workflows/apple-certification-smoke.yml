@@ -160,7 +160,7 @@ jobs:
             validation_profile: macos
             platform: macos
             destination_profile: macos-unsigned
-    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
+    runs-on: [macos-latest]
     timeout-minutes: 120
     steps:
       - name: Check out exact validation implementation
