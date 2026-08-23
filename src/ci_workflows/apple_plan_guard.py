@@ -20,6 +20,7 @@ _SAFE_BOOLEAN_BUILD_SETTINGS = {
     "SWIFT_TREAT_WARNINGS_AS_ERRORS",
 }
 _BUILD_SETTING = re.compile(r"^([A-Z][A-Z0-9_]*)=(YES|NO)$")
+_RUNTIME_PLATFORMS = {"ios", "tvos"}
 
 
 def _fail(code: str) -> None:
@@ -57,13 +58,22 @@ def _guard_cleanup_paths(value: object) -> None:
             _fail("cleanup_failed")
 
 
-def validate_protected_full_plan_json(raw: str) -> None:
-    """Reject output redirection and arbitrary cleanup before plan resolution.
+def _guard_runtime_operation(stage: dict[object, object]) -> None:
+    """Keep routine protected-full planning free of simulator runtime execution."""
 
-    The main planner owns complete structural/path validation.  This guard is a
-    separate public-boundary check for the two caller-controlled channels that
-    can otherwise affect filesystem placement: Xcode arguments and cleanup
-    targets.
+    if stage.get("operation") == "test" and stage.get("platform") in _RUNTIME_PLATFORMS:
+        _fail("forbidden_operation")
+
+
+def validate_protected_full_plan_json(raw: str) -> None:
+    """Reject unsafe protected-full requests before Apple runner allocation.
+
+    The main planner owns complete structural/path validation. This guard is a
+    separate public-boundary check for caller-controlled channels that can
+    otherwise affect filesystem placement or request Apple runtime execution.
+    Protected-full is the routine simulator-free gate: iOS/tvOS may compile
+    against generic destinations, while runtime tests belong to a separately
+    reviewed smoke/runtime contract.
     """
 
     if not isinstance(raw, str) or not raw or len(raw.encode("utf-8")) > _MAX_PLAN_BYTES:
@@ -80,6 +90,7 @@ def validate_protected_full_plan_json(raw: str) -> None:
     for stage in stages:
         if not isinstance(stage, dict):
             _fail("validation_plan_invalid")
+        _guard_runtime_operation(stage)
         _guard_cleanup_paths(stage.get("cleanup_paths"))
         operation = stage.get("operation")
         arguments = stage.get("xcodebuild_arguments")
