@@ -174,10 +174,14 @@ class GitOpsWorkflowContractTests(unittest.TestCase):
         self.assertEqual(["ubuntu-latest"], workflow["jobs"]["artifacts"]["runs-on"])
         self.assertIn("PLANNED_RUNNER_JSON", source)
         self.assertIn("needs.plan.outputs.runs_on_json", source)
-        self.assertEqual(
-            "${{ always() && !cancelled() && needs.plan.result != 'skipped' }}",
-            workflow["jobs"]["artifacts"]["if"],
+        condition = workflow["jobs"]["artifacts"]["if"]
+        self.assertIn("github.event.pull_request.user.login == 'mimranfaruqi'", condition)
+        self.assertIn(
+            "github.event.pull_request.head.repo.full_name == github.repository",
+            condition,
         )
+        self.assertIn("always() && !cancelled()", condition)
+        self.assertIn("needs.plan.result != 'skipped'", condition)
         for job in workflow["jobs"].values():
             if "uses" not in job:
                 self.assertGreater(job.get("timeout-minutes", 0), 0)
