@@ -36,6 +36,17 @@ def test_general_runner_materializes_compiler_frontends_for_final_smoke() -> Non
     assert source.count('test -x "${native_entrypoint}"') == 1
 
 
+def test_general_runner_collects_gcc_helper_runtime_dependencies() -> None:
+    source = DOCKERFILE.read_text(encoding="utf-8")
+
+    # cc1/cc1plus and related GCC helpers live under libexec and have their own
+    # shared-library dependencies. Scan those helpers generically rather than
+    # pinning individual transitive libraries such as libisl into the image.
+    assert "find /usr/lib/gcc/x86_64-linux-gnu/14 -type f -perm /111 -print0" in source
+    assert "find /usr/libexec/gcc/x86_64-linux-gnu/14 -type f -perm /111 -print0" in source
+    assert "libisl.so" not in source
+
+
 def test_general_runner_removes_only_image_owned_build_phase_state() -> None:
     source = DOCKERFILE.read_text(encoding="utf-8")
 
