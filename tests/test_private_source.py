@@ -72,7 +72,8 @@ class PrivateSourceTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, "github_token_required")
 
     def test_http_failure_is_sanitized(self) -> None:
-        def opener(_request: object, _timeout: int) -> _Response:
+        def opener(_request: object, timeout: int) -> _Response:
+            self.assertEqual(timeout, 30)
             raise urllib.error.HTTPError(
                 "https://example.invalid/private",
                 403,
@@ -93,7 +94,8 @@ class PrivateSourceTests(unittest.TestCase):
         self.assertNotIn("develop", str(raised.exception))
 
     def test_invalid_response_sha_fails_closed(self) -> None:
-        def opener(_request: object, _timeout: int) -> _Response:
+        def opener(_request: object, timeout: int) -> _Response:
+            self.assertEqual(timeout, 30)
             return _Response(json.dumps({"sha": "main"}).encode("utf-8"))
 
         with self.assertRaises(PrivateSourceError) as raised:
