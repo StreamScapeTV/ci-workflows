@@ -21,14 +21,15 @@ class AndroidCompletionPublicSmokeRoutingTests(unittest.TestCase):
         self.source = WORKFLOW.read_text(encoding="utf-8")
         self.workflow = yaml.load(self.source, Loader=ActionsLoader)
 
-    def test_public_contract_and_terminal_jobs_are_hosted(self) -> None:
+    def test_every_repository_owned_smoke_job_is_github_hosted(self) -> None:
         jobs = self.workflow["jobs"]
         self.assertEqual(["ubuntu-latest"], jobs["contracts"]["runs-on"])
+        self.assertEqual(["ubuntu-latest"], jobs["completion"]["runs-on"])
         self.assertEqual(["ubuntu-latest"], jobs["terminal"]["runs-on"])
-        self.assertEqual(["linux", "amd64", "mobile"], jobs["completion"]["runs-on"])
+        self.assertNotIn("runs-on: [linux, amd64, mobile]", self.source)
         self.assertNotIn("self-hosted", self.source)
 
-    def test_real_mobile_executor_is_exact_owner_and_same_repository_gated(self) -> None:
+    def test_hosted_executor_is_exact_owner_and_same_repository_gated(self) -> None:
         completion = self.workflow["jobs"]["completion"]
         condition = completion["if"]
         self.assertIn(OWNER_GATE, condition)
@@ -37,12 +38,14 @@ class AndroidCompletionPublicSmokeRoutingTests(unittest.TestCase):
         self.assertNotIn("github.event.repository.private", condition)
         self.assertEqual("contracts", completion["needs"])
         completion_text = self.source.split("  completion:\n", 1)[1].split("  terminal:\n", 1)[0]
+        self.assertIn("runs-on: [ubuntu-latest]", completion_text)
+        self.assertIn("Set up exact hosted JDK 25", completion_text)
+        self.assertIn('java-version: "25"', completion_text)
         self.assertIn("phase: execute", completion_text)
         self.assertIn("Execute synthetic live-service acceptance", completion_text)
         self.assertIn("Execute synthetic unsigned-release acceptance", completion_text)
         self.assertIn("Verify zero live-service copied-state residue", completion_text)
         self.assertIn("Verify zero unsigned-release copied-state residue", completion_text)
-        self.assertNotIn("runs-on: [ubuntu-latest]", completion_text)
 
     def test_every_pull_request_runner_job_has_exact_owner_admission(self) -> None:
         for job_id, job in self.workflow["jobs"].items():
@@ -59,7 +62,7 @@ class AndroidCompletionPublicSmokeRoutingTests(unittest.TestCase):
         self.assertNotIn("service_password", contracts_text)
         self.assertNotIn("Prepare one isolated Gradle workspace", contracts_text)
 
-    def test_trusted_terminal_requires_mobile_success_and_zero_artifacts(self) -> None:
+    def test_trusted_terminal_requires_executor_success_and_zero_artifacts(self) -> None:
         terminal = self.workflow["jobs"]["terminal"]
         self.assertEqual(["contracts", "completion"], terminal["needs"])
         run = terminal["steps"][0]["run"]
