@@ -21,10 +21,12 @@ Public visibility permits outside forks and pull requests; it does not grant out
 
 ## Agent State boundary
 
-- This repository contains no Agent State transport, Supabase project configuration, project mapping, credentials, decision logic, lifecycle workflow, issue-comment bridge, MCP or plugin setup, or local compatibility client.
-- Do not restore issue #32's superseded lifecycle or ownership workflow architecture or the retired compatibility transport.
-- Do not inspect or modify `StreamScapeTV/agent-state-supabase`, its hosted project, schema, migrations, RPC functions, grants, deployment, or credentials during `ci-workflows` work. Those changes require a separate explicit assignment in that project.
-- Never invent an Agent State receipt, ownership grant, schema state, deployment result, or fallback transport.
+- Ordinary Central reusable workflows, actions, validation functions and publication paths contain no Agent State transport, project mapping, credentials, ownership logic, issue bridge, MCP/plugin setup, or compatibility client.
+- The sole reviewed exception is the external event-driven CI broker owned by issue #495 and its narrow broker support code under `src/ci_workflows/ci_broker*`, `scripts/ci/ci_broker.py`, `broker/**`, and the dedicated Central dispatch workflow. Flux owns the broker's deployed Kubernetes desired state and SOPS credentials.
+- The broker may use fixed environment variables selected by Central to call only the deployed CI-run lifecycle/discovery RPCs needed for dispatch, registration, transition, replay detection and diagnostic retrieval. The owner explicitly accepts a modern Supabase backend secret key using standard `service_role` authority for this broker; broker application code must remain RPC-only and must not query or mutate Agent State tables directly.
+- No GitHub Actions job receives the Supabase broker key or the broker's R2 read credential. Public Central jobs authenticate back to the broker through the reviewed callback protocol and receive only bounded execution material needed for that run.
+- The broker transport must not be reused for agent ownership, work, resources, coordination, issue topology, prompts, assignments, or arbitrary database access. Do not restore issue #32's superseded lifecycle/ownership workflow architecture or retired compatibility transport.
+- Inspecting or modifying `StreamScapeTV/agent-state-supabase`, its hosted project, migrations, grants or deployment still requires a separate explicit assignment in that project. Never invent an Agent State receipt, schema state, deployment result, or fallback transport.
 
 ## Reusable workflow architecture
 
