@@ -37,7 +37,7 @@ class BrokerWorkflowTests(unittest.TestCase):
         self.assertIs(False, concurrency["cancel-in-progress"])
         self.assertEqual(set(self.document.data["jobs"]), {"execute"})
         job = self.document.data["jobs"]["execute"]
-        self.assertEqual(job["runs-on"], "macos-latest")
+        self.assertEqual(job["runs-on"], ["macos-latest"])
         self.assertEqual(job["timeout-minutes"], 120)
 
     def test_actions_receive_broker_and_r2_writer_only(self) -> None:
