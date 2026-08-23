@@ -29,6 +29,7 @@
       ".github/workflows/apple-test.yml": {"trust_class": "trusted-manual", "allowed_events": ["workflow_dispatch"]},
       ".github/workflows/apple-validation-smoke.yml": {"trust_class": "owner-pr-smoke", "allowed_events": ["pull_request"]},
       ".github/workflows/central-ci-dispatch.yml": {"trust_class": "broker-dispatch", "allowed_events": ["workflow_dispatch"]},
+      ".github/workflows/ci-broker-image.yml": {"trust_class": "tag-release", "allowed_events": ["push"]},
       ".github/workflows/device-lock-contract-smoke.yml": {"trust_class": "owner-pr-smoke", "allowed_events": ["pull_request"]},
       ".github/workflows/device-validation-contract-smoke.yml": {"trust_class": "owner-pr-push-manual", "allowed_events": ["pull_request", "push", "workflow_dispatch"]},
       ".github/workflows/flutter-apple-validation-smoke.yml": {"trust_class": "owner-pr-smoke", "allowed_events": ["pull_request"]},
