@@ -17,6 +17,8 @@ ANDROID_SHA = "68a6450d6576e0744969cd170cc581856a44312a"
 WARM_SHA = "13de46c51efcf65df798dfec82a620c484350dfa"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 GRADLE_SYNC_SHA = "fa67b6a1580ff2eb7386a9e58de09896b9990696"
+OWNER_GATE = "github.event.pull_request.user.login == 'mimranfaruqi'"
+REPOSITORY_GATE = "github.event.pull_request.head.repo.full_name == github.repository"
 
 PUBLIC_INPUTS = {
     "admitted_sha",
@@ -409,7 +411,10 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         job = self.smoke["jobs"]["android"]
         self.assertEqual(job["name"], "Android reusable-workflow smoke")
         self.assertEqual(job["needs"], "contracts")
-        self.assertIn("github.event.repository.private", job["if"])
+        self.assertIn(OWNER_GATE, job["if"])
+        self.assertIn(REPOSITORY_GATE, job["if"])
+        self.assertIn("needs.contracts.result == 'success'", job["if"])
+        self.assertNotIn("github.event.repository.private", job["if"])
         self.assertEqual(job["runs-on"], ["linux", "amd64", "mobile"])
         self.assertNotIn("strategy", job)
         self.assertNotIn("uses", job)
