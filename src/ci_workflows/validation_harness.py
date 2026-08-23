@@ -5,6 +5,7 @@ import dataclasses
 import json
 from pathlib import Path
 
+from .public_ci_admission import validate_public_ci_admission
 from .readability import validate_repository_readability
 from .validation_contracts import (
     _function_index,
@@ -115,6 +116,9 @@ def validate_repository(
             findings,
             duplicated_runs,
         )
+
+    validate_public_ci_admission(root, workflow_documents, config, findings)
+
     for path in inventory.actions:
         relative_path = _relative(root, path)
         try:

@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main]
+    branches: ["**"]
   workflow_dispatch:
 
 permissions:
@@ -18,6 +18,10 @@ concurrency:
 jobs:
   validate:
     name: Validate repository and reusable workflow contracts
+    if: >-
+      ${{ github.event_name != 'pull_request' ||
+          (github.event.pull_request.user.login == 'mimranfaruqi' &&
+           github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: [ubuntu-latest]
     timeout-minutes: 10
     env:
@@ -28,6 +32,7 @@ jobs:
       - name: Admit trusted workflow source
         shell: bash
         env:
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
@@ -35,6 +40,10 @@ jobs:
           [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
           case "${GITHUB_EVENT_NAME}" in
             pull_request)
+              if [[ "${PR_AUTHOR}" != "mimranfaruqi" ]]; then
+                echo '::error::Central self-check admits pull requests only from the exact repository owner.' >&2
+                exit 1
+              fi
               if [[ -z "${PR_HEAD_REPOSITORY}" || "${PR_HEAD_REPOSITORY}" != "${GITHUB_REPOSITORY}" ]]; then
                 echo '::error::Central self-check rejects fork pull-request source before checkout.' >&2
                 exit 1

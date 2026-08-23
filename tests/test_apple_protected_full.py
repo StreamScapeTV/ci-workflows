@@ -382,17 +382,14 @@ class AppleProtectedFullExecutionTests(unittest.TestCase):
 
 
 class AppleProtectedFullWorkflowShapeTests(unittest.TestCase):
-    def test_reusable_and_smoke_use_one_heavy_executor(self) -> None:
+    def test_reusable_uses_semantic_executor_and_self_smoke_uses_hosted_apple(self) -> None:
         reusable = (ROOT / ".github/workflows/reusable-apple.yml").read_text(encoding="utf-8")
         smoke = (ROOT / ".github/workflows/apple-validation-smoke.yml").read_text(encoding="utf-8")
-        self.assertEqual(
-            reusable.count("runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}"),
-            1,
-        )
-        self.assertEqual(
-            smoke.count("runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}"),
-            1,
-        )
+        dynamic_selector = "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}"
+        self.assertEqual(reusable.count(dynamic_selector), 1)
+        self.assertEqual(smoke.count(dynamic_selector), 0)
+        self.assertEqual(smoke.count("runs-on: [macos-latest]"), 1)
+        self.assertIn('["macOS","ARM64"]', smoke)
         self.assertNotIn("Real iOS simulator smoke", smoke)
         self.assertNotIn("Real tvOS simulator smoke", smoke)
         self.assertNotIn("Real unsigned macOS smoke", smoke)

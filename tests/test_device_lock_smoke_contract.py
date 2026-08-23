@@ -91,7 +91,13 @@ class DeviceLockSmokeContractTests(unittest.TestCase):
         finalizer = self.workflow["jobs"]["zero_artifacts"]
         self.assertEqual(["ubuntu-latest"], finalizer["runs-on"])
         self.assertNotIn("runs-on: [linux, amd64, general, small]", self.source)
-        self.assertEqual("${{ always() && !cancelled() }}", finalizer["if"])
+        condition = finalizer["if"]
+        self.assertIn("github.event.pull_request.user.login == 'mimranfaruqi'", condition)
+        self.assertIn(
+            "github.event.pull_request.head.repo.full_name == github.repository",
+            condition,
+        )
+        self.assertIn("always() && !cancelled()", condition)
         run = finalizer["steps"][0]["run"]
         self.assertIn("/artifacts", run)
         self.assertIn("total_count", run)

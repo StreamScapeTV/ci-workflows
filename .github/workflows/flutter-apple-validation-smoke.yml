@@ -30,6 +30,9 @@ permissions:
 jobs:
   plan:
     name: Resolve Flutter Apple smoke selector and runtime tuple
+    if: >-
+      ${{ github.event.pull_request.user.login == 'mimranfaruqi' &&
+          github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: [ubuntu-latest]
     timeout-minutes: 10
     outputs:
@@ -78,8 +81,11 @@ jobs:
   ios:
     name: Flutter Apple iOS simulator smoke
     needs: plan
-    if: ${{ github.event.repository.private && needs.plan.result == 'success' }}
-    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
+    if: >-
+      ${{ github.event.pull_request.user.login == 'mimranfaruqi' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          needs.plan.result == 'success' }}
+    runs-on: [macos-latest]
     timeout-minutes: 100
     steps:
       - name: Check out exact pull request source
@@ -211,7 +217,10 @@ jobs:
   zero_artifacts:
     name: Verify Apple routine artifacts remain zero
     needs: [plan, ios]
-    if: ${{ always() && !cancelled() }}
+    if: >-
+      ${{ github.event.pull_request.user.login == 'mimranfaruqi' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          always() && !cancelled() }}
     runs-on: [ubuntu-latest]
     timeout-minutes: 10
     steps:
@@ -219,17 +228,12 @@ jobs:
         env:
           PLAN_RESULT: ${{ needs.plan.result }}
           IOS_RESULT: ${{ needs.ios.result }}
-          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
           GITHUB_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -Eeuo pipefail
           test "${PLAN_RESULT}" = success
-          if [[ "${REPOSITORY_PRIVATE}" == "true" ]]; then
-            test "${IOS_RESULT}" = success
-          else
-            test "${IOS_RESULT}" = skipped
-          fi
+          test "${IOS_RESULT}" = success
           python3 - <<'PY'
           import json
           import os

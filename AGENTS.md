@@ -13,7 +13,9 @@ Before any work, read this file and then the current shared organization entry p
 
 ## Repository authority and scope
 
-This private repository owns reusable GitHub Actions orchestration for supported StreamScapeTV repositories, including central source admission, semantic runner resolution, validation, publication mechanics, release support, and Flux orchestration. Consumer repositories retain thin event callers, minimum permissions, bounded product configuration, and product-owned scripts, contracts, policy, credentials, and deployment data.
+This public repository owns reusable GitHub Actions orchestration for supported StreamScapeTV repositories, including central source admission, semantic runner resolution, validation, publication mechanics, release support, and Flux orchestration. Consumer repositories retain thin event callers, minimum permissions, bounded product configuration, and product-owned scripts, contracts, policy, credentials, and deployment data.
+
+Public visibility permits outside forks and pull requests; it does not grant outside contributors Central runner capacity or trusted execution. Same-repository branch pushes are the preferred self-CI path. Any retained repository `pull_request` job must be rejected before runner allocation unless the pull-request author is exactly `mimranfaruqi` and the head repository is exactly this repository. Do not broaden that exception to members, collaborators, prior contributors, association classes, or approval history. `contracts/repository-policy.json` is the machine-readable workflow event/trust inventory and the canonical validation harness enforces it.
 
 `main` is the integration branch and initial bootstrap consumer channel. This repository is released by an exact compatible Git tag; it does not require a GitHub Release object, attached archive, container image, or Helm chart for its own release.
 
@@ -51,7 +53,8 @@ This private repository owns reusable GitHub Actions orchestration for supported
 ## Runner and central self-check boundary
 
 - Semantic runner intent remains authoritative. Ordinary Python, policy, source-admission, and GitOps validation use the `portable` capability; consumers do not select concrete runner labels or hosts.
-- The Central self-check rejects fork source and verifies an absolute pre-provisioned CPython 3.12 Linux runtime before checkout. It installs or elevates no host runtime, applies the repository's digest-locked validation dependency bootstrap, and uses the verified absolute interpreter for every later Python command.
+- The Central self-check runs on trusted same-repository branch pushes. A retained pull-request self-check is admitted at the job boundary only for exact owner `mimranfaruqi` with a same-repository head, so an outside or prior-contributor PR cannot allocate its GitHub-hosted runner.
+- After job admission, the Central self-check verifies an absolute pre-provisioned CPython 3.12 Linux runtime before checkout. It installs or elevates no host runtime, applies the repository's digest-locked validation dependency bootstrap, and uses the verified absolute interpreter for every later Python command.
 - General Linux validation grants no signing, provisioning, simulator, physical-device, notarization, store, registry, Kubernetes, production, or Agent State credential or authority.
 - Do not restore the retired emergency macOS exception or copy it into another workflow. Apple-specific work continues to use separately reviewed `apple` capacity.
 
@@ -59,6 +62,7 @@ This private repository owns reusable GitHub Actions orchestration for supported
 
 - Use explicit workflow and job permissions, explicit named secrets, workflow-scoped authentication files, and no `secrets: inherit`.
 - Never execute untrusted pull-request, fork, issue-comment, `pull_request_target`, `workflow_run`, or mutable source in a privileged context.
+- Untrusted public pull requests must not allocate GitHub-hosted, organization, Apple, device, image-build, registry, Flux, or other trusted Central runner capacity. Repository source checks inside an already-started job are defense in depth, not runner admission.
 - Privileged modes require exact admitted source, exact checkout assertions, detached credential-free state where applicable, and `persist-credentials: false`.
 - Central workflows select semantic runner profiles and internal implementations. Consumers do not select concrete runner labels, hosts, Docker versus Buildah, storage drivers, devices, clusters, namespaces, or service accounts.
 - Routine workflows retain zero GitHub Actions artifacts. Any exception must be named, bounded, justified, redacted, registered in contract, and tested.
@@ -75,5 +79,5 @@ This private repository owns reusable GitHub Actions orchestration for supported
 
 ## Product validation contract
 
-- The canonical Central self-check validates the completed final pull-request candidate against its current base.
+- Same-repository branch push is the normal pre-PR validation path. The canonical Central self-check may also validate an exact completed owner pull-request candidate against its current base when that PR path is retained.
 - Workflow and action parsing, action and tool pins, permissions, trust classes, source admission, runner profiles, call graphs, readability, public API compatibility, documentation, inventory, fixtures, discovered tests, cleanup, and artifact policy must remain green.
