@@ -59,6 +59,7 @@ concurrency:
 jobs:
   source_tests:
     name: Device source contracts
+    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.user.login == 'mimranfaruqi' && github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: [ubuntu-latest]
     timeout-minutes: 20
     steps:
@@ -91,7 +92,7 @@ jobs:
 
   authorized_pr_plan:
     name: Authorized same-repository PR device plan
-    if: ${{ github.event_name == 'pull_request' }}
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.user.login == 'mimranfaruqi' && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: [ubuntu-latest]
     timeout-minutes: 10
     steps:
@@ -135,6 +136,7 @@ jobs:
 
   synthetic:
     name: Synthetic ${{ matrix.family }} device contract
+    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.user.login == 'mimranfaruqi' && github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: [ubuntu-latest]
     timeout-minutes: 20
     strategy:
@@ -206,7 +208,7 @@ jobs:
   zero_artifacts:
     name: Verify zero routine device artifacts
     needs: [source_tests, authorized_pr_plan, synthetic]
-    if: ${{ always() && !cancelled() }}
+    if: ${{ always() && !cancelled() && (github.event_name != 'pull_request' || (github.event.pull_request.user.login == 'mimranfaruqi' && github.event.pull_request.head.repo.full_name == github.repository)) }}
     runs-on: [ubuntu-latest]
     timeout-minutes: 5
     steps:
