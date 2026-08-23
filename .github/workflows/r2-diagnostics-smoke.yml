@@ -1,0 +1,74 @@
+name: R2 diagnostics smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r2-diagnostics-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    name: Verify private R2 diagnostic transport
+    runs-on: [ubuntu-latest]
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact Central source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact Central source
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+
+      - name: Create synthetic diagnostic
+        shell: bash
+        env:
+          DIAGNOSTIC_PATH: ${{ runner.temp }}/r2-diagnostics-smoke.log
+        run: |
+          set -Eeuo pipefail
+          rm -f "${DIAGNOSTIC_PATH}"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          path = Path(os.environ["DIAGNOSTIC_PATH"])
+          path.write_text("synthetic Central R2 diagnostic smoke\n", encoding="utf-8")
+          PY
+          test -f "${DIAGNOSTIC_PATH}"
+
+      - name: Upload and verify private R2 diagnostic
+        shell: bash
+        env:
+          DIAGNOSTIC_PATH: ${{ runner.temp }}/r2-diagnostics-smoke.log
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/ci/r2_diagnostics.py \
+            --diagnostic "${DIAGNOSTIC_PATH}" \
+            --request-id "smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --attempt "${GITHUB_RUN_ATTEMPT}" \
+            --github-output "${GITHUB_OUTPUT}"
+          echo "Private R2 diagnostic smoke passed."
+
+      - name: Remove local smoke diagnostic
+        if: always()
+        shell: bash
+        env:
+          DIAGNOSTIC_PATH: ${{ runner.temp }}/r2-diagnostics-smoke.log
+        run: |
+          set -Eeuo pipefail
+          rm -f "${DIAGNOSTIC_PATH}"
+          test ! -e "${DIAGNOSTIC_PATH}"
