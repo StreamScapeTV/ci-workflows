@@ -3,7 +3,7 @@ name: CI broker image release
 on:
   push:
     tags:
-      - 'ci-broker-[0-9]+.[0-9]+.[0-9]+'
+      - 'ci-broker-*'
 
 permissions:
   contents: read
