@@ -37,6 +37,14 @@ RUN set -eux; \
         cp -a "${path}" "/native-root${path}"; \
       fi; \
     done; \
+    for executable in /usr/bin/gcc /usr/bin/g++ /usr/bin/cpp; do \
+      native_entrypoint="/native-root${executable}"; \
+      test -x "${executable}"; \
+      test -e "${native_entrypoint}" || test -L "${native_entrypoint}"; \
+      rm -f "${native_entrypoint}"; \
+      cp -pL "${executable}" "${native_entrypoint}"; \
+      test -x "${native_entrypoint}"; \
+    done; \
     { \
       for executable in \
         /usr/bin/gcc /usr/bin/g++ /usr/bin/cpp /usr/bin/make \
