@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DEVICE_ACTION_SHA = "47afb4b6f14742bdddd3998095d719011c3ef549"
+DEVICE_ACTION_SHA = "4a7865f420e7ff37893907bbd0c4ad557a0e9ca6"
 DEVICE_LOCK_ACTION_SHA = "599c82201e6da6ca51c4f6247f1526a4ba03d550"
 FOUNDATION_ACTION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 
@@ -108,7 +108,7 @@ class DeviceWorkflowContractTests(unittest.TestCase):
             {
                 "uses": "StreamScapeTV/ci-workflows/actions/validate-device",
                 "sha": DEVICE_ACTION_SHA,
-                "release": "issue #341 product-neutral device v2 checkpoint",
+                "release": "issue #479 same-repository PR event checkpoint",
                 "runtime": "composite",
                 "source": f"https://github.com/StreamScapeTV/ci-workflows/tree/{DEVICE_ACTION_SHA}/actions/validate-device",
             },
@@ -139,6 +139,16 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         self.assertIn("physical_authorization_required", self.workflow)
         self.assertFalse(self.contract["owner_authorization"]["runner_or_secret_is_authorization"])
 
+    def test_same_repository_pr_is_an_allowed_exact_consumer_event(self) -> None:
+        self.assertEqual(
+            ["pull_request", "workflow_call", "workflow_dispatch"],
+            self.contract["allowed_events"],
+        )
+        self.assertNotIn("pull_request_target", self.contract["allowed_events"])
+        self.assertIn("CIW_DEVICE_HEAD_FORK", self.action)
+        self.assertIn("CIW_DEVICE_HEAD_REPOSITORY", self.action)
+        self.assertIn("CIW_DEVICE_EVENT_SHA", self.action)
+
     def test_lock_order_and_exactly_once_restore_are_explicit(self) -> None:
         device_job = self.workflow.split("  device:\n", 1)[1]
         names = [
@@ -166,15 +176,18 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("download-artifact", text)
         self.assertIn("Verify zero routine device artifacts", self.smoke)
 
-    def test_public_smoke_runs_all_synthetic_families_on_hosted_linux(self) -> None:
+    def test_public_smoke_covers_synthetic_families_and_authorized_pr_plan(self) -> None:
         self.assertIn("phase: synthetic", self.smoke)
         for family in ("android", "ios", "tvos"):
             self.assertIn(f"family: {family}", self.smoke)
+        self.assertIn("Authorized same-repository PR device plan", self.smoke)
+        self.assertIn("CIW_DEVICE_AUTHORIZATION_RECEIPT", self.smoke)
+        self.assertIn("test \"$AUTHORIZED\" = true", self.smoke)
+        self.assertIn("test \"$TRUST\" = trusted-exact", self.smoke)
         direct = re.findall(r"^    runs-on: (.+)$", self.smoke, re.M)
         self.assertTrue(direct)
         self.assertTrue(all(value == "[ubuntu-latest]" for value in direct))
         self.assertNotIn("[linux, amd64, general, small]", self.smoke)
-        self.assertNotIn("device_authorization_receipt", self.smoke)
 
     def test_documentation_states_required_boundaries(self) -> None:
         text = self.docs.casefold()
@@ -182,6 +195,7 @@ class DeviceWorkflowContractTests(unittest.TestCase):
             "semantic host capacity", "checked-in", "non-secret environment",
             "device_authorization_receipt", "raw device", "device-lock/1",
             "exactly once", "zero routine actions artifacts", "ordinary android",
+            "same-repository pull request",
         ):
             self.assertIn(phrase, text)
 
