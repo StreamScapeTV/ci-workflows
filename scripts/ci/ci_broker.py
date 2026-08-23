@@ -16,13 +16,21 @@ from ci_workflows.ci_broker_action import (  # noqa: E402
     cleanup,
     execute_apple_host,
 )
+from ci_workflows.ci_broker_fallback import fail_if_active  # noqa: E402
 
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description="Central CI broker runtime")
     result.add_argument(
         "command",
-        choices=("server", "self-check", "execute-apple-host", "cancel-if-active", "cleanup"),
+        choices=(
+            "server",
+            "self-check",
+            "execute-apple-host",
+            "fail-if-active",
+            "cancel-if-active",
+            "cleanup",
+        ),
     )
     return result
 
@@ -40,6 +48,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "execute-apple-host":
             execute_apple_host()
             print("Central broker-dispatched validation passed.")
+            return 0
+        if args.command == "fail-if-active":
+            fail_if_active()
             return 0
         if args.command == "cancel-if-active":
             cancel_if_active()
