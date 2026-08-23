@@ -1,277 +1,195 @@
 from __future__ import annotations
 
-import json
-import re
+import os
+import tempfile
 import unittest
 from pathlib import Path
-from typing import Any, Mapping
 
-from ci_workflows.python import load_python_contract
+from ci_workflows.python_contract import (
+    bounded_path,
+    load_python_contract,
+    request_from_environment,
+    resolve_validation_plan,
+    safe_relative,
+    validate_dependency_lock,
+    validate_script_entrypoint,
+)
+from ci_workflows.python_types import PythonValidationError, PythonValidationRequest
 
 ROOT = Path(__file__).resolve().parents[1]
-IMAGE = re.compile(
-    r"^[a-z0-9.-]+(?:/[a-z0-9._-]+)+:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$"
-)
+SHA = "a" * 40
 
 
-def immutable_image(runtime: Mapping[str, Any]) -> str:
-    return f"{runtime['repository']}:{runtime['tag']}@{runtime['digest']}"
-
-
-class PythonValidationContractTests(unittest.TestCase):
+class PythonContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.contract = load_python_contract(ROOT)
-        cls.fixtures = json.loads(
-            (ROOT / "tests/fixtures/python-validation/cases.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        public = json.loads(
-            (ROOT / "contracts/public-workflows/validation.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        cls.public_record = next(
-            item
-            for item in public["workflows"]
-            if item["api_name"] == "validation.python"
+
+    def request(
+        self,
+        *,
+        profile: str = "host",
+        python_version: str = "3.12",
+        dependency_file: str | None = None,
+        source_trust: str = "trusted-exact",
+    ) -> PythonValidationRequest:
+        return PythonValidationRequest(
+            repository="ExampleOrg/example-service",
+            admitted_sha=SHA,
+            validation_profile=profile,
+            python_version=python_version,
+            working_directory=".",
+            version_file=None,
+            dependency_file=dependency_file,
+            script_path="ci/validate.sh",
+            artifact_exception_id=None,
+            source_trust=source_trust,
         )
 
-    def test_profiles_are_exactly_the_reviewed_bounded_set(self) -> None:
-        profiles = self.contract["profiles"]
+    def test_contract_contains_no_repository_or_command_registry(self) -> None:
+        contract = self.contract
+        self.assertEqual("2.0.0", contract["contract_version"])
+        self.assertNotIn("consumers", contract)
+        self.assertNotIn("command_profiles", contract)
+        serialized = (ROOT / "contracts/python-validation.json").read_text(encoding="utf-8")
+        for product in ("iptv-backend", "agent-state", "flux"):
+            self.assertNotIn(product, serialized.casefold())
         self.assertEqual(
-            set(profiles),
-            {"audit", "host", "podman", "podman-postgres"},
-        )
-        expected = {
-            "audit": ("portable", "minimal"),
-            "host": ("portable", "minimal"),
-            "podman": ("buildah-high", "container"),
-            "podman-postgres": ("buildah-medium", "container"),
-        }
-        for identifier, (runner, workspace) in expected.items():
-            with self.subTest(profile=identifier):
-                profile = profiles[identifier]
-                self.assertEqual(runner, profile["runner_profile"])
-                self.assertEqual(workspace, profile["workspace_profile"])
-                self.assertLess(profile["timeout_minutes"], 120)
-        self.assertFalse(profiles["audit"]["postgres"])
-        self.assertFalse(profiles["host"]["postgres"])
-        self.assertFalse(profiles["podman"]["postgres"])
-        self.assertTrue(profiles["podman-postgres"]["postgres"])
-
-    def test_python_and_postgres_images_are_exact_immutable_identities(self) -> None:
-        runtimes = self.contract["runtimes"]
-        self.assertEqual(
-            set(runtimes),
             {
-                "host-cpython-3.12",
-                "python-3.12.8-slim-amd64",
-                "python-3.12.13-slim-amd64",
-                "postgres-16.11-alpine-amd64",
+                "path_mode": "repository-relative-executable",
+                "arguments": "none",
+                "environment": "generic-only",
+                "maximum_path_length": 240,
             },
-        )
-        host = runtimes["host-cpython-3.12"]
-        self.assertEqual("host", host["kind"])
-        self.assertEqual("cpython", host["implementation"])
-        self.assertEqual("3.12", host["python_version"])
-        self.assertEqual(["linux/x64"], host["platforms"])
-        container_runtimes = {
-            identifier: runtime
-            for identifier, runtime in runtimes.items()
-            if runtime["kind"] != "host"
-        }
-        self.assertEqual(3, len(container_runtimes))
-        for identifier, runtime in container_runtimes.items():
-            with self.subTest(runtime=identifier):
-                image = immutable_image(runtime)
-                self.assertRegex(image, IMAGE)
-                self.assertNotEqual("latest", runtime["tag"])
-                self.assertRegex(runtime["digest"], r"^sha256:[0-9a-f]{64}$")
-                self.assertEqual("linux/amd64", runtime["platform"])
-        self.assertEqual(
-            "3.12.8",
-            runtimes["python-3.12.8-slim-amd64"]["python_version"],
-        )
-        self.assertEqual(
-            "3.12.13",
-            runtimes["python-3.12.13-slim-amd64"]["python_version"],
-        )
-        self.assertEqual(
-            "16.11",
-            runtimes["postgres-16.11-alpine-amd64"]["postgres_version"],
+            contract["script_contract"],
         )
 
-    def test_postgres_service_is_ephemeral_bounded_and_has_no_remote_fallback(self) -> None:
-        postgres = self.contract["postgres"]
-        self.assertFalse(postgres["remote_fallback"])
-        self.assertEqual("ephemeral-per-execution", postgres["credentials"])
-        self.assertEqual(30, postgres["readiness_attempts"])
-        self.assertEqual(2, postgres["readiness_interval_seconds"])
-        self.assertEqual(60, postgres["readiness_timeout_seconds"])
-        self.assertEqual("ci_python", postgres["username"])
-        self.assertEqual("ci_python", postgres["database"])
-        self.assertNotIn("password", postgres)
-        serialized = json.dumps(postgres, sort_keys=True)
-        self.assertNotRegex(serialized, r"https?://")
-        self.assertNotIn("production", serialized.casefold())
-
-    def test_public_surface_has_no_command_runner_engine_service_or_deployment_input(self) -> None:
-        public_inputs = {item["name"] for item in self.public_record["inputs"]}
+    def test_forbidden_escape_hatches_are_explicit(self) -> None:
         forbidden = set(self.contract["forbidden_inputs"])
-        self.assertTrue(public_inputs.isdisjoint(forbidden))
-        self.assertEqual(
-            public_inputs,
+        self.assertTrue(
             {
-                "execution_backend",
-                "admitted_sha",
-                "validation_profile",
+                "arbitrary_command",
+                "arguments_json",
+                "command",
                 "command_profile",
-                "working_directory",
-                "version_file",
-                "script_path",
-                "artifact_exception_id",
-            },
+                "environment_json",
+                "runner",
+                "runs_on",
+                "container_engine",
+                "secret_name",
+                "database_url",
+                "database_environment_variable",
+            }
+            <= forbidden
         )
-        self.assertEqual(
-            set(self.public_record["outputs"]),
-            {"result", "test_summary", "artifact_exception_used"},
+
+    def test_host_plan_is_repository_agnostic(self) -> None:
+        plan = resolve_validation_plan(self.contract, self.request())
+        self.assertEqual("ExampleOrg/example-service", plan.repository)
+        self.assertEqual("portable", plan.runner_profile)
+        self.assertEqual("copied-host-source", plan.isolation)
+        self.assertEqual("host-cpython-3.12", plan.runtime_id)
+        self.assertIsNone(plan.runtime_reference)
+        self.assertEqual("ci/validate.sh", plan.script_path)
+        self.assertIsNone(plan.dependency_file)
+
+    def test_postgres_plan_uses_only_generic_connection_handoff(self) -> None:
+        plan = resolve_validation_plan(
+            self.contract,
+            self.request(
+                profile="podman-postgres",
+                python_version="3.12.13",
+                dependency_file="requirements.lock",
+            ),
         )
-        self.assertEqual([], self.public_record["secrets"])
-        for name in (
-            "arbitrary_command",
-            "shell",
-            "callback",
-            "runner",
-            "runs_on",
-            "runner_labels",
-            "container_engine",
-            "storage_driver",
-            "service_image",
-            "database_url",
-            "database_password",
-            "registry_host",
-            "secret_name",
-            "release_version",
-            "helm_chart",
-            "flux_target",
-            "cluster",
-            "namespace",
-            "deployment_operation",
-        ):
-            self.assertIn(name, forbidden)
+        self.assertEqual("buildah-medium", plan.runner_profile)
+        self.assertEqual("podman-vfs-postgres", plan.isolation)
+        self.assertIn("python:3.12.13-slim@sha256:", plan.runtime_reference or "")
+        self.assertIn("postgres:16.11-alpine@sha256:", plan.postgres_runtime_reference or "")
+        self.assertEqual("CIW_POSTGRES_URL", self.contract["postgres"]["connection_environment_variable"])
+        self.assertEqual("postgresql", self.contract["postgres"]["connection_url_scheme"])
+        self.assertFalse(self.contract["postgres"]["remote_fallback"])
 
-    def test_command_profiles_and_consumer_stages_are_data_bounded(self) -> None:
-        command_profiles = self.contract["command_profiles"]
-        self.assertEqual(
-            set(command_profiles),
-            {
-                "source-audit",
-                "locked-test",
-                "full-test",
-                "postgres-test",
-                "release-contract",
-            },
+    def test_untrusted_fork_is_limited_to_audit_profile(self) -> None:
+        audit = resolve_validation_plan(
+            self.contract,
+            self.request(profile="audit", source_trust="untrusted-fork"),
         )
-        profiles = set(self.contract["profiles"])
-        for identifier, command in command_profiles.items():
-            with self.subTest(command_profile=identifier):
-                self.assertTrue(set(command["allowed_profiles"]) <= profiles)
-                self.assertIsInstance(command["dependency_required"], bool)
-                self.assertIsInstance(command["postgres_required"], bool)
-                self.assertEqual(
-                    "contract-fixed-only",
-                    command["script_path_mode"],
-                )
-                self.assertTrue(command["stages"])
-                self.assertLessEqual(len(command["stages"]), 16)
-
-        for repository, consumer in self.contract["consumers"].items():
-            self.assertRegex(repository, r"^StreamScapeTV/[A-Za-z0-9_.-]+$")
-            for command_profile, shape in consumer["profiles"].items():
-                with self.subTest(
-                    repository=repository,
-                    command_profile=command_profile,
-                ):
-                    self.assertIn(command_profile, command_profiles)
-                    self.assertIn(
-                        shape["validation_profile"],
-                        command_profiles[command_profile]["allowed_profiles"],
-                    )
-                    commands = shape["commands"]
-                    self.assertTrue(commands)
-                    self.assertLessEqual(len(commands), 16)
-                    for command in commands:
-                        self.assertIn(
-                            command["stage"],
-                            command_profiles[command_profile]["stages"],
-                        )
-                        argv = command["argv"]
-                        self.assertIsInstance(argv, list)
-                        self.assertTrue(argv)
-                        joined = " ".join(argv).casefold()
-                        self.assertNotIn("${{", joined)
-                        self.assertNotIn("secrets.", joined)
-                        self.assertNotIn("--privileged", joined)
-                        self.assertNotIn("docker.sock", joined)
-                        self.assertNotIn("kubeconfig", joined)
-
-    def test_current_consumer_shapes_are_recorded_without_repository_mutation(self) -> None:
-        actual = {
-            (repository, shape["validation_profile"], command_profile)
-            for repository, consumer in self.contract["consumers"].items()
-            for command_profile, shape in consumer["profiles"].items()
-        }
-        expected = {
-            (
-                item["repository"],
-                item["validation_profile"],
-                item["command_profile"],
+        self.assertEqual("portable", audit.runner_profile)
+        with self.assertRaises(PythonValidationError) as caught:
+            resolve_validation_plan(
+                self.contract,
+                self.request(profile="host", source_trust="untrusted-fork"),
             )
-            for item in self.fixtures["positive"]
-        }
-        self.assertEqual(expected, actual)
-        self.assertEqual(
-            set(self.contract["consumers"]),
-            {
-                "StreamScapeTV/iptv-backend",
-                "StreamScapeTV/agent-state",
-                "StreamScapeTV/flux",
-            },
-        )
+        self.assertEqual("unsupported_profile", caught.exception.code)
 
-    def test_fixture_manifest_covers_required_fail_closed_cases(self) -> None:
-        self.assertEqual(1, self.fixtures["schema_version"])
-        positive = {item["id"] for item in self.fixtures["positive"]}
-        negative = {item["id"] for item in self.fixtures["negative"]}
-        self.assertEqual(
-            positive,
-            {
-                "flux-source-audit",
-                "agent-state-host-automation",
-                "agent-state-postgres",
-                "backend-full-isolation",
-                "backend-postgres-focus",
-            },
+    def test_environment_request_requires_script_and_python_version(self) -> None:
+        base = {
+            "GITHUB_REPOSITORY": "ExampleOrg/example-service",
+            "GITHUB_EVENT_NAME": "push",
+            "INPUT_ADMITTED_SHA": SHA,
+            "INPUT_VALIDATION_PROFILE": "host",
+            "INPUT_PYTHON_VERSION": "3.12",
+            "INPUT_SCRIPT_PATH": "ci/validate.sh",
+        }
+        request = request_from_environment(base)
+        self.assertEqual("ci/validate.sh", request.script_path)
+        self.assertEqual("3.12", request.python_version)
+        for key in ("INPUT_PYTHON_VERSION", "INPUT_SCRIPT_PATH"):
+            broken = dict(base)
+            broken[key] = ""
+            with self.assertRaises(PythonValidationError) as caught:
+                request_from_environment(broken)
+            self.assertEqual("invalid_input", caught.exception.code)
+
+    def test_paths_reject_absolute_parent_and_symlink_escape(self) -> None:
+        for value in ("/tmp/script.sh", "../script.sh", "ci/../script.sh", "ci//script.sh"):
+            with self.subTest(value=value):
+                with self.assertRaises(PythonValidationError):
+                    safe_relative(value)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "outside"
+            target.mkdir()
+            link = root / "link"
+            link.symlink_to(target, target_is_directory=True)
+            with self.assertRaises(PythonValidationError):
+                bounded_path(root, "link/script.sh")
+
+    def test_script_must_be_checked_in_style_executable_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory)
+            script = source / "ci" / "validate.sh"
+            script.parent.mkdir()
+            script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            plan = resolve_validation_plan(self.contract, self.request())
+            with self.assertRaises(PythonValidationError):
+                validate_script_entrypoint(source, plan)
+            script.chmod(0o755)
+            self.assertEqual(script, validate_script_entrypoint(source, plan))
+            replacement = source / "real.sh"
+            replacement.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            replacement.chmod(0o755)
+            script.unlink()
+            script.symlink_to(replacement)
+            with self.assertRaises(PythonValidationError):
+                validate_script_entrypoint(source, plan)
+
+    def test_dependency_restore_requires_pinned_repository_relative_lock(self) -> None:
+        plan = resolve_validation_plan(
+            self.contract,
+            self.request(profile="host", dependency_file="requirements.lock"),
         )
-        self.assertEqual(
-            negative,
-            {
-                "unknown-profile",
-                "unmapped-consumer-profile",
-                "fork-podman-escalation",
-                "mutable-python-image",
-                "mutable-postgres-image",
-                "caller-selected-command",
-                "caller-selected-runner",
-                "caller-selected-database-url",
-                "unpinned-dependency",
-                "postgres-readiness-timeout",
-                "cleanup-residue",
-                "source-dirty-after-validation",
-            },
-        )
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory)
+            lock = source / "requirements.lock"
+            lock.write_text("pytest==8.4.2\n", encoding="utf-8")
+            digest = validate_dependency_lock(source, plan)
+            self.assertIsNotNone(digest)
+            lock.write_text("pytest>=8\n", encoding="utf-8")
+            with self.assertRaises(PythonValidationError) as caught:
+                validate_dependency_lock(source, plan)
+            self.assertEqual("dependency_lock_drift", caught.exception.code)
 
 
 if __name__ == "__main__":
