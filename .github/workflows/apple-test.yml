@@ -11,48 +11,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  plan:
-    name: Resolve GitHub-hosted Apple executor
-    runs-on: [ubuntu-latest]
-    timeout-minutes: 10
-    outputs:
-      runs_on_json: ${{ steps.backend.outputs.runs_on_json }}
-    steps:
-      - name: Check out exact Central source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
-
-      - name: Verify exact Central source
-        shell: bash
-        run: test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
-
-      - id: backend
-        name: Resolve fixed hosted Apple backend
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          python3 scripts/ci/execution_backend.py \
-            --root . \
-            --workflow-api validation.apple \
-            --source-trust trusted-exact \
-            --execution-backend github-hosted \
-            --profile apple \
-            --github-output "${GITHUB_OUTPUT}"
-
   apple_test:
     name: Test configured private Apple branch
-    needs: plan
-    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
+    runs-on: [macos-latest]
     timeout-minutes: 120
     env:
       TARGET_REPOSITORY_NAME: ${{ secrets.APPLE_TEST_REPOSITORY }}
       TARGET_BRANCH: ${{ secrets.APPLE_TEST_BRANCH }}
-      CHECKOUT_TOKEN: ${{ secrets.TOKEN }}
       PYTHONDONTWRITEBYTECODE: "1"
     steps:
       - name: Check out exact Central source
@@ -74,11 +39,12 @@ jobs:
           set -Eeuo pipefail
           test -n "${TARGET_REPOSITORY_NAME}"
           test -n "${TARGET_BRANCH}"
-          test -n "${CHECKOUT_TOKEN}"
 
       - id: resolve
         name: Resolve configured branch to one exact commit
         shell: bash
+        env:
+          CHECKOUT_TOKEN: ${{ secrets.TOKEN }}
         run: |
           set -Eeuo pipefail
           python3 scripts/ci/private_source.py \
@@ -99,6 +65,7 @@ jobs:
       - name: Run one real host-capable Apple integration test
         shell: bash
         env:
+          CHECKOUT_TOKEN: ${{ secrets.TOKEN }}
           EXPECTED_SHA: ${{ steps.resolve.outputs.sha }}
         run: |
           set -Eeuo pipefail
