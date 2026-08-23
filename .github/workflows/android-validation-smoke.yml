@@ -39,7 +39,10 @@ permissions:
 jobs:
   contracts:
     name: Validate Android reusable-workflow contracts
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    if: >-
+      ${{ github.event_name != 'pull_request' ||
+          (github.event.pull_request.user.login == 'mimranfaruqi' &&
+           github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: [ubuntu-latest]
     timeout-minutes: 20
     steps:
@@ -103,7 +106,11 @@ jobs:
   android:
     name: Android reusable-workflow smoke
     needs: contracts
-    if: ${{ github.event.repository.private && needs.contracts.result == 'success' }}
+    if: >-
+      ${{ needs.contracts.result == 'success' &&
+          (github.event_name != 'pull_request' ||
+           (github.event.pull_request.user.login == 'mimranfaruqi' &&
+            github.event.pull_request.head.repo.full_name == github.repository)) }}
     runs-on: [linux, amd64, mobile]
     timeout-minutes: 45
     steps:
@@ -274,27 +281,26 @@ jobs:
           test "${ARTIFACT_OUTCOME}" = "success"
 
   terminal:
-    name: Verify public Android reusable routing and artifacts
+    name: Verify trusted Android reusable routing and artifacts
     needs: [contracts, android]
-    if: ${{ always() && !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    if: >-
+      ${{ (github.event_name != 'pull_request' ||
+           (github.event.pull_request.user.login == 'mimranfaruqi' &&
+            github.event.pull_request.head.repo.full_name == github.repository)) &&
+          always() && !cancelled() }}
     runs-on: [ubuntu-latest]
     timeout-minutes: 10
     steps:
-      - name: Require hosted contracts, expected mobile state, and zero artifacts
+      - name: Require hosted contracts, mobile success, and zero artifacts
         env:
           CONTRACTS_RESULT: ${{ needs.contracts.result }}
           ANDROID_RESULT: ${{ needs.android.result }}
-          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
           GITHUB_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -Eeuo pipefail
           test "${CONTRACTS_RESULT}" = success
-          if [[ "${REPOSITORY_PRIVATE}" == "true" ]]; then
-            test "${ANDROID_RESULT}" = success
-          else
-            test "${ANDROID_RESULT}" = skipped
-          fi
+          test "${ANDROID_RESULT}" = success
           python3 - <<'PY'
           import json
           import os
@@ -314,5 +320,5 @@ jobs:
               payload = json.load(response)
           if payload.get("total_count") != 0 or payload.get("artifacts"):
               raise SystemExit("Android reusable smoke retained Actions artifacts")
-          print("Android reusable public routing and zero-artifact policy passed.")
+          print("Android reusable trusted routing and zero-artifact policy passed.")
           PY
