@@ -6,8 +6,13 @@ on:
     paths:
       - .github/workflows/reusable-oci-reproducibility.yml
       - .github/workflows/oci-reproducibility-validation.yml
+      - contracts/public-workflows/products.json
+      - contracts/runner-profiles.json
+      - generated/runner-mappings.json
       - scripts/ci/oci_reproducibility.py
+      - src/ci_workflows/oci_reproducibility.py
       - tests/test_oci_reproducibility_workflow.py
+      - tests/test_validation_runner_selectors.py
       - tests/fixtures/oci-reproducibility/**
 
 permissions:
