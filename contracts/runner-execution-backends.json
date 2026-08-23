@@ -3,6 +3,32 @@
   "default_backend": "organization",
   "allowed_backends": ["organization", "github-hosted"],
   "github-hosted": {
-    "runs_on": ["ubuntu-latest"]
+    "runs_on": ["ubuntu-latest"],
+    "repository_local_exceptions": [
+      {
+        "workflow": ".github/workflows/apple-test.yml",
+        "job": "apple_test",
+        "events": ["workflow_dispatch"],
+        "runs_on": ["macos-latest"]
+      },
+      {
+        "workflow": ".github/workflows/apple-validation-smoke.yml",
+        "job": "apple",
+        "events": ["pull_request"],
+        "runs_on": ["macos-latest"]
+      },
+      {
+        "workflow": ".github/workflows/apple-certification-smoke.yml",
+        "job": "release",
+        "events": ["pull_request"],
+        "runs_on": ["macos-latest"]
+      },
+      {
+        "workflow": ".github/workflows/flutter-apple-validation-smoke.yml",
+        "job": "ios",
+        "events": ["pull_request"],
+        "runs_on": ["macos-latest"]
+      }
+    ]
   }
 }
