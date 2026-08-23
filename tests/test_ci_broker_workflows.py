@@ -26,6 +26,8 @@ class BrokerWorkflowTests(unittest.TestCase):
         inputs = events["workflow_dispatch"]["inputs"]
         self.assertEqual(set(inputs), {"dispatch_id", "dispatch_token"})
         self.assertTrue(all(value["required"] for value in inputs.values()))
+        for forbidden in ("repository", "ref", "source_sha", "workflow_key", "test_profile"):
+            self.assertNotIn(forbidden, inputs)
         permissions = self.document.data["permissions"]
         self.assertEqual(permissions, {"contents": "read", "id-token": "write"})
 
