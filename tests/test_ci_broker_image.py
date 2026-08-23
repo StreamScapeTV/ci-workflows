@@ -24,7 +24,7 @@ class BrokerImageTests(unittest.TestCase):
         self.assertEqual(self.document.data["permissions"], {"contents": "read", "packages": "write"})
         self.assertEqual(set(self.document.data["jobs"]), {"release"})
         job = self.document.data["jobs"]["release"]
-        self.assertEqual(job["runs-on"], "ubuntu-latest")
+        self.assertEqual(job["runs-on"], ["ubuntu-latest"])
         self.assertEqual(job["timeout-minutes"], 30)
         self.assertIn("^ci-broker-", self.workflow)
         self.assertIn("refs/tags/${RELEASE_TAG}", self.workflow)
