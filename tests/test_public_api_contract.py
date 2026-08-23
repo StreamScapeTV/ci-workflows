@@ -250,7 +250,7 @@ class PublicApiContractTests(unittest.TestCase):
         baseline["outputs"].remove("resolved_inputs_json")
         self.assertEqual("compatible", contract.classify_change(baseline, current))
         acknowledgements = self.data.types["breaking_change_acknowledgements"]
-        self.assertEqual(13, len(acknowledgements))
+        self.assertEqual(14, len(acknowledgements))
         by_api: dict[str, list[dict[str, str]]] = {}
         for item in acknowledgements:
             by_api.setdefault(item["api_name"], []).append(item)
@@ -268,6 +268,7 @@ class PublicApiContractTests(unittest.TestCase):
                 "validation.android-release",
                 "validation.apple",
                 "validation.device",
+                "validation.python",
             },
             set(by_api),
         )
@@ -282,6 +283,7 @@ class PublicApiContractTests(unittest.TestCase):
                     "validation.android-release",
                     "validation.apple",
                     "validation.device",
+                    "validation.python",
                 }
                 for item in rows
             )
@@ -299,6 +301,13 @@ class PublicApiContractTests(unittest.TestCase):
         self.assertEqual("2.0.0", by_api["validation.apple"][0]["effective_version"])
         self.assertEqual("#341", by_api["validation.device"][0]["migration_issue"])
         self.assertEqual("2.0.0", by_api["validation.device"][0]["effective_version"])
+        python = {item["id"]: item for item in by_api["validation.python"]}
+        self.assertEqual("#473", python["issue-473-python"]["migration_issue"])
+        self.assertEqual("2.0.0", python["issue-473-python"]["effective_version"])
+        self.assertEqual(
+            "technology-input-decoupling",
+            python["issue-473-python"]["kind"],
+        )
 
     def test_existing_bootstrap_workflow_matches_its_versioned_api_record(self) -> None:
         row = self.workflows["release.tag-image-chart-bootstrap"]
@@ -340,6 +349,9 @@ class PublicApiContractTests(unittest.TestCase):
         self.assertIn("`validation.android-release` `1.1.0`", rendered)
         self.assertIn("`validation.apple` `2.0.0`", rendered)
         self.assertIn("`validation.device` `2.0.0`", rendered)
+        self.assertIn("`validation.python` `2.0.0`", rendered)
+        self.assertIn("`python_version` (required)", rendered)
+        self.assertIn("`script_path` (required)", rendered)
         self.assertIn("`host_capacity` (required)", rendered)
 
     def test_breaking_changes_fail_without_a_complete_acknowledgement(self) -> None:
@@ -383,6 +395,7 @@ class PublicApiContractTests(unittest.TestCase):
             "validation_profile": "default",
             "validation_scope": "unit",
             "validation_plan_json": {"stages": []},
+            "python_version": "3.12",
             "command_profile": "full",
             "platform": "ios",
             "device_family": "ios",
