@@ -3,6 +3,26 @@ name: OCI reproducibility validation
 on:
   workflow_dispatch:
   pull_request:
+    paths:
+      - .github/workflows/reusable-oci-reproducibility.yml
+      - .github/workflows/oci-reproducibility-validation.yml
+      - contracts/bootstrap-public-workflows.json
+      - contracts/public-workflows.json
+      - contracts/public-workflows/products.json
+      - contracts/repository-policy.json
+      - contracts/runner-profiles.json
+      - generated/runner-mappings.json
+      - docs/workflows/public-api-reference.md
+      - scripts/ci/oci_reproducibility.py
+      - src/ci_workflows/oci_reproducibility.py
+      - src/ci_workflows/public_api_contract.py
+      - tests/test_bootstrap.py
+      - tests/test_oci_reproducibility_workflow.py
+      - tests/test_public_api_contract.py
+      - tests/test_public_ci_admission.py
+      - tests/test_simple_script_workflow_contract.py
+      - tests/test_validation_runner_selectors.py
+      - tests/fixtures/oci-reproducibility/**
   push:
     # Keep the real two-clean-build proof attached to every #471 implementation/contract surface.
     paths:
