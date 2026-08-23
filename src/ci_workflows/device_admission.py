@@ -27,6 +27,7 @@ _RESERVED_ENVIRONMENT = {
 _RESERVED_PREFIXES = ("CIW_", "GITHUB_", "RUNNER_")
 _SECRET_MARKERS = ("CREDENTIAL", "PASSWORD", "PRIVATE_KEY", "SECRET", "SESSION", "TOKEN")
 _SYNTHETIC_EVENTS = {"pull_request", "push", "workflow_dispatch"}
+_TRUSTED_EXACT_EVENTS = {"pull_request", "workflow_call", "workflow_dispatch"}
 
 
 def _boolean_text(value: str, code: str) -> bool:
@@ -35,7 +36,13 @@ def _boolean_text(value: str, code: str) -> bool:
 
 
 def source_trust_from_environment(environment: Mapping[str, str], admitted_sha: str) -> str:
-    """Derive trust only from fixed GitHub event metadata, never from inputs."""
+    """Derive trust only from fixed GitHub event metadata, never from inputs.
+
+    GitHub preserves the original caller event inside a reusable workflow. A
+    same-repository non-fork PR therefore arrives at ``reusable-device.yml`` as
+    ``pull_request`` rather than ``workflow_call``. Exact head/repository/fork
+    checks remain the trust boundary; the event name is not rewritten.
+    """
 
     repository = environment.get("GITHUB_REPOSITORY", "").strip()
     event_repository = environment.get("CIW_DEVICE_EVENT_REPOSITORY", repository).strip()
@@ -57,7 +64,7 @@ def source_trust_from_environment(environment: Mapping[str, str], admitted_sha: 
             "source_admission_rejected",
         )
         return "trusted-pr"
-    require(event_name in {"workflow_call", "workflow_dispatch"}, "authorization_rejected")
+    require(event_name in _TRUSTED_EXACT_EVENTS, "source_admission_rejected")
     return "trusted-exact"
 
 

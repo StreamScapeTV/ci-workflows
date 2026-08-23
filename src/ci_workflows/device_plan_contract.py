@@ -21,7 +21,10 @@ def build_plan(contract: Mapping[str, Any], request: DeviceRequest) -> DevicePla
         )
     else:
         require(request.source_trust == "trusted-exact", "source_admission_rejected")
-        require(request.event_name in {"workflow_call", "workflow_dispatch"}, "authorization_rejected")
+        require(
+            request.event_name in set(contract.get("allowed_events", ())),
+            "source_admission_rejected",
+        )
 
     profile = profile_for_request(contract, request)
     require(request.max_duration_minutes <= profile.timeout_minutes, "authorization_rejected")
