@@ -96,6 +96,7 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
         self.assertEqual(_events(workflow), {"workflow_dispatch"})
         self.assertEqual(set(workflow["jobs"]), {"apple_test"})
         self.assertEqual(workflow["jobs"]["apple_test"]["runs-on"], HOSTED_APPLE)
+        self.assertNotIn("workflow_call", workflow["on"])
 
 
 if __name__ == "__main__":
