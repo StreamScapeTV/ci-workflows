@@ -404,7 +404,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, self.action["inputs"])
 
-    def test_smoke_directly_exercises_one_protected_full_mobile_executor(self) -> None:
+    def test_smoke_directly_exercises_one_protected_full_hosted_executor(self) -> None:
         self.assertEqual(set(self.smoke["jobs"]), {"contracts", "android", "terminal"})
         self.assertEqual(self.smoke["jobs"]["contracts"]["runs-on"], ["ubuntu-latest"])
         self.assertEqual(self.smoke["jobs"]["terminal"]["runs-on"], ["ubuntu-latest"])
@@ -415,7 +415,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertIn(REPOSITORY_GATE, job["if"])
         self.assertIn("needs.contracts.result == 'success'", job["if"])
         self.assertNotIn("github.event.repository.private", job["if"])
-        self.assertEqual(job["runs-on"], ["linux", "amd64", "mobile"])
+        self.assertEqual(job["runs-on"], ["ubuntu-latest"])
         self.assertNotIn("strategy", job)
         self.assertNotIn("uses", job)
         self.assertNotIn("./.github/workflows/reusable-android.yml", self.smoke_source)
