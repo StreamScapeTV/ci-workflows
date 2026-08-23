@@ -32,7 +32,11 @@ jobs:
   parsed:
     name: CI / native image-chart reusable call parsed
     needs: reusable_call
-    if: ${{ always() }}
+    if: >-
+      ${{ (github.event_name != 'pull_request' ||
+           (github.event.pull_request.user.login == 'mimranfaruqi' &&
+            github.event.pull_request.head.repo.full_name == github.repository)) &&
+          always() }}
     runs-on: [ubuntu-latest]
     timeout-minutes: 5
     steps:
