@@ -9,7 +9,7 @@ from ci_workflows.validation_model import ActionsLoader
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
-HOSTED = ["ubuntu-latest"]
+HOSTED_SELECTORS = {("ubuntu-latest",), ("macos-latest",)}
 OWNER_GATE = "github.event.pull_request.user.login == 'mimranfaruqi'"
 REPOSITORY_GATE = "github.event.pull_request.head.repo.full_name == github.repository"
 
@@ -51,24 +51,24 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
             "Public Central PR jobs must reject before runner allocation:\n" + "\n".join(failures),
         )
 
-    def test_trusted_pr_specialized_runners_do_not_depend_on_repository_privacy(self) -> None:
+    def test_public_pr_jobs_use_only_github_hosted_runners(self) -> None:
         failures: list[str] = []
         for path in sorted(WORKFLOWS.glob("*.y*ml")):
             workflow = yaml.load(path.read_text(encoding="utf-8"), Loader=ActionsLoader)
             if "pull_request" not in _events(workflow):
                 continue
             for job_name, job in workflow.get("jobs", {}).items():
-                if _disabled(job) or job.get("runs-on") == HOSTED or "runs-on" not in job:
+                if _disabled(job):
                     continue
-                condition = str(job.get("if", ""))
-                if "github.event.repository.private" in condition:
+                selector = job.get("runs-on")
+                if not isinstance(selector, list) or tuple(selector) not in HOSTED_SELECTORS:
                     failures.append(
-                        f"{path.relative_to(ROOT)}:{job_name} still depends on repository.private"
+                        f"{path.relative_to(ROOT)}:{job_name} uses non-hosted self-CI selector {selector!r}"
                     )
         self.assertEqual(
             failures,
             [],
-            "Trusted specialized Central runners must use explicit trust, not repository visibility:\n"
+            "Public ci-workflows pull-request self-CI must use GitHub-hosted ubuntu-latest or macos-latest only; reusable consumer semantic selectors must never schedule repository self-CI:\n"
             + "\n".join(failures),
         )
 
