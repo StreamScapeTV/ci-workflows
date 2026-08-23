@@ -19,6 +19,8 @@ PRIVATE_HELPERS = (
     "prepare-workspace",
     "cleanup-workspace",
 )
+OWNER_GATE = "github.event.pull_request.user.login == 'mimranfaruqi'"
+REPOSITORY_GATE = "github.event.pull_request.head.repo.full_name == github.repository"
 
 
 class FlutterWorkflowContractTests(unittest.TestCase):
@@ -157,7 +159,9 @@ class FlutterWorkflowContractTests(unittest.TestCase):
                 "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
                 block,
             )
-            self.assertIn("github.event.repository.private", block)
+            self.assertIn(OWNER_GATE, block)
+            self.assertIn(REPOSITORY_GATE, block)
+            self.assertNotIn("github.event.repository.private", block)
             self.assertIn("needs.plan.result == 'success'", block)
         self.assertIn(
             '== ["linux", "amd64", "mobile"]',
@@ -172,11 +176,11 @@ class FlutterWorkflowContractTests(unittest.TestCase):
             (self.apple_smoke, "IOS_RESULT"),
         ):
             terminal = job_block(source, "zero_artifacts")
-            self.assertIn(
-                "REPOSITORY_PRIVATE: ${{ github.event.repository.private }}",
-                terminal,
-            )
-            self.assertIn(f'test "${{{result_name}}}" = skipped', terminal)
+            self.assertIn(OWNER_GATE, terminal)
+            self.assertIn(REPOSITORY_GATE, terminal)
+            self.assertNotIn("REPOSITORY_PRIVATE", terminal)
+            self.assertNotIn("github.event.repository.private", terminal)
+            self.assertIn(f'test "${{{result_name}}}" = success', terminal)
 
     def test_smoke_zero_artifact_checks_do_not_survive_workflow_cancellation(self) -> None:
         def job_block(source: str) -> str:
@@ -189,7 +193,9 @@ class FlutterWorkflowContractTests(unittest.TestCase):
 
         for source in (self.mobile_smoke, self.apple_smoke):
             block = job_block(source)
-            self.assertIn("if: ${{ always() && !cancelled() }}", block)
+            self.assertIn(OWNER_GATE, block)
+            self.assertIn(REPOSITORY_GATE, block)
+            self.assertIn("always() && !cancelled()", block)
             self.assertNotIn("if: always()", block)
 
     def test_pub_cache_is_only_registered_workflow_state(self) -> None:
