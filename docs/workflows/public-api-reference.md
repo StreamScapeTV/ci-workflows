@@ -18,6 +18,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 | `network.download` `1.0.0` | `.github/workflows/reusable-network-download.yml` | `implemented` | `read-only-validation` | CI / Network download |
 | `oci.build` `2.0.0` | `.github/workflows/reusable-oci-build.yml` | `migration-pending` | `read-only-validation` | CI / OCI build validation |
 | `oci.publish` `2.0.0` | `.github/workflows/reusable-oci-publish.yml` | `migration-pending` | `trusted-publication` | Release / OCI publication |
+| `oci.reproducibility` `1.0.0` | `.github/workflows/reusable-oci-reproducibility.yml` | `implemented` | `read-only-validation` | CI / OCI reproducibility |
 | `release.gradle-maven` `1.0.0` | `.github/workflows/reusable-gradle-maven-publish.yml` | `implemented` | `trusted-publication` | Release / Gradle Maven publication |
 | `release.native-image-chart` `2.0.0` | `.github/workflows/reusable-native-image-chart.yml` | `implemented` | `trusted-publication` | Publish native amd64 image and Helm chart |
 | `release.orchestrate` `2.0.0` | `.github/workflows/reusable-release.yml` | `planned` | `trusted-publication` | Release / Verified outputs |
@@ -115,6 +116,14 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 - Inputs: `admitted_sha` (required), `image_name` (required), `dockerfile_path` (default `Dockerfile`), `build_context` (default `.`), `release_version` (required), `platform_set`
 - Secrets: `registry_username`, `registry_token`
 - Outputs: `result`, `image_digest`, `platform_digests_json`, `immutable_references_json`
+- Repository-owned hooks: `dockerfile_path`, `build_context`
+
+### `oci.reproducibility`
+
+- Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
+- Inputs: `admitted_sha` (required), `dockerfile_path` (default `Dockerfile`), `build_context` (default `.`)
+- Secrets: none
+- Outputs: `result`, `source_sha`, `platform_digests_json`
 - Repository-owned hooks: `dockerfile_path`, `build_context`
 
 ### `release.gradle-maven`
