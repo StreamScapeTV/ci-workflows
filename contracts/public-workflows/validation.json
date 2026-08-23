@@ -6,7 +6,7 @@
     {
       "file": ".github/workflows/reusable-python.yml",
       "api_name": "validation.python",
-      "api_version": "1.0.0",
+      "api_version": "2.0.0",
       "status": "implemented",
       "trust_class": "read-only-validation",
       "permission_profile": "validation-read",
@@ -16,10 +16,11 @@
         {"name": "execution_backend", "required": false, "default": "organization"},
         {"name": "admitted_sha", "required": true},
         {"name": "validation_profile", "required": true},
+        {"name": "python_version", "required": true},
         {"name": "version_file", "required": false},
+        {"name": "dependency_file", "required": false},
         {"name": "working_directory", "required": false, "default": "."},
-        {"name": "command_profile", "required": true},
-        {"name": "script_path", "required": false},
+        {"name": "script_path", "required": true},
         {"name": "artifact_exception_id", "required": false}
       ],
       "secrets": [],
@@ -27,7 +28,7 @@
       "stable_check_name": "CI / Python validation",
       "timeout_minutes": 120,
       "matrix_max_jobs": 1,
-      "repository_owned_hooks": ["command_profile", "script_path"],
+      "repository_owned_hooks": ["script_path"],
       "implementation_components": ["ci_workflows.python.validate", "ci_workflows.execution_backends.resolve_execution_backend", "actions/validate-python"]
     },
     {

@@ -185,9 +185,10 @@
         "phase",
         "admitted_sha",
         "validation_profile",
-        "command_profile",
+        "python_version",
         "working_directory",
         "version_file",
+        "dependency_file",
         "script_path",
         "artifact_exception_id",
         "GitHub event identity"
@@ -199,7 +200,6 @@
         "source_sha",
         "resolved_python_version",
         "validation_profile",
-        "command_profile",
         "cleanup_result",
         "failure_code",
         "artifact_exception_used",
@@ -211,9 +211,9 @@
         "source_trust"
       ],
       "side_effects": [
-        "resolves a contract-owned Python plan",
-        "executes exact source in copied host or Podman VFS state",
-        "uses bounded ephemeral PostgreSQL when selected",
+        "resolves one product-neutral Python plan",
+        "executes one consumer-owned checked-in executable script in copied host or Podman VFS state",
+        "uses bounded dependency restoration and optional ephemeral PostgreSQL when selected",
         "enforces clean-tree, zero-artifact, redaction, and cleanup policy"
       ],
       "trust_class": "read-only-validation"

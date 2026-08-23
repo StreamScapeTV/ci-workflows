@@ -17,47 +17,47 @@ class PythonPublicApiTests(unittest.TestCase):
         cls.workflows = public_api.validate_workflows(cls.data, cls.profiles)
         cls.python = cls.workflows["validation.python"]
 
-    def test_python_api_is_implemented_versioned_and_zero_secret(self) -> None:
-        self.assertEqual(self.python["api_version"], "1.0.0")
-        self.assertEqual(self.python["status"], "implemented")
-        self.assertEqual(self.python["trust_class"], "read-only-validation")
-        self.assertEqual(self.python["permission_profile"], "validation-read")
-        self.assertEqual(self.python["semantic_runner_profile"], "contract:python")
-        self.assertEqual(self.python["secrets"], [])
-        self.assertEqual(self.python["stable_check_name"], "CI / Python validation")
-        self.assertEqual(self.python["matrix_max_jobs"], 1)
-        self.assertEqual(self.python["timeout_minutes"], 120)
+    def test_python_api_is_v2_implemented_and_zero_secret(self) -> None:
+        self.assertEqual("2.0.0", self.python["api_version"])
+        self.assertEqual("implemented", self.python["status"])
+        self.assertEqual("read-only-validation", self.python["trust_class"])
+        self.assertEqual("validation-read", self.python["permission_profile"])
+        self.assertEqual("contract:python", self.python["semantic_runner_profile"])
+        self.assertEqual([], self.python["secrets"])
+        self.assertEqual("CI / Python validation", self.python["stable_check_name"])
+        self.assertEqual(1, self.python["matrix_max_jobs"])
+        self.assertEqual(120, self.python["timeout_minutes"])
 
-    def test_python_inputs_outputs_and_identity_boundary_are_exact(self) -> None:
+    def test_python_inputs_expose_only_product_neutral_intent(self) -> None:
         self.assertEqual(
-            {item["name"] for item in self.python["inputs"]},
             {
                 "execution_backend",
                 "admitted_sha",
                 "validation_profile",
+                "python_version",
                 "version_file",
+                "dependency_file",
                 "working_directory",
-                "command_profile",
                 "script_path",
                 "artifact_exception_id",
             },
+            {item["name"] for item in self.python["inputs"]},
         )
-        self.assertEqual(
-            set(self.python["outputs"]),
-            {"result", "test_summary", "artifact_exception_used"},
-        )
+        self.assertEqual({"result", "test_summary", "artifact_exception_used"}, set(self.python["outputs"]))
+        self.assertEqual(["script_path"], self.python["repository_owned_hooks"])
         self.assertNotIn("supported_consumers", self.python)
         self.assertNotIn("supported_products", self.python)
+        self.assertNotIn("command_profile", {item["name"] for item in self.python["inputs"]})
         self.assertEqual(
-            set(self.python["implementation_components"]),
             {
                 "ci_workflows.python.validate",
                 "ci_workflows.execution_backends.resolve_execution_backend",
                 "actions/validate-python",
             },
+            set(self.python["implementation_components"]),
         )
 
-    def test_python_caller_fixture_accepts_bounded_intent_and_rejects_runner(self) -> None:
+    def test_python_caller_fixture_accepts_script_and_rejects_runner_or_inline_command(self) -> None:
         base = {
             "api_name": "validation.python",
             "trust_class": "read-only-validation",
@@ -68,27 +68,32 @@ class PythonPublicApiTests(unittest.TestCase):
             "inputs": {
                 "admitted_sha": "0" * 40,
                 "validation_profile": "audit",
-                "command_profile": "source-audit",
+                "python_version": "3.12",
+                "script_path": "ci/validate.sh",
             },
         }
-        self.assertIsNone(
-            public_api.validate_caller(base, self.data, self.workflows, self.profiles)
-        )
-        invalid = json.loads(json.dumps(base))
-        invalid["inputs"]["runner"] = "buildah-high"
-        self.assertEqual(
-            public_api.validate_caller(invalid, self.data, self.workflows, self.profiles),
-            "forbidden-caller-field",
-        )
+        self.assertIsNone(public_api.validate_caller(base, self.data, self.workflows, self.profiles))
+        for forbidden, value in (
+            ("runner", "buildah-high"),
+            ("arbitrary_command", "pytest -q"),
+        ):
+            invalid = json.loads(json.dumps(base))
+            invalid["inputs"][forbidden] = value
+            self.assertEqual(
+                "forbidden-caller-field",
+                public_api.validate_caller(invalid, self.data, self.workflows, self.profiles),
+            )
 
-    def test_generated_public_reference_contains_the_implemented_python_api(self) -> None:
+    def test_generated_reference_contains_v2_without_product_identity(self) -> None:
         rendered = public_api.render(self.data)
-        self.assertIn("`validation.python` `1.0.0`", rendered)
+        self.assertIn("`validation.python` `2.0.0`", rendered)
         self.assertIn("`.github/workflows/reusable-python.yml`", rendered)
-        self.assertIn("`implemented`", rendered)
         self.assertIn("CI / Python validation", rendered)
-        self.assertIn("`artifact_exception_id`", rendered)
         section = rendered.split("### `validation.python`", 1)[1].split("### `", 1)[0]
+        self.assertIn("`python_version`", section)
+        self.assertIn("`dependency_file`", section)
+        self.assertIn("`script_path`", section)
+        self.assertNotIn("command_profile", section)
         self.assertNotIn("postgres_enabled", section)
         self.assertNotIn("StreamScapeTV/", section)
 

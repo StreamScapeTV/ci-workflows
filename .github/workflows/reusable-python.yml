@@ -16,25 +16,29 @@ on:
         description: audit, host, podman, or podman-postgres
         required: true
         type: string
+      python_version:
+        description: Reviewed Python family for host execution or exact reviewed container version
+        required: true
+        type: string
       version_file:
-        description: Optional contract-matched relative Python version file
+        description: Optional repository-relative Python version file
+        required: false
+        type: string
+      dependency_file:
+        description: Optional repository-relative exact requirements file
         required: false
         type: string
       working_directory:
-        description: Contract-matched relative working directory
+        description: Repository-relative working directory
         required: false
         default: .
         type: string
-      command_profile:
-        description: Checked-in reviewed Python command profile
+      script_path:
+        description: Repository-relative executable validation script owned by the caller
         required: true
         type: string
-      script_path:
-        description: Optional contract-matched reviewed script path
-        required: false
-        type: string
       artifact_exception_id:
-        description: Optional named central artifact exception; empty by default
+        description: Reserved zero-artifact exception id; must remain empty
         required: false
         type: string
     outputs:
@@ -45,7 +49,7 @@ on:
         description: Bounded machine-readable validation summary
         value: ${{ jobs.validate.outputs.test_summary }}
       artifact_exception_used:
-        description: False for the initial zero-artifact Python API
+        description: False for the zero-artifact Python API
         value: ${{ jobs.validate.outputs.artifact_exception_used }}
 
 permissions:
@@ -53,7 +57,7 @@ permissions:
 
 jobs:
   plan:
-    name: Resolve bounded Python validation plan
+    name: Resolve product-neutral Python validation plan
     runs-on: [ubuntu-latest]
     timeout-minutes: 10
     outputs:
@@ -64,16 +68,17 @@ jobs:
       source_trust: ${{ steps.plan.outputs.source_trust }}
     steps:
       - id: plan
-        name: Resolve contract-owned command and execution plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-python@7d5d839c6e90491e165f1358ecb5e80129805764 # issue #405 simplified execution-backend checkpoint
+        name: Resolve bounded runtime and execution plan
+        uses: StreamScapeTV/ci-workflows/actions/validate-python@3d3689fda11b03a188789f03d6d64cab50f1873a # issue #473 product-neutral Python checkpoint
         with:
           phase: plan
           execution_backend: ${{ inputs.execution_backend }}
           admitted_sha: ${{ inputs.admitted_sha }}
           validation_profile: ${{ inputs.validation_profile }}
-          command_profile: ${{ inputs.command_profile }}
+          python_version: ${{ inputs.python_version }}
           working_directory: ${{ inputs.working_directory }}
           version_file: ${{ inputs.version_file }}
+          dependency_file: ${{ inputs.dependency_file }}
           script_path: ${{ inputs.script_path }}
           artifact_exception_id: ${{ inputs.artifact_exception_id }}
 
@@ -88,7 +93,6 @@ jobs:
       source_sha: ${{ steps.python.outputs.source_sha }}
       resolved_python_version: ${{ steps.python.outputs.resolved_python_version }}
       validation_profile: ${{ steps.python.outputs.validation_profile }}
-      command_profile: ${{ steps.python.outputs.command_profile }}
       cleanup_result: ${{ steps.cleanup.outputs.cleanup_verified }}
       failure_code: ${{ steps.python.outputs.failure_code }}
       artifact_exception_used: ${{ steps.python.outputs.artifact_exception_used }}
@@ -111,16 +115,17 @@ jobs:
           trust_mode: ${{ needs.plan.outputs.source_trust }}
 
       - id: python
-        name: Execute bounded Python validation
-        uses: StreamScapeTV/ci-workflows/actions/validate-python@7d5d839c6e90491e165f1358ecb5e80129805764 # issue #405 simplified execution-backend checkpoint
+        name: Execute consumer-owned Python validation script
+        uses: StreamScapeTV/ci-workflows/actions/validate-python@3d3689fda11b03a188789f03d6d64cab50f1873a # issue #473 product-neutral Python checkpoint
         with:
           phase: execute
           execution_backend: ${{ inputs.execution_backend }}
           admitted_sha: ${{ inputs.admitted_sha }}
           validation_profile: ${{ inputs.validation_profile }}
-          command_profile: ${{ inputs.command_profile }}
+          python_version: ${{ inputs.python_version }}
           working_directory: ${{ inputs.working_directory }}
           version_file: ${{ inputs.version_file }}
+          dependency_file: ${{ inputs.dependency_file }}
           script_path: ${{ inputs.script_path }}
           artifact_exception_id: ${{ inputs.artifact_exception_id }}
 

@@ -1,73 +1,45 @@
 {
-  "negative": [
-    {
-      "error": "unsupported_profile",
-      "id": "unknown-profile"
-    },
-    {
-      "error": "unsupported_profile",
-      "id": "cross-consumer-command"
-    },
-    {
-      "error": "unsupported_profile",
-      "id": "fork-podman"
-    },
-    {
-      "error": "toolchain_mismatch",
-      "id": "mutable-image"
-    },
-    {
-      "error": "dependency_lock_drift",
-      "id": "floating-dependency"
-    },
-    {
-      "error": "invalid_input",
-      "id": "remote-database"
-    },
-    {
-      "error": "artifact_policy_failed",
-      "id": "artifact-exception"
-    },
-    {
-      "error": "invalid_input",
-      "id": "caller-runner"
-    },
-    {
-      "error": "cleanup_failed",
-      "id": "cleanup-residue"
-    }
-  ],
+  "schema_version": 2,
   "positive": [
     {
-      "command_profile": "source-audit",
-      "id": "flux-audit",
+      "id": "audit",
       "profile": "audit",
-      "repository": "StreamScapeTV/flux"
+      "python_version": "3.12",
+      "script_path": "ci/audit.sh"
     },
     {
-      "command_profile": "source-audit",
-      "id": "agent-state-host",
+      "id": "host",
       "profile": "host",
-      "repository": "StreamScapeTV/agent-state"
+      "python_version": "3.12",
+      "dependency_file": "requirements.lock",
+      "script_path": "ci/validate.sh"
     },
     {
-      "command_profile": "full-test",
-      "id": "backend-podman",
+      "id": "podman",
       "profile": "podman",
-      "repository": "StreamScapeTV/iptv-backend"
+      "python_version": "3.12.13",
+      "dependency_file": "requirements.lock",
+      "script_path": "ci/validate.sh"
     },
     {
-      "command_profile": "postgres-test",
-      "id": "backend-postgres",
+      "id": "podman-postgres",
       "profile": "podman-postgres",
-      "repository": "StreamScapeTV/iptv-backend"
-    },
-    {
-      "command_profile": "postgres-test",
-      "id": "agent-state-postgres",
-      "profile": "podman-postgres",
-      "repository": "StreamScapeTV/agent-state"
+      "python_version": "3.12.13",
+      "dependency_file": "requirements.lock",
+      "script_path": "ci/integration.sh",
+      "database_handoff": "CIW_POSTGRES_URL"
     }
   ],
-  "schema_version": 1
+  "negative": [
+    {"error": "unsupported_profile", "id": "unknown-profile"},
+    {"error": "unsupported_profile", "id": "fork-podman"},
+    {"error": "python_version_drift", "id": "unreviewed-python-version"},
+    {"error": "toolchain_mismatch", "id": "mutable-image"},
+    {"error": "dependency_lock_drift", "id": "floating-dependency"},
+    {"error": "invalid_input", "id": "remote-database"},
+    {"error": "invalid_input", "id": "inline-command"},
+    {"error": "artifact_policy_failed", "id": "artifact-exception"},
+    {"error": "invalid_input", "id": "caller-runner"},
+    {"error": "cleanup_failed", "id": "cleanup-residue"}
+  ]
 }

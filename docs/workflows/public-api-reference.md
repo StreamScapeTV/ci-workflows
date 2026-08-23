@@ -32,7 +32,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 | `validation.flutter` `1.0.0` | `.github/workflows/reusable-flutter.yml` | `implemented` | `read-only-validation` | CI / Flutter validation |
 | `validation.gitops` `1.0.0` | `.github/workflows/reusable-gitops-validation.yml` | `implemented` | `read-only-validation` | CI / GitOps validation |
 | `validation.node` `1.0.0` | `.github/workflows/reusable-node.yml` | `implemented` | `read-only-validation` | CI / Node validation |
-| `validation.python` `1.0.0` | `.github/workflows/reusable-python.yml` | `implemented` | `read-only-validation` | CI / Python validation |
+| `validation.python` `2.0.0` | `.github/workflows/reusable-python.yml` | `implemented` | `read-only-validation` | CI / Python validation |
 | `validation.script` `1.0.0` | `.github/workflows/reusable-script.yml` | `implemented` | `read-only-validation` | CI / Script validation |
 
 ## API details
@@ -232,10 +232,10 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 ### `validation.python`
 
 - Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
-- Inputs: `execution_backend` (default `organization`), `admitted_sha` (required), `validation_profile` (required), `version_file`, `working_directory` (default `.`), `command_profile` (required), `script_path`, `artifact_exception_id`
+- Inputs: `execution_backend` (default `organization`), `admitted_sha` (required), `validation_profile` (required), `python_version` (required), `version_file`, `dependency_file`, `working_directory` (default `.`), `script_path` (required), `artifact_exception_id`
 - Secrets: none
 - Outputs: `result`, `test_summary`, `artifact_exception_used`
-- Repository-owned hooks: `command_profile`, `script_path`
+- Repository-owned hooks: `script_path`
 
 ### `validation.script`
 
