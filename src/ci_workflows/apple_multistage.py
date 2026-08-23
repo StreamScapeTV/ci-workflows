@@ -209,9 +209,12 @@ class ProtectedApplePlan:
     def simulator_plans(self) -> tuple[AppleValidationPlan, ...]:
         unique: dict[str, AppleValidationPlan] = {}
         for stage in self.stages:
-            if stage.plan.simulator is not None:
-                simulator = stage.plan.simulator
-                unique[simulator.platform] = stage.plan
+            if not stage.needs_booted_simulator:
+                continue
+            simulator = stage.plan.simulator
+            if simulator is None:
+                _fail("simulator_contract_invalid")
+            unique[simulator.platform] = stage.plan
         return tuple(unique.values())
 
     def planning_outputs(self) -> dict[str, str]:
