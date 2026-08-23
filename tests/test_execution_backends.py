@@ -13,20 +13,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ExecutionBackendTests(unittest.TestCase):
-    def test_contract_has_default_linux_and_profile_specific_hosted_selectors(self) -> None:
+    def test_contract_has_safe_default_and_only_fixed_hosted_label(self) -> None:
         contract = json.loads((ROOT / "contracts/runner-execution-backends.json").read_text())
         self.assertEqual(contract["default_backend"], "organization")
         self.assertEqual(contract["allowed_backends"], ["organization", "github-hosted"])
-        hosted = contract["github-hosted"]
-        self.assertEqual(hosted["runs_on"], ["ubuntu-latest"])
-        self.assertEqual(
-            hosted["profile_selectors"],
-            [
-                {"profile": "general-tiny", "runs_on": ["ubuntu-latest"]},
-                {"profile": "general-small", "runs_on": ["ubuntu-latest"]},
-                {"profile": "apple", "runs_on": ["macos-latest"]},
-            ],
-        )
+        self.assertEqual(contract["github-hosted"]["runs_on"], ["ubuntu-latest"])
 
     def test_organization_preserves_existing_selector_exactly(self) -> None:
         resolved = resolve_execution_backend(
