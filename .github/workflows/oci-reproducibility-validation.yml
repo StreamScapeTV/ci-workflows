@@ -1,0 +1,23 @@
+name: OCI reproducibility validation
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/reusable-oci-reproducibility.yml
+      - .github/workflows/oci-reproducibility-validation.yml
+      - scripts/ci/oci_reproducibility.py
+      - tests/test_oci_reproducibility_workflow.py
+      - tests/fixtures/oci-reproducibility/**
+
+permissions:
+  contents: read
+
+jobs:
+  deterministic-fixture:
+    name: Prove deterministic amd64 and arm64 raw configs
+    uses: ./.github/workflows/reusable-oci-reproducibility.yml
+    with:
+      admitted_sha: ${{ github.sha }}
+      dockerfile_path: tests/fixtures/oci-reproducibility/Dockerfile
+      build_context: tests/fixtures/oci-reproducibility
