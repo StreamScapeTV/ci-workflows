@@ -2,7 +2,7 @@
 """Two-clean-build OCI reproducibility proof for the public reusable workflow.
 
 The caller supplies only an admitted commit SHA and bounded repository-relative
-Dockerfile/context paths.  Central fixes the Buildah runner, the platform set,
+Dockerfile/context paths. Central fixes the Buildah runner, the platform set,
 the engine, deterministic source metadata, isolated state layout, and the raw
 OCI config comparison contract.
 """
@@ -30,6 +30,10 @@ REQUIRED_PLATFORMS = (
 _PATH_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+_SENSITIVE_ENV_RE = re.compile(
+    r"(?:AUTH|TOKEN|PASSWORD|PASSWD|SECRET|CREDENTIAL|COOKIE|DOCKER_CONFIG)",
+    re.IGNORECASE,
+)
 
 
 class ReproducibilityError(RuntimeError):
@@ -94,9 +98,12 @@ def _safe_relative(value: str, field: str) -> PurePosixPath:
 def _resolve_source_path(source_root: Path, value: str, field: str, *, directory: bool) -> Path:
     relative = _safe_relative(value, field)
     root = source_root.resolve(strict=True)
-    candidate = (root / Path(*relative.parts)).resolve(strict=True)
+    unresolved = root
+    for part in relative.parts:
+        unresolved = unresolved / part
+        _require(not unresolved.is_symlink(), f"invalid {field}")
+    candidate = unresolved.resolve(strict=True)
     _require(candidate == root or root in candidate.parents, f"invalid {field}")
-    _require(not candidate.is_symlink(), f"invalid {field}")
     if directory:
         _require(candidate.is_dir(), f"invalid {field}")
     else:
@@ -165,27 +172,47 @@ def load_inputs(environment: Mapping[str, str] | None = None) -> ProofInputs:
 def _buildah_base(build_root: Path) -> list[str]:
     return [
         "buildah",
+        "--storage-driver",
+        "vfs",
         "--root",
         str(build_root / "graphroot"),
         "--runroot",
         str(build_root / "runroot"),
-        "--storage-driver",
-        "vfs",
     ]
 
 
 def _isolated_environment(build_root: Path) -> dict[str, str]:
-    env = dict(os.environ)
-    for directory in ("tmp", "cache", "runtime", "auth"):
-        (build_root / directory).mkdir(parents=True, exist_ok=True)
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if _SENSITIVE_ENV_RE.search(key) is None
+    }
+    directories = {
+        "tmp": build_root / "tmp",
+        "cache": build_root / "cache",
+        "runtime": build_root / "runtime",
+        "auth": build_root / "auth",
+        "home": build_root / "home",
+        "data": build_root / "data",
+        "config": build_root / "config",
+    }
+    for directory in directories.values():
+        directory.mkdir(parents=True, exist_ok=True)
+    auth_file = directories["auth"] / "auth.json"
+    if not auth_file.exists():
+        auth_file.write_text('{"auths":{}}\n', encoding="utf-8")
+        auth_file.chmod(0o600)
     env.update(
         {
             "BUILDAH_ISOLATION": "chroot",
-            "BUILDAH_TMPDIR": str(build_root / "tmp"),
-            "TMPDIR": str(build_root / "tmp"),
-            "XDG_CACHE_HOME": str(build_root / "cache"),
-            "XDG_RUNTIME_DIR": str(build_root / "runtime"),
-            "REGISTRY_AUTH_FILE": str(build_root / "auth" / "auth.json"),
+            "BUILDAH_TMPDIR": str(directories["tmp"]),
+            "TMPDIR": str(directories["tmp"]),
+            "HOME": str(directories["home"]),
+            "XDG_CACHE_HOME": str(directories["cache"]),
+            "XDG_CONFIG_HOME": str(directories["config"]),
+            "XDG_DATA_HOME": str(directories["data"]),
+            "XDG_RUNTIME_DIR": str(directories["runtime"]),
+            "REGISTRY_AUTH_FILE": str(auth_file),
             "STORAGE_DRIVER": "vfs",
         }
     )
@@ -203,6 +230,8 @@ def build_command(inputs: ProofInputs, build_root: Path, platform: str, image_ta
         "chroot",
         "--layers=false",
         "--no-cache",
+        "--http-proxy=false",
+        "--identity-label=false",
         "--timestamp",
         str(inputs.source_date_epoch),
         "--platform",
@@ -221,9 +250,16 @@ def build_command(inputs: ProofInputs, build_root: Path, platform: str, image_ta
     ]
 
 
-def raw_config_identity(layout: Path, expected_architecture: str) -> tuple[str, bytes]:
+def raw_config_identity(
+    layout: Path,
+    expected_architecture: str,
+    environment: Mapping[str, str] | None = None,
+) -> tuple[str, bytes]:
     reference = f"oci:{layout}:candidate"
-    raw_manifest = _run(["skopeo", "inspect", "--raw", reference]).stdout.encode("utf-8")
+    raw_manifest = _run(
+        ["skopeo", "inspect", "--raw", reference],
+        environment=environment,
+    ).stdout.encode("utf-8")
     try:
         manifest = json.loads(raw_manifest)
     except json.JSONDecodeError as error:
@@ -323,7 +359,7 @@ def _one_clean_build(inputs: ProofInputs, build_name: str) -> dict[str, tuple[st
                 cwd=inputs.context,
                 environment=env,
             )
-            digest, raw_config = raw_config_identity(layout, architecture)
+            digest, raw_config = raw_config_identity(layout, architecture, env)
             results[platform] = (digest, raw_config)
             _run(
                 [*_buildah_base(build_root), "rmi", "--force", image_tag],
