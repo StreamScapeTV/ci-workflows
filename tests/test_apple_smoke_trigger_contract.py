@@ -27,8 +27,9 @@ EXECUTOR_RESULT = {
     "routine": "APPLE_RESULT",
     "release": "RELEASE_RESULT",
 }
-APPLE_EXECUTOR_SELECTOR = "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}"
+DYNAMIC_APPLE_EXECUTOR_SELECTOR = "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}"
 HOSTED_CONTROL_SELECTOR = "runs-on: [ubuntu-latest]"
+HOSTED_APPLE_SELECTOR = "runs-on: [macos-latest]"
 OWNER_GATE = "github.event.pull_request.user.login == 'mimranfaruqi'"
 REPOSITORY_GATE = "github.event.pull_request.head.repo.full_name == github.repository"
 
@@ -67,14 +68,15 @@ class AppleSmokeTriggerContractTests(unittest.TestCase):
                 self.assertIn(EXPECTED_CONCURRENCY[name], source)
                 self.assertIn("cancel-in-progress: true", source)
 
-    def test_public_repository_apple_runners_require_exact_owner_same_repo_pr(self) -> None:
+    def test_public_repository_apple_self_ci_is_github_hosted_and_owner_gated(self) -> None:
         for name, path in WORKFLOWS.items():
             with self.subTest(workflow=name):
                 source = path.read_text(encoding="utf-8")
                 self.assertEqual(source.count(HOSTED_CONTROL_SELECTOR), 2)
+                self.assertEqual(source.count(HOSTED_APPLE_SELECTOR), 1)
+                self.assertNotIn(DYNAMIC_APPLE_EXECUTOR_SELECTOR, source)
                 self.assertNotIn("runs-on: [linux, amd64, general, small]", source)
                 self.assertNotIn("runs-on: ubuntu-latest", source)
-                self.assertEqual(source.count(APPLE_EXECUTOR_SELECTOR), 1)
                 self.assertGreaterEqual(source.count(OWNER_GATE), 3)
                 self.assertGreaterEqual(source.count(REPOSITORY_GATE), 3)
                 self.assertNotIn("github.event.repository.private", source)
@@ -83,6 +85,7 @@ class AppleSmokeTriggerContractTests(unittest.TestCase):
                     f'test "${{{EXECUTOR_RESULT[name]}}}" = success',
                     source,
                 )
+                # Planning still validates the reusable consumer semantic selector.
                 self.assertIn('["macOS","ARM64"]', source)
 
         routine = WORKFLOWS["routine"].read_text(encoding="utf-8")
