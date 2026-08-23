@@ -268,12 +268,14 @@ def bounded_path(root: Path, relative: str) -> Path:
     resolved_root = root.resolve()
     if relative == ".":
         return resolved_root
-    target = (resolved_root / Path(*PurePosixPath(relative).parts)).resolve(strict=False)
-    require(resolved_root in target.parents, "invalid_input")
+    normalized = safe_relative(relative)
+    parts = PurePosixPath(normalized).parts
     current = resolved_root
-    for part in target.relative_to(resolved_root).parts:
+    for part in parts:
         current /= part
         require(not (current.exists() and current.is_symlink()), "invalid_input")
+    target = (resolved_root / Path(*parts)).resolve(strict=False)
+    require(target == resolved_root or resolved_root in target.parents, "invalid_input")
     return target
 
 

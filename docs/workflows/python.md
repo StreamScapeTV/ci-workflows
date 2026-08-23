@@ -30,7 +30,7 @@ The planner emits the Central-owned `runs_on_json`; repository visibility never 
 | `script_path` | yes | Repository-relative checked-in executable validation script owned by the consumer. |
 | `artifact_exception_id` | no | Reserved; must remain empty. Routine Actions artifacts are zero. |
 
-There is no `command_profile`, `arguments_json`, `environment_json`, `runner`, `runs_on`, `container_engine`, `database_url`, or `secret_name` input.
+No command-profile selector, inline argument/environment payload, caller-selected runner or engine, database endpoint, or secret-name field is part of this API.
 
 ## Public outputs
 

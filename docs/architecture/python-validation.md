@@ -91,7 +91,7 @@ Podman profiles:
 
 - reject Docker, `dockerd`, and Docker sockets;
 - use Podman VFS with marker-bound private graph storage via `--root`;
-- leave `--runroot` at the semantic Buildah runner's job-isolated default (Podman 4.9 rejects overly long custom runroot paths; the known limit is 50 characters);
+- leave `--runroot` at the semantic Buildah runner's job-isolated default runroot (Podman 4.9 rejects overly long custom runroot paths; the known limit is 50 characters);
 - pull exact digest-pinned linux/amd64 images;
 - mount admitted source read-only at `/src`, then copy it to disposable `/work/source`;
 - use mode-0600 environment files containing only generic values;
