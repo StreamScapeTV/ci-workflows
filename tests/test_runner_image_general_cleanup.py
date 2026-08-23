@@ -7,20 +7,19 @@ DOCKERFILE = ROOT / "runner-images/general/Dockerfile"
 SMOKE = ROOT / "runner-images/general/smoke.sh"
 
 
-def test_general_finished_smoke_respects_supplied_npm_cache() -> None:
+def test_general_smoke_isolates_npm_probe_from_supplied_cache() -> None:
     source = DOCKERFILE.read_text(encoding="utf-8")
     smoke = SMOKE.read_text(encoding="utf-8")
 
-    # Image construction may create npm's normal HOME cache and the terminal
-    # Dockerfile cleanup removes it. Finished-image validation supplies a
-    # writable temp-backed NPM_CONFIG_CACHE, so the smoke must neither override
-    # nor destructively clean that external runner state.
-    assert "npm --version >/dev/null" in smoke
-    assert "NPM_CONFIG_CACHE=" not in smoke
-    assert 'mkdir -p "${NPM_CONFIG_CACHE}"' not in smoke
+    # Both image-construction and finished-image validation run this smoke. Keep
+    # the npm probe inside the smoke-owned temp root so an externally supplied
+    # NPM_CONFIG_CACHE is neither used nor destructively cleaned.
+    assert 'NPM_CONFIG_CACHE="${venv_root}/npm-cache" npm --version >/dev/null' in smoke
+    assert "export NPM_CONFIG_CACHE" not in smoke
     assert "npm cache clean" not in smoke
     assert 'rm -rf "${NPM_CONFIG_CACHE}"' not in smoke
     assert "/home/runner/_work/.npm-cache" not in source
+    assert "ENV NPM_CONFIG_CACHE" not in source
 
 
 def test_general_runner_removes_only_image_owned_build_phase_state() -> None:
