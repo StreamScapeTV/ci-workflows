@@ -3,20 +3,6 @@
   "default_backend": "organization",
   "allowed_backends": ["organization", "github-hosted"],
   "github-hosted": {
-    "runs_on": ["ubuntu-latest"],
-    "profile_selectors": [
-      {
-        "profile": "general-tiny",
-        "runs_on": ["ubuntu-latest"]
-      },
-      {
-        "profile": "general-small",
-        "runs_on": ["ubuntu-latest"]
-      },
-      {
-        "profile": "apple",
-        "runs_on": ["macos-latest"]
-      }
-    ]
+    "runs_on": ["ubuntu-latest"]
   }
 }
