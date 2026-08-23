@@ -11,15 +11,55 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  plan:
+    name: Resolve GitHub-hosted Apple executor
+    runs-on: [ubuntu-latest]
+    timeout-minutes: 10
+    outputs:
+      runs_on_json: ${{ steps.backend.outputs.runs_on_json }}
+    steps:
+      - name: Check out exact Central source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - id: backend
+        name: Resolve fixed hosted Apple backend
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/ci/execution_backend.py \
+            --root . \
+            --workflow-api validation.apple \
+            --source-trust trusted-exact \
+            --execution-backend github-hosted \
+            --profile apple \
+            --github-output "${GITHUB_OUTPUT}"
+
   apple_test:
     name: Test configured private Apple branch
-    runs-on: [macos-latest]
+    needs: plan
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
     timeout-minutes: 120
     env:
       TARGET_REPOSITORY_NAME: ${{ secrets.APPLE_TEST_REPOSITORY }}
       TARGET_BRANCH: ${{ secrets.APPLE_TEST_BRANCH }}
       CHECKOUT_TOKEN: ${{ secrets.TOKEN }}
+      PYTHONDONTWRITEBYTECODE: "1"
     steps:
+      - name: Check out exact Central source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
       - name: Validate fixed Central configuration
         shell: bash
         run: |
@@ -27,64 +67,20 @@ jobs:
           test -n "${TARGET_REPOSITORY_NAME}"
           test -n "${TARGET_BRANCH}"
           test -n "${CHECKOUT_TOKEN}"
-          [[ "${TARGET_REPOSITORY_NAME}" =~ ^[A-Za-z0-9_.-]+$ ]]
-          [[ "${TARGET_BRANCH}" != refs/* ]]
-          [[ "${TARGET_BRANCH}" != -* ]]
-          [[ "${TARGET_BRANCH}" != *$'\n'* ]]
-          [[ "${TARGET_BRANCH}" != *$'\r'* ]]
 
       - id: resolve
         name: Resolve configured branch to one exact commit
         shell: bash
         run: |
           set -Eeuo pipefail
-          python3 - <<'PY'
-          import json
-          import os
-          import re
-          import urllib.error
-          import urllib.parse
-          import urllib.request
-
-          repository = os.environ["TARGET_REPOSITORY_NAME"].strip()
-          branch = os.environ["TARGET_BRANCH"].strip()
-          token = os.environ["CHECKOUT_TOKEN"]
-          if not re.fullmatch(r"[A-Za-z0-9_.-]+", repository):
-              raise SystemExit("configured repository name is invalid")
-          if not branch or len(branch.encode("utf-8")) > 255:
-              raise SystemExit("configured branch is invalid")
-
-          repository_path = urllib.parse.quote(repository, safe="")
-          branch_path = urllib.parse.quote(branch, safe="")
-          request = urllib.request.Request(
-              f"https://api.github.com/repos/StreamScapeTV/{repository_path}/commits/{branch_path}",
-              headers={
-                  "Accept": "application/vnd.github+json",
-                  "Authorization": f"Bearer {token}",
-                  "X-GitHub-Api-Version": "2022-11-28",
-              },
-          )
-          try:
-              with urllib.request.urlopen(request, timeout=30) as response:
-                  payload = json.load(response)
-          except urllib.error.HTTPError as error:
-              raise SystemExit(
-                  f"configured branch resolution failed with HTTP {error.code}"
-              ) from None
-          except urllib.error.URLError:
-              raise SystemExit("configured branch resolution failed") from None
-
-          sha = payload.get("sha")
-          if not isinstance(sha, str) or re.fullmatch(r"[0-9a-f]{40}", sha) is None:
-              raise SystemExit("configured branch did not resolve to an exact commit")
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              output.write(f"sha={sha}\n")
-          print("Configured private branch resolved to one exact commit.")
-          PY
+          python3 scripts/ci/private_source.py \
+            --repository-name "${TARGET_REPOSITORY_NAME}" \
+            --branch "${TARGET_BRANCH}" \
+            --github-output "${GITHUB_OUTPUT}"
 
       - id: checkout
         name: Check out the exact private Apple commit
-        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
           repository: ${{ format('StreamScapeTV/{0}', secrets.APPLE_TEST_REPOSITORY) }}
           admitted_sha: ${{ steps.resolve.outputs.sha }}
@@ -149,21 +145,18 @@ jobs:
           workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
           runner_temp = Path(os.environ["RUNNER_TEMP"]).resolve()
           targets = (
-              workspace / "source",
-              runner_temp / "apple-test-derived-data",
-              runner_temp / "apple-test-packages",
-              runner_temp / "apple-test.log",
+              (workspace / "source", workspace),
+              (runner_temp / "apple-test-derived-data", runner_temp),
+              (runner_temp / "apple-test-packages", runner_temp),
+              (runner_temp / "apple-test.log", runner_temp),
           )
-          for target in targets:
-              try:
-                  target.relative_to(workspace if target == workspace / "source" else runner_temp)
-              except ValueError as error:
-                  raise SystemExit("cleanup target escaped its fixed root") from error
+          for target, root in targets:
+              target.relative_to(root)
               if target.is_symlink() or target.is_file():
                   target.unlink(missing_ok=True)
               elif target.exists():
                   shutil.rmtree(target)
-          for target in targets:
+          for target, _root in targets:
               if target.exists() or target.is_symlink():
                   raise SystemExit("Apple test residue remains after cleanup")
           PY
