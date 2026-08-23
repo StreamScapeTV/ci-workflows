@@ -55,6 +55,32 @@
       "implementation_components": ["ci_workflows.oci.publish", "ci_workflows.oci.read_back"]
     },
     {
+      "file": ".github/workflows/reusable-oci-reproducibility.yml",
+      "api_name": "oci.reproducibility",
+      "api_version": "1.0.0",
+      "status": "implemented",
+      "trust_class": "read-only-validation",
+      "permission_profile": "validation-read",
+      "semantic_runner_profile": "contract:oci-reproducibility",
+      "permitted_events": ["pull_request", "push", "workflow_dispatch", "workflow_call"],
+      "inputs": [
+        {"name": "admitted_sha", "required": true},
+        {"name": "dockerfile_path", "required": false, "default": "Dockerfile"},
+        {"name": "build_context", "required": false, "default": "."}
+      ],
+      "secrets": [],
+      "outputs": ["result", "source_sha", "platform_digests_json"],
+      "stable_check_name": "CI / OCI reproducibility",
+      "timeout_minutes": 180,
+      "matrix_max_jobs": 1,
+      "repository_owned_hooks": ["dockerfile_path", "build_context"],
+      "implementation_components": [
+        "ci_workflows.oci_reproducibility.run_proof",
+        "ci_workflows.oci_reproducibility.compare_builds",
+        "scripts/ci/oci_reproducibility.py"
+      ]
+    },
+    {
       "file": ".github/workflows/reusable-helm-validate.yml",
       "api_name": "helm.validate",
       "api_version": "2.0.0",
