@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ExecutionBackendTests(unittest.TestCase):
-    def test_contract_has_safe_default_and_only_fixed_hosted_label(self) -> None:
+    def test_contract_has_only_default_and_fixed_hosted_selector(self) -> None:
         contract = json.loads((ROOT / "contracts/runner-execution-backends.json").read_text())
         self.assertEqual(contract["default_backend"], "organization")
         self.assertEqual(contract["allowed_backends"], ["organization", "github-hosted"])
@@ -27,7 +27,7 @@ class ExecutionBackendTests(unittest.TestCase):
         )
         self.assertEqual(resolved.runs_on, ("linux", "amd64", "general", "small"))
 
-    def test_hosted_maps_portable_general_profiles_to_ubuntu_latest(self) -> None:
+    def test_hosted_maps_only_portable_general_profiles_to_ubuntu_latest(self) -> None:
         for profile in ("general-tiny", "general-small"):
             with self.subTest(profile=profile):
                 resolved = resolve_execution_backend(
@@ -38,18 +38,10 @@ class ExecutionBackendTests(unittest.TestCase):
                 self.assertEqual(resolved.runs_on, ("ubuntu-latest",))
                 self.assertEqual(resolved.as_dict()["runs_on_json"], '["ubuntu-latest"]')
 
-    def test_hosted_maps_apple_profile_to_macos_latest(self) -> None:
-        resolved = resolve_execution_backend(
-            execution_backend="github-hosted",
-            execution_profile="apple",
-            organization_runs_on=("macOS", "ARM64"),
-        )
-        self.assertEqual(resolved.runs_on, ("macos-latest",))
-        self.assertEqual(resolved.as_dict()["runs_on_json"], '["macos-latest"]')
-
     def test_hosted_rejects_unproven_specialized_profiles_instead_of_falling_back(self) -> None:
         selectors = {
             "mobile": ("linux", "amd64", "mobile"),
+            "apple": ("macOS", "ARM64"),
             "service-small": ("linux", "amd64", "service", "small"),
             "buildah-medium": ("linux", "amd64", "buildah", "medium"),
             "buildah-high": ("linux", "amd64", "buildah", "high"),
