@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PYTHON_DOC = ROOT / "docs/workflows/python.md"
 ACTION_LOCK = ROOT / "contracts/action-tool-lock.json"
 VALIDATE_PYTHON_ACTION = "StreamScapeTV/ci-workflows/actions/validate-python"
-CHECKPOINT = "203aaf1efcf28ff5c99a402301718f22e20ecb58"
+CHECKPOINT = "3d3689fda11b03a188789f03d6d64cab50f1873a"
 RELEASE = "issue #473 product-neutral Python checkpoint"
 
 
