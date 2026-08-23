@@ -7,6 +7,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from ci_workflows.runners import (  # noqa: E402
+    load_runner_contract,
+    resolve_runner_profile,
+    workflow_binding_index,
+)
 from ci_workflows.validation_model import (  # noqa: E402
     Finding,
     HarnessConfig,
@@ -45,6 +50,24 @@ class ValidationRunnerSelectorTests(unittest.TestCase):
         self.assertNotIn(
             ("linux", "amd64"),
             config.allowed_runner_selectors,
+        )
+
+    def test_oci_reproducibility_is_fixed_to_buildah_small(self) -> None:
+        contract = load_runner_contract(ROOT)
+        binding = workflow_binding_index(contract)["oci.reproducibility"]
+        self.assertEqual("fixed", binding["strategy"])
+        self.assertEqual(["buildah-small"], binding["profiles"])
+
+        resolution = resolve_runner_profile(
+            contract,
+            workflow_api="oci.reproducibility",
+            source_trust="trusted-exact",
+        )
+        self.assertEqual("buildah-small", resolution.profile)
+        self.assertEqual("buildah-small", resolution.execution_profile)
+        self.assertEqual(
+            ("linux", "amd64", "buildah", "small"),
+            resolution.runs_on,
         )
 
     def test_complete_capability_array_passes(self) -> None:
