@@ -36,7 +36,9 @@ concurrency:
 jobs:
   plan:
     name: Resolve exact Apple Release selectors
-    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    if: >-
+      ${{ github.event.pull_request.user.login == 'mimranfaruqi' &&
+          github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: [ubuntu-latest]
     timeout-minutes: 10
     outputs:
@@ -138,7 +140,10 @@ jobs:
   release:
     name: Release / ${{ matrix.label }} compile
     needs: plan
-    if: ${{ github.event.repository.private && needs.plan.result == 'success' }}
+    if: >-
+      ${{ github.event.pull_request.user.login == 'mimranfaruqi' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          needs.plan.result == 'success' }}
     strategy:
       fail-fast: false
       matrix:
@@ -271,25 +276,23 @@ jobs:
   zero_artifacts:
     name: Verify Apple Release smoke remains zero-artifact
     needs: [plan, release]
-    if: ${{ always() && !cancelled() }}
+    if: >-
+      ${{ github.event.pull_request.user.login == 'mimranfaruqi' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          always() && !cancelled() }}
     runs-on: [ubuntu-latest]
     timeout-minutes: 10
     steps:
-      - name: Require public control success and private executor boundary
+      - name: Require trusted control and executor success
         env:
           PLAN_RESULT: ${{ needs.plan.result }}
           RELEASE_RESULT: ${{ needs.release.result }}
-          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
           GITHUB_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -Eeuo pipefail
           test "${PLAN_RESULT}" = success
-          case "${REPOSITORY_PRIVATE}" in
-            true) test "${RELEASE_RESULT}" = success ;;
-            false) test "${RELEASE_RESULT}" = skipped ;;
-            *) echo "unexpected repository privacy value: ${REPOSITORY_PRIVATE}" >&2; exit 1 ;;
-          esac
+          test "${RELEASE_RESULT}" = success
           python3 - <<'PY_ARTIFACTS'
           import json
           import os
