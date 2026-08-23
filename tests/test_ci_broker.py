@@ -225,10 +225,11 @@ class EnvelopeTests(unittest.TestCase):
         token = envelope.seal(dispatch_id, payload)
         self.assertEqual(envelope.open(dispatch_id, token, now=1_000), payload)
 
-        replacement = "A" if token[-1] != "A" else "B"
+        index = len(token) // 2
+        replacement = "A" if token[index] != "A" else "B"
         with self.assertRaisesRegex(BrokerError, "invalid_dispatch_token"):
-            envelope.open(dispatch_id, token[:-1] + replacement, now=1_000)
-        with self.assertRaisesRegex(BrokerError, "invalid_dispatch_id"):
+            envelope.open(dispatch_id, token[:index] + replacement + token[index + 1 :], now=1_000)
+        with self.assertRaisesRegex(BrokerError, "invalid_dispatch_token"):
             envelope.open(envelope.dispatch_id({"other": True}), token, now=1_000)
         with self.assertRaisesRegex(BrokerError, "dispatch_token_expired"):
             envelope.open(dispatch_id, token, now=5_000)
