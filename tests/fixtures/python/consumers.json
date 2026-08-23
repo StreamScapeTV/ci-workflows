@@ -1,56 +1,32 @@
 {
-  "captured_at": "2026-08-07",
-  "repositories": [
+  "schema_version": 2,
+  "captured_at": "2026-08-23",
+  "adoption_shapes": [
     {
-      "head": "8f7dd143bfe3bfd074e445744ea084cfca231143",
-      "repository": "StreamScapeTV/iptv-backend",
-      "shapes": [
-        {
-          "command_profile": "full-test",
-          "profile": "podman",
-          "python": "3.12.8",
-          "runner": "buildah-high"
-        },
-        {
-          "command_profile": "postgres-test",
-          "postgres": "16",
-          "profile": "podman-postgres",
-          "python": "3.12.8",
-          "runner": "buildah-medium"
-        }
-      ]
+      "id": "thin-host-caller",
+      "validation_profile": "host",
+      "python_version": "3.12",
+      "dependency_file": "requirements.lock",
+      "script_path": "ci/validate.sh",
+      "runner_profile": "portable"
     },
     {
-      "head": "bf4b6122db1f248058a27b4b449cd1ecb9688a85",
-      "repository": "StreamScapeTV/agent-state",
-      "shapes": [
-        {
-          "command_profile": "source-audit",
-          "profile": "host",
-          "python": "3.12",
-          "runner": "portable"
-        },
-        {
-          "command_profile": "postgres-test",
-          "postgres": "16",
-          "profile": "podman-postgres",
-          "python": "3.12",
-          "runner": "buildah-medium"
-        }
-      ]
+      "id": "isolated-container-caller",
+      "validation_profile": "podman",
+      "python_version": "3.12.13",
+      "dependency_file": "requirements.lock",
+      "script_path": "ci/validate.sh",
+      "runner_profile": "buildah-high"
     },
     {
-      "head": "50a1df0ae3ccab77e087053810d38d8efe6dd6dd",
-      "repository": "StreamScapeTV/flux",
-      "shapes": [
-        {
-          "command_profile": "source-audit",
-          "profile": "audit",
-          "python": "3.12",
-          "runner": "portable"
-        }
-      ]
+      "id": "isolated-postgres-caller",
+      "validation_profile": "podman-postgres",
+      "python_version": "3.12.13",
+      "dependency_file": "requirements.lock",
+      "script_path": "ci/integration.sh",
+      "runner_profile": "buildah-medium",
+      "database_handoff": "CIW_POSTGRES_URL"
     }
   ],
-  "schema_version": 1
+  "registration_required": false
 }
