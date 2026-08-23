@@ -24,7 +24,18 @@
     "android_platform_tools": "36.0.0",
     "android_platforms": ["36", "37.0"],
     "android_build_tools": ["36.0.0", "37.0.0"],
-    "android_ndk": "28.2.13676358"
+    "android_ndk": "28.2.13676358",
+    "android_cmake": "3.22.1",
+    "android_cmake_package": "cmake;3.22.1",
+    "android_cmake_runtime_version": "3.22.1-g37088a8",
+    "android_ninja_minimum": "1.10"
+  },
+  "licenses": {
+    "android_sdk_license": [
+      "8933bad161af4178b1185d1a37fbf41ea5269c55",
+      "d56f5187479451eabf01fb78af6dfcb131a6481e",
+      "24333f8a63b6825ea9c5514f83c2829b004d1fee"
+    ]
   },
   "downloads": {
     "actions_runner_linux_x64": {

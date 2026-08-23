@@ -82,6 +82,7 @@ def test_mobile_runner_locks_compatible_toolchain() -> None:
         "ANDROID_COMPAT_BUILD_TOOLS_VERSION": toolchain["android_build_tools"][0],
         "ANDROID_BUILD_TOOLS_VERSION": toolchain["android_build_tools"][1],
         "ANDROID_NDK_VERSION": toolchain["android_ndk"],
+        "ANDROID_CMAKE_VERSION": toolchain["android_cmake"],
     }
 
     assert lock["policy"] == {
@@ -89,8 +90,20 @@ def test_mobile_runner_locks_compatible_toolchain() -> None:
         "release_authority": "ci-workflows-git-tag",
         "independent_product": True,
     }
+    assert toolchain["android_cmake_package"] == f"cmake;{toolchain['android_cmake']}"
+    assert toolchain["android_cmake_runtime_version"] == "3.22.1-g37088a8"
+    assert toolchain["android_ninja_minimum"] == "1.10"
     for name, value in argument_values.items():
         assert f"ARG {name}={value}" in source
+
+    license_hashes = lock["licenses"]["android_sdk_license"]
+    assert license_hashes == [
+        "8933bad161af4178b1185d1a37fbf41ea5269c55",
+        "d56f5187479451eabf01fb78af6dfcb131a6481e",
+        "24333f8a63b6825ea9c5514f83c2829b004d1fee",
+    ]
+    for index, license_hash in enumerate(license_hashes, start=1):
+        assert f"ARG ANDROID_SDK_LICENSE_{index}={license_hash}" in source
 
 
 def test_mobile_runner_materializes_required_android_components_safely() -> None:
@@ -103,6 +116,7 @@ def test_mobile_runner_materializes_required_android_components_safely() -> None
         "/opt/android-sdk/platforms",
         "/opt/android-sdk/build-tools",
         "/opt/android-sdk/ndk",
+        "/opt/android-sdk/cmake",
     ):
         assert path in source or path in assemble
 
@@ -114,6 +128,48 @@ def test_mobile_runner_materializes_required_android_components_safely() -> None
     assert "shutil.copytree" in assemble
     assert "subprocess" not in assemble
     assert "urllib" not in assemble
+
+
+def test_mobile_runner_bakes_cmake_license_and_runs_real_flutter_apk_smoke() -> None:
+    source = DOCKERFILE.read_text(encoding="utf-8")
+    smoke = SMOKE.read_text(encoding="utf-8")
+    lock = _lock()
+    cmake_version = lock["toolchain"]["android_cmake"]
+    cmake_runtime_version = lock["toolchain"]["android_cmake_runtime_version"]
+
+    assert f"ARG ANDROID_CMAKE_VERSION={cmake_version}" in source
+    assert "--channel=0" in source
+    assert '--install "cmake;${ANDROID_CMAKE_VERSION}"' in source
+    assert 'chown -R 0:0 "${ANDROID_HOME}/cmake" "${ANDROID_HOME}/licenses"' in source
+    assert 'chmod -R a-w "${ANDROID_HOME}/cmake" "${ANDROID_HOME}/licenses"' in source
+    assert "chown 0:0 /tmp" in source
+    assert "chmod 1777 /tmp" in source
+    assert "CIW_RUNNER_IMAGE_BUILD_PHASE=1 /usr/local/bin/runner-image-smoke" in source
+
+    for token in (
+        'cmake_root="${ANDROID_HOME}/cmake/3.22.1"',
+        f"cmake version {cmake_runtime_version}",
+        "ninja_version=",
+        'test ! -w "${ANDROID_HOME}/cmake"',
+        'test "$(stat -c \'%a:%u:%g\' /tmp)" = "1777:0:0"',
+        'mkdir -p "${flutter_smoke_root}/tmp" "${flutter_smoke_root}/jvm-tmp"',
+        'export TMPDIR="${flutter_smoke_root}/tmp"',
+        'export JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=${flutter_smoke_root}/jvm-tmp"',
+        'java -XshowSettings:properties -version',
+        'java.io.tmpdir = ${flutter_smoke_root}/jvm-tmp',
+        "flutter create",
+        "flutter pub get",
+        "flutter build apk --debug --no-pub",
+        "build/app/outputs/flutter-apk/app-debug.apk",
+        "LicenceNotAcceptedException",
+        'export PUB_CACHE="${flutter_smoke_root}/pub-cache"',
+        'export GRADLE_USER_HOME="${flutter_smoke_root}/gradle"',
+    ):
+        assert token in smoke
+
+    assert "sdkmanager --install" not in smoke
+    assert "sdkmanager --licenses" not in smoke
+    assert "--no-enable-native-assets" not in smoke
 
 
 def test_mobile_runner_has_no_container_engine_or_privileged_runtime_path() -> None:
@@ -163,6 +219,7 @@ def test_mobile_runner_product_and_smoke_contract() -> None:
         f"Dart SDK version: {toolchain['dart']}",
         toolchain["android_build_tools"][1],
         toolchain["android_ndk"],
+        f"cmake version {toolchain['android_cmake_runtime_version']}",
     )
     for value in expected_versions:
         assert value in smoke
