@@ -75,6 +75,21 @@ def _existing_directory(raw: object, code: str) -> Path:
     return resolved
 
 
+def _runner_directory(raw: object, code: str) -> Path:
+    """Resolve a runner-owned toolchain directory without weakening state boundaries."""
+    text = _plain(raw, code)
+    candidate = Path(text)
+    if not candidate.is_absolute():
+        raise CIWError(_DOMAIN, code)
+    try:
+        resolved = candidate.resolve(strict=True)
+    except OSError as error:
+        raise CIWError(_DOMAIN, code) from error
+    if not resolved.is_dir():
+        raise CIWError(_DOMAIN, code)
+    return resolved
+
+
 def _bounded_directory(root: Path, relative: str, code: str) -> Path:
     normalized = _relative(relative, code, allow_dot=True)
     if normalized == ".":
@@ -234,10 +249,10 @@ def _runtime_environment(
     }
     java_home = environment.get("JAVA_HOME", "")
     if java_home:
-        result["JAVA_HOME"] = str(_existing_directory(java_home, "java_home_invalid"))
+        result["JAVA_HOME"] = str(_runner_directory(java_home, "java_home_invalid"))
     sdk_raw = environment.get("ANDROID_SDK_ROOT") or environment.get("ANDROID_HOME") or ""
     if sdk_raw:
-        sdk = _existing_directory(sdk_raw, "android_sdk_invalid")
+        sdk = _runner_directory(sdk_raw, "android_sdk_invalid")
         result["ANDROID_SDK_ROOT"] = str(sdk)
         result["ANDROID_HOME"] = str(sdk)
     cache = _read_only_cache(environment)
