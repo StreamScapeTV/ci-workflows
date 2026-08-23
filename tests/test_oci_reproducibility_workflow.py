@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,6 +18,7 @@ FIXTURE = ROOT / "tests" / "fixtures" / "oci-reproducibility"
 _spec = importlib.util.spec_from_file_location("ciw_oci_reproducibility", SCRIPT)
 assert _spec is not None and _spec.loader is not None
 repro = importlib.util.module_from_spec(_spec)
+sys.modules[_spec.name] = repro
 _spec.loader.exec_module(repro)
 
 
