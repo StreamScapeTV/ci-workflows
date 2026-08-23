@@ -28,7 +28,7 @@ class PrivateSourceTests(unittest.TestCase):
             return _Response(json.dumps({"sha": expected_sha}).encode("utf-8"))
 
         actual = resolve_private_branch(
-            repository_name="iptv-apple",
+            repository_name="apple-client",
             branch="feature/apple-test",
             token="secret-token",
             opener=opener,
@@ -37,13 +37,13 @@ class PrivateSourceTests(unittest.TestCase):
         self.assertEqual(actual, expected_sha)
         self.assertEqual(
             seen["url"],
-            "https://api.github.com/repos/StreamScapeTV/iptv-apple/commits/feature%2Fapple-test",
+            "https://api.github.com/repos/StreamScapeTV/apple-client/commits/feature%2Fapple-test",
         )
         self.assertEqual(seen["authorization"], "Bearer secret-token")
         self.assertEqual(seen["timeout"], 30)
 
     def test_rejects_repository_outside_fixed_name_shape(self) -> None:
-        for repository in ("StreamScapeTV/iptv-apple", "../iptv-apple", " iptv-apple"):
+        for repository in ("StreamScapeTV/apple-client", "../apple-client", " apple-client"):
             with self.subTest(repository=repository), self.assertRaises(PrivateSourceError) as raised:
                 resolve_private_branch(
                     repository_name=repository,
@@ -56,7 +56,7 @@ class PrivateSourceTests(unittest.TestCase):
         for branch in ("refs/heads/develop", "../develop", "bad branch", "feature//test", "topic.lock"):
             with self.subTest(branch=branch), self.assertRaises(PrivateSourceError) as raised:
                 resolve_private_branch(
-                    repository_name="iptv-apple",
+                    repository_name="apple-client",
                     branch=branch,
                     token="secret-token",
                 )
@@ -65,7 +65,7 @@ class PrivateSourceTests(unittest.TestCase):
     def test_requires_token_before_network_access(self) -> None:
         with self.assertRaises(PrivateSourceError) as raised:
             resolve_private_branch(
-                repository_name="iptv-apple",
+                repository_name="apple-client",
                 branch="develop",
                 token="",
             )
@@ -84,13 +84,13 @@ class PrivateSourceTests(unittest.TestCase):
 
         with self.assertRaises(PrivateSourceError) as raised:
             resolve_private_branch(
-                repository_name="iptv-apple",
+                repository_name="apple-client",
                 branch="develop",
                 token="secret-token",
                 opener=opener,
             )
         self.assertEqual(raised.exception.code, "github_api_http_403")
-        self.assertNotIn("iptv-apple", str(raised.exception))
+        self.assertNotIn("apple-client", str(raised.exception))
         self.assertNotIn("develop", str(raised.exception))
 
     def test_invalid_response_sha_fails_closed(self) -> None:
@@ -100,7 +100,7 @@ class PrivateSourceTests(unittest.TestCase):
 
         with self.assertRaises(PrivateSourceError) as raised:
             resolve_private_branch(
-                repository_name="iptv-apple",
+                repository_name="apple-client",
                 branch="develop",
                 token="secret-token",
                 opener=opener,
