@@ -23,7 +23,7 @@ python3 -m venv "${venv_root}/venv"
 "${venv_root}/venv/bin/python" -m pip --version >/dev/null
 
 node --version | grep -F 'v24.19.0'
-npm --version >/dev/null
+NPM_CONFIG_CACHE="${venv_root}/npm-cache" npm --version >/dev/null
 corepack --version >/dev/null
 
 command -v git bash curl jq yq tar zstd gzip unzip zip helm kustomize kubectl \

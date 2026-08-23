@@ -2,28 +2,8 @@
   "schema_version": 1,
   "organization": "StreamScapeTV",
   "maximum_scanned_bytes": 1048576,
-  "forbidden_paths": [
-    ".env",
-    ".env.*",
-    "**/.env",
-    "**/.env.*",
-    "**/.npmrc",
-    "**/.pypirc",
-    "**/auth.json",
-    "**/credentials.json",
-    "**/kubeconfig",
-    "**/*.pem",
-    "**/*.key",
-    "**/*.p12",
-    "**/*.mobileprovision",
-    "**/*.jks",
-    "**/*.keystore"
-  ],
-  "allowed_forbidden_path_exceptions": [
-    ".env.example",
-    "**/.env.example",
-    "**/.env.sample"
-  ],
+  "forbidden_paths": [".env", ".env.*", "**/.env", "**/.env.*", "**/.npmrc", "**/.pypirc", "**/auth.json", "**/credentials.json", "**/kubeconfig", "**/*.pem", "**/*.key", "**/*.p12", "**/*.mobileprovision", "**/*.jks", "**/*.keystore"],
+  "allowed_forbidden_path_exceptions": [".env.example", "**/.env.example", "**/.env.sample"],
   "token_rules": [
     {"id": "github-classic", "prefixes": ["ghp_", "gho_", "ghu_", "ghs_", "ghr_"], "minimum_length": 28},
     {"id": "github-fine-grained", "prefixes": ["github_pat_"], "minimum_length": 50},
@@ -34,10 +14,7 @@
     {"id": "private-key-pem-escaped", "segments": ["-----BEGIN ", "PRIVATE KEY-----\\n"], "minimum_suffix_length": 12, "allowed_suffix_patterns": ["c3ludGhldGlj"]},
     {"id": "bearer-token", "segments": ["Authorization", ": Bearer "], "minimum_suffix_length": 1, "allowed_suffix_patterns": ["TOKEN", "synthetic-*"]}
   ],
-  "generated_outputs": [
-    "docs/workflows/public-api-reference.md",
-    "docs/architecture/foundation-primitives.md"
-  ],
+  "generated_outputs": ["docs/workflows/public-api-reference.md", "docs/architecture/foundation-primitives.md"],
   "repository_exceptions": [],
   "workflow_admission": {
     "repository_visibility": "public",
@@ -49,6 +26,7 @@
       ".github/workflows/android-validation-smoke.yml": {"trust_class": "owner-pr-smoke", "allowed_events": ["pull_request", "workflow_dispatch"]},
       ".github/workflows/apple-certification-smoke.yml": {"trust_class": "owner-pr-smoke", "allowed_events": ["pull_request"]},
       ".github/workflows/apple-physical-device-lock-smoke.yml": {"trust_class": "trusted-manual", "allowed_events": ["workflow_dispatch"]},
+      ".github/workflows/apple-test.yml": {"trust_class": "trusted-manual", "allowed_events": ["workflow_dispatch"]},
       ".github/workflows/apple-validation-smoke.yml": {"trust_class": "owner-pr-smoke", "allowed_events": ["pull_request"]},
       ".github/workflows/device-lock-contract-smoke.yml": {"trust_class": "owner-pr-smoke", "allowed_events": ["pull_request"]},
       ".github/workflows/device-validation-contract-smoke.yml": {"trust_class": "owner-pr-push-manual", "allowed_events": ["pull_request", "push", "workflow_dispatch"]},
@@ -61,6 +39,7 @@
       ".github/workflows/native-image-chart-call-parse-smoke.yml": {"trust_class": "owner-pr-smoke", "allowed_events": ["pull_request", "workflow_dispatch"]},
       ".github/workflows/oci-build-smoke.yml": {"trust_class": "owner-pr-smoke", "allowed_events": ["pull_request"]},
       ".github/workflows/oci-publish-smoke.yml": {"trust_class": "owner-pr-smoke", "allowed_events": ["pull_request"]},
+      ".github/workflows/r2-diagnostics-smoke.yml": {"trust_class": "trusted-manual", "allowed_events": ["workflow_dispatch"]},
       ".github/workflows/reusable-android-live-service.yml": {"trust_class": "reusable-call", "allowed_events": ["workflow_call"]},
       ".github/workflows/reusable-android-release.yml": {"trust_class": "reusable-call", "allowed_events": ["workflow_call"]},
       ".github/workflows/reusable-android.yml": {"trust_class": "reusable-call", "allowed_events": ["workflow_call"]},
