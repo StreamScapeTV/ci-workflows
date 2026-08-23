@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "provider": "cloudflare-r2",
+  "api": "s3-compatible",
+  "region": "auto",
+  "storage_class": "STANDARD",
+  "object_prefix": "ci-diagnostics",
+  "object_extension": ".log.gz",
+  "max_raw_bytes": 52428800,
+  "max_compressed_bytes": 20971520,
+  "max_objects_per_request": 1,
+  "readback_required": true,
+  "compression": {
+    "format": "gzip",
+    "level": 9,
+    "mtime": 0
+  },
+  "environment": {
+    "account_id": "R2_ACCOUNT_ID",
+    "bucket": "R2_BUCKET",
+    "access_key_id": "R2_ACCESS_KEY_ID",
+    "secret_access_key": "R2_SECRET_ACCESS_KEY"
+  },
+  "runtime_operations": [
+    "put-object",
+    "get-object"
+  ],
+  "forbidden_runtime_operations": [
+    "list-bucket",
+    "create-bucket",
+    "delete-bucket",
+    "public-url",
+    "presigned-url",
+    "lifecycle-mutation"
+  ],
+  "required_remote_lifecycle_max_days": 7
+}
