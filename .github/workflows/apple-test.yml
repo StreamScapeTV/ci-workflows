@@ -84,7 +84,7 @@ jobs:
 
       - id: checkout
         name: Check out the exact private Apple commit
-        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@a1b98b45464dbe00c606a0b9514f73a98cd722b6
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf
         with:
           repository: ${{ format('StreamScapeTV/{0}', secrets.APPLE_TEST_REPOSITORY) }}
           admitted_sha: ${{ steps.resolve.outputs.sha }}
