@@ -78,7 +78,7 @@ The consumer gets exactly one stable generic connection handoff: `CIW_POSTGRES_U
 
 ## Code distribution and runtime authority
 
-Planner and executor invoke `StreamScapeTV/ci-workflows/actions/validate-python` at immutable checkpoint `203aaf1efcf28ff5c99a402301718f22e20ecb58`, recorded in `contracts/action-tool-lock.json` as `issue #473 product-neutral Python checkpoint`.
+Planner and executor invoke `StreamScapeTV/ci-workflows/actions/validate-python` at immutable checkpoint `3d3689fda11b03a188789f03d6d64cab50f1873a`, recorded in `contracts/action-tool-lock.json` as `issue #473 product-neutral Python checkpoint`.
 
 That checkpoint distributes reviewed Central code. Host runtime authority still comes from `host-cpython-3.12` plus the selected runner's pre-provisioned interpreter; container/PostgreSQL authority comes from exact digest-pinned identities in `contracts/python-validation.json`.
 
