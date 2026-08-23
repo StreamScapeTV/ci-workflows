@@ -159,6 +159,12 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
                     "events": ["pull_request"],
                     "runs_on": HOSTED_APPLE,
                 },
+                {
+                    "workflow": ".github/workflows/central-ci-dispatch.yml",
+                    "job": "execute",
+                    "events": ["workflow_dispatch"],
+                    "runs_on": HOSTED_APPLE,
+                },
             ],
         )
 
