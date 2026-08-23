@@ -12,6 +12,8 @@ from ci_workflows.apple_types import AppleProfile, AppleValidationRequest
 ROOT = Path(__file__).resolve().parents[1]
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 APPLE_HELPER_SHA = "c82cd9fba134ff736621b8bbd636594c2a6fe923"
+OWNER_GATE = "github.event.pull_request.user.login == 'mimranfaruqi'"
+REPOSITORY_GATE = "github.event.pull_request.head.repo.full_name == github.repository"
 
 
 class AppleWorkflowContractTests(unittest.TestCase):
@@ -88,34 +90,30 @@ class AppleWorkflowContractTests(unittest.TestCase):
         self.assertIn("private_dependency_token:", self.workflow)
         self.assertNotIn("secrets: inherit", self.workflow)
 
-    def test_semantic_runner_selection_uses_one_heavy_apple_executor(self) -> None:
+    def test_reusable_semantic_selection_and_hosted_self_ci_are_separated(self) -> None:
         direct_general_selector = "runs-on: [linux, amd64, general, small]"
+        dynamic_apple_selector = "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}"
         hosted_control_selector = "runs-on: [ubuntu-latest]"
-        private_executor_gate = "if: ${{ github.event.repository.private && needs.plan.result == 'success' }}"
+        hosted_apple_selector = "runs-on: [macos-latest]"
         self.assertIn(direct_general_selector, self.workflow)
         self.assertNotIn(direct_general_selector, self.smoke)
         self.assertEqual(self.smoke.count(hosted_control_selector), 2)
+        self.assertEqual(self.smoke.count(hosted_apple_selector), 1)
         self.assertNotIn("runs-on: ubuntu-latest", self.smoke)
-        self.assertEqual(
-            self.workflow.count(
-                "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}"
-            ),
-            1,
-        )
-        self.assertEqual(
-            self.smoke.count(
-                "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}"
-            ),
-            1,
-        )
-        self.assertEqual(self.smoke.count(private_executor_gate), 1)
+        self.assertEqual(self.workflow.count(dynamic_apple_selector), 1)
+        self.assertNotIn(dynamic_apple_selector, self.smoke)
+        self.assertIn('["macOS","ARM64"]', self.smoke)
+        self.assertGreaterEqual(self.smoke.count(OWNER_GATE), 3)
+        self.assertGreaterEqual(self.smoke.count(REPOSITORY_GATE), 3)
+        self.assertNotIn("github.event.repository.private", self.smoke)
         self.assertIn('APPLE_RESULT: ${{ needs.apple.result }}', self.smoke)
-        self.assertIn('test "${APPLE_RESULT}" = skipped', self.smoke)
+        self.assertIn('test "${APPLE_RESULT}" = success', self.smoke)
         self.assertNotIn("runs-on: [linux, amd64, general]", self.workflow + self.smoke)
         self.assertNotIn("runs-on: portable", self.workflow + self.smoke)
         self.assertNotIn("runs-on: macOS", self.workflow + self.smoke)
         self.assertNotIn("runs-on: self-hosted", self.workflow + self.smoke)
-        self.assertNotIn("macos-latest", self.workflow + self.smoke)
+        self.assertNotIn("macos-latest", self.workflow)
+        self.assertIn("macos-latest", self.smoke)
         self.assertNotIn("ubuntu-latest", self.workflow)
         self.assertEqual(self.contract["planner_runner_profile"], "portable")
         self.assertEqual(self.contract["execution_runner_profile"], "apple")
@@ -149,7 +147,9 @@ class AppleWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("github.event.pull_request.head.sha", concurrency)
         self.assertIn("cancel-in-progress: true", concurrency)
         zero_artifacts = self.smoke.split("  zero_artifacts:", 1)[1]
-        self.assertIn("if: ${{ always() && !cancelled() }}", zero_artifacts)
+        self.assertIn(OWNER_GATE, zero_artifacts)
+        self.assertIn(REPOSITORY_GATE, zero_artifacts)
+        self.assertIn("always() && !cancelled()", zero_artifacts)
 
     def test_smoke_runs_when_apple_public_registration_changes(self) -> None:
         for path in (

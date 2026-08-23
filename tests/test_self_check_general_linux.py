@@ -41,6 +41,7 @@ def run_admission(
     *,
     fork: bool = False,
     mismatch: bool = False,
+    author: str = "mimranfaruqi",
 ) -> subprocess.CompletedProcess[str]:
     sha = "a" * 40
     environment = {
@@ -49,6 +50,7 @@ def run_admission(
         "GITHUB_REPOSITORY": "StreamScapeTV/ci-workflows",
         "GITHUB_SHA": "b" * 40 if mismatch else sha,
         "SOURCE_SHA": sha,
+        "PR_AUTHOR": author,
         "PR_HEAD_REPOSITORY": (
             "external/fork" if fork else "StreamScapeTV/ci-workflows"
         ),
@@ -96,7 +98,11 @@ class GeneralLinuxSelfCheckTest(unittest.TestCase):
         )
         self.assertEqual(0, run_admission("pull_request").returncode)
 
-    def test_fork_pr_and_mismatched_pr_head_are_rejected(self) -> None:
+    def test_non_owner_fork_and_mismatched_pr_head_are_rejected(self) -> None:
+        non_owner = run_admission("pull_request", author="external-user")
+        self.assertNotEqual(0, non_owner.returncode)
+        self.assertIn("exact repository owner", non_owner.stderr)
+
         fork = run_admission("pull_request", fork=True)
         self.assertNotEqual(0, fork.returncode)
         self.assertIn("rejects fork pull-request source", fork.stderr)

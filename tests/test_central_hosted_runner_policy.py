@@ -15,6 +15,8 @@ HOSTED_APPLE = ["macos-latest"]
 APPLE_PILOT = WORKFLOWS / "apple-test.yml"
 BACKEND_CONTRACT = ROOT / "contracts" / "runner-execution-backends.json"
 SELF_PREFIX = "StreamScapeTV/ci-workflows/.github/workflows/"
+OWNER_GATE = "github.event.pull_request.user.login == 'mimranfaruqi'"
+REPOSITORY_GATE = "github.event.pull_request.head.repo.full_name == github.repository"
 
 
 def _events(workflow: dict) -> set[str]:
@@ -53,10 +55,17 @@ def _self_reusable(uses: object) -> Path | None:
     return path if path.is_file() else None
 
 
+def _backend_contract() -> dict:
+    return json.loads(BACKEND_CONTRACT.read_text(encoding="utf-8"))
+
+
 def _expected_hosted_selector(path: Path, job_name: str) -> list[str]:
-    if path == APPLE_PILOT and job_name == "apple_test":
-        return HOSTED_APPLE
-    return HOSTED_LINUX
+    relative = str(path.relative_to(ROOT))
+    contract = _backend_contract()
+    for exception in contract["github-hosted"].get("repository_local_exceptions", []):
+        if exception["workflow"] == relative and exception["job"] == job_name:
+            return list(exception["runs_on"])
+    return list(contract["github-hosted"]["runs_on"])
 
 
 class CentralHostedRunnerPolicyTests(unittest.TestCase):
@@ -93,14 +102,35 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
             + "\n".join(failures),
         )
 
-    def test_manual_apple_pilot_is_the_only_named_macos_exception(self) -> None:
+    def test_pull_request_jobs_reject_before_runner_allocation_unless_publicly_disabled(self) -> None:
+        failures: list[str] = []
+        for path in sorted(WORKFLOWS.glob("*.y*ml")):
+            workflow = yaml.load(path.read_text(encoding="utf-8"), Loader=ActionsLoader)
+            if "pull_request" not in _events(workflow):
+                continue
+            for job_name, job in workflow.get("jobs", {}).items():
+                if _cannot_run_in_public_central(job):
+                    continue
+                condition = " ".join(str(job.get("if", "")).split())
+                if OWNER_GATE not in condition or REPOSITORY_GATE not in condition:
+                    failures.append(
+                        f"{path.relative_to(ROOT)}:{job_name} lacks exact owner/same-repository admission"
+                    )
+        self.assertEqual(
+            failures,
+            [],
+            "Public Central pull_request jobs must reject before runner allocation:\n"
+            + "\n".join(failures),
+        )
+
+    def test_reviewed_macos_exceptions_are_bounded_and_contract_owned(self) -> None:
         workflow = yaml.load(APPLE_PILOT.read_text(encoding="utf-8"), Loader=ActionsLoader)
         self.assertEqual(_events(workflow), {"workflow_dispatch"})
         self.assertEqual(set(workflow["jobs"]), {"apple_test"})
         self.assertEqual(workflow["jobs"]["apple_test"]["runs-on"], HOSTED_APPLE)
         self.assertNotIn("workflow_call", workflow["on"])
 
-        contract = json.loads(BACKEND_CONTRACT.read_text(encoding="utf-8"))
+        contract = _backend_contract()
         self.assertEqual(contract["github-hosted"]["runs_on"], HOSTED_LINUX)
         self.assertEqual(
             contract["github-hosted"]["repository_local_exceptions"],
@@ -110,7 +140,25 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
                     "job": "apple_test",
                     "events": ["workflow_dispatch"],
                     "runs_on": HOSTED_APPLE,
-                }
+                },
+                {
+                    "workflow": ".github/workflows/apple-validation-smoke.yml",
+                    "job": "apple",
+                    "events": ["pull_request"],
+                    "runs_on": HOSTED_APPLE,
+                },
+                {
+                    "workflow": ".github/workflows/apple-certification-smoke.yml",
+                    "job": "release",
+                    "events": ["pull_request"],
+                    "runs_on": HOSTED_APPLE,
+                },
+                {
+                    "workflow": ".github/workflows/flutter-apple-validation-smoke.yml",
+                    "job": "ios",
+                    "events": ["pull_request"],
+                    "runs_on": HOSTED_APPLE,
+                },
             ],
         )
 
