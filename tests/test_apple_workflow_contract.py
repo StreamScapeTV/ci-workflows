@@ -90,25 +90,19 @@ class AppleWorkflowContractTests(unittest.TestCase):
         self.assertIn("private_dependency_token:", self.workflow)
         self.assertNotIn("secrets: inherit", self.workflow)
 
-    def test_semantic_runner_selection_uses_one_heavy_apple_executor(self) -> None:
+    def test_reusable_semantic_selection_and_hosted_self_ci_are_separated(self) -> None:
         direct_general_selector = "runs-on: [linux, amd64, general, small]"
+        dynamic_apple_selector = "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}"
         hosted_control_selector = "runs-on: [ubuntu-latest]"
+        hosted_apple_selector = "runs-on: [macos-latest]"
         self.assertIn(direct_general_selector, self.workflow)
         self.assertNotIn(direct_general_selector, self.smoke)
         self.assertEqual(self.smoke.count(hosted_control_selector), 2)
+        self.assertEqual(self.smoke.count(hosted_apple_selector), 1)
         self.assertNotIn("runs-on: ubuntu-latest", self.smoke)
-        self.assertEqual(
-            self.workflow.count(
-                "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}"
-            ),
-            1,
-        )
-        self.assertEqual(
-            self.smoke.count(
-                "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}"
-            ),
-            1,
-        )
+        self.assertEqual(self.workflow.count(dynamic_apple_selector), 1)
+        self.assertNotIn(dynamic_apple_selector, self.smoke)
+        self.assertIn('["macOS","ARM64"]', self.smoke)
         self.assertGreaterEqual(self.smoke.count(OWNER_GATE), 3)
         self.assertGreaterEqual(self.smoke.count(REPOSITORY_GATE), 3)
         self.assertNotIn("github.event.repository.private", self.smoke)
@@ -118,7 +112,8 @@ class AppleWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("runs-on: portable", self.workflow + self.smoke)
         self.assertNotIn("runs-on: macOS", self.workflow + self.smoke)
         self.assertNotIn("runs-on: self-hosted", self.workflow + self.smoke)
-        self.assertNotIn("macos-latest", self.workflow + self.smoke)
+        self.assertNotIn("macos-latest", self.workflow)
+        self.assertIn("macos-latest", self.smoke)
         self.assertNotIn("ubuntu-latest", self.workflow)
         self.assertEqual(self.contract["planner_runner_profile"], "portable")
         self.assertEqual(self.contract["execution_runner_profile"], "apple")
