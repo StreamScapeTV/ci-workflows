@@ -1,9 +1,9 @@
 """Event-driven Central CI broker with opaque public dispatch inputs.
 
-The broker is deployed outside GitHub Actions.  It owns no durable state: Agent
-State records CI lifecycle, GitHub owns execution, and R2 owns short-lived raw
-diagnostics.  Public Actions runs receive only an opaque dispatch id and an
-authenticated opaque envelope.
+The broker is deployed outside GitHub Actions. It owns no durable operational
+history: Agent State records CI lifecycle, GitHub owns execution, and R2 owns
+short-lived raw diagnostics. Public Actions runs receive only an opaque dispatch
+id and an authenticated opaque envelope.
 """
 from __future__ import annotations
 
@@ -30,7 +30,6 @@ from pathlib import PurePosixPath
 from typing import Any, Mapping
 
 from .r2_diagnostics import (
-    MAX_COMPRESSED_BYTES,
     R2DiagnosticError,
     download_private_diagnostic,
 )
@@ -45,7 +44,7 @@ OIDC_AUDIENCE = "streamscape-ci-broker"
 PRIVATE_CONFIG_PATH = ".github/central-ci.json"
 MAX_BODY_BYTES = 256 * 1024
 MAX_CONFIG_BYTES = 64 * 1024
-TOKEN_TTL_SECONDS = 15 * 60
+TOKEN_TTL_SECONDS = 6 * 60 * 60
 _HTTP_TIMEOUT_SECONDS = 30
 _SHA = re.compile(r"[0-9a-f]{40}")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -223,7 +222,15 @@ class BrokerConfig:
 
         url = required("AGENT_STATE_SUPABASE_URL").rstrip("/")
         parsed = urllib.parse.urlsplit(url)
-        _require(parsed.scheme == "https" and bool(parsed.netloc) and not parsed.query, "invalid_agent_state_url", 500)
+        _require(
+            parsed.scheme == "https"
+            and bool(parsed.netloc)
+            and parsed.path in ("", "/")
+            and not parsed.query
+            and not parsed.fragment,
+            "invalid_agent_state_url",
+            500,
+        )
         port_text = env.get("CI_BROKER_PORT", "8080")
         _require(port_text.isdigit() and 1 <= int(port_text) <= 65535, "invalid_ci_broker_port", 500)
         return cls(
@@ -244,12 +251,7 @@ class BrokerConfig:
 
 
 class OpaqueEnvelope:
-    """Authenticated opaque envelope using HMAC-SHA256-derived stream and MAC keys.
-
-    This transport is intentionally small and dependency-free.  Confidentiality is
-    supplied by an HMAC PRF keystream with a random nonce; integrity is a separate
-    HMAC over version, nonce, ciphertext and dispatch id.  Keys are domain-separated.
-    """
+    """Authenticated opaque envelope using separated HMAC-SHA256 keys."""
 
     def __init__(self, secret: str) -> None:
         _require(bool(secret), "dispatch_secret_required", 500)
@@ -305,7 +307,11 @@ class OpaqueEnvelope:
         payload = _json_object(plain, "invalid_dispatch_token")
         current = int(time.time()) if now is None else now
         exp = payload.get("exp")
-        _require(isinstance(exp, int) and current <= exp <= current + TOKEN_TTL_SECONDS + 60, "dispatch_token_expired", 403)
+        _require(
+            isinstance(exp, int) and current <= exp <= current + TOKEN_TTL_SECONDS + 60,
+            "dispatch_token_expired",
+            403,
+        )
         dedupe = payload.get("dedupe")
         _require(isinstance(dedupe, dict), "invalid_dispatch_token")
         _require(hmac.compare_digest(self.dispatch_id(dedupe), dispatch_id), "invalid_dispatch_id", 403)
@@ -344,7 +350,7 @@ class AgentStateClient:
     def transition(self, ci_run_id: str, transition: Mapping[str, object]) -> dict[str, Any]:
         return self._rpc(
             "transition_ci_run",
-            {"p_ci_run_id": _uuid(ci_run_id), "p_transition": dict(transition)},
+            {"p_ci_run_id": _uuid(ci_run_id), "p_patch": dict(transition)},
         )
 
     def get(self, project_key: str, ci_run_id: str) -> dict[str, Any]:
@@ -487,17 +493,22 @@ class GitHubAppClient:
     ) -> dict[str, Any] | None:
         repository = _safe_repository(repository)
         workflow_path = urllib.parse.quote(workflow, safe="")
-        query = urllib.parse.urlencode({"return_run_details": "true"})
         status, value = self._request(
             "POST",
-            f"/repos/{repository}/actions/workflows/{workflow_path}/dispatches?{query}",
+            f"/repos/{repository}/actions/workflows/{workflow_path}/dispatches",
             token=token,
-            body={"ref": ref, "inputs": dict(inputs)},
-            expected=(200, 201, 204),
+            body={"ref": ref, "inputs": dict(inputs), "return_run_details": True},
+            expected=(200, 204),
         )
         if status == 204 or value is None:
             return None
-        _require(isinstance(value, dict), "github_dispatch_invalid", 502)
+        _require(
+            isinstance(value, dict)
+            and isinstance(value.get("workflow_run_id"), int)
+            and value["workflow_run_id"] > 0,
+            "github_dispatch_invalid",
+            502,
+        )
         return value
 
 
@@ -755,7 +766,10 @@ class CiBroker:
 
     def _fail_claimed(self, ci_run_id: str, code: str) -> None:
         try:
-            self.agent_state.transition(ci_run_id, {"status": "failed", "error_summary": code[:128]})
+            self.agent_state.transition(
+                ci_run_id,
+                {"status": "cancelled", "error_summary": code[:128]},
+            )
         except BrokerError:
             pass
 
@@ -778,7 +792,10 @@ class CiBroker:
         claim = self.agent_state.claim(ci_run_id)
         run = self._run_from_result(claim)
         if claim.get("replayed") is True:
-            return {"ok": True, "replayed": True}
+            status = run.get("status")
+            external_run_id = run.get("external_run_id")
+            if status != "accepted" or external_run_id is not None:
+                return {"ok": True, "replayed": True}
         try:
             project_key = _safe_project(run.get("project_key"))
             repository = _safe_repository(run.get("repository"))
@@ -810,22 +827,17 @@ class CiBroker:
             )
             details = self._dispatch_central(dispatch_id, token)
             if details is not None:
-                run_id = details.get("id") or details.get("run_id")
+                run_id = details.get("workflow_run_id")
                 if isinstance(run_id, int) and run_id > 0:
-                    workflow_id = details.get("workflow_id")
-                    if not isinstance(workflow_id, int):
-                        workflow_id = self._central_workflow_id()
-                    attempt = details.get("run_attempt", 1)
-                    if not isinstance(attempt, int) or attempt < 1:
-                        attempt = 1
                     self.agent_state.transition(
                         ci_run_id,
                         {
                             "status": "queued",
                             "resolved_source_sha": source_sha,
-                            "external_workflow_id": workflow_id,
+                            "external_repository": CENTRAL_REPOSITORY,
+                            "external_workflow_id": self._central_workflow_id(),
                             "external_run_id": run_id,
-                            "external_run_attempt": attempt,
+                            "external_run_attempt": 1,
                             "external_run_url": f"https://github.com/{CENTRAL_REPOSITORY}/actions/runs/{run_id}",
                         },
                     )
@@ -975,6 +987,7 @@ class CiBroker:
                 {
                     "status": "running",
                     "resolved_source_sha": source_sha,
+                    "external_repository": CENTRAL_REPOSITORY,
                     "external_workflow_id": workflow_id,
                     "external_run_id": run_id,
                     "external_run_attempt": run_attempt,
@@ -987,6 +1000,7 @@ class CiBroker:
                 {
                     "project_key": project_key,
                     "repository": repository,
+                    "external_repository": CENTRAL_REPOSITORY,
                     "ref": ref,
                     "workflow_key": profile.workflow_key,
                     "test_profile": profile.name,
@@ -1025,6 +1039,7 @@ class CiBroker:
         state = self.agent_state.get(project_key, ci_run_id)
         run = self._run_from_result(state)
         _require(run.get("external_run_id") == run_id, "run_identity_mismatch", 409)
+        _require(run.get("external_repository") == CENTRAL_REPOSITORY, "run_identity_mismatch", 409)
         status = request.get("status")
         _require(status in _TERMINAL, "invalid_terminal_status")
         transition: dict[str, object] = {"status": status}
@@ -1108,11 +1123,7 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send_json(200, {"ok": True})
                 return
             parts = parsed.path.split("/")
-            if len(parts) == 5 and parts[1] == "diagnostics":
-                raw = self.broker.diagnostic(parts[2], parts[3] if parts[4] == "" else parts[3])
-                # Compatibility with a trailing slash is deliberately not supported.
-                raise BrokerError("not_found", 404)
-            if len(parts) == 4 and parts[1] == "diagnostics":
+            if len(parts) == 4 and parts[1] == "diagnostics" and all(parts[2:]):
                 raw = self.broker.diagnostic(parts[2], parts[3])
                 self.send_response(200)
                 self.send_header("Content-Type", "text/plain; charset=utf-8")
@@ -1233,6 +1244,7 @@ __all__ = (
     "OpaqueEnvelope",
     "ProductConfig",
     "ProductProfile",
+    "TOKEN_TTL_SECONDS",
     "self_check",
     "serve",
 )
