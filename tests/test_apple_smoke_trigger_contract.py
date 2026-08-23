@@ -29,9 +29,8 @@ EXECUTOR_RESULT = {
 }
 APPLE_EXECUTOR_SELECTOR = "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}"
 HOSTED_CONTROL_SELECTOR = "runs-on: [ubuntu-latest]"
-PRIVATE_EXECUTOR_GATE = (
-    "if: ${{ github.event.repository.private && needs.plan.result == 'success' }}"
-)
+OWNER_GATE = "github.event.pull_request.user.login == 'mimranfaruqi'"
+REPOSITORY_GATE = "github.event.pull_request.head.repo.full_name == github.repository"
 
 
 def pull_request_paths(source: str) -> set[str]:
@@ -68,7 +67,7 @@ class AppleSmokeTriggerContractTests(unittest.TestCase):
                 self.assertIn(EXPECTED_CONCURRENCY[name], source)
                 self.assertIn("cancel-in-progress: true", source)
 
-    def test_public_repository_control_jobs_are_hosted_and_private_executors_are_gated(self) -> None:
+    def test_public_repository_apple_runners_require_exact_owner_same_repo_pr(self) -> None:
         for name, path in WORKFLOWS.items():
             with self.subTest(workflow=name):
                 source = path.read_text(encoding="utf-8")
@@ -76,10 +75,12 @@ class AppleSmokeTriggerContractTests(unittest.TestCase):
                 self.assertNotIn("runs-on: [linux, amd64, general, small]", source)
                 self.assertNotIn("runs-on: ubuntu-latest", source)
                 self.assertEqual(source.count(APPLE_EXECUTOR_SELECTOR), 1)
-                self.assertEqual(source.count(PRIVATE_EXECUTOR_GATE), 1)
-                self.assertIn("REPOSITORY_PRIVATE: ${{ github.event.repository.private }}", source)
+                self.assertGreaterEqual(source.count(OWNER_GATE), 3)
+                self.assertGreaterEqual(source.count(REPOSITORY_GATE), 3)
+                self.assertNotIn("github.event.repository.private", source)
+                self.assertNotIn("REPOSITORY_PRIVATE", source)
                 self.assertIn(
-                    f'false) test "${{{EXECUTOR_RESULT[name]}}}" = skipped ;;',
+                    f'test "${{{EXECUTOR_RESULT[name]}}}" = success',
                     source,
                 )
                 self.assertIn('["macOS","ARM64"]', source)
