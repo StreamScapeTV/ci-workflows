@@ -46,37 +46,31 @@ calls remain supported during migration.
 ## Compile and test destinations
 
 Compile-only iOS and tvOS stages use generic simulator-platform destinations.
-They do not select, create, boot, or claim a concrete simulator. macOS compile
-stages use the unsigned macOS destination. Each platform is still an independent
-SDK build; shared state does not imply that one platform binary satisfies
-another platform.
+They do not select, create, boot, claim, inspect, reclaim, shut down, or delete a
+concrete simulator. macOS compile stages use the unsigned macOS destination.
+Each platform is still an independent SDK build; shared state does not imply that
+one platform binary satisfies another platform.
 
-A test stage may acquire only the contract-owned iOS or tvOS simulator matching
-its platform. The host-user ownership registry, exact runtime/device-type checks,
-stale-row reconciliation, exclusive ownership lock, redacted simulator identity,
-and no-follow cleanup remain authoritative. Test stages run sequentially; a
-created simulator is reclaimed before a later simulator stage can acquire its
-device.
+Protected-full is the routine simulator-free gate. iOS/tvOS `operation: test`
+is rejected by the public plan guard before Apple runner allocation. macOS
+host-capable XCTest remains supported. Compile-only protected-full execution,
+cleanup, and residue checking do not enter CoreSimulator ownership or inventory.
+Generic `platform=iOS Simulator` / `platform=tvOS Simulator` destination text is
+an SDK build destination and does not mean a simulator device was booted.
 
-CoreSimulator may materialize an `– External Display` companion beside a CIW-owned
-primary simulator. That companion is cleanup-eligible only when its name is the
-exact persisted CIW primary name plus the exact External Display suffix, it is in
-the same runtime, and it has a bounded valid simulator identity. The persisted
-primary ownership row remains the authority: unrelated display simulators are
-never selected by suffix alone, ambiguous duplicate companions fail closed, and
-the row is removed only after inventory readback proves both the primary and its
-exact companion are absent. This also allows a later preflight to recover a
-companion left behind by hard cancellation.
-
-Terminal cleanup rechecks all planned simulator families and fails if CIW-owned
-primary or exact companion residue remains.
+The lower-level reviewed simulator primitives remain available for separately
+reviewed explicit runtime/smoke APIs. Those primitives retain deterministic
+runtime/device-type selection, exclusive ownership, stale-row reconciliation,
+redacted simulator identity, exact CIW-owned companion handling, and no-follow
+cleanup. They are not part of routine protected-full execution.
 
 ## Caller-owned plan safety
 
 The public protected-full plan is bounded to eight stages and 32 KiB. Structural
 keys are exact; unknown or duplicate stage identities fail closed. Paths must be
 relative, non-traversing paths under the admitted source. Test selectors are
-bounded and accepted only for `test` operations.
+bounded and accepted only for operations that permit test selection; routine
+protected-full iOS/tvOS runtime tests are rejected before execution.
 
 `xcodebuild_arguments` is not an arbitrary Xcode command channel. The public
 boundary accepts only `-quiet`, `-showBuildTimingSummary`, or reviewed boolean
@@ -130,9 +124,10 @@ product ID, product command, or branch/path/concurrency policy.
 ## Exact toolchain and signing boundary
 
 Apple execution verifies the reviewed Xcode version/build, Swift version,
-required iOS/tvOS/macOS SDK versions, and simulator runtime/device type where a
-concrete simulator is required. `DEVELOPER_DIR` and other caller-selected Xcode
-path controls are removed from the execution environment.
+required iOS/tvOS/macOS SDK versions, and simulator runtime/device type only when
+a separately reviewed runtime path actually requires a concrete simulator.
+`DEVELOPER_DIR` and other caller-selected Xcode path controls are removed from
+the execution environment.
 
 Every Xcode command is centrally constructed with an isolated DerivedData path,
 isolated cloned Swift package path, stage-local result bundle, bounded
@@ -147,15 +142,16 @@ imports a keychain, reaches Kubernetes, or deploys a product.
 
 ## Immutable helper reuse
 
-The reusable workflow invokes `actions/validate-apple` through the reviewed issue
-#311 checkpoint `c82cd9fba134ff736621b8bbd636594c2a6fe923`.
+The reusable workflow invokes `actions/validate-apple` through the integrated
+issue #496 simulator-free protected-full helper checkpoint
+`2ea47520b9d84b9b0a71c23de3da03f02a5bea9c`.
 The corresponding action-lock release label is
-`issue #311 External Display companion cleanup checkpoint`.
-That checkpoint is based on the protected `main` containing completed #421, so it
-preserves the Git-index-aware protected Xcode container snapshot and bounded #372
-failure diagnostics while adding exact CIW-owned CoreSimulator companion cleanup.
-It preserves the existing planner/executor, public plan filesystem guard,
-cleanup/residue, source-exactness, and simulator ownership boundaries.
+`issue #496 simulator-free protected-full helper activation`.
+That checkpoint preserves the Git-index-aware protected Xcode container snapshot,
+bounded diagnostics, signing lockdown, source exactness, and lower-level explicit
+runtime simulator primitives while ensuring routine protected-full iOS/tvOS
+compile stages never enter simulator ownership during execution, cleanup, or
+residue verification.
 
 Exact source checkout, workspace preparation, optional private dependency
 checkout, evidence rendering, and registered-state cleanup continue to use their
@@ -194,10 +190,11 @@ Routine Apple validation uploads no GitHub Actions artifact and uses no GitHub
 Actions cache. Structured summaries and evidence stay bounded/redacted.
 
 Apple-specific state is marker-bound and removed with lexical, `lstat`-based
-no-follow cleanup. The workflow separately removes the exact source checkout and
-then calls the registered workspace cleanup action. Cleanup/residue failure,
-source mutation, simulator companion residue, or workspace-cleanup failure makes
-the terminal Apple result fail.
+no-follow cleanup. Routine protected-full cleanup never enters CoreSimulator
+ownership/inventory. The workflow separately removes the exact source checkout
+and then calls the registered workspace cleanup action. Cleanup/residue failure,
+source mutation, or workspace-cleanup failure makes the terminal Apple result
+fail. Explicit runtime/smoke APIs retain their own simulator residue guarantees.
 
 ## Repository-local smoke workflow
 
