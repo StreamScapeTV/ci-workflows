@@ -3,6 +3,7 @@ name: OCI reproducibility validation
 on:
   workflow_dispatch:
   push:
+    # Keep the real two-clean-build proof attached to every #471 implementation/contract surface.
     paths:
       - .github/workflows/reusable-oci-reproducibility.yml
       - .github/workflows/oci-reproducibility-validation.yml
