@@ -1,0 +1,167 @@
+name: CI broker image release
+
+on:
+  push:
+    tags:
+      - 'ci-broker-*'
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ci-broker-image-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build smoke publish and read back broker image
+    runs-on: [ubuntu-latest]
+    timeout-minutes: 30
+    steps:
+      - name: Check out exact tagged Central source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Admit exact broker release tag and source
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          [[ "${RELEASE_TAG}" =~ ^ci-broker-(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+          test "${GITHUB_REF}" = "refs/tags/${RELEASE_TAG}"
+
+      - name: Require standard GitHub-hosted Buildah capacity
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "${RUNNER_ENVIRONMENT:-}" = "github-hosted"
+          test "${RUNNER_OS:-}" = "Linux"
+          command -v buildah >/dev/null
+          command -v skopeo >/dev/null
+
+      - name: Prepare isolated registry authentication state
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          authfile="${RUNNER_TEMP}/ci-broker-registry-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+          anon_authfile="${RUNNER_TEMP}/ci-broker-anon-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+          test ! -e "${authfile}"
+          test ! -e "${anon_authfile}"
+          umask 077
+          printf '{}\n' > "${authfile}"
+          printf '{}\n' > "${anon_authfile}"
+          chmod 0600 "${authfile}" "${anon_authfile}"
+
+      - name: Build exact broker image once
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          authfile="${RUNNER_TEMP}/ci-broker-registry-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+          local_ref="localhost/ci-broker:${SOURCE_SHA}"
+          buildah bud \
+            --authfile "${authfile}" \
+            --layers=false \
+            --isolation chroot \
+            --label 'dev.streamscape.product=ci-broker' \
+            --label 'org.opencontainers.image.source=https://github.com/StreamScapeTV/ci-workflows' \
+            --label "org.opencontainers.image.revision=${SOURCE_SHA}" \
+            --label "org.opencontainers.image.version=${RELEASE_TAG}" \
+            --label 'org.opencontainers.image.title=StreamScape CI broker' \
+            --label 'org.opencontainers.image.description=Event-driven Central CI webhook broker' \
+            --label 'org.opencontainers.image.licenses=MIT' \
+            --tag "${local_ref}" \
+            --file broker/Containerfile \
+            .
+
+      - name: Smoke exact local broker image
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          local_ref="localhost/ci-broker:${SOURCE_SHA}"
+          container="ci-broker-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          buildah from --name "${container}" "${local_ref}" >/dev/null
+          buildah run "${container}" -- python3 /opt/ci-broker/scripts/ci/ci_broker.py self-check
+          buildah rm "${container}" >/dev/null
+
+      - name: Authenticate to fixed public GHCR destination
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${GHCR_TOKEN}"
+          authfile="${RUNNER_TEMP}/ci-broker-registry-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+          printf '%s' "${GHCR_TOKEN}" | buildah login \
+            --authfile "${authfile}" \
+            --username "${GITHUB_ACTOR}" \
+            --password-stdin ghcr.io >/dev/null
+
+      - id: publish
+        name: Publish exact immutable release tag and read back digest
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          authfile="${RUNNER_TEMP}/ci-broker-registry-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+          anon_authfile="${RUNNER_TEMP}/ci-broker-anon-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+          local_ref="localhost/ci-broker:${SOURCE_SHA}"
+          remote_ref="ghcr.io/streamscapetv/ci-broker:${RELEASE_TAG}"
+
+          if existing="$(skopeo inspect --authfile "${authfile}" "docker://${remote_ref}" 2>/dev/null)"; then
+            existing_revision="$(printf '%s' "${existing}" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("Labels") or {}).get("org.opencontainers.image.revision", ""))')"
+            test "${existing_revision}" = "${SOURCE_SHA}"
+          fi
+
+          buildah push --authfile "${authfile}" "${local_ref}" "docker://${remote_ref}"
+          authenticated="$(skopeo inspect --authfile "${authfile}" "docker://${remote_ref}")"
+          digest="$(printf '%s' "${authenticated}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["Digest"])')"
+          revision="$(printf '%s' "${authenticated}" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("Labels") or {}).get("org.opencontainers.image.revision", ""))')"
+          version="$(printf '%s' "${authenticated}" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("Labels") or {}).get("org.opencontainers.image.version", ""))')"
+          [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          test "${revision}" = "${SOURCE_SHA}"
+          test "${version}" = "${RELEASE_TAG}"
+
+          buildah logout --authfile "${authfile}" ghcr.io >/dev/null
+          anonymous="$(skopeo inspect --authfile "${anon_authfile}" "docker://${remote_ref}")"
+          test "$(printf '%s' "${anonymous}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["Digest"])')" = "${digest}"
+          printf 'image_digest=%s\n' "${digest}" >> "${GITHUB_OUTPUT}"
+          printf 'image_reference=%s@%s\n' "${remote_ref%%:*}" "${digest}" >> "${GITHUB_OUTPUT}"
+          echo "Broker image published and independently read back."
+
+      - name: Remove broker image and registry residue
+        if: always()
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set +e
+          failed=0
+          authfile="${RUNNER_TEMP}/ci-broker-registry-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+          anon_authfile="${RUNNER_TEMP}/ci-broker-anon-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+          container="ci-broker-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          local_ref="localhost/ci-broker:${SOURCE_SHA}"
+          buildah rm "${container}" >/dev/null 2>&1 || true
+          buildah logout --authfile "${authfile}" ghcr.io >/dev/null 2>&1 || true
+          buildah rmi "${local_ref}" >/dev/null 2>&1 || true
+          rm -f -- "${authfile}" "${anon_authfile}" || failed=1
+          test ! -e "${authfile}" || failed=1
+          test ! -e "${anon_authfile}" || failed=1
+          test -z "$(git status --porcelain=v1 --untracked-files=all)" || failed=1
+          exit "${failed}"
