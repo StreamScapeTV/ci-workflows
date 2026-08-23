@@ -23,7 +23,7 @@ concurrency:
 jobs:
   execute:
     name: Execute broker-admitted Central validation
-    runs-on: macos-latest
+    runs-on: [macos-latest]
     timeout-minutes: 120
     steps:
       - name: Check out exact Central source
