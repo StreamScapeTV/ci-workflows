@@ -1,92 +1,103 @@
 # Python validation workflow
 
-Public API: `validation.python` `1.0.0`  
+Public API: `validation.python` `2.0.0`  
 Workflow: `.github/workflows/reusable-python.yml`  
 Stable check: `CI / Python validation`
 
-The reusable Python workflow validates one exact source SHA through a checked-in command profile. It does not accept arbitrary shell, callback, runner label, container-engine, image, storage-driver, database, registry, secret-name, publication, deployment, Helm, Flux, or cluster inputs.
+`validation.python` is a product-neutral Python validation capability. Central owns exact source handling, bounded Python/runtime setup, optional dependency restoration, optional isolated PostgreSQL lifecycle, semantic runner/backend resolution, clean-tree enforcement, zero routine artifacts, and terminal cleanup. The consumer owns its validation intent in one checked-in executable repository-relative script.
+
+Central does **not** register repositories, products, command profiles, test lists, application environment, or release-gate argv. Callers cannot provide arbitrary inline shell, command arrays, environment maps, runner labels, container engines, secret names, database URLs, or runtime images.
 
 ## Execution backend
 
-`execution_backend` is optional and defaults to `organization`, preserving the existing semantic runner resolution exactly. `github-hosted` is a bounded scheduling opt-in owned by Central; callers do not provide `ubuntu-latest` or any other concrete runner label.
+`execution_backend` is optional and defaults to `organization`. `github-hosted` is a bounded scheduling opt-in owned by Central; callers never provide a concrete hosted runner label.
 
-The `audit` and `host` validation profiles both resolve to the existing `general-small` execution profile, so they may run their substantial validation job on the fixed standard `ubuntu-latest` hosted runner. Their source trust, commands, Python runtime contract, dependency restore, workspace isolation, cleanup, and outputs remain unchanged.
+`audit` and `host` use semantic `portable` capacity and may use the fixed hosted Linux backend when explicitly requested. `podman` and `podman-postgres` retain organization Buildah-backed Podman semantics and reject `github-hosted` because Central does not substitute Docker or another runtime.
 
-`podman` and `podman-postgres` retain their existing Buildah-backed Podman semantics. A request combining either profile with `github-hosted` fails closed as an unsupported backend/profile combination. Central does not substitute Docker, a GitHub service container, or another engine merely to make those profiles hosted.
-
-The small trusted planning job remains on organization general capacity and emits the exact Central-owned `runs_on_json` consumed by the validation job. Repository visibility never chooses a backend automatically.
-
-`contracts/runner-execution-backends.json` records the bounded backend names, default, and fixed hosted selector. `src/ci_workflows/execution_backends.py` enforces the same small mapping; `contracts/runner-profiles.json` separately remains the organization semantic runner authority.
+The planner emits the Central-owned `runs_on_json`; repository visibility never selects a backend automatically.
 
 ## Public inputs
 
 | Input | Required | Meaning |
 |---|---:|---|
 | `execution_backend` | no | `organization` or `github-hosted`; default `organization`. |
-| `admitted_sha` | yes | Exact lowercase commit admitted by `source.resolve`. |
-| `validation_profile` | yes | One of `audit`, `host`, `podman`, or `podman-postgres`. |
-| `command_profile` | yes | A reviewed command shape recorded in `contracts/python-validation.json`. |
-| `working_directory` | no | Repository-relative directory that must exactly match the consumer contract; default `.`. |
-| `version_file` | no | Repository-relative Python version file that must exactly match the consumer contract. |
-| `script_path` | no | Repository-relative reviewed script path that must exactly match the consumer contract. |
-| `artifact_exception_id` | no | Reserved central exception input. The initial Python API requires it to be empty and retains zero routine artifacts. |
+| `admitted_sha` | yes | Exact lowercase source SHA already admitted by `source.resolve`. |
+| `validation_profile` | yes | `audit`, `host`, `podman`, or `podman-postgres`. |
+| `python_version` | yes | `3.12` for host-family validation or an exact reviewed container version (`3.12.8` / `3.12.13`). |
+| `working_directory` | no | Repository-relative working directory; default `.`. |
+| `version_file` | no | Optional repository-relative Python version file used to verify runtime intent. |
+| `dependency_file` | no | Optional repository-relative exact requirements file for profiles that allow restore. |
+| `script_path` | yes | Repository-relative checked-in executable validation script owned by the consumer. |
+| `artifact_exception_id` | no | Reserved; must remain empty. Routine Actions artifacts are zero. |
+
+There is no `command_profile`, `arguments_json`, `environment_json`, `runner`, `runs_on`, `container_engine`, `database_url`, or `secret_name` input.
 
 ## Public outputs
 
-- `result`: `success` only when bounded validation, registered-state cleanup, and the final exact clean-source check all succeed.
-- `test_summary`: deterministic compact JSON containing only profile, command-profile, status, and stage count.
-- `artifact_exception_used`: `false` for the initial zero-artifact API.
+- `result`: `success` only after bounded validation and terminal cleanup/clean-source checks.
+- `test_summary`: compact generic JSON containing only validation profile, script contract, status, and stage count.
+- `artifact_exception_used`: always `false` for this zero-routine-artifact API.
 
-No command output, database URL, generated credential, host path, image pull detail, or container identity is exposed through outputs.
+Product output, command text, database credentials/URL, host paths, and container identities are never public outputs.
+
+## Consumer-owned script contract
+
+The script is the sole product execution hook. Central validates `script_path` as a normalized repository-relative path, rejects traversal and symlink escape, and requires a real executable file in the exact admitted source tree. It invokes the script with no caller-supplied arguments.
+
+Only a small generic environment crosses the boundary (`CI`, locale/runtime isolation values, and the isolated runtime path state). Product-specific environment is not projected by Central.
+
+Consumers therefore keep all product decisions in their repository: path filtering, test selection, release gates, migrations, feature flags, assertions, and any product-specific command composition.
+
+## Dependency restore
+
+`dependency_file` is optional for `host`, `podman`, and `podman-postgres`; `audit` rejects it. The path is repository-relative and bounded. Requirement validation rejects editable installs, VCS dependencies, floating ranges, parent/symlink escape, and cyclic/unbounded includes. Accepted entries are exact pins (or exact hash-bound URL material) and bounded requirement includes.
+
+Host validation creates an isolated venv under registered workflow state and restores with `--no-input --no-cache-dir`. Container validation performs the same bounded restore inside disposable `/work` state. No Actions cache or workflow-owned persistent volume is introduced.
 
 ## Profiles
 
 ### `audit`
 
-`audit` uses semantic `portable`. Under the default organization backend that preserves the reviewed organization selector; under explicit `github-hosted` it maps to the fixed standard hosted Linux selector. It copies exact source into workflow-scoped state and executes only reviewed source checks. It is the only profile permitted for untrusted fork source. The current Flux issue-ledger validation shape is represented by the checked-in `source-audit` fixture.
+Uses semantic `portable` and copied-host-source isolation. It is the only profile admitted for untrusted fork source. It requires `python_version: 3.12`, no dependency file, and executes only the consumer-owned script in the isolated source copy.
 
 ### `host`
 
-`host` also uses `portable`. It requires runner-provided CPython 3.12 on Linux/x64, accepts any actual `3.12.x` patch, and reports the resolved patch in the bounded result. A non-3.12 interpreter fails before dependency restore. The workflow never installs, downloads, or elevates a host interpreter.
+Uses semantic `portable`. The selected runner must already provide CPython 3.12 on Linux/x64; Central accepts the reviewed `3.12.x` family and reports the resolved patch. A non-3.12 interpreter fails before dependency restore. Runtime installation and privilege elevation are forbidden.
 
-Host validation creates isolated `HOME`, `TMPDIR`, XDG roots, and an optional virtual environment beneath registered workflow state. The shared Python primitives resolve the interpreter, create the venv, install the product-owned exact requirements with `--no-input --no-cache-dir`, and run reviewed Python modules or tests. Non-Python product commands, such as the Backend release gate, remain exact checked-in argv from the compatibility contract.
-
-Current Agent State source checks and the Backend same-repository pull-request gate use this shape.
+The runtime contract ID is `host-cpython-3.12`. Central isolates `HOME`, `TMPDIR`, XDG roots, and any venv beneath registered workflow state, then runs only the checked-in consumer-owned script from the copied source.
 
 ### `podman`
 
-`podman` requires `trusted-exact` source and resolves centrally to `buildah-high`. The caller cannot select labels or engines. The existing path verifies Podman availability, rejects Docker/DinD and Docker sockets, uses the `vfs` storage driver in marker-bound state, mounts caller source read-only, copies it into disposable work state, and runs an exact digest-pinned Python image. Current Backend full validation uses this shape. `execution_backend: github-hosted` is rejected for this profile.
+Requires `trusted-exact` source and organization `buildah-high` capacity. The caller selects an exact reviewed Python version, which maps to one digest-pinned `linux/amd64` Python image. Central rejects Docker/DinD and Docker sockets, uses Podman VFS private graph storage, mounts source read-only, copies it into disposable work state, and invokes only the consumer-owned script.
 
 ### `podman-postgres`
 
-`podman-postgres` requires `trusted-exact` source and resolves centrally to `buildah-medium`. It adds one exact digest-pinned PostgreSQL 16.11 service, generated per-run credentials, one isolated network, one isolated data volume, bounded readiness, and no remote database fallback. Current Backend and Agent State PostgreSQL validation shapes are represented by checked-in command fixtures. `execution_backend: github-hosted` is rejected for this profile.
+Requires `trusted-exact` source and organization `buildah-medium` capacity. It adds the exact digest-pinned PostgreSQL 16.11 image, one isolated network, one isolated volume, generated per-run credentials, and bounded readiness.
+
+The consumer gets exactly one stable generic connection handoff: `CIW_POSTGRES_URL`. The URL uses the `postgresql` scheme and never appears as an input, output, evidence field, or remote fallback. Product-specific database environment variable names are not supported.
 
 ## Code distribution and runtime authority
 
-Consumers do not clone `StreamScapeTV/ci-workflows` with caller-scoped credentials. The planner and executor invoke `validate-python` directly at immutable checkpoint `7d5d839c6e90491e165f1358ecb5e80129805764`, recorded in `contracts/action-tool-lock.json` as `issue #405 simplified execution-backend checkpoint`.
+Planner and executor invoke `StreamScapeTV/ci-workflows/actions/validate-python` at immutable checkpoint `203aaf1efcf28ff5c99a402301718f22e20ecb58`, recorded in `contracts/action-tool-lock.json` as `issue #473 product-neutral Python checkpoint`.
 
-That SHA fixes the reviewed Central code bundle; it is not a product-facing immutable-runtime or provenance acceptance gate. Host runtime authority comes from the checked-in `host-cpython-3.12` family contract and the selected runner's pre-provisioned interpreter. Container and PostgreSQL profiles retain their exact image identities.
+That checkpoint distributes reviewed Central code. Host runtime authority still comes from `host-cpython-3.12` plus the selected runner's pre-provisioned interpreter; container/PostgreSQL authority comes from exact digest-pinned identities in `contracts/python-validation.json`.
 
-Exact checkout, marker-bound workspace preparation, and cleanup use foundation checkpoint `70e08d4ddf8930046632a7135950e924b82e22bf`. The Python workflow does not run a separate toolchain-proof action or create a routine evidence manifest. It exposes no `.ciw` checkout, central PAT, caller secret, `secrets: inherit`, mutable helper ref, or caller-selected Central version.
+Exact checkout, marker-bound workspace preparation, and cleanup remain on the reviewed foundation checkpoint. The workflow exposes no Central clone, caller credential, `secrets: inherit`, mutable helper ref, or runtime installer.
 
 ## Execution sequence
 
-1. A general-Linux planning job calls the immutable `validate-python` code checkpoint with bounded intent, including `execution_backend`.
-2. The planner validates caller identity, source trust, validation profile, command profile, and the existing semantic runner intent.
-3. Central backend resolution preserves the organization selector or maps a supported portable profile to the fixed hosted selector; unsupported combinations fail before execution.
-4. The dependent validation job is scheduled from the exact JSON selector emitted by the planner.
-5. The job checks out only the exact admitted caller source and creates marker-bound state with cache mode disabled.
-6. `ciw python validate --phase execute` revalidates source, version and dependency contracts, and repository policy.
-7. A copied-host plan uses runner-provided CPython 3.12 through shared runtime/language primitives; Podman plans retain their existing VFS and PostgreSQL isolation.
-8. Product requirements, scripts, release gates, and test argv come from the product repository through the checked-in compatibility mapping, not from workflow-authored generic commands.
-9. `cleanup-workspace` runs under `if: always()`, removes all registered state, and fails on residue or unsafe targets.
-10. A final unconditional step proves exact source equality and a completely clean tree.
-
-No Actions cache, workflow-owned persistent volume, routine artifact upload, runtime installation, privilege elevation, publication, or deployment operation is part of this path. Flux owns organization runner deployment, resources, and shared-volume caching.
+1. Planner validates source trust, profile, `python_version`, bounded paths, `dependency_file`, and required `script_path`.
+2. Central resolves the existing semantic organization runner or the bounded hosted backend where supported.
+3. The validation job checks out only the exact admitted source and creates marker-bound state with cache disabled.
+4. `ciw python validate --phase execute` revalidates exact/clean source, script executable identity, Python version intent, optional dependency lock, and repository policy.
+5. Host execution copies source and uses runner-provided CPython 3.12; Podman execution uses exact reviewed images and disposable VFS state.
+6. If requested, dependencies restore from the consumer-owned exact requirements file.
+7. `podman-postgres` creates ephemeral PostgreSQL and injects only `CIW_POSTGRES_URL` into the validation container.
+8. Central invokes exactly the checked-in consumer-owned executable script with no caller-supplied argv/environment payload.
+9. Runtime/workspace cleanup is unconditional and residue-checked.
+10. A final exact HEAD + clean-tree check closes the boundary.
 
 ## Consumer example
-
-A consumer trigger remains responsible for exact source admission and passes only bounded intent. Existing consumers need no new input:
 
 ```yaml
 jobs:
@@ -95,25 +106,26 @@ jobs:
     with:
       admitted_sha: ${{ needs.source.outputs.source_sha }}
       validation_profile: host
-      command_profile: locked-test
-      working_directory: .
-      script_path: scripts/run_release_gates.sh
+      python_version: "3.12"
+      dependency_file: requirements.txt
+      script_path: ci/validate.sh
 ```
 
-A public consumer may opt into hosted compute without supplying a runner label:
+A PostgreSQL-backed exact-source caller changes only the generic profile/runtime intent; its own script decides which application tests constitute the gate:
 
 ```yaml
     with:
-      execution_backend: github-hosted
       admitted_sha: ${{ needs.source.outputs.source_sha }}
-      validation_profile: host
-      command_profile: locked-test
-      working_directory: .
-      script_path: scripts/run_release_gates.sh
+      validation_profile: podman-postgres
+      python_version: "3.12.13"
+      dependency_file: requirements.txt
+      script_path: ci/validate-postgres.sh
 ```
 
-Backend, Agent State, and Flux keep product-specific commands, dependency files, scripts, test selections, application configuration, and assertions in their own repositories. The compatibility contract records reviewed current shapes without moving that product authority into the reusable workflow.
+A portable public consumer may add `execution_backend: github-hosted`; it still cannot supply a runner label.
 
 ## Failure and cleanup
 
-Expected rejection exits with code `2` and a stable `PythonValidationError.code`. Invalid backend input projects to the existing `invalid_input` code; an unsupported hosted/profile combination projects to existing `unsupported_profile`. The internal `failure_code` projection never includes arbitrary exception text. Podman cleanup removes and verifies validation/service containers, network, data volume, pulled images, storage state, environment files, and processes. Marker-bound workspace cleanup then removes all remaining registered paths. Routine Actions artifacts remain zero.
+Expected rejection uses stable `PythonValidationError.code` values. Script failures project to `command_failed`; dependency/runtime/source/PostgreSQL failures retain their bounded generic codes. Product exception text is not promoted to public outputs.
+
+Podman cleanup removes validation/service containers, network, volume, pulled images, storage state, and temporary environment files. Marker-bound workspace cleanup then removes remaining registered paths. The original admitted source must remain exact and clean. Routine Actions artifacts remain zero.
