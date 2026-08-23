@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
 
@@ -12,6 +13,7 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 HOSTED_LINUX = ["ubuntu-latest"]
 HOSTED_APPLE = ["macos-latest"]
 APPLE_PILOT = WORKFLOWS / "apple-test.yml"
+BACKEND_CONTRACT = ROOT / "contracts" / "runner-execution-backends.json"
 SELF_PREFIX = "StreamScapeTV/ci-workflows/.github/workflows/"
 
 
@@ -97,6 +99,20 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
         self.assertEqual(set(workflow["jobs"]), {"apple_test"})
         self.assertEqual(workflow["jobs"]["apple_test"]["runs-on"], HOSTED_APPLE)
         self.assertNotIn("workflow_call", workflow["on"])
+
+        contract = json.loads(BACKEND_CONTRACT.read_text(encoding="utf-8"))
+        self.assertEqual(contract["github-hosted"]["runs_on"], HOSTED_LINUX)
+        self.assertEqual(
+            contract["github-hosted"]["repository_local_exceptions"],
+            [
+                {
+                    "workflow": ".github/workflows/apple-test.yml",
+                    "job": "apple_test",
+                    "events": ["workflow_dispatch"],
+                    "runs_on": HOSTED_APPLE,
+                }
+            ],
+        )
 
 
 if __name__ == "__main__":
