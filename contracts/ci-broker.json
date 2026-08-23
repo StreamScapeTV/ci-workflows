@@ -14,13 +14,17 @@
       "dispatch_token"
     ],
     "public_metadata": "opaque_only",
-    "token_ttl_seconds": 900,
-    "duplicate_concurrency_key": "dispatch_id"
+    "token_ttl_seconds": 21600,
+    "envelope_state": "self-contained-authenticated",
+    "duplicate_concurrency_key": "dispatch_id",
+    "replayed_accepted_request_recoverable": true
   },
   "agent_state": {
     "schema": "agent_api",
     "transport": "supabase-secret-api-key",
     "rpc_only": true,
+    "source_repository_field": "repository",
+    "execution_repository_field": "external_repository",
     "functions": [
       "claim_ci_run",
       "register_ci_run",
