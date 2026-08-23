@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from typing import Mapping
 
 SAFE_CODE = re.compile(r"^[a-z][a-z0-9_]{2,95}$")
 
@@ -25,18 +24,13 @@ class PythonValidationRequest:
     repository: str
     admitted_sha: str
     validation_profile: str
-    command_profile: str
+    python_version: str
     working_directory: str
     version_file: str | None
-    script_path: str | None
+    dependency_file: str | None
+    script_path: str
     artifact_exception_id: str | None
     source_trust: str
-
-
-@dataclass(frozen=True)
-class PythonCommand:
-    stage: str
-    argv: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -44,7 +38,6 @@ class PythonValidationPlan:
     repository: str
     admitted_sha: str
     validation_profile: str
-    command_profile: str
     runner_profile: str
     timeout_minutes: int
     workspace_profile: str
@@ -55,10 +48,7 @@ class PythonValidationPlan:
     working_directory: str
     version_file: str | None
     dependency_file: str | None
-    script_path: str | None
-    database_environment_variable: str | None
-    environment: Mapping[str, str]
-    commands: tuple[PythonCommand, ...]
+    script_path: str
     postgres_runtime_reference: str | None
     readiness_attempts: int
     readiness_interval_seconds: int
@@ -66,7 +56,7 @@ class PythonValidationPlan:
     def planning_outputs(self) -> dict[str, str]:
         summary = json.dumps(
             {
-                "command_profile": self.command_profile,
+                "script_contract": "consumer-owned-executable",
                 "status": "planned",
                 "validation_profile": self.validation_profile,
             },
@@ -76,7 +66,6 @@ class PythonValidationPlan:
         return {
             "source_sha": self.admitted_sha,
             "validation_profile": self.validation_profile,
-            "command_profile": self.command_profile,
             "runner_profile": self.runner_profile,
             "timeout_minutes": str(self.timeout_minutes),
             "resolved_python_version": self.python_version,
@@ -93,7 +82,6 @@ class PythonValidationResult:
     source_sha: str
     resolved_python_version: str
     validation_profile: str
-    command_profile: str
     stage_count: int
     cleanup_result: str
     evidence_id: str
@@ -101,7 +89,7 @@ class PythonValidationResult:
     def output_values(self) -> dict[str, str]:
         summary = json.dumps(
             {
-                "command_profile": self.command_profile,
+                "script_contract": "consumer-owned-executable",
                 "stages": self.stage_count,
                 "status": "passed",
                 "validation_profile": self.validation_profile,
@@ -115,7 +103,6 @@ class PythonValidationResult:
             "source_sha": self.source_sha,
             "resolved_python_version": self.resolved_python_version,
             "validation_profile": self.validation_profile,
-            "command_profile": self.command_profile,
             "cleanup_result": self.cleanup_result,
             "failure_code": "",
             "artifact_exception_used": "false",
