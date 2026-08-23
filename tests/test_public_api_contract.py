@@ -22,7 +22,7 @@ class PublicApiContractTests(unittest.TestCase):
         cls.workflows = contract.validate_workflows(cls.data, cls.profiles)
 
     def test_registry_is_complete_and_deterministic(self) -> None:
-        self.assertEqual(len(self.data.workflows), 26)
+        self.assertEqual(len(self.data.workflows), 27)
         self.assertEqual(len(self.profiles), 13)
         self.assertEqual(len(self.data.types["trust_classes"]), 6)
         self.assertEqual("3.1.0", self.data.index["contract_version"])
@@ -230,6 +230,7 @@ class PublicApiContractTests(unittest.TestCase):
         expected = {
             "oci.build": {"image_name", "dockerfile_path", "build_context"},
             "oci.publish": {"image_name", "dockerfile_path", "build_context"},
+            "oci.reproducibility": {"admitted_sha", "dockerfile_path", "build_context"},
             "helm.validate": {"chart_name", "chart_path", "values_path", "policy_path"},
             "helm.publish": {"chart_name", "chart_path", "values_path", "policy_path"},
             "release.orchestrate": {"release_manifest_path"},
@@ -241,6 +242,15 @@ class PublicApiContractTests(unittest.TestCase):
         for api in ("oci.build", "oci.publish", "helm.validate", "helm.publish"):
             self.assertEqual("2.0.0", self.workflows[api]["api_version"])
             self.assertEqual("migration-pending", self.workflows[api]["status"])
+        reproducibility = self.workflows["oci.reproducibility"]
+        self.assertEqual("1.0.0", reproducibility["api_version"])
+        self.assertEqual("implemented", reproducibility["status"])
+        self.assertEqual("contract:oci-reproducibility", reproducibility["semantic_runner_profile"])
+        self.assertEqual([], reproducibility["secrets"])
+        self.assertEqual(
+            ["result", "source_sha", "platform_digests_json"],
+            reproducibility["outputs"],
+        )
 
     def test_oci_resolved_inputs_output_is_typed_and_additive(self) -> None:
         self.assertEqual({"type": "json-object", "nullable": True}, self.data.types["output_catalog"]["resolved_inputs_json"])
@@ -350,6 +360,7 @@ class PublicApiContractTests(unittest.TestCase):
         self.assertIn("`validation.apple` `2.0.0`", rendered)
         self.assertIn("`validation.device` `2.0.0`", rendered)
         self.assertIn("`validation.python` `2.0.0`", rendered)
+        self.assertIn("`oci.reproducibility` `1.0.0`", rendered)
         self.assertIn("`python_version` (required)", rendered)
         self.assertIn("`script_path` (required)", rendered)
         self.assertIn("`host_capacity` (required)", rendered)
