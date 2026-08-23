@@ -243,6 +243,19 @@ def download_private_diagnostic(
     return compressed
 
 
+def _as_readback_error(error: R2DiagnosticError) -> R2DiagnosticError:
+    code = error.code
+    if code.startswith("r2_download_http_"):
+        return R2DiagnosticError("r2_readback_http_" + code.removeprefix("r2_download_http_"))
+    if code == "r2_download_unavailable":
+        return R2DiagnosticError("r2_readback_unavailable")
+    if code == "r2_download_too_large":
+        return R2DiagnosticError("r2_readback_too_large")
+    if code == "r2_download_digest_mismatch":
+        return R2DiagnosticError("r2_readback_digest_mismatch")
+    return error
+
+
 def upload_private_diagnostic(
     *,
     diagnostic_path: Path,
@@ -295,16 +308,19 @@ def upload_private_diagnostic(
     except (OSError, urllib.error.URLError, ValueError):
         raise R2DiagnosticError("r2_upload_unavailable") from None
 
-    readback = download_private_diagnostic(
-        object_key=object_key,
-        expected_sha256=digest,
-        account_id=account_id,
-        bucket=bucket,
-        access_key_id=access_key_id,
-        secret_access_key=secret_access_key,
-        opener=opener,
-        clock=clock,
-    )
+    try:
+        readback = download_private_diagnostic(
+            object_key=object_key,
+            expected_sha256=digest,
+            account_id=account_id,
+            bucket=bucket,
+            access_key_id=access_key_id,
+            secret_access_key=secret_access_key,
+            opener=opener,
+            clock=clock,
+        )
+    except R2DiagnosticError as error:
+        raise _as_readback_error(error) from None
     _require(len(readback) == len(compressed), "r2_readback_size_mismatch")
     return R2DiagnosticResult(
         object_key=object_key,
