@@ -323,7 +323,7 @@ class PublicApiContractTests(unittest.TestCase):
 
     def test_demonstrated_publication_surface_is_retained_without_speculative_layers(self) -> None:
         self.assertEqual(
-            "buildah-small",
+            "contract:oci-reproducibility",
             self.workflows["oci.reproducibility"]["semantic_runner_profile"],
         )
         self.assertEqual(
