@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -73,6 +75,52 @@ class NativeAdapterTests(unittest.TestCase):
             self.assertEqual(calls[0][2]["definitions"], {"BUILD_TESTING": "ON"})
             self.assertEqual(calls[0][2]["options"], ("-Wno-dev",))
             self.assertEqual(calls[1][2]["jobs"], 2)
+
+    def test_real_cmake_configure_build_and_ctest_target(self) -> None:
+        self.assertIsNotNone(shutil.which("cmake"), "semantic native capacity must provide CMake")
+        self.assertIsNotNone(shutil.which("make"), "semantic native capacity must provide Make")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            workspace = root / "workspace"
+            source = workspace / "source"
+            source.mkdir(parents=True)
+            (source / "CMakeLists.txt").write_text(
+                "cmake_minimum_required(VERSION 3.16)\n"
+                "project(ciw_native_smoke C)\n"
+                "enable_testing()\n"
+                "add_executable(ciw_native_smoke main.c)\n"
+                "add_test(NAME ciw_native_smoke COMMAND ciw_native_smoke)\n",
+                encoding="utf-8",
+            )
+            (source / "main.c").write_text("int main(void) { return 0; }\n", encoding="utf-8")
+            state_temp = root / "state" / "tmp"
+            state_temp.mkdir(parents=True)
+            environment = dict(os.environ)
+            environment.update(
+                self.environment(
+                    plan={
+                        "generator": "Unix Makefiles",
+                        "test_target": "test",
+                        "jobs": 1,
+                    }
+                )
+            )
+
+            with patch.object(ciw_native, "_state_temp", return_value=state_temp):
+                outputs = ciw_native.execute_native_validate(
+                    contract_root=root,
+                    workspace=workspace,
+                    environment=environment,
+                )
+
+            build_dir = state_temp / "native-cmake-build"
+            self.assertEqual(outputs["result"], "success")
+            self.assertTrue((build_dir / "CTestTestfile.cmake").is_file())
+            last_test = build_dir / "Testing" / "Temporary" / "LastTest.log"
+            self.assertTrue(last_test.is_file())
+            log = last_test.read_text(encoding="utf-8")
+            self.assertIn("ciw_native_smoke", log)
+            self.assertIn("Test Passed", log)
 
     def test_subdirectory_is_bounded_inside_exact_source(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
