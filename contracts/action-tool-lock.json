@@ -80,10 +80,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-native",
-      "sha": "89e101e4dea01c797a24284c1b8b8cdbdd67ba61",
-      "release": "issue #360 corrected native adapter checkpoint",
+      "sha": "7273bf28d5e4b9fc3bd6bcb8c6b685a5ff7c1f88",
+      "release": "issue #360 canonical CIW adapter checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/89e101e4dea01c797a24284c1b8b8cdbdd67ba61/actions/validate-native"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/7273bf28d5e4b9fc3bd6bcb8c6b685a5ff7c1f88/actions/validate-native"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/exact-checkout",
