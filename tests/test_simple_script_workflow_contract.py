@@ -196,7 +196,7 @@ class SimpleScriptWorkflowContractTests(unittest.TestCase):
     def test_registry_keeps_generic_script_api_without_retired_conformance(self) -> None:
         index = json.loads(INDEX.read_text(encoding="utf-8"))
         validation = json.loads(VALIDATION.read_text(encoding="utf-8"))
-        self.assertEqual(18, index["workflow_count"])
+        self.assertEqual(19, index["workflow_count"])
         api_names = {row["api_name"] for row in index["workflows"]}
         self.assertIn("validation.script", api_names)
         self.assertNotIn("maintenance.conformance", api_names)

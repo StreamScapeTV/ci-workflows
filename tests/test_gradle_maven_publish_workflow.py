@@ -27,7 +27,8 @@ class GradleMavenPublishWorkflowTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.source = WORKFLOW.read_text(encoding="utf-8")
         cls.workflow = yaml.load(cls.source, Loader=ActionsLoader)
-        cls.public = json.loads(PUBLIC_CONTRACT.read_text(encoding="utf-8"))["workflows"][0]
+        public = json.loads(PUBLIC_CONTRACT.read_text(encoding="utf-8"))["workflows"]
+        cls.public = next(row for row in public if row["api_name"] == "release.gradle-maven")
         cls.action_source = ACTION.read_text(encoding="utf-8")
         cls.action = yaml.safe_load(cls.action_source)
         cls.publication_source = GRADLE_MAVEN_SOURCE.read_text(encoding="utf-8")
