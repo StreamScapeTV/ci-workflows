@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
-from . import runners
+from . import ciw_native, runners
 from .ciw_android import configure_android_validate, execute_android_validate
 from .ciw_apple import configure_apple_validate, execute_apple_validate
 from .ciw_device import configure_device_validate, execute_device_validate
@@ -506,6 +506,28 @@ def handle_node_validate(
     context: CIWContext,
 ) -> CIWResult:
     return execute_node_validate(args, context)
+
+
+def handle_native_validate(
+    _args: argparse.Namespace,
+    context: CIWContext,
+) -> CIWResult:
+    workspace = Path(
+        required_environment(
+            context.environment,
+            "GITHUB_WORKSPACE",
+            domain="native",
+            code="workspace_unavailable",
+        )
+    ).resolve()
+    environment = dict(context.environment)
+    environment.pop("GITHUB_OUTPUT", None)
+    outputs = ciw_native.execute_native_validate(
+        contract_root=context.root,
+        workspace=workspace,
+        environment=environment,
+    )
+    return CIWResult("native", "validate", outputs=outputs)
 
 
 def handle_network(
@@ -1094,6 +1116,12 @@ def command_specs() -> tuple[CommandSpec, ...]:
             "validate",
             handle_node_validate,
             _add_node_validate,
+        ),
+        CommandSpec(
+            "native",
+            "validate",
+            handle_native_validate,
+            _noop,
         ),
         CommandSpec(
             "network",
