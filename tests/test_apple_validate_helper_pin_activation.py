@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-INTEGRATED_HELPER_SHA = "78b9cacdb001a61e18a84e23532f4f397c13875b"
+INTEGRATED_HELPER_SHA = "3b0dd398664c14dd5985d9d2248ec13917059223"
 STALE_HELPER_SHA = "c82cd9fba134ff736621b8bbd636594c2a6fe923"
 PRE_SIMULATOR_CONFIDENCE_SHA = "2ea47520b9d84b9b0a71c23de3da03f02a5bea9c"
 
