@@ -1,10 +1,41 @@
 """Fail closed and terminalize broker dependency-admission failures."""
 from __future__ import annotations
 
-from typing import Mapping
+from typing import Any, Mapping
 
-from .ci_broker import BrokerConfig, BrokerError, BrokerServer, CiBroker, _safe_sha, _uuid
+from .ci_broker import (
+    BrokerConfig,
+    BrokerError,
+    BrokerServer,
+    CiBroker,
+    _safe_repository,
+    _safe_sha,
+    _uuid,
+)
 from .ci_broker_dependencies import DependencyCiBroker, _profile_from_payload
+
+
+def _exact_commit_identity(
+    source_github: Any,
+    repository: str,
+    sha: str,
+    token: str,
+) -> dict[str, object]:
+    """Read one exact Git commit object without the oversized REST files payload."""
+
+    repository = _safe_repository(repository)
+    sha = _safe_sha(sha)
+    request = getattr(source_github, "_request", None)
+    if not callable(request):
+        raise BrokerError("private_dependency_identity_unavailable", 500)
+    _status, value = request(
+        "GET",
+        f"/repos/{repository}/git/commits/{sha}",
+        token=token,
+    )
+    if not isinstance(value, dict):
+        raise BrokerError("github_commit_missing", 502)
+    return value
 
 
 class GuardedDependencyCiBroker(DependencyCiBroker):
@@ -28,7 +59,8 @@ class GuardedDependencyCiBroker(DependencyCiBroker):
         if dependency is not None:
             try:
                 dependency_token = self.source_github.repository_token(dependency.repository)
-                observed = self.source_github.get_commit(
+                observed = _exact_commit_identity(
+                    self.source_github,
                     dependency.repository,
                     dependency.sha,
                     dependency_token,
@@ -64,4 +96,4 @@ def serve(config: BrokerConfig | None = None) -> None:
     server.serve_forever(poll_interval=0.5)
 
 
-__all__ = ("GuardedDependencyCiBroker", "serve")
+__all__ = ("GuardedDependencyCiBroker", "_exact_commit_identity", "serve")
