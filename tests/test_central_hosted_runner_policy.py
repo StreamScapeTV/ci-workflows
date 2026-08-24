@@ -13,7 +13,9 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 HOSTED_LINUX = ["ubuntu-latest"]
 HOSTED_APPLE = ["macos-latest"]
 APPLE_PILOT = WORKFLOWS / "apple-test.yml"
+OCI_REPRO_SMOKE = WORKFLOWS / "oci-reproducibility-validation.yml"
 BACKEND_CONTRACT = ROOT / "contracts" / "runner-execution-backends.json"
+RUNNER_PROFILES = ROOT / "contracts" / "runner-profiles.json"
 SELF_PREFIX = "StreamScapeTV/ci-workflows/.github/workflows/"
 OWNER_GATE = "github.event.pull_request.user.login == 'mimranfaruqi'"
 REPOSITORY_GATE = "github.event.pull_request.head.repo.full_name == github.repository"
@@ -59,17 +61,20 @@ def _backend_contract() -> dict:
     return json.loads(BACKEND_CONTRACT.read_text(encoding="utf-8"))
 
 
-def _expected_hosted_selector(path: Path, job_name: str) -> list[str]:
+def _expected_reviewed_selector(path: Path, job_name: str) -> list[str]:
     relative = str(path.relative_to(ROOT))
     contract = _backend_contract()
     for exception in contract["github-hosted"].get("repository_local_exceptions", []):
+        if exception["workflow"] == relative and exception["job"] == job_name:
+            return list(exception["runs_on"])
+    for exception in contract.get("repository_local_organization_exceptions", []):
         if exception["workflow"] == relative and exception["job"] == job_name:
             return list(exception["runs_on"])
     return list(contract["github-hosted"]["runs_on"])
 
 
 class CentralHostedRunnerPolicyTests(unittest.TestCase):
-    def test_every_repository_local_runnable_job_uses_reviewed_github_hosted_capacity(self) -> None:
+    def test_every_repository_local_runnable_job_uses_reviewed_capacity(self) -> None:
         visited: set[Path] = set()
         failures: list[str] = []
 
@@ -81,7 +86,7 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
             for job_name, job in workflow.get("jobs", {}).items():
                 if _cannot_run_in_public_central(job):
                     continue
-                expected = _expected_hosted_selector(path, job_name)
+                expected = _expected_reviewed_selector(path, job_name)
                 if "runs-on" in job and job["runs-on"] != expected:
                     failures.append(
                         f"{path.relative_to(ROOT)}:{job_name} uses {job['runs-on']!r}; expected {expected!r}"
@@ -98,7 +103,7 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
         self.assertEqual(
             failures,
             [],
-            "Central runnable jobs must use their exact reviewed GitHub-hosted selector:\n"
+            "Central runnable jobs must use their exact reviewed selector:\n"
             + "\n".join(failures),
         )
 
@@ -167,6 +172,39 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
                 },
             ],
         )
+
+    def test_oci_reproducibility_organization_exception_is_single_bounded_and_runner_owned(self) -> None:
+        contract = _backend_contract()
+        exceptions = contract["repository_local_organization_exceptions"]
+        expected = {
+            "workflow": ".github/workflows/oci-reproducibility-validation.yml",
+            "job": "deterministic_fixture",
+            "events": ["pull_request", "push", "workflow_dispatch"],
+            "workflow_api": "oci.reproducibility",
+            "runs_on": ["linux", "amd64", "buildah", "small"],
+        }
+        self.assertEqual(exceptions, [expected])
+
+        workflow = yaml.load(OCI_REPRO_SMOKE.read_text(encoding="utf-8"), Loader=ActionsLoader)
+        self.assertEqual(_events(workflow), set(expected["events"]))
+        self.assertEqual(set(workflow["jobs"]), {expected["job"]})
+        job = workflow["jobs"][expected["job"]]
+        self.assertEqual(job["runs-on"], expected["runs_on"])
+        condition = " ".join(str(job["if"]).split())
+        self.assertIn(OWNER_GATE, condition)
+        self.assertIn(REPOSITORY_GATE, condition)
+
+        runner_contract = json.loads(RUNNER_PROFILES.read_text(encoding="utf-8"))
+        bindings = {row["api"]: row for row in runner_contract["workflow_bindings"]}
+        profiles = {row["id"]: row for row in runner_contract["profiles"]}
+        self.assertEqual(
+            bindings[expected["workflow_api"]],
+            {"api": "oci.reproducibility", "strategy": "fixed", "profiles": ["buildah-small"]},
+        )
+        buildah_small = profiles["buildah-small"]
+        self.assertEqual(buildah_small["default_internal_selector"], expected["runs_on"])
+        self.assertEqual(buildah_small["internal_selectors"], [expected["runs_on"]])
+        self.assertIn(expected["workflow_api"], buildah_small["allowed_workflow_apis"])
 
 
 if __name__ == "__main__":
