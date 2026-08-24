@@ -26,9 +26,9 @@ from ci_workflows.ci_broker_action import (  # noqa: E402
 from ci_workflows.ci_broker_dependencies import (  # noqa: E402
     execute_apple_host,
     self_check,
-    serve,
 )
 from ci_workflows.ci_broker_fallback import fail_if_active  # noqa: E402
+from ci_workflows.ci_broker_start_guard import serve  # noqa: E402
 from ci_workflows.ci_callback_http import central_urlopen  # noqa: E402
 
 _DIAGNOSTIC_BYTES = 4096
