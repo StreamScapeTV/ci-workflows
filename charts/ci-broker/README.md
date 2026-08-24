@@ -2,10 +2,10 @@
 
 This chart packages the Kubernetes runtime for the event-driven Central CI broker.
 
-Release tags use `ci-broker-X.Y.Z`. The release workflow strips the prefix and publishes both:
+Release tags use `ci-broker-X.Y.Z`. The release workflow strips the prefix and publishes both packages under the Forgejo `ci-workflows` repository namespace:
 
-- `git.faruqi.dev/mimranfaruqi/ci-broker:X.Y.Z`
-- `oci://git.faruqi.dev/mimranfaruqi/helm-charts/ci-broker:X.Y.Z`
+- `git.faruqi.dev/mimranfaruqi/ci-workflows/ci-broker:X.Y.Z`
+- `oci://git.faruqi.dev/mimranfaruqi/ci-workflows/helm-charts/ci-broker:X.Y.Z`
 
 The packaged chart receives both `version=X.Y.Z` and `appVersion=X.Y.Z`. The Deployment defaults its image tag from `.Chart.AppVersion`, so a new chart version carries the matching broker image version without a mutable `latest` dependency.
 
