@@ -110,8 +110,6 @@ jobs:
 
 The explicit caller must execute from the current default branch of the same non-fork repository under a write-authorized actor. The central workflow resolves `refs/tags/<release_version>` through GitHub’s read-only API, supports lightweight and bounded annotated tags, requires the final commit to equal `release_source_sha`, checks out only that detached commit, and revalidates the tag immediately before publication. A branch or caller ref is never accepted as release authority.
 
-One incident-specific recovery exception is available through the optional `image_recovery_authority` string. It is not a manual-dispatch field or a caller-selected set of hashes: the trusted Backend caller hard-codes the complete reviewed JSON authority from central issue #92. Central admission requires its exact schema, repository, version, source, historical publisher run and attempt, historical caller and central revisions, remote image digest, and exactly the `linux/amd64` and `linux/arm64` config digests. It then verifies the immutable historical run, jobs, steps, logs, zero artifacts, and current default-branch caller before publication credentials are used. Empty remains the default for every ordinary release.
-
 After an approved stable `ci-workflows` release tag actually exists, a later explicit cutover may authorize consumers to follow that stable channel instead of `@main`. The following is illustrative only until that decision is made:
 
 ```yaml
@@ -122,7 +120,7 @@ uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-tag-image-chart.yml@
 
 ## Exact-tag image and Helm publication
 
-`.github/workflows/reusable-tag-image-chart.yml` is a `workflow_call`-only compatibility/bootstrap product release primitive. Its default `tag-push` mode preserves genuine tag-push behavior. Its explicit `existing-tag` mode accepts only the complete exact version/source tuple from the trusted caller class described above. Both ordinary modes produce the same immutable version and source outputs and enter identical daemonless image and chart publication stages. The fixed recovery authority is a narrower `existing-tag` sub-mode: it performs authenticated read-only verification of the already-published image before and after chart handling and cannot build, copy, push, delete, or retag an image.
+`.github/workflows/reusable-tag-image-chart.yml` is a `workflow_call`-only compatibility/bootstrap product release primitive. Its default `tag-push` mode preserves genuine tag-push behavior. Its explicit `existing-tag` mode accepts only the complete exact version/source tuple from the trusted caller class described above. Both modes produce the same immutable version and source outputs and enter identical daemonless image and chart publication stages.
 
 The workflow uses the exact validated version for a multi-platform OCI image and Helm OCI chart, independently reads both products back, retains zero Actions artifacts, and performs no deployment. Authenticated image and chart tag listings fail closed. A present chart is pulled and compared with the exact local package; confirmed absence permits one push followed by tag, package checksum, metadata, dependency, and OCI layer verification. It does not publish `latest`, create a GitHub Release, accept a branch as release identity, update production values, restart workloads, or access a cluster. The caller passes only bounded product inputs and explicit named registry secrets; broad secret inheritance is prohibited.
 

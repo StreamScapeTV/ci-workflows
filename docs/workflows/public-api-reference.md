@@ -12,7 +12,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 | `release.gradle-maven` `1.0.0` | `.github/workflows/reusable-gradle-maven-publish.yml` | `implemented` | `trusted-publication` | Release / Gradle Maven publication |
 | `release.native-image-chart` `2.0.0` | `.github/workflows/reusable-native-image-chart.yml` | `implemented` | `trusted-publication` | Publish native amd64 image and Helm chart |
 | `release.public-native-image-chart` `1.0.0` | `.github/workflows/reusable-public-native-image-chart.yml` | `implemented` | `trusted-publication` | Publish public native amd64 image and Helm chart |
-| `release.tag-image-chart-bootstrap` `1.2.0` | `.github/workflows/reusable-tag-image-chart.yml` | `deprecated-bootstrap-exception` | `trusted-publication` | Release / Bootstrap image and chart |
+| `release.tag-image-chart-bootstrap` `2.0.0` | `.github/workflows/reusable-tag-image-chart.yml` | `deprecated-bootstrap-exception` | `trusted-publication` | Release / Bootstrap image and chart |
 | `source.resolve` `1.0.0` | `.github/workflows/reusable-resolve-source.yml` | `implemented` | `source-admission` | Shared / Source admission |
 | `validation.android` `2.1.0` | `.github/workflows/reusable-android.yml` | `implemented` | `read-only-validation` | CI / Android validation |
 | `validation.android-live-service` `1.1.0` | `.github/workflows/reusable-android-live-service.yml` | `implemented` | `read-only-validation` | CI / Android live-service acceptance |
@@ -62,7 +62,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 ### `release.tag-image-chart-bootstrap`
 
 - Events: `tag-push`, `workflow_call`, `workflow_dispatch-existing-tag`
-- Inputs: `release_mode` (default `tag-push`), `release_version`, `release_source_sha`, `image_recovery_authority` (default ``), `image_name` (required), `chart_name` (required), `chart_path` (required), `dockerfile_path` (default `Dockerfile`), `build_context` (default `.`)
+- Inputs: `release_mode` (default `tag-push`), `release_version`, `release_source_sha`, `image_name` (required), `chart_name` (required), `chart_path` (required), `dockerfile_path` (default `Dockerfile`), `build_context` (default `.`)
 - Secrets: `registry_username`, `registry_token`
 - Outputs: `version`, `source_sha`, `image_reference`, `image_digest`, `chart_reference`, `chart_digest`, `chart_package_sha256`
 - Repository-owned hooks: `chart_path`, `dockerfile_path`, `build_context`

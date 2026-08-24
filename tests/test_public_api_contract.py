@@ -246,6 +246,7 @@ class PublicApiContractTests(unittest.TestCase):
                 "policy_path",
                 "allowlist_path",
                 "platform_set",
+                "image_recovery_authority",
             }.isdisjoint(inputs)
         )
         self.assertTrue(
@@ -342,14 +343,14 @@ class PublicApiContractTests(unittest.TestCase):
 
     def test_existing_bootstrap_workflow_matches_supported_replacement(self) -> None:
         row = self.workflows["release.tag-image-chart-bootstrap"]
-        self.assertEqual("1.2.0", row["api_version"])
+        self.assertEqual("2.0.0", row["api_version"])
         self.assertEqual("deprecated-bootstrap-exception", row["status"])
         self.assertEqual("release.native-image-chart", row["deprecation"]["replacement"])
         input_map = {item["name"]: item for item in row["inputs"]}
         self.assertEqual("tag-push", input_map["release_mode"]["default"])
         self.assertFalse(input_map["release_version"]["required"])
         self.assertFalse(input_map["release_source_sha"]["required"])
-        self.assertEqual("", input_map["image_recovery_authority"]["default"])
+        self.assertNotIn("image_recovery_authority", input_map)
         contract.validate_bootstrap_workflow(self.data, self.workflows, self.profiles)
 
     def test_release_manifest_schema_is_fail_closed_and_identity_free(self) -> None:
@@ -373,6 +374,7 @@ class PublicApiContractTests(unittest.TestCase):
         self.assertIn("oci.reproducibility", rendered)
         self.assertIn("release.native-image-chart", rendered)
         self.assertIn("validation.python", rendered)
+        self.assertNotIn("image_recovery_authority", rendered)
         for retired in RETIRED_APIS:
             self.assertNotIn(f"`{retired}`", rendered)
         self.assertNotIn("migration-pending", rendered)
@@ -401,7 +403,7 @@ class PublicApiContractTests(unittest.TestCase):
 
     def test_breaking_acknowledgements_reference_only_supported_api_changes(self) -> None:
         acknowledgements = self.data.types["breaking_change_acknowledgements"]
-        self.assertEqual(7, len(acknowledgements))
+        self.assertEqual(8, len(acknowledgements))
         self.assertTrue(
             {item["api_name"] for item in acknowledgements} <= SUPPORTED_APIS
         )
@@ -410,6 +412,11 @@ class PublicApiContractTests(unittest.TestCase):
                 {item["api_name"] for item in acknowledgements}
             )
         )
+        recovery_removal = next(
+            item for item in acknowledgements if item["id"] == "issue-474-tag-image-recovery"
+        )
+        self.assertEqual("release.tag-image-chart-bootstrap", recovery_removal["api_name"])
+        self.assertEqual("2.0.0", recovery_removal["effective_version"])
 
     @staticmethod
     def _example_input(name: str):
@@ -461,7 +468,6 @@ class PublicApiContractTests(unittest.TestCase):
             "release_mode": "tag-push",
             "release_version": "1.2.3",
             "release_source_sha": "0123456789abcdef0123456789abcdef01234567",
-            "image_recovery_authority": "",
             "image_name": "example-image",
             "chart_name": "example-chart",
             "chart_path": "charts/example",
