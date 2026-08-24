@@ -336,6 +336,7 @@
         "validation.python",
         "validation.node",
         "validation.native",
+        "validation.static-web",
         "validation.gitops",
         "validation.script",
         "helm.validate",
@@ -737,6 +738,12 @@
     "validation.service-compose": {
       "profiles": [
         "service-small"
+      ],
+      "strategy": "fixed"
+    },
+    "validation.static-web": {
+      "profiles": [
+        "general-small"
       ],
       "strategy": "fixed"
     }

@@ -292,6 +292,36 @@
       "trust_class": "read-only-validation"
     },
     {
+      "cleanup": "run-owned static output cleanup plus reusable workspace cleanup under if: always()",
+      "domain": "static-web",
+      "failure": "StaticWebValidationError.code or CIWError.code",
+      "handler": "ci_workflows.ciw.handle_static_web_validate",
+      "inputs": [
+        "admitted_sha",
+        "working_directory",
+        "validation_plan_json",
+        "GITHUB_WORKSPACE"
+      ],
+      "operation": "validate",
+      "outputs": [
+        "result",
+        "build_result",
+        "output_verified",
+        "output_digest",
+        "output_file_count",
+        "test_summary",
+        "cleanup_result",
+        "failure_code",
+        "cleanup_code"
+      ],
+      "side_effects": [
+        "executes one bounded caller-owned checked-in static-web build script",
+        "inspects a newly created non-empty static output and optionally executes one checked-in verifier",
+        "removes run-owned static output and performs no artifact upload, cache transport, publication, or deployment"
+      ],
+      "trust_class": "read-only-validation"
+    },
+    {
       "cleanup": "registered workflow workspace cleanup under if: always()",
       "domain": "network",
       "failure": "NetworkPrimitiveError.code or CIWError.code",

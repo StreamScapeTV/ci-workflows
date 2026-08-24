@@ -41,6 +41,7 @@ from .ciw_types import (
     project_error,
     required_environment,
 )
+from .ciw_web import configure_static_web_validate, execute_static_web_validate
 from .dependencies import checkout_private_dependency
 from .evidence import build_evidence, parse_toolchain_json, write_evidence
 from .foundation_types import FoundationError, bounded_int, canonical_json
@@ -528,6 +529,13 @@ def handle_native_validate(
         environment=environment,
     )
     return CIWResult("native", "validate", outputs=outputs)
+
+
+def handle_static_web_validate(
+    args: argparse.Namespace,
+    context: CIWContext,
+) -> CIWResult:
+    return execute_static_web_validate(args, context)
 
 
 def handle_network(
@@ -1122,6 +1130,12 @@ def command_specs() -> tuple[CommandSpec, ...]:
             "validate",
             handle_native_validate,
             _noop,
+        ),
+        CommandSpec(
+            "static-web",
+            "validate",
+            handle_static_web_validate,
+            configure_static_web_validate,
         ),
         CommandSpec(
             "network",

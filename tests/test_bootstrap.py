@@ -51,6 +51,7 @@ class BootstrapContractTests(unittest.TestCase):
                 ".github/workflows/reusable-python.yml",
                 ".github/workflows/reusable-resolve-source.yml",
                 ".github/workflows/reusable-script.yml",
+                ".github/workflows/reusable-static-web.yml",
                 ".github/workflows/reusable-tag-image-chart.yml",
             ],
         )

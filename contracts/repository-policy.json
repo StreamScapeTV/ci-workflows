@@ -57,6 +57,7 @@
       ".github/workflows/reusable-python.yml": {"trust_class": "reusable-call", "allowed_events": ["workflow_call"]},
       ".github/workflows/reusable-resolve-source.yml": {"trust_class": "reusable-call", "allowed_events": ["workflow_call"]},
       ".github/workflows/reusable-script.yml": {"trust_class": "reusable-call", "allowed_events": ["workflow_call"]},
+      ".github/workflows/reusable-static-web.yml": {"trust_class": "reusable-call", "allowed_events": ["workflow_call"]},
       ".github/workflows/reusable-tag-image-chart.yml": {"trust_class": "reusable-call", "allowed_events": ["workflow_call"]},
       ".github/workflows/runner-images-release.yml": {"trust_class": "tag-release", "allowed_events": ["push", "workflow_dispatch"]},
       ".github/workflows/runner-images-validation.yml": {"trust_class": "owner-pr-smoke", "allowed_events": ["pull_request", "workflow_dispatch"]},

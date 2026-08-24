@@ -98,6 +98,12 @@
       "required_follow_up": []
     },
     {
+      "path": ".github/workflows/reusable-static-web.yml",
+      "issue": 361,
+      "status": "implemented-public-workflow",
+      "required_follow_up": []
+    },
+    {
       "path": ".github/workflows/reusable-tag-image-chart.yml",
       "issue": 34,
       "status": "bootstrap-exception",
