@@ -1,3 +1,4 @@
+"""Guard the finite Central workflow entrypoint surface after issue #514."""
 from __future__ import annotations
 
 import json
