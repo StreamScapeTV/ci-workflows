@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/reusable-device.yml
+      - .github/workflows/internal-device-authorization-transport.yml
       - .github/workflows/device-validation-contract-smoke.yml
       - actions/validate-device/**
       - contracts/device-*.json
@@ -30,6 +31,7 @@ on:
       - 'issue/**'
     paths:
       - .github/workflows/reusable-device.yml
+      - .github/workflows/internal-device-authorization-transport.yml
       - .github/workflows/device-validation-contract-smoke.yml
       - actions/validate-device/**
       - contracts/device-*.json
@@ -77,6 +79,7 @@ jobs:
           cd source
           PYTHONPATH=src:tests python3 -m unittest \
             tests.test_device_admission_plan \
+            tests.test_device_authorization_transport \
             tests.test_device_denied_plan \
             tests.test_device_fixture_completeness \
             tests.test_device_inventory_evidence \
@@ -85,7 +88,7 @@ jobs:
             tests.test_public_api_contract
       - name: Remove exact source
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-device@4a7865f420e7ff37893907bbd0c4ad557a0e9ca6 # issue #479 same-repository PR event checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@4a6c73fd7bf901c2db6b19330ba0b879bc2bb3ae # issue #481 semantic authorization receipt transport checkpoint
         with:
           phase: cleanup-checkout
           source_root: source
@@ -98,7 +101,7 @@ jobs:
     steps:
       - id: plan
         name: Prove caller PR event remains trusted-exact
-        uses: StreamScapeTV/ci-workflows/actions/validate-device@4a7865f420e7ff37893907bbd0c4ad557a0e9ca6 # issue #479 same-repository PR event checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@4a6c73fd7bf901c2db6b19330ba0b879bc2bb3ae # issue #481 semantic authorization receipt transport checkpoint
         env:
           CIW_DEVICE_AUTHORIZATION_PRESENT: "true"
           CIW_DEVICE_AUTHORIZATION_RECEIPT: >-
@@ -134,6 +137,16 @@ jobs:
           test "$TRUST" = trusted-exact
           test "$ADMITTED_SHA" = "$EXPECTED_SHA"
 
+  authorization_transport:
+    name: Reusable secret transport / Authorized PR plan
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.user.login == 'mimranfaruqi' && github.event.pull_request.head.repo.full_name == github.repository }}
+    uses: ./.github/workflows/internal-device-authorization-transport.yml
+    with:
+      admitted_sha: ${{ github.event.pull_request.head.sha }}
+    secrets:
+      device_authorization_receipt: >-
+        { "request_id": "issue-481-transport-contract", "repository": "StreamScapeTV/ci-workflows", "device_capability": "transport-contract", "packet_version": "device-authorization/1", "not_after_epoch": 4102444799, "source_sha": "${{ github.event.pull_request.head.sha }}", "device_family": "ios" }
+
   synthetic:
     name: Synthetic ${{ matrix.family }} device contract
     if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.user.login == 'mimranfaruqi' && github.event.pull_request.head.repo.full_name == github.repository) }}
@@ -165,7 +178,7 @@ jobs:
           fetch_depth: "1"
       - id: synthetic
         name: Execute synthetic product-neutral device contract
-        uses: StreamScapeTV/ci-workflows/actions/validate-device@4a7865f420e7ff37893907bbd0c4ad557a0e9ca6 # issue #479 same-repository PR event checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@4a6c73fd7bf901c2db6b19330ba0b879bc2bb3ae # issue #481 semantic authorization receipt transport checkpoint
         env:
           CIW_DEVICE_AUTHORIZATION_PRESENT: "false"
         with:
@@ -200,14 +213,14 @@ jobs:
           [[ "$EVIDENCE_ID" =~ ^[0-9a-f]{64}$ ]]
       - name: Remove exact source
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-device@4a7865f420e7ff37893907bbd0c4ad557a0e9ca6 # issue #479 same-repository PR event checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@4a6c73fd7bf901c2db6b19330ba0b879bc2bb3ae # issue #481 semantic authorization receipt transport checkpoint
         with:
           phase: cleanup-checkout
           source_root: source
 
   zero_artifacts:
     name: Verify zero routine device artifacts
-    needs: [source_tests, authorized_pr_plan, synthetic]
+    needs: [source_tests, authorized_pr_plan, authorization_transport, synthetic]
     if: ${{ always() && !cancelled() && (github.event_name != 'pull_request' || (github.event.pull_request.user.login == 'mimranfaruqi' && github.event.pull_request.head.repo.full_name == github.repository)) }}
     runs-on: [ubuntu-latest]
     timeout-minutes: 5
@@ -218,6 +231,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           SOURCE_RESULT: ${{ needs.source_tests.result }}
           AUTHORIZED_PR_RESULT: ${{ needs.authorized_pr_plan.result }}
+          AUTHORIZATION_TRANSPORT_RESULT: ${{ needs.authorization_transport.result }}
           SYNTHETIC_RESULT: ${{ needs.synthetic.result }}
         run: |
           set -Eeuo pipefail
@@ -225,7 +239,9 @@ jobs:
           test "$SYNTHETIC_RESULT" = success
           if [[ "$EVENT_NAME" == pull_request ]]; then
             test "$AUTHORIZED_PR_RESULT" = success
+            test "$AUTHORIZATION_TRANSPORT_RESULT" = success
           else
             test "$AUTHORIZED_PR_RESULT" = skipped
+            test "$AUTHORIZATION_TRANSPORT_RESULT" = skipped
           fi
           echo 'Device contract smoke retains zero GitHub Actions artifacts.'
