@@ -5,7 +5,11 @@ import io
 import json
 from pathlib import Path
 import unittest
+from unittest import mock
 import urllib.error
+
+from ci_workflows.ci_broker_action import BrokerActionError, _broker_post
+from ci_workflows.ci_callback_http import central_urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/ci_broker.py"
@@ -103,6 +107,75 @@ class BrokerCliDiagnosticTests(unittest.TestCase):
             self.cli._diagnose_broker_callback(environment, opener),
             "broker_route_probe=http_403_no_broker_code",
         )
+
+    def test_start_callback_surfaces_only_bounded_broker_code(self) -> None:
+        environment = {
+            "CI_BROKER_URL": "https://broker.example",
+            "ACTIONS_ID_TOKEN_REQUEST_URL": "https://oidc.example/token?x=1",
+            "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "opaque-request-token",
+        }
+
+        def underlying_urlopen(request, timeout: int):
+            self.assertEqual(timeout, 30)
+            if request.full_url.startswith("https://oidc.example/"):
+                return Response({"value": "header.payload.signature"})
+            self.assertEqual(request.full_url, "https://broker.example/actions/start")
+            raise urllib.error.HTTPError(
+                request.full_url,
+                502,
+                "Bad Gateway",
+                hdrs=None,
+                fp=io.BytesIO(
+                    b'{"ok":false,"code":"remote_http_404","detail":"must-not-leak"}'
+                ),
+            )
+
+        with mock.patch(
+            "ci_workflows.ci_callback_http.urllib.request.urlopen",
+            side_effect=underlying_urlopen,
+        ):
+            with self.assertRaises(BrokerActionError) as caught:
+                _broker_post(
+                    "/actions/start",
+                    {"dispatch_id": "opaque", "dispatch_token": "opaque"},
+                    environment,
+                    opener=central_urlopen,
+                )
+
+        self.assertEqual(caught.exception.code, "broker_http_502_remote_http_404")
+        self.assertNotIn("must-not-leak", caught.exception.code)
+
+    def test_start_callback_keeps_unsafe_body_generic(self) -> None:
+        environment = {
+            "CI_BROKER_URL": "https://broker.example",
+            "ACTIONS_ID_TOKEN_REQUEST_URL": "https://oidc.example/token?x=1",
+            "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "opaque-request-token",
+        }
+
+        def underlying_urlopen(request, timeout: int):
+            if request.full_url.startswith("https://oidc.example/"):
+                return Response({"value": "header.payload.signature"})
+            raise urllib.error.HTTPError(
+                request.full_url,
+                502,
+                "Bad Gateway",
+                hdrs=None,
+                fp=io.BytesIO(b'{"code":"bad-value","detail":"must-not-leak"}'),
+            )
+
+        with mock.patch(
+            "ci_workflows.ci_callback_http.urllib.request.urlopen",
+            side_effect=underlying_urlopen,
+        ):
+            with self.assertRaises(BrokerActionError) as caught:
+                _broker_post(
+                    "/actions/start",
+                    {"dispatch_id": "opaque", "dispatch_token": "opaque"},
+                    environment,
+                    opener=central_urlopen,
+                )
+
+        self.assertEqual(caught.exception.code, "broker_http_502")
 
 
 if __name__ == "__main__":
