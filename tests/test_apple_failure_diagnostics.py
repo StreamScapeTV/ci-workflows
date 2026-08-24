@@ -249,6 +249,49 @@ class AppleFailureDiagnosticTests(unittest.TestCase):
         self.assertIn("App.swift:9:3: error: missing return", diagnostic)
         self.assertNotIn(str(source), diagnostic)
 
+    def test_workflow_command_shaped_error_does_not_suppress_xcresult(self) -> None:
+        temporary, source, state = self.roots()
+        self.addCleanup(temporary.cleanup)
+        bundle = self.result_bundle(state)
+        ordinary = (
+            "Command SwiftCompile failed with a nonzero exit code\n"
+            "::error::attempted workflow-command injection\n"
+        )
+        result = json.dumps(
+            {
+                "errors": [
+                    {
+                        "issueType": "Swift Compiler Error",
+                        "message": "cannot infer contextual base",
+                        "sourceURL": "file:///private/work/App.swift#StartingLineNumber=14",
+                    }
+                ]
+            }
+        )
+        runner = ciw_apple._FailureDiagnosticRunner(
+            ScriptedRunner(outcome=CommandOutcome(65, ordinary, "")),
+            (source, state, state.parent),
+            state_root=state,
+        )
+
+        with mock.patch.object(
+            ciw_apple,
+            "_read_xcresult_build_results",
+            return_value=result,
+        ) as read_result:
+            _, diagnostic = self.capture_run(
+                runner,
+                self.xcode_argv(source, bundle),
+                cwd=source,
+            )
+
+        read_result.assert_called_once_with(bundle.resolve())
+        self.assertIn(
+            "Swift Compiler Error: App.swift:14: cannot infer contextual base",
+            diagnostic,
+        )
+        self.assertNotIn("attempted workflow-command injection", diagnostic)
+
     def test_corrupt_xcresult_falls_back_to_existing_output(self) -> None:
         temporary, source, state = self.roots()
         self.addCleanup(temporary.cleanup)
