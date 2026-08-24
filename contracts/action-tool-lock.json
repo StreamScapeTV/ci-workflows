@@ -207,7 +207,7 @@
     {
       "uses": "StreamScapeTV/ci-workflows/actions/publish-helm",
       "sha": "f867827a41174ea5a9ad554eeea91dbb2c2c0bfa",
-      "release": "issue #18 immutable helper checkpoint",
+      "release": "issue #18 immutable Helm runtime checkpoint",
       "runtime": "composite",
       "source": "https://github.com/StreamScapeTV/ci-workflows/tree/f867827a41174ea5a9ad554eeea91dbb2c2c0bfa/actions/publish-helm"
     },
