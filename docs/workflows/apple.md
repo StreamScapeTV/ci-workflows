@@ -15,6 +15,16 @@ build settings. Arbitrary Xcode output-path settings, destinations, signing,
 archive/export, keychain/store operations, and arbitrary cleanup targets are
 rejected before execution.
 
+`validation.apple` also exposes one explicit `simulator-confidence` scope for
+trusted exact callers that need runtime confidence on a single iOS or tvOS
+simulator. This is not a second workflow and is not an extension of routine
+protected-full. Its strict packet contains only a schema version, bounded packet
+identity, `ios` or `tvos`, and up to eight checked-in repository-relative bash
+script steps with bounded argv. Central appends its reserved simulator argument
+to every step only after Central has created and owns the exact simulator.
+Callers cannot provide a simulator UDID, runner selector, shell command string,
+signing identity, environment-variable name, or deployment/store control.
+
 ## Single-executor protected-full model
 
 A protected-full call has one protected Linux planner and exactly one semantic
@@ -43,6 +53,33 @@ caller can keep those checks on sized Linux general capacity instead of
 allocating a Mac solely for source inspection. Existing legacy source/profile
 calls remain supported during migration.
 
+## Explicit simulator-confidence model
+
+Simulator confidence is a separate scheduling and evidence class. The Linux
+planner validates the strict packet, derives trusted exact source identity, and
+emits fixed GitHub-hosted `["macos-latest"]` for the one executor. The caller
+never selects that runner. Compatible hosted macOS is permitted because the
+mode owns only CoreSimulator runtime confidence and receives no physical-device,
+signing, release, store, registry, deployment, or production authority.
+
+For one executing packet Central reuses the existing Apple simulator ownership
+implementation. It selects the reviewed `ciw-ios` or `ciw-tvos` runtime/device
+type from the checked-in Apple contract, creates and boots exactly one CIW-owned
+simulator, records ownership, and replaces only the reserved
+`{ciw.apple.simulator_udid}` argv token after successful creation. Every caller
+script runs sequentially against that same identity. Terminal cleanup shuts down
+and deletes only the owned simulator (and any exact owned companion covered by
+the existing lifecycle contract), reconciles stale ownership safely, verifies
+zero simulator residue, verifies the admitted source remained clean, and removes
+the registered workspace.
+
+The returned `test_summary` is marked `simulator-confidence-only` and explicitly
+records that it has no physical-device, signing, or release authority. This
+result cannot satisfy physical Apple TV acceptance, native MPV/VLC engine proof,
+signing/notarization, release publication, or store certification. Real physical
+iOS/tvOS work remains exclusively on guarded `validation.device` using
+organization-managed `[macOS, ARM64]` Apple capacity.
+
 ## Compile and test destinations
 
 Compile-only iOS and tvOS stages use generic simulator-platform destinations.
@@ -58,11 +95,12 @@ cleanup, and residue checking do not enter CoreSimulator ownership or inventory.
 Generic `platform=iOS Simulator` / `platform=tvOS Simulator` destination text is
 an SDK build destination and does not mean a simulator device was booted.
 
-The lower-level reviewed simulator primitives remain available for separately
-reviewed explicit runtime/smoke APIs. Those primitives retain deterministic
-runtime/device-type selection, exclusive ownership, stale-row reconciliation,
-redacted simulator identity, exact CIW-owned companion handling, and no-follow
-cleanup. They are not part of routine protected-full execution.
+The lower-level reviewed simulator primitives are used only by separately
+reviewed explicit runtime/smoke paths such as `simulator-confidence`. Those
+primitives retain deterministic runtime/device-type selection, exclusive
+ownership, stale-row reconciliation, redacted simulator identity, exact
+CIW-owned companion handling, and no-follow cleanup. They are not part of
+routine protected-full execution.
 
 ## Caller-owned plan safety
 
@@ -79,6 +117,13 @@ as `SYMROOT`, `OBJROOT`, or `CONFIGURATION_BUILD_DIR` are rejected, as are
 caller-supplied destinations, DerivedData/result-bundle/package-state paths,
 signing identities, provisioning, archive/export, notarization, or store
 operations. Central still injects the fixed signing-disabled settings.
+
+Simulator-confidence argv is even narrower: every argument is one bounded
+non-whitespace token from the strict technology-level character set, the
+reserved simulator token is forbidden from caller data, and Central appends
+`--simulator` plus that internal token itself. Script paths are checked-in
+relative paths and traversal is rejected. No arbitrary environment map or shell
+string is accepted.
 
 Caller cleanup paths are likewise not arbitrary deletion authority. They must be
 relative generated leaves such as `build`, `.build`, `.swiftpm`, or `xcuserdata`;
@@ -118,8 +163,9 @@ migrate. It supports:
 | `repository-recovery` | Checked-in recovery/audit script | semantic `apple` |
 
 Legacy consumers keep their checked-in consumer/task mappings. Protected-full
-is product-neutral and does not add a central application repository allowlist,
-product ID, product command, or branch/path/concurrency policy.
+and simulator-confidence are product-neutral and do not add a central
+application repository allowlist, product ID, product command, or
+branch/path/concurrency policy.
 
 ## Exact toolchain and signing boundary
 
@@ -142,16 +188,16 @@ imports a keychain, reaches Kubernetes, or deploys a product.
 
 ## Immutable helper reuse
 
-The reusable workflow invokes `actions/validate-apple` through the integrated
-issue #496 simulator-free protected-full helper checkpoint
-`2ea47520b9d84b9b0a71c23de3da03f02a5bea9c`.
-The corresponding action-lock release label is
-`issue #496 simulator-free protected-full helper activation`.
-That checkpoint preserves the Git-index-aware protected Xcode container snapshot,
-bounded diagnostics, signing lockdown, source exactness, and lower-level explicit
-runtime simulator primitives while ensuring routine protected-full iOS/tvOS
-compile stages never enter simulator ownership during execution, cleanup, or
-residue verification.
+The reusable workflow invokes `actions/validate-apple` through the issue #516
+simulator-confidence checkpoint
+`3b0dd398664c14dd5985d9d2248ec13917059223`.
+That checkpoint preserves the issue #496 simulator-free protected-full behavior
+and adds only the explicit strict simulator-confidence dispatch. The corresponding
+action-lock release label is `issue #516 simulator-confidence checkpoint`.
+Legacy and protected-full requests still dispatch through the existing typed
+`ciw apple validate` implementation; only the explicit simulator-confidence
+scope enters the strict packet adapter and existing lower-level simulator
+ownership functions.
 
 Exact source checkout, workspace preparation, optional private dependency
 checkout, evidence rendering, and registered-state cleanup continue to use their
@@ -174,15 +220,20 @@ credentials, and exposes registered-state identity. Apple execution rejects the
 dependency unless every piece of checkout evidence matches the requested exact
 identity. `secrets: inherit` is not used.
 
-After that verification succeeds, Apple execution derives the dependency's exact
-GitHub HTTPS identity from the validated `owner/name` input and installs a
-process-scoped Git `url.<local-file-URI>.insteadOf` mapping for both the exact
-HTTPS form and its `.git` spelling. Xcode/SwiftPM can therefore resolve that one
-private package from the verified local checkout after remotes and credentials
-have been erased. The mapping is supplied only through the validation process
-environment, disables interactive Git prompting, and does not write repository,
-user, or system Git configuration. It does not create a general private-package
-credential channel or permit a caller-selected local path.
+Simulator-confidence does not consume the private-dependency channel. Its
+planner emits no dependency request, so the optional checkout step remains
+skipped for that mode.
+
+After protected-full dependency verification succeeds, Apple execution derives
+the dependency's exact GitHub HTTPS identity from the validated `owner/name`
+input and installs a process-scoped Git `url.<local-file-URI>.insteadOf` mapping
+for both the exact HTTPS form and its `.git` spelling. Xcode/SwiftPM can therefore
+resolve that one private package from the verified local checkout after remotes
+and credentials have been erased. The mapping is supplied only through the
+validation process environment, disables interactive Git prompting, and does
+not write repository, user, or system Git configuration. It does not create a
+general private-package credential channel or permit a caller-selected local
+path.
 
 ## Artifacts and cleanup
 
@@ -194,7 +245,7 @@ no-follow cleanup. Routine protected-full cleanup never enters CoreSimulator
 ownership/inventory. The workflow separately removes the exact source checkout
 and then calls the registered workspace cleanup action. Cleanup/residue failure,
 source mutation, or workspace-cleanup failure makes the terminal Apple result
-fail. Explicit runtime/smoke APIs retain their own simulator residue guarantees.
+fail. Explicit runtime modes retain exact-owned-simulator residue guarantees.
 
 ## Repository-local smoke workflow
 
@@ -202,17 +253,17 @@ fail. Explicit runtime/smoke APIs retain their own simulator residue guarantees.
 exact-head contract caller. Because `ci-workflows` is public while organization
 self-hosted runner groups remain private-repository capacity, its planning and
 zero-artifact control jobs use canonical GitHub-hosted `[ubuntu-latest]`.
-They prove exact source, Apple plan/contract behavior, and that the real executor
-selector remains exactly `["macOS","ARM64"]`.
+They prove exact source, Apple plan/contract behavior, and that the ordinary
+semantic Apple executor selector remains exactly `["macOS","ARM64"]`.
+Simulator-confidence planning is separately contract-tested to emit fixed
+`["macos-latest"]` without granting physical-device authority.
 
-The real Apple job definition remains in the workflow with the centrally resolved
-selector and complete native implementation, but is gated to private repository
-context. It is therefore skipped, rather than left queued on inaccessible private
-Mac capacity, when the public Central repository validates a pull request.
-Pre-merge native execution evidence for an Apple implementation change is supplied
-by a private product consumer calling the Central issue branch by branch name;
-after merge, normal product callers return to the active `@main` library channel.
-Exact resolved commits are evidence, not product configuration.
+The real ordinary Apple job definition remains in the workflow with the
+centrally resolved selector and complete native implementation, but is gated to
+private repository context. It is therefore skipped, rather than left queued on
+inaccessible private Mac capacity, when the public Central repository validates
+a pull request. Hosted simulator-confidence is intentionally a different
+capability and does not depend on those persistent organization Macs.
 
 The smoke workflow watches Apple implementation, guard, contract-fragment,
 public-API, and test authority paths. It directly invokes the local composite

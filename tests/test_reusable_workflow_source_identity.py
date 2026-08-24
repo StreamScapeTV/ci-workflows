@@ -18,7 +18,7 @@ FLUTTER_SHA = "d2e1c7a7601e1caeeb976311fb13cf41fef94d4a"
 ANDROID_SHA = "60ce05e4da20b45783ae729f112083b2801d2e25"
 GRADLE_WARM_SHA = "13de46c51efcf65df798dfec82a620c484350dfa"
 GRADLE_SEED_SHA = "fa67b6a1580ff2eb7386a9e58de09896b9990696"
-APPLE_SHA = "2ea47520b9d84b9b0a71c23de3da03f02a5bea9c"
+APPLE_SHA = "3b0dd398664c14dd5985d9d2248ec13917059223"
 GITOPS_SHA = "8445e63dd9fa9468b60b6d0c61e543da9681b47b"
 
 FOUNDATION = "issue #116 immutable private-action checkpoint"
@@ -31,7 +31,7 @@ ISSUE_373_BUILD_ONCE = "issue #373 build-once protected-full checkpoint"
 ISSUE_346_WARM = "issue #346 dependency warm checkpoint"
 ISSUE_346_CACHE = "issue #346 bounded Gradle cache sync diagnostics checkpoint"
 ISSUE_125 = "issue #125 immutable private-action checkpoint"
-ISSUE_496_APPLE = "issue #496 simulator-free protected-full helper activation"
+ISSUE_516_APPLE = "issue #516 simulator-confidence checkpoint"
 ISSUE_27 = "issue #27 Finance composition publication checkpoint"
 
 PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
@@ -65,7 +65,7 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
     },
     ".github/workflows/reusable-apple.yml": {
-        "StreamScapeTV/ci-workflows/actions/validate-apple": (APPLE_SHA, ISSUE_496_APPLE),
+        "StreamScapeTV/ci-workflows/actions/validate-apple": (APPLE_SHA, ISSUE_516_APPLE),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/checkout-private-dependency": (FOUNDATION_SHA, ISSUE_104),
