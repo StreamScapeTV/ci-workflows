@@ -9,6 +9,8 @@ USER root
 
 ARG PODMAN_PACKAGE_VERSION=4.9.3+ds1-1ubuntu0.2
 ARG PODMAN_COMPOSE_PACKAGE_VERSION=1.0.6-1
+ARG NETAVARK_PACKAGE_VERSION=1.4.0-4
+ARG AARDVARK_DNS_PACKAGE_VERSION=1.4.0-5
 
 ENV DEBIAN_FRONTEND=noninteractive \
     STORAGE_DRIVER=vfs \
@@ -17,6 +19,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
+      aardvark-dns="${AARDVARK_DNS_PACKAGE_VERSION}" \
       bash \
       ca-certificates \
       crun \
@@ -24,6 +27,7 @@ RUN apt-get update \
       fuse-overlayfs \
       git \
       jq \
+      netavark="${NETAVARK_PACKAGE_VERSION}" \
       podman="${PODMAN_PACKAGE_VERSION}" \
       podman-compose="${PODMAN_COMPOSE_PACKAGE_VERSION}" \
       python3 \
@@ -32,7 +36,7 @@ RUN apt-get update \
       tar \
       uidmap \
       util-linux \
-    && apt-mark hold podman podman-compose \
+    && apt-mark hold aardvark-dns netavark podman podman-compose \
     && rm -rf /var/lib/apt/lists/*
 
 # The official Actions runner image includes Docker's static runtime bundle.
@@ -93,6 +97,9 @@ RUN printf '%s\n' \
       'cgroup_manager = "cgroupfs"' \
       'events_logger = "file"' \
       'runtime = "crun"' \
+      '' \
+      '[network]' \
+      'network_backend = "netavark"' \
       > /home/runner/.config/containers/containers.conf \
     && chown -R runner:runner /home/runner/.config /home/runner/.local /home/runner/_work
 
@@ -101,4 +108,7 @@ COPY --chmod=0755 smoke.sh /usr/local/bin/runner-image-smoke
 USER runner
 WORKDIR /home/runner
 
-RUN /usr/local/bin/runner-image-smoke
+# Image construction proves the immutable package/configuration contract. The
+# shared runner-image action executes the same smoke without this flag from the
+# finished image, where it additionally proves live rootless networking/DNS.
+RUN CIW_RUNNER_IMAGE_BUILD_PHASE=1 /usr/local/bin/runner-image-smoke
