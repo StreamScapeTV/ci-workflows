@@ -189,6 +189,8 @@ class BrokerWorkflowTests(unittest.TestCase):
             "CHART_NAMESPACE: mimranfaruqi/ci-workflows/helm-charts",
             self.release_text,
         )
+        self.assertNotIn("git.faruqi.dev/mimranfaruqi/ci-broker", self.release_text)
+        self.assertNotIn("mimranfaruqi/helm-charts", self.release_text)
         self.assertIn("git.faruqi.dev", self.release_text)
         self.assertIn("secrets.FORGEJO_REGISTRY_USERNAME", self.release_text)
         self.assertIn("secrets.FORGEJO_REGISTRY_TOKEN", self.release_text)
