@@ -34,6 +34,7 @@ class SourceMode(str, Enum):
     PUSH = "push"
     MANUAL = "manual"
     WORKFLOW_CALL = "workflow-call"
+    REQUESTED_REF = "requested-ref"
     TAG = "tag"
     TRUSTED_MAINTENANCE = "trusted-maintenance"
 
@@ -52,6 +53,8 @@ class SourceAdmissionError(RuntimeError):
 class SourceInputs:
     source_mode: SourceMode
     requested_sha: str | None
+    requested_ref: str | None
+    is_tag: bool | None
     expected_branch: str | None
     release_contract: str | None
     history_depth: int
@@ -157,6 +160,20 @@ def _optional_string(value: Any) -> str | None:
     return stripped or None
 
 
+def _optional_bool(value: Any, instruction: str) -> bool | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered == "true":
+            return True
+        if lowered == "false":
+            return False
+    raise SourceAdmissionError(instruction)
+
+
 def _full_sha(value: Any, instruction: str) -> str:
     _require(isinstance(value, str) and FULL_SHA.fullmatch(value) is not None, instruction)
     return value
@@ -208,6 +225,16 @@ def validate_inputs(raw: Mapping[str, Any], contract: Mapping[str, Any]) -> Sour
     requested_sha = _optional_sha(
         raw.get("requested_sha"), "requested_sha_must_be_full_sha"
     )
+    requested_ref = _optional_string(raw.get("requested_ref"))
+    is_tag = _optional_bool(raw.get("is_tag"), "invalid_is_tag")
+    if requested_ref is None:
+        _require(is_tag is None, "requested_ref_required_for_is_tag")
+    else:
+        _require(is_tag is not None, "is_tag_required_for_requested_ref")
+        _require(not requested_ref.startswith("refs/"), "invalid_requested_ref")
+        pattern = TAG if is_tag else BRANCH
+        _require(pattern.fullmatch(requested_ref) is not None, "invalid_requested_ref")
+
     expected_branch = _optional_string(raw.get("expected_branch"))
     if expected_branch is not None:
         _require(
@@ -273,6 +300,8 @@ def validate_inputs(raw: Mapping[str, Any], contract: Mapping[str, Any]) -> Sour
     return SourceInputs(
         source_mode=source_mode,
         requested_sha=requested_sha,
+        requested_ref=requested_ref,
+        is_tag=is_tag,
         expected_branch=expected_branch,
         release_contract=release_contract,
         history_depth=history_depth,
