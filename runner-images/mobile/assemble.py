@@ -9,6 +9,28 @@ import zipfile
 
 ANDROID = Path("/opt/android-sdk")
 
+PLATFORM_37_PACKAGE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ns2:repository
+    xmlns:ns2="http://schemas.android.com/repository/android/common/02"
+    xmlns:ns6="http://schemas.android.com/sdk/android/repo/repository2/04">
+    <localPackage path="platforms;android-37.0" obsolete="false">
+        <type-details
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xsi:type="ns6:platformDetailsType">
+            <api-level>37.0</api-level>
+            <codename></codename>
+            <extension-level>22</extension-level>
+            <base-extension>true</base-extension>
+            <layoutlib api="15"/>
+        </type-details>
+        <revision>
+            <major>2</major>
+        </revision>
+        <display-name>Android SDK Platform 37.0</display-name>
+    </localPackage>
+</ns2:repository>
+"""
+
 
 def _safe_symlink_target(output: Path, target_root: Path, raw_target: bytes) -> str:
     try:
@@ -74,6 +96,33 @@ def copy_tree(source: Path, destination: Path) -> None:
     shutil.copytree(source, destination, dirs_exist_ok=True, symlinks=True)
 
 
+def materialize_platform_37_package_metadata(platform_root: Path) -> None:
+    source_properties = platform_root / "source.properties"
+    if not source_properties.is_file():
+        raise SystemExit("Platform 37 is missing source.properties")
+    properties = {}
+    for raw_line in source_properties.read_text(encoding="utf-8").splitlines():
+        key, separator, value = raw_line.partition("=")
+        if separator:
+            properties[key.strip()] = value.strip()
+    expected = {
+        "Pkg.Revision": "2",
+        "AndroidVersion.ApiLevel": "37.0",
+        "AndroidVersion.ExtensionLevel": "22",
+        "AndroidVersion.IsBaseSdk": "true",
+    }
+    for key, value in expected.items():
+        if properties.get(key) != value:
+            raise SystemExit(
+                f"unexpected Platform 37 metadata {key}={properties.get(key)!r}; expected {value!r}"
+            )
+
+    package_xml = platform_root / "package.xml"
+    if package_xml.exists() or package_xml.is_symlink():
+        raise SystemExit("Platform 37 archive unexpectedly contains package.xml")
+    package_xml.write_text(PLATFORM_37_PACKAGE_XML, encoding="utf-8")
+
+
 def main() -> int:
     ANDROID.mkdir(parents=True, exist_ok=True)
     with tarfile.open("/tmp/flutter.tar.xz", "r:xz") as archive:
@@ -93,7 +142,10 @@ def main() -> int:
         jars = list(unpacked.rglob("android.jar"))
         if len(jars) != 1:
             raise SystemExit(f"expected one android.jar for platform {api}, got {len(jars)}")
-        copy_tree(jars[0].parent, ANDROID / "platforms" / f"android-{api}")
+        platform_root = ANDROID / "platforms" / f"android-{api}"
+        copy_tree(jars[0].parent, platform_root)
+        if api == "37.0":
+            materialize_platform_37_package_metadata(platform_root)
 
     for source, version in (
         (Path("/tmp/android-build-tools-36.zip"), "36.0.0"),
