@@ -90,6 +90,7 @@ def test_mobile_runner_locks_compatible_toolchain() -> None:
         "release_authority": "ci-workflows-git-tag",
         "independent_product": True,
     }
+    assert toolchain["android_platform_revisions"] == {"36": 2, "37.0": 2}
     assert toolchain["android_cmake_package"] == f"cmake;{toolchain['android_cmake']}"
     assert toolchain["android_cmake_runtime_version"] == "3.22.1-g37088a8"
     assert toolchain["android_ninja_minimum"] == "1.10"
@@ -104,6 +105,62 @@ def test_mobile_runner_locks_compatible_toolchain() -> None:
     ]
     for index, license_hash in enumerate(license_hashes, start=1):
         assert f"ARG ANDROID_SDK_LICENSE_{index}={license_hash}" in source
+
+
+def test_mobile_runner_pins_platform_37_revision_two_and_forbids_runtime_sdk_mutation() -> None:
+    source = DOCKERFILE.read_text(encoding="utf-8")
+    smoke = SMOKE.read_text(encoding="utf-8")
+    assemble = ASSEMBLE.read_text(encoding="utf-8")
+    lock = _lock()
+    platform_37 = lock["downloads"]["android_platform_37"]
+
+    assert platform_37 == {
+        "url": "https://dl.google.com/android/repository/platform-37.0_r02.zip",
+        "sha256": "840b23e827f96e64aea4c89a1194aac3dc5f6bad37edb231c5c795d890330e8d",
+    }
+    assert f"ARG ANDROID_PLATFORM_37_URL={platform_37['url']}" in source
+    assert f"ARG ANDROID_PLATFORM_37_SHA256={platform_37['sha256']}" in source
+    assert 'chown -R 0:0 "${ANDROID_HOME}"' in source
+    assert 'chmod -R a-w "${ANDROID_HOME}"' in source
+
+    for token in (
+        'path="platforms;android-37.0"',
+        'xsi:type="ns6:platformDetailsType"',
+        "<api-level>37.0</api-level>",
+        "<extension-level>22</extension-level>",
+        "<base-extension>true</base-extension>",
+        "<major>2</major>",
+        '"Pkg.Revision": "2"',
+        '"AndroidVersion.ApiLevel": "37.0"',
+        '"AndroidVersion.ExtensionLevel": "22"',
+        '"AndroidVersion.IsBaseSdk": "true"',
+        "materialize_platform_37_package_metadata(platform_root)",
+    ):
+        assert token in assemble
+
+    for token in (
+        "Pkg.Revision=2",
+        "AndroidVersion.ApiLevel=37.0",
+        "AndroidVersion.ExtensionLevel=22",
+        'platform37_package_xml="${ANDROID_HOME}/platforms/android-37.0/package.xml"',
+        'localPackage path="platforms;android-37.0"',
+        'test ! -w "${ANDROID_HOME}"',
+        'test ! -w "${ANDROID_HOME}/platforms/android-37.0"',
+        'find "${ANDROID_HOME}" -xdev',
+        'app_gradle="${app_root}/android/app/build.gradle.kts"',
+        "compileSdk = flutter.compileSdkVersion",
+        "compileSdk = 37",
+        "platform37_jar_sha_before=",
+        "platform37_properties_sha_before=",
+        "platform37_package_xml_sha_before=",
+        "sdk_tree_before=",
+        "android-37.0-2",
+        "Downloading https://dl\\.google\\.com/android/repository/",
+    ):
+        assert token in smoke
+
+    assert "sdkmanager --install" not in smoke
+    assert "sdkmanager --licenses" not in smoke
 
 
 def test_mobile_runner_materializes_required_android_components_safely() -> None:
@@ -140,8 +197,8 @@ def test_mobile_runner_bakes_cmake_license_and_runs_real_flutter_apk_smoke() -> 
     assert f"ARG ANDROID_CMAKE_VERSION={cmake_version}" in source
     assert "--channel=0" in source
     assert '--install "cmake;${ANDROID_CMAKE_VERSION}"' in source
-    assert 'chown -R 0:0 "${ANDROID_HOME}/cmake" "${ANDROID_HOME}/licenses"' in source
-    assert 'chmod -R a-w "${ANDROID_HOME}/cmake" "${ANDROID_HOME}/licenses"' in source
+    assert 'chown -R 0:0 "${ANDROID_HOME}"' in source
+    assert 'chmod -R a-w "${ANDROID_HOME}"' in source
     assert "chown 0:0 /tmp" in source
     assert "chmod 1777 /tmp" in source
     assert "CIW_RUNNER_IMAGE_BUILD_PHASE=1 /usr/local/bin/runner-image-smoke" in source
