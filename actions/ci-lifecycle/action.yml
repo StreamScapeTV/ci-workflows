@@ -81,4 +81,4 @@ runs:
         INPUT_DIAGNOSTIC_KEY: ${{ inputs.diagnostic_key }}
       run: |
         set -Eeuo pipefail
-        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ci_lifecycle.py" "${{ inputs.phase }}"
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" lifecycle "${{ inputs.phase }}"
