@@ -8,7 +8,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-GITOPS_SHA = "8445e63dd9fa9468b60b6d0c61e543da9681b47b"
+GITOPS_SHA = "b99c4296fe7cad06ef6c5956b1b0eb86a49f0145"
 EXECUTION_BACKEND_SHA = "01d1d10bafcc4fc1e4c51663f72b08f694dc4e35"
 
 
@@ -150,7 +150,7 @@ class GitOpsWorkflowContractTests(unittest.TestCase):
         }
         gitops = locked["StreamScapeTV/ci-workflows/actions/validate-gitops"]
         self.assertEqual(GITOPS_SHA, gitops["sha"])
-        self.assertEqual("issue #125 immutable private-action checkpoint", gitops["release"])
+        self.assertEqual("issue #475 bounded GitOps source validation checkpoint", gitops["release"])
         self.assertEqual("composite", gitops["runtime"])
 
     def test_smoke_is_exact_head_hosted_linux_and_zero_artifact(self) -> None:
