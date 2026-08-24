@@ -50,18 +50,26 @@ def _execute(
     before = _source_snapshot(source_root, plan.request.admitted_sha)
     targets = selected_targets(plan, source_root)
     style_paths = style_paths_for_plan(plan, source_root)
-    owners: dict[ObjectIdentity, tuple[GitOpsTarget, ...]] = {}
+    owners: dict[
+        ObjectIdentity,
+        tuple[tuple[GitOpsTarget, Path | None], ...],
+    ] = {}
     all_documents: list[Any] = []
     validated_files = 0
     rendered_objects = 0
     for target in targets:
         if target.kind is GitOpsTargetKind.YAML:
-            documents, count = yaml_target(
+            sourced_documents, count = yaml_target(
                 target,
                 source_root,
                 tools.yaml,
                 style_paths=style_paths,
             )
+            documents = [document for document, _ in sourced_documents]
+            source_paths: list[Path | None] = [
+                source_path
+                for _, source_path in sourced_documents
+            ]
         elif target.kind is GitOpsTargetKind.HELM:
             documents, count = _helm_target(
                 target,
@@ -69,6 +77,7 @@ def _execute(
                 state_root,
                 tools,
             )
+            source_paths = [None] * len(documents)
         else:
             documents, count = _kustomize_target(
                 target,
@@ -76,9 +85,10 @@ def _execute(
                 state_root,
                 tools,
             )
+            source_paths = [None] * len(documents)
         validated_files += count
         target_identities: set[ObjectIdentity] = set()
-        for document in documents:
+        for document, source_path in zip(documents, source_paths, strict=True):
             identity = _object_identity(document)
             if identity is not None:
                 _require(
@@ -89,13 +99,23 @@ def _execute(
                 target_identities.add(identity)
                 previous = owners.get(identity, ())
                 if previous:
+                    previous_target, previous_source_path = previous[0]
                     _require(
                         len(previous) == 1
-                        and source_render_overlap_allowed(previous[0], target),
+                        and source_render_overlap_allowed(
+                            previous_target,
+                            previous_source_path,
+                            target,
+                            source_path,
+                            source_root,
+                        ),
                         "duplicate_object_ownership",
                         identity.label,
                     )
-                owners[identity] = (*previous, target)
+                owners[identity] = (
+                    *previous,
+                    (target, source_path),
+                )
                 rendered_objects += 1
         all_documents.extend(documents)
     policy_result = _policy(plan, source_root, state_root)
