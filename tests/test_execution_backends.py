@@ -104,15 +104,28 @@ class ExecutionBackendTests(unittest.TestCase):
             "${{ inputs.execution_backend != 'github-hosted' }}",
         )
 
-    def test_node_python_hosted_planners_stay_hosted_until_issue_454(self) -> None:
+    def test_node_python_planners_are_backend_aware_after_issue_454(self) -> None:
         for filename in ("reusable-node.yml", "reusable-python.yml"):
             with self.subTest(filename=filename):
                 workflow = yaml.load(
                     (ROOT / ".github/workflows" / filename).read_text(encoding="utf-8"),
                     Loader=ActionsLoader,
                 )
-                self.assertEqual(workflow["jobs"]["plan"]["runs-on"], ["ubuntu-latest"])
-                self.assertNotIn("plan_organization", workflow["jobs"])
+                hosted = workflow["jobs"]["plan"]
+                organization = workflow["jobs"]["plan_organization"]
+                self.assertEqual(hosted["runs-on"], ["ubuntu-latest"])
+                self.assertEqual(
+                    hosted["if"],
+                    "${{ inputs.execution_backend == 'github-hosted' }}",
+                )
+                self.assertEqual(
+                    organization["runs-on"],
+                    ["linux", "amd64", "general", "small"],
+                )
+                self.assertEqual(
+                    organization["if"],
+                    "${{ inputs.execution_backend != 'github-hosted' }}",
+                )
 
     def test_new_portable_families_have_backend_aware_planners(self) -> None:
         for filename in (
@@ -151,18 +164,9 @@ class ExecutionBackendTests(unittest.TestCase):
             "${{ fromJSON(needs.plan.outputs.runs_on_json || needs.plan_organization.outputs.runs_on_json) }}",
         )
 
-        for filename in ("reusable-node.yml", "reusable-python.yml"):
-            with self.subTest(filename=filename):
-                workflow = yaml.load(
-                    (ROOT / ".github/workflows" / filename).read_text(encoding="utf-8"),
-                    Loader=ActionsLoader,
-                )
-                self.assertEqual(
-                    workflow["jobs"]["validate"]["runs-on"],
-                    "${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
-                )
-
         for filename in (
+            "reusable-node.yml",
+            "reusable-python.yml",
             "reusable-gitops-validation.yml",
             "reusable-script.yml",
             "reusable-helm-validate.yml",

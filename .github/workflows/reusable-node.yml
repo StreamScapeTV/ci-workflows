@@ -101,8 +101,41 @@ permissions:
 
 jobs:
   plan:
-    name: Resolve bounded Node validation plan
+    name: Resolve hosted Node validation plan
+    if: ${{ inputs.execution_backend == 'github-hosted' }}
     runs-on: [ubuntu-latest]
+    timeout-minutes: 10
+    outputs:
+      node_version: ${{ steps.plan.outputs.node_version }}
+      runner_profile: ${{ steps.plan.outputs.runner_profile }}
+      runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
+      workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
+      timeout_minutes: ${{ steps.plan.outputs.timeout_minutes }}
+      source_trust: ${{ steps.plan.outputs.source_trust }}
+    steps:
+      - id: plan
+        name: Resolve contract-owned Node command and execution plan
+        uses: StreamScapeTV/ci-workflows/actions/validate-node@7d5d839c6e90491e165f1358ecb5e80129805764 # issue #405 simplified execution-backend checkpoint
+        with:
+          phase: plan
+          execution_backend: ${{ inputs.execution_backend }}
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          version_file: ${{ inputs.version_file }}
+          node_version: ${{ inputs.node_version }}
+          working_directory: ${{ inputs.working_directory }}
+          install_profile: ${{ inputs.install_profile }}
+          command_profile: ${{ inputs.command_profile }}
+          script_path: ${{ inputs.script_path }}
+          static_output_directory: ${{ inputs.static_output_directory }}
+          output_verifier_path: ${{ inputs.output_verifier_path }}
+          public_environment: ${{ inputs.public_environment }}
+          artifact_exception_id: ${{ inputs.artifact_exception_id }}
+
+  plan_organization:
+    name: Resolve organization Node validation plan
+    if: ${{ inputs.execution_backend != 'github-hosted' }}
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 10
     outputs:
       node_version: ${{ steps.plan.outputs.node_version }}
@@ -133,8 +166,9 @@ jobs:
 
   validate:
     name: CI / Node validation
-    needs: plan
-    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
+    needs: [plan, plan_organization]
+    if: ${{ always() && (needs.plan.result == 'success' || needs.plan_organization.result == 'success') }}
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json || needs.plan_organization.outputs.runs_on_json) }}
     timeout-minutes: 90
     outputs:
       result: ${{ steps.node.outcome == 'success' && steps.cleanup.outcome == 'success' && 'success' || 'failure' }}
@@ -162,15 +196,15 @@ jobs:
         name: Prepare isolated marker-bound Node state
         uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
-          profile: ${{ needs.plan.outputs.workspace_profile }}
+          profile: ${{ needs.plan.outputs.workspace_profile || needs.plan_organization.outputs.workspace_profile }}
           cache_mode: disabled
           source_sha: ${{ inputs.admitted_sha }}
-          trust_mode: ${{ needs.plan.outputs.source_trust }}
+          trust_mode: ${{ needs.plan.outputs.source_trust || needs.plan_organization.outputs.source_trust }}
 
       - name: Set up exact contract-selected Node runtime
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: ${{ needs.plan.outputs.node_version }}
+          node-version: ${{ needs.plan.outputs.node_version || needs.plan_organization.outputs.node_version }}
           package-manager-cache: false
 
       - id: node
@@ -200,7 +234,7 @@ jobs:
           workflow_release: validation-node-1.0.0
           runner_profile: portable
           toolchain_json: >-
-            {"node":"${{ needs.plan.outputs.node_version }}","npm":"${{ steps.node.outputs.npm_version || 'unknown' }}"}
+            {"node":"${{ needs.plan.outputs.node_version || needs.plan_organization.outputs.node_version }}","npm":"${{ steps.node.outputs.npm_version || 'unknown' }}"}
           command_profile: ${{ inputs.command_profile }}
           result: ${{ steps.node.outcome == 'success' && 'success' || 'failure' }}
           cleanup_state: not-run

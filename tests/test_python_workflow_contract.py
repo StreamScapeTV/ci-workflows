@@ -87,21 +87,48 @@ class PythonWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("consumers", self.python_contract)
         self.assertNotIn("command_profiles", self.python_contract)
 
-    def test_workflow_uses_hosted_planner_and_exact_backend_runner_output(self) -> None:
+    def test_backend_planners_are_mutually_exclusive_and_validation_uses_successful_output(self) -> None:
         jobs = self.workflow["jobs"]
-        self.assertEqual({"plan", "validate"}, set(jobs))
-        self.assertEqual(["ubuntu-latest"], jobs["plan"]["runs-on"])
+        self.assertEqual({"plan", "plan_organization", "validate"}, set(jobs))
+        hosted = jobs["plan"]
+        organization = jobs["plan_organization"]
+        validate = jobs["validate"]
+        self.assertEqual(["ubuntu-latest"], hosted["runs-on"])
         self.assertEqual(
-            "${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
-            jobs["validate"]["runs-on"],
+            "${{ inputs.execution_backend == 'github-hosted' }}", hosted["if"]
         )
-        planner = jobs["plan"]["steps"][0]
-        self.assertEqual("${{ inputs.execution_backend }}", planner["with"]["execution_backend"])
-        self.assertEqual("${{ inputs.python_version }}", planner["with"]["python_version"])
-        self.assertEqual("${{ inputs.dependency_file }}", planner["with"]["dependency_file"])
-        self.assertEqual("${{ inputs.script_path }}", planner["with"]["script_path"])
-        self.assertEqual(120, jobs["validate"]["timeout-minutes"])
-        self.assertEqual("CI / Python validation", jobs["validate"]["name"])
+        self.assertEqual(
+            ["linux", "amd64", "general", "small"], organization["runs-on"]
+        )
+        self.assertEqual(
+            "${{ inputs.execution_backend != 'github-hosted' }}", organization["if"]
+        )
+        self.assertEqual(["plan", "plan_organization"], validate["needs"])
+        self.assertEqual(
+            "${{ always() && (needs.plan.result == 'success' || needs.plan_organization.result == 'success') }}",
+            validate["if"],
+        )
+        self.assertEqual(
+            "${{ fromJSON(needs.plan.outputs.runs_on_json || needs.plan_organization.outputs.runs_on_json) }}",
+            validate["runs-on"],
+        )
+        for planner in (hosted, organization):
+            step = planner["steps"][0]
+            self.assertEqual("${{ inputs.execution_backend }}", step["with"]["execution_backend"])
+            self.assertEqual("${{ inputs.python_version }}", step["with"]["python_version"])
+            self.assertEqual("${{ inputs.dependency_file }}", step["with"]["dependency_file"])
+            self.assertEqual("${{ inputs.script_path }}", step["with"]["script_path"])
+            self.assertEqual("plan", step["with"]["phase"])
+        self.assertIn(
+            "profile: ${{ needs.plan.outputs.workspace_profile || needs.plan_organization.outputs.workspace_profile }}",
+            self.workflow_text,
+        )
+        self.assertIn(
+            "trust_mode: ${{ needs.plan.outputs.source_trust || needs.plan_organization.outputs.source_trust }}",
+            self.workflow_text,
+        )
+        self.assertEqual(120, validate["timeout-minutes"])
+        self.assertEqual("CI / Python validation", validate["name"])
         self.assertNotIn("self-hosted", self.workflow_text)
         self.assertNotIn("docker-capable", self.workflow_text)
 
@@ -114,6 +141,13 @@ class PythonWorkflowContractTests(unittest.TestCase):
             self.assertIn(
                 f"StreamScapeTV/ci-workflows/actions/{helper}@{sha}",
                 self.workflow_text,
+            )
+        for planner_name in ("plan", "plan_organization"):
+            planner = self.workflow["jobs"][planner_name]["steps"]
+            self.assertEqual(1, len(planner))
+            self.assertEqual(
+                f"StreamScapeTV/ci-workflows/actions/validate-python@{PYTHON_ACTION_SHA}",
+                planner[0]["uses"],
             )
 
     def test_exact_source_cleanup_and_zero_artifact_contract_are_preserved(self) -> None:
