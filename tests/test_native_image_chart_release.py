@@ -68,7 +68,7 @@ class NativeImageChartNormalReleaseContractTest(unittest.TestCase):
     def test_generated_reference_matches_normal_native_api(self) -> None:
         self.assertTrue(self.reference.endswith("\n"))
         section = self.reference.split("### `release.native-image-chart`", 1)[1].split(
-            "### `release.orchestrate`", 1
+            "### `release.public-native-image-chart`", 1
         )[0]
         self.assertIn("- Events: `tag-push`, `workflow_call`", section)
         self.assertIn(
@@ -196,7 +196,11 @@ class NativeImageChartNormalReleaseContractTest(unittest.TestCase):
         self.assertNotIn("release_mode:", self.caller_smoke)
         self.assertNotIn("release_version:", self.caller_smoke)
         self.assertNotIn("release_source_sha:", self.caller_smoke)
-        for required in ("image_name: parser-smoke", "chart_name: parser-smoke", "chart_path: ."):
+        for required in (
+            "image_name: parser-smoke",
+            "chart_name: parser-smoke",
+            "chart_path: .",
+        ):
             self.assertIn(required, self.caller_smoke)
         self.assertIn(
             'test "${{ needs.reusable_call.result }}" = "skipped"',
