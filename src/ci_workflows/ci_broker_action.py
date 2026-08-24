@@ -602,7 +602,7 @@ def cancel_if_active(
             ci_run_id=ci_run_id,
             status="cancelled",
             error_summary="github_job_cancelled",
-            logs_status=None,
+            logs_status="missing",
             opener=opener,
         )
     except BrokerActionError:
