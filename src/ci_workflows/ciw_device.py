@@ -144,9 +144,11 @@ def _approved_base_runs_on_json(
 
 def _runs_on_json(
     root: Path,
-    device_contract: Mapping[str, object],
     plan: device_validation.DevicePlan,
+    device_contract: Mapping[str, object] | None = None,
 ) -> str:
+    if device_contract is None:
+        device_contract = device_validation.load_device_contract(root)
     try:
         runner_contract = runners.load_runner_contract(root)  # type: ignore[name-defined]
         value = _approved_base_runs_on_json(runner_contract, device_contract, plan)
@@ -265,7 +267,7 @@ def _execute_command(
     if command == "plan":
         if plan.execution_authorized:
             device_validation.validate_authorization_receipt(_authorization_receipt(environment), plan=plan)
-        return plan.planning_outputs(runs_on_json=_runs_on_json(root, contract, plan))
+        return plan.planning_outputs(runs_on_json=_runs_on_json(root, plan, contract))
     if command == "synthetic":
         source = _source_path(root, source_root, environment)
         device_validation.validate_exact_checkout(source, request.admitted_sha)
@@ -274,7 +276,7 @@ def _execute_command(
             contract_root=root, environment=environment, inventory_text=inventory
         )
         return {
-            **plan.planning_outputs(runs_on_json=_runs_on_json(root, contract, plan)),
+            **plan.planning_outputs(runs_on_json=_runs_on_json(root, plan, contract)),
             **result.output_values(), "result": result.result,
             "test_summary": result.output_values()["test_summary"],
             "cleanup_result": result.cleanup_result,
