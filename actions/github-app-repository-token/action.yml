@@ -1,0 +1,25 @@
+name: Mint exact repository read token
+description: Mint one transient contents-read GitHub App installation token for an exact owner/name repository
+
+inputs:
+  repository:
+    description: Exact private source or dependency repository in owner/name form
+    required: true
+
+outputs:
+  token:
+    description: Masked transient contents-read installation token for the requested repository
+    value: ${{ steps.token.outputs.token }}
+
+runs:
+  using: composite
+  steps:
+    - id: token
+      name: Mint one bounded repository token
+      shell: bash
+      env:
+        PYTHONDONTWRITEBYTECODE: "1"
+        INPUT_REPOSITORY: ${{ inputs.repository }}
+      run: |
+        set -Eeuo pipefail
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" github-app repository-token
