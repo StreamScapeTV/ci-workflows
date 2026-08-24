@@ -5,11 +5,16 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
+from .gitops_composition import (
+    selected_targets,
+    source_render_overlap_allowed,
+    style_paths_for_plan,
+    yaml_target,
+)
 from .gitops_render import (
     _helm_target,
     _kustomize_target,
     _policy,
-    _yaml_target,
 )
 from .gitops_runtime import (
     GitOpsTools,
@@ -23,12 +28,12 @@ from .gitops_runtime import (
 from .gitops_source import (
     _canonical_documents,
     _object_identity,
-    _selected_targets,
     _source_snapshot,
 )
 from .gitops_types import (
     GitOpsPlan,
     GitOpsResult,
+    GitOpsTarget,
     GitOpsTargetKind,
     GitOpsValidationError,
     ObjectIdentity,
@@ -43,17 +48,19 @@ def _execute(
     tools: GitOpsTools,
 ) -> GitOpsResult:
     before = _source_snapshot(source_root, plan.request.admitted_sha)
-    targets = _selected_targets(plan, source_root)
-    owners: dict[ObjectIdentity, str] = {}
+    targets = selected_targets(plan, source_root)
+    style_paths = style_paths_for_plan(plan, source_root)
+    owners: dict[ObjectIdentity, tuple[GitOpsTarget, ...]] = {}
     all_documents: list[Any] = []
     validated_files = 0
     rendered_objects = 0
     for target in targets:
         if target.kind is GitOpsTargetKind.YAML:
-            documents, count = _yaml_target(
+            documents, count = yaml_target(
                 target,
                 source_root,
                 tools.yaml,
+                style_paths=style_paths,
             )
         elif target.kind is GitOpsTargetKind.HELM:
             documents, count = _helm_target(
@@ -70,16 +77,25 @@ def _execute(
                 tools,
             )
         validated_files += count
+        target_identities: set[ObjectIdentity] = set()
         for document in documents:
             identity = _object_identity(document)
             if identity is not None:
-                previous = owners.get(identity)
                 _require(
-                    previous is None,
+                    identity not in target_identities,
                     "duplicate_object_ownership",
                     identity.label,
                 )
-                owners[identity] = target.target_id
+                target_identities.add(identity)
+                previous = owners.get(identity, ())
+                if previous:
+                    _require(
+                        len(previous) == 1
+                        and source_render_overlap_allowed(previous[0], target),
+                        "duplicate_object_ownership",
+                        identity.label,
+                    )
+                owners[identity] = (*previous, target)
                 rendered_objects += 1
         all_documents.extend(documents)
     policy_result = _policy(plan, source_root, state_root)
