@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from ci_workflows import ciw_android
-from ci_workflows.ciw_types import CIWContext
+from ci_workflows.ciw_types import CIWContext, CIWError
 from ci_workflows.language_primitives import JavaRuntime, OperationResult
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -90,6 +90,54 @@ class AndroidBuildOnceTests(unittest.TestCase):
             ["pre_unit", "compile", "unit", "lint", "assemble", "schema"],
         )
 
+    def test_explicit_prefix_isolated_fallback_overrides_combined_default(self) -> None:
+        payload = json.loads(self._plan())
+        payload["execution_mode"] = "prefix-isolated"
+        context = CIWContext(
+            ROOT,
+            {
+                "INPUT_ADMITTED_SHA": SHA,
+                "INPUT_VALIDATION_SCOPE": "protected-full",
+                "INPUT_VALIDATION_PLAN_JSON": json.dumps(payload),
+                "INPUT_PROTECTED_FULL_EXECUTION_MODE": "combined",
+            },
+            io.StringIO(),
+            io.StringIO(),
+        )
+        request = ciw_android._request(self._args("plan"), context)
+        assert request.protected_full is not None
+        self.assertEqual(request.protected_full.execution_mode, "prefix-isolated")
+        self.assertEqual(request.protected_full.pre_unit_tasks, (":app:kspDebugKotlin",))
+        self.assertEqual(request.protected_full.compile_tasks, (":app:compileDebugKotlin",))
+        self.assertEqual(
+            request.protected_full.remainder_gradle_tasks,
+            (
+                ":app:testDebugUnitTest",
+                ":app:lintDebug",
+                ":app:assembleDebug",
+                ":app:verifyRoomSchemas",
+            ),
+        )
+
+    def test_prefix_isolated_requires_caller_pre_unit_tasks(self) -> None:
+        payload = json.loads(self._plan())
+        payload.pop("pre_unit_tasks")
+        payload["execution_mode"] = "prefix-isolated"
+        context = CIWContext(
+            ROOT,
+            {
+                "INPUT_ADMITTED_SHA": SHA,
+                "INPUT_VALIDATION_SCOPE": "protected-full",
+                "INPUT_VALIDATION_PLAN_JSON": json.dumps(payload),
+                "INPUT_PROTECTED_FULL_EXECUTION_MODE": "combined",
+            },
+            io.StringIO(),
+            io.StringIO(),
+        )
+        with self.assertRaises(CIWError) as failure:
+            ciw_android._request(self._args("plan"), context)
+        self.assertEqual(failure.exception.code, "validation_plan_invalid")
+
     def test_combined_runtime_submits_one_exact_caller_task_graph(self) -> None:
         protected = ciw_android.ProtectedFullPlan(
             unit_tasks=(":app:testDebugUnitTest",),
@@ -101,7 +149,119 @@ class AndroidBuildOnceTests(unittest.TestCase):
             compile_tasks=(":app:compileDebugKotlin",),
             execution_mode="combined",
         )
-        request = ciw_android.AndroidPrimitiveRequest(
+        request = self._request(protected)
+
+        result, gradle = self._execute(
+            request,
+            monotonic_ns=[1_000_000, 8_000_000],
+        )
+
+        gradle.assert_called_once()
+        call = gradle.call_args
+        self.assertEqual(call.kwargs["operation"], "android.protected_full.combined")
+        self.assertEqual(
+            call.args[1],
+            (
+                ":app:kspDebugKotlin",
+                ":app:compileDebugKotlin",
+                ":app:testDebugUnitTest",
+                ":app:lintDebug",
+                ":app:assembleDebug",
+                ":app:verifyRoomSchemas",
+            ),
+        )
+        summary = json.loads(result.outputs["test_summary"])
+        self.assertEqual(summary["gradle_execution_mode"], "combined")
+        self.assertEqual(summary["gradle_invocations"], 1)
+        self.assertEqual(summary["gradle_wall_ms"], 7)
+        self.assertEqual(summary["task_count"], 6)
+
+    def test_prefix_isolated_runtime_runs_two_prefixes_then_one_remainder(self) -> None:
+        protected = ciw_android.ProtectedFullPlan(
+            unit_tasks=(":app:testDebugUnitTest",),
+            lint_tasks=(":app:lintDebug",),
+            assemble_tasks=(":app:assembleDebug",),
+            schema_mode="gradle",
+            schema_tasks=(":app:verifyRoomSchemas",),
+            pre_unit_tasks=(":app:kspDebugKotlin",),
+            compile_tasks=(":app:compileDebugKotlin",),
+            execution_mode="prefix-isolated",
+        )
+        request = self._request(protected)
+
+        result, gradle = self._execute(
+            request,
+            monotonic_ns=[
+                1_000_000,
+                4_000_000,
+                5_000_000,
+                9_000_000,
+                10_000_000,
+                16_000_000,
+            ],
+        )
+
+        self.assertEqual(
+            [call.kwargs["operation"] for call in gradle.call_args_list],
+            [
+                "android.protected_full.pre_unit",
+                "android.protected_full.compile",
+                "android.protected_full.remainder",
+            ],
+        )
+        self.assertEqual(
+            [call.args[1] for call in gradle.call_args_list],
+            [
+                (":app:kspDebugKotlin",),
+                (":app:compileDebugKotlin",),
+                (
+                    ":app:testDebugUnitTest",
+                    ":app:lintDebug",
+                    ":app:assembleDebug",
+                    ":app:verifyRoomSchemas",
+                ),
+            ],
+        )
+        summary = json.loads(result.outputs["test_summary"])
+        self.assertEqual(summary["gradle_execution_mode"], "prefix-isolated")
+        self.assertEqual(summary["gradle_invocations"], 3)
+        self.assertEqual(summary["gradle_wall_ms"], 13)
+        self.assertEqual(summary["task_count"], 6)
+
+    def test_prefix_isolated_runtime_skips_absent_compile_group(self) -> None:
+        protected = ciw_android.ProtectedFullPlan(
+            unit_tasks=(":app:testDebugUnitTest",),
+            lint_tasks=(":app:lintDebug",),
+            assemble_tasks=(":app:assembleDebug",),
+            schema_mode="none",
+            pre_unit_tasks=(":app:kspDebugKotlin",),
+            execution_mode="prefix-isolated",
+        )
+        request = self._request(protected)
+
+        result, gradle = self._execute(
+            request,
+            monotonic_ns=[1_000_000, 3_000_000, 4_000_000, 9_000_000],
+        )
+
+        self.assertEqual(
+            [call.kwargs["operation"] for call in gradle.call_args_list],
+            ["android.protected_full.pre_unit", "android.protected_full.remainder"],
+        )
+        self.assertEqual(
+            [call.args[1] for call in gradle.call_args_list],
+            [
+                (":app:kspDebugKotlin",),
+                (":app:testDebugUnitTest", ":app:lintDebug", ":app:assembleDebug"),
+            ],
+        )
+        summary = json.loads(result.outputs["test_summary"])
+        self.assertEqual(summary["gradle_invocations"], 2)
+        self.assertEqual(summary["gradle_wall_ms"], 7)
+
+    @staticmethod
+    def _request(protected: ciw_android.ProtectedFullPlan) -> ciw_android.AndroidPrimitiveRequest:
+        return ciw_android.AndroidPrimitiveRequest(
             admitted_sha=SHA,
             validation_scope="protected-full",
             working_directory=".",
@@ -116,6 +276,12 @@ class AndroidBuildOnceTests(unittest.TestCase):
             private_dependency_id="",
         )
 
+    @staticmethod
+    def _execute(
+        request: ciw_android.AndroidPrimitiveRequest,
+        *,
+        monotonic_ns: list[int],
+    ) -> tuple[object, mock.Mock]:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             state = root / "state"
@@ -141,7 +307,7 @@ class AndroidBuildOnceTests(unittest.TestCase):
                 destination.mkdir(parents=True)
 
             gradle = mock.Mock(
-                return_value=OperationResult("android.protected_full.combined", 0, "", "")
+                return_value=OperationResult("android.protected_full", 0, "", "")
             )
             with (
                 mock.patch.object(ciw_android, "AndroidResourceSampler", return_value=FakeResourceSampler()),
@@ -156,33 +322,10 @@ class AndroidBuildOnceTests(unittest.TestCase):
                 mock.patch.object(ciw_android, "inspect_java_runtime", return_value=runtime),
                 mock.patch.object(ciw_android, "validate_java_runtime"),
                 mock.patch.object(ciw_android, "run_gradle_tasks", gradle),
-                mock.patch.object(
-                    ciw_android.time,
-                    "monotonic_ns",
-                    side_effect=[1_000_000, 8_000_000],
-                ),
+                mock.patch.object(ciw_android.time, "monotonic_ns", side_effect=monotonic_ns),
             ):
                 result = ciw_android._execute_request(request, argparse.Namespace(), context)
-
-        gradle.assert_called_once()
-        call = gradle.call_args
-        self.assertEqual(call.kwargs["operation"], "android.protected_full.combined")
-        self.assertEqual(
-            call.args[1],
-            (
-                ":app:kspDebugKotlin",
-                ":app:compileDebugKotlin",
-                ":app:testDebugUnitTest",
-                ":app:lintDebug",
-                ":app:assembleDebug",
-                ":app:verifyRoomSchemas",
-            ),
-        )
-        summary = json.loads(result.outputs["test_summary"])
-        self.assertEqual(summary["gradle_execution_mode"], "combined")
-        self.assertEqual(summary["gradle_invocations"], 1)
-        self.assertEqual(summary["gradle_wall_ms"], 7)
-        self.assertEqual(summary["task_count"], 6)
+        return result, gradle
 
     @staticmethod
     def _plan() -> str:
