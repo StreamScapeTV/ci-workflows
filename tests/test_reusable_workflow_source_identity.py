@@ -147,8 +147,7 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
     def test_apple_private_action_checkpoint_contains_media_contract_in_current_tree(self) -> None:
         source, _ = self.load(".github/workflows/reusable-apple.yml")
         fragment = ROOT / "contracts/apple-validation-media-tvos-simulator-confidence.json"
-        self.assertTrue(fragment.is_file()
-        )
+        self.assertTrue(fragment.is_file())
         self.assertEqual(4, source.count(f"actions/validate-apple@{APPLE_SHA}"))
         self.assertNotIn("actions/validate-apple@293dee450e3464032d67f702b768f493abf65d7b", source)
 
