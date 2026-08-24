@@ -1,6 +1,7 @@
 """GitHub Actions-side executor for one broker-admitted Central validation."""
 from __future__ import annotations
 
+import argparse
 import base64
 import json
 import os
@@ -10,9 +11,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, TextIO
 
+from .ciw_apple import execute_apple_validate
+from .ciw_types import CIWContext
 from .r2_diagnostics import R2DiagnosticError, upload_private_diagnostic
+from .workspace import WorkspaceContext, cleanup_workspace, prepare_workspace
 
 OIDC_AUDIENCE = "streamscape-ci-broker"
 MAX_CALLBACK_BYTES = 256 * 1024
@@ -180,8 +184,6 @@ def cleanup(environment: Mapping[str, str] = os.environ) -> None:
     runner_temp = Path(environment.get("RUNNER_TEMP", "")).resolve()
     targets = (
         workspace / "source",
-        runner_temp / "central-ci-derived-data",
-        runner_temp / "central-ci-packages",
         runner_temp / "central-ci-diagnostic.log",
         runner_temp / "central-ci-broker",
     )
@@ -274,6 +276,156 @@ def _checkout_source(
     _require(observed == sha, "source_sha_mismatch")
 
 
+def _apple_validation_plan(workspace: str, scheme: str, test_target: str) -> str:
+    return json.dumps(
+        {
+            "stages": [
+                {
+                    "id": "broker-host-test",
+                    "platform": "macos",
+                    "operation": "test",
+                    "working_directory": ".",
+                    "container": {"kind": "workspace", "path": workspace},
+                    "scheme": scheme,
+                    "configuration": "Debug",
+                    "test_plan": "",
+                    "package_resolution_mode": "resolve-only",
+                    "resolved_files": [],
+                    "script": None,
+                    "xcodebuild_arguments": [],
+                    "test_selectors": [test_target],
+                    "expected_outputs": [],
+                    "cleanup_paths": [],
+                }
+            ]
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _shared_apple_environment(
+    *,
+    repository: str,
+    source_sha: str,
+    source_token: str,
+    workspace: str,
+    scheme: str,
+    test_target: str,
+    environment: Mapping[str, str],
+) -> dict[str, str]:
+    result = _git_environment(source_token, environment)
+    for command_file in ("GITHUB_OUTPUT", "GITHUB_ENV", "GITHUB_STEP_SUMMARY"):
+        result.pop(command_file, None)
+    result.update(
+        GITHUB_REPOSITORY=repository,
+        INPUT_ADMITTED_SHA=source_sha,
+        INPUT_VALIDATION_SCOPE="protected-full",
+        INPUT_VALIDATION_PLAN_JSON=_apple_validation_plan(workspace, scheme, test_target),
+        INPUT_SOURCE_TRUST="trusted-exact",
+        INPUT_PRIVATE_DEPENDENCY_REPOSITORY="",
+        INPUT_PRIVATE_DEPENDENCY_SHA="",
+        INPUT_PRIVATE_DEPENDENCY_SUBDIRECTORY=".",
+        INPUT_PRIVATE_DEPENDENCY_ID="",
+    )
+    return result
+
+
+def _execute_shared_apple_validation(
+    *,
+    repository: str,
+    source_sha: str,
+    source_token: str,
+    workspace: str,
+    scheme: str,
+    test_target: str,
+    run_id: int,
+    run_attempt: int,
+    workspace_root: Path,
+    runner_temp: Path,
+    diagnostic: TextIO,
+    environment: Mapping[str, str],
+) -> bool:
+    runner_os = environment.get("RUNNER_OS", "")
+    job = environment.get("GITHUB_JOB", "")
+    _require(runner_os == "macOS", "runner_os_invalid")
+    _require(bool(job), "github_job_invalid")
+
+    execution_environment = _shared_apple_environment(
+        repository=repository,
+        source_sha=source_sha,
+        source_token=source_token,
+        workspace=workspace,
+        scheme=scheme,
+        test_target=test_target,
+        environment=environment,
+    )
+    workspace_state = None
+    validation_ok = False
+    cleanup_ok = True
+    try:
+        workspace_state = prepare_workspace(
+            WorkspaceContext(
+                workspace=workspace_root,
+                runner_temp=runner_temp,
+                repository=repository,
+                run_id=str(run_id),
+                run_attempt=run_attempt,
+                job=job,
+                runner_os=runner_os,
+            ),
+            profile="apple",
+            cache_mode="disabled",
+            source_sha=source_sha,
+            trust_mode="trusted-exact",
+            contract_root=workspace_root,
+        )
+        execution_environment.update(workspace_state.environment)
+        context = CIWContext(
+            root=workspace_root,
+            environment=execution_environment,
+            stdout=diagnostic,
+            stderr=diagnostic,
+        )
+        result = execute_apple_validate(
+            argparse.Namespace(phase="execute", source_root="source"),
+            context,
+        )
+        validation_ok = result.outputs.get("result") == "success"
+    except Exception:
+        diagnostic.write("Central shared Apple validation failed.\n")
+    finally:
+        if workspace_state is not None:
+            context = CIWContext(
+                root=workspace_root,
+                environment=execution_environment,
+                stdout=diagnostic,
+                stderr=diagnostic,
+            )
+            try:
+                execute_apple_validate(
+                    argparse.Namespace(phase="cleanup", source_root="source"),
+                    context,
+                )
+                execute_apple_validate(
+                    argparse.Namespace(phase="residue", source_root="source"),
+                    context,
+                )
+            except Exception:
+                cleanup_ok = False
+                diagnostic.write("Central shared Apple cleanup failed.\n")
+            try:
+                cleanup_workspace(
+                    workspace_state.root,
+                    expected_state_id=workspace_state.state_id,
+                    contract_root=workspace_root,
+                )
+            except Exception:
+                cleanup_ok = False
+                diagnostic.write("Central shared workspace cleanup failed.\n")
+    return validation_ok and cleanup_ok
+
+
 def _r2_environment(environment: Mapping[str, str]) -> tuple[str, str, str, str]:
     names = (
         "R2_ACCOUNT_ID",
@@ -292,7 +444,7 @@ def _finish(
     ci_run_id: str,
     status: str,
     error_summary: str | None,
-    logs_status: str,
+    logs_status: str | None,
     logs_object_key: str | None = None,
     logs_sha256: str | None = None,
     opener: Any = urllib.request.urlopen,
@@ -302,8 +454,9 @@ def _finish(
         "dispatch_token": environment.get("CI_DISPATCH_TOKEN", ""),
         "ci_run_id": ci_run_id,
         "status": status,
-        "logs_status": logs_status,
     }
+    if logs_status is not None:
+        payload["logs_status"] = logs_status
     if error_summary:
         payload["error_summary"] = error_summary
     if logs_object_key is not None:
@@ -344,7 +497,10 @@ def execute_apple_host(
     _require(isinstance(repository, str) and 3 <= len(repository) <= 256, "start_response_invalid")
     _require(isinstance(source_sha, str) and len(source_sha) == 40, "start_response_invalid")
     _require(isinstance(source_token, str) and bool(source_token), "start_response_invalid")
-    _require(isinstance(workspace_name, str) and workspace_name.endswith(".xcworkspace"), "start_response_invalid")
+    _require(
+        isinstance(workspace_name, str) and workspace_name.endswith(".xcworkspace"),
+        "start_response_invalid",
+    )
     _require(isinstance(scheme, str) and bool(scheme), "start_response_invalid")
     _require(isinstance(test_target, str) and bool(test_target), "start_response_invalid")
     _write_state(environment, ci_run_id)
@@ -353,12 +509,9 @@ def execute_apple_host(
     runner_temp = Path(environment.get("RUNNER_TEMP", "")).resolve()
     source = workspace_root / "source"
     diagnostic_path = runner_temp / "central-ci-diagnostic.log"
-    derived = runner_temp / "central-ci-derived-data"
-    packages = runner_temp / "central-ci-packages"
-    for path in (diagnostic_path, derived, packages):
-        _remove_bounded(path, runner_temp)
+    _remove_bounded(diagnostic_path, runner_temp)
 
-    validation_code = 1
+    validation_ok = False
     try:
         diagnostic_path.touch(mode=0o600, exist_ok=False)
         with diagnostic_path.open("ab", buffering=0) as diagnostic:
@@ -370,32 +523,23 @@ def execute_apple_host(
                 diagnostic=diagnostic,
                 environment=environment,
             )
-            git_env = _git_environment(source_token, environment)
-            command = [
-                "xcodebuild",
-                "test",
-                "-workspace",
-                str(source / workspace_name),
-                "-scheme",
-                scheme,
-                "-destination",
-                "platform=macOS",
-                "-derivedDataPath",
-                str(derived),
-                "-clonedSourcePackagesDirPath",
-                str(packages),
-                "CODE_SIGNING_ALLOWED=NO",
-                f"-only-testing:{test_target}",
-            ]
-            validation_code = _run_private(
-                command,
-                cwd=workspace_root,
+        with diagnostic_path.open("a", encoding="utf-8") as diagnostic:
+            validation_ok = _execute_shared_apple_validation(
+                repository=repository,
+                source_sha=source_sha,
+                source_token=source_token,
+                workspace=workspace_name,
+                scheme=scheme,
+                test_target=test_target,
+                run_id=run_id,
+                run_attempt=run_attempt,
+                workspace_root=workspace_root,
+                runner_temp=runner_temp,
                 diagnostic=diagnostic,
-                environment=git_env,
-                timeout=105 * 60,
+                environment=environment,
             )
     except BrokerActionError:
-        validation_code = 1
+        validation_ok = False
 
     logs_status = "failed"
     object_key: str | None = None
@@ -419,10 +563,10 @@ def execute_apple_host(
     except (R2DiagnosticError, BrokerActionError):
         upload_error = True
 
-    if validation_code == 0 and not upload_error:
+    if validation_ok and not upload_error:
         status = "succeeded"
         error = None
-    elif validation_code != 0:
+    elif not validation_ok:
         status = "failed"
         error = "apple_host_validation_failed"
     else:
