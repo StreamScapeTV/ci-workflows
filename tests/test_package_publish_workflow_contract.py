@@ -70,6 +70,9 @@ class PackagePublishWorkflowContractTests(unittest.TestCase):
         self.assertIn("inputs.execution_backend != 'organization' && inputs.execution_backend != 'github-hosted'", self.workflow)
         self.assertIn("name: Reject unsupported hosted package publication", self.workflow)
         self.assertIn("runs-on: [ubuntu-latest]", self.workflow)
+        hosted = self.workflow.split("  reject_hosted:\n", 1)[1].split("\n  reject_invalid:\n", 1)[0]
+        self.assertNotIn("secrets.", hosted)
+        self.assertNotIn("Check out exact", hosted)
         self.assertLess(
             self.workflow.index("Reject unsupported hosted package publication"),
             self.workflow.index("Check out exact tagged package source"),
