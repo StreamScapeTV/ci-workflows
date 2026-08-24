@@ -1,11 +1,13 @@
 """Small Agent State lifecycle client shared by canonical Central CI workflows."""
 from __future__ import annotations
 
+import argparse
 import json
 import os
 from dataclasses import dataclass
 import re
-from typing import Any, Mapping
+import sys
+from typing import Any, Mapping, Sequence
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -343,8 +345,96 @@ class AgentStateCiClient:
         self._run(result)
 
 
+def _required_environment(environment: Mapping[str, str], name: str) -> str:
+    value = environment.get(name, "")
+    if not value:
+        raise CiLifecycleError(f"missing_{name.lower()}")
+    return value
+
+
+def _write_output(name: str, value: str, environment: Mapping[str, str]) -> None:
+    path = environment.get("GITHUB_OUTPUT", "")
+    if not path:
+        return
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(f"{name}={value}\n")
+
+
+def _identity_from_environment(environment: Mapping[str, str]) -> WorkflowIdentity:
+    return WorkflowIdentity.from_values(
+        project_key=_required_environment(environment, "INPUT_PROJECT_KEY"),
+        repository=_required_environment(environment, "INPUT_REPOSITORY"),
+        ref=_required_environment(environment, "INPUT_REF"),
+        is_tag=_required_environment(environment, "INPUT_IS_TAG"),
+        workflow_key=_required_environment(environment, "INPUT_WORKFLOW_KEY"),
+        profile=_required_environment(environment, "INPUT_PROFILE"),
+        environment=environment,
+    )
+
+
+def lifecycle_start(environment: Mapping[str, str] = os.environ) -> None:
+    client = AgentStateCiClient.from_environment(environment)
+    ci_run_id = client.start(
+        _identity_from_environment(environment),
+        environment.get("INPUT_CI_RUN_ID", "") or None,
+    )
+    _write_output("ci_run_id", ci_run_id, environment)
+
+
+def lifecycle_evidence(environment: Mapping[str, str] = os.environ) -> None:
+    client = AgentStateCiClient.from_environment(environment)
+    ci_run_id = _required_environment(environment, "INPUT_CI_RUN_ID")
+    client.evidence(
+        ci_run_id,
+        _required_environment(environment, "INPUT_OBSERVED_SHA"),
+    )
+    _write_output("ci_run_id", ci_run_id, environment)
+
+
+def lifecycle_finish(environment: Mapping[str, str] = os.environ) -> None:
+    client = AgentStateCiClient.from_environment(environment)
+    ci_run_id = _required_environment(environment, "INPUT_CI_RUN_ID")
+    client.finish(
+        ci_run_id,
+        status=_required_environment(environment, "INPUT_TERMINAL_STATUS"),
+        error_summary=environment.get("INPUT_ERROR_SUMMARY", "") or None,
+        diagnostic_status=environment.get("INPUT_DIAGNOSTIC_STATUS", "") or None,
+        diagnostic_key=environment.get("INPUT_DIAGNOSTIC_KEY", "") or None,
+    )
+    _write_output("ci_run_id", ci_run_id, environment)
+
+
+def parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(description="Shared Central CI Agent State lifecycle")
+    result.add_argument("phase", choices=("start", "evidence", "finish"))
+    return result
+
+
+def main(
+    argv: Sequence[str] | None = None,
+    environment: Mapping[str, str] = os.environ,
+) -> int:
+    args = parser().parse_args(list(argv) if argv is not None else None)
+    try:
+        if args.phase == "start":
+            lifecycle_start(environment)
+        elif args.phase == "evidence":
+            lifecycle_evidence(environment)
+        else:
+            lifecycle_finish(environment)
+    except CiLifecycleError as error:
+        print(error.code, file=sys.stderr)
+        return 1
+    return 0
+
+
 __all__ = (
     "AgentStateCiClient",
     "CiLifecycleError",
     "WorkflowIdentity",
+    "lifecycle_evidence",
+    "lifecycle_finish",
+    "lifecycle_start",
+    "main",
+    "parser",
 )
