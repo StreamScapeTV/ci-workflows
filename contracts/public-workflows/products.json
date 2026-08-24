@@ -4,57 +4,6 @@
   "group": "publication",
   "workflows": [
     {
-      "file": ".github/workflows/reusable-oci-build.yml",
-      "api_name": "oci.build",
-      "api_version": "2.0.0",
-      "status": "migration-pending",
-      "trust_class": "read-only-validation",
-      "permission_profile": "validation-read",
-      "semantic_runner_profile": "contract:oci-build",
-      "permitted_events": ["pull_request", "push", "workflow_dispatch", "workflow_call"],
-      "inputs": [
-        {"name": "admitted_sha", "required": true},
-        {"name": "image_name", "required": true},
-        {"name": "dockerfile_path", "required": false, "default": "Dockerfile"},
-        {"name": "build_context", "required": false, "default": "."},
-        {"name": "release_version", "required": false},
-        {"name": "platform_set", "required": false},
-        {"name": "artifact_exception_id", "required": false}
-      ],
-      "secrets": [],
-      "outputs": ["result", "image_digest", "platform_digests_json", "resolved_inputs_json", "artifact_exception_used"],
-      "stable_check_name": "CI / OCI build validation",
-      "timeout_minutes": 180,
-      "matrix_max_jobs": 8,
-      "repository_owned_hooks": ["dockerfile_path", "build_context"],
-      "implementation_components": ["ci_workflows.oci.build", "ci_workflows.oci.inspect"]
-    },
-    {
-      "file": ".github/workflows/reusable-oci-publish.yml",
-      "api_name": "oci.publish",
-      "api_version": "2.0.0",
-      "status": "migration-pending",
-      "trust_class": "trusted-publication",
-      "permission_profile": "oci-publication",
-      "semantic_runner_profile": "contract:oci-publish",
-      "permitted_events": ["tag-push", "workflow_call", "workflow_dispatch-verify-only"],
-      "inputs": [
-        {"name": "admitted_sha", "required": true},
-        {"name": "image_name", "required": true},
-        {"name": "dockerfile_path", "required": false, "default": "Dockerfile"},
-        {"name": "build_context", "required": false, "default": "."},
-        {"name": "release_version", "required": true},
-        {"name": "platform_set", "required": false}
-      ],
-      "secrets": ["registry_username", "registry_token"],
-      "outputs": ["result", "image_digest", "platform_digests_json", "immutable_references_json"],
-      "stable_check_name": "Release / OCI publication",
-      "timeout_minutes": 180,
-      "matrix_max_jobs": 8,
-      "repository_owned_hooks": ["dockerfile_path", "build_context"],
-      "implementation_components": ["ci_workflows.oci.publish", "ci_workflows.oci.read_back"]
-    },
-    {
       "file": ".github/workflows/reusable-oci-reproducibility.yml",
       "api_name": "oci.reproducibility",
       "api_version": "1.0.0",
@@ -78,60 +27,6 @@
         "ci_workflows.oci_reproducibility.run_proof",
         "ci_workflows.oci_reproducibility.compare_builds"
       ]
-    },
-    {
-      "file": ".github/workflows/reusable-helm-validate.yml",
-      "api_name": "helm.validate",
-      "api_version": "2.0.0",
-      "status": "migration-pending",
-      "trust_class": "read-only-validation",
-      "permission_profile": "validation-read",
-      "semantic_runner_profile": "portable",
-      "permitted_events": ["pull_request", "push", "workflow_dispatch", "workflow_call"],
-      "inputs": [
-        {"name": "execution_backend", "required": false, "default": "organization"},
-        {"name": "admitted_sha", "required": true},
-        {"name": "chart_name", "required": true},
-        {"name": "chart_path", "required": true},
-        {"name": "release_version", "required": false},
-        {"name": "values_path", "required": false},
-        {"name": "policy_path", "required": false},
-        {"name": "artifact_exception_id", "required": false}
-      ],
-      "secrets": [],
-      "outputs": ["result", "chart_digest", "artifact_exception_used"],
-      "stable_check_name": "CI / Helm validation",
-      "timeout_minutes": 60,
-      "matrix_max_jobs": 12,
-      "repository_owned_hooks": ["chart_path", "values_path", "policy_path"],
-      "implementation_components": ["ci_workflows.helm.validate", "ci_workflows.helm.package", "ci_workflows.execution_backends.resolve_execution_backend"]
-    },
-    {
-      "file": ".github/workflows/reusable-helm-publish.yml",
-      "api_name": "helm.publish",
-      "api_version": "2.0.0",
-      "status": "migration-pending",
-      "trust_class": "trusted-publication",
-      "permission_profile": "oci-publication",
-      "semantic_runner_profile": "contract:helm-publish",
-      "permitted_events": ["tag-push", "workflow_call", "workflow_dispatch-verify-only"],
-      "inputs": [
-        {"name": "admitted_sha", "required": true},
-        {"name": "chart_name", "required": true},
-        {"name": "chart_path", "required": true},
-        {"name": "release_version", "required": true},
-        {"name": "values_path", "required": false},
-        {"name": "policy_path", "required": false},
-        {"name": "image_digest", "required": false},
-        {"name": "immutable_references_json", "required": false}
-      ],
-      "secrets": ["registry_username", "registry_token"],
-      "outputs": ["result", "chart_digest", "immutable_references_json"],
-      "stable_check_name": "Release / Helm publication",
-      "timeout_minutes": 90,
-      "matrix_max_jobs": 8,
-      "repository_owned_hooks": ["chart_path", "values_path", "policy_path"],
-      "implementation_components": ["ci_workflows.helm.publish", "ci_workflows.helm.read_back"]
     },
     {
       "file": ".github/workflows/reusable-native-image-chart.yml",
@@ -169,32 +64,6 @@
         "ci_workflows.release_tag_authority.revalidate_release_authority",
         "actions/resolve-release-tag"
       ]
-    },
-    {
-      "file": ".github/workflows/reusable-release.yml",
-      "api_name": "release.orchestrate",
-      "api_version": "2.0.0",
-      "status": "planned",
-      "trust_class": "trusted-publication",
-      "permission_profile": "release-orchestration",
-      "semantic_runner_profile": "contract:release",
-      "permitted_events": ["tag-push", "workflow_call", "workflow_dispatch-verify-only"],
-      "inputs": [
-        {"name": "admitted_sha", "required": true},
-        {"name": "release_manifest_path", "required": true},
-        {"name": "release_tag", "required": true},
-        {"name": "release_version", "required": true},
-        {"name": "request_id", "required": true},
-        {"name": "target_id", "required": false}
-      ],
-      "secrets": ["registry_username", "registry_token", "flux_handoff_token"],
-      "outputs": ["result", "immutable_references_json", "release_manifest_sha256", "handoff_state", "request_id"],
-      "stable_check_name": "Release / Verified outputs",
-      "timeout_minutes": 240,
-      "matrix_max_jobs": 16,
-      "repository_owned_hooks": ["release_manifest_path"],
-      "implementation_components": ["ci_workflows.release.resolve", "ci_workflows.release.manifest", "internal-release-products.yml"],
-      "max_reusable_workflow_depth": 2
     },
     {
       "file": ".github/workflows/reusable-public-native-image-chart.yml",
@@ -237,32 +106,6 @@
       ]
     },
     {
-      "file": ".github/workflows/reusable-flux-infrastructure-assets.yml",
-      "api_name": "flux.assets",
-      "api_version": "2.0.0",
-      "status": "planned",
-      "trust_class": "trusted-publication",
-      "permission_profile": "release-orchestration",
-      "semantic_runner_profile": "contract:flux-assets",
-      "permitted_events": ["tag-push", "workflow_call", "workflow_dispatch-verify-only"],
-      "inputs": [
-        {"name": "admitted_sha", "required": true},
-        {"name": "release_manifest_path", "required": true},
-        {"name": "release_version", "required": true},
-        {"name": "operation", "required": true},
-        {"name": "policy_path", "required": true},
-        {"name": "request_id", "required": true}
-      ],
-      "secrets": ["registry_username", "registry_token"],
-      "outputs": ["result", "immutable_references_json", "release_manifest_sha256", "request_id"],
-      "stable_check_name": "Release / Flux infrastructure assets",
-      "timeout_minutes": 240,
-      "matrix_max_jobs": 12,
-      "repository_owned_hooks": ["release_manifest_path", "policy_path"],
-      "implementation_components": ["ci_workflows.flux_assets.release", "internal-flux-assets.yml"],
-      "max_reusable_workflow_depth": 2
-    },
-    {
       "file": ".github/workflows/reusable-tag-image-chart.yml",
       "api_name": "release.tag-image-chart-bootstrap",
       "api_version": "1.2.0",
@@ -289,8 +132,8 @@
       "matrix_max_jobs": 2,
       "repository_owned_hooks": ["chart_path", "dockerfile_path", "build_context"],
       "implementation_components": ["ci_workflows.release_tag_authority.resolve_release_authority", "ci_workflows.release_tag_authority.revalidate_release_authority", "actions/resolve-release-tag", "bootstrap-monolithic-workflow"],
-      "deprecation": {"replacement": "release.orchestrate", "removal_version": null},
-      "notes": "Deprecated bootstrap exception retained for migration only. The replacement release API is product-neutral and caller-configured."
+      "deprecation": {"replacement": "release.native-image-chart", "removal_version": null},
+      "notes": "Deprecated bootstrap exception retained for migration only. The current demonstrated private-registry image/chart replacement is release.native-image-chart; #474 separately owns removal of the historical recovery exception."
     }
   ]
 }
