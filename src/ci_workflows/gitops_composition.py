@@ -1,7 +1,7 @@
 """Composition helpers for bounded GitOps source and render validation."""
 from __future__ import annotations
 
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any, Sequence
 
 from .gitops_contract import bounded_path
@@ -147,8 +147,8 @@ def yaml_target(
     yaml: Any,
     *,
     style_paths: frozenset[Path] | None,
-) -> tuple[list[Any], int]:
-    """Validate one YAML target with contract-owned SOPS globs and profile style scope."""
+) -> tuple[list[tuple[Any, Path]], int]:
+    """Validate YAML and retain each document's exact bounded source path."""
 
     source_root = source_root.resolve()
     root = bounded_path(
@@ -168,7 +168,10 @@ def yaml_target(
     sops_paths: set[Path] = set()
     for relative in target.sops_files:
         if any(marker in relative for marker in "*?["):
-            sops_paths.update(path.resolve() for path in _glob_files(source_root, (relative,)))
+            sops_paths.update(
+                path.resolve()
+                for path in _glob_files(source_root, (relative,))
+            )
         else:
             sops_paths.add(
                 bounded_path(
@@ -179,7 +182,11 @@ def yaml_target(
                 ).resolve()
             )
     if target.sops_files:
-        _require(bool(sops_paths), "sops_plaintext_rejected", target.target_id)
+        _require(
+            bool(sops_paths),
+            "sops_plaintext_rejected",
+            target.target_id,
+        )
 
     included = {path.resolve() for path in files}
     _require(
@@ -188,7 +195,7 @@ def yaml_target(
         target.target_id,
     )
 
-    documents: list[Any] = []
+    documents: list[tuple[Any, Path]] = []
     for path in files:
         resolved = path.resolve()
         relative = path.relative_to(source_root).as_posix()
@@ -205,31 +212,41 @@ def yaml_target(
                 _validate_schema(document, schema)
             if resolved in sops_paths:
                 _validate_sops(document, relative)
-        documents.extend(loaded)
+            documents.append((document, resolved))
     return documents, len(files)
 
 
 def source_render_overlap_allowed(
-    previous: GitOpsTarget,
-    current: GitOpsTarget,
+    previous_target: GitOpsTarget,
+    previous_source_path: Path | None,
+    current_target: GitOpsTarget,
+    current_source_path: Path | None,
+    source_root: Path,
 ) -> bool:
-    """Allow one raw-source target to overlap one nested render target.
+    """Allow only a raw document that physically belongs to one render root.
 
-    This is intentionally narrower than generic duplicate suppression.  Two
-    source targets, two render targets, or disjoint source/render roots still
-    conflict.  A repository-root YAML audit may therefore compose with one
-    nested Kustomize/Helm render without weakening duplicate ownership checks.
+    Two source targets, two render targets, or a source identity from outside
+    the renderer's bounded root still conflict.  The exception therefore
+    composes source validation with its own deterministic nested render without
+    becoming general duplicate suppression.
     """
 
-    if (previous.kind is GitOpsTargetKind.YAML) == (
-        current.kind is GitOpsTargetKind.YAML
+    if (previous_target.kind is GitOpsTargetKind.YAML) == (
+        current_target.kind is GitOpsTargetKind.YAML
     ):
         return False
-    source = previous if previous.kind is GitOpsTargetKind.YAML else current
-    rendered = current if previous.kind is GitOpsTargetKind.YAML else previous
-    source_root = PurePosixPath(source.root)
-    rendered_root = PurePosixPath(rendered.root)
-    return source_root == PurePosixPath(".") or (
-        rendered_root == source_root
-        or source_root in rendered_root.parents
-    )
+    if previous_target.kind is GitOpsTargetKind.YAML:
+        source_path = previous_source_path
+        rendered = current_target
+    else:
+        source_path = current_source_path
+        rendered = previous_target
+    if source_path is None:
+        return False
+    render_root = bounded_path(
+        source_root,
+        rendered.root,
+        must_exist=True,
+        kind="directory",
+    ).resolve()
+    return render_root in source_path.parents
