@@ -268,6 +268,30 @@
       "trust_class": "read-only-validation"
     },
     {
+      "cleanup": "ciw workspace cleanup under if: always()",
+      "domain": "native",
+      "failure": "NativeValidationError.code or NativePrimitiveError.code or CIWError.code",
+      "handler": "ci_workflows.ciw.handle_native_validate",
+      "inputs": [
+        "admitted_sha",
+        "working_directory",
+        "validation_plan_json",
+        "GITHUB_WORKSPACE"
+      ],
+      "operation": "validate",
+      "outputs": [
+        "result",
+        "source_sha",
+        "test_summary",
+        "failure_code"
+      ],
+      "side_effects": [
+        "configures, builds, and tests one caller-owned CMake project in registered temporary state",
+        "uses one isolated build tree and performs no publication, cache transport, or artifact upload"
+      ],
+      "trust_class": "read-only-validation"
+    },
+    {
       "cleanup": "registered workflow workspace cleanup under if: always()",
       "domain": "network",
       "failure": "NetworkPrimitiveError.code or CIWError.code",
