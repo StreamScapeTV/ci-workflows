@@ -25,6 +25,7 @@ from ci_workflows.ci_broker_action import (  # noqa: E402
     execute_apple_host,
 )
 from ci_workflows.ci_broker_fallback import fail_if_active  # noqa: E402
+from ci_workflows.ci_callback_http import central_urlopen  # noqa: E402
 
 _DIAGNOSTIC_BYTES = 4096
 _SAFE_REMOTE_CODE = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
@@ -47,7 +48,7 @@ def _safe_remote_code(raw: bytes) -> str | None:
 
 def _diagnose_broker_callback(
     environment: Mapping[str, str] = os.environ,
-    opener: Any = urllib.request.urlopen,
+    opener: Any = central_urlopen,
 ) -> str | None:
     dispatch_id = environment.get("CI_DISPATCH_ID", "")
     dispatch_token = environment.get("CI_DISPATCH_TOKEN", "")
@@ -111,14 +112,14 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(value, sort_keys=True, separators=(",", ":")))
             return 0
         if args.command == "execute-apple-host":
-            execute_apple_host()
+            execute_apple_host(opener=central_urlopen)
             print("Central broker-dispatched validation passed.")
             return 0
         if args.command == "fail-if-active":
-            fail_if_active()
+            fail_if_active(opener=central_urlopen)
             return 0
         if args.command == "cancel-if-active":
-            cancel_if_active()
+            cancel_if_active(opener=central_urlopen)
             return 0
         if args.command == "cleanup":
             cleanup()
