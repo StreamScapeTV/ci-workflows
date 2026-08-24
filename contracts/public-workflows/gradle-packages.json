@@ -4,6 +4,31 @@
   "group": "publication",
   "workflows": [
     {
+      "file": ".github/workflows/reusable-package-publish.yml",
+      "api_name": "package.publish",
+      "api_version": "1.0.0",
+      "status": "implemented",
+      "trust_class": "trusted-publication",
+      "permission_profile": "oci-publication",
+      "semantic_runner_profile": "contract:package",
+      "permitted_events": ["workflow_call"],
+      "inputs": [
+        {"name": "execution_backend", "required": false, "default": "organization"},
+        {"name": "ecosystem", "required": true},
+        {"name": "working_directory", "required": false, "default": "."},
+        {"name": "package_name", "required": true},
+        {"name": "package_group", "required": false, "default": ""},
+        {"name": "publication_plan_json", "required": true}
+      ],
+      "secrets": ["registry_username", "registry_token"],
+      "outputs": ["result", "ecosystem", "package_name", "package_version", "cleanup_result"],
+      "stable_check_name": "Release / Package publication",
+      "timeout_minutes": 120,
+      "matrix_max_jobs": 1,
+      "repository_owned_hooks": ["working_directory", "publication_plan_json"],
+      "implementation_components": ["ci_workflows.ciw.handle_package_publish", "ci_workflows.ciw_packages.execute_package_publish", "ci_workflows.package_primitives"]
+    },
+    {
       "file": ".github/workflows/reusable-gradle-maven-publish.yml",
       "api_name": "release.gradle-maven",
       "api_version": "1.0.0",
