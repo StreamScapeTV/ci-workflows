@@ -23,6 +23,10 @@
     "android_command_line_tools": "15859902",
     "android_platform_tools": "36.0.0",
     "android_platforms": ["36", "37.0"],
+    "android_platform_revisions": {
+      "36": 2,
+      "37.0": 2
+    },
     "android_build_tools": ["36.0.0", "37.0.0"],
     "android_ndk": "28.2.13676358",
     "android_cmake": "3.22.1",
@@ -59,8 +63,8 @@
       "sha256": "37607369a28c5b640b3a7998868d45898ebcb777565a0e85f9acf36f29631d2e"
     },
     "android_platform_37": {
-      "url": "https://dl.google.com/android/repository/platform-37.0_r01.zip",
-      "sha256": "19bdcf42de0cb0e9500a27da6833fc30cdd49a7ec690aa5cabaa0ef893af9ebe"
+      "url": "https://dl.google.com/android/repository/platform-37.0_r02.zip",
+      "sha256": "840b23e827f96e64aea4c89a1194aac3dc5f6bad37edb231c5c795d890330e8d"
     },
     "android_build_tools_36_linux": {
       "url": "https://dl.google.com/android/repository/build-tools_r36_linux.zip",
