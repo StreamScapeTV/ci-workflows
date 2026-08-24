@@ -62,7 +62,7 @@ Failed or timed-out reviewed Android operations emit a sanitized bounded diagnos
 
 The reusable workflow uses reviewed immutable Central helper checkpoints:
 
-- `StreamScapeTV/ci-workflows/actions/validate-android@60ce05e4da20b45783ae729f112083b2801d2e25` — `issue #373 build-once protected-full checkpoint`.
+- `StreamScapeTV/ci-workflows/actions/validate-android@91e5ba5af11ec717f829000edad062c664fb86f7` — `issue #534 prefix-isolated protected-full checkpoint`.
 - `StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies@13de46c51efcf65df798dfec82a620c484350dfa` — `issue #346 dependency warm checkpoint`.
 - `StreamScapeTV/ci-workflows/actions/upload-gradle-seed@fa67b6a1580ff2eb7386a9e58de09896b9990696` — `issue #346 bounded Gradle cache sync diagnostics checkpoint`.
 - `StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`.
