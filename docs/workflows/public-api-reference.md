@@ -25,6 +25,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 | `validation.node` `1.0.0` | `.github/workflows/reusable-node.yml` | `implemented` | `read-only-validation` | CI / Node validation |
 | `validation.python` `2.0.0` | `.github/workflows/reusable-python.yml` | `implemented` | `read-only-validation` | CI / Python validation |
 | `validation.script` `1.0.0` | `.github/workflows/reusable-script.yml` | `implemented` | `read-only-validation` | CI / Script validation |
+| `validation.static-web` `1.0.0` | `.github/workflows/reusable-static-web.yml` | `implemented` | `read-only-validation` | CI / Static-web validation |
 
 ## API details
 
@@ -163,6 +164,14 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 - Secrets: none
 - Outputs: `result`
 - Repository-owned hooks: `script_path`, `working_directory`
+
+### `validation.static-web`
+
+- Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
+- Inputs: `admitted_sha` (required), `working_directory` (default `.`), `validation_plan_json` (required)
+- Secrets: none
+- Outputs: `result`, `build_result`, `output_verified`, `output_digest`, `output_file_count`, `test_summary`, `cleanup_result`, `failure_code`
+- Repository-owned hooks: `validation_plan_json`
 
 ## Compatibility
 
