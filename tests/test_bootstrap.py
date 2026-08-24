@@ -47,6 +47,7 @@ class BootstrapContractTests(unittest.TestCase):
                 ".github/workflows/reusable-native.yml",
                 ".github/workflows/reusable-node.yml",
                 ".github/workflows/reusable-oci-reproducibility.yml",
+                ".github/workflows/reusable-package-publish.yml",
                 ".github/workflows/reusable-public-native-image-chart.yml",
                 ".github/workflows/reusable-python.yml",
                 ".github/workflows/reusable-resolve-source.yml",

@@ -1,0 +1,261 @@
+name: Reusable package publication
+
+on:
+  workflow_call:
+    inputs:
+      execution_backend:
+        description: organization or github-hosted
+        required: false
+        default: organization
+        type: string
+      ecosystem:
+        description: 'Package ecosystem: python, npm, or jvm'
+        required: true
+        type: string
+      working_directory:
+        description: Relative package project directory within the exact tagged checkout
+        required: false
+        default: .
+        type: string
+      package_name:
+        description: Expected package name embedded in the built package metadata
+        required: true
+        type: string
+      package_group:
+        description: Optional JVM Maven group expected in the published POM
+        required: false
+        default: ""
+        type: string
+      publication_plan_json:
+        description: Bounded ecosystem-specific output, registry-profile, or Maven publication plan
+        required: true
+        type: string
+    secrets:
+      registry_username:
+        description: Optional package-registry username exposed only through fixed package environment names
+        required: false
+      registry_token:
+        description: Package-registry write credential required by organization publication; token-only or paired with registry_username for Python
+        required: false
+    outputs:
+      result:
+        description: Success only after package publication, cleanup, and clean-source verification
+        value: ${{ jobs.publish.outputs.result }}
+      ecosystem:
+        description: Validated package ecosystem
+        value: ${{ jobs.publish.outputs.ecosystem }}
+      package_name:
+        description: Validated published package name
+        value: ${{ jobs.publish.outputs.package_name }}
+      package_version:
+        description: Published package version derived from the exact product Git tag
+        value: ${{ jobs.publish.outputs.package_version }}
+      cleanup_result:
+        description: Marker-bound workspace cleanup result
+        value: ${{ jobs.publish.outputs.cleanup_result }}
+
+permissions:
+  contents: read
+
+jobs:
+  reject_hosted:
+    name: Reject unsupported hosted package publication
+    if: ${{ inputs.execution_backend == 'github-hosted' }}
+    runs-on: [ubuntu-latest]
+    timeout-minutes: 5
+    steps:
+      - name: Reject hosted package publication authority
+        shell: bash
+        run: |
+          echo '::error::package.publish does not support github-hosted execution until a reviewed hosted package-publication authority and toolchain are available.' >&2
+          exit 2
+
+  reject_invalid:
+    name: Reject invalid package execution backend
+    if: ${{ inputs.execution_backend != 'organization' && inputs.execution_backend != 'github-hosted' }}
+    runs-on: [linux, amd64, general, tiny]
+    timeout-minutes: 5
+    steps:
+      - name: Reject invalid bounded execution backend
+        shell: bash
+        run: |
+          echo '::error::execution_backend must be organization or github-hosted.' >&2
+          exit 2
+
+  plan:
+    name: Resolve exact package release and semantic runner
+    if: ${{ inputs.execution_backend == 'organization' }}
+    runs-on: [linux, amd64, general, small]
+    timeout-minutes: 10
+    outputs:
+      release_version: ${{ steps.release.outputs.release_version }}
+      release_source_sha: ${{ steps.release.outputs.release_source_sha }}
+      runs_on_json: ${{ steps.package_plan.outputs.runs_on_json }}
+      workspace_profile: ${{ steps.package_plan.outputs.workspace_profile }}
+      runner_profile: ${{ steps.package_plan.outputs.runner_profile }}
+      tag_object_sha: ${{ steps.release.outputs.tag_object_sha }}
+      tag_commit_sha: ${{ steps.release.outputs.tag_commit_sha }}
+    steps:
+      - name: Check out exact Central reusable-workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact Central workflow source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${{ job.workflow_sha }}"
+            test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          )
+
+      - id: release
+        name: Resolve exact product tag authority
+        uses: ./.ciw/actions/resolve-release-tag
+        with:
+          release_mode: tag-push
+
+      - id: package_plan
+        name: Resolve bounded package plan
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          INPUT_ADMITTED_SHA: ${{ steps.release.outputs.release_source_sha }}
+          INPUT_ECOSYSTEM: ${{ inputs.ecosystem }}
+          INPUT_WORKING_DIRECTORY: ${{ inputs.working_directory }}
+          INPUT_PACKAGE_NAME: ${{ inputs.package_name }}
+          INPUT_PACKAGE_VERSION: ${{ steps.release.outputs.release_version }}
+          INPUT_PACKAGE_GROUP: ${{ inputs.package_group }}
+          INPUT_PUBLICATION_PLAN_JSON: ${{ inputs.publication_plan_json }}
+        run: |
+          set -Eeuo pipefail
+          PYTHONPATH="${GITHUB_WORKSPACE}/.ciw/src" \
+            python3 "${GITHUB_WORKSPACE}/.ciw/scripts/ci/ciw.py" \
+              --root "${GITHUB_WORKSPACE}/.ciw" \
+              package publish \
+              --phase plan \
+              --workspace "${GITHUB_WORKSPACE}"
+
+  publish:
+    name: Release / Package publication
+    needs: plan
+    if: ${{ inputs.execution_backend == 'organization' }}
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
+    timeout-minutes: 120
+    outputs:
+      result: ${{ steps.package.outcome == 'success' && steps.cleanup.outcome == 'success' && steps.clean.outcome == 'success' && 'success' || 'failure' }}
+      ecosystem: ${{ steps.package.outputs.ecosystem }}
+      package_name: ${{ steps.package.outputs.package_name }}
+      package_version: ${{ steps.package.outputs.package_version }}
+      cleanup_result: ${{ steps.cleanup.outcome == 'success' && 'success' || 'failure' }}
+    steps:
+      - name: Check out exact Central reusable-workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact Central workflow source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          (
+            cd .ciw
+            test "$(git rev-parse HEAD)" = "${{ job.workflow_sha }}"
+            test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          )
+
+      - name: Check out exact tagged package source
+        uses: ./.ciw/actions/exact-checkout
+        with:
+          repository: ${{ github.repository }}
+          admitted_sha: ${{ needs.plan.outputs.release_source_sha }}
+          path: source
+          fetch_depth: "1"
+
+      - id: workspace
+        name: Prepare isolated package publication state
+        uses: ./.ciw/actions/prepare-workspace
+        with:
+          profile: ${{ needs.plan.outputs.workspace_profile }}
+          cache_mode: disabled
+          source_sha: ${{ needs.plan.outputs.release_source_sha }}
+          trust_mode: trusted-exact
+
+      - id: release
+        name: Revalidate exact product tag before registry write
+        uses: ./.ciw/actions/resolve-release-tag
+        with:
+          phase: revalidate
+          release_mode: tag-push
+          release_version: ${{ needs.plan.outputs.release_version }}
+          release_source_sha: ${{ needs.plan.outputs.release_source_sha }}
+          expected_tag_object_sha: ${{ needs.plan.outputs.tag_object_sha }}
+          expected_tag_commit_sha: ${{ needs.plan.outputs.tag_commit_sha }}
+
+      - id: package
+        name: Build inspect and publish exact package
+        continue-on-error: true
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          INPUT_ADMITTED_SHA: ${{ needs.plan.outputs.release_source_sha }}
+          INPUT_ECOSYSTEM: ${{ inputs.ecosystem }}
+          INPUT_WORKING_DIRECTORY: ${{ inputs.working_directory }}
+          INPUT_PACKAGE_NAME: ${{ inputs.package_name }}
+          INPUT_PACKAGE_VERSION: ${{ needs.plan.outputs.release_version }}
+          INPUT_PACKAGE_GROUP: ${{ inputs.package_group }}
+          INPUT_PUBLICATION_PLAN_JSON: ${{ inputs.publication_plan_json }}
+          CI_PACKAGE_USERNAME: ${{ secrets.registry_username }}
+          CI_PACKAGE_TOKEN: ${{ secrets.registry_token }}
+        run: |
+          set -Eeuo pipefail
+          PYTHONPATH="${GITHUB_WORKSPACE}/.ciw/src" \
+            python3 "${GITHUB_WORKSPACE}/.ciw/scripts/ci/ciw.py" \
+              --root "${GITHUB_WORKSPACE}/.ciw" \
+              package publish \
+              --phase execute \
+              --workspace "${GITHUB_WORKSPACE}"
+
+      - id: cleanup
+        name: Remove and verify all registered package state
+        if: always()
+        uses: ./.ciw/actions/cleanup-workspace
+
+      - id: clean
+        name: Verify exact tagged source remained clean after cleanup
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          (
+            cd source
+            test "$(git rev-parse HEAD)" = "${{ needs.plan.outputs.release_source_sha }}"
+            test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          )
+
+      - name: Project terminal package publication status
+        if: ${{ always() && !cancelled() }}
+        shell: bash
+        env:
+          PACKAGE_OUTCOME: ${{ steps.package.outcome }}
+          CLEANUP_OUTCOME: ${{ steps.cleanup.outcome }}
+          CLEAN_SOURCE_OUTCOME: ${{ steps.clean.outcome }}
+        run: |
+          set -Eeuo pipefail
+          test "${PACKAGE_OUTCOME}" = success
+          test "${CLEANUP_OUTCOME}" = success
+          test "${CLEAN_SOURCE_OUTCOME}" = success

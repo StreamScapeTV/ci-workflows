@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
-from . import ciw_native, runners
+from . import ciw_native, ciw_packages, runners
 from .ciw_android import configure_android_validate, execute_android_validate
 from .ciw_apple import configure_apple_validate, execute_apple_validate
 from .ciw_device import configure_device_validate, execute_device_validate
@@ -144,6 +144,11 @@ def _add_python_validate(parser: argparse.ArgumentParser) -> None:
 
 def _add_node_validate(parser: argparse.ArgumentParser) -> None:
     configure_node_validate(parser)
+
+
+def _add_package_publish(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--phase", choices=("plan", "execute"), required=True)
+    parser.add_argument("--workspace", type=Path, required=True)
 
 
 def _add_network(parser: argparse.ArgumentParser) -> None:
@@ -507,6 +512,30 @@ def handle_node_validate(
     context: CIWContext,
 ) -> CIWResult:
     return execute_node_validate(args, context)
+
+
+def handle_package_publish(
+    args: argparse.Namespace,
+    context: CIWContext,
+) -> CIWResult:
+    environment = dict(context.environment)
+    environment.pop("GITHUB_OUTPUT", None)
+    try:
+        if args.phase == "plan":
+            outputs = ciw_packages.plan_outputs(environment)
+        else:
+            outputs = ciw_packages.execute_package_publish(
+                workspace=args.workspace.resolve(),
+                state_root=ciw_packages._state_root(environment, context.root),
+                environment=environment,
+            )
+    except (
+        ciw_packages.PackagePublishError,
+        ciw_packages.PackagePrimitiveError,
+        ciw_packages.RuntimePrimitiveError,
+    ) as error:
+        raise CIWError("package", error.code) from error
+    return CIWResult("package", "publish", outputs=outputs)
 
 
 def handle_native_validate(
@@ -1124,6 +1153,12 @@ def command_specs() -> tuple[CommandSpec, ...]:
             "validate",
             handle_node_validate,
             _add_node_validate,
+        ),
+        CommandSpec(
+            "package",
+            "publish",
+            handle_package_publish,
+            _add_package_publish,
         ),
         CommandSpec(
             "native",
