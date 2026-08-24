@@ -178,10 +178,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-apple",
-      "sha": "4afdbf9761ffc81e046d813bf23b15a51e9b50a9",
+      "sha": "d946291afbf32353a959adcd3f6cbb92513a4cbe",
       "release": "issue #525 bounded compiler diagnostics checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/4afdbf9761ffc81e046d813bf23b15a51e9b50a9/actions/validate-apple"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/d946291afbf32353a959adcd3f6cbb92513a4cbe/actions/validate-apple"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-oci",
