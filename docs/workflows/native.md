@@ -14,6 +14,8 @@ The default test target is `test`, which is the conventional CMake/CTest target.
 
 Runner selection is Central-owned; consumers never supply a runner label or toolchain location. The selected ordinary native validation capacity must provide CMake, a C/C++ compiler, and its supported build backend. The reusable verifies runner-provided CMake before caller source execution and does not install host packages. GitHub Actions cache is disabled.
 
+The composite `validate-native` action is intentionally thin: it delegates through the checked-in `scripts/ci/ciw.py native validate` command, whose typed registry dispatches to the bounded `ciw_native` adapter. The action does not expose an alternate command, callback, shell fragment, or product-specific execution hook.
+
 The execution sequence is deliberately single-workspace:
 
 1. verify runner-provided CMake;
