@@ -57,6 +57,7 @@
       ".github/workflows/reusable-node.yml": {"trust_class": "reusable-call", "allowed_events": ["workflow_call"]},
       ".github/workflows/reusable-oci-build.yml": {"trust_class": "reusable-call", "allowed_events": ["workflow_call"]},
       ".github/workflows/reusable-oci-publish.yml": {"trust_class": "reusable-call", "allowed_events": ["workflow_call"]},
+      ".github/workflows/reusable-oci-reproducibility.yml": {"trust_class": "reusable-call", "allowed_events": ["workflow_call"]},
       ".github/workflows/reusable-public-native-image-chart.yml": {"trust_class": "reusable-call", "allowed_events": ["workflow_call"]},
       ".github/workflows/reusable-python.yml": {"trust_class": "reusable-call", "allowed_events": ["workflow_call"]},
       ".github/workflows/reusable-resolve-source.yml": {"trust_class": "reusable-call", "allowed_events": ["workflow_call"]},

@@ -158,6 +158,7 @@
       ],
       "allowed_workflow_apis": [
         "oci.build",
+        "oci.reproducibility",
         "oci.publish",
         "release.orchestrate",
         "flux.assets"
@@ -650,6 +651,12 @@
         "buildah-high"
       ],
       "strategy": "product-contract-tier"
+    },
+    "oci.reproducibility": {
+      "profiles": [
+        "buildah-small"
+      ],
+      "strategy": "fixed"
     },
     "release.orchestrate": {
       "profiles": [

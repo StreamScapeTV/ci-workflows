@@ -198,7 +198,7 @@ class SimpleScriptWorkflowContractTests(unittest.TestCase):
         index = json.loads(INDEX.read_text(encoding="utf-8"))
         validation = json.loads(VALIDATION.read_text(encoding="utf-8"))
         operations = json.loads(OPERATIONS.read_text(encoding="utf-8"))
-        self.assertEqual(26, index["workflow_count"])
+        self.assertEqual(27, index["workflow_count"])
         api_names = {row["api_name"] for row in index["workflows"]}
         self.assertIn("validation.script", api_names)
         self.assertNotIn("maintenance.conformance", api_names)

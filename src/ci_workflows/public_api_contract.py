@@ -221,7 +221,7 @@ def validate_workflows(data: ContractData, profiles: Mapping[str, Mapping[str, A
     require(isinstance(trust_classes, dict), "trust class catalog is missing")
     require(isinstance(input_catalog, dict), "input catalog is missing")
     require(isinstance(secret_catalog, dict), "secret catalog is missing")
-    require(isinstance(output_catalog, dict), "output catalog is missing")
+    require(isinstance(output_catalog, dict), "public API output catalog is missing")
     require(isinstance(defaults, dict), "public API defaults are missing")
     forbidden_inputs = set(unique_strings(defaults.get("forbidden_caller_fields"), "forbidden_caller_fields"))
     by_api: dict[str, Mapping[str, Any]] = {}
@@ -302,7 +302,7 @@ def validate_workflows(data: ContractData, profiles: Mapping[str, Mapping[str, A
             require(replacement != api, f"{api} cannot replace itself")
         by_api[api] = row
     require(set(trust_classes) <= represented_trust, "not every trust class has a public API")
-    require(len(by_api) == 26, f"public API registry must contain 26 workflows, found {len(by_api)}")
+    require(len(by_api) == 27, f"public API registry must contain 27 workflows, found {len(by_api)}")
     for api, row in by_api.items():
         deprecation = row.get("deprecation")
         if isinstance(deprecation, dict):
