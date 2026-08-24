@@ -86,6 +86,13 @@
       "source": "https://github.com/StreamScapeTV/ci-workflows/tree/7273bf28d5e4b9fc3bd6bcb8c6b685a5ff7c1f88/actions/validate-native"
     },
     {
+      "uses": "StreamScapeTV/ci-workflows/actions/validate-static-web",
+      "sha": "f0e3cd313b6350e3869b8a69a925f42db5aba0e2",
+      "release": "issue #361 canonical CIW adapter checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/f0e3cd313b6350e3869b8a69a925f42db5aba0e2/actions/validate-static-web"
+    },
+    {
       "uses": "StreamScapeTV/ci-workflows/actions/exact-checkout",
       "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
       "release": "issue #116 immutable private-action checkpoint",

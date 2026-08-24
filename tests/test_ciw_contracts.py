@@ -9,6 +9,7 @@ from ci_workflows.ciw import command_specs, runtime_command_index, validate_runt
 from ci_workflows.ciw_docs import load_command_contract, validate_command_contract
 from ci_workflows.ciw_native import NativeValidationError
 from ci_workflows.ciw_types import CIWError, CIWResult, project_error, write_command_file
+from ci_workflows.ciw_web import StaticWebValidationError
 from ci_workflows.device_lock import DeviceLockError
 from ci_workflows.device_types import DeviceValidationError
 from ci_workflows.foundation_types import FoundationError
@@ -32,7 +33,7 @@ class CIWContractTests(unittest.TestCase):
             for item in contract["commands"]
         }
         self.assertEqual(expected, set(runtime_command_index()))
-        self.assertEqual(32, len(expected))
+        self.assertEqual(33, len(expected))
         self.assertIn("android validate", expected)
         self.assertIn("apple validate", expected)
         self.assertIn("device lock", expected)
@@ -41,6 +42,7 @@ class CIWContractTests(unittest.TestCase):
         self.assertIn("helm publish", expected)
         self.assertIn("helm validate", expected)
         self.assertIn("native validate", expected)
+        self.assertIn("static-web validate", expected)
         self.assertIn("network run", expected)
         self.assertIn("python validate", expected)
         self.assertIn("node validate", expected)
@@ -65,6 +67,7 @@ class CIWContractTests(unittest.TestCase):
                 "flutter",
                 "helm",
                 "native",
+                "static-web",
                 "network",
                 "python",
                 "node",
@@ -154,6 +157,7 @@ class CIWContractTests(unittest.TestCase):
             (PythonValidationError("dependency_lock_drift"), "python", "dependency_lock_drift"),
             (NodeValidationError("lockfile_drift"), "node", "lockfile_drift"),
             (NativeValidationError("invalid_jobs"), "native", "invalid_jobs"),
+            (StaticWebValidationError("static_web_plan_invalid"), "static-web", "static_web_plan_invalid"),
             (HelmValidationError("dependency_policy_mismatch"), "helm", "dependency_policy_mismatch"),
             (GitOpsValidationError("tool_archive_rejected"), "gitops", "tool_archive_rejected"),
             (OciBuildError("oci_layout_malformed"), "oci", "oci_layout_malformed"),
