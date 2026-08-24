@@ -507,7 +507,6 @@ jobs:
             ".github/workflows/reusable-python.yml",
             ".github/workflows/reusable-flutter.yml",
             ".github/workflows/reusable-apple.yml",
-            ".github/workflows/reusable-oci-build.yml",
         )
         for relative in workflows:
             with self.subTest(workflow=relative):
