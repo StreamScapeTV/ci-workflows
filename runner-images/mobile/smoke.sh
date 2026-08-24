@@ -49,8 +49,33 @@ for license_hash in \
   24333f8a63b6825ea9c5514f83c2829b004d1fee; do
   grep -Fx "${license_hash}" "${ANDROID_HOME}/licenses/android-sdk-license"
 done
+
+test -s "${ANDROID_HOME}/platforms/android-36/android.jar"
+test -s "${ANDROID_HOME}/platforms/android-37.0/android.jar"
+test -L "${ANDROID_HOME}/platforms/android-37"
+test "$(readlink "${ANDROID_HOME}/platforms/android-37")" = "android-37.0"
+compat_platform_properties="${ANDROID_HOME}/platforms/android-36/source.properties"
+platform37_properties="${ANDROID_HOME}/platforms/android-37.0/source.properties"
+test -s "${compat_platform_properties}"
+test -s "${platform37_properties}"
+grep -Fx 'Pkg.Revision=2' "${compat_platform_properties}"
+grep -Fx 'AndroidVersion.ApiLevel=36' "${compat_platform_properties}"
+grep -Fx 'Pkg.Revision=2' "${platform37_properties}"
+grep -Fx 'AndroidVersion.ApiLevel=37.0' "${platform37_properties}"
+grep -Fx 'AndroidVersion.ExtensionLevel=22' "${platform37_properties}"
+test -d "${ANDROID_HOME}/build-tools/36.0.0"
+test -d "${ANDROID_HOME}/build-tools/37.0.0"
+test -d "${ANDROID_HOME}/ndk/28.2.13676358"
+test ! -e "${ANDROID_HOME}/platforms/android-37.0-2"
+test ! -w "${ANDROID_HOME}"
+test ! -w "${ANDROID_HOME}/platforms"
+test ! -w "${ANDROID_HOME}/platforms/android-36"
+test ! -w "${ANDROID_HOME}/platforms/android-37.0"
 test ! -w "${ANDROID_HOME}/cmake"
 test ! -w "${ANDROID_HOME}/licenses/android-sdk-license"
+test -z "$(find "${ANDROID_HOME}" -xdev \( -type f -o -type d \) -perm /222 -print -quit)"
+test -w /home/runner/_work
+test "$(stat -c '%a:%u:%g' /tmp)" = "1777:0:0"
 
 command -v git bash curl tar gzip zip unzip >/dev/null
 git --version >/dev/null
@@ -61,15 +86,6 @@ tar --version | head -n1 >/dev/null
 gzip --version | head -n1 >/dev/null
 zip --version | grep -F 'ci-workflows zip 1.0'
 unzip --version | grep -F 'ci-workflows unzip 1.0'
-
-test -s "${ANDROID_HOME}/platforms/android-36/android.jar"
-test -s "${ANDROID_HOME}/platforms/android-37.0/android.jar"
-test -L "${ANDROID_HOME}/platforms/android-37"
-test -d "${ANDROID_HOME}/build-tools/36.0.0"
-test -d "${ANDROID_HOME}/build-tools/37.0.0"
-test -d "${ANDROID_HOME}/ndk/28.2.13676358"
-test -w /home/runner/_work
-test "$(stat -c '%a:%u:%g' /tmp)" = "1777:0:0"
 
 for forbidden in docker dockerd containerd ctr runc buildah podman skopeo sudo apt apt-get dpkg; do
   ! command -v "${forbidden}"
@@ -127,6 +143,10 @@ if [[ "${CIW_RUNNER_IMAGE_BUILD_PHASE:-0}" != "1" ]]; then
 
   cmake_sha_before="$(sha256sum "${cmake_root}/bin/cmake" | awk '{print $1}')"
   ninja_sha_before="$(sha256sum "${cmake_root}/bin/ninja" | awk '{print $1}')"
+  compat_platform_jar_sha_before="$(sha256sum "${ANDROID_HOME}/platforms/android-36/android.jar" | awk '{print $1}')"
+  platform37_jar_sha_before="$(sha256sum "${ANDROID_HOME}/platforms/android-37.0/android.jar" | awk '{print $1}')"
+  platform37_properties_sha_before="$(sha256sum "${platform37_properties}" | awk '{print $1}')"
+  sdk_tree_before="$(find "${ANDROID_HOME}" -xdev -printf '%P|%y|%s|%m|%u|%g\n' | LC_ALL=C sort | sha256sum | awk '{print $1}')"
   if ! (cd "${app_root}" && flutter build apk --debug --no-pub >"${build_log}" 2>&1); then
     cat "${build_log}" >&2
     exit 1
@@ -135,7 +155,16 @@ if [[ "${CIW_RUNNER_IMAGE_BUILD_PHASE:-0}" != "1" ]]; then
   test -s "${app_root}/build/app/outputs/flutter-apk/app-debug.apk"
   test "$(sha256sum "${cmake_root}/bin/cmake" | awk '{print $1}')" = "${cmake_sha_before}"
   test "$(sha256sum "${cmake_root}/bin/ninja" | awk '{print $1}')" = "${ninja_sha_before}"
-  if grep -E 'Preparing "Install CMake|Installing CMake|LicenceNotAcceptedException|License for package CMake .* not accepted' "${build_log}"; then
+  test "$(sha256sum "${ANDROID_HOME}/platforms/android-36/android.jar" | awk '{print $1}')" = "${compat_platform_jar_sha_before}"
+  test "$(sha256sum "${ANDROID_HOME}/platforms/android-37.0/android.jar" | awk '{print $1}')" = "${platform37_jar_sha_before}"
+  test "$(sha256sum "${platform37_properties}" | awk '{print $1}')" = "${platform37_properties_sha_before}"
+  test "$(find "${ANDROID_HOME}" -xdev -printf '%P|%y|%s|%m|%u|%g\n' | LC_ALL=C sort | sha256sum | awk '{print $1}')" = "${sdk_tree_before}"
+  test ! -e "${ANDROID_HOME}/platforms/android-37.0-2"
+  if grep -E 'Preparing "Install (Android SDK|CMake)|Installing (Android SDK|CMake)|Downloading https://dl\.google\.com/android/repository/' "${build_log}"; then
+    cat "${build_log}" >&2
+    exit 1
+  fi
+  if grep -E 'LicenceNotAcceptedException|License for package .* not accepted' "${build_log}"; then
     cat "${build_log}" >&2
     exit 1
   fi
