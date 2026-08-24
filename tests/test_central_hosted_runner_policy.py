@@ -13,6 +13,7 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 HOSTED_LINUX = ["ubuntu-latest"]
 HOSTED_APPLE = ["macos-latest"]
 APPLE_PILOT = WORKFLOWS / "apple-test.yml"
+BROKER_RELEASE = WORKFLOWS / "ci-broker-image.yml"
 BACKEND_CONTRACT = ROOT / "contracts" / "runner-execution-backends.json"
 SELF_PREFIX = "StreamScapeTV/ci-workflows/.github/workflows/"
 OWNER_GATE = "github.event.pull_request.user.login == 'mimranfaruqi'"
@@ -59,9 +60,12 @@ def _backend_contract() -> dict:
     return json.loads(BACKEND_CONTRACT.read_text(encoding="utf-8"))
 
 
-def _expected_hosted_selector(path: Path, job_name: str) -> list[str]:
+def _expected_repository_local_selector(path: Path, job_name: str) -> list[str]:
     relative = str(path.relative_to(ROOT))
     contract = _backend_contract()
+    for exception in contract.get("repository_local_trusted_publication_exceptions", []):
+        if exception["workflow"] == relative and exception["job"] == job_name:
+            return list(exception["exact_selector"])
     for exception in contract["github-hosted"].get("repository_local_exceptions", []):
         if exception["workflow"] == relative and exception["job"] == job_name:
             return list(exception["runs_on"])
@@ -69,7 +73,7 @@ def _expected_hosted_selector(path: Path, job_name: str) -> list[str]:
 
 
 class CentralHostedRunnerPolicyTests(unittest.TestCase):
-    def test_every_repository_local_runnable_job_uses_reviewed_github_hosted_capacity(self) -> None:
+    def test_every_repository_local_runnable_job_uses_reviewed_capacity(self) -> None:
         visited: set[Path] = set()
         failures: list[str] = []
 
@@ -81,7 +85,7 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
             for job_name, job in workflow.get("jobs", {}).items():
                 if _cannot_run_in_public_central(job):
                     continue
-                expected = _expected_hosted_selector(path, job_name)
+                expected = _expected_repository_local_selector(path, job_name)
                 if "runs-on" in job and job["runs-on"] != expected:
                     failures.append(
                         f"{path.relative_to(ROOT)}:{job_name} uses {job['runs-on']!r}; expected {expected!r}"
@@ -98,7 +102,7 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
         self.assertEqual(
             failures,
             [],
-            "Central runnable jobs must use their exact reviewed GitHub-hosted selector:\n"
+            "Central runnable jobs must use their exact reviewed selector:\n"
             + "\n".join(failures),
         )
 
@@ -164,6 +168,43 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
                     "job": "execute",
                     "events": ["workflow_dispatch"],
                     "runs_on": HOSTED_APPLE,
+                },
+            ],
+        )
+
+    def test_private_forgejo_broker_release_is_the_only_arc_repository_local_exception(self) -> None:
+        workflow = yaml.load(BROKER_RELEASE.read_text(encoding="utf-8"), Loader=ActionsLoader)
+        self.assertEqual(_events(workflow), {"push"})
+        self.assertEqual(workflow["on"]["push"]["tags"], ["ci-broker-*"])
+        self.assertEqual(set(workflow["jobs"]), {"admit", "image", "chart"})
+
+        reason = "private Forgejo registry is reachable only from organization ARC capacity"
+        self.assertEqual(
+            _backend_contract()["repository_local_trusted_publication_exceptions"],
+            [
+                {
+                    "workflow": ".github/workflows/ci-broker-image.yml",
+                    "job": "admit",
+                    "events": ["push"],
+                    "tag_prefix": "ci-broker-",
+                    "exact_selector": ["linux", "amd64", "general", "tiny"],
+                    "reason": reason,
+                },
+                {
+                    "workflow": ".github/workflows/ci-broker-image.yml",
+                    "job": "image",
+                    "events": ["push"],
+                    "tag_prefix": "ci-broker-",
+                    "exact_selector": ["linux", "amd64", "buildah", "small"],
+                    "reason": reason,
+                },
+                {
+                    "workflow": ".github/workflows/ci-broker-image.yml",
+                    "job": "chart",
+                    "events": ["push"],
+                    "tag_prefix": "ci-broker-",
+                    "exact_selector": ["linux", "amd64", "general", "small"],
+                    "reason": reason,
                 },
             ],
         )
