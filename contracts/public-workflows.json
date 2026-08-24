@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "organization": "StreamScapeTV",
-  "contract_version": "3.1.0",
+  "contract_version": "4.0.0",
   "types_contract": "contracts/public-workflow-types.json",
   "permission_contract": "contracts/permission-profiles.json",
   "fragment_contracts": [
