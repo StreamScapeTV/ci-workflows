@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/reusable-native.yml"
 ACTION_PATH = ROOT / "actions/validate-native/action.yml"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-NATIVE_ACTION_SHA = "89e101e4dea01c797a24284c1b8b8cdbdd67ba61"
+NATIVE_ACTION_SHA = "7273bf28d5e4b9fc3bd6bcb8c6b685a5ff7c1f88"
 
 
 class NativeWorkflowContractTests(unittest.TestCase):
@@ -135,7 +135,8 @@ class NativeWorkflowContractTests(unittest.TestCase):
             {"admitted_sha", "working_directory", "validation_plan_json"},
         )
         script = self.action["runs"]["steps"][0]["run"]
-        self.assertIn("-m ci_workflows.ciw_native", script)
+        self.assertIn("scripts/ci/ciw.py", script)
+        self.assertIn("native validate", script)
         self.assertIn("type -P python3", script)
         self.assertNotIn("eval ", script)
         self.assertNotIn("bash -c", script)
