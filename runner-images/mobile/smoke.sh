@@ -136,6 +136,12 @@ if [[ "${CIW_RUNNER_IMAGE_BUILD_PHASE:-0}" != "1" ]]; then
     exit 1
   fi
 
+  app_gradle="${app_root}/android/app/build.gradle.kts"
+  test -s "${app_gradle}"
+  grep -F 'compileSdk = flutter.compileSdkVersion' "${app_gradle}"
+  sed -i 's/compileSdk = flutter\.compileSdkVersion/compileSdk = 37/' "${app_gradle}"
+  grep -F 'compileSdk = 37' "${app_gradle}"
+
   if ! (cd "${app_root}" && flutter pub get >"${pub_log}" 2>&1); then
     cat "${pub_log}" >&2
     exit 1
