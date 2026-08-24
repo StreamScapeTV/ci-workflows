@@ -108,7 +108,7 @@
     {
       "file": ".github/workflows/reusable-tag-image-chart.yml",
       "api_name": "release.tag-image-chart-bootstrap",
-      "api_version": "1.2.0",
+      "api_version": "2.0.0",
       "status": "deprecated-bootstrap-exception",
       "trust_class": "trusted-publication",
       "permission_profile": "bootstrap-tag-publication",
@@ -118,7 +118,6 @@
         {"name": "release_mode", "required": false, "default": "tag-push"},
         {"name": "release_version", "required": false},
         {"name": "release_source_sha", "required": false},
-        {"name": "image_recovery_authority", "required": false, "default": ""},
         {"name": "image_name", "required": true},
         {"name": "chart_name", "required": true},
         {"name": "chart_path", "required": true},
@@ -133,7 +132,7 @@
       "repository_owned_hooks": ["chart_path", "dockerfile_path", "build_context"],
       "implementation_components": ["ci_workflows.release_tag_authority.resolve_release_authority", "ci_workflows.release_tag_authority.revalidate_release_authority", "actions/resolve-release-tag", "bootstrap-monolithic-workflow"],
       "deprecation": {"replacement": "release.native-image-chart", "removal_version": null},
-      "notes": "Deprecated bootstrap exception retained for migration only. The current demonstrated private-registry image/chart replacement is release.native-image-chart; #474 separately owns removal of the historical recovery exception."
+      "notes": "Deprecated bootstrap exception retained for the remaining demonstrated caller while migration to release.native-image-chart remains outstanding. Issue #474 removed the historical product-specific recovery path rather than generalizing it."
     }
   ]
 }

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -37,6 +39,23 @@ class ScriptedRunner:
         return self.outcome
 
 
+class BundleProducingRunner:
+    def __init__(self, bundle: Path, outcome: CommandOutcome) -> None:
+        self.bundle = bundle
+        self.outcome = outcome
+
+    def run(
+        self,
+        argv: Sequence[str],
+        *,
+        cwd: Path,
+        env: Mapping[str, str],
+        timeout_seconds: int,
+    ) -> CommandOutcome:
+        self.bundle.mkdir(parents=True, exist_ok=True)
+        return self.outcome
+
+
 class AppleFailureDiagnosticTests(unittest.TestCase):
     def roots(self) -> tuple[tempfile.TemporaryDirectory[str], Path, Path]:
         temporary = tempfile.TemporaryDirectory()
@@ -46,6 +65,29 @@ class AppleFailureDiagnosticTests(unittest.TestCase):
         source.mkdir(parents=True)
         state.mkdir(parents=True)
         return temporary, source, state
+
+    @staticmethod
+    def result_bundle(state: Path, stage: str = "compile") -> Path:
+        bundle = (
+            state
+            / "apple-validation"
+            / "result-bundles"
+            / stage
+            / "validation.xcresult"
+        )
+        bundle.mkdir(parents=True, exist_ok=True)
+        return bundle
+
+    @staticmethod
+    def xcode_argv(source: Path, bundle: Path) -> tuple[str, ...]:
+        return (
+            "xcodebuild",
+            "-project",
+            str(source / "App.xcodeproj"),
+            "-resultBundlePath",
+            str(bundle),
+            "build",
+        )
 
     def capture_run(
         self,
@@ -89,6 +131,7 @@ class AppleFailureDiagnosticTests(unittest.TestCase):
         runner = ciw_apple._FailureDiagnosticRunner(
             delegate,
             (source, state, state.parent),
+            state_root=state,
         )
 
         outcome, diagnostic = self.capture_run(
@@ -113,6 +156,248 @@ class AppleFailureDiagnosticTests(unittest.TestCase):
         self.assertIn("<url>", diagnostic)
         self.assertLess(len(diagnostic), 13 * 1024)
 
+    def test_xcodebuild_uses_owned_xcresult_when_stdout_lacks_concrete_error(self) -> None:
+        temporary, source, state = self.roots()
+        self.addCleanup(temporary.cleanup)
+        bundle = self.result_bundle(state)
+        secret = "github_pat_abcdefghijklmnopqrstuvwxyz012345"
+        private_url = "https://github.com/StreamScapeTV/private-media.git"
+        result = json.dumps(
+            {
+                "status": "failed",
+                "errorCount": 1,
+                "errors": [
+                    {
+                        "issueType": "Swift Compiler Error",
+                        "message": (
+                            "cannot convert value; "
+                            f"token={secret}; dependency {private_url}; "
+                            "::error::not-a-workflow-command"
+                        ),
+                        "sourceURL": (
+                            f"file://{source}/Sources/App.swift"
+                            "#StartingLineNumber=42&StartingColumnNumber=17"
+                        ),
+                    }
+                ],
+            }
+        )
+        runner = ciw_apple._FailureDiagnosticRunner(
+            ScriptedRunner(
+                outcome=CommandOutcome(
+                    65,
+                    "SwiftCompile normal arm64 Compiling App.swift\n"
+                    "Command SwiftCompile failed with a nonzero exit code\n",
+                    "",
+                )
+            ),
+            (source, state, state.parent),
+            state_root=state,
+        )
+
+        with mock.patch.object(
+            ciw_apple,
+            "_read_xcresult_build_results",
+            return_value=result,
+        ) as read_result:
+            outcome, diagnostic = self.capture_run(
+                runner,
+                self.xcode_argv(source, bundle),
+                cwd=source,
+            )
+
+        self.assertIsNotNone(outcome)
+        self.assertEqual(outcome.returncode, 65)
+        read_result.assert_called_once_with(bundle.resolve())
+        self.assertIn(
+            "Swift Compiler Error: App.swift:42:17: cannot convert value",
+            diagnostic,
+        )
+        self.assertNotIn("SwiftCompile normal arm64", diagnostic)
+        self.assertNotIn(str(source), diagnostic)
+        self.assertNotIn(secret, diagnostic)
+        self.assertNotIn(private_url, diagnostic)
+        self.assertIn("<redacted>", diagnostic)
+        self.assertIn("<url>", diagnostic)
+        self.assertIn("| Swift Compiler Error:", diagnostic)
+        self.assertNotIn("\n::error::", diagnostic)
+
+    def test_useful_stdout_does_not_read_xcresult(self) -> None:
+        temporary, source, state = self.roots()
+        self.addCleanup(temporary.cleanup)
+        bundle = self.result_bundle(state)
+        runner = ciw_apple._FailureDiagnosticRunner(
+            ScriptedRunner(
+                outcome=CommandOutcome(
+                    65,
+                    f"{source}/Sources/App.swift:9:3: error: missing return\n",
+                    "",
+                )
+            ),
+            (source, state, state.parent),
+            state_root=state,
+        )
+
+        with mock.patch.object(ciw_apple, "_read_xcresult_build_results") as read_result:
+            _, diagnostic = self.capture_run(
+                runner,
+                self.xcode_argv(source, bundle),
+                cwd=source,
+            )
+
+        read_result.assert_not_called()
+        self.assertIn("App.swift:9:3: error: missing return", diagnostic)
+        self.assertNotIn(str(source), diagnostic)
+
+    def test_workflow_command_shaped_error_does_not_suppress_xcresult(self) -> None:
+        temporary, source, state = self.roots()
+        self.addCleanup(temporary.cleanup)
+        bundle = self.result_bundle(state)
+        ordinary = (
+            "Command SwiftCompile failed with a nonzero exit code\n"
+            "::error::attempted workflow-command injection\n"
+        )
+        result = json.dumps(
+            {
+                "errors": [
+                    {
+                        "issueType": "Swift Compiler Error",
+                        "message": "cannot infer contextual base",
+                        "sourceURL": "file:///private/work/App.swift#StartingLineNumber=14",
+                    }
+                ]
+            }
+        )
+        runner = ciw_apple._FailureDiagnosticRunner(
+            ScriptedRunner(outcome=CommandOutcome(65, ordinary, "")),
+            (source, state, state.parent),
+            state_root=state,
+        )
+
+        with mock.patch.object(
+            ciw_apple,
+            "_read_xcresult_build_results",
+            return_value=result,
+        ) as read_result:
+            _, diagnostic = self.capture_run(
+                runner,
+                self.xcode_argv(source, bundle),
+                cwd=source,
+            )
+
+        read_result.assert_called_once_with(bundle.resolve())
+        self.assertIn(
+            "Swift Compiler Error: App.swift:14: cannot infer contextual base",
+            diagnostic,
+        )
+        self.assertNotIn("attempted workflow-command injection", diagnostic)
+
+    def test_corrupt_xcresult_falls_back_to_existing_output(self) -> None:
+        temporary, source, state = self.roots()
+        self.addCleanup(temporary.cleanup)
+        bundle = self.result_bundle(state)
+        ordinary = (
+            "SwiftCompile normal arm64 Compiling App.swift\n"
+            "Command SwiftCompile failed with a nonzero exit code\n"
+        )
+        runner = ciw_apple._FailureDiagnosticRunner(
+            ScriptedRunner(outcome=CommandOutcome(65, ordinary, "")),
+            (source, state, state.parent),
+            state_root=state,
+        )
+
+        with mock.patch.object(
+            ciw_apple,
+            "_read_xcresult_build_results",
+            return_value="{not-json",
+        ):
+            outcome, diagnostic = self.capture_run(
+                runner,
+                self.xcode_argv(source, bundle),
+                cwd=source,
+            )
+
+        self.assertIsNotNone(outcome)
+        self.assertEqual(outcome.returncode, 65)
+        self.assertIn("SwiftCompile normal arm64", diagnostic)
+        self.assertIn("failed with a nonzero exit code", diagnostic)
+
+    def test_out_of_state_result_bundle_is_never_read(self) -> None:
+        temporary, source, state = self.roots()
+        self.addCleanup(temporary.cleanup)
+        outside = Path(temporary.name) / "outside" / "validation.xcresult"
+        outside.mkdir(parents=True)
+        ordinary = "Command SwiftCompile failed with a nonzero exit code\n"
+        runner = ciw_apple._FailureDiagnosticRunner(
+            ScriptedRunner(outcome=CommandOutcome(65, ordinary, "")),
+            (source, state, state.parent),
+            state_root=state,
+        )
+
+        with mock.patch.object(ciw_apple, "_read_xcresult_build_results") as read_result:
+            _, diagnostic = self.capture_run(
+                runner,
+                self.xcode_argv(source, outside),
+                cwd=source,
+            )
+
+        read_result.assert_not_called()
+        self.assertIn("failed with a nonzero exit code", diagnostic)
+
+    def test_xcresult_fallback_is_emitted_before_caller_cleanup(self) -> None:
+        temporary, source, state = self.roots()
+        self.addCleanup(temporary.cleanup)
+        bundle = (
+            state
+            / "apple-validation"
+            / "result-bundles"
+            / "compile"
+            / "validation.xcresult"
+        )
+        runner = ciw_apple._FailureDiagnosticRunner(
+            BundleProducingRunner(
+                bundle,
+                CommandOutcome(
+                    65,
+                    "Command SwiftCompile failed with a nonzero exit code\n",
+                    "",
+                ),
+            ),
+            (source, state, state.parent),
+            state_root=state,
+        )
+        result = json.dumps(
+            {
+                "errors": [
+                    {
+                        "issueType": "Swift Compiler Error",
+                        "message": "cannot find symbol in scope",
+                        "sourceURL": "file:///private/work/App.swift#StartingLineNumber=5",
+                    }
+                ]
+            }
+        )
+
+        def read_before_cleanup(candidate: Path) -> str:
+            self.assertEqual(candidate, bundle.resolve())
+            self.assertTrue(candidate.is_dir())
+            return result
+
+        with mock.patch.object(
+            ciw_apple,
+            "_read_xcresult_build_results",
+            side_effect=read_before_cleanup,
+        ):
+            _, diagnostic = self.capture_run(
+                runner,
+                self.xcode_argv(source, bundle),
+                cwd=source,
+            )
+
+        shutil.rmtree(state / "apple-validation")
+        self.assertFalse(bundle.exists())
+        self.assertIn("Swift Compiler Error: App.swift:5: cannot find symbol in scope", diagnostic)
+
     def test_timeout_emits_partial_sanitized_output_and_preserves_timeout(self) -> None:
         temporary, source, state = self.roots()
         self.addCleanup(temporary.cleanup)
@@ -126,6 +411,7 @@ class AppleFailureDiagnosticTests(unittest.TestCase):
         runner = ciw_apple._FailureDiagnosticRunner(
             ScriptedRunner(error=timeout),
             (source, state, state.parent),
+            state_root=state,
         )
         stream = StringIO()
 
@@ -149,6 +435,7 @@ class AppleFailureDiagnosticTests(unittest.TestCase):
         runner = ciw_apple._FailureDiagnosticRunner(
             ScriptedRunner(error=AppleValidationError("command_failed")),
             (source, state, state.parent),
+            state_root=state,
         )
         stream = StringIO()
 
@@ -177,6 +464,7 @@ class AppleFailureDiagnosticTests(unittest.TestCase):
         success = ciw_apple._FailureDiagnosticRunner(
             ScriptedRunner(outcome=CommandOutcome(0, "build succeeded\n", "")),
             (source, state, state.parent),
+            state_root=state,
         )
         outcome, diagnostic = self.capture_run(
             success,
@@ -189,6 +477,7 @@ class AppleFailureDiagnosticTests(unittest.TestCase):
         housekeeping = ciw_apple._FailureDiagnosticRunner(
             ScriptedRunner(outcome=CommandOutcome(1, "", "already shutdown")),
             (source, state, state.parent),
+            state_root=state,
         )
         outcome, diagnostic = self.capture_run(
             housekeeping,
@@ -216,6 +505,7 @@ class AppleFailureDiagnosticTests(unittest.TestCase):
         self.assertIs(result, sentinel_result)
         runner = execute.call_args.kwargs["runner"]
         self.assertIsInstance(runner, ciw_apple._FailureDiagnosticRunner)
+        self.assertEqual(runner._state_root, state)
 
 
 if __name__ == "__main__":

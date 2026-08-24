@@ -11,7 +11,7 @@ from ci_workflows.apple_types import AppleProfile, AppleValidationRequest
 
 ROOT = Path(__file__).resolve().parents[1]
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-APPLE_HELPER_SHA = "2ea47520b9d84b9b0a71c23de3da03f02a5bea9c"
+APPLE_HELPER_SHA = "d946291afbf32353a959adcd3f6cbb92513a4cbe"
 OWNER_GATE = "github.event.pull_request.user.login == 'mimranfaruqi'"
 REPOSITORY_GATE = "github.event.pull_request.head.repo.full_name == github.repository"
 
@@ -379,6 +379,7 @@ class AppleWorkflowContractTests(unittest.TestCase):
                 self.guard,
                 self.types,
                 (ROOT / "src/ci_workflows/ciw_apple.py").read_text(encoding="utf-8"),
+                (ROOT / "src/ci_workflows/apple_simulator_confidence.py").read_text(encoding="utf-8"),
                 (ROOT / "src/ci_workflows/apple_contract_fragments.py").read_text(
                     encoding="utf-8"
                 ),

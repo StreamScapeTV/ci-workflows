@@ -1,5 +1,5 @@
 name: Validate exact Apple source
-description: Plan, execute, clean, or inspect legacy and protected-full Apple validation
+description: Plan, execute, clean, or inspect legacy, protected-full, and simulator-confidence Apple validation
 
 inputs:
   phase:
@@ -10,11 +10,11 @@ inputs:
     description: Exact admitted caller source SHA
     required: true
   validation_scope:
-    description: legacy or protected-full
+    description: legacy, protected-full, or simulator-confidence
     required: false
     default: legacy
   validation_plan_json:
-    description: Strict bounded caller-owned protected-full stage plan
+    description: Strict bounded caller-owned protected-full stage plan or simulator-confidence packet
     required: false
     default: ""
   validation_profile:
@@ -196,6 +196,12 @@ runs:
         INPUT_PRIVATE_DEPENDENCY_EXPECTED_SUBPATH: ${{ inputs.private_dependency_expected_subpath }}
       run: |
         set -Eeuo pipefail
+        if [[ "${{ inputs.validation_scope }}" == "simulator-confidence" ]]; then
+          python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/apple_simulator_confidence.py" \
+            --phase "${{ inputs.phase }}" \
+            --source-root source
+          exit 0
+        fi
         python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
           apple validate \
           --phase "${{ inputs.phase }}" \
