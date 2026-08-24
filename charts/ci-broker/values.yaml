@@ -3,7 +3,7 @@ replicaCount: 1
 fullnameOverride: ci-broker
 
 image:
-  repository: git.faruqi.dev/mimranfaruqi/ci-broker
+  repository: git.faruqi.dev/mimranfaruqi/ci-workflows/ci-broker
   tag: ""
   pullPolicy: IfNotPresent
   pullSecrets:
