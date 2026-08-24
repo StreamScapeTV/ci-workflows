@@ -322,7 +322,7 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         ):
             self.assertIn(phrase, text)
 
-        runner_text = self.runners_doc.casefold()
+        runner_text = " ".join(self.runners_doc.casefold().split())
         for phrase in (
             "simulator-only apple work",
             "`macos-latest`",
