@@ -96,7 +96,7 @@ bounded chart consumer entry.
 ## SOPS boundary
 
 SOPS validation inspects ciphertext and reference structure only. Checked-in
-` sops_files ` entries may be exact repository-relative paths or bounded
+`sops_files` entries may be exact repository-relative paths or bounded
 repository-relative glob patterns. Every matching file must be part of the
 same target's reviewed include surface and must carry an encrypted MAC, a SOPS
 version, and encrypted `data` or `stringData` values. Matching plaintext or
