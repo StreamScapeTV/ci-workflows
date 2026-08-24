@@ -32,11 +32,16 @@ zero-artifact semantics are identical after selection.
 | Profile | Contract-owned work |
 |---|---|
 | `source-audit` | Exact source and optional checked-in bounded policy script; no renderer. |
-| `yaml` | UTF-8/style, duplicate-key, YAML syntax, bounded JSON-schema, Kubernetes identity, and SOPS ciphertext/reference structure. |
+| `yaml` | Strict UTF-8/style, duplicate-key, YAML syntax, bounded JSON-schema, Kubernetes identity, and SOPS ciphertext/reference structure for every selected YAML source file. |
 | `helm-render` | Exact dependency lock, vendored dependency identity, values schema, required values, strict lint, deterministic template, and expected-render checks. |
 | `kustomize-render` | Local root-restricted Kustomize graph inspection and deterministic build/render. |
-| `changed-tree` | Select only contract targets intersecting an exact Git diff base. |
-| `full` | All targets and the optional contract-owned policy script. |
+| `changed-tree` | Select contract targets intersecting the exact Git diff base. Every selected YAML file is still parsed semantically, while strict formatting applies only to files changed by that diff. |
+| `full` | Validate every contract target and optional policy. YAML semantic safety remains repository-wide, while historical formatting is not promoted into a whole-repository gate. |
+
+A target rooted at `.` is the repository root: repository-relative changed
+paths such as `apps/...`, `clusters/...`, and `.github/workflows/...` select it
+without requiring a synthetic `./` prefix. Non-root targets retain their exact
+bounded prefix semantics.
 
 The reusable workflow accepts only the bounded backend, an exact admitted SHA,
 one registered consumer/profile, an exact base SHA for `changed-tree`, the
@@ -90,21 +95,38 @@ bounded chart consumer entry.
 
 ## SOPS boundary
 
-SOPS validation inspects ciphertext and reference structure only. It requires
-an encrypted MAC and encrypted `data` or `stringData` values. It rejects
-plaintext values, private key material, and command residue. It will never
-decrypt a SOPS document, receive an age/PGP/KMS key, or validate live secret
-contents.
+SOPS validation inspects ciphertext and reference structure only. Checked-in
+` sops_files ` entries may be exact repository-relative paths or bounded
+repository-relative glob patterns. Every matching file must be part of the
+same target's reviewed include surface and must carry an encrypted MAC, a SOPS
+version, and encrypted `data` or `stringData` values. Matching plaintext or
+malformed files fail closed with only the bounded path/reason in evidence.
+
+The validator never decrypts a SOPS document, receives an age/PGP/KMS key,
+reads a Kubernetes Secret, or emits plaintext secret contents. SOPS matching is
+consumer-contract data rather than a product-name allowlist.
 
 ## Flux and chart consumers
 
 Flux remains authoritative for desired state, target allowlists, policy,
-decryption, credentials, and live reconciliation. The `flux-source` consumer
-shape can validate checked-in YAML and changed paths but receives no Flux or
-Kubernetes authority. Selecting GitHub-hosted validation does not grant private
-cluster authority. `iptv-backend` and `agent-state` remain owners of their chart
-values and product assertions; central validation supplies only the bounded
-source/render machinery.
+decryption, credentials, and live reconciliation. The `flux-source` contract
+uses one repository-root YAML source target plus one local Kustomize target at
+`clusters/devops`. Its YAML target validates `apps/**`, `clusters/**`, and
+workflow YAML semantically, applies strict style only to changed YAML under
+`changed-tree`, and requires matching `*.secret.yaml` source to retain SOPS
+encrypted structure. `full` keeps the same semantic and render coverage without
+requiring unrelated historical/generated whitespace normalization.
+
+The Kustomize target uses only local root-restricted references and deterministic
+double rendering. A raw YAML source audit may overlap its own nested render
+root; that intentional source/render composition does not suppress duplicates
+within one target, across two source targets, across two render targets, or
+across disjoint roots. Selecting GitHub-hosted validation grants no Flux or
+Kubernetes authority.
+
+`iptv-backend` and `agent-state` remain owners of their chart values and product
+assertions; central validation supplies only the bounded source/render
+machinery.
 
 ## Cleanup and artifacts
 
