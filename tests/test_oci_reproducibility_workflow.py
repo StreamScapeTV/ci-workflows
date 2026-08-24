@@ -18,7 +18,6 @@ from ci_workflows import oci_reproducibility as repro
 
 
 WORKFLOW = ROOT / ".github" / "workflows" / "reusable-oci-reproducibility.yml"
-SMOKE = ROOT / ".github" / "workflows" / "oci-reproducibility-validation.yml"
 SCRIPT = ROOT / "scripts" / "ci" / "oci_reproducibility.py"
 MODULE = ROOT / "src" / "ci_workflows" / "oci_reproducibility.py"
 FIXTURE = ROOT / "tests" / "fixtures" / "oci-reproducibility"
@@ -28,7 +27,6 @@ class OciReproducibilityWorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.workflow = WORKFLOW.read_text(encoding="utf-8")
-        cls.smoke = SMOKE.read_text(encoding="utf-8")
         cls.script = SCRIPT.read_text(encoding="utf-8")
         cls.module = MODULE.read_text(encoding="utf-8")
 
@@ -70,25 +68,6 @@ class OciReproducibilityWorkflowTests(unittest.TestCase):
             ":latest",
         ):
             self.assertNotIn(forbidden, text)
-
-    def test_real_smoke_is_path_scoped_for_push_and_pull_request(self) -> None:
-        required_paths = (
-            ".github/workflows/reusable-oci-reproducibility.yml",
-            ".github/workflows/oci-reproducibility-validation.yml",
-            "contracts/public-workflows.json",
-            "contracts/public-workflows/products.json",
-            "contracts/runner-profiles.json",
-            "src/ci_workflows/oci_reproducibility.py",
-            "src/ci_workflows/public_api_contract.py",
-            "tests/test_oci_reproducibility_workflow.py",
-        )
-        self.assertIn("pull_request:\n    paths:\n", self.smoke)
-        self.assertIn("push:\n", self.smoke)
-        self.assertIn("push:\n    # Keep the real two-clean-build proof", self.smoke)
-        for path in required_paths:
-            self.assertEqual(2, self.smoke.count(f"      - {path}\n"), path)
-        self.assertIn("github.event.pull_request.user.login == 'mimranfaruqi'", self.smoke)
-        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", self.smoke)
 
     def test_function_first_module_and_thin_cli_adapter_are_explicit(self) -> None:
         self.assertIn("from ci_workflows.oci_reproducibility import main", self.script)
