@@ -2,9 +2,10 @@
 
 Public API: `validation.static-web` `1.0.0`  
 Workflow: `.github/workflows/reusable-static-web.yml`  
-Stable check: `CI / Static-web validation`
+Stable check: `CI / Static-web validation`  
+Named command: `ciw static-web validate`
 
-The reusable workflow builds and verifies one caller-owned static website from an exact admitted source SHA. Central owns the bounded execution lifecycle, output inspection, semantic general runner selection and cleanup; the caller keeps framework configuration, package restore, build/export behavior and product assertions in checked-in source.
+The reusable workflow builds and verifies one caller-owned static website from an exact admitted source SHA. Central owns the bounded execution lifecycle, output inspection, semantic general runner selection and cleanup; the caller keeps framework configuration, package restore, build/export behavior and product assertions in checked-in source. The composite adapter is intentionally thin and dispatches through the shared `scripts/ci/ciw.py` registry rather than invoking a feature module as an independent entrypoint.
 
 ## Consumer shape
 
