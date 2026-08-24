@@ -66,7 +66,7 @@ jobs:
 
       - id: native
         name: Execute bounded native configure build and test
-        uses: StreamScapeTV/ci-workflows/actions/validate-native@89e101e4dea01c797a24284c1b8b8cdbdd67ba61 # issue #360 corrected native adapter checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-native@7273bf28d5e4b9fc3bd6bcb8c6b685a5ff7c1f88 # issue #360 canonical CIW adapter checkpoint
         with:
           admitted_sha: ${{ inputs.admitted_sha }}
           working_directory: ${{ inputs.working_directory }}
