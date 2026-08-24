@@ -15,7 +15,7 @@ BACKEND_SHA = "7d5d839c6e90491e165f1358ecb5e80129805764"
 PYTHON_SHA = "3d3689fda11b03a188789f03d6d64cab50f1873a"
 EXECUTION_BACKEND_SHA = "01d1d10bafcc4fc1e4c51663f72b08f694dc4e35"
 FLUTTER_SHA = "d2e1c7a7601e1caeeb976311fb13cf41fef94d4a"
-ANDROID_SHA = "68a6450d6576e0744969cd170cc581856a44312a"
+ANDROID_SHA = "60ce05e4da20b45783ae729f112083b2801d2e25"
 GRADLE_WARM_SHA = "13de46c51efcf65df798dfec82a620c484350dfa"
 GRADLE_SEED_SHA = "fa67b6a1580ff2eb7386a9e58de09896b9990696"
 APPLE_SHA = "2ea47520b9d84b9b0a71c23de3da03f02a5bea9c"
@@ -27,7 +27,7 @@ ISSUE_405 = "issue #405 simplified execution-backend checkpoint"
 ISSUE_473_PYTHON = "issue #473 product-neutral Python checkpoint"
 ISSUE_447 = "issue #447 portable backend checkpoint"
 ISSUE_104 = "issue #104 immutable private-action checkpoint"
-ISSUE_443_MAVEN = "issue #443 inherited package credential checkpoint"
+ISSUE_373_BUILD_ONCE = "issue #373 build-once protected-full checkpoint"
 ISSUE_346_WARM = "issue #346 dependency warm checkpoint"
 ISSUE_346_CACHE = "issue #346 bounded Gradle cache sync diagnostics checkpoint"
 ISSUE_125 = "issue #125 immutable private-action checkpoint"
@@ -43,7 +43,7 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
     },
     ".github/workflows/reusable-android.yml": {
-        "StreamScapeTV/ci-workflows/actions/validate-android": (ANDROID_SHA, ISSUE_443_MAVEN),
+        "StreamScapeTV/ci-workflows/actions/validate-android": (ANDROID_SHA, ISSUE_373_BUILD_ONCE),
         "StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies": (GRADLE_WARM_SHA, ISSUE_346_WARM),
         "StreamScapeTV/ci-workflows/actions/upload-gradle-seed": (GRADLE_SEED_SHA, ISSUE_346_CACHE),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
@@ -95,9 +95,7 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
 
     @staticmethod
     def locked_actions() -> dict[str, dict[str, str]]:
-        action_lock = json.loads(
-            (ROOT / "contracts/action-tool-lock.json").read_text(encoding="utf-8")
-        )
+        action_lock = json.loads((ROOT / "contracts/action-tool-lock.json").read_text(encoding="utf-8"))
         return {item["uses"]: item for item in action_lock["third_party_actions"]}
 
     def test_supported_private_reusables_use_only_locked_immutable_central_actions(self) -> None:
@@ -117,9 +115,7 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
                     str(step["uses"]).split("@", 1)[0]: str(step["uses"]).split("@", 1)[1]
                     for job in workflow["jobs"].values()
                     for step in job.get("steps", [])
-                    if str(step.get("uses", "")).startswith(
-                        "StreamScapeTV/ci-workflows/actions/"
-                    )
+                    if str(step.get("uses", "")).startswith("StreamScapeTV/ci-workflows/actions/")
                 }
                 self.assertEqual(set(expected), set(remote_helpers))
                 for helper, (sha, release) in expected.items():
@@ -141,56 +137,36 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
 
     def test_android_private_action_checkpoint_contains_media_lifecycle_policy(self) -> None:
         source, _ = self.load(ANDROID_WORKFLOW)
-        policy = json.loads(
-            (ROOT / "contracts/android-source-policy.json").read_text(encoding="utf-8")
-        )
-        exception = next(
-            item
-            for item in policy["tracked_secret_exceptions"]
-            if item["id"] == "streamscape_media_playback_lab_redaction_sentinels_v1"
-        )
-        self.assertIn(
-            {
-                "path": "apple/Tests/StreamscapePlaybackLabSupportTests/PlaybackLabLifecycleEvidenceTests.swift",
-                "git_blob_sha1": "5df889bbf613ee7f4dabd07ca931aa81fb4f71a3",
-            },
-            exception["paths"],
-        )
+        policy = json.loads((ROOT / "contracts/android-source-policy.json").read_text(encoding="utf-8"))
+        exception = next(item for item in policy["tracked_secret_exceptions"] if item["id"] == "streamscape_media_playback_lab_redaction_sentinels_v1")
+        self.assertIn({"path": "apple/Tests/StreamscapePlaybackLabSupportTests/PlaybackLabLifecycleEvidenceTests.swift", "git_blob_sha1": "5df889bbf613ee7f4dabd07ca931aa81fb4f71a3"}, exception["paths"])
         self.assertEqual(8, source.count(f"actions/validate-android@{ANDROID_SHA}"))
         self.assertEqual(1, source.count(f"actions/warm-gradle-dependencies@{GRADLE_WARM_SHA}"))
+        self.assertNotIn("actions/validate-android@275ee86f0f5de3d8f3330b92c84d7c0188fb10f8", source)
 
     def test_apple_private_action_checkpoint_contains_media_contract_in_current_tree(self) -> None:
         source, _ = self.load(".github/workflows/reusable-apple.yml")
         fragment = ROOT / "contracts/apple-validation-media-tvos-simulator-confidence.json"
         self.assertTrue(fragment.is_file())
         self.assertEqual(4, source.count(f"actions/validate-apple@{APPLE_SHA}"))
+        self.assertNotIn("actions/validate-apple@293dee450e3464032d67f702b768f493abf65d7b", source)
 
     def test_source_reusable_uses_locked_mode_aware_helper_checkpoint(self) -> None:
         source, workflow = self.load(SOURCE_WORKFLOW)
         locked = self.locked_actions()
-        helper = next(
-            step
-            for job in workflow["jobs"].values()
-            for step in job.get("steps", [])
-            if str(step.get("uses", "")).startswith(f"{SOURCE_HELPER}@")
-        )
+        helper = next(step for job in workflow["jobs"].values() for step in job.get("steps", []) if str(step.get("uses", "")).startswith(f"{SOURCE_HELPER}@"))
         self.assertEqual(helper["uses"], f"{SOURCE_HELPER}@{SOURCE_SHA}")
         self.assertNotIn("actions/checkout@", source)
         self.assertNotIn("secrets: inherit", source)
         self.assertEqual(locked[SOURCE_HELPER]["sha"], SOURCE_SHA)
         self.assertEqual(locked[SOURCE_HELPER]["release"], ISSUE_350)
         self.assertEqual(locked[SOURCE_HELPER]["runtime"], "composite")
+        self.assertEqual(locked[SOURCE_HELPER]["source"], f"https://github.com/StreamScapeTV/ci-workflows/tree/{SOURCE_SHA}/actions/resolve-source")
 
     def test_private_android_consumer_cannot_control_central_source_or_credential_scope(self) -> None:
         source, workflow = self.load(ANDROID_WORKFLOW)
-        public = json.loads(
-            (ROOT / "contracts/public-workflows/validation.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        android = next(
-            item for item in public["workflows"] if item["api_name"] == "validation.android"
-        )
+        public = json.loads((ROOT / "contracts/public-workflows/validation.json").read_text(encoding="utf-8"))
+        android = next(item for item in public["workflows"] if item["api_name"] == "validation.android")
         self.assertNotIn("supported_consumers", android)
         self.assertNotIn("supported_products", android)
         self.assertEqual(
@@ -200,16 +176,9 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
         self.assertNotIn("central_source", source)
         self.assertNotIn("secrets: inherit", source)
         self.assertNotIn("workflow_ref", source)
-        dependency = next(
-            step
-            for job in workflow["jobs"].values()
-            for step in job.get("steps", [])
-            if step.get("id") == "dependency"
-        )
-        self.assertEqual(
-            dependency["with"]["token"],
-            "${{ secrets.private_dependency_token }}",
-        )
+        self.assertNotIn("github.workflow", source)
+        dependency = next(step for job in workflow["jobs"].values() for step in job.get("steps", []) if step.get("id") == "dependency")
+        self.assertEqual(dependency["with"]["token"], "${{ secrets.private_dependency_token }}")
         execute = next(
             step
             for job in workflow["jobs"].values()
@@ -220,6 +189,13 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
             execute["env"]["CIW_MAVEN_PACKAGE_READ_TOKEN"],
             "${{ secrets.maven_package_read_token }}",
         )
+        self.assertNotIn("maven_package_read_token", execute.get("with", {}))
+        for job in workflow["jobs"].values():
+            for step in job.get("steps", []):
+                if step is dependency or step is execute:
+                    continue
+                self.assertNotIn("private_dependency_token", json.dumps(step))
+                self.assertNotIn("maven_package_read_token", json.dumps(step))
 
 
 if __name__ == "__main__":
