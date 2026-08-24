@@ -12,7 +12,6 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 HOSTED_LINUX = ["ubuntu-latest"]
 HOSTED_APPLE = ["macos-latest"]
-APPLE_PILOT = WORKFLOWS / "apple-test.yml"
 BROKER_RELEASE = WORKFLOWS / "ci-broker-image.yml"
 BACKEND_CONTRACT = ROOT / "contracts" / "runner-execution-backends.json"
 SELF_PREFIX = "StreamScapeTV/ci-workflows/.github/workflows/"
@@ -128,32 +127,14 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
         )
 
     def test_reviewed_macos_exceptions_are_bounded_and_contract_owned(self) -> None:
-        workflow = yaml.load(APPLE_PILOT.read_text(encoding="utf-8"), Loader=ActionsLoader)
-        self.assertEqual(_events(workflow), {"workflow_dispatch"})
-        self.assertEqual(set(workflow["jobs"]), {"apple_test"})
-        self.assertEqual(workflow["jobs"]["apple_test"]["runs-on"], HOSTED_APPLE)
-        self.assertNotIn("workflow_call", workflow["on"])
-
         contract = _backend_contract()
         self.assertEqual(contract["github-hosted"]["runs_on"], HOSTED_LINUX)
         self.assertEqual(
             contract["github-hosted"]["repository_local_exceptions"],
             [
                 {
-                    "workflow": ".github/workflows/apple-test.yml",
-                    "job": "apple_test",
-                    "events": ["workflow_dispatch"],
-                    "runs_on": HOSTED_APPLE,
-                },
-                {
                     "workflow": ".github/workflows/apple-validation-smoke.yml",
                     "job": "apple",
-                    "events": ["pull_request"],
-                    "runs_on": HOSTED_APPLE,
-                },
-                {
-                    "workflow": ".github/workflows/apple-certification-smoke.yml",
-                    "job": "release",
                     "events": ["pull_request"],
                     "runs_on": HOSTED_APPLE,
                 },
@@ -171,6 +152,8 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
                 },
             ],
         )
+        for retired in ("apple-test.yml", "apple-certification-smoke.yml"):
+            self.assertFalse((WORKFLOWS / retired).exists())
 
     def test_private_forgejo_broker_release_is_the_only_arc_repository_local_exception(self) -> None:
         workflow = yaml.load(BROKER_RELEASE.read_text(encoding="utf-8"), Loader=ActionsLoader)
