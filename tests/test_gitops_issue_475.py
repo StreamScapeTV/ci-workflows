@@ -58,7 +58,7 @@ class GitOpsIssue475CompositionTests(unittest.TestCase):
             "  mode: old   ",
             encoding="utf-8",
         )
-        (apps / "secret.enc.yaml").write_text(
+        (apps / "secret.secret.yaml").write_text(
             "apiVersion: v1\n"
             "kind: Secret\n"
             "metadata:\n"
@@ -287,7 +287,7 @@ class GitOpsIssue475CompositionTests(unittest.TestCase):
             self._execute(self._request(GitOpsProfile.FULL, sha=head))
 
     def test_contract_owned_sops_glob_rejects_plaintext_matching_secret(self) -> None:
-        secret = self.source / "apps" / "secret.enc.yaml"
+        secret = self.source / "apps" / "secret.secret.yaml"
         secret.write_text(
             secret.read_text(encoding="utf-8").replace(
                 "ENC[AES256_GCM,data:ZmFrZQ==,iv:AA==,tag:AA==,type:str]",
@@ -299,7 +299,7 @@ class GitOpsIssue475CompositionTests(unittest.TestCase):
         head = self._commit("plaintext-secret")
         with self.assertRaisesRegex(
             GitOpsValidationError,
-            r"sops_plaintext_rejected: apps/secret\.enc\.yaml",
+            r"sops_plaintext_rejected: apps/secret\.secret\.yaml",
         ):
             self._execute(
                 self._request(
