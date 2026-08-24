@@ -6,7 +6,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DEVICE_ACTION_SHA = "4a7865f420e7ff37893907bbd0c4ad557a0e9ca6"
+DEVICE_ACTION_SHA = "4a6c73fd7bf901c2db6b19330ba0b879bc2bb3ae"
+DEVICE_ACTION_RELEASE = "issue #481 semantic authorization receipt transport checkpoint"
 DEVICE_LOCK_ACTION_SHA = "599c82201e6da6ca51c4f6247f1526a4ba03d550"
 FOUNDATION_ACTION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 
@@ -16,6 +17,9 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         self.contract = json.loads((ROOT / "contracts/device-profiles.json").read_text())
         self.workflow = (ROOT / ".github/workflows/reusable-device.yml").read_text()
         self.smoke = (ROOT / ".github/workflows/device-validation-contract-smoke.yml").read_text()
+        self.transport = (
+            ROOT / ".github/workflows/internal-device-authorization-transport.yml"
+        ).read_text()
         self.action = (ROOT / "actions/validate-device/action.yml").read_text()
         self.docs = (
             (ROOT / "docs/workflows/devices.md").read_text()
@@ -67,7 +71,7 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("live_test_credentials", self.workflow + self.action)
 
     def test_no_product_or_repository_identity_is_central_selection_authority(self) -> None:
-        text = (self.contract.__repr__() + self.workflow + self.action).casefold()
+        text = (self.contract.__repr__() + self.workflow + self.action + self.transport).casefold()
         for forbidden in ("iptv-android", "iptv-apple", "streamscape-media", "vlc"):
             self.assertNotIn(forbidden, text)
         self.assertNotIn("profiles", self.contract)
@@ -92,7 +96,7 @@ class DeviceWorkflowContractTests(unittest.TestCase):
     def test_all_private_actions_are_immutable(self) -> None:
         refs = re.findall(
             r"uses: StreamScapeTV/ci-workflows/([^@\s]+)@([0-9a-f]{40})",
-            self.workflow + "\n" + self.smoke,
+            self.workflow + "\n" + self.smoke + "\n" + self.transport,
         )
         self.assertTrue(refs)
         self.assertTrue(all(len(sha) == 40 for _path, sha in refs))
@@ -108,7 +112,7 @@ class DeviceWorkflowContractTests(unittest.TestCase):
             {
                 "uses": "StreamScapeTV/ci-workflows/actions/validate-device",
                 "sha": DEVICE_ACTION_SHA,
-                "release": "issue #479 same-repository PR event checkpoint",
+                "release": DEVICE_ACTION_RELEASE,
                 "runtime": "composite",
                 "source": f"https://github.com/StreamScapeTV/ci-workflows/tree/{DEVICE_ACTION_SHA}/actions/validate-device",
             },
@@ -170,7 +174,7 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         )
 
     def test_zero_actions_cache_and_routine_artifacts(self) -> None:
-        text = (self.workflow + self.smoke).casefold()
+        text = (self.workflow + self.smoke + self.transport).casefold()
         self.assertNotIn("actions/cache", text)
         self.assertNotIn("upload-artifact", text)
         self.assertNotIn("download-artifact", text)
@@ -184,6 +188,10 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         self.assertIn("CIW_DEVICE_AUTHORIZATION_RECEIPT", self.smoke)
         self.assertIn("test \"$AUTHORIZED\" = true", self.smoke)
         self.assertIn("test \"$TRUST\" = trusted-exact", self.smoke)
+        self.assertIn("Reusable secret transport / Authorized PR plan", self.smoke)
+        self.assertIn("uses: ./.github/workflows/internal-device-authorization-transport.yml", self.smoke)
+        self.assertIn("CIW_DEVICE_AUTHORIZATION_RECEIPT: ${{ secrets.device_authorization_receipt }}", self.transport)
+        self.assertIn("issue-481-transport-contract", self.transport)
         direct = re.findall(r"^    runs-on: (.+)$", self.smoke, re.M)
         self.assertTrue(direct)
         self.assertTrue(all(value == "[ubuntu-latest]" for value in direct))
@@ -195,7 +203,7 @@ class DeviceWorkflowContractTests(unittest.TestCase):
             "semantic host capacity", "checked-in", "non-secret environment",
             "device_authorization_receipt", "raw device", "device-lock/1",
             "exactly once", "zero routine actions artifacts", "ordinary android",
-            "same-repository pull request",
+            "same-repository pull request", "semantic json", "duplicate keys",
         ):
             self.assertIn(phrase, text)
 
