@@ -1,6 +1,6 @@
 # Public workflow API reference
 
-Contract version: `3.1.0`
+Contract version: `4.0.0`
 
 Generated from `contracts/public-workflows.json` and its checked-in fragments. Application repository/product identity is intentionally not part of this compatibility contract.
 
@@ -8,20 +8,9 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 
 | API | File | Status | Trust | Check |
 |---|---|---|---|---|
-| `flux.assets` `2.0.0` | `.github/workflows/reusable-flux-infrastructure-assets.yml` | `planned` | `trusted-publication` | Release / Flux infrastructure assets |
-| `flux.reconcile` `2.0.0` | `.github/workflows/reusable-flux-reconcile.yml` | `planned` | `flux-authorized` | Flux / Reconciliation |
-| `helm.publish` `2.0.0` | `.github/workflows/reusable-helm-publish.yml` | `migration-pending` | `trusted-publication` | Release / Helm publication |
-| `helm.validate` `2.0.0` | `.github/workflows/reusable-helm-validate.yml` | `migration-pending` | `read-only-validation` | CI / Helm validation |
-| `maintenance.artifacts` `1.0.0` | `.github/workflows/reusable-artifact-cleanup.yml` | `planned` | `trusted-maintenance` | Maintenance / Artifact cleanup |
-| `maintenance.branches` `1.0.0` | `.github/workflows/reusable-branch-hygiene.yml` | `planned` | `trusted-maintenance` | Maintenance / Branch hygiene |
-| `maintenance.runner-retry` `1.0.0` | `.github/workflows/reusable-runner-infrastructure-retry.yml` | `planned` | `trusted-maintenance` | Maintenance / Runner retry |
-| `network.download` `1.0.0` | `.github/workflows/reusable-network-download.yml` | `implemented` | `read-only-validation` | CI / Network download |
-| `oci.build` `2.0.0` | `.github/workflows/reusable-oci-build.yml` | `migration-pending` | `read-only-validation` | CI / OCI build validation |
-| `oci.publish` `2.0.0` | `.github/workflows/reusable-oci-publish.yml` | `migration-pending` | `trusted-publication` | Release / OCI publication |
 | `oci.reproducibility` `1.0.0` | `.github/workflows/reusable-oci-reproducibility.yml` | `implemented` | `read-only-validation` | CI / OCI reproducibility |
 | `release.gradle-maven` `1.0.0` | `.github/workflows/reusable-gradle-maven-publish.yml` | `implemented` | `trusted-publication` | Release / Gradle Maven publication |
 | `release.native-image-chart` `2.0.0` | `.github/workflows/reusable-native-image-chart.yml` | `implemented` | `trusted-publication` | Publish native amd64 image and Helm chart |
-| `release.orchestrate` `2.0.0` | `.github/workflows/reusable-release.yml` | `planned` | `trusted-publication` | Release / Verified outputs |
 | `release.public-native-image-chart` `1.0.0` | `.github/workflows/reusable-public-native-image-chart.yml` | `implemented` | `trusted-publication` | Publish public native amd64 image and Helm chart |
 | `release.tag-image-chart-bootstrap` `1.2.0` | `.github/workflows/reusable-tag-image-chart.yml` | `deprecated-bootstrap-exception` | `trusted-publication` | Release / Bootstrap image and chart |
 | `source.resolve` `1.0.0` | `.github/workflows/reusable-resolve-source.yml` | `implemented` | `source-admission` | Shared / Source admission |
@@ -37,86 +26,6 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 | `validation.script` `1.0.0` | `.github/workflows/reusable-script.yml` | `implemented` | `read-only-validation` | CI / Script validation |
 
 ## API details
-
-### `flux.assets`
-
-- Events: `tag-push`, `workflow_call`, `workflow_dispatch-verify-only`
-- Inputs: `admitted_sha` (required), `release_manifest_path` (required), `release_version` (required), `operation` (required), `policy_path` (required), `request_id` (required)
-- Secrets: `registry_username`, `registry_token`
-- Outputs: `result`, `immutable_references_json`, `release_manifest_sha256`, `request_id`
-- Repository-owned hooks: `release_manifest_path`, `policy_path`
-
-### `flux.reconcile`
-
-- Events: `workflow_dispatch`, `repository_dispatch`, `workflow_call`
-- Inputs: `admitted_sha` (required), `target_id` (required), `operation` (required), `policy_path` (required), `allowlist_path` (required), `request_id` (required), `dry_run` (default `True`)
-- Secrets: `flux_kubeconfig`, `flux_sops_age_key`
-- Outputs: `result`, `reconciliation_state`, `request_id`
-- Repository-owned hooks: `policy_path`, `allowlist_path`
-
-### `helm.publish`
-
-- Events: `tag-push`, `workflow_call`, `workflow_dispatch-verify-only`
-- Inputs: `admitted_sha` (required), `chart_name` (required), `chart_path` (required), `release_version` (required), `values_path`, `policy_path`, `image_digest`, `immutable_references_json`
-- Secrets: `registry_username`, `registry_token`
-- Outputs: `result`, `chart_digest`, `immutable_references_json`
-- Repository-owned hooks: `chart_path`, `values_path`, `policy_path`
-
-### `helm.validate`
-
-- Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
-- Inputs: `execution_backend` (default `organization`), `admitted_sha` (required), `chart_name` (required), `chart_path` (required), `release_version`, `values_path`, `policy_path`, `artifact_exception_id`
-- Secrets: none
-- Outputs: `result`, `chart_digest`, `artifact_exception_used`
-- Repository-owned hooks: `chart_path`, `values_path`, `policy_path`
-
-### `maintenance.artifacts`
-
-- Events: `schedule`, `workflow_dispatch`, `workflow_call`
-- Inputs: `repository_scope`, `dry_run` (default `True`), `request_id` (required)
-- Secrets: `organization_maintenance_token`
-- Outputs: `result`, `mutation_count`, `request_id`
-- Repository-owned hooks: none
-
-### `maintenance.branches`
-
-- Events: `pull_request-closed`, `workflow_dispatch`, `workflow_call`
-- Inputs: `project_id` (required), `pr_number`, `expected_head_sha` (required), `dry_run` (default `True`), `request_id` (required)
-- Secrets: `organization_maintenance_token`
-- Outputs: `result`, `mutation_count`, `request_id`
-- Repository-owned hooks: none
-
-### `maintenance.runner-retry`
-
-- Events: `workflow_dispatch`, `workflow_call`
-- Inputs: `project_id` (required), `run_id` (required), `expected_head_sha` (required), `dry_run` (default `True`), `request_id` (required)
-- Secrets: `organization_maintenance_token`
-- Outputs: `result`, `retry_run_id`, `request_id`
-- Repository-owned hooks: none
-
-### `network.download`
-
-- Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
-- Inputs: `url` (required), `relative_path` (default `dependency.bin`), `expected_sha256` (default ``), `expected_size` (default ``), `expected_content_type` (default ``), `maximum_bytes` (default `536870912`), `archive_format` (default `none`), `relative_destination` (default `extracted`)
-- Secrets: none
-- Outputs: `result`, `download_result_json`, `extraction_result_json`, `cleanup_result`
-- Repository-owned hooks: none
-
-### `oci.build`
-
-- Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
-- Inputs: `admitted_sha` (required), `image_name` (required), `dockerfile_path` (default `Dockerfile`), `build_context` (default `.`), `release_version`, `platform_set`, `artifact_exception_id`
-- Secrets: none
-- Outputs: `result`, `image_digest`, `platform_digests_json`, `resolved_inputs_json`, `artifact_exception_used`
-- Repository-owned hooks: `dockerfile_path`, `build_context`
-
-### `oci.publish`
-
-- Events: `tag-push`, `workflow_call`, `workflow_dispatch-verify-only`
-- Inputs: `admitted_sha` (required), `image_name` (required), `dockerfile_path` (default `Dockerfile`), `build_context` (default `.`), `release_version` (required), `platform_set`
-- Secrets: `registry_username`, `registry_token`
-- Outputs: `result`, `image_digest`, `platform_digests_json`, `immutable_references_json`
-- Repository-owned hooks: `dockerfile_path`, `build_context`
 
 ### `oci.reproducibility`
 
@@ -141,14 +50,6 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 - Secrets: `registry_username`, `registry_token`
 - Outputs: `version`, `source_sha`, `image_reference`, `image_digest`, `chart_reference`, `chart_digest`, `chart_package_sha256`
 - Repository-owned hooks: `chart_path`, `dockerfile_path`, `build_context`
-
-### `release.orchestrate`
-
-- Events: `tag-push`, `workflow_call`, `workflow_dispatch-verify-only`
-- Inputs: `admitted_sha` (required), `release_manifest_path` (required), `release_tag` (required), `release_version` (required), `request_id` (required), `target_id`
-- Secrets: `registry_username`, `registry_token`, `flux_handoff_token`
-- Outputs: `result`, `immutable_references_json`, `release_manifest_sha256`, `handoff_state`, `request_id`
-- Repository-owned hooks: `release_manifest_path`
 
 ### `release.public-native-image-chart`
 
@@ -256,4 +157,4 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 
 ## Compatibility
 
-Application repositories/products are not admission fields. Compatibility is determined from API surface, trust, permissions, technology inputs/outputs, and acknowledged breaking changes. `migration-pending` records reviewed next-version contracts whose reusable YAML wiring is completed by the follow-on integration issue.
+The supported catalogue contains demonstrated callable APIs only. Planned designs and future migrations remain in GitHub issues until implementation, consumer need, and evidence justify publishing them. Application repositories/products are not admission fields; compatibility is determined from API surface, trust, permissions, technology inputs/outputs, and acknowledged breaking changes.
