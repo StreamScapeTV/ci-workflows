@@ -16,9 +16,11 @@ The authoritative `protected-full` pass preserves the caller-owned semantic fiel
 
 Central does not synthesize product tasks and does not change product-owned Gradle heap, metaspace, worker, parallelism, Kotlin, or test settings. Duplicate task identities across semantic fields fail closed before execution. When Room/schema verification is represented by a checked-in script, the combined Gradle graph finishes first and the script runs afterward in the same copied workspace. When schema verification is Gradle-backed, its tasks participate in the same combined invocation.
 
-The historical grouped #373 experiment remains supported only through explicit `execution_mode: grouped` inside the bounded protected-full plan. That fallback preserves fresh invocations in `pre_unit -> compile -> unit -> lint -> assemble -> schema` order. It is not the routine/default topology and should be selected only after equivalent-source measurement proves the combined graph cannot satisfy the owner-approved resource envelope. Telemetry records `gradle_execution_mode`, `gradle_invocations`, Gradle wall time, task count, and resource metrics so the two modes can be compared without changing source or task semantics.
+The bounded `execution_mode: prefix-isolated` fallback is available only through the existing protected-full plan contract; it adds no workflow or action input. In this mode caller-owned `pre_unit_tasks` are required and run in one fresh isolated Gradle invocation. Caller-owned `compile_tasks`, when present, run in a second fresh isolated invocation. Central then concatenates `unit_tasks + lint_tasks + assemble_tasks + Gradle schema tasks` in semantic order and executes that entire remainder in one Gradle invocation. An absent compile group is skipped rather than creating an empty Gradle process. Script-backed schema verification still runs only after all Gradle work. The executor, checkout, copied workspace, private writable Gradle home, optional read-only seed, package credential boundary, cleanup, and exact-source checks remain the same single-job topology.
 
-A caller with a verified private dependency may still provide `dependency_prebuild_plan_json`. Central executes that strict `protected-full` plan before the authoritative application plan on the same mobile executor, private writable Gradle home, read-only seed, and exact private dependency checkout. The prebuild copied caller source is removed and residue-checked before the authoritative execution starts; verified dependency build outputs remain available. The prebuild changes task shape only and does not alter caller-owned Gradle resource settings. Its own explicit grouped fallback remains compatible when separately justified.
+The historical grouped #373 experiment remains supported only through explicit `execution_mode: grouped` inside the bounded protected-full plan. That fallback preserves fresh invocations in `pre_unit -> compile -> unit -> lint -> assemble -> schema` order. It is not the routine/default topology. `prefix-isolated` is the narrower fallback when only the caller-declared prefix work needs process isolation while the remainder should retain one shared product graph. Both fallbacks should be selected only after equivalent-source evidence justifies moving away from the combined default. Telemetry records `gradle_execution_mode`, `gradle_invocations`, Gradle wall time, task count, and resource metrics so all modes can be compared without changing source or task semantics.
+
+A caller with a verified private dependency may still provide `dependency_prebuild_plan_json`. Central executes that strict `protected-full` plan before the authoritative application plan on the same mobile executor, private writable Gradle home, read-only seed, and exact private dependency checkout. The prebuild copied caller source is removed and residue-checked before the authoritative execution starts; verified dependency build outputs remain available. The prebuild changes task shape only and does not alter caller-owned Gradle resource settings. Its own explicit grouped or prefix-isolated fallback remains compatible when separately justified by the plan.
 
 ## Explicit cache maintenance
 
@@ -50,9 +52,9 @@ Workspace preparation still uses Central `cache_mode: disabled`: this means ther
 
 Normal Android execution reports bounded total/Gradle/script wall time, Gradle invocation count, `gradle_execution_mode`, optional child CPU/cgroup metrics, and `gradle_dependency_cache_mode=read-only-seed|cold`. For the primary protected-full path the expected topology fields are `gradle_execution_mode=combined` and `gradle_invocations=1`.
 
-A controlled fallback run may explicitly report `gradle_execution_mode=grouped`; the source SHA, caller task identities, resource profile, cache state, and executor class must otherwise remain equivalent before that result can justify moving away from build-once. A protected-full timing result no longer includes an extra dependency-warm Gradle pass.
+A controlled fallback run may explicitly report `gradle_execution_mode=grouped` or `gradle_execution_mode=prefix-isolated`; the source SHA, caller task identities, resource profile, cache state, and executor class must otherwise remain equivalent before that result can justify moving away from build-once. Prefix-isolated reports two Gradle invocations when compile is absent and three when compile is present; Gradle-backed schema tasks remain inside the one remainder invocation. A protected-full timing result no longer includes an extra dependency-warm Gradle pass.
 
-Cache maintenance reports only bounded warm wall time and `gradle_dependency_cache_mode`. The two modes are therefore measurable without conflating cache construction with product-build duration.
+Cache maintenance reports only bounded warm wall time and `gradle_dependency_cache_mode`. The modes are therefore measurable without conflating cache construction with product-build duration.
 
 Failed or timed-out reviewed Android operations emit a sanitized bounded diagnostic tail before preserving the stable error code. The dependency-warm primitive does the same for explicit maintenance failures.
 
@@ -69,7 +71,7 @@ The reusable workflow uses reviewed immutable Central helper checkpoints:
 - `StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`.
 - `StreamScapeTV/ci-workflows/actions/checkout-private-dependency@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #104 immutable private-action checkpoint`.
 
-The live-service and unsigned-release reusable workflows remain on their corresponding #443 helper checkpoints because #373 changes only the generic protected-full task-graph composition path. Their fixed package-credential boundary is unchanged.
+The live-service and unsigned-release reusable workflows remain on their corresponding #443 helper checkpoints because #534 changes only the generic protected-full task-graph composition path. Their fixed package-credential boundary is unchanged.
 
 The checked-in action lock must record the same helper identities before the candidate is merge-state.
 
@@ -83,4 +85,4 @@ Routine Android validation retains zero GitHub Actions artifacts and does not us
 
 ## Repository-owned smoke
 
-`.github/workflows/android-validation-smoke.yml` directly exercises the primitive-backed protected-full execution and the dependency-warm helper on mobile capacity. Product-specific performance proof, explicit grouped fallback justification, private-dependency prebuilds, and cache-maintenance acceptance remain consumer/integration evidence after Central source and contract tests are green.
+`.github/workflows/android-validation-smoke.yml` directly exercises the primitive-backed protected-full execution and the dependency-warm helper on mobile capacity. Product-specific performance proof, explicit grouped/prefix-isolated fallback justification, private-dependency prebuilds, and cache-maintenance acceptance remain consumer/integration evidence after Central source and contract tests are green.
