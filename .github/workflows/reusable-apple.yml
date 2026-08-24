@@ -8,12 +8,12 @@ on:
         required: true
         type: string
       validation_scope:
-        description: legacy or protected-full
+        description: legacy, protected-full, or simulator-confidence
         required: false
         default: legacy
         type: string
       validation_plan_json:
-        description: Strict bounded caller-owned Apple stage plan for protected-full
+        description: Strict bounded caller-owned Apple stage plan or simulator-confidence packet
         required: false
         default: ""
         type: string
@@ -120,7 +120,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve one Apple executor plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@2ea47520b9d84b9b0a71c23de3da03f02a5bea9c # issue #496 simulator-free protected-full helper activation
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@78b9cacdb001a61e18a84e23532f4f397c13875b # issue #516 simulator-confidence checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -213,7 +213,7 @@ jobs:
 
       - id: execute
         name: Execute one sequential Apple validation plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@2ea47520b9d84b9b0a71c23de3da03f02a5bea9c # issue #496 simulator-free protected-full helper activation
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@78b9cacdb001a61e18a84e23532f4f397c13875b # issue #516 simulator-confidence checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -248,7 +248,7 @@ jobs:
         with:
           source_sha: ${{ inputs.admitted_sha }}
           workflow_release: validation-apple-v2
-          runner_profile: apple
+          runner_profile: ${{ inputs.validation_scope == 'simulator-confidence' && 'github-hosted-macos' || 'apple' }}
           toolchain_json: '{}'
           command_profile: ${{ inputs.validation_scope }}
           result: ${{ steps.execute.outputs.result }}
@@ -256,7 +256,7 @@ jobs:
       - id: apple_cleanup
         name: Remove Apple-specific state once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@2ea47520b9d84b9b0a71c23de3da03f02a5bea9c # issue #496 simulator-free protected-full helper activation
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@78b9cacdb001a61e18a84e23532f4f397c13875b # issue #516 simulator-confidence checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -280,7 +280,7 @@ jobs:
       - id: residue
         name: Verify zero Apple-specific residue once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@2ea47520b9d84b9b0a71c23de3da03f02a5bea9c # issue #496 simulator-free protected-full helper activation
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@78b9cacdb001a61e18a84e23532f4f397c13875b # issue #516 simulator-confidence checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
