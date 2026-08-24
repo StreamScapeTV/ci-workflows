@@ -9,7 +9,6 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
-import time
 from typing import Any, Mapping, TextIO
 import urllib.request
 
@@ -17,10 +16,8 @@ from .ci_broker import (
     BrokerConfig,
     BrokerError,
     BrokerServer,
-    CENTRAL_REPOSITORY,
     CiBroker,
     ProductProfile as BaseProductProfile,
-    TOKEN_TTL_SECONDS,
     _SKIP_MARKERS,
     _SUPPORTED_CAPABILITIES,
     _header,
@@ -439,7 +436,14 @@ class ActionPrivateDependency:
             "start_response_invalid",
         )
         try:
-            dependency = BrokerPrivateDependency.parse(value)
+            dependency = BrokerPrivateDependency.parse(
+                {
+                    "repository": value.get("repository"),
+                    "sha": value.get("sha"),
+                    "subdirectory": value.get("subdirectory"),
+                    "id": value.get("id"),
+                }
+            )
         except BrokerError:
             raise BrokerActionError("start_response_invalid") from None
         token = value.get("token")
