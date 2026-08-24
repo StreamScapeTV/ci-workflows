@@ -8,11 +8,8 @@
   ],
   "required_fixture_callers": [
     "ordinary-validation.yml",
-    "trusted-maintenance.yml",
     "tag-release.yml",
-    "flux-source-validation.yml",
-    "flux-runner-assets.yml",
-    "flux-reconciliation.yml"
+    "flux-source-validation.yml"
   ],
   "required_event_fixtures": [
     "push",

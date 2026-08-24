@@ -10,8 +10,6 @@
 | `read-only-validation` | no | yes | Executes admitted caller source only under validation permissions with no publication, device, Flux, or maintenance authority. |
 | `physical-device-validation` | yes | yes | Executes exact trusted caller source only after the separate guarded device authorization, fencing, runner, evidence, restoration, and cleanup boundaries admit it. |
 | `trusted-publication` | yes | yes | Executes exact approved release source with explicitly named publication credentials; publication remains separate from deployment. |
-| `flux-authorized` | yes | no | Executes exact protected Flux-owned policy/orchestration source and bounded target authority, never producer or pull-request source. |
-| `trusted-maintenance` | yes | no | Performs bounded trusted organization maintenance from reviewed control policy without executing arbitrary caller/product source. |
 
 Permissions, runners, secrets, source admission, evidence, and cleanup are reviewed independently for each class. A privileged class is not an escalation of ordinary read-only validation: its event, source, credential, target, runner, and mutation authority remain separately bounded by the public workflow contract and domain policy.
 
@@ -19,7 +17,7 @@ Permissions, runners, secrets, source admission, evidence, and cleanup are revie
 
 Use exact immutable source identities and `persist-credentials: false`. Privileged events never execute pull-request, fork, issue-comment, or caller-controlled source. Secrets are explicit and named; `secrets: inherit` is forbidden.
 
-This repository stores no Agent State endpoint or credential and exposes no Agent State transport. Flux-authorized orchestration executes exact protected Flux policy source and cannot accept an arbitrary target or command.
+This repository stores no Agent State endpoint or credential and exposes no Agent State transport. The retained public catalogue exposes no Flux-authorized or organization-maintenance workflow class; those retired facades cannot be used to widen a retained public API's source or credential boundary.
 
 ## Artifact policy
 

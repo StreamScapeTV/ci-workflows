@@ -40,6 +40,8 @@ class SecurityTrustClassDocumentationTests(unittest.TestCase):
             for name, shape in contract["trust_classes"].items()
         }
         self.assertEqual(expected, documented)
+        for retired in ("flux-authorized", "trusted-maintenance"):
+            self.assertNotIn(f"| `{retired}` |", trust_section)
 
     def test_security_baseline_keeps_shared_secret_artifact_and_cleanup_rules(self) -> None:
         guide = SECURITY_DOC.read_text(encoding="utf-8")
