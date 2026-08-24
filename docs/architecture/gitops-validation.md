@@ -5,9 +5,10 @@
 The central repository owns the `validation.gitops` API, typed plan/execution
 engine, exact tool identities, source admission, deterministic rendering,
 evidence, cleanup, and stable failure projection. Consumer repositories own
-which source roots, chart values, Kustomizations, schemas, required values, and
-policy scripts are valid. Flux owns live GitOps desired state, SOPS decryption,
-cluster credentials, reconciliation, health, and rollback acceptance.
+which source roots, chart values, Kustomizations, schemas, required values,
+SOPS source patterns, and policy scripts are valid. Flux owns live GitOps
+desired state, SOPS decryption, cluster credentials, reconciliation, health,
+and rollback acceptance.
 
 The validator is deliberately source-only. It contains no Kubernetes client,
 Flux client, registry writer, release publisher, production secret, or live
@@ -24,11 +25,13 @@ portable validation into a privileged path.
    It does not clone the private central repository into `.ciw`.
 3. A marker-bound workspace provides isolated HOME, cache, temporary, download,
    installation, render, log, and evidence roots.
-4. The named Python engine downloads fixed tools, verifies digest and identity,
-   selects checked-in targets, validates/renders twice, compares normalized
-   fingerprints, detects duplicate object ownership, and runs at most one fixed
-   checked-in policy script without a shell.
-5. The engine verifies that the Git source and content digest are unchanged.
+4. The named Python plan layer resolves exact contract paths plus bounded SOPS
+   globs. The composition layer selects changed-tree targets, scopes formatting,
+   validates raw YAML/SOPS source, and composes nested render targets. Helm and
+   Kustomize use their fixed deterministic renderers.
+5. The engine verifies object ownership, runs at most one fixed checked-in
+   policy script without a shell, and verifies that the Git source and content
+   digest are unchanged.
 6. Always-run cleanup removes the issue-owned root without following symlinks,
    the shared workspace cleanup removes its registration, and an API query
    proves zero Actions artifacts.
@@ -59,15 +62,57 @@ GitOps changed-tree validation therefore requests the maximum bounded depth
 `1000`; unlimited depth `0` is outside the source-admission contract and is
 rejected rather than silently treated as another checkout mode.
 
+## Changed-tree and formatting semantics
+
+Git reports changed files repository-relative. A target root of `.` therefore
+matches any non-empty repository-relative changed set directly; non-root targets
+continue to match only their exact root or descendants. There is no synthetic
+`./` prefix in the selection contract.
+
+Target selection and YAML validation are separate. A selected YAML target still
+parses every included document semantically with duplicate-key rejection and
+schema/SOPS checks. Formatting is scoped by profile:
+
+- `yaml` keeps strict formatting for every selected YAML file;
+- `changed-tree` applies strict tab/final-newline/trailing-whitespace rules only
+  to exact files changed by the admitted `base...head` comparison;
+- `full` keeps repository-wide semantic validation but treats formatting as a
+  non-blocking historical concern, so generated or pre-existing whitespace debt
+  cannot false-red an otherwise safe full source validation.
+
+Malformed YAML remains a failure in every profile, including an unchanged file
+inside a selected target. Failure detail is limited to the bounded path/reason;
+file contents are never copied into evidence.
+
+## SOPS source structure
+
+A YAML target may register exact `sops_files` paths or bounded repository-relative
+glob patterns. Plan validation resolves those patterns inside the admitted
+source tree and requires at least one match when a target declares SOPS source.
+Execution additionally requires every matched file to belong to the same
+reviewed target include surface before applying the existing encrypted MAC,
+version, and encrypted `data`/`stringData` checks.
+
+This is structure validation only. It requires no decryption key and performs no
+decryption, live Secret lookup, cluster access, or plaintext output. Consumer
+contracts choose the patterns; Central does not branch on product or Secret
+names.
+
 ## Determinism and ownership
 
 YAML documents are normalized as sorted canonical JSON. Helm and Kustomize are
 run twice with fixed arguments and isolated state; byte drift fails before
 normalization. Optional checked-in expected renders are compared after
 normalization. Every Kubernetes object contributes
-`apiVersion/kind/namespace/name`; the same identity produced by different
-contract targets is rejected as duplicate ownership. Changed-tree mode uses an
-exact `base...head` Git comparison and can select only registered target roots.
+`apiVersion/kind/namespace/name`.
+
+Duplicate identities inside one target always fail. Two source targets, two
+render targets, or disjoint source/render targets also fail on duplicate
+identity. One repository/source YAML target may intentionally overlap exactly
+one nested Helm or Kustomize render target when the render root is equal to or
+beneath the YAML source root. That narrow rule lets source semantics compose
+with a deterministic render of the same checked-in objects without turning
+duplicate suppression into a general escape hatch.
 
 ## Security invariants
 
@@ -92,8 +137,10 @@ exact `base...head` Git comparison and can select only registered target roots.
 
 The inert synthetic consumer proves YAML/schema/SOPS, a locked vendored Helm
 library, deterministic Kustomize output, duplicate ownership, policy execution,
-and cleanup. `flux-source` provides a bounded YAML/changed-tree shape without
-live authority. `agent-state` has a bounded Helm shape. The current
-`iptv-backend` consumer is recorded as source-audit-only until its external
-Valkey dependency has an immutable vendoring/content contract; product-owned
-validation remains authoritative in the interim.
+and cleanup. `flux-source` composes a repository-root YAML source audit with a
+local `clusters/devops` Kustomize render, contract-owned encrypted Secret globs,
+and changed-file-only formatting while retaining whole-target semantic parsing.
+It receives no live Flux or Kubernetes authority. `agent-state` has a bounded
+Helm shape. The current `iptv-backend` consumer is recorded as source-audit-only
+until its external Valkey dependency has an immutable vendoring/content
+contract; product-owned validation remains authoritative in the interim.
