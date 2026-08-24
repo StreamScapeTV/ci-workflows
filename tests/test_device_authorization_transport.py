@@ -5,8 +5,10 @@ import json
 import unittest
 
 from ci_workflows.ciw_device import _authorization_receipt, _execute_command
-from ci_workflows.device_contract import build_plan, load_device_contract, request_from_environment
-from ci_workflows.device_execution import validate_authorization_receipt
+from ci_workflows.device_admission import request_from_environment
+from ci_workflows.device_live import validate_authorization_receipt
+from ci_workflows.device_plan_contract import build_plan
+from ci_workflows.device_profile_contract import load_device_contract
 from ci_workflows.device_types import DeviceValidationError
 from device_test_support import ROOT, real_environment
 
