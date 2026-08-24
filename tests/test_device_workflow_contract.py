@@ -180,6 +180,14 @@ class DeviceWorkflowContractTests(unittest.TestCase):
                 self.contract["family_policies"][family]["allowed_host_capacities"],
             )
 
+    def test_github_hosted_backend_override_is_forbidden_before_request_parsing(self) -> None:
+        with self.assertRaises(device_validation.DeviceValidationError) as raised:
+            device_validation.request_from_environment(
+                {"INPUT_EXECUTION_BACKEND": "github-hosted"},
+                self.contract,
+            )
+        self.assertEqual("forbidden_input", raised.exception.code)
+
     def test_physical_apple_planner_emits_only_reviewed_organization_selector(self) -> None:
         runner_contract = runners.load_runner_contract(ROOT)
         for family in (
