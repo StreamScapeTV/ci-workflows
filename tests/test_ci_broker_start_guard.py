@@ -75,6 +75,40 @@ class ExplodingDependencySource(SourceGithubStub):
         return super().repository_token(repository)
 
 
+class CompactDependencySource(SourceGithubStub):
+    def __init__(self, observed_sha: str = "b" * 40) -> None:
+        super().__init__()
+        self.observed_sha = observed_sha
+        self.exact_requests: list[tuple[str, str, str | None]] = []
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        token: str | None = None,
+        body: object | None = None,
+        expected: tuple[int, ...] = (200,),
+    ) -> tuple[int, object]:
+        self.assert_no_unexpected_request_shape(method, body, expected)
+        self.exact_requests.append((method, path, token))
+        return 200, {"sha": self.observed_sha}
+
+    @staticmethod
+    def assert_no_unexpected_request_shape(
+        method: str,
+        body: object | None,
+        expected: tuple[int, ...],
+    ) -> None:
+        if method != "GET" or body is not None or expected != (200,):
+            raise AssertionError("unexpected exact-commit request shape")
+
+    def get_commit(self, repository: str, ref: str, token: str) -> dict[str, object]:
+        if repository == "StreamScapeTV/example-media":
+            raise AssertionError("bulk commit endpoint must not verify exact dependency SHA")
+        return super().get_commit(repository, ref, token)
+
+
 class GuardedDependencyStartTests(unittest.TestCase):
     def make_broker(
         self, source: SourceGithubStub
@@ -126,13 +160,24 @@ class GuardedDependencyStartTests(unittest.TestCase):
             ],
         )
 
-    def test_success_keeps_dependency_token_and_running_transition(self) -> None:
-        broker, state = self.make_broker(SourceGithubStub())
+    def test_exact_dependency_uses_compact_git_commit_identity(self) -> None:
+        source = CompactDependencySource()
+        broker, state = self.make_broker(source)
         state.get_result = {"ok": True, "run": agent_run()}
         raw, headers = action_request(broker)
 
         result = broker.action_start(raw, headers)
 
+        self.assertEqual(
+            source.exact_requests,
+            [
+                (
+                    "GET",
+                    "/repos/StreamScapeTV/example-media/git/commits/" + "b" * 40,
+                    "synthetic-source-token",
+                )
+            ],
+        )
         dependency = result["private_dependency"]
         self.assertIsInstance(dependency, dict)
         assert isinstance(dependency, dict)
@@ -140,6 +185,27 @@ class GuardedDependencyStartTests(unittest.TestCase):
         self.assertEqual(dependency["sha"], "b" * 40)
         self.assertEqual(dependency["token"], "synthetic-source-token")
         self.assertEqual(state.transitions[-1][1]["status"], "running")
+
+    def test_compact_dependency_identity_mismatch_terminalizes_request(self) -> None:
+        source = CompactDependencySource(observed_sha="c" * 40)
+        broker, state = self.make_broker(source)
+        raw, headers = action_request(broker)
+
+        with self.assertRaisesRegex(BrokerError, "private_dependency_source_mismatch"):
+            broker.action_start(raw, headers)
+
+        self.assertEqual(
+            state.transitions,
+            [
+                (
+                    "00000000-0000-4000-8000-000000000001",
+                    {
+                        "status": "cancelled",
+                        "error_summary": "private_dependency_source_mismatch",
+                    },
+                )
+            ],
+        )
 
 
 if __name__ == "__main__":
