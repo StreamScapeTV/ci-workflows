@@ -105,8 +105,7 @@ class WorkflowSurfaceTests(unittest.TestCase):
             with self.subTest(workflow=relative):
                 self.assertFalse((ROOT / relative).exists())
 
-        self.assertTrue((ROOT / "tests/test_android_live_service.py").is_file())
-        self.assertTrue((ROOT / "tests/test_android_release.py").is_file())
+        self.assertTrue((ROOT / "tests/test_android_completion.py").is_file())
         self.assertTrue((ROOT / "tests/test_apple_release_profiles.py").is_file())
         self.assertTrue((ROOT / "tests/test_native_image_chart_release.py").is_file())
         self.assertTrue((ROOT / "tests/test_oci_workflow_contract.py").is_file())
