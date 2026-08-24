@@ -57,8 +57,36 @@ permissions:
 
 jobs:
   plan:
-    name: Resolve product-neutral Python validation plan
+    name: Resolve hosted product-neutral Python validation plan
+    if: ${{ inputs.execution_backend == 'github-hosted' }}
     runs-on: [ubuntu-latest]
+    timeout-minutes: 10
+    outputs:
+      runner_profile: ${{ steps.plan.outputs.runner_profile }}
+      runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
+      workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
+      timeout_minutes: ${{ steps.plan.outputs.timeout_minutes }}
+      source_trust: ${{ steps.plan.outputs.source_trust }}
+    steps:
+      - id: plan
+        name: Resolve bounded runtime and execution plan
+        uses: StreamScapeTV/ci-workflows/actions/validate-python@3d3689fda11b03a188789f03d6d64cab50f1873a # issue #473 product-neutral Python checkpoint
+        with:
+          phase: plan
+          execution_backend: ${{ inputs.execution_backend }}
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_profile: ${{ inputs.validation_profile }}
+          python_version: ${{ inputs.python_version }}
+          working_directory: ${{ inputs.working_directory }}
+          version_file: ${{ inputs.version_file }}
+          dependency_file: ${{ inputs.dependency_file }}
+          script_path: ${{ inputs.script_path }}
+          artifact_exception_id: ${{ inputs.artifact_exception_id }}
+
+  plan_organization:
+    name: Resolve organization product-neutral Python validation plan
+    if: ${{ inputs.execution_backend != 'github-hosted' }}
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 10
     outputs:
       runner_profile: ${{ steps.plan.outputs.runner_profile }}
@@ -84,8 +112,9 @@ jobs:
 
   validate:
     name: CI / Python validation
-    needs: plan
-    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
+    needs: [plan, plan_organization]
+    if: ${{ always() && (needs.plan.result == 'success' || needs.plan_organization.result == 'success') }}
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json || needs.plan_organization.outputs.runs_on_json) }}
     timeout-minutes: 120
     outputs:
       result: ${{ steps.python.outcome == 'success' && steps.cleanup.outcome == 'success' && steps.clean.outcome == 'success' && 'success' || 'failure' }}
@@ -109,10 +138,10 @@ jobs:
         name: Prepare isolated marker-bound Python state
         uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
-          profile: ${{ needs.plan.outputs.workspace_profile }}
+          profile: ${{ needs.plan.outputs.workspace_profile || needs.plan_organization.outputs.workspace_profile }}
           cache_mode: disabled
           source_sha: ${{ inputs.admitted_sha }}
-          trust_mode: ${{ needs.plan.outputs.source_trust }}
+          trust_mode: ${{ needs.plan.outputs.source_trust || needs.plan_organization.outputs.source_trust }}
 
       - id: python
         name: Execute consumer-owned Python validation script
