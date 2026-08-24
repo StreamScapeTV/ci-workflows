@@ -46,8 +46,8 @@ class BrokerWorkflowTests(unittest.TestCase):
 
     def test_dispatch_surface_is_manual_opaque_and_oidc_only(self) -> None:
         events = self.document.data["on"]
-        inputs = events["workflow_dispatch"]["inputs"]
         self.assertEqual(set(events), {"workflow_dispatch"})
+        inputs = events["workflow_dispatch"]["inputs"]
         self.assertEqual(set(inputs), {"dispatch_id", "dispatch_token"})
         self.assertTrue(all(value["required"] for value in inputs.values()))
         for forbidden in ("repository", "ref", "source_sha", "workflow_key", "test_profile"):
@@ -149,6 +149,10 @@ class BrokerWorkflowTests(unittest.TestCase):
         self.assertEqual(self.values_schema["properties"]["replicaCount"]["const"], 1)
         self.assertEqual(
             self.values["image"]["repository"],
+            "git.faruqi.dev/mimranfaruqi/ci-workflows/ci-broker",
+        )
+        self.assertEqual(
+            self.values_schema["properties"]["image"]["properties"]["repository"]["const"],
             "git.faruqi.dev/mimranfaruqi/ci-workflows/ci-broker",
         )
         self.assertEqual(self.values["image"]["tag"], "")
