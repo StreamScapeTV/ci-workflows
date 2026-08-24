@@ -42,6 +42,7 @@ REQUIRED_FORBIDDEN_INPUTS = {
     "device_identifier",
     "device_selector",
     "environment_dump",
+    "execution_backend",
     "keychain",
     "keystore",
     "kubernetes",
@@ -241,6 +242,20 @@ def load_device_contract(root: Path) -> Mapping[str, Any]:
         "invalid_input",
     )
     require(isinstance(contract.get("artifact_exceptions"), Mapping), "invalid_input")
+    require(
+        contract.get("physical_host_constraints")
+        == {
+            "apple": {
+                "families": ["ios", "tvos"],
+                "semantic_profile": "apple",
+                "capacity_owner": "organization-manual",
+                "lifecycle": "organization-managed-persistent-capacity",
+                "manual_capacity": True,
+                "exact_selector": ["macOS", "ARM64"],
+            }
+        },
+        "device_profile_rejected",
+    )
     policies = contract.get("family_policies")
     require(
         isinstance(policies, Mapping)
