@@ -43,7 +43,7 @@
       "job": "admit",
       "events": ["push"],
       "tag_prefix": "ci-broker-",
-      "runs_on": ["linux", "amd64", "general", "tiny"],
+      "exact_selector": ["linux", "amd64", "general", "tiny"],
       "reason": "private Forgejo registry is reachable only from organization ARC capacity"
     },
     {
@@ -51,7 +51,7 @@
       "job": "image",
       "events": ["push"],
       "tag_prefix": "ci-broker-",
-      "runs_on": ["linux", "amd64", "buildah", "small"],
+      "exact_selector": ["linux", "amd64", "buildah", "small"],
       "reason": "private Forgejo registry is reachable only from organization ARC capacity"
     },
     {
@@ -59,7 +59,7 @@
       "job": "chart",
       "events": ["push"],
       "tag_prefix": "ci-broker-",
-      "runs_on": ["linux", "amd64", "general", "small"],
+      "exact_selector": ["linux", "amd64", "general", "small"],
       "reason": "private Forgejo registry is reachable only from organization ARC capacity"
     }
   ]
