@@ -1,0 +1,101 @@
+name: Reusable static-web validation
+
+on:
+  workflow_call:
+    inputs:
+      admitted_sha:
+        description: Exact lowercase caller source SHA to validate
+        required: true
+        type: string
+      working_directory:
+        description: Repository-relative static-web project directory
+        required: false
+        default: .
+        type: string
+      validation_plan_json:
+        description: Bounded checked-in build script, output and verification plan
+        required: true
+        type: string
+    outputs:
+      result:
+        description: Success only after build, output verification and terminal cleanup
+        value: ${{ jobs.validate.outputs.result }}
+      build_result:
+        description: Caller-owned static-web build/export result
+        value: ${{ jobs.validate.outputs.build_result }}
+      output_verified:
+        description: Whether the declared non-empty static output passed verification
+        value: ${{ jobs.validate.outputs.output_verified }}
+      output_digest:
+        description: Deterministic digest of the verified static output
+        value: ${{ jobs.validate.outputs.output_digest }}
+      output_file_count:
+        description: Number of regular files in the verified static output
+        value: ${{ jobs.validate.outputs.output_file_count }}
+      test_summary:
+        description: Bounded machine-readable build and output verification summary
+        value: ${{ jobs.validate.outputs.test_summary }}
+      cleanup_result:
+        description: Success only when output and workflow state cleanup both succeed
+        value: ${{ jobs.validate.outputs.cleanup_result }}
+      failure_code:
+        description: Stable non-secret static-web failure code when validation fails
+        value: ${{ jobs.validate.outputs.failure_code }}
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: CI / Static-web validation
+    runs-on: [linux, amd64, general, small]
+    timeout-minutes: 60
+    outputs:
+      result: ${{ steps.static_web.outcome == 'success' && steps.cleanup.outcome == 'success' && steps.clean.outcome == 'success' && 'success' || 'failure' }}
+      build_result: ${{ steps.static_web.outputs.build_result }}
+      output_verified: ${{ steps.static_web.outputs.output_verified }}
+      output_digest: ${{ steps.static_web.outputs.output_digest }}
+      output_file_count: ${{ steps.static_web.outputs.output_file_count }}
+      test_summary: ${{ steps.static_web.outputs.test_summary }}
+      cleanup_result: ${{ steps.static_web.outputs.cleanup_result == 'success' && steps.cleanup.outcome == 'success' && 'success' || 'failure' }}
+      failure_code: ${{ steps.static_web.outputs.failure_code }}
+    steps:
+      - name: Check out exact admitted caller source
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          admitted_sha: ${{ inputs.admitted_sha }}
+          path: source
+          fetch_depth: "1"
+
+      - name: Prepare isolated marker-bound static-web state
+        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        with:
+          profile: minimal
+          cache_mode: disabled
+          source_sha: ${{ inputs.admitted_sha }}
+
+      - id: static_web
+        name: Build and verify caller-owned static output
+        uses: StreamScapeTV/ci-workflows/actions/validate-static-web@31af596623516257506bfc3a08fa9d8ba2560a4e # issue #361 immutable static-web checkpoint
+        with:
+          admitted_sha: ${{ inputs.admitted_sha }}
+          working_directory: ${{ inputs.working_directory }}
+          validation_plan_json: ${{ inputs.validation_plan_json }}
+
+      - id: cleanup
+        name: Remove and verify all registered static-web state
+        if: always()
+        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+
+      - id: clean
+        name: Verify exact source remained clean after cleanup
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          (
+            cd source
+            test "$(git rev-parse HEAD)" = "${{ inputs.admitted_sha }}"
+            test -z "$(git status --porcelain --untracked-files=all)"
+          )
