@@ -19,7 +19,7 @@ ANDROID_SHA = "60ce05e4da20b45783ae729f112083b2801d2e25"
 GRADLE_WARM_SHA = "13de46c51efcf65df798dfec82a620c484350dfa"
 GRADLE_SEED_SHA = "fa67b6a1580ff2eb7386a9e58de09896b9990696"
 APPLE_SHA = "d946291afbf32353a959adcd3f6cbb92513a4cbe"
-GITOPS_SHA = "8445e63dd9fa9468b60b6d0c61e543da9681b47b"
+GITOPS_SHA = "b99c4296fe7cad06ef6c5956b1b0eb86a49f0145"
 
 FOUNDATION = "issue #116 immutable private-action checkpoint"
 ISSUE_350 = "issue #350 PR-merge snapshot race checkpoint"
@@ -30,7 +30,7 @@ ISSUE_104 = "issue #104 immutable private-action checkpoint"
 ISSUE_373_BUILD_ONCE = "issue #373 build-once protected-full checkpoint"
 ISSUE_346_WARM = "issue #346 dependency warm checkpoint"
 ISSUE_346_CACHE = "issue #346 bounded Gradle cache sync diagnostics checkpoint"
-ISSUE_125 = "issue #125 immutable private-action checkpoint"
+ISSUE_475_GITOPS = "issue #475 bounded GitOps source validation checkpoint"
 ISSUE_525_APPLE = "issue #525 bounded compiler diagnostics checkpoint"
 ISSUE_27 = "issue #27 Finance composition publication checkpoint"
 
@@ -73,7 +73,7 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
     },
     ".github/workflows/reusable-gitops-validation.yml": {
-        "StreamScapeTV/ci-workflows/actions/validate-gitops": (GITOPS_SHA, ISSUE_125),
+        "StreamScapeTV/ci-workflows/actions/validate-gitops": (GITOPS_SHA, ISSUE_475_GITOPS),
         "StreamScapeTV/ci-workflows/actions/resolve-execution-backend": (EXECUTION_BACKEND_SHA, ISSUE_447),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),

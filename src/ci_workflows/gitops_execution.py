@@ -5,11 +5,16 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
+from .gitops_composition import (
+    selected_targets,
+    source_render_overlap_allowed,
+    style_paths_for_plan,
+    yaml_target,
+)
 from .gitops_render import (
     _helm_target,
     _kustomize_target,
     _policy,
-    _yaml_target,
 )
 from .gitops_runtime import (
     GitOpsTools,
@@ -23,12 +28,12 @@ from .gitops_runtime import (
 from .gitops_source import (
     _canonical_documents,
     _object_identity,
-    _selected_targets,
     _source_snapshot,
 )
 from .gitops_types import (
     GitOpsPlan,
     GitOpsResult,
+    GitOpsTarget,
     GitOpsTargetKind,
     GitOpsValidationError,
     ObjectIdentity,
@@ -43,18 +48,28 @@ def _execute(
     tools: GitOpsTools,
 ) -> GitOpsResult:
     before = _source_snapshot(source_root, plan.request.admitted_sha)
-    targets = _selected_targets(plan, source_root)
-    owners: dict[ObjectIdentity, str] = {}
+    targets = selected_targets(plan, source_root)
+    style_paths = style_paths_for_plan(plan, source_root)
+    owners: dict[
+        ObjectIdentity,
+        tuple[tuple[GitOpsTarget, Path | None], ...],
+    ] = {}
     all_documents: list[Any] = []
     validated_files = 0
     rendered_objects = 0
     for target in targets:
         if target.kind is GitOpsTargetKind.YAML:
-            documents, count = _yaml_target(
+            sourced_documents, count = yaml_target(
                 target,
                 source_root,
                 tools.yaml,
+                style_paths=style_paths,
             )
+            documents = [document for document, _ in sourced_documents]
+            source_paths: list[Path | None] = [
+                source_path
+                for _, source_path in sourced_documents
+            ]
         elif target.kind is GitOpsTargetKind.HELM:
             documents, count = _helm_target(
                 target,
@@ -62,6 +77,7 @@ def _execute(
                 state_root,
                 tools,
             )
+            source_paths = [None] * len(documents)
         else:
             documents, count = _kustomize_target(
                 target,
@@ -69,17 +85,37 @@ def _execute(
                 state_root,
                 tools,
             )
+            source_paths = [None] * len(documents)
         validated_files += count
-        for document in documents:
+        target_identities: set[ObjectIdentity] = set()
+        for document, source_path in zip(documents, source_paths, strict=True):
             identity = _object_identity(document)
             if identity is not None:
-                previous = owners.get(identity)
                 _require(
-                    previous is None,
+                    identity not in target_identities,
                     "duplicate_object_ownership",
                     identity.label,
                 )
-                owners[identity] = target.target_id
+                target_identities.add(identity)
+                previous = owners.get(identity, ())
+                if previous:
+                    previous_target, previous_source_path = previous[0]
+                    _require(
+                        len(previous) == 1
+                        and source_render_overlap_allowed(
+                            previous_target,
+                            previous_source_path,
+                            target,
+                            source_path,
+                            source_root,
+                        ),
+                        "duplicate_object_ownership",
+                        identity.label,
+                    )
+                owners[identity] = (
+                    *previous,
+                    (target, source_path),
+                )
                 rendered_objects += 1
         all_documents.extend(documents)
     policy_result = _policy(plan, source_root, state_root)

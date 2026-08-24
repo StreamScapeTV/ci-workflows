@@ -104,6 +104,7 @@ jobs:
           PYTHONPATH="${GITOPS_SMOKE_PYTHONPATH}:src" PYTHONDONTWRITEBYTECODE=1 \
             python3 -m unittest -v \
               tests.test_gitops_validation \
+              tests.test_gitops_issue_475 \
               tests.test_gitops_workflow_contract
 
       - name: Remove locked PyYAML test state

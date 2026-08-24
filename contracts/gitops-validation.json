@@ -48,13 +48,15 @@
         "changed-tree": {
           "policy_script": null,
           "targets": [
-            "flux-yaml"
+            "flux-yaml",
+            "flux-kustomize"
           ]
         },
         "full": {
           "policy_script": null,
           "targets": [
-            "flux-yaml"
+            "flux-yaml",
+            "flux-kustomize"
           ]
         },
         "source-audit": {
@@ -271,6 +273,20 @@
       ],
       "vendored_dependencies": []
     },
+    "flux-kustomize": {
+      "expected_render_path": null,
+      "include": [
+        "**/*.yaml"
+      ],
+      "kind": "kustomize",
+      "kubernetes_version": "1.34.0",
+      "required_values": [],
+      "root": "clusters/devops",
+      "schema_path": null,
+      "sops_files": [],
+      "values_files": [],
+      "vendored_dependencies": []
+    },
     "flux-yaml": {
       "expected_render_path": null,
       "include": [
@@ -284,7 +300,10 @@
       "required_values": [],
       "root": ".",
       "schema_path": null,
-      "sops_files": [],
+      "sops_files": [
+        "apps/**/*.secret.yaml",
+        "clusters/**/*.secret.yaml"
+      ],
       "values_files": [],
       "vendored_dependencies": []
     },
