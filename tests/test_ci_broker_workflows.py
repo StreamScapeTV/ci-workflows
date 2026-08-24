@@ -4,6 +4,10 @@ import json
 import unittest
 from pathlib import Path
 
+from ci_workflows.apple_contract_fragments import load_apple_contract
+from ci_workflows.apple_multistage import build_protected_full_plan
+from ci_workflows.apple_plan_guard import validate_protected_full_plan_json
+from ci_workflows.ci_broker_action import _apple_validation_plan, _shared_apple_environment
 from ci_workflows.validation_model import load_actions_yaml
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -80,6 +84,47 @@ class BrokerWorkflowTests(unittest.TestCase):
         self.assertIn('INPUT_VALIDATION_SCOPE="protected-full"', self.broker_action_text)
         self.assertIn('INPUT_SOURCE_TRUST="trusted-exact"', self.broker_action_text)
         self.assertNotIn('["xcodebuild",', self.broker_action_text)
+
+    def test_broker_generated_host_plan_is_accepted_by_shared_apple_contract(self) -> None:
+        raw = _apple_validation_plan(
+            "Sample.xcworkspace",
+            "Sample",
+            "SampleTests/SelectedIntegrationTests",
+        )
+        validate_protected_full_plan_json(raw)
+        plan = build_protected_full_plan(
+            raw,
+            repository="example/private-source",
+            admitted_sha="a" * 40,
+            source_trust="trusted-exact",
+            contract=load_apple_contract(ROOT),
+        )
+        self.assertEqual(len(plan.stages), 1)
+        self.assertEqual(plan.stages[0].platform, "macos")
+        self.assertEqual(plan.stages[0].operation, "test")
+        self.assertEqual(
+            plan.stages[0].plan.commands[0].fixed_arguments,
+            ("-only-testing:SampleTests/SelectedIntegrationTests",),
+        )
+
+        child_environment = _shared_apple_environment(
+            repository="example/private-source",
+            source_sha="a" * 40,
+            source_token="opaque-token",
+            workspace="Sample.xcworkspace",
+            scheme="Sample",
+            test_target="SampleTests/SelectedIntegrationTests",
+            environment={
+                "GITHUB_OUTPUT": "/tmp/output",
+                "GITHUB_ENV": "/tmp/env",
+                "GITHUB_STEP_SUMMARY": "/tmp/summary",
+            },
+        )
+        self.assertEqual(child_environment["GITHUB_REPOSITORY"], "example/private-source")
+        self.assertEqual(child_environment["INPUT_SOURCE_TRUST"], "trusted-exact")
+        self.assertNotIn("GITHUB_OUTPUT", child_environment)
+        self.assertNotIn("GITHUB_ENV", child_environment)
+        self.assertNotIn("GITHUB_STEP_SUMMARY", child_environment)
 
     def test_repository_policy_and_broker_contract_match_workflow(self) -> None:
         record = self.policy["workflow_admission"]["workflows"][
