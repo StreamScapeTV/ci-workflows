@@ -6,6 +6,7 @@
 
 | Input | Required | Meaning |
 |---|---:|---|
+| `execution_backend` | no | `organization` (default) or `github-hosted`; hosted package publication is currently rejected before product execution because no reviewed hosted package-publication authority/toolchain exists. |
 | `ecosystem` | yes | `python`, `npm`, or `jvm`. |
 | `working_directory` | no | Relative package-project directory; defaults to `.`. |
 | `package_name` | yes | Expected package name validated against built metadata. |
@@ -15,6 +16,14 @@
 The workflow deliberately does not accept a release SHA or package-version input. For a normal release, the human-pushed stable SemVer product tag such as `1.2.3` is the source/version authority. Central resolves that tag to its exact commit, checks out that source, and verifies that the package artifact being published actually reports the same version. That metadata equality is package-artifact validation, not a second release authority.
 
 The workflow exposes only the existing named registry secrets `registry_username` and `registry_token`. It never accepts a secret-variable name, concrete runner label, container engine, arbitrary command, or raw registry host. `registry_token` is token auth when no username is supplied. For Python/PyPI-compatible endpoints, supplying `registry_username` maps that same secret into the primitive's fixed username/password credential pair; no extra public password secret is required. npm remains token-authenticated, and Maven may reference the fixed `CI_PACKAGE_USERNAME` / `CI_PACKAGE_TOKEN` environment from product-owned checked-in settings.
+
+### Execution backend
+
+`organization` remains the backwards-compatible/default package-publication backend. The organization path uses Central-owned semantic runner selection: Python planning/publication can use the bounded general package path while npm/JVM resolve to the current mobile toolchain profile. Callers never provide raw runner labels.
+
+An explicit `execution_backend: github-hosted` request is classified but currently fails on a fixed GitHub-hosted control job before exact product checkout, package-manager execution, or registry credential use. The existing package capability depends on a reviewed organization package-publication authority/toolchain, including the current Node/JVM runtime contract and compatible private-registry reachability. #362 does not invent a hosted bootstrap or silently fall back to organization capacity. A future hosted implementation requires its own reviewed capability proof while preserving this caller-visible backend enum.
+
+Because the hosted rejection path does not need publication credentials, the reusable declaration keeps registry secrets optional at workflow-call admission; the organization publication primitive still fails closed when the selected ecosystem lacks the fixed credential material it requires.
 
 ## Publication plans
 
@@ -99,6 +108,7 @@ jobs:
   package:
     uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-package-publish.yml@main
     with:
+      execution_backend: organization
       ecosystem: npm
       package_name: "@example/sdk"
       publication_plan_json: '{"registry_profile":"npmjs"}'
