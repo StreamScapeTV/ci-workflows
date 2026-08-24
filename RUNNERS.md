@@ -12,7 +12,9 @@ bounded intent and choose the implementation.
 `contracts/runner-profiles.json` is the semantic resolver authority, and
 `generated/runner-mappings.json` is its deterministic projection. The label
 inventory below documents the current organization capacity for maintainers of
-central or infrastructure-owned workflows.
+central or infrastructure-owned workflows. Inventory presence does not by
+itself make a runner class agent-selectable. Kubernetes-authorized capacity is
+governed by `docs/policy/cluster-control-boundary.md`.
 
 ## Semantic profile IDs are not GitHub runner labels
 
@@ -63,7 +65,7 @@ the platform labels:
 | Small daemonless OCI work | `buildah-small` | `[linux, amd64, buildah, small]` | Same OCI tools; 512 Mi / 2 Gi memory; 16 Gi local storage | Same trusted exact-source boundary |
 | Medium daemonless OCI work | `buildah-medium` | `[linux, amd64, buildah, medium]` | Same OCI tools; 2 / 4 Gi memory; 32 Gi local storage | Same trusted exact-source boundary |
 | High-memory or high-storage daemonless OCI work | `buildah-high` | `[linux, amd64, buildah, high]` | Same OCI tools; 4 / 8 Gi memory; 44 Gi local storage | Same trusted exact-source boundary; use only with measured need |
-| Protected Flux and Kubernetes reconciliation | `flux-control` | `[linux, amd64, flux-control]` | Actions runner plus Flux/Kubernetes tooling and a restricted service account | Repository-scoped to Flux; protected source only; never product pull-request source or general builds |
+| Historical/owner-operated Flux and Kubernetes reconciliation inventory | infrastructure-only `flux-control` (not agent-selectable) | `[linux, amd64, flux-control]` only for reviewed owner/infrastructure workflows | Actions runner plus Flux/Kubernetes tooling and a restricted service account | Repository-scoped to Flux and Kubernetes-authorized; never an agent-authored validation/acceptance path, product pull-request source, or general build |
 
 Central does **not** encode Linux ARC runner-count ceilings. `concurrency_cap` is
 `null` for Flux-owned ARC profiles. Flux/Kubernetes owns live `maxRunners`, Pod
@@ -242,23 +244,36 @@ peaks plus reviewed headroom. Escalation evidence records:
 Buildah is privileged and daemonless. Linux ARC does not provide Docker,
 Docker-in-Docker, or a Docker-socket capability.
 
-### Flux control
+### Flux control (infrastructure inventory only)
 
-The repository-scoped Flux class advertises:
+The repository-scoped Flux class may remain registered for historical or
+owner-operated infrastructure use and advertises:
 
 - `flux-control`
 - `flux`
 - `control-plane`
 - `linux`, `x64`, `amd64`
 
-Protected Flux-owned workflows use:
+Historical or owner-operated protected infrastructure workflows may use:
 
 ```yaml
 runs-on: [linux, amd64, flux-control]
 ```
 
-This class mounts restricted Kubernetes authority and cannot execute product
-pull-request source, arbitrary caller commands, or general build work.
+This class mounts restricted Kubernetes authority. It is **not** an
+agent-selectable ordinary validation or acceptance capability. New agent-authored
+workflows must not schedule it, mount a Kubernetes service-account token,
+consume a kubeconfig, or otherwise acquire Kubernetes API authority. Existing
+Kubernetes-authorized workflows are migration inventory, not precedent for new
+agent validation.
+
+Agent-authored acceptance follows `docs/policy/cluster-control-boundary.md`:
+validate source/rendered desired state first, let Flux reconcile merged Git,
+then prefer externally observable health/API behavior and functional end-to-end
+evidence. If a decision genuinely requires Kubernetes-only inspection, stop at
+the owner boundary and request the exact bounded read-only output needed.
+Agents must not use CI-side `kubectl`, Helm mutation, direct reconciliation, or
+other cluster mutation to manufacture acceptance.
 
 ## Hard-cutover status
 
@@ -377,7 +392,11 @@ The full receipt and cleanup contract is documented in
 | Flutter or native Apple validation on macOS | `apple` |
 | OCI build or publication | the smallest measured `buildah-*` semantic tier |
 | Physical Android/iOS/tvOS validation | `physical-device` guarded overlay with authorization and locking |
-| Flux reconciliation | `flux-control`, resolved to `[linux, amd64, flux-control]` |
+
+`flux-control` is intentionally absent from the agent-selectable intent table.
+It remains infrastructure inventory only; agents follow
+`docs/policy/cluster-control-boundary.md` and stop at the owner boundary for any
+live Kubernetes-only inspection.
 
 A reusable workflow with more than one possible profile uses a protected
 planning job. The planner validates semantic intent and emits a JSON selector;
@@ -399,6 +418,12 @@ change the runner after a job is scheduled.
 - Never accept runner labels from a workflow caller, issue, pull request,
   arbitrary matrix, or untrusted JSON input.
 - Never treat a runner name as a scheduling contract.
+- Agents never select `flux-control` for ordinary validation or acceptance and
+  never receive kubeconfig, Kubernetes service-account authority, or direct
+  cluster-mutation authority through a new agent-authored workflow.
+- When Kubernetes-only inspection is genuinely necessary, stop at the owner
+  boundary and request only the bounded read-only result needed; prefer
+  source/render checks, external health/API, and functional end-to-end evidence.
 - Untrusted source receives no registry-write, Agent State, signing,
   physical-device, SOPS, Kubernetes, production-database, or deployment
   credential.
