@@ -150,7 +150,7 @@ jobs:
           set -Eeuo pipefail
           local_ref="localhost/${IMAGE_NAME}:${SOURCE_SHA}"
           container="ci-broker-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          buildah from --name "${container}" "${local_ref}" >/dev/null
+          buildah from --authfile "${BROKER_REGISTRY_AUTH}" --name "${container}" "${local_ref}" >/dev/null
           buildah run "${container}" -- python3 /opt/ci-broker/scripts/ci/ci_broker.py self-check
           buildah rm "${container}" >/dev/null
 
