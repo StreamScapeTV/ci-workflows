@@ -43,24 +43,24 @@
       "job": "admit",
       "events": ["push", "workflow_dispatch"],
       "tag_prefix": "ci-broker-",
-      "exact_selector": ["linux", "amd64", "general", "tiny"],
-      "reason": "private Forgejo registry is reachable only from organization ARC capacity"
+      "exact_selector": ["macOS", "ARM64"],
+      "reason": "owner-authorized broker bootstrap publication uses organization macOS capacity while private Forgejo is unreachable from GitHub-hosted runners"
     },
     {
       "workflow": ".github/workflows/ci-broker-image.yml",
       "job": "image",
       "events": ["push", "workflow_dispatch"],
       "tag_prefix": "ci-broker-",
-      "exact_selector": ["linux", "amd64", "buildah", "small"],
-      "reason": "private Forgejo registry is reachable only from organization ARC capacity"
+      "exact_selector": ["macOS", "ARM64"],
+      "reason": "owner-authorized broker bootstrap publication uses organization macOS capacity while private Forgejo is unreachable from GitHub-hosted runners"
     },
     {
       "workflow": ".github/workflows/ci-broker-image.yml",
       "job": "chart",
       "events": ["push", "workflow_dispatch"],
       "tag_prefix": "ci-broker-",
-      "exact_selector": ["linux", "amd64", "general", "small"],
-      "reason": "private Forgejo registry is reachable only from organization ARC capacity"
+      "exact_selector": ["macOS", "ARM64"],
+      "reason": "owner-authorized broker bootstrap publication uses organization macOS capacity while private Forgejo is unreachable from GitHub-hosted runners"
     }
   ]
 }
