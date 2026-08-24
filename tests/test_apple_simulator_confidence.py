@@ -44,7 +44,7 @@ class AppleSimulatorConfidenceTests(unittest.TestCase):
 
     def build(self, raw: str | None = None):
         return build_simulator_confidence_packet(
-            raw or self.packet(),
+            raw if raw is not None else self.packet(),
             repository="StreamScapeTV/example-product",
             admitted_sha=SHA,
             source_trust="trusted-exact",
@@ -88,6 +88,12 @@ class AppleSimulatorConfidenceTests(unittest.TestCase):
             with self.subTest(mutation=mutation), self.assertRaises(AppleValidationError):
                 self.build(json.dumps(raw))
 
+    def test_packet_rejects_malformed_empty_and_oversized_json_with_stable_code(self) -> None:
+        for raw in ("", "{", "x" * (32 * 1024 + 1)):
+            with self.subTest(size=len(raw)), self.assertRaises(AppleValidationError) as raised:
+                self.build(raw)
+            self.assertEqual("command_profile_rejected", raised.exception.code)
+
     def test_packet_rejects_path_traversal_shellish_or_reserved_udid_arguments(self) -> None:
         bad_rows = [
             {"script_path": "../escape.sh", "arguments": []},
@@ -103,10 +109,15 @@ class AppleSimulatorConfidenceTests(unittest.TestCase):
     def test_confidence_evidence_cannot_claim_physical_signing_or_release_authority(self) -> None:
         packet = self.build()
         values = confidence_outputs(
-            {"result": "success", "test_summary": '{"status":"success"}'},
+            {
+                "result": "success",
+                "runner_profile": "apple",
+                "test_summary": '{"status":"success"}',
+            },
             packet,
         )
         summary = json.loads(values["test_summary"])
+        self.assertEqual("github-hosted-macos", values["runner_profile"])
         self.assertEqual("simulator-confidence-only", summary["confidence_scope"])
         self.assertFalse(summary["physical_device_authority"])
         self.assertFalse(summary["signing_authority"])
