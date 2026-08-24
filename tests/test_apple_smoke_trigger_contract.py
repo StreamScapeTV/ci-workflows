@@ -4,10 +4,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOWS = {
-    "routine": ROOT / ".github/workflows/apple-validation-smoke.yml",
-    "release": ROOT / ".github/workflows/apple-certification-smoke.yml",
-}
+WORKFLOW = ROOT / ".github/workflows/apple-validation-smoke.yml"
 REQUIRED_PATHS = {
     "src/ci_workflows/apple_contract.py",
     "src/ci_workflows/apple_contract_fragments.py",
@@ -19,15 +16,7 @@ REQUIRED_PATHS = {
     "tests/test_apple_fragment_loader_isolation.py",
     "tests/test_apple_smoke_trigger_contract.py",
 }
-EXPECTED_CONCURRENCY = {
-    "routine": "group: apple-validation-smoke-pr-${{ github.event.pull_request.number }}",
-    "release": "group: apple-release-certification-pr-${{ github.event.pull_request.number }}",
-}
-EXECUTOR_RESULT = {
-    "routine": "APPLE_RESULT",
-    "release": "RELEASE_RESULT",
-}
-DYNAMIC_APPLE_EXECUTOR_SELECTOR = "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}"
+EXPECTED_CONCURRENCY = "group: apple-validation-smoke-pr-${{ github.event.pull_request.number }}"
 HOSTED_CONTROL_SELECTOR = "runs-on: [ubuntu-latest]"
 HOSTED_APPLE_SELECTOR = "runs-on: [macos-latest]"
 OWNER_GATE = "github.event.pull_request.user.login == 'mimranfaruqi'"
@@ -47,49 +36,38 @@ def pull_request_paths(source: str) -> set[str]:
 
 
 class AppleSmokeTriggerContractTests(unittest.TestCase):
-    def test_fragment_authority_triggers_both_apple_smokes(self) -> None:
-        for name, path in WORKFLOWS.items():
-            with self.subTest(workflow=name):
-                source = path.read_text(encoding="utf-8")
-                self.assertTrue(
-                    REQUIRED_PATHS.issubset(pull_request_paths(source)),
-                    f"{name} Apple smoke does not watch every fragment authority path",
-                )
+    def test_fragment_authority_triggers_retained_apple_smoke(self) -> None:
+        source = WORKFLOW.read_text(encoding="utf-8")
+        self.assertTrue(REQUIRED_PATHS.issubset(pull_request_paths(source)))
 
     def test_trigger_and_concurrency_authority_did_not_expand(self) -> None:
-        for name, path in WORKFLOWS.items():
-            with self.subTest(workflow=name):
-                source = path.read_text(encoding="utf-8")
-                trigger = source.split("\npermissions:\n", 1)[0]
-                self.assertIn("\n  pull_request:\n", trigger)
-                self.assertNotIn("\n  push:\n", trigger)
-                self.assertNotIn("workflow_dispatch:", trigger)
-                self.assertNotIn("workflow_call:", trigger)
-                self.assertIn(EXPECTED_CONCURRENCY[name], source)
-                self.assertIn("cancel-in-progress: true", source)
+        source = WORKFLOW.read_text(encoding="utf-8")
+        trigger = source.split("\npermissions:\n", 1)[0]
+        self.assertIn("\n  pull_request:\n", trigger)
+        self.assertNotIn("\n  push:\n", trigger)
+        self.assertNotIn("workflow_dispatch:", trigger)
+        self.assertNotIn("workflow_call:", trigger)
+        self.assertIn(EXPECTED_CONCURRENCY, source)
+        self.assertIn("cancel-in-progress: true", source)
 
     def test_public_repository_apple_self_ci_is_github_hosted_and_owner_gated(self) -> None:
-        for name, path in WORKFLOWS.items():
-            with self.subTest(workflow=name):
-                source = path.read_text(encoding="utf-8")
-                self.assertEqual(source.count(HOSTED_CONTROL_SELECTOR), 2)
-                self.assertEqual(source.count(HOSTED_APPLE_SELECTOR), 1)
-                self.assertNotIn(DYNAMIC_APPLE_EXECUTOR_SELECTOR, source)
-                self.assertNotIn("runs-on: [linux, amd64, general, small]", source)
-                self.assertNotIn("runs-on: ubuntu-latest", source)
-                self.assertGreaterEqual(source.count(OWNER_GATE), 3)
-                self.assertGreaterEqual(source.count(REPOSITORY_GATE), 3)
-                self.assertNotIn("github.event.repository.private", source)
-                self.assertNotIn("REPOSITORY_PRIVATE", source)
-                self.assertIn(
-                    f'test "${{{EXECUTOR_RESULT[name]}}}" = success',
-                    source,
-                )
-                # Planning still validates the reusable consumer semantic selector.
-                self.assertIn('["macOS","ARM64"]', source)
+        source = WORKFLOW.read_text(encoding="utf-8")
+        self.assertEqual(source.count(HOSTED_CONTROL_SELECTOR), 2)
+        self.assertEqual(source.count(HOSTED_APPLE_SELECTOR), 1)
+        self.assertNotIn("runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}", source)
+        self.assertNotIn("runs-on: [linux, amd64, general, small]", source)
+        self.assertGreaterEqual(source.count(OWNER_GATE), 3)
+        self.assertGreaterEqual(source.count(REPOSITORY_GATE), 3)
+        self.assertNotIn("github.event.repository.private", source)
+        self.assertNotIn("REPOSITORY_PRIVATE", source)
+        self.assertIn('test "${APPLE_RESULT}" = success', source)
+        self.assertIn('["macOS","ARM64"]', source)
+        self.assertIn("Real protected-full Apple smoke", source)
 
-        routine = WORKFLOWS["routine"].read_text(encoding="utf-8")
-        self.assertIn("Real protected-full Apple smoke", routine)
+    def test_profile_specific_and_legacy_apple_entrypoints_are_retired(self) -> None:
+        self.assertFalse((ROOT / ".github/workflows/apple-certification-smoke.yml").exists())
+        self.assertFalse((ROOT / ".github/workflows/apple-test.yml").exists())
+        self.assertTrue((ROOT / "tests/test_apple_release_profiles.py").is_file())
 
 
 if __name__ == "__main__":

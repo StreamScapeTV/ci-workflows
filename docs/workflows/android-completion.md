@@ -83,25 +83,17 @@ artifact-light: its public secret list still contains only the optional private
 dependency token, and its workflow contains no service credentials or
 `upload-artifact` step.
 
-## Acceptance smoke
+## Repository validation
 
-`.github/workflows/android-completion-smoke.yml` is the repository-owned
-exact-head acceptance caller. It uses one serial semantic `mobile` job so the
-live-service and unsigned-release gates do not create a cold-runner fan-out.
-The job:
+Issue #514 retired the dedicated `android-completion-smoke.yml` entrypoint. It
+shared the same public-repository event, trust and hosted Linux/JDK boundary as
+the retained Android validation smoke and existed only to exercise completion
+profiles during their introduction.
 
-- validates both bounded plans and proves an artifact traversal request is rejected;
-- stages the exact candidate implementation, checks out the admitted source once,
-  and prepares one Gradle workspace;
-- runs the live-service fixture with synthetic generic credentials, verifies legacy
-  credential aliases and `GITHUB_TOKEN` are absent, then performs live copied-state
-  cleanup/residue;
-- runs the unsigned-release fixture on the same runner/workspace, executing the
-  checked-in pre-policy, Gradle toolchain probe, post-policy and size-budget steps;
-- verifies the selected APK/AAB/JSON evidence paths remain inside the registered
-  state root without uploading those synthetic files; and
-- performs release copied-state cleanup, one workspace cleanup, exact-source
-  clean verification, and a zero-Actions-artifacts assertion.
-
-No product repository name, backend hostname, application ID, real credential or
-signing material appears in the smoke contract.
+Completion plan, credential-confinement, cleanup, artifact-selection and release
+semantics remain ordinary discovered tests, including `tests/test_android_completion.py`
+and the reusable workflow contract suites. The canonical Central self-check runs
+those tests on every trusted branch/PR candidate. Real product live-service and
+unsigned-release acceptance remains consumer-owned evidence through the two
+public reusable APIs above; removing the repository-local smoke does not remove
+or rename either API.

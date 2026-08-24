@@ -10,13 +10,13 @@ ROOT = Path(__file__).resolve().parents[1]
 class OciInternalContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.smoke = (ROOT / ".github/workflows/oci-build-smoke.yml").read_text()
         cls.action = (ROOT / "actions/validate-oci/action.yml").read_text()
         cls.contract = json.loads((ROOT / "contracts/oci-products.json").read_text())
         cls.schema = json.loads((ROOT / "contracts/oci-build.schema.json").read_text())
 
-    def test_unconsumed_public_build_facade_is_retired(self) -> None:
+    def test_unconsumed_public_build_facade_and_contract_smoke_are_retired(self) -> None:
         self.assertFalse((ROOT / ".github/workflows/reusable-oci-build.yml").exists())
+        self.assertFalse((ROOT / ".github/workflows/oci-build-smoke.yml").exists())
         products = json.loads(
             (ROOT / "contracts/public-workflows/products.json").read_text(encoding="utf-8")
         )
@@ -43,31 +43,6 @@ class OciInternalContractTests(unittest.TestCase):
         self.assertIn("resolved_inputs_json:", self.action)
         self.assertIn("runner_profile:", self.action)
         self.assertIn("runs_on_json:", self.action)
-
-    def test_central_smoke_is_hosted_contract_and_security_validation_only(self) -> None:
-        self.assertIn(
-            "contracts:\n    name: Validate OCI build contracts and security boundaries",
-            self.smoke,
-        )
-        self.assertEqual(2, self.smoke.count("runs-on: [ubuntu-latest]"))
-        self.assertNotIn("runs-on: [linux, amd64", self.smoke)
-        self.assertNotIn("runs-on: ${{ fromJSON", self.smoke)
-        self.assertIn("uses: ./.ciw/actions/validate-oci", self.smoke)
-        self.assertIn("phase: plan", self.smoke)
-        self.assertNotIn("phase: execute", self.smoke)
-        self.assertIn("product_id: ciw-oci-input-smoke", self.smoke)
-        self.assertIn("platform_set: linux-amd64", self.smoke)
-        self.assertIn("'[\"linux\",\"amd64\",\"buildah\",\"tiny\"]'", self.smoke)
-        self.assertIn("Run focused OCI contract, security, and media tests", self.smoke)
-        self.assertIn("python3 -m unittest discover -s tests -p 'test_oci_*.py' -v", self.smoke)
-        self.assertIn("Verify focused tests left exact source clean", self.smoke)
-        self.assertIn("zero_artifacts:", self.smoke)
-        self.assertIn("/actions/runs/", self.smoke)
-        self.assertIn("/artifacts?per_page=100", self.smoke)
-        self.assertNotIn("workflow_dispatch:", self.smoke)
-        self.assertNotIn("secrets:", self.smoke)
-        self.assertNotIn("upload-artifact", self.smoke)
-        self.assertNotIn("/var/lib/containers/cache", self.smoke)
 
     def test_product_contract_covers_internal_build_products_without_public_api_promise(self) -> None:
         products = self.contract["products"]

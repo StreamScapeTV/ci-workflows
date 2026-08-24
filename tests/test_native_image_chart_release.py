@@ -7,7 +7,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/reusable-native-image-chart.yml"
-CALLER_SMOKE_PATH = ROOT / ".github/workflows/native-image-chart-call-parse-smoke.yml"
 PRODUCTS_PATH = ROOT / "contracts/public-workflows/products.json"
 AGGREGATE_PATH = ROOT / "contracts/public-workflows.json"
 REFERENCE_PATH = ROOT / "docs/workflows/public-api-reference.md"
@@ -17,7 +16,6 @@ class NativeImageChartNormalReleaseContractTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-        cls.caller_smoke = CALLER_SMOKE_PATH.read_text(encoding="utf-8")
         cls.reference = REFERENCE_PATH.read_text(encoding="utf-8")
         products = json.loads(PRODUCTS_PATH.read_text(encoding="utf-8"))
         aggregate = json.loads(AGGREGATE_PATH.read_text(encoding="utf-8"))
@@ -177,34 +175,12 @@ class NativeImageChartNormalReleaseContractTest(unittest.TestCase):
         )
         self.assertIn('} >> "${GITHUB_ENV}"', initialize)
 
-    def test_github_smoke_compiles_thin_main_caller_without_publication(self) -> None:
-        self.assertIn("pull_request:", self.caller_smoke)
-        self.assertIn(
-            '".github/workflows/reusable-native-image-chart.yml"',
-            self.caller_smoke,
+    def test_parser_only_github_entrypoint_is_retired(self) -> None:
+        self.assertFalse(
+            (ROOT / ".github/workflows/native-image-chart-call-parse-smoke.yml").exists()
         )
-        self.assertIn("if: ${{ false }}", self.caller_smoke)
-        self.assertNotIn(
-            "uses: ./.github/workflows/reusable-native-image-chart.yml",
-            self.caller_smoke,
-        )
-        self.assertIn(
-            "uses: StreamScapeTV/ci-workflows/.github/workflows/"
-            "reusable-native-image-chart.yml@main",
-            self.caller_smoke,
-        )
-        self.assertNotIn("release_mode:", self.caller_smoke)
-        self.assertNotIn("release_version:", self.caller_smoke)
-        self.assertNotIn("release_source_sha:", self.caller_smoke)
-        for required in (
-            "image_name: parser-smoke",
-            "chart_name: parser-smoke",
-            "chart_path: .",
-        ):
-            self.assertIn(required, self.caller_smoke)
-        self.assertIn(
-            'test "${{ needs.reusable_call.result }}" = "skipped"',
-            self.caller_smoke,
+        self.assertTrue(
+            (ROOT / "tests/fixtures/public-api/callers.json").is_file()
         )
 
 
