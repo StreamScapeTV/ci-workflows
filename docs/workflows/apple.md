@@ -188,16 +188,32 @@ imports a keychain, reaches Kubernetes, or deploys a product.
 
 ## Immutable helper reuse
 
-The reusable workflow invokes `actions/validate-apple` through the issue #516
-simulator-confidence checkpoint
-`3b0dd398664c14dd5985d9d2248ec13917059223`.
-That checkpoint preserves the issue #496 simulator-free protected-full behavior
-and adds only the explicit strict simulator-confidence dispatch. The corresponding
-action-lock release label is `issue #516 simulator-confidence checkpoint`.
+The reusable workflow invokes `actions/validate-apple` through the issue #525
+bounded compiler-diagnostics checkpoint
+`d946291afbf32353a959adcd3f6cbb92513a4cbe`.
+That checkpoint preserves the issue #516 hosted simulator-confidence boundary
+and adds only generic bounded failure projection: ordinary failing-command
+stdout/stderr remains the primary diagnostic, while a failing `xcodebuild` may
+read one Central-owned result bundle when that ordinary output lacks a concrete
+compiler error. The corresponding action-lock release label is
+`issue #525 bounded compiler diagnostics checkpoint`.
+
+Result-bundle fallback is fail-closed and caller-independent: Central accepts
+only the exact stage-local `.xcresult` path already constructed under its owned
+Apple validation state, parses a bounded build-results response, projects at
+most one compiler diagnostic, strips paths to safe basenames, redacts URLs and
+secret-shaped values, and prefixes every emitted payload line so GitHub
+workflow-command-shaped text remains inert. Missing, corrupt, oversized,
+symlinked, or out-of-state bundles fall back to the existing bounded sanitized
+stdout/stderr diagnostic. No result bundle, DerivedData tree, build log, or
+other routine diagnostic artifact is uploaded, and emission happens before the
+existing terminal cleanup/residue/source-clean boundary removes run-owned state.
+
 Legacy and protected-full requests still dispatch through the existing typed
 `ciw apple validate` implementation; only the explicit simulator-confidence
 scope enters the strict packet adapter and existing lower-level simulator
-ownership functions.
+ownership functions. Physical-device authority remains outside this workflow in
+`validation.device`.
 
 Exact source checkout, workspace preparation, optional private dependency
 checkout, evidence rendering, and registered-state cleanup continue to use their

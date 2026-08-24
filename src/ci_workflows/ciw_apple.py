@@ -9,6 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Mapping, Sequence
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from . import apple as apple_validation
 from . import apple_execution
@@ -29,6 +30,9 @@ except ImportError:  # pragma: no cover - standalone fixture use
 _DIAGNOSTIC_MAX_LINES = 80
 _DIAGNOSTIC_MAX_CHARS = 12 * 1024
 _DIAGNOSTIC_COMMANDS = {"bash", "python3", "swift", "xcodebuild"}
+_XCRESULT_MAX_BYTES = 256 * 1024
+_XCRESULT_MAX_ERRORS = 128
+_XCRESULT_TIMEOUT_SECONDS = 15
 _URL = re.compile(
     r"(?i)(?:(?:https?|ssh|file)://[^\s]+|git@[^\s:]+:[^\s]+)"
 )
@@ -40,6 +44,9 @@ _TOKEN = re.compile(
 )
 _JWT = re.compile(
     r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"
+)
+_CONCRETE_ERROR = re.compile(
+    r"(?im)^.*(?<!:)\b(?:fatal\s+)?error:\s*(?!:)\S.*$"
 )
 
 
@@ -68,6 +75,133 @@ def _bounded_failure_diagnostic(text: str, roots: Sequence[Path]) -> str:
     return bounded
 
 
+def _has_concrete_error(text: str) -> bool:
+    """Return whether ordinary command output already carries an actionable error."""
+
+    return _CONCRETE_ERROR.search(text) is not None
+
+
+def _owned_result_bundle(argv: Sequence[str], state_root: Path | None) -> Path | None:
+    """Return the exact Central-owned result bundle selected by xcodebuild."""
+
+    if not argv or argv[0] != "xcodebuild" or state_root is None:
+        return None
+    positions = [index for index, value in enumerate(argv) if value == "-resultBundlePath"]
+    if len(positions) != 1 or positions[0] + 1 >= len(argv):
+        return None
+    candidate = Path(argv[positions[0] + 1])
+    if not candidate.is_absolute() or candidate.suffix != ".xcresult":
+        return None
+    expected_root = state_root / "apple-validation" / "result-bundles"
+    try:
+        if expected_root.is_symlink() or not expected_root.is_dir():
+            return None
+        root = expected_root.resolve(strict=True)
+        if candidate.is_symlink() or not candidate.is_dir():
+            return None
+        resolved = candidate.resolve(strict=True)
+    except OSError:
+        return None
+    if root not in resolved.parents:
+        return None
+    return resolved
+
+
+def _read_xcresult_build_results(bundle: Path) -> str:
+    """Read bounded Xcode build-result JSON from one already-owned result bundle."""
+
+    try:
+        completed = subprocess.run(
+            (
+                "xcrun",
+                "xcresulttool",
+                "get",
+                "build-results",
+                "--path",
+                str(bundle),
+                "--format",
+                "json",
+            ),
+            cwd=bundle.parent,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=_XCRESULT_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    output = completed.stdout or ""
+    if completed.returncode != 0 or len(output.encode("utf-8")) > _XCRESULT_MAX_BYTES:
+        return ""
+    return output
+
+
+def _xcresult_source_location(value: object) -> str:
+    if not isinstance(value, str) or not value or len(value) > 4096:
+        return ""
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return ""
+    if parsed.scheme != "file":
+        return ""
+    name = Path(unquote(parsed.path)).name
+    if (
+        not name
+        or len(name) > 255
+        or any(character in name for character in ("\x00", "\n", "\r"))
+    ):
+        return ""
+    fragment = parse_qs(parsed.fragment, keep_blank_values=False)
+    location = name
+    line = fragment.get("StartingLineNumber", [""])[0]
+    column = fragment.get("StartingColumnNumber", [""])[0]
+    if isinstance(line, str) and line.isdigit() and 1 <= int(line) <= 10_000_000:
+        location += f":{int(line)}"
+        if isinstance(column, str) and column.isdigit() and 1 <= int(column) <= 100_000:
+            location += f":{int(column)}"
+    return location
+
+
+def _xcresult_compiler_diagnostic(raw: str, roots: Sequence[Path]) -> str:
+    """Project one deterministic compiler error from bounded xcresult JSON."""
+
+    if not raw or len(raw.encode("utf-8")) > _XCRESULT_MAX_BYTES:
+        return ""
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return ""
+    errors = payload.get("errors") if isinstance(payload, dict) else None
+    if not isinstance(errors, list) or len(errors) > _XCRESULT_MAX_ERRORS:
+        return ""
+    for row in errors:
+        if not isinstance(row, dict):
+            continue
+        issue_type = row.get("issueType")
+        message = row.get("message")
+        if (
+            not isinstance(issue_type, str)
+            or not isinstance(message, str)
+            or not issue_type.strip()
+            or not message.strip()
+            or len(issue_type) > 256
+            or len(message) > 8192
+        ):
+            continue
+        kind = issue_type.casefold()
+        if not any(token in kind for token in ("compiler", "swift", "clang")):
+            continue
+        location = _xcresult_source_location(row.get("sourceURL"))
+        prefix = issue_type.strip()
+        projected = f"{prefix}: {message.strip()}"
+        if location:
+            projected = f"{prefix}: {location}: {message.strip()}"
+        return _bounded_failure_diagnostic(projected, roots)
+    return ""
+
+
 class _FailureDiagnosticRunner:
     """Emit only failing command diagnostics before Apple cleanup removes state."""
 
@@ -75,9 +209,12 @@ class _FailureDiagnosticRunner:
         self,
         delegate: apple_execution.CommandRunner,
         roots: Sequence[Path],
+        *,
+        state_root: Path | None = None,
     ) -> None:
         self._delegate = delegate
         self._roots = tuple(dict.fromkeys(Path(root) for root in roots))
+        self._state_root = Path(state_root) if state_root is not None else None
 
     @staticmethod
     def _eligible(argv: Sequence[str]) -> bool:
@@ -96,6 +233,24 @@ class _FailureDiagnosticRunner:
         # workflow command such as ::error:: or ::add-mask::.
         for line in diagnostic.splitlines():
             print(f"| {line}", file=sys.stderr)
+
+    def _failure_text(
+        self,
+        argv: Sequence[str],
+        ordinary: str,
+        cwd: Path,
+    ) -> str:
+        if argv[0] != "xcodebuild" or _has_concrete_error(ordinary):
+            return ordinary
+        bundle = _owned_result_bundle(argv, self._state_root)
+        if bundle is None:
+            return ordinary
+        raw = _read_xcresult_build_results(bundle)
+        diagnostic = _xcresult_compiler_diagnostic(
+            raw,
+            (*self._roots, cwd, bundle.parent),
+        )
+        return diagnostic or ordinary
 
     def run(
         self,
@@ -130,9 +285,10 @@ class _FailureDiagnosticRunner:
                 self._emit("could not be launched", "", cwd)
             raise
         if eligible and outcome.returncode != 0:
+            ordinary = outcome.stdout + outcome.stderr
             self._emit(
                 f"exited with status {outcome.returncode}",
-                outcome.stdout + outcome.stderr,
+                self._failure_text(argv, ordinary, cwd),
                 cwd,
             )
         return outcome
@@ -145,6 +301,7 @@ def _diagnostic_runner(
     return _FailureDiagnosticRunner(
         SimulatorLeaseArgumentRunner(),
         (source, state, state.parent),
+        state_root=state,
     )
 
 
