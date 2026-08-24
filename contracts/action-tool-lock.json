@@ -59,10 +59,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-device",
-      "sha": "4a7865f420e7ff37893907bbd0c4ad557a0e9ca6",
-      "release": "issue #479 same-repository PR event checkpoint",
+      "sha": "4a6c73fd7bf901c2db6b19330ba0b879bc2bb3ae",
+      "release": "issue #481 semantic authorization receipt transport checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/4a7865f420e7ff37893907bbd0c4ad557a0e9ca6/actions/validate-device"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/4a6c73fd7bf901c2db6b19330ba0b879bc2bb3ae/actions/validate-device"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/device-lock",

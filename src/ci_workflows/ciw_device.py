@@ -126,8 +126,33 @@ def _runs_on_json(root: Path, plan: device_validation.DevicePlan) -> str:
     return value
 
 
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON object key")
+        result[key] = value
+    return result
+
+
 def _authorization_receipt(environment: Mapping[str, str]) -> str:
-    return environment.get("CIW_DEVICE_AUTHORIZATION_RECEIPT", "")
+    """Canonicalize the transported JSON secret before exact authorization checks.
+
+    Reusable-workflow secret transport is allowed to change insignificant JSON
+    whitespace. Authority remains in the exact typed fields validated by the
+    device runtime; duplicate keys are rejected before canonicalization.
+    """
+
+    raw = environment.get("CIW_DEVICE_AUTHORIZATION_RECEIPT", "")
+    if not raw:
+        return ""
+    try:
+        payload = json.loads(raw, object_pairs_hook=_unique_json_object)
+    except (json.JSONDecodeError, ValueError) as error:
+        raise device_validation.DeviceValidationError("authorization_rejected") from error
+    if not isinstance(payload, Mapping):
+        raise device_validation.DeviceValidationError("authorization_rejected")
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
 
 def _execute_command(

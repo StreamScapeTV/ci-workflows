@@ -6,7 +6,9 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DEVICE_ACTION_SHA = "4a7865f420e7ff37893907bbd0c4ad557a0e9ca6"
+DEVICE_ACTION_SHA = "4a6c73fd7bf901c2db6b19330ba0b879bc2bb3ae"
+DEVICE_ACTION_RELEASE = "issue #481 semantic authorization receipt transport checkpoint"
+DEVICE_TRANSPORT_WORKFLOW_SHA = "caa04d8c8f87841def744b7032b6d77b195a9db3"
 DEVICE_LOCK_ACTION_SHA = "599c82201e6da6ca51c4f6247f1526a4ba03d550"
 FOUNDATION_ACTION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 
@@ -67,7 +69,7 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("live_test_credentials", self.workflow + self.action)
 
     def test_no_product_or_repository_identity_is_central_selection_authority(self) -> None:
-        text = (self.contract.__repr__() + self.workflow + self.action).casefold()
+        text = (self.contract.__repr__() + self.workflow + self.action + self.smoke).casefold()
         for forbidden in ("iptv-android", "iptv-apple", "streamscape-media", "vlc"):
             self.assertNotIn(forbidden, text)
         self.assertNotIn("profiles", self.contract)
@@ -89,7 +91,7 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         ):
             self.assertIn(required, input_block)
 
-    def test_all_private_actions_are_immutable(self) -> None:
+    def test_all_private_actions_and_transport_probe_are_immutable(self) -> None:
         refs = re.findall(
             r"uses: StreamScapeTV/ci-workflows/([^@\s]+)@([0-9a-f]{40})",
             self.workflow + "\n" + self.smoke,
@@ -98,6 +100,13 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         self.assertTrue(all(len(sha) == 40 for _path, sha in refs))
         validate_refs = {sha for path, sha in refs if path == "actions/validate-device"}
         self.assertEqual({DEVICE_ACTION_SHA}, validate_refs)
+        self.assertIn(
+            (
+                ".github/workflows/internal-device-authorization-transport.yml",
+                DEVICE_TRANSPORT_WORKFLOW_SHA,
+            ),
+            refs,
+        )
         action_lock = json.loads((ROOT / "contracts/action-tool-lock.json").read_text())
         validate_lock = next(
             row
@@ -108,7 +117,7 @@ class DeviceWorkflowContractTests(unittest.TestCase):
             {
                 "uses": "StreamScapeTV/ci-workflows/actions/validate-device",
                 "sha": DEVICE_ACTION_SHA,
-                "release": "issue #479 same-repository PR event checkpoint",
+                "release": DEVICE_ACTION_RELEASE,
                 "runtime": "composite",
                 "source": f"https://github.com/StreamScapeTV/ci-workflows/tree/{DEVICE_ACTION_SHA}/actions/validate-device",
             },
@@ -184,6 +193,14 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         self.assertIn("CIW_DEVICE_AUTHORIZATION_RECEIPT", self.smoke)
         self.assertIn("test \"$AUTHORIZED\" = true", self.smoke)
         self.assertIn("test \"$TRUST\" = trusted-exact", self.smoke)
+        self.assertIn("Reusable secret transport / Authorized PR plan", self.smoke)
+        self.assertIn(
+            "uses: StreamScapeTV/ci-workflows/.github/workflows/internal-device-authorization-transport.yml@"
+            + DEVICE_TRANSPORT_WORKFLOW_SHA,
+            self.smoke,
+        )
+        self.assertIn('device_authorization_receipt: >-', self.smoke)
+        self.assertIn("issue-481-transport-contract", self.smoke)
         direct = re.findall(r"^    runs-on: (.+)$", self.smoke, re.M)
         self.assertTrue(direct)
         self.assertTrue(all(value == "[ubuntu-latest]" for value in direct))
@@ -195,7 +212,7 @@ class DeviceWorkflowContractTests(unittest.TestCase):
             "semantic host capacity", "checked-in", "non-secret environment",
             "device_authorization_receipt", "raw device", "device-lock/1",
             "exactly once", "zero routine actions artifacts", "ordinary android",
-            "same-repository pull request",
+            "same-repository pull request", "semantic json", "duplicate keys",
         ):
             self.assertIn(phrase, text)
 
