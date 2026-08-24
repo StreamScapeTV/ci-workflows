@@ -55,6 +55,4 @@ runs:
           exit 2
         fi
         GITHUB_WORKSPACE="${GITHUB_WORKSPACE}/source" \
-        PYTHONPATH="${GITHUB_ACTION_PATH}/../../src" \
-          "${interpreter}" -m ci_workflows.ciw_web \
-          --root "${GITHUB_ACTION_PATH}/../.."
+          "${interpreter}" "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" static-web validate
