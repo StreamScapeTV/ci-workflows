@@ -44,7 +44,4 @@ runs:
           echo '::error::Runner-provided CPython is unavailable.' >&2
           exit 2
         fi
-        PYTHONPATH="${GITHUB_ACTION_PATH}/../../src" \
-          "${interpreter}" -m ci_workflows.ciw_native \
-          --root "${GITHUB_ACTION_PATH}/../.." \
-          --workspace "${GITHUB_WORKSPACE}"
+        "${interpreter}" "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" native validate
