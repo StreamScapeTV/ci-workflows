@@ -221,6 +221,8 @@ jobs:
           test "${RUNNER_OS:-}" = "Linux"
           command -v helm >/dev/null
           command -v yq >/dev/null
+          command -v tar >/dev/null
+          command -v gzip >/dev/null
           ! command -v buildah >/dev/null 2>&1
           [[ "${IMAGE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
           test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
@@ -238,7 +240,7 @@ jobs:
           printf 'HELM_CACHE_HOME=%s\n' "${root}/cache" >> "${GITHUB_ENV}"
           printf 'HELM_DATA_HOME=%s\n' "${root}/data" >> "${GITHUB_ENV}"
 
-      - name: Lint render and package matching broker chart
+      - name: Lint render and deterministically package matching broker chart
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -254,6 +256,24 @@ jobs:
             --app-version "${VERSION}" >/dev/null
           package="${BROKER_HELM_ROOT}/package/${CHART_NAME}-${VERSION}.tgz"
           test -f "${package}"
+
+          normalized_root="${BROKER_HELM_ROOT}/normalized"
+          mkdir -m 0700 "${normalized_root}"
+          tar -xzf "${package}" -C "${normalized_root}"
+          normalized="${BROKER_HELM_ROOT}/package/${CHART_NAME}-${VERSION}.normalized.tgz"
+          tar \
+            --sort=name \
+            --mtime='@0' \
+            --owner=0 \
+            --group=0 \
+            --numeric-owner \
+            --mode='u+rwX,go+rX,go-w' \
+            -cf - \
+            -C "${normalized_root}" "${CHART_NAME}" \
+            | gzip -n > "${normalized}"
+          test -s "${normalized}"
+          mv "${normalized}" "${package}"
+          rm -rf "${normalized_root}"
           printf 'BROKER_CHART_PACKAGE=%s\n' "${package}" >> "${GITHUB_ENV}"
 
       - name: Authenticate Helm to fixed private Forgejo registry
