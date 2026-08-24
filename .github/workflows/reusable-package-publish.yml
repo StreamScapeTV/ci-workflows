@@ -24,6 +24,7 @@ on:
       package_group:
         description: Optional JVM Maven group expected in the published POM
         required: false
+        default: ""
         type: string
       publication_plan_json:
         description: Bounded ecosystem-specific output, registry-profile, or Maven publication plan

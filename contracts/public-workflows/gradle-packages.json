@@ -26,7 +26,13 @@
       "timeout_minutes": 120,
       "matrix_max_jobs": 1,
       "repository_owned_hooks": ["working_directory", "publication_plan_json"],
-      "implementation_components": ["ci_workflows.ciw.handle_package_publish", "ci_workflows.ciw_packages.execute_package_publish", "ci_workflows.package_primitives"]
+      "implementation_components": [
+        "ci_workflows.ciw.handle_package_publish",
+        "ci_workflows.ciw_packages.execute_package_publish",
+        "ci_workflows.package_primitives.publish_python_packages",
+        "ci_workflows.package_primitives.npm_publish",
+        "ci_workflows.package_primitives.run_jvm_publication_tasks"
+      ]
     },
     {
       "file": ".github/workflows/reusable-gradle-maven-publish.yml",

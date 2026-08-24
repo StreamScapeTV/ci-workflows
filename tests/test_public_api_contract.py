@@ -16,6 +16,7 @@ from ci_workflows import public_api as contract  # noqa: E402
 
 SUPPORTED_APIS = {
     "oci.reproducibility",
+    "package.publish",
     "release.gradle-maven",
     "release.native-image-chart",
     "release.public-native-image-chart",
@@ -64,7 +65,7 @@ class PublicApiContractTests(unittest.TestCase):
         cls.workflows = contract.validate_workflows(cls.data, cls.profiles)
 
     def test_registry_is_terminal_complete_and_deterministic(self) -> None:
-        self.assertEqual(18, len(self.data.workflows))
+        self.assertEqual(19, len(self.data.workflows))
         self.assertEqual(7, len(self.profiles))
         self.assertEqual(4, len(self.data.types["trust_classes"]))
         self.assertEqual("4.0.0", self.data.index["contract_version"])
@@ -367,6 +368,10 @@ class PublicApiContractTests(unittest.TestCase):
             self.workflows["oci.reproducibility"]["semantic_runner_profile"],
         )
         self.assertEqual(
+            "1.0.0",
+            self.workflows["package.publish"]["api_version"],
+        )
+        self.assertEqual(
             "2.0.0",
             self.workflows["release.native-image-chart"]["api_version"],
         )
@@ -411,6 +416,7 @@ class PublicApiContractTests(unittest.TestCase):
         self.assertTrue(reference.is_file())
         self.assertEqual(reference.read_text(encoding="utf-8"), rendered)
         self.assertIn("oci.reproducibility", rendered)
+        self.assertIn("package.publish", rendered)
         self.assertIn("release.native-image-chart", rendered)
         self.assertIn("validation.native", rendered)
         self.assertIn("validation.static-web", rendered)
@@ -468,6 +474,9 @@ class PublicApiContractTests(unittest.TestCase):
             "release_contract": "default-release",
             "history_depth": 1,
             "execution_backend": "organization",
+            "ecosystem": "python",
+            "package_name": "streamscape-sdk",
+            "publication_plan_json": {},
             "admitted_sha": "0123456789abcdef0123456789abcdef01234567",
             "validation_profile": "host",
             "validation_scope": "unit",
