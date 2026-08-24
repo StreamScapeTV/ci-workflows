@@ -9,6 +9,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 | API | File | Status | Trust | Check |
 |---|---|---|---|---|
 | `oci.reproducibility` `1.0.0` | `.github/workflows/reusable-oci-reproducibility.yml` | `implemented` | `read-only-validation` | CI / OCI reproducibility |
+| `package.publish` `1.0.0` | `.github/workflows/reusable-package-publish.yml` | `implemented` | `trusted-publication` | Release / Package publication |
 | `release.gradle-maven` `1.0.0` | `.github/workflows/reusable-gradle-maven-publish.yml` | `implemented` | `trusted-publication` | Release / Gradle Maven publication |
 | `release.native-image-chart` `2.0.0` | `.github/workflows/reusable-native-image-chart.yml` | `implemented` | `trusted-publication` | Publish native amd64 image and Helm chart |
 | `release.public-native-image-chart` `1.0.0` | `.github/workflows/reusable-public-native-image-chart.yml` | `implemented` | `trusted-publication` | Publish public native amd64 image and Helm chart |
@@ -36,6 +37,14 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 - Secrets: none
 - Outputs: `result`, `source_sha`, `platform_digests_json`
 - Repository-owned hooks: `dockerfile_path`, `build_context`
+
+### `package.publish`
+
+- Events: `workflow_call`
+- Inputs: `execution_backend` (default `organization`), `ecosystem` (required), `working_directory` (default `.`), `package_name` (required), `package_group` (default ``), `publication_plan_json` (required)
+- Secrets: `registry_username`, `registry_token`
+- Outputs: `result`, `ecosystem`, `package_name`, `package_version`, `cleanup_result`
+- Repository-owned hooks: `working_directory`, `publication_plan_json`
 
 ### `release.gradle-maven`
 
