@@ -24,18 +24,14 @@ class BootstrapContractTests(unittest.TestCase):
         MODULE.validate_authority_docs()
 
     def test_release_policy_uses_main_and_tag_without_release_assets(self) -> None:
-        policy = json.loads(
-            (ROOT / "contracts/security-policy.json").read_text()
-        )
+        policy = json.loads((ROOT / "contracts/security-policy.json").read_text())
         release = policy["release_reference_policy"]
         self.assertEqual(release["bootstrap_channel"], "main")
         self.assertIn("git-tag", release["supported_immutable_references"])
         self.assertFalse(release["github_release_required"])
         self.assertFalse(release["attached_artifacts_required"])
 
-    def test_public_workflow_bootstrap_contract_includes_implemented_source(
-        self,
-    ) -> None:
+    def test_public_workflow_bootstrap_contract_is_exactly_supported_surface(self) -> None:
         self.assertEqual(
             MODULE.allowed_bootstrap_workflows(),
             [
@@ -47,13 +43,8 @@ class BootstrapContractTests(unittest.TestCase):
                 ".github/workflows/reusable-flutter.yml",
                 ".github/workflows/reusable-gitops-validation.yml",
                 ".github/workflows/reusable-gradle-maven-publish.yml",
-                ".github/workflows/reusable-helm-publish.yml",
-                ".github/workflows/reusable-helm-validate.yml",
                 ".github/workflows/reusable-native-image-chart.yml",
-                ".github/workflows/reusable-network-download.yml",
                 ".github/workflows/reusable-node.yml",
-                ".github/workflows/reusable-oci-build.yml",
-                ".github/workflows/reusable-oci-publish.yml",
                 ".github/workflows/reusable-oci-reproducibility.yml",
                 ".github/workflows/reusable-public-native-image-chart.yml",
                 ".github/workflows/reusable-python.yml",
@@ -62,6 +53,18 @@ class BootstrapContractTests(unittest.TestCase):
                 ".github/workflows/reusable-tag-image-chart.yml",
             ],
         )
+
+    def test_retired_public_wrappers_are_not_bootstrap_exceptions(self) -> None:
+        allowed = set(MODULE.allowed_bootstrap_workflows())
+        for retired in (
+            ".github/workflows/reusable-network-download.yml",
+            ".github/workflows/reusable-oci-build.yml",
+            ".github/workflows/reusable-oci-publish.yml",
+            ".github/workflows/reusable-helm-validate.yml",
+            ".github/workflows/reusable-helm-publish.yml",
+        ):
+            self.assertNotIn(retired, allowed)
+            self.assertFalse((ROOT / retired).exists())
 
     def test_self_check_uses_automatic_discovery_and_verified_python(self) -> None:
         source = (ROOT / ".github/workflows/self-check.yml").read_text()
@@ -75,12 +78,8 @@ class BootstrapContractTests(unittest.TestCase):
 
     def test_self_check_uses_final_general_linux_capability_contract(self) -> None:
         source = (ROOT / ".github/workflows/self-check.yml").read_text()
-        harness = json.loads(
-            (ROOT / "contracts/validation-harness.json").read_text()
-        )
-        runner_contract = json.loads(
-            (ROOT / "contracts/runner-profiles.json").read_text()
-        )
+        harness = json.loads((ROOT / "contracts/validation-harness.json").read_text())
+        runner_contract = json.loads((ROOT / "contracts/runner-profiles.json").read_text())
         general_small = next(
             profile
             for profile in runner_contract["profiles"]
@@ -122,15 +121,8 @@ class BootstrapContractTests(unittest.TestCase):
                 return contaminated_source
             return original(relative)
 
-        with mock.patch.object(
-            MODULE,
-            "read_text",
-            side_effect=read_text,
-        ):
-            with self.assertRaisesRegex(
-                SystemExit,
-                "homelab-portable-linux-x64",
-            ):
+        with mock.patch.object(MODULE, "read_text", side_effect=read_text):
+            with self.assertRaisesRegex(SystemExit, "homelab-portable-linux-x64"):
                 MODULE.validate_self_check()
 
 
