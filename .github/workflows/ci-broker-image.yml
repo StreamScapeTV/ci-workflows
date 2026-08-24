@@ -4,12 +4,18 @@ on:
   push:
     tags:
       - 'ci-broker-*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing exact ci-broker-X.Y.Z tag to replay
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-broker-release-${{ github.ref_name }}
+  group: ci-broker-release-${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}
   cancel-in-progress: false
 
 env:
@@ -22,6 +28,7 @@ env:
 jobs:
   admit:
     name: Admit exact broker release tag
+    if: ${{ github.event_name != 'workflow_dispatch' || github.actor == 'mimranfaruqi' }}
     runs-on: [linux, amd64, general, tiny]
     timeout-minutes: 10
     outputs:
@@ -31,7 +38,7 @@ jobs:
       - name: Check out exact tagged Central source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.release_tag) || github.sha }}
           fetch-depth: 1
           clean: true
           persist-credentials: false
@@ -41,17 +48,28 @@ jobs:
         name: Admit exact broker release version and source
         shell: bash
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
-          SOURCE_SHA: ${{ github.sha }}
+          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}
         run: |
           set -Eeuo pipefail
           [[ "${RELEASE_TAG}" =~ ^ci-broker-(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
-          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          source_sha="$(git rev-parse HEAD)"
+          [[ "${source_sha}" =~ ^[0-9a-f]{40}$ ]]
           version="${RELEASE_TAG#ci-broker-}"
-          test "${GITHUB_REF}" = "refs/tags/${RELEASE_TAG}"
-          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+          case "${GITHUB_EVENT_NAME}" in
+            push)
+              test "${GITHUB_REF}" = "refs/tags/${RELEASE_TAG}"
+              test "${source_sha}" = "${GITHUB_SHA}"
+              ;;
+            workflow_dispatch)
+              test "${GITHUB_ACTOR}" = "mimranfaruqi"
+              ;;
+            *)
+              echo "::error::Unsupported broker release event ${GITHUB_EVENT_NAME}." >&2
+              exit 1
+              ;;
+          esac
           printf 'version=%s\n' "${version}" >> "${GITHUB_OUTPUT}"
-          printf 'source_sha=%s\n' "${SOURCE_SHA}" >> "${GITHUB_OUTPUT}"
+          printf 'source_sha=%s\n' "${source_sha}" >> "${GITHUB_OUTPUT}"
 
       - name: Verify trusted ARC release admission runtime
         shell: bash

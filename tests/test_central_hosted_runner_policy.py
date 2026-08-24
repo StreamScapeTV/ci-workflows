@@ -174,8 +174,12 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
 
     def test_private_forgejo_broker_release_is_the_only_arc_repository_local_exception(self) -> None:
         workflow = yaml.load(BROKER_RELEASE.read_text(encoding="utf-8"), Loader=ActionsLoader)
-        self.assertEqual(_events(workflow), {"push"})
+        self.assertEqual(_events(workflow), {"push", "workflow_dispatch"})
         self.assertEqual(workflow["on"]["push"]["tags"], ["ci-broker-*"])
+        self.assertEqual(
+            set(workflow["on"]["workflow_dispatch"]["inputs"]),
+            {"release_tag"},
+        )
         self.assertEqual(set(workflow["jobs"]), {"admit", "image", "chart"})
 
         reason = "private Forgejo registry is reachable only from organization ARC capacity"
@@ -185,7 +189,7 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
                 {
                     "workflow": ".github/workflows/ci-broker-image.yml",
                     "job": "admit",
-                    "events": ["push"],
+                    "events": ["push", "workflow_dispatch"],
                     "tag_prefix": "ci-broker-",
                     "exact_selector": ["linux", "amd64", "general", "tiny"],
                     "reason": reason,
@@ -193,7 +197,7 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
                 {
                     "workflow": ".github/workflows/ci-broker-image.yml",
                     "job": "image",
-                    "events": ["push"],
+                    "events": ["push", "workflow_dispatch"],
                     "tag_prefix": "ci-broker-",
                     "exact_selector": ["linux", "amd64", "buildah", "small"],
                     "reason": reason,
@@ -201,7 +205,7 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
                 {
                     "workflow": ".github/workflows/ci-broker-image.yml",
                     "job": "chart",
-                    "events": ["push"],
+                    "events": ["push", "workflow_dispatch"],
                     "tag_prefix": "ci-broker-",
                     "exact_selector": ["linux", "amd64", "general", "small"],
                     "reason": reason,

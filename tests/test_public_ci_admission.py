@@ -83,9 +83,16 @@ class PublicCiAdmissionRepositoryTests(unittest.TestCase):
 
         broker_release = self.records[".github/workflows/ci-broker-image.yml"]
         self.assertEqual("tag-release", broker_release["trust_class"])
-        self.assertEqual(["push"], broker_release["allowed_events"])
+        self.assertEqual(
+            {"push", "workflow_dispatch"},
+            set(broker_release["allowed_events"]),
+        )
         broker_document = load_actions_yaml(WORKFLOWS / "ci-broker-image.yml", ROOT)
         self.assertEqual(["ci-broker-*"], broker_document.data["on"]["push"]["tags"])
+        self.assertEqual(
+            {"release_tag"},
+            set(broker_document.data["on"]["workflow_dispatch"]["inputs"]),
+        )
 
         for relative_path in (
             ".github/workflows/apple-physical-device-lock-smoke.yml",

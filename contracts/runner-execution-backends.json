@@ -41,7 +41,7 @@
     {
       "workflow": ".github/workflows/ci-broker-image.yml",
       "job": "admit",
-      "events": ["push"],
+      "events": ["push", "workflow_dispatch"],
       "tag_prefix": "ci-broker-",
       "exact_selector": ["linux", "amd64", "general", "tiny"],
       "reason": "private Forgejo registry is reachable only from organization ARC capacity"
@@ -49,7 +49,7 @@
     {
       "workflow": ".github/workflows/ci-broker-image.yml",
       "job": "image",
-      "events": ["push"],
+      "events": ["push", "workflow_dispatch"],
       "tag_prefix": "ci-broker-",
       "exact_selector": ["linux", "amd64", "buildah", "small"],
       "reason": "private Forgejo registry is reachable only from organization ARC capacity"
@@ -57,7 +57,7 @@
     {
       "workflow": ".github/workflows/ci-broker-image.yml",
       "job": "chart",
-      "events": ["push"],
+      "events": ["push", "workflow_dispatch"],
       "tag_prefix": "ci-broker-",
       "exact_selector": ["linux", "amd64", "general", "small"],
       "reason": "private Forgejo registry is reachable only from organization ARC capacity"
