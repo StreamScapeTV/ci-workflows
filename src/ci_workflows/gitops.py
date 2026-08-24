@@ -6,7 +6,6 @@ from typing import Mapping
 
 from .gitops_contract import (
     bounded_path,
-    build_plan,
     load_gitops_contract,
     request_from_environment,
     safe_relative,
@@ -18,6 +17,7 @@ from .gitops_execution import (
     cleanup_gitops_state,
     execute_gitops_plan,
 )
+from .gitops_plan import build_gitops_plan as build_plan
 from .gitops_types import (
     GitOpsPlan,
     GitOpsRequest,
