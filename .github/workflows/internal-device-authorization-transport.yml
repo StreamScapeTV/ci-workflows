@@ -1,0 +1,68 @@
+name: Internal device authorization transport probe
+
+on:
+  workflow_call:
+    inputs:
+      admitted_sha:
+        description: Exact ci-workflows source SHA carried through the caller event
+        required: true
+        type: string
+    secrets:
+      device_authorization_receipt:
+        required: true
+    outputs:
+      result:
+        description: Plan result after reusable-workflow secret transport
+        value: ${{ jobs.plan.outputs.result }}
+      execution_authorized:
+        description: Exact authorization decision after transport normalization
+        value: ${{ jobs.plan.outputs.execution_authorized }}
+      authorization_failure:
+        description: Stable authorization failure when denied
+        value: ${{ jobs.plan.outputs.authorization_failure }}
+      derived_source_trust:
+        description: Source trust derived from the original caller event
+        value: ${{ jobs.plan.outputs.derived_source_trust }}
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Plan transported device authorization
+    runs-on: [ubuntu-latest]
+    timeout-minutes: 10
+    outputs:
+      result: ${{ steps.plan.outputs.result }}
+      execution_authorized: ${{ steps.plan.outputs.execution_authorized }}
+      authorization_failure: ${{ steps.plan.outputs.authorization_failure }}
+      derived_source_trust: ${{ steps.plan.outputs.derived_source_trust }}
+    steps:
+      - id: plan
+        name: Validate semantic authorization after secret transport
+        uses: StreamScapeTV/ci-workflows/actions/validate-device@4a6c73fd7bf901c2db6b19330ba0b879bc2bb3ae # issue #481 semantic authorization receipt transport checkpoint
+        env:
+          CIW_DEVICE_AUTHORIZATION_PRESENT: "true"
+          CIW_DEVICE_AUTHORIZATION_RECEIPT: ${{ secrets.device_authorization_receipt }}
+        with:
+          phase: plan
+          admitted_sha: ${{ inputs.admitted_sha }}
+          device_family: ios
+          device_capability: transport-contract
+          host_capacity: apple
+          prepare_script_path: tests/fixtures/device-validation/scripts/prepare.sh
+          test_script_path: tests/fixtures/device-validation/scripts/test.sh
+          evidence_script_path: tests/fixtures/device-validation/scripts/evidence.sh
+          cleanup_script_path: tests/fixtures/device-validation/scripts/cleanup.sh
+          arguments_json: '[]'
+          environment_json: '{}'
+          max_duration_minutes: "15"
+          evidence_exception_id: ""
+          request_id: issue-481-transport-contract
+
+      - name: Remove authorization transport state
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test ! -e "${RUNNER_TEMP}/ciw-device"
