@@ -21,6 +21,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 | `validation.device` `2.0.0` | `.github/workflows/reusable-device.yml` | `implemented` | `physical-device-validation` | CI / Physical device validation |
 | `validation.flutter` `1.0.0` | `.github/workflows/reusable-flutter.yml` | `implemented` | `read-only-validation` | CI / Flutter validation |
 | `validation.gitops` `1.0.0` | `.github/workflows/reusable-gitops-validation.yml` | `implemented` | `read-only-validation` | CI / GitOps validation |
+| `validation.native` `1.0.0` | `.github/workflows/reusable-native.yml` | `implemented` | `read-only-validation` | CI / Native CMake validation |
 | `validation.node` `1.0.0` | `.github/workflows/reusable-node.yml` | `implemented` | `read-only-validation` | CI / Node validation |
 | `validation.python` `2.0.0` | `.github/workflows/reusable-python.yml` | `implemented` | `read-only-validation` | CI / Python validation |
 | `validation.script` `1.0.0` | `.github/workflows/reusable-script.yml` | `implemented` | `read-only-validation` | CI / Script validation |
@@ -130,6 +131,14 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 - Secrets: none
 - Outputs: `result`, `test_summary`, `render_digest`, `cleanup_result`, `evidence_id`
 - Repository-owned hooks: `policy_script_profile`
+
+### `validation.native`
+
+- Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
+- Inputs: `admitted_sha` (required), `working_directory` (default `.`), `validation_plan_json` (required)
+- Secrets: none
+- Outputs: `result`, `test_summary`, `cleanup_result`
+- Repository-owned hooks: `validation_plan_json`
 
 ### `validation.node`
 
