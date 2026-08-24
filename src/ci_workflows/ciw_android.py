@@ -45,7 +45,7 @@ _COPY_RELATIVE = "tmp/android-source"
 _MAX_PLAN_BYTES = 16 * 1024
 _GRADLE_RO_DEP_CACHE_PATH = Path("/opt/gradle-ro-cache")
 _PROTECTED_FULL_FAMILY_TIMEOUT_SECONDS = 45 * 60
-_PROTECTED_FULL_EXECUTION_MODES = {"combined", "grouped"}
+_PROTECTED_FULL_EXECUTION_MODES = {"combined", "grouped", "prefix-isolated"}
 
 
 class _BoundedGradleRunner:
@@ -102,6 +102,15 @@ class ProtectedFullPlan:
             ("lint", self.lint_tasks),
             ("assemble", self.assemble_tasks),
             ("schema", self.schema_tasks),
+        )
+
+    @property
+    def remainder_gradle_tasks(self) -> tuple[str, ...]:
+        return (
+            *self.unit_tasks,
+            *self.lint_tasks,
+            *self.assemble_tasks,
+            *self.schema_tasks,
         )
 
 
@@ -267,6 +276,8 @@ def _protected_full_plan(
         if "pre_unit_tasks" in value
         else ()
     )
+    if execution_mode == "prefix-isolated" and not pre_unit_tasks:
+        raise CIWError(_DOMAIN, code)
     compile_tasks = (
         _tasks(value["compile_tasks"], code, maximum_items=16)
         if "compile_tasks" in value
@@ -784,6 +795,23 @@ def _execute_request(
                     gradle_invocations = 1
             elif full.execution_mode == "grouped":
                 for group_name, group_tasks in full.gradle_groups:
+                    if not group_tasks:
+                        continue
+                    gradle_wall_ms += _run_protected_full_group(
+                        wrapper,
+                        group_name,
+                        group_tasks,
+                        project=project,
+                        environment=environment,
+                        context=context,
+                    )
+                    gradle_invocations += 1
+            elif full.execution_mode == "prefix-isolated":
+                for group_name, group_tasks in (
+                    ("pre_unit", full.pre_unit_tasks),
+                    ("compile", full.compile_tasks),
+                    ("remainder", full.remainder_gradle_tasks),
+                ):
                     if not group_tasks:
                         continue
                     gradle_wall_ms += _run_protected_full_group(

@@ -7,8 +7,8 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-ROUTINE_CHECKPOINT = "60ce05e4da20b45783ae729f112083b2801d2e25"
-ROUTINE_RELEASE = "issue #373 build-once protected-full checkpoint"
+ROUTINE_CHECKPOINT = "91e5ba5af11ec717f829000edad062c664fb86f7"
+ROUTINE_RELEASE = "issue #534 prefix-isolated protected-full checkpoint"
 COMPLETION_CHECKPOINT = "68a6450d6576e0744969cd170cc581856a44312a"
 COMPLETION_RELEASE = "issue #443 inherited package credential checkpoint"
 PACKAGE_TOKEN_ENV_FORWARD = "CIW_MAVEN_PACKAGE_READ_TOKEN: ${{ secrets.maven_package_read_token }}"
