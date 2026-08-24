@@ -10,9 +10,15 @@ Normal `protected-full`, compile, unit, lint, assemble, targeted-unit, script, a
 
 The optional workflow-call secret `maven_package_read_token` is materialized only on the authoritative product-execution step as the fixed `CIW_MAVEN_PACKAGE_READ_TOKEN` key. The composite Android action does not redeclare a package-token input and does not overwrite that environment key, so GitHub's normal composite-action environment inheritance preserves the execute-step value. The reviewed `ciw` runtime then copies only that fixed key into the bounded child-process environment used by Gradle. Planning, private-dependency checkout/prebuild, evidence, cleanup, residue, cache maintenance/sync, and artifact handling do not receive the package credential, and callers cannot choose another environment-key name or arbitrary environment map. Live-service and unsigned-release use the same inherited fixed-key boundary.
 
-The authoritative `protected-full` pass preserves the caller-owned unit, lint, assemble, and applicable Gradle-backed KSP/Room/schema task groups in the same executor/workspace. Optional `pre_unit_tasks` and `compile_tasks` inside the existing bounded `validation_plan_json` remain supported. Each non-empty group runs through its own `--no-daemon` Gradle invocation so task-family class metadata is released between groups. Duplicate tasks across pre-unit, compile, unit, lint, assemble, and Gradle-schema groups fail closed.
+## Protected-full builds once by default
 
-A caller with a verified private dependency may provide `dependency_prebuild_plan_json`. Central executes that strict `protected-full` plan before the authoritative application plan on the same mobile executor, private writable Gradle home, read-only seed, and exact private dependency checkout. The prebuild copied caller source is removed and residue-checked before the authoritative execution starts; verified dependency build outputs remain available. The prebuild changes task shape only and does not alter caller-owned Gradle memory, worker, Kotlin, or test settings.
+The authoritative `protected-full` pass preserves the caller-owned semantic fields already admitted by `validation_plan_json`: optional `pre_unit_tasks`, optional `compile_tasks`, unit, lint, assemble, and applicable Gradle-backed schema tasks. Central's `validate-android` action fixes the protected-full default to `combined`. The runtime concatenates those exact task identities in the reviewed semantic order and submits them together in one `--no-daemon` Gradle invocation on the same mobile executor, copied source, private Gradle home, and read-only seed. Gradle owns prerequisite deduplication inside that single task graph.
+
+Central does not synthesize product tasks and does not change product-owned Gradle heap, metaspace, worker, parallelism, Kotlin, or test settings. Duplicate task identities across semantic fields fail closed before execution. When Room/schema verification is represented by a checked-in script, the combined Gradle graph finishes first and the script runs afterward in the same copied workspace. When schema verification is Gradle-backed, its tasks participate in the same combined invocation.
+
+The historical grouped #373 experiment remains supported only through explicit `execution_mode: grouped` inside the bounded protected-full plan. That fallback preserves fresh invocations in `pre_unit -> compile -> unit -> lint -> assemble -> schema` order. It is not the routine/default topology and should be selected only after equivalent-source measurement proves the combined graph cannot satisfy the owner-approved resource envelope. Telemetry records `gradle_execution_mode`, `gradle_invocations`, Gradle wall time, task count, and resource metrics so the two modes can be compared without changing source or task semantics.
+
+A caller with a verified private dependency may still provide `dependency_prebuild_plan_json`. Central executes that strict `protected-full` plan before the authoritative application plan on the same mobile executor, private writable Gradle home, read-only seed, and exact private dependency checkout. The prebuild copied caller source is removed and residue-checked before the authoritative execution starts; verified dependency build outputs remain available. The prebuild changes task shape only and does not alter caller-owned Gradle resource settings. Its own explicit grouped fallback remains compatible when separately justified.
 
 ## Explicit cache maintenance
 
@@ -42,7 +48,9 @@ Workspace preparation still uses Central `cache_mode: disabled`: this means ther
 
 ## Performance telemetry
 
-Normal Android execution reports bounded total/Gradle/script wall time, Gradle invocation count, optional child CPU/cgroup metrics, and `gradle_dependency_cache_mode=read-only-seed|cold`. Those fields describe the actual product execution, so a protected-full timing result no longer includes an extra dependency-warm Gradle pass.
+Normal Android execution reports bounded total/Gradle/script wall time, Gradle invocation count, `gradle_execution_mode`, optional child CPU/cgroup metrics, and `gradle_dependency_cache_mode=read-only-seed|cold`. For the primary protected-full path the expected topology fields are `gradle_execution_mode=combined` and `gradle_invocations=1`.
+
+A controlled fallback run may explicitly report `gradle_execution_mode=grouped`; the source SHA, caller task identities, resource profile, cache state, and executor class must otherwise remain equivalent before that result can justify moving away from build-once. A protected-full timing result no longer includes an extra dependency-warm Gradle pass.
 
 Cache maintenance reports only bounded warm wall time and `gradle_dependency_cache_mode`. The two modes are therefore measurable without conflating cache construction with product-build duration.
 
@@ -52,7 +60,7 @@ Failed or timed-out reviewed Android operations emit a sanitized bounded diagnos
 
 The reusable workflow uses reviewed immutable Central helper checkpoints:
 
-- `StreamScapeTV/ci-workflows/actions/validate-android@68a6450d6576e0744969cd170cc581856a44312a` — `issue #443 inherited package credential checkpoint`.
+- `StreamScapeTV/ci-workflows/actions/validate-android@60ce05e4da20b45783ae729f112083b2801d2e25` — `issue #373 build-once protected-full checkpoint`.
 - `StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies@13de46c51efcf65df798dfec82a620c484350dfa` — `issue #346 dependency warm checkpoint`.
 - `StreamScapeTV/ci-workflows/actions/upload-gradle-seed@fa67b6a1580ff2eb7386a9e58de09896b9990696` — `issue #346 bounded Gradle cache sync diagnostics checkpoint`.
 - `StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`.
@@ -61,7 +69,7 @@ The reusable workflow uses reviewed immutable Central helper checkpoints:
 - `StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`.
 - `StreamScapeTV/ci-workflows/actions/checkout-private-dependency@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #104 immutable private-action checkpoint`.
 
-The live-service and unsigned-release reusable workflows use their corresponding `validate-android-live-service` and `validate-android-release` actions at the same `68a6450d6576e0744969cd170cc581856a44312a` issue #443 checkpoint. Those composite actions intentionally have no package-token input or fixed-key environment override, preserving the execute-step environment for the bounded runtime.
+The live-service and unsigned-release reusable workflows remain on their corresponding #443 helper checkpoints because #373 changes only the generic protected-full task-graph composition path. Their fixed package-credential boundary is unchanged.
 
 The checked-in action lock must record the same helper identities before the candidate is merge-state.
 
@@ -75,4 +83,4 @@ Routine Android validation retains zero GitHub Actions artifacts and does not us
 
 ## Repository-owned smoke
 
-`.github/workflows/android-validation-smoke.yml` directly exercises the primitive-backed protected-full execution and the dependency-warm helper on mobile capacity. Product-specific performance proof, private-dependency prebuilds, and cache-maintenance acceptance remain consumer/integration evidence after Central source and contract tests are green.
+`.github/workflows/android-validation-smoke.yml` directly exercises the primitive-backed protected-full execution and the dependency-warm helper on mobile capacity. Product-specific performance proof, explicit grouped fallback justification, private-dependency prebuilds, and cache-maintenance acceptance remain consumer/integration evidence after Central source and contract tests are green.
