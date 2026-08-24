@@ -21,7 +21,7 @@
       "properties": {
         "repository": {
           "type": "string",
-          "const": "git.faruqi.dev/mimranfaruqi/ci-broker"
+          "const": "git.faruqi.dev/mimranfaruqi/ci-workflows/ci-broker"
         },
         "tag": {
           "type": "string",
