@@ -14,7 +14,7 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-from ci_workflows.ci_broker import BrokerConfig, BrokerError, self_check, serve  # noqa: E402
+from ci_workflows.ci_broker import BrokerConfig, BrokerError  # noqa: E402
 from ci_workflows.ci_broker_action import (  # noqa: E402
     BrokerActionError,
     _broker_url,
@@ -22,7 +22,11 @@ from ci_workflows.ci_broker_action import (  # noqa: E402
     _request_oidc_token,
     cancel_if_active,
     cleanup,
+)
+from ci_workflows.ci_broker_dependencies import (  # noqa: E402
     execute_apple_host,
+    self_check,
+    serve,
 )
 from ci_workflows.ci_broker_fallback import fail_if_active  # noqa: E402
 from ci_workflows.ci_callback_http import central_urlopen  # noqa: E402
