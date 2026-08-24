@@ -37,7 +37,6 @@
       ".github/workflows/gitops-validation-smoke.yml": {"trust_class": "owner-pr-smoke", "allowed_events": ["pull_request", "workflow_dispatch"]},
       ".github/workflows/helm-validation-smoke.yml": {"trust_class": "owner-pr-smoke", "allowed_events": ["pull_request", "workflow_dispatch"]},
       ".github/workflows/internal-runner-image.yml": {"trust_class": "internal-call", "allowed_events": ["workflow_call"]},
-      ".github/workflows/issue-dependency-sync.yml": {"trust_class": "scheduled-maintenance", "allowed_events": ["schedule", "workflow_dispatch"]},
       ".github/workflows/native-image-chart-call-parse-smoke.yml": {"trust_class": "owner-pr-smoke", "allowed_events": ["pull_request", "workflow_dispatch"]},
       ".github/workflows/oci-build-smoke.yml": {"trust_class": "owner-pr-smoke", "allowed_events": ["pull_request"]},
       ".github/workflows/oci-publish-smoke.yml": {"trust_class": "owner-pr-smoke", "allowed_events": ["pull_request"]},
