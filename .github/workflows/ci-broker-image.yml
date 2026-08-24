@@ -251,6 +251,7 @@ jobs:
           test "$(uname -m)" = "arm64"
           command -v helm >/dev/null
           command -v python3 >/dev/null
+          command -v shasum >/dev/null
           [[ "${IMAGE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
           test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
 
@@ -311,22 +312,16 @@ jobs:
         run: |
           set -Eeuo pipefail
           chart_ref="oci://${REGISTRY}/${CHART_NAMESPACE}/${CHART_NAME}"
-          file_sha() {
-            python3 - "$1" <<'PY'
-          import hashlib
-          import pathlib
-          import sys
-          print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())
-          PY
-          }
-          local_sha="$(file_sha "${BROKER_CHART_PACKAGE}")"
+          local_sha="$(shasum -a 256 "${BROKER_CHART_PACKAGE}" | awk '{print $1}')"
+          [[ "${local_sha}" =~ ^[0-9a-f]{64}$ ]]
           existing_dir="${BROKER_HELM_ROOT}/existing"
           mkdir -m 0700 "${existing_dir}"
 
           if helm pull "${chart_ref}" --version "${VERSION}" --destination "${existing_dir}" >/dev/null 2>&1; then
             existing="${existing_dir}/${CHART_NAME}-${VERSION}.tgz"
             test -f "${existing}"
-            test "$(file_sha "${existing}")" = "${local_sha}"
+            existing_sha="$(shasum -a 256 "${existing}" | awk '{print $1}')"
+            test "${existing_sha}" = "${local_sha}"
           else
             helm push "${BROKER_CHART_PACKAGE}" "oci://${REGISTRY}/${CHART_NAMESPACE}" >/dev/null
           fi
@@ -335,7 +330,8 @@ jobs:
           rm -f "${readback}"
           helm pull "${chart_ref}" --version "${VERSION}" --destination "${BROKER_HELM_ROOT}/readback" >/dev/null
           test -f "${readback}"
-          test "$(file_sha "${readback}")" = "${local_sha}"
+          readback_sha="$(shasum -a 256 "${readback}" | awk '{print $1}')"
+          test "${readback_sha}" = "${local_sha}"
           echo "Broker Helm chart published and read back from private Forgejo OCI."
 
       - name: Remove Helm registry and package residue
