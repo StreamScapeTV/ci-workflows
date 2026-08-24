@@ -34,6 +34,7 @@ class PackagePublishWorkflowContractTests(unittest.TestCase):
     def test_public_inputs_are_product_neutral_and_do_not_duplicate_tag_authority(self) -> None:
         public = self.workflow.split("secrets:", 1)[0]
         expected = {
+            "execution_backend",
             "ecosystem",
             "working_directory",
             "package_name",
@@ -60,12 +61,31 @@ class PackagePublishWorkflowContractTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, public)
 
+    def test_execution_backend_is_bounded_and_hosted_rejects_before_product_execution(self) -> None:
+        public = self.workflow.split("secrets:", 1)[0]
+        self.assertIn("execution_backend:\n        description: organization or github-hosted", public)
+        self.assertIn("default: organization", public)
+        self.assertIn("inputs.execution_backend == 'github-hosted'", self.workflow)
+        self.assertIn("inputs.execution_backend == 'organization'", self.workflow)
+        self.assertIn("inputs.execution_backend != 'organization' && inputs.execution_backend != 'github-hosted'", self.workflow)
+        self.assertIn("name: Reject unsupported hosted package publication", self.workflow)
+        self.assertIn("runs-on: [ubuntu-latest]", self.workflow)
+        self.assertLess(
+            self.workflow.index("Reject unsupported hosted package publication"),
+            self.workflow.index("Check out exact tagged package source"),
+        )
+        self.assertIn("if: ${{ inputs.execution_backend == 'organization' }}\n    runs-on: [linux, amd64, general, small]", self.workflow)
+        self.assertIn("needs: plan\n    if: ${{ inputs.execution_backend == 'organization' }}", self.workflow)
+        self.assertNotIn("execution_backend: ${{", self.workflow)
+
     def test_named_registry_secrets_are_explicit_and_not_inherited(self) -> None:
         secret_block = self.workflow.split("secrets:", 1)[1].split("outputs:", 1)[0]
         self.assertIn("registry_username:", secret_block)
         self.assertIn("registry_token:", secret_block)
         self.assertNotIn("password", secret_block.lower())
         self.assertNotIn("inherit", secret_block.lower())
+        self.assertIn("registry_token:\n        description:", secret_block)
+        self.assertIn("required: false", secret_block)
 
     def test_called_workflow_source_uses_job_identity_not_caller_sha(self) -> None:
         self.assertEqual(2, self.workflow.count("repository: ${{ job.workflow_repository }}"))
@@ -153,7 +173,6 @@ class PackagePublishWorkflowContractTests(unittest.TestCase):
             "sigstore",
             "oidc",
             "remote read-back",
-            "latest",
         ):
             self.assertNotIn(forbidden, lowered)
 
