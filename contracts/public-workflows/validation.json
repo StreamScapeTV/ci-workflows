@@ -64,6 +64,28 @@
       "implementation_components": ["ci_workflows.node.validate", "ci_workflows.execution_backends.resolve_execution_backend", "actions/validate-node"]
     },
     {
+      "file": ".github/workflows/reusable-native.yml",
+      "api_name": "validation.native",
+      "api_version": "1.0.0",
+      "status": "implemented",
+      "trust_class": "read-only-validation",
+      "permission_profile": "validation-read",
+      "semantic_runner_profile": "general-small",
+      "permitted_events": ["pull_request", "push", "workflow_dispatch", "workflow_call"],
+      "inputs": [
+        {"name": "admitted_sha", "required": true},
+        {"name": "working_directory", "required": false, "default": "."},
+        {"name": "validation_plan_json", "required": true}
+      ],
+      "secrets": [],
+      "outputs": ["result", "test_summary", "cleanup_result"],
+      "stable_check_name": "CI / Native CMake validation",
+      "timeout_minutes": 120,
+      "matrix_max_jobs": 1,
+      "repository_owned_hooks": ["validation_plan_json"],
+      "implementation_components": ["ci_workflows.ciw_native.execute_native_validate", "ci_workflows.native_primitives.cmake_configure", "ci_workflows.native_primitives.cmake_build", "actions/validate-native"]
+    },
+    {
       "file": ".github/workflows/reusable-android.yml",
       "api_name": "validation.android",
       "api_version": "2.1.0",

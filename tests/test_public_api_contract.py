@@ -28,6 +28,7 @@ SUPPORTED_APIS = {
     "validation.device",
     "validation.flutter",
     "validation.gitops",
+    "validation.native",
     "validation.node",
     "validation.python",
     "validation.script",
@@ -62,7 +63,7 @@ class PublicApiContractTests(unittest.TestCase):
         cls.workflows = contract.validate_workflows(cls.data, cls.profiles)
 
     def test_registry_is_terminal_complete_and_deterministic(self) -> None:
-        self.assertEqual(16, len(self.data.workflows))
+        self.assertEqual(17, len(self.data.workflows))
         self.assertEqual(7, len(self.profiles))
         self.assertEqual(4, len(self.data.types["trust_classes"]))
         self.assertEqual("4.0.0", self.data.index["contract_version"])
@@ -297,6 +298,20 @@ class PublicApiContractTests(unittest.TestCase):
         self.assertEqual("bounded-evidence", release["artifact_policy"])
         self.assertEqual(7, release["artifact_retention_max_days"])
 
+    def test_native_api_is_bounded_product_neutral_and_tokenless(self) -> None:
+        row = self.workflows["validation.native"]
+        self.assertEqual("1.0.0", row["api_version"])
+        self.assertEqual("general-small", row["semantic_runner_profile"])
+        self.assertEqual([], row["secrets"])
+        self.assertEqual(
+            {"admitted_sha", "working_directory", "validation_plan_json"},
+            {item["name"] for item in row["inputs"]},
+        )
+        self.assertEqual(
+            ["result", "test_summary", "cleanup_result"],
+            row["outputs"],
+        )
+
     def test_device_api_v2_is_product_neutral_and_secret_minimized(self) -> None:
         row = self.workflows["validation.device"]
         self.assertEqual("2.0.0", row["api_version"])
@@ -373,6 +388,7 @@ class PublicApiContractTests(unittest.TestCase):
         self.assertEqual(reference.read_text(encoding="utf-8"), rendered)
         self.assertIn("oci.reproducibility", rendered)
         self.assertIn("release.native-image-chart", rendered)
+        self.assertIn("validation.native", rendered)
         self.assertIn("validation.python", rendered)
         self.assertNotIn("image_recovery_authority", rendered)
         for retired in RETIRED_APIS:

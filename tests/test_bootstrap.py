@@ -44,6 +44,7 @@ class BootstrapContractTests(unittest.TestCase):
                 ".github/workflows/reusable-gitops-validation.yml",
                 ".github/workflows/reusable-gradle-maven-publish.yml",
                 ".github/workflows/reusable-native-image-chart.yml",
+                ".github/workflows/reusable-native.yml",
                 ".github/workflows/reusable-node.yml",
                 ".github/workflows/reusable-oci-reproducibility.yml",
                 ".github/workflows/reusable-public-native-image-chart.yml",

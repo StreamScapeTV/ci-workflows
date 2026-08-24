@@ -79,6 +79,13 @@
       "source": "https://github.com/StreamScapeTV/ci-workflows/tree/7d5d839c6e90491e165f1358ecb5e80129805764/actions/validate-node"
     },
     {
+      "uses": "StreamScapeTV/ci-workflows/actions/validate-native",
+      "sha": "7273bf28d5e4b9fc3bd6bcb8c6b685a5ff7c1f88",
+      "release": "issue #360 canonical CIW adapter checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/7273bf28d5e4b9fc3bd6bcb8c6b685a5ff7c1f88/actions/validate-native"
+    },
+    {
       "uses": "StreamScapeTV/ci-workflows/actions/exact-checkout",
       "sha": "70e08d4ddf8930046632a7135950e924b82e22bf",
       "release": "issue #116 immutable private-action checkpoint",
