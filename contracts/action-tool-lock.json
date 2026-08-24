@@ -115,10 +115,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-android",
-      "sha": "68a6450d6576e0744969cd170cc581856a44312a",
-      "release": "issue #443 inherited package credential checkpoint",
+      "sha": "60ce05e4da20b45783ae729f112083b2801d2e25",
+      "release": "issue #373 build-once protected-full checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/68a6450d6576e0744969cd170cc581856a44312a/actions/validate-android"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/60ce05e4da20b45783ae729f112083b2801d2e25/actions/validate-android"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies",
