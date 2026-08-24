@@ -106,6 +106,7 @@ runs:
         INPUT_WORKING_DIRECTORY: ${{ inputs.working_directory }}
         INPUT_GRADLE_WRAPPER_PATH: ${{ inputs.gradle_wrapper_path }}
         INPUT_VALIDATION_PLAN_JSON: ${{ inputs.validation_plan_json }}
+        INPUT_PROTECTED_FULL_EXECUTION_MODE: combined
         INPUT_PRIVATE_DEPENDENCY_REPOSITORY: ${{ inputs.private_dependency_repository }}
         INPUT_PRIVATE_DEPENDENCY_SHA: ${{ inputs.private_dependency_sha }}
         INPUT_PRIVATE_DEPENDENCY_SUBDIRECTORY: ${{ inputs.private_dependency_subdirectory }}

@@ -2,19 +2,21 @@
 
 ## Purpose
 
-Central Android validation provides one product-neutral Gradle execution boundary for Android consumers. The performance model is deliberately simple: one mobile executor, one private writable Gradle home, one optional exact private dependency checkout, and an optional runner-provided read-only dependency cache.
+Central Android validation provides one product-neutral Gradle execution boundary for Android consumers. The performance model is deliberately simple: one exact source checkout, one mobile executor, one registered workspace, one private writable Gradle home, one optional exact private dependency checkout, and an optional runner-provided read-only dependency cache.
 
 Normal validation consumes the shared dependency seed directly in the real product Gradle execution. A separate explicit cache-maintenance path owns dependency-only warming and seed promotion. Normal protected-full therefore does not pay a second Gradle configuration/dependency-resolution pass before doing useful product work.
+
+For `protected-full`, the primary Central topology is build-once: all caller-owned Gradle task identities admitted by the bounded validation plan are submitted together as one Gradle task graph. Central does not invent, remove, rename, or reorder a product task identity. If schema verification is represented by checked-in script data rather than Gradle tasks, that script runs after the combined Gradle graph in the same copied workspace.
 
 ## Layers
 
 1. `contracts/android-validation.json` defines the Android validation contract.
 2. `src/ci_workflows/android_contract.py` validates the request and resolves a bounded plan.
 3. `src/ci_workflows/android_execution.py` verifies toolchain/wrapper state, copies source, runs commands, and checks mutation/output rules.
-4. `src/ci_workflows/ciw_android.py` adapts plan/execute/cleanup/residue phases and forwards the fixed runner-provided Gradle read-only cache when present.
+4. `src/ci_workflows/ciw_android.py` adapts plan/execute/cleanup/residue phases, selects combined or measured-fallback protected-full execution, and forwards the fixed runner-provided Gradle read-only cache when present.
 5. `src/ci_workflows/gradle_dependency_warm.py` performs the product-neutral dependency-only bootstrap used only by cache maintenance.
 6. `src/ci_workflows/android_resource_metrics.py` measures bounded same-executor wall/CPU/cgroup evidence for authoritative Android execution.
-7. `actions/validate-android/action.yml` is the thin Android validation adapter.
+7. `actions/validate-android/action.yml` is the thin Android validation adapter and fixes the Central protected-full default to `combined`.
 8. `actions/warm-gradle-dependencies/action.yml` is the thin dependency-only Gradle warm adapter.
 9. `actions/upload-gradle-seed/action.yml` is the thin internal dependency-delta sync adapter.
 10. `.github/workflows/reusable-android.yml` composes the single mobile job, optional private-dependency prebuild, normal product execution, cache maintenance, cleanup, and terminal projection.
@@ -29,11 +31,15 @@ The Android execution runtime forwards `GRADLE_RO_DEP_CACHE=/opt/gradle-ro-cache
 
 The optional package-read secret crosses only the authoritative execution boundary. The reusable workflow maps it to the fixed `CIW_MAVEN_PACKAGE_READ_TOKEN` environment key on the execute action. The composite action intentionally exposes no package-token input and defines no same-named environment assignment, so the execute-step environment is inherited by its child shell rather than shadowed. The reviewed `ciw` runtime then copies only that fixed key into the child-process environment used by Gradle. It is not accepted as a generic environment-map input and is not forwarded to planning, private-dependency checkout/prebuild, evidence, cleanup, residue, cache maintenance, cache sync, or unrelated helper execution. The live-service and unsigned-release action/runtime pairs apply the same inherited fixed-key boundary.
 
-`protected-full` keeps the request inside one mobile executor and one registered workspace. Caller-owned task groups run as optional pre-unit, optional compile, unit, lint, assemble, and Gradle-schema groups. Each non-empty group uses the existing `--no-daemon` primitive, releasing task-family process/class metadata before the next group. A checked-in schema script, when selected, runs afterward in the same workspace.
+### Build-once protected-full
 
-Optional `pre_unit_tasks` and `compile_tasks` are bounded fields inside `validation_plan_json`; they do not change memory, worker, Kotlin, or test settings. Duplicate task identities across pre-unit/compile/unit/lint/assemble/Gradle-schema groups fail closed.
+`protected-full` remains inside one mobile executor and one registered workspace. Existing caller-owned `pre_unit_tasks`, `compile_tasks`, `unit_tasks`, `lint_tasks`, `assemble_tasks`, and Gradle-backed schema tasks remain bounded fields inside `validation_plan_json`; they preserve semantic ownership without forcing process boundaries. Under the Central action default, every non-empty Gradle task list is concatenated in that reviewed semantic order and submitted in one `--no-daemon` Gradle invocation. Gradle therefore owns prerequisite deduplication and reuses one configured task graph instead of repeating configuration and dependency resolution per semantic family.
 
-For large private dependency graphs, callers may provide `dependency_prebuild_plan_json`. It is validated and executed before the authoritative application plan using the same mobile executor, private writable Gradle home, read-only seed, and exact private dependency checkout. Its copied caller source is removed and residue-checked before authoritative execution starts, while verified dependency build outputs remain available. No preliminary dependency-warm pass is required for this prebuild.
+A Gradle-backed schema task participates in that same combined graph. A checked-in schema script is intentionally outside Gradle and runs afterward in the same copied source. Duplicate task identities across pre-unit/compile/unit/lint/assemble/Gradle-schema groups fail closed before execution.
+
+The preserved #373 grouped experiment remains available only as an explicit compatibility/fallback mode: a bounded plan may set `execution_mode: grouped`. That mode retains the existing fresh invocation order `pre_unit -> compile -> unit -> lint -> assemble -> schema` and the existing family markers. It is not the Central default and is not for readability or routine task separation. A consumer should select it only after equivalent-source measurement shows the combined graph cannot satisfy the owner-approved resource envelope.
+
+For large private dependency graphs, callers may still provide `dependency_prebuild_plan_json`. It is validated and executed before the authoritative application plan using the same mobile executor, private writable Gradle home, read-only seed, and exact private dependency checkout. Its copied caller source is removed and residue-checked before authoritative execution starts, while verified dependency build outputs remain available. No preliminary dependency-warm pass is required for this prebuild. An explicit grouped execution override inside such a prebuild plan remains a compatibility mechanism rather than the normal authoritative topology.
 
 ## Explicit cache maintenance
 
@@ -62,14 +68,15 @@ For bounded diagnosis, the sync client reports only selected dependency-delta fi
 Normal Android execution reports:
 
 - total execute wall time;
-- aggregate Gradle wall time across non-empty task groups;
+- aggregate Gradle wall time;
 - actual Gradle invocation count;
+- `gradle_execution_mode=combined|grouped|single|not-applicable`;
 - optional checked-in script wall time;
 - child CPU time when available;
 - sampled cgroup peak memory/process count when available;
 - `gradle_dependency_cache_mode=read-only-seed|cold`.
 
-Because normal validation no longer has a separate dependency-warm Gradle invocation, protected-full wall time measures the useful validation path rather than useful work plus a redundant pre-pass.
+The primary protected-full acceptance signal is `gradle_execution_mode=combined` with `gradle_invocations=1`. The same source/task set can be re-run with explicit `execution_mode: grouped` only when a controlled fallback comparison is needed. Because normal validation also has no separate dependency-warm Gradle invocation, protected-full wall time measures the useful validation path rather than useful work plus redundant pre-passes or routine family restarts.
 
 Explicit maintenance reports bounded `gradle_dependency_cache_mode=read-only-seed|cold` and warm wall time. Maintenance and product-build measurements therefore remain distinct.
 
@@ -79,7 +86,7 @@ Failed dependency-warm or Android operations emit sanitized bounded diagnostic t
 
 `reusable-android.yml` composes reviewed Central helpers by immutable source identity:
 
-- `validate-android@68a6450d6576e0744969cd170cc581856a44312a` — `issue #443 inherited package credential checkpoint`;
+- `validate-android@60ce05e4da20b45783ae729f112083b2801d2e25` — `issue #373 build-once protected-full checkpoint`;
 - `warm-gradle-dependencies@13de46c51efcf65df798dfec82a620c484350dfa` — `issue #346 dependency warm checkpoint`;
 - `upload-gradle-seed@fa67b6a1580ff2eb7386a9e58de09896b9990696` — `issue #346 bounded Gradle cache sync diagnostics checkpoint`;
 - `exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`;
@@ -88,7 +95,7 @@ Failed dependency-warm or Android operations emit sanitized bounded diagnostic t
 - `cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`;
 - `checkout-private-dependency@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #104 immutable private-action checkpoint`.
 
-`reusable-android-live-service.yml` and `reusable-android-release.yml` bind `validate-android-live-service` and `validate-android-release` to the same `68a6450d6576e0744969cd170cc581856a44312a` issue #443 checkpoint. All three composite action surfaces omit a package-token input and same-named environment override; the fixed execute-step environment is inherited and then filtered by the bounded runtime.
+`reusable-android-live-service.yml` and `reusable-android-release.yml` remain on their existing #443 action checkpoints because #373 changes only the generic protected-full task-graph composition path. Their package-credential boundary is unchanged.
 
 The action lock must record the same helper identities before the candidate is merge-state.
 
@@ -104,4 +111,4 @@ Normal terminal success requires plan/source/workspace/dependency admission, all
 
 ## Performance ownership
 
-Central owns cache-maintenance warming/promotion, one-executor process isolation, the read-only dependency-cache handoff, normal post-execution best-effort miss sync, and timing evidence. Android product repositories own Gradle/test resource settings and task selection, including bounded private-dependency prebuild layers and optional pre-unit/compile prerequisites. Flux owns the persistent shared cache and single-writer generation merge.
+Central owns the build-once default, cache-maintenance warming/promotion, one-executor process boundary, the read-only dependency-cache handoff, normal post-execution best-effort miss sync, and timing evidence. Android product repositories own Gradle/test resource settings and exact task selection. Product callers may request the preserved grouped fallback only after equivalent-source evidence justifies it; Central does not silently switch modes. Flux owns the persistent shared cache and single-writer generation merge.
