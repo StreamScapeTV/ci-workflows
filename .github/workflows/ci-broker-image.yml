@@ -20,8 +20,8 @@ concurrency:
 
 env:
   REGISTRY: git.faruqi.dev
-  REGISTRY_NAMESPACE: mimranfaruqi
-  CHART_NAMESPACE: mimranfaruqi/helm-charts
+  REGISTRY_NAMESPACE: mimranfaruqi/ci-workflows
+  CHART_NAMESPACE: mimranfaruqi/ci-workflows/helm-charts
   IMAGE_NAME: ci-broker
   CHART_NAME: ci-broker
 
