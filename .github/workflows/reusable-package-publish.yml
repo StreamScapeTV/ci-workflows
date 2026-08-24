@@ -137,9 +137,10 @@ jobs:
         run: |
           set -Eeuo pipefail
           PYTHONPATH="${GITHUB_WORKSPACE}/.ciw/src" \
-            python3 -m ci_workflows.ciw_packages \
-              --phase plan \
+            python3 "${GITHUB_WORKSPACE}/.ciw/scripts/ci/ciw.py" \
               --root "${GITHUB_WORKSPACE}/.ciw" \
+              package publish \
+              --phase plan \
               --workspace "${GITHUB_WORKSPACE}"
 
   publish:
@@ -222,9 +223,10 @@ jobs:
         run: |
           set -Eeuo pipefail
           PYTHONPATH="${GITHUB_WORKSPACE}/.ciw/src" \
-            python3 -m ci_workflows.ciw_packages \
-              --phase execute \
+            python3 "${GITHUB_WORKSPACE}/.ciw/scripts/ci/ciw.py" \
               --root "${GITHUB_WORKSPACE}/.ciw" \
+              package publish \
+              --phase execute \
               --workspace "${GITHUB_WORKSPACE}"
 
       - id: cleanup
