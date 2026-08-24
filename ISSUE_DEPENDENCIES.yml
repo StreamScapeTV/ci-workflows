@@ -163,7 +163,7 @@ issues:
       - 284
   359:
     blocked_by:
-      - 382
+      - https://github.com/StreamScapeTV/flux/issues/447
   360:
     blocked_by: []
   361:
