@@ -96,8 +96,8 @@ class ServiceRunnerDnsTests(unittest.TestCase):
             "--network=host",
             "/var/run/docker.sock:",
             "/run/docker.sock:",
-            "buildah ",
-            "skopeo ",
+            "\nbuildah ",
+            "\nskopeo ",
             "kubectl ",
             "KUBECONFIG=",
         ):
