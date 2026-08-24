@@ -36,14 +36,5 @@
         "runs_on": ["macos-latest"]
       }
     ]
-  },
-  "repository_local_organization_exceptions": [
-    {
-      "workflow": ".github/workflows/oci-reproducibility-validation.yml",
-      "job": "deterministic_fixture",
-      "events": ["pull_request", "push", "workflow_dispatch"],
-      "workflow_api": "oci.reproducibility",
-      "runs_on": ["linux", "amd64", "buildah", "small"]
-    }
-  ]
+  }
 }
