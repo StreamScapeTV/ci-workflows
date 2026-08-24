@@ -41,7 +41,6 @@
       ".github/workflows/native-image-chart-call-parse-smoke.yml": {"trust_class": "owner-pr-smoke", "allowed_events": ["pull_request", "workflow_dispatch"]},
       ".github/workflows/oci-build-smoke.yml": {"trust_class": "owner-pr-smoke", "allowed_events": ["pull_request"]},
       ".github/workflows/oci-publish-smoke.yml": {"trust_class": "owner-pr-smoke", "allowed_events": ["pull_request"]},
-      ".github/workflows/oci-reproducibility-validation.yml": {"trust_class": "owner-pr-push-manual", "allowed_events": ["pull_request", "push", "workflow_dispatch"]},
       ".github/workflows/r2-diagnostics-smoke.yml": {"trust_class": "trusted-manual", "allowed_events": ["workflow_dispatch"]},
       ".github/workflows/reusable-android-live-service.yml": {"trust_class": "reusable-call", "allowed_events": ["workflow_call"]},
       ".github/workflows/reusable-android-release.yml": {"trust_class": "reusable-call", "allowed_events": ["workflow_call"]},
