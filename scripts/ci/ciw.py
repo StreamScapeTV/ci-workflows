@@ -11,6 +11,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from ci_workflows.ci_lifecycle import main as ci_lifecycle_main  # noqa: E402
 from ci_workflows.ciw import main as registry_main  # noqa: E402
 from ci_workflows.ciw_gradle_seed import main as gradle_seed_main  # noqa: E402
 from ci_workflows.gradle_dependency_warm import main as gradle_dependency_warm_main  # noqa: E402
@@ -19,6 +20,8 @@ from ci_workflows.gradle_maven_publish import main as gradle_maven_publish_main 
 
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments[:1] == ["lifecycle"]:
+        return ci_lifecycle_main(arguments[1:])
     if arguments[:2] == ["gradle-seed", "upload"]:
         return gradle_seed_main(["--root", str(ROOT), *arguments[2:]])
     if arguments[:2] == ["gradle", "warm-dependencies"]:
