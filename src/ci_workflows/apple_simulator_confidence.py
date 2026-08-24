@@ -11,12 +11,16 @@ from .apple_simulator_script import SIMULATOR_UDID_TOKEN
 from .apple_types import (
     AppleProfile,
     AppleRunnerCapability,
+    AppleValidationError,
     AppleValidationPlan,
     AppleValidationRequest,
 )
 
 _IDENTIFIER = re.compile(r"^[a-z][a-z0-9-]{2,63}$")
-_ARGUMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_./:=+@%,-]{0,127}$")
+_ARGUMENT = re.compile(
+    r"^(?:--?[A-Za-z0-9][A-Za-z0-9_-]{0,63}|[A-Za-z0-9][A-Za-z0-9_./:=+@%,-]{0,127})$"
+)
+_MAX_PACKET_BYTES = 32 * 1024
 _MAX_STEPS = 8
 _MAX_ARGUMENTS = 16
 
@@ -63,10 +67,15 @@ def build_simulator_confidence_packet(
 ) -> SimulatorConfidencePacket:
     """Parse one caller-owned packet and bind it to Central's existing simulator executor."""
 
+    require(
+        isinstance(raw_json, str)
+        and 0 < len(raw_json.encode("utf-8")) <= _MAX_PACKET_BYTES,
+        "command_profile_rejected",
+    )
     try:
         raw = json.loads(raw_json)
     except json.JSONDecodeError as error:
-        raise ValueError("invalid simulator confidence packet") from error
+        raise AppleValidationError("command_profile_rejected") from error
     require(isinstance(raw, Mapping), "command_profile_rejected")
     require(set(raw) == {"schema_version", "packet_id", "platform", "steps"}, "command_profile_rejected")
     require(raw.get("schema_version") == 1, "command_profile_rejected")
@@ -162,6 +171,7 @@ def confidence_outputs(values: Mapping[str, str], packet: SimulatorConfidencePac
                 release_authority=False,
             )
             result["test_summary"] = json.dumps(summary, sort_keys=True, separators=(",", ":"))
+    result["runner_profile"] = "github-hosted-macos"
     result["confidence_scope"] = "simulator-confidence-only"
     result["packet_id"] = packet.packet_id
     return result
