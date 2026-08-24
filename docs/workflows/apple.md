@@ -190,7 +190,7 @@ imports a keychain, reaches Kubernetes, or deploys a product.
 
 The reusable workflow invokes `actions/validate-apple` through the issue #516
 simulator-confidence checkpoint
-`78b9cacdb001a61e18a84e23532f4f397c13875b`.
+`3b0dd398664c14dd5985d9d2248ec13917059223`.
 That checkpoint preserves the issue #496 simulator-free protected-full behavior
 and adds only the explicit strict simulator-confidence dispatch. The corresponding
 action-lock release label is `issue #516 simulator-confidence checkpoint`.
