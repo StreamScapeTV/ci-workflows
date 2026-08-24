@@ -4,7 +4,7 @@
 
 StreamScapeTV agents do not obtain Kubernetes control-plane authority through CI merely to validate whether GitOps changes reconciled successfully. Flux owns declarative cluster desired state and reconciles merged Git state automatically.
 
-This boundary applies to agent-authored and agent-selected validation/acceptance paths across StreamScapeTV repositories.
+This boundary applies to agent-authored and agent-selected validation/acceptance paths across StreamScapeTV repositories and is tracked by `StreamScapeTV/ci-workflows#538`.
 
 ## Required validation order
 
