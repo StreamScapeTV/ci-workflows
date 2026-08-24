@@ -284,6 +284,12 @@ advertise case-sensitive platform labels:
 - `macOS`
 - `ARM64`
 
+Simulator-only Apple work is a separate scheduling concern. A compatible
+GitHub-hosted selector such as `macos-latest` can satisfy simulator-only jobs
+when that workflow explicitly permits hosted capacity; it does not imply
+physical-device authority and it must never be substituted into
+`validation.device`.
+
 Some hosts additionally advertise host-managed capabilities such as `android`,
 `flutter`, `ios`, `python`, or `docker`. Those optional labels are not
 guaranteed on every Mac. A bounded Apple or cross-platform workflow must either
@@ -321,6 +327,12 @@ Apple capacity. Before device access, the workflow must have:
 4. exact tested source SHA;
 5. bounded evidence identity;
 6. cleanup evidence and lock release in an `always()` path.
+
+`validation.device` iOS/tvOS physical planning is intentionally stricter:
+semantic host capacity must be `apple`, and Central must resolve it to
+organization-managed persistent capacity with the exact `[macOS, ARM64]`
+selector. `macos-latest`, GitHub-hosted backend overrides, simulator-only
+profiles, and raw runner names or labels fail closed before device mutation.
 
 Selecting `mobile`, `android`, `apple`, `macOS`, or `ios` never proves that a
 physical device is attached or authorized.

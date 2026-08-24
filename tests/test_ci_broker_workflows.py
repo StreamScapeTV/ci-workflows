@@ -4,21 +4,45 @@ import json
 import unittest
 from pathlib import Path
 
+import yaml
+
+from ci_workflows.apple_contract_fragments import load_apple_contract
+from ci_workflows.apple_multistage import build_protected_full_plan
+from ci_workflows.apple_plan_guard import validate_protected_full_plan_json
+from ci_workflows.ci_broker_action import _apple_validation_plan, _shared_apple_environment
 from ci_workflows.validation_model import load_actions_yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/central-ci-dispatch.yml"
+RELEASE_WORKFLOW = ROOT / ".github/workflows/ci-broker-image.yml"
 POLICY = ROOT / "contracts/repository-policy.json"
 CONTRACT = ROOT / "contracts/ci-broker.json"
+BROKER_CORE = ROOT / "src/ci_workflows/ci_broker.py"
+BROKER_ACTION = ROOT / "src/ci_workflows/ci_broker_action.py"
+CHART_ROOT = ROOT / "charts/ci-broker"
+CHART = CHART_ROOT / "Chart.yaml"
+VALUES = CHART_ROOT / "values.yaml"
+VALUES_SCHEMA = CHART_ROOT / "values.schema.json"
+DEPLOYMENT = CHART_ROOT / "templates/deployment.yaml"
+SERVICE = CHART_ROOT / "templates/service.yaml"
 
 
 class BrokerWorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.document = load_actions_yaml(WORKFLOW, ROOT)
+        cls.release_document = load_actions_yaml(RELEASE_WORKFLOW, ROOT)
         cls.text = WORKFLOW.read_text(encoding="utf-8")
+        cls.release_text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
         cls.policy = json.loads(POLICY.read_text(encoding="utf-8"))
         cls.contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
+        cls.broker_core_text = BROKER_CORE.read_text(encoding="utf-8")
+        cls.broker_action_text = BROKER_ACTION.read_text(encoding="utf-8")
+        cls.chart = yaml.safe_load(CHART.read_text(encoding="utf-8"))
+        cls.values = yaml.safe_load(VALUES.read_text(encoding="utf-8"))
+        cls.values_schema = json.loads(VALUES_SCHEMA.read_text(encoding="utf-8"))
+        cls.deployment_text = DEPLOYMENT.read_text(encoding="utf-8")
+        cls.service_text = SERVICE.read_text(encoding="utf-8")
 
     def test_dispatch_surface_is_manual_opaque_and_oidc_only(self) -> None:
         events = self.document.data["on"]
@@ -69,12 +93,117 @@ class BrokerWorkflowTests(unittest.TestCase):
         self.assertIn("git status --porcelain=v1 --untracked-files=all", self.text)
         self.assertNotIn("upload-artifact", self.text)
 
+    def test_broker_dispatch_uses_main_and_shared_apple_implementation(self) -> None:
+        self.assertIn('CENTRAL_REF = "main"', self.broker_core_text)
+        self.assertIn("execute_apple_validate", self.broker_action_text)
+        self.assertIn("prepare_workspace", self.broker_action_text)
+        self.assertIn('INPUT_VALIDATION_SCOPE="protected-full"', self.broker_action_text)
+        self.assertIn('INPUT_SOURCE_TRUST="trusted-exact"', self.broker_action_text)
+        self.assertNotIn('["xcodebuild",', self.broker_action_text)
+
+    def test_broker_generated_host_plan_is_accepted_by_shared_apple_contract(self) -> None:
+        raw = _apple_validation_plan(
+            "Sample.xcworkspace",
+            "Sample",
+            "SampleTests/SelectedIntegrationTests",
+        )
+        validate_protected_full_plan_json(raw)
+        plan = build_protected_full_plan(
+            raw,
+            repository="example/private-source",
+            admitted_sha="a" * 40,
+            source_trust="trusted-exact",
+            contract=load_apple_contract(ROOT),
+        )
+        self.assertEqual(len(plan.stages), 1)
+        self.assertEqual(plan.stages[0].platform, "macos")
+        self.assertEqual(plan.stages[0].operation, "test")
+        self.assertEqual(
+            plan.stages[0].plan.commands[0].fixed_arguments,
+            ("-only-testing:SampleTests/SelectedIntegrationTests",),
+        )
+
+        child_environment = _shared_apple_environment(
+            repository="example/private-source",
+            source_sha="a" * 40,
+            source_token="opaque-token",
+            workspace="Sample.xcworkspace",
+            scheme="Sample",
+            test_target="SampleTests/SelectedIntegrationTests",
+            environment={
+                "GITHUB_OUTPUT": "/tmp/output",
+                "GITHUB_ENV": "/tmp/env",
+                "GITHUB_STEP_SUMMARY": "/tmp/summary",
+            },
+        )
+        self.assertEqual(child_environment["GITHUB_REPOSITORY"], "example/private-source")
+        self.assertEqual(child_environment["INPUT_SOURCE_TRUST"], "trusted-exact")
+        self.assertNotIn("GITHUB_OUTPUT", child_environment)
+        self.assertNotIn("GITHUB_ENV", child_environment)
+        self.assertNotIn("GITHUB_STEP_SUMMARY", child_environment)
+
+    def test_broker_chart_is_one_replica_private_service_with_matching_app_version_image(self) -> None:
+        self.assertEqual(self.chart["name"], "ci-broker")
+        self.assertEqual(self.chart["type"], "application")
+        self.assertEqual(self.values["replicaCount"], 1)
+        self.assertEqual(self.values_schema["properties"]["replicaCount"]["const"], 1)
+        self.assertEqual(
+            self.values["image"]["repository"],
+            "git.faruqi.dev/mimranfaruqi/ci-broker",
+        )
+        self.assertEqual(self.values["image"]["tag"], "")
+        self.assertEqual(self.values["image"]["pullSecrets"], ["private-registry"])
+        self.assertEqual(self.values["existingSecret"]["name"], "ci-broker-secrets")
+        self.assertEqual(self.values["service"], {"type": "ClusterIP", "port": 8080})
+        self.assertIn("default .Chart.AppVersion .Values.image.tag", self.deployment_text)
+        self.assertIn("automountServiceAccountToken: false", self.deployment_text)
+        self.assertIn("readOnlyRootFilesystem: true", self.deployment_text)
+        self.assertIn("runAsUser: 65532", self.deployment_text)
+        self.assertIn("path: /healthz", self.deployment_text)
+        self.assertIn("mountPath: /tmp", self.deployment_text)
+        self.assertIn("sizeLimit: 8Mi", self.deployment_text)
+        self.assertNotIn("kind: Ingress", self.deployment_text + self.service_text)
+        self.assertNotIn("LoadBalancer", self.service_text)
+
+    def test_broker_release_uses_private_arc_image_then_helm_publication(self) -> None:
+        events = self.release_document.data["on"]
+        self.assertEqual(set(events), {"push", "workflow_dispatch"})
+        self.assertEqual(events["push"]["tags"], ["ci-broker-*"])
+        self.assertEqual(
+            set(events["workflow_dispatch"]["inputs"]),
+            {"release_tag"},
+        )
+        self.assertEqual(self.release_document.data["permissions"], {"contents": "read"})
+        jobs = self.release_document.data["jobs"]
+        self.assertEqual(set(jobs), {"admit", "image", "chart"})
+        self.assertEqual(jobs["admit"]["runs-on"], ["linux", "amd64", "general", "tiny"])
+        self.assertEqual(jobs["image"]["runs-on"], ["linux", "amd64", "buildah", "small"])
+        self.assertEqual(jobs["chart"]["runs-on"], ["linux", "amd64", "general", "small"])
+        self.assertEqual(jobs["chart"]["needs"], ["admit", "image"])
+        self.assertIn("git.faruqi.dev", self.release_text)
+        self.assertIn("secrets.FORGEJO_REGISTRY_USERNAME", self.release_text)
+        self.assertIn("secrets.FORGEJO_REGISTRY_TOKEN", self.release_text)
+        self.assertIn("helm package", self.release_text)
+        self.assertIn('--app-version "${VERSION}"', self.release_text)
+        self.assertIn("skopeo inspect", self.release_text)
+        self.assertIn("helm pull", self.release_text)
+        self.assertNotIn("ghcr.io", self.release_text)
+        self.assertNotIn(":latest", self.release_text)
+        self.assertNotIn("upload-artifact", self.release_text)
+
     def test_repository_policy_and_broker_contract_match_workflow(self) -> None:
         record = self.policy["workflow_admission"]["workflows"][
             ".github/workflows/central-ci-dispatch.yml"
         ]
         self.assertEqual(record["trust_class"], "broker-dispatch")
         self.assertEqual(record["allowed_events"], ["workflow_dispatch"])
+        release = self.policy["workflow_admission"]["workflows"][
+            ".github/workflows/ci-broker-image.yml"
+        ]
+        self.assertEqual(
+            release,
+            {"trust_class": "tag-release", "allowed_events": ["push", "workflow_dispatch"]},
+        )
         self.assertEqual(
             self.contract["dispatch"]["inputs"],
             ["dispatch_id", "dispatch_token"],

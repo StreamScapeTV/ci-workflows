@@ -10,7 +10,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/reusable-android.yml"
 PUBLIC_PATH = ROOT / "contracts/public-workflows/validation.json"
-ANDROID_SHA = "68a6450d6576e0744969cd170cc581856a44312a"
+ANDROID_SHA = "60ce05e4da20b45783ae729f112083b2801d2e25"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 
 

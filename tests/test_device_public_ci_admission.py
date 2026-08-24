@@ -13,6 +13,7 @@ OWNER_FRAGMENT = "github.event.pull_request.user.login == 'mimranfaruqi'"
 REPOSITORY_FRAGMENT = (
     "github.event.pull_request.head.repo.full_name == github.repository"
 )
+PR_ONLY_PLAN_JOBS = {"authorized_pr_plan", "authorization_transport"}
 
 
 class DevicePublicCiAdmissionTests(unittest.TestCase):
@@ -44,7 +45,7 @@ class DevicePublicCiAdmissionTests(unittest.TestCase):
                 condition = " ".join(str(job.get("if", "")).split())
                 self.assertIn(OWNER_FRAGMENT, condition)
                 self.assertIn(REPOSITORY_FRAGMENT, condition)
-                if job_id == "authorized_pr_plan":
+                if job_id in PR_ONLY_PLAN_JOBS:
                     self.assertIn("github.event_name == 'pull_request'", condition)
                 else:
                     self.assertIn("github.event_name != 'pull_request'", condition)
@@ -54,15 +55,27 @@ class DevicePublicCiAdmissionTests(unittest.TestCase):
         self.assertNotIn("github.event.repository.private", self.source)
         self.assertNotIn("secrets: inherit", self.source)
 
-    def test_authorized_pr_plan_remains_plan_only(self) -> None:
-        block = self.source.split("  authorized_pr_plan:\n", 1)[1].split(
+    def test_pr_only_device_jobs_remain_plan_only(self) -> None:
+        authorized = self.source.split("  authorized_pr_plan:\n", 1)[1].split(
+            "\n  authorization_transport:\n", 1
+        )[0]
+        self.assertIn("phase: plan", authorized)
+        self.assertIn("execution_authorized", authorized)
+        self.assertIn("trusted-exact", authorized)
+        self.assertNotIn("phase: execute", authorized)
+        self.assertNotIn("phase: discover", authorized)
+
+        transport = self.source.split("  authorization_transport:\n", 1)[1].split(
             "\n  synthetic:\n", 1
         )[0]
-        self.assertIn("phase: plan", block)
-        self.assertIn("execution_authorized", block)
-        self.assertIn("trusted-exact", block)
-        self.assertNotIn("phase: execute", block)
-        self.assertNotIn("phase: discover", block)
+        self.assertIn(
+            "StreamScapeTV/ci-workflows/.github/workflows/internal-device-authorization-transport.yml@",
+            transport,
+        )
+        self.assertIn("device_authorization_receipt", transport)
+        self.assertNotIn("runs-on:", transport)
+        self.assertNotIn("phase: execute", transport)
+        self.assertNotIn("phase: discover", transport)
 
 
 if __name__ == "__main__":

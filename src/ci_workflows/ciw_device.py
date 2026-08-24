@@ -97,25 +97,61 @@ def _source_path(root: Path, relative: str, environment: Mapping[str, str]) -> P
     return source
 
 
-def _approved_base_runs_on_json(contract: Mapping[str, object], plan: device_validation.DevicePlan) -> str:
+def _approved_base_runs_on_json(
+    runner_contract: Mapping[str, object],
+    device_contract: Mapping[str, object],
+    plan: device_validation.DevicePlan,
+) -> str:
     profile_id = plan.request.host_capacity
-    profile = runners.profile_index(contract).get(profile_id)  # type: ignore[name-defined]
+    profile = runners.profile_index(runner_contract).get(profile_id)  # type: ignore[name-defined]
     if not isinstance(profile, Mapping) or profile.get("kind") != "runner":
         raise ValueError("invalid device host capacity")
     runners.validate_source(profile, plan.request.source_trust)  # type: ignore[name-defined]
     raw_selector = profile.get("default_internal_selector")
-    if not isinstance(raw_selector, list) or not raw_selector or not all(isinstance(label, str) and label for label in raw_selector):
+    if (
+        not isinstance(raw_selector, list)
+        or not raw_selector
+        or not all(isinstance(label, str) and label for label in raw_selector)
+    ):
         raise ValueError("invalid device host selector")
-    resolved_profile = runners.validate_direct_selector(contract, raw_selector)  # type: ignore[name-defined]
+
+    if plan.request.family in {
+        device_validation.DeviceFamily.IOS,
+        device_validation.DeviceFamily.TVOS,
+    }:
+        constraints = device_contract.get("physical_host_constraints")
+        apple_guard = constraints.get("apple") if isinstance(constraints, Mapping) else None
+        privilege = profile.get("privilege")
+        if (
+            not isinstance(apple_guard, Mapping)
+            or plan.request.family.value not in apple_guard.get("families", ())
+            or profile_id != apple_guard.get("semantic_profile")
+            or profile.get("capacity_owner") != apple_guard.get("capacity_owner")
+            or profile.get("lifecycle") != apple_guard.get("lifecycle")
+            or not isinstance(privilege, Mapping)
+            or privilege.get("manual_capacity") is not apple_guard.get("manual_capacity")
+            or raw_selector != apple_guard.get("exact_selector")
+        ):
+            raise ValueError("physical Apple host capacity must remain organization-managed")
+
+    resolved_profile = runners.validate_direct_selector(  # type: ignore[name-defined]
+        runner_contract, raw_selector
+    )
     if resolved_profile != profile_id:
         raise ValueError("device host selector/profile mismatch")
     return json.dumps(raw_selector, separators=(",", ":"))
 
 
-def _runs_on_json(root: Path, plan: device_validation.DevicePlan) -> str:
+def _runs_on_json(
+    root: Path,
+    plan: device_validation.DevicePlan,
+    device_contract: Mapping[str, object] | None = None,
+) -> str:
+    if device_contract is None:
+        device_contract = device_validation.load_device_contract(root)
     try:
-        contract = runners.load_runner_contract(root)  # type: ignore[name-defined]
-        value = _approved_base_runs_on_json(contract, plan)
+        runner_contract = runners.load_runner_contract(root)  # type: ignore[name-defined]
+        value = _approved_base_runs_on_json(runner_contract, device_contract, plan)
     except (NameError, AttributeError, OSError, ValueError) as error:
         if os.environ.get("CIW_DEVICE_FOCUSED_TEST") == "true":
             value = json.dumps([plan.request.host_capacity], separators=(",", ":"))
@@ -126,8 +162,33 @@ def _runs_on_json(root: Path, plan: device_validation.DevicePlan) -> str:
     return value
 
 
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON object key")
+        result[key] = value
+    return result
+
+
 def _authorization_receipt(environment: Mapping[str, str]) -> str:
-    return environment.get("CIW_DEVICE_AUTHORIZATION_RECEIPT", "")
+    """Canonicalize the transported JSON secret before exact authorization checks.
+
+    Reusable-workflow secret transport is allowed to change insignificant JSON
+    whitespace. Authority remains in the exact typed fields validated by the
+    device runtime; duplicate keys are rejected before canonicalization.
+    """
+
+    raw = environment.get("CIW_DEVICE_AUTHORIZATION_RECEIPT", "")
+    if not raw:
+        return ""
+    try:
+        payload = json.loads(raw, object_pairs_hook=_unique_json_object)
+    except (json.JSONDecodeError, ValueError) as error:
+        raise device_validation.DeviceValidationError("authorization_rejected") from error
+    if not isinstance(payload, Mapping):
+        raise device_validation.DeviceValidationError("authorization_rejected")
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
 
 def _execute_command(
@@ -206,7 +267,7 @@ def _execute_command(
     if command == "plan":
         if plan.execution_authorized:
             device_validation.validate_authorization_receipt(_authorization_receipt(environment), plan=plan)
-        return plan.planning_outputs(runs_on_json=_runs_on_json(root, plan))
+        return plan.planning_outputs(runs_on_json=_runs_on_json(root, plan, contract))
     if command == "synthetic":
         source = _source_path(root, source_root, environment)
         device_validation.validate_exact_checkout(source, request.admitted_sha)
@@ -215,7 +276,7 @@ def _execute_command(
             contract_root=root, environment=environment, inventory_text=inventory
         )
         return {
-            **plan.planning_outputs(runs_on_json=_runs_on_json(root, plan)),
+            **plan.planning_outputs(runs_on_json=_runs_on_json(root, plan, contract)),
             **result.output_values(), "result": result.result,
             "test_summary": result.output_values()["test_summary"],
             "cleanup_result": result.cleanup_result,

@@ -45,6 +45,7 @@ _COPY_RELATIVE = "tmp/android-source"
 _MAX_PLAN_BYTES = 16 * 1024
 _GRADLE_RO_DEP_CACHE_PATH = Path("/opt/gradle-ro-cache")
 _PROTECTED_FULL_FAMILY_TIMEOUT_SECONDS = 45 * 60
+_PROTECTED_FULL_EXECUTION_MODES = {"combined", "grouped"}
 
 
 class _BoundedGradleRunner:
@@ -79,6 +80,7 @@ class ProtectedFullPlan:
     schema_script: ScriptPlan | None = None
     pre_unit_tasks: tuple[str, ...] = ()
     compile_tasks: tuple[str, ...] = ()
+    execution_mode: str = "grouped"
 
     @property
     def gradle_tasks(self) -> tuple[str, ...]:
@@ -132,6 +134,7 @@ def configure_android_validate(parser: argparse.ArgumentParser) -> None:
         "working-directory",
         "gradle-wrapper-path",
         "validation-plan-json",
+        "protected-full-execution-mode",
         "private-dependency-repository",
         "private-dependency-sha",
         "private-dependency-subdirectory",
@@ -244,11 +247,20 @@ def _script_plan(value: Mapping[str, object], code: str) -> ScriptPlan:
     return ScriptPlan(path, arguments)
 
 
-def _protected_full_plan(value: Mapping[str, object], code: str) -> ProtectedFullPlan:
+def _protected_full_plan(
+    value: Mapping[str, object],
+    code: str,
+    default_execution_mode: str = "grouped",
+) -> ProtectedFullPlan:
+    if default_execution_mode not in _PROTECTED_FULL_EXECUTION_MODES:
+        raise CIWError(_DOMAIN, code)
     required = {"unit_tasks", "lint_tasks", "assemble_tasks", "schema"}
-    allowed = required | {"pre_unit_tasks", "compile_tasks"}
+    allowed = required | {"pre_unit_tasks", "compile_tasks", "execution_mode"}
     keys = set(value)
     if not required.issubset(keys) or not keys.issubset(allowed):
+        raise CIWError(_DOMAIN, code)
+    execution_mode = value.get("execution_mode", default_execution_mode)
+    if not isinstance(execution_mode, str) or execution_mode not in _PROTECTED_FULL_EXECUTION_MODES:
         raise CIWError(_DOMAIN, code)
     pre_unit_tasks = (
         _tasks(value["pre_unit_tasks"], code, maximum_items=16)
@@ -301,17 +313,23 @@ def _protected_full_plan(value: Mapping[str, object], code: str) -> ProtectedFul
         schema_script,
         pre_unit_tasks,
         compile_tasks,
+        execution_mode,
     )
 
 
 def _validation_plan(
     scope: str,
     raw: str,
+    default_protected_full_execution_mode: str = "grouped",
 ) -> tuple[tuple[str, ...], str, ScriptPlan | None, ProtectedFullPlan | None]:
     code = "validation_plan_invalid"
     value = _json_object(raw, code)
     if scope == "protected-full":
-        return (), "", None, _protected_full_plan(value, code)
+        return (), "", None, _protected_full_plan(
+            value,
+            code,
+            default_protected_full_execution_mode,
+        )
     if scope in {"compile", "unit", "assemble", "lint", "gradle"}:
         _exact_keys(value, {"tasks"}, code)
         return _tasks(value["tasks"], code), "", None, None
@@ -344,9 +362,18 @@ def _request(args: argparse.Namespace, context: CIWContext) -> AndroidPrimitiveR
         "gradle_wrapper_path_invalid",
         allow_dot=False,
     )
+    protected_full_execution_mode = _value(
+        args,
+        context,
+        "protected_full_execution_mode",
+        "grouped",
+    )
+    if protected_full_execution_mode not in _PROTECTED_FULL_EXECUTION_MODES:
+        raise CIWError(_DOMAIN, "validation_plan_invalid")
     tasks, selector, script, protected_full = _validation_plan(
         scope,
         _value(args, context, "validation_plan_json"),
+        protected_full_execution_mode,
     )
 
     dependency_repository = _plain(
@@ -597,6 +624,11 @@ def _runtime_environment(
 
 
 def _plan_result(request: AndroidPrimitiveRequest) -> CIWResult:
+    execution_mode = (
+        request.protected_full.execution_mode
+        if request.protected_full is not None
+        else "not-applicable"
+    )
     return CIWResult(
         _DOMAIN,
         "validate",
@@ -608,6 +640,7 @@ def _plan_result(request: AndroidPrimitiveRequest) -> CIWResult:
             "runs_on_json": '["linux","amd64","mobile"]',
             "workspace_profile": "gradle",
             "execution_model": "single-executor",
+            "gradle_execution_mode": execution_mode,
             "private_dependency_used": str(request.private_dependency_used).lower(),
             "private_dependency_repository": request.private_dependency_repository,
             "private_dependency_sha": request.private_dependency_sha,
@@ -727,6 +760,7 @@ def _execute_request(
         scope = request.validation_scope
         gradle_invocations = 0
         script_invocations = 0
+        gradle_execution_mode = "not-applicable"
         schema_mode = "not-applicable"
         task_count = len(request.gradle_tasks)
 
@@ -736,18 +770,33 @@ def _execute_request(
                 raise CIWError(_DOMAIN, "validation_plan_invalid")
             task_count = len(full.gradle_tasks)
             schema_mode = full.schema_mode
-            for group_name, group_tasks in full.gradle_groups:
-                if not group_tasks:
-                    continue
-                gradle_wall_ms += _run_protected_full_group(
-                    wrapper,
-                    group_name,
-                    group_tasks,
-                    project=project,
-                    environment=environment,
-                    context=context,
-                )
-                gradle_invocations += 1
+            gradle_execution_mode = full.execution_mode
+            if full.execution_mode == "combined":
+                if full.gradle_tasks:
+                    gradle_wall_ms = _run_protected_full_group(
+                        wrapper,
+                        "combined",
+                        full.gradle_tasks,
+                        project=project,
+                        environment=environment,
+                        context=context,
+                    )
+                    gradle_invocations = 1
+            elif full.execution_mode == "grouped":
+                for group_name, group_tasks in full.gradle_groups:
+                    if not group_tasks:
+                        continue
+                    gradle_wall_ms += _run_protected_full_group(
+                        wrapper,
+                        group_name,
+                        group_tasks,
+                        project=project,
+                        environment=environment,
+                        context=context,
+                    )
+                    gradle_invocations += 1
+            else:
+                raise CIWError(_DOMAIN, "validation_plan_invalid")
             if full.schema_script is not None:
                 script_started = time.monotonic_ns()
                 _execute_script(full.schema_script, project=project, environment=environment)
@@ -763,6 +812,7 @@ def _execute_request(
             )
             gradle_wall_ms = _elapsed_ms(gradle_started)
             gradle_invocations = 1
+            gradle_execution_mode = "single"
         elif scope == "script":
             if request.script is None:
                 raise CIWError(_DOMAIN, "validation_plan_invalid")
@@ -781,6 +831,7 @@ def _execute_request(
             )
             gradle_wall_ms = _elapsed_ms(gradle_started)
             gradle_invocations = 1
+            gradle_execution_mode = "single"
 
         android_execution.verify_exact_source(source, request.admitted_sha, context.environment)
     measured = resources.result
@@ -792,6 +843,7 @@ def _execute_request(
             "gradle_dependency_cache_mode": (
                 "read-only-seed" if "GRADLE_RO_DEP_CACHE" in environment else "cold"
             ),
+            "gradle_execution_mode": gradle_execution_mode,
             "gradle_invocations": gradle_invocations,
             "gradle_wall_ms": gradle_wall_ms,
             "java_major": runtime.major,

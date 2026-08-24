@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import copy
 import json
 import re
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+
+from ci_workflows import ciw_device, device as device_validation, runners
 
 ROOT = Path(__file__).resolve().parents[1]
-DEVICE_ACTION_SHA = "4a7865f420e7ff37893907bbd0c4ad557a0e9ca6"
+DEVICE_ACTION_SHA = "4a6c73fd7bf901c2db6b19330ba0b879bc2bb3ae"
+DEVICE_ACTION_RELEASE = "issue #481 semantic authorization receipt transport checkpoint"
+DEVICE_TRANSPORT_WORKFLOW_SHA = "caa04d8c8f87841def744b7032b6d77b195a9db3"
 DEVICE_LOCK_ACTION_SHA = "599c82201e6da6ca51c4f6247f1526a4ba03d550"
 FOUNDATION_ACTION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 
@@ -21,6 +27,20 @@ class DeviceWorkflowContractTests(unittest.TestCase):
             (ROOT / "docs/workflows/devices.md").read_text()
             + "\n"
             + (ROOT / "docs/architecture/device-validation.md").read_text()
+        )
+        self.runners_doc = (ROOT / "RUNNERS.md").read_text()
+
+    @staticmethod
+    def _plan(
+        family: device_validation.DeviceFamily,
+        host_capacity: str = "apple",
+    ) -> SimpleNamespace:
+        return SimpleNamespace(
+            request=SimpleNamespace(
+                family=family,
+                host_capacity=host_capacity,
+                source_trust="trusted-exact",
+            )
         )
 
     def test_public_api_is_product_neutral_and_matches_contract(self) -> None:
@@ -67,7 +87,7 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("live_test_credentials", self.workflow + self.action)
 
     def test_no_product_or_repository_identity_is_central_selection_authority(self) -> None:
-        text = (self.contract.__repr__() + self.workflow + self.action).casefold()
+        text = (self.contract.__repr__() + self.workflow + self.action + self.smoke).casefold()
         for forbidden in ("iptv-android", "iptv-apple", "streamscape-media", "vlc"):
             self.assertNotIn(forbidden, text)
         self.assertNotIn("profiles", self.contract)
@@ -89,7 +109,7 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         ):
             self.assertIn(required, input_block)
 
-    def test_all_private_actions_are_immutable(self) -> None:
+    def test_all_private_actions_and_transport_probe_are_immutable(self) -> None:
         refs = re.findall(
             r"uses: StreamScapeTV/ci-workflows/([^@\s]+)@([0-9a-f]{40})",
             self.workflow + "\n" + self.smoke,
@@ -98,6 +118,13 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         self.assertTrue(all(len(sha) == 40 for _path, sha in refs))
         validate_refs = {sha for path, sha in refs if path == "actions/validate-device"}
         self.assertEqual({DEVICE_ACTION_SHA}, validate_refs)
+        self.assertIn(
+            (
+                ".github/workflows/internal-device-authorization-transport.yml",
+                DEVICE_TRANSPORT_WORKFLOW_SHA,
+            ),
+            refs,
+        )
         action_lock = json.loads((ROOT / "contracts/action-tool-lock.json").read_text())
         validate_lock = next(
             row
@@ -108,7 +135,7 @@ class DeviceWorkflowContractTests(unittest.TestCase):
             {
                 "uses": "StreamScapeTV/ci-workflows/actions/validate-device",
                 "sha": DEVICE_ACTION_SHA,
-                "release": "issue #479 same-repository PR event checkpoint",
+                "release": DEVICE_ACTION_RELEASE,
                 "runtime": "composite",
                 "source": f"https://github.com/StreamScapeTV/ci-workflows/tree/{DEVICE_ACTION_SHA}/actions/validate-device",
             },
@@ -131,6 +158,94 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         self.assertIn("validated_plan_sha256: ${{ needs.plan.outputs.validated_plan_sha256 }}", self.workflow)
         self.assertNotIn("runs-on: self-hosted", self.workflow)
         self.assertNotIn("runs-on: physical-device", self.workflow)
+
+    def test_physical_apple_contract_pins_organization_managed_capacity(self) -> None:
+        self.assertEqual(
+            {
+                "apple": {
+                    "families": ["ios", "tvos"],
+                    "semantic_profile": "apple",
+                    "capacity_owner": "organization-manual",
+                    "lifecycle": "organization-managed-persistent-capacity",
+                    "manual_capacity": True,
+                    "exact_selector": ["macOS", "ARM64"],
+                }
+            },
+            self.contract["physical_host_constraints"],
+        )
+        self.assertIn("execution_backend", self.contract["forbidden_inputs"])
+        for family in ("ios", "tvos"):
+            self.assertEqual(
+                ["apple"],
+                self.contract["family_policies"][family]["allowed_host_capacities"],
+            )
+
+    def test_github_hosted_backend_override_is_forbidden_before_request_parsing(self) -> None:
+        with self.assertRaises(device_validation.DeviceValidationError) as raised:
+            device_validation.request_from_environment(
+                {"INPUT_EXECUTION_BACKEND": "github-hosted"},
+                self.contract,
+            )
+        self.assertEqual("forbidden_input", raised.exception.code)
+
+    def test_physical_apple_planner_emits_only_reviewed_organization_selector(self) -> None:
+        runner_contract = runners.load_runner_contract(ROOT)
+        for family in (
+            device_validation.DeviceFamily.IOS,
+            device_validation.DeviceFamily.TVOS,
+        ):
+            with self.subTest(family=family.value):
+                self.assertEqual(
+                    '["macOS","ARM64"]',
+                    ciw_device._approved_base_runs_on_json(
+                        runner_contract,
+                        self.contract,
+                        self._plan(family),
+                    ),
+                )
+
+        self.assertEqual(
+            '["linux","amd64","mobile"]',
+            ciw_device._approved_base_runs_on_json(
+                runner_contract,
+                self.contract,
+                self._plan(device_validation.DeviceFamily.ANDROID, "mobile"),
+            ),
+        )
+
+    def test_physical_apple_planner_rejects_hosted_or_simulator_substitution(self) -> None:
+        with self.assertRaises(ValueError):
+            ciw_device._approved_base_runs_on_json(
+                runners.load_runner_contract(ROOT),
+                self.contract,
+                self._plan(device_validation.DeviceFamily.IOS, "macos-latest"),
+            )
+
+        mutations = {
+            "hosted-selector": lambda profile: profile.__setitem__(
+                "default_internal_selector", ["macos-latest"]
+            ),
+            "hosted-owner": lambda profile: profile.__setitem__(
+                "capacity_owner", "github-hosted"
+            ),
+            "hosted-lifecycle": lambda profile: profile.__setitem__(
+                "lifecycle", "github-hosted-ephemeral"
+            ),
+            "no-manual-capacity": lambda profile: profile["privilege"].__setitem__(
+                "manual_capacity", False
+            ),
+        }
+        for name, mutate in mutations.items():
+            with self.subTest(name=name):
+                runner_contract = copy.deepcopy(runners.load_runner_contract(ROOT))
+                profile = runners.profile_index(runner_contract)["apple"]
+                mutate(profile)
+                with self.assertRaises(ValueError):
+                    ciw_device._approved_base_runs_on_json(
+                        runner_contract,
+                        self.contract,
+                        self._plan(device_validation.DeviceFamily.IOS),
+                    )
 
     def test_real_execution_fails_closed_without_authorization(self) -> None:
         self.assertIn("authorization_denied:", self.workflow)
@@ -184,6 +299,14 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         self.assertIn("CIW_DEVICE_AUTHORIZATION_RECEIPT", self.smoke)
         self.assertIn("test \"$AUTHORIZED\" = true", self.smoke)
         self.assertIn("test \"$TRUST\" = trusted-exact", self.smoke)
+        self.assertIn("Reusable secret transport / Authorized PR plan", self.smoke)
+        self.assertIn(
+            "uses: StreamScapeTV/ci-workflows/.github/workflows/internal-device-authorization-transport.yml@"
+            + DEVICE_TRANSPORT_WORKFLOW_SHA,
+            self.smoke,
+        )
+        self.assertIn('device_authorization_receipt: >-', self.smoke)
+        self.assertIn("issue-481-transport-contract", self.smoke)
         direct = re.findall(r"^    runs-on: (.+)$", self.smoke, re.M)
         self.assertTrue(direct)
         self.assertTrue(all(value == "[ubuntu-latest]" for value in direct))
@@ -195,9 +318,19 @@ class DeviceWorkflowContractTests(unittest.TestCase):
             "semantic host capacity", "checked-in", "non-secret environment",
             "device_authorization_receipt", "raw device", "device-lock/1",
             "exactly once", "zero routine actions artifacts", "ordinary android",
-            "same-repository pull request",
+            "same-repository pull request", "semantic json", "duplicate keys",
         ):
             self.assertIn(phrase, text)
+
+        runner_text = " ".join(self.runners_doc.casefold().split())
+        for phrase in (
+            "simulator-only apple work",
+            "`macos-latest`",
+            "does not imply physical-device authority",
+            "exact `[macos, arm64]` selector",
+            "fail closed before device mutation",
+        ):
+            self.assertIn(phrase, runner_text)
 
 
 if __name__ == "__main__":
