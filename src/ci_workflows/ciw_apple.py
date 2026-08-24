@@ -45,7 +45,9 @@ _TOKEN = re.compile(
 _JWT = re.compile(
     r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"
 )
-_CONCRETE_ERROR = re.compile(r"(?im)^.*\b(?:fatal\s+)?error:\s*\S.*$")
+_CONCRETE_ERROR = re.compile(
+    r"(?im)^.*(?<!:)\b(?:fatal\s+)?error:\s*(?!:)\S.*$"
+)
 
 
 def _stream_text(value: str | bytes | None) -> str:
