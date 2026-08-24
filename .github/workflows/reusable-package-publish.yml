@@ -3,6 +3,11 @@ name: Reusable package publication
 on:
   workflow_call:
     inputs:
+      execution_backend:
+        description: organization or github-hosted
+        required: false
+        default: organization
+        type: string
       ecosystem:
         description: Package ecosystem: python, npm, or jvm
         required: true
@@ -29,8 +34,8 @@ on:
         description: Optional package-registry username exposed only through fixed package environment names
         required: false
       registry_token:
-        description: Package-registry write credential; token-only or paired with registry_username for Python
-        required: true
+        description: Package-registry write credential required by organization publication; token-only or paired with registry_username for Python
+        required: false
     outputs:
       result:
         description: Success only after package publication, cleanup, and clean-source verification
@@ -52,8 +57,33 @@ permissions:
   contents: read
 
 jobs:
+  reject_hosted:
+    name: Reject unsupported hosted package publication
+    if: ${{ inputs.execution_backend == 'github-hosted' }}
+    runs-on: [ubuntu-latest]
+    timeout-minutes: 5
+    steps:
+      - name: Reject hosted package publication authority
+        shell: bash
+        run: |
+          echo '::error::package.publish does not support github-hosted execution until a reviewed hosted package-publication authority and toolchain are available.' >&2
+          exit 2
+
+  reject_invalid:
+    name: Reject invalid package execution backend
+    if: ${{ inputs.execution_backend != 'organization' && inputs.execution_backend != 'github-hosted' }}
+    runs-on: [linux, amd64, general, tiny]
+    timeout-minutes: 5
+    steps:
+      - name: Reject invalid bounded execution backend
+        shell: bash
+        run: |
+          echo '::error::execution_backend must be organization or github-hosted.' >&2
+          exit 2
+
   plan:
     name: Resolve exact package release and semantic runner
+    if: ${{ inputs.execution_backend == 'organization' }}
     runs-on: [linux, amd64, general, small]
     timeout-minutes: 10
     outputs:
@@ -115,6 +145,7 @@ jobs:
   publish:
     name: Release / Package publication
     needs: plan
+    if: ${{ inputs.execution_backend == 'organization' }}
     runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}
     timeout-minutes: 120
     outputs:
