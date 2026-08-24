@@ -110,6 +110,7 @@ def test_mobile_runner_locks_compatible_toolchain() -> None:
 def test_mobile_runner_pins_platform_37_revision_two_and_forbids_runtime_sdk_mutation() -> None:
     source = DOCKERFILE.read_text(encoding="utf-8")
     smoke = SMOKE.read_text(encoding="utf-8")
+    assemble = ASSEMBLE.read_text(encoding="utf-8")
     lock = _lock()
     platform_37 = lock["downloads"]["android_platform_37"]
 
@@ -123,9 +124,26 @@ def test_mobile_runner_pins_platform_37_revision_two_and_forbids_runtime_sdk_mut
     assert 'chmod -R a-w "${ANDROID_HOME}"' in source
 
     for token in (
+        'path="platforms;android-37.0"',
+        'xsi:type="ns6:platformDetailsType"',
+        "<api-level>37.0</api-level>",
+        "<extension-level>22</extension-level>",
+        "<base-extension>true</base-extension>",
+        "<major>2</major>",
+        '"Pkg.Revision": "2"',
+        '"AndroidVersion.ApiLevel": "37.0"',
+        '"AndroidVersion.ExtensionLevel": "22"',
+        '"AndroidVersion.IsBaseSdk": "true"',
+        "materialize_platform_37_package_metadata(platform_root)",
+    ):
+        assert token in assemble
+
+    for token in (
         "Pkg.Revision=2",
         "AndroidVersion.ApiLevel=37.0",
         "AndroidVersion.ExtensionLevel=22",
+        'platform37_package_xml="${ANDROID_HOME}/platforms/android-37.0/package.xml"',
+        'localPackage path="platforms;android-37.0"',
         'test ! -w "${ANDROID_HOME}"',
         'test ! -w "${ANDROID_HOME}/platforms/android-37.0"',
         'find "${ANDROID_HOME}" -xdev',
@@ -134,6 +152,7 @@ def test_mobile_runner_pins_platform_37_revision_two_and_forbids_runtime_sdk_mut
         "compileSdk = 37",
         "platform37_jar_sha_before=",
         "platform37_properties_sha_before=",
+        "platform37_package_xml_sha_before=",
         "sdk_tree_before=",
         "android-37.0-2",
         "Downloading https://dl\\.google\\.com/android/repository/",
