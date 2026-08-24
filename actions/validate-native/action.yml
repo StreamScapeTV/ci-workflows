@@ -1,0 +1,50 @@
+name: Validate exact native CMake source
+description: Execute one bounded product-neutral CMake configure/build/test flow
+
+inputs:
+  admitted_sha:
+    description: Exact admitted caller source SHA
+    required: true
+  working_directory:
+    description: Relative CMake source directory within the exact checkout
+    required: false
+    default: .
+  validation_plan_json:
+    description: Bounded CMake definitions/options/targets and parallelism plan
+    required: true
+
+outputs:
+  result:
+    value: ${{ steps.native.outputs.result }}
+  source_sha:
+    value: ${{ steps.native.outputs.source_sha }}
+  test_summary:
+    value: ${{ steps.native.outputs.test_summary }}
+  failure_code:
+    value: ${{ steps.native.outputs.failure_code }}
+
+runs:
+  using: composite
+  steps:
+    - id: native
+      name: Dispatch bounded native validation
+      shell: bash
+      env:
+        PYTHONDONTWRITEBYTECODE: "1"
+        INPUT_ADMITTED_SHA: ${{ inputs.admitted_sha }}
+        INPUT_WORKING_DIRECTORY: ${{ inputs.working_directory }}
+        INPUT_VALIDATION_PLAN_JSON: ${{ inputs.validation_plan_json }}
+      run: |
+        set -Eeuo pipefail
+        interpreter="$(type -P python3.12 || true)"
+        if [[ -z "${interpreter}" ]]; then
+          interpreter="$(type -P python3 || true)"
+        fi
+        if [[ -z "${interpreter}" || "${interpreter}" != /* || ! -x "${interpreter}" ]]; then
+          echo '::error::Runner-provided CPython is unavailable.' >&2
+          exit 2
+        fi
+        PYTHONPATH="${GITHUB_ACTION_PATH}/../../src" \
+          "${interpreter}" -m ci_workflows.ciw_native \
+          --root "${GITHUB_ACTION_PATH}/../.." \
+          --workspace "${GITHUB_WORKSPACE}"
