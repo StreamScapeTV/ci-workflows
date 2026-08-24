@@ -34,6 +34,8 @@ def _input_environment(environment: Mapping[str, str]) -> dict[str, Any]:
     names = (
         "source_mode",
         "requested_sha",
+        "requested_ref",
+        "is_tag",
         "expected_branch",
         "release_contract",
         "history_depth",

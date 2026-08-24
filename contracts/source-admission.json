@@ -2,10 +2,12 @@
   "schema_version": 1,
   "organization": "StreamScapeTV",
   "api_name": "source.resolve",
-  "api_version": "1.0.0",
+  "api_version": "1.1.0",
   "allowed_inputs": [
     "source_mode",
     "requested_sha",
+    "requested_ref",
+    "is_tag",
     "expected_branch",
     "release_contract",
     "history_depth",
@@ -30,6 +32,10 @@
     "workflow-call": [
       "pull_request",
       "push",
+      "workflow_dispatch",
+      "workflow_call"
+    ],
+    "requested-ref": [
       "workflow_dispatch",
       "workflow_call"
     ],
@@ -114,6 +120,8 @@
     "unknown_inputs_fail_closed": true,
     "consumer_trust_mode_input_forbidden": true,
     "mutable_ref_input_forbidden": true,
+    "requested_ref_resolved_before_exact_checkout": true,
+    "requested_ref_sha_pin_forbidden": true,
     "workflow_artifacts_are_untrusted": true,
     "trusted_metadata_executes_pull_request_source": false,
     "credentials_in_outputs_forbidden": true,

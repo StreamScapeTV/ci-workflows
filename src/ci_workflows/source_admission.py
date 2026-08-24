@@ -60,6 +60,87 @@ def _resolve_tag(
     raise SourceAdmissionError("tag_dereference_too_deep")
 
 
+def _admit_requested_ref(
+    inputs: SourceInputs,
+    event: EventContext,
+    provider: SourceProvider,
+) -> AdmissionResult:
+    """Resolve a caller-selected repository branch/tag to one immutable snapshot.
+
+    This mode is intentionally only for a trusted Central workflow boundary.
+    The request identity remains repository + ref + is_tag; the resulting SHA is
+    execution evidence passed to existing exact-checkout primitives.
+    """
+
+    _require(
+        event.event_name in {"workflow_dispatch", "workflow_call"},
+        "source_mode_event_mismatch",
+    )
+    _require(inputs.requested_sha is None, "requested_ref_sha_pin_forbidden")
+    _require(inputs.caller_repository is not None, "requested_ref_repository_required")
+    _require(inputs.requested_ref is not None, "requested_ref_required")
+    _require(inputs.is_tag is not None, "is_tag_required_for_requested_ref")
+    _require(inputs.expected_branch is None, "requested_ref_expected_branch_forbidden")
+    _require(inputs.release_contract is None, "requested_ref_release_contract_forbidden")
+    _require(
+        inputs.caller_integration_branch is None,
+        "requested_ref_integration_branch_forbidden",
+    )
+    _require(inputs.pr_number is None, "requested_ref_pr_metadata_forbidden")
+    _require(
+        inputs.expected_pr_head_sha is None
+        and inputs.expected_pr_base_sha is None
+        and inputs.expected_pr_merge_sha is None,
+        "requested_ref_pr_metadata_forbidden",
+    )
+
+    repository = inputs.caller_repository
+    metadata = provider.repository(repository)
+    default_branch = _string(
+        metadata.get("default_branch"),
+        "repository_default_branch_missing",
+    )
+    _require(
+        BRANCH.fullmatch(default_branch) is not None,
+        "repository_default_branch_invalid",
+    )
+    if inputs.caller_default_branch is not None:
+        _require(
+            inputs.caller_default_branch == default_branch,
+            "caller_default_branch_mismatch",
+        )
+
+    if inputs.is_tag:
+        tag_name = inputs.requested_ref
+        tag_object_sha, source_sha = _resolve_tag(provider, repository, tag_name)
+        integration_branch = default_branch
+    else:
+        _require(
+            BRANCH.fullmatch(inputs.requested_ref) is not None,
+            "invalid_requested_ref",
+        )
+        source_sha = provider.branch_sha(repository, inputs.requested_ref)
+        source_sha = _full_sha(source_sha, "github_branch_sha_invalid")
+        integration_branch = inputs.requested_ref
+        tag_name = None
+        tag_object_sha = None
+
+    _assert_commit(provider, repository, source_sha)
+    return _result(
+        repository=repository,
+        default_branch=default_branch,
+        integration_branch=integration_branch,
+        trust_mode=TrustMode.TRUSTED_VALIDATION,
+        source_repository=repository,
+        source_sha=source_sha,
+        inputs=inputs,
+        tag_name=tag_name,
+        tag_object_sha=tag_object_sha,
+        tag_commit_sha=source_sha if inputs.is_tag else None,
+        requires_freshness=False,
+    )
+
+
 def admit_source(
     inputs: SourceInputs,
     event: EventContext,
@@ -67,12 +148,15 @@ def admit_source(
 ) -> AdmissionResult:
     """Resolve one exact source SHA without executing caller source."""
 
+    mode = inputs.source_mode
+    if mode == SourceMode.REQUESTED_REF:
+        return _admit_requested_ref(inputs, event, provider)
+
     repository, default_branch, integration_branch = _repo_branches(
         event,
         inputs,
         provider,
     )
-    mode = inputs.source_mode
 
     if mode == SourceMode.WORKFLOW_CALL:
         _require(
@@ -108,10 +192,6 @@ def admit_source(
         else:
             selected_mode = SourceMode.PR_HEAD if mode == SourceMode.AUTO else mode
         if selected_mode == SourceMode.PR_MERGE:
-            # GitHub may regenerate the synthetic merge ref without changing
-            # the PR head/base tuple. Select the merge SHA from this one
-            # current PR snapshot rather than comparing it with event-time
-            # synthetic merge identity.
             source_sha = _full_sha(
                 current_pr.merge_sha,
                 "pull_request_merge_sha_unavailable",

@@ -8,6 +8,18 @@ inputs:
   requested_sha:
     description: Optional exact requested SHA
     required: false
+  requested_ref:
+    description: Optional human branch or tag name for requested-ref mode
+    required: false
+    default: ""
+  is_tag:
+    description: Explicit true/false tag discriminator for requested-ref mode
+    required: false
+    default: ""
+  source_token:
+    description: Optional fixed private-repository contents-read token; never emitted
+    required: false
+    default: ""
   expected_branch:
     description: Optional expected integration branch
     required: false
@@ -92,9 +104,11 @@ runs:
       shell: bash
       env:
         PYTHONDONTWRITEBYTECODE: "1"
-        GITHUB_TOKEN: ${{ github.token }}
+        GITHUB_TOKEN: ${{ inputs.source_token || github.token }}
         INPUT_SOURCE_MODE: ${{ inputs.source_mode }}
         INPUT_REQUESTED_SHA: ${{ inputs.requested_sha }}
+        INPUT_REQUESTED_REF: ${{ inputs.requested_ref }}
+        INPUT_IS_TAG: ${{ inputs.is_tag }}
         INPUT_EXPECTED_BRANCH: ${{ inputs.expected_branch }}
         INPUT_RELEASE_CONTRACT: ${{ inputs.release_contract }}
         INPUT_HISTORY_DEPTH: ${{ inputs.history_depth }}
