@@ -18,12 +18,8 @@ FLUTTER_SHA = "d2e1c7a7601e1caeeb976311fb13cf41fef94d4a"
 ANDROID_SHA = "60ce05e4da20b45783ae729f112083b2801d2e25"
 GRADLE_WARM_SHA = "13de46c51efcf65df798dfec82a620c484350dfa"
 GRADLE_SEED_SHA = "fa67b6a1580ff2eb7386a9e58de09896b9990696"
-APPLE_SHA = "2ea47520b9d84b9b0a71c23de3da03f02a5bea9c"
-OCI_SHA = "3b401078d1167d7048281e3c3269556ce586dada"
+APPLE_SHA = "3b0dd398664c14dd5985d9d2248ec13917059223"
 GITOPS_SHA = "8445e63dd9fa9468b60b6d0c61e543da9681b47b"
-HELM_LEGACY_SHA = "f867827a41174ea5a9ad554eeea91dbb2c2c0bfa"
-HELM_SIMPLE_SHA = "7b17879f21fbf029708d6a404a9dd12d75503a52"
-RELEASE_TAG_SHA = "2b0443fdad002d47625386a959ebe68545cfe022"
 
 FOUNDATION = "issue #116 immutable private-action checkpoint"
 ISSUE_350 = "issue #350 PR-merge snapshot race checkpoint"
@@ -35,9 +31,7 @@ ISSUE_373_BUILD_ONCE = "issue #373 build-once protected-full checkpoint"
 ISSUE_346_WARM = "issue #346 dependency warm checkpoint"
 ISSUE_346_CACHE = "issue #346 bounded Gradle cache sync diagnostics checkpoint"
 ISSUE_125 = "issue #125 immutable private-action checkpoint"
-ISSUE_150 = "issue #150 immutable OCI input checkpoint"
-ISSUE_496_APPLE = "issue #496 simulator-free protected-full helper activation"
-ISSUE_59 = "issue #59 immutable helper checkpoint"
+ISSUE_516_APPLE = "issue #516 simulator-confidence checkpoint"
 ISSUE_27 = "issue #27 Finance composition publication checkpoint"
 
 PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
@@ -71,17 +65,10 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
     },
     ".github/workflows/reusable-apple.yml": {
-        "StreamScapeTV/ci-workflows/actions/validate-apple": (APPLE_SHA, ISSUE_496_APPLE),
+        "StreamScapeTV/ci-workflows/actions/validate-apple": (APPLE_SHA, ISSUE_516_APPLE),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/checkout-private-dependency": (FOUNDATION_SHA, ISSUE_104),
-        "StreamScapeTV/ci-workflows/actions/render-evidence": (FOUNDATION_SHA, FOUNDATION),
-        "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
-    },
-    ".github/workflows/reusable-oci-build.yml": {
-        "StreamScapeTV/ci-workflows/actions/validate-oci": (OCI_SHA, ISSUE_150),
-        "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
-        "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/render-evidence": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
     },
@@ -93,11 +80,6 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
         "StreamScapeTV/ci-workflows/actions/render-evidence": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
     },
-}
-
-HELM_WORKFLOWS = {
-    ".github/workflows/reusable-helm-validate.yml": "StreamScapeTV/ci-workflows/actions/validate-helm",
-    ".github/workflows/reusable-helm-publish.yml": "StreamScapeTV/ci-workflows/actions/publish-helm",
 }
 
 ANDROID_WORKFLOW = ".github/workflows/reusable-android.yml"
@@ -116,7 +98,7 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
         action_lock = json.loads((ROOT / "contracts/action-tool-lock.json").read_text(encoding="utf-8"))
         return {item["uses"]: item for item in action_lock["third_party_actions"]}
 
-    def test_private_reusable_validators_use_only_locked_immutable_central_actions(self) -> None:
+    def test_supported_private_reusables_use_only_locked_immutable_central_actions(self) -> None:
         locked = self.locked_actions()
         for relative, expected in PRIVATE_WORKFLOWS.items():
             with self.subTest(workflow=relative):
@@ -143,18 +125,15 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
                     self.assertEqual("composite", locked[helper]["runtime"])
                     self.assertEqual(release, locked[helper]["release"])
 
-    def test_simple_helm_reusables_use_reviewed_checkpoint_without_action_lock_requirement(self) -> None:
-        locked = self.locked_actions()
-        for relative, helper in HELM_WORKFLOWS.items():
+    def test_retired_oci_and_helm_public_reusables_are_absent(self) -> None:
+        for relative in (
+            ".github/workflows/reusable-oci-build.yml",
+            ".github/workflows/reusable-oci-publish.yml",
+            ".github/workflows/reusable-helm-validate.yml",
+            ".github/workflows/reusable-helm-publish.yml",
+        ):
             with self.subTest(workflow=relative):
-                source, workflow = self.load(relative)
-                uses = [str(step.get("uses", "")) for job in workflow["jobs"].values() for step in job.get("steps", [])]
-                self.assertIn(f"{helper}@{HELM_SIMPLE_SHA}", uses)
-                self.assertNotIn(f"{helper}@{HELM_LEGACY_SHA}", uses)
-                self.assertNotIn("bootstrap_validation_runtime.py", source)
-                self.assertNotIn("action-tool-lock.json", source)
-                self.assertIn(helper, locked)
-                self.assertNotEqual(locked[helper]["sha"], HELM_SIMPLE_SHA)
+                self.assertFalse((ROOT / relative).exists())
 
     def test_android_private_action_checkpoint_contains_media_lifecycle_policy(self) -> None:
         source, _ = self.load(ANDROID_WORKFLOW)
@@ -171,14 +150,6 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
         self.assertTrue(fragment.is_file())
         self.assertEqual(4, source.count(f"actions/validate-apple@{APPLE_SHA}"))
         self.assertNotIn("actions/validate-apple@293dee450e3464032d67f702b768f493abf65d7b", source)
-
-    def test_oci_public_input_evidence_projection_does_not_change_action_pins(self) -> None:
-        source, workflow = self.load(".github/workflows/reusable-oci-build.yml")
-        public_outputs = workflow["on"]["workflow_call"]["outputs"]
-        job_outputs = workflow["jobs"]["build"]["outputs"]
-        self.assertEqual("${{ jobs.build.outputs.resolved_inputs_json }}", public_outputs["resolved_inputs_json"]["value"])
-        self.assertEqual("${{ steps.execute.outputs.resolved_inputs_json }}", job_outputs["resolved_inputs_json"])
-        self.assertEqual(4, source.count(f"actions/validate-oci@{OCI_SHA}"))
 
     def test_source_reusable_uses_locked_mode_aware_helper_checkpoint(self) -> None:
         source, workflow = self.load(SOURCE_WORKFLOW)
