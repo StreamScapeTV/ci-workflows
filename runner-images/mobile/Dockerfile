@@ -108,8 +108,8 @@ ARG ANDROID_PLATFORM_TOOLS_URL=https://dl.google.com/android/repository/platform
 ARG ANDROID_PLATFORM_TOOLS_SHA256=0ead642c943ffe79701fccca8f5f1c69c4ce4f43df2eefee553f6ccb27cbfbe8
 ARG ANDROID_PLATFORM_36_URL=https://dl.google.com/android/repository/platform-36_r02.zip
 ARG ANDROID_PLATFORM_36_SHA256=37607369a28c5b640b3a7998868d45898ebcb777565a0e85f9acf36f29631d2e
-ARG ANDROID_PLATFORM_37_URL=https://dl.google.com/android/repository/platform-37.0_r01.zip
-ARG ANDROID_PLATFORM_37_SHA256=19bdcf42de0cb0e9500a27da6833fc30cdd49a7ec690aa5cabaa0ef893af9ebe
+ARG ANDROID_PLATFORM_37_URL=https://dl.google.com/android/repository/platform-37.0_r02.zip
+ARG ANDROID_PLATFORM_37_SHA256=840b23e827f96e64aea4c89a1194aac3dc5f6bad37edb231c5c795d890330e8d
 ARG ANDROID_BUILD_TOOLS_36_URL=https://dl.google.com/android/repository/build-tools_r36_linux.zip
 ARG ANDROID_BUILD_TOOLS_36_SHA256=5d9ac77fb6ff43d9da518a337b4fcf8f9097113df531d99ccefe80ef7ce8250b
 ARG ANDROID_BUILD_TOOLS_37_URL=https://dl.google.com/android/repository/build-tools_r37_linux.zip
@@ -177,9 +177,9 @@ RUN set -eux; \
     test -x "${ANDROID_HOME}/cmake/${ANDROID_CMAKE_VERSION}/bin/ninja"; \
     test -s "${ANDROID_HOME}/cmake/${ANDROID_CMAKE_VERSION}/package.xml"; \
     git config --system --add safe.directory /opt/flutter; \
-    chown -R 1001:1001 /home/runner /opt/android-sdk /opt/flutter /opt/runner-cache; \
-    chown -R 0:0 "${ANDROID_HOME}/cmake" "${ANDROID_HOME}/licenses"; \
-    chmod -R a-w "${ANDROID_HOME}/cmake" "${ANDROID_HOME}/licenses"; \
+    chown -R 1001:1001 /home/runner /opt/flutter /opt/runner-cache; \
+    chown -R 0:0 "${ANDROID_HOME}"; \
+    chmod -R a-w "${ANDROID_HOME}"; \
     rm -rf /root/.android "${ANDROID_HOME}/.temp"; \
     rm -rf /tmp/runner.tar.gz /tmp/flutter.tar.xz /tmp/android-*.zip \
       /tmp/cmdline /tmp/platform-tools /tmp/platform-* /tmp/build-tools-* /tmp/ndk; \
