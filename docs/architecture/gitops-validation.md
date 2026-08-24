@@ -107,12 +107,13 @@ normalization. Every Kubernetes object contributes
 `apiVersion/kind/namespace/name`.
 
 Duplicate identities inside one target always fail. Two source targets, two
-render targets, or disjoint source/render targets also fail on duplicate
-identity. One repository/source YAML target may intentionally overlap exactly
-one nested Helm or Kustomize render target when the render root is equal to or
-beneath the YAML source root. That narrow rule lets source semantics compose
-with a deterministic render of the same checked-in objects without turning
-duplicate suppression into a general escape hatch.
+render targets, or disjoint source/render objects also fail on duplicate
+identity. One raw YAML document may overlap exactly one Helm or Kustomize render
+only when that document's exact bounded source file is physically inside the
+renderer root. The source path is preserved through composition solely for this
+ownership decision. This lets semantic source validation compose with the
+render of the same checked-in object without permitting a same-named object from
+another directory to bypass duplicate ownership.
 
 ## Security invariants
 
