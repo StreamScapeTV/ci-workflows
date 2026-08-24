@@ -120,7 +120,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve one Apple executor plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@78b9cacdb001a61e18a84e23532f4f397c13875b # issue #516 simulator-confidence checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@3b0dd398664c14dd5985d9d2248ec13917059223 # issue #516 simulator-confidence checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -213,7 +213,7 @@ jobs:
 
       - id: execute
         name: Execute one sequential Apple validation plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@78b9cacdb001a61e18a84e23532f4f397c13875b # issue #516 simulator-confidence checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@3b0dd398664c14dd5985d9d2248ec13917059223 # issue #516 simulator-confidence checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -256,7 +256,7 @@ jobs:
       - id: apple_cleanup
         name: Remove Apple-specific state once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@78b9cacdb001a61e18a84e23532f4f397c13875b # issue #516 simulator-confidence checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@3b0dd398664c14dd5985d9d2248ec13917059223 # issue #516 simulator-confidence checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -280,7 +280,7 @@ jobs:
       - id: residue
         name: Verify zero Apple-specific residue once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@78b9cacdb001a61e18a84e23532f4f397c13875b # issue #516 simulator-confidence checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@3b0dd398664c14dd5985d9d2248ec13917059223 # issue #516 simulator-confidence checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -341,7 +341,7 @@ jobs:
 
           remove_no_follow(Path("source"))
           if os.path.lexists("source"):
-              raise SystemExit("fixed source checkout remains")
+            raise SystemExit("fixed source checkout remains")
           PY
 
       - id: workspace_cleanup
