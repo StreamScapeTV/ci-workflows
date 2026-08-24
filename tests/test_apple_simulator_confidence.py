@@ -54,6 +54,7 @@ class AppleSimulatorConfidenceTests(unittest.TestCase):
     def test_tvos_packet_reuses_one_central_owned_simulator_for_all_steps(self) -> None:
         packet = self.build()
         self.assertEqual("tvos", packet.platform)
+        self.assertTrue(packet.apple_plan.requires_simulator)
         self.assertEqual("tvOS Simulator", packet.apple_plan.simulator.platform)
         self.assertEqual(2, len(packet.apple_plan.commands))
         for command in packet.apple_plan.commands:
@@ -66,6 +67,7 @@ class AppleSimulatorConfidenceTests(unittest.TestCase):
 
     def test_ios_packet_uses_reviewed_central_ios_runtime(self) -> None:
         packet = self.build(self.packet("ios"))
+        self.assertTrue(packet.apple_plan.requires_simulator)
         self.assertEqual("iOS Simulator", packet.apple_plan.simulator.platform)
         self.assertEqual("com.apple.CoreSimulator.SimRuntime.iOS-26-5", packet.apple_plan.simulator.runtime_identifier)
 
