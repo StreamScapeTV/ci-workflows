@@ -17,14 +17,23 @@ class BrokerImageTests(unittest.TestCase):
         cls.workflow = WORKFLOW.read_text(encoding="utf-8")
         cls.containerfile = CONTAINERFILE.read_text(encoding="utf-8")
 
-    def test_release_is_exact_tag_only_on_reviewed_arc_capacity(self) -> None:
+    def test_release_is_exact_tag_or_owner_replay_on_reviewed_arc_capacity(self) -> None:
         events = self.document.data["on"]
-        self.assertEqual(set(events), {"push"})
+        self.assertEqual(set(events), {"push", "workflow_dispatch"})
         self.assertEqual(events["push"]["tags"], ["ci-broker-*"])
+        manual = events["workflow_dispatch"]["inputs"]
+        self.assertEqual(set(manual), {"release_tag"})
+        self.assertTrue(manual["release_tag"]["required"])
+        self.assertEqual(manual["release_tag"]["type"], "string")
         self.assertEqual(self.document.data["permissions"], {"contents": "read"})
         self.assertEqual(set(self.document.data["jobs"]), {"admit", "image", "chart"})
+        admit = self.document.data["jobs"]["admit"]
         self.assertEqual(
-            self.document.data["jobs"]["admit"]["runs-on"],
+            admit["if"],
+            "${{ github.event_name != 'workflow_dispatch' || github.actor == 'mimranfaruqi' }}",
+        )
+        self.assertEqual(
+            admit["runs-on"],
             ["linux", "amd64", "general", "tiny"],
         )
         self.assertEqual(
@@ -36,7 +45,9 @@ class BrokerImageTests(unittest.TestCase):
             ["linux", "amd64", "general", "small"],
         )
         self.assertIn("^ci-broker-", self.workflow)
-        self.assertIn("refs/tags/${RELEASE_TAG}", self.workflow)
+        self.assertIn("format('refs/tags/{0}', inputs.release_tag)", self.workflow)
+        self.assertIn('test "${GITHUB_REF}" = "refs/tags/${RELEASE_TAG}"', self.workflow)
+        self.assertIn('test "${GITHUB_ACTOR}" = "mimranfaruqi"', self.workflow)
         self.assertNotIn("ubuntu-latest", self.workflow)
 
     def test_container_uses_one_immutable_base_and_non_root_runtime(self) -> None:
