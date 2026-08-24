@@ -132,7 +132,7 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
             ".github/workflows/reusable-helm-validate.yml",
             ".github/workflows/reusable-helm-publish.yml",
         ):
-            with self.subTest(relative=relative):
+            with self.subTest(workflow=relative):
                 self.assertFalse((ROOT / relative).exists())
 
     def test_android_private_action_checkpoint_contains_media_lifecycle_policy(self) -> None:
@@ -141,12 +141,14 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
         exception = next(item for item in policy["tracked_secret_exceptions"] if item["id"] == "streamscape_media_playback_lab_redaction_sentinels_v1")
         self.assertIn({"path": "apple/Tests/StreamscapePlaybackLabSupportTests/PlaybackLabLifecycleEvidenceTests.swift", "git_blob_sha1": "5df889bbf613ee7f4dabd07ca931aa81fb4f71a3"}, exception["paths"])
         self.assertEqual(8, source.count(f"actions/validate-android@{ANDROID_SHA}"))
+        self.assertEqual(1, source.count(f"actions/warm-gradle-dependencies@{GRADLE_WARM_SHA}"))
         self.assertNotIn("actions/validate-android@275ee86f0f5de3d8f3330b92c84d7c0188fb10f8", source)
 
     def test_apple_private_action_checkpoint_contains_media_contract_in_current_tree(self) -> None:
         source, _ = self.load(".github/workflows/reusable-apple.yml")
         fragment = ROOT / "contracts/apple-validation-media-tvos-simulator-confidence.json"
-        self.assertTrue(fragment.is_file())
+        self.assertTrue(fragment.is_file()
+        )
         self.assertEqual(4, source.count(f"actions/validate-apple@{APPLE_SHA}"))
         self.assertNotIn("actions/validate-apple@293dee450e3464032d67f702b768f493abf65d7b", source)
 
