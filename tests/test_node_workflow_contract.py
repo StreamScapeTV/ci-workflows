@@ -101,27 +101,59 @@ class NodeWorkflowContractTests(unittest.TestCase):
         )
         self.assertEqual(set(self.public_record["outputs"]), set(call["outputs"]))
 
-    def test_planner_uses_hosted_control_and_execution_uses_bounded_output(self) -> None:
+    def test_backend_planners_are_mutually_exclusive_and_validation_uses_successful_output(self) -> None:
         jobs = self.workflow["jobs"]
-        self.assertEqual(set(jobs), {"plan", "validate"})
-        self.assertEqual(jobs["plan"]["runs-on"], ["ubuntu-latest"])
+        self.assertEqual(set(jobs), {"plan", "plan_organization", "validate"})
+        hosted = jobs["plan"]
+        organization = jobs["plan_organization"]
+        validate = jobs["validate"]
+        self.assertEqual(hosted["runs-on"], ["ubuntu-latest"])
         self.assertEqual(
-            jobs["validate"]["runs-on"],
-            "${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
+            hosted["if"], "${{ inputs.execution_backend == 'github-hosted' }}"
         )
         self.assertEqual(
-            jobs["plan"]["outputs"]["runs_on_json"],
-            "${{ steps.plan.outputs.runs_on_json }}",
+            organization["runs-on"], ["linux", "amd64", "general", "small"]
         )
-        planner = jobs["plan"]["steps"][0]
         self.assertEqual(
-            planner["with"]["execution_backend"],
-            "${{ inputs.execution_backend }}",
+            organization["if"], "${{ inputs.execution_backend != 'github-hosted' }}"
         )
-        self.assertEqual(jobs["validate"]["name"], "CI / Node validation")
-        self.assertEqual(jobs["validate"]["timeout-minutes"], 90)
-        self.assertNotIn("strategy", jobs["plan"])
-        self.assertNotIn("strategy", jobs["validate"])
+        self.assertEqual(validate["needs"], ["plan", "plan_organization"])
+        self.assertEqual(
+            validate["if"],
+            "${{ always() && (needs.plan.result == 'success' || needs.plan_organization.result == 'success') }}",
+        )
+        self.assertEqual(
+            validate["runs-on"],
+            "${{ fromJSON(needs.plan.outputs.runs_on_json || needs.plan_organization.outputs.runs_on_json) }}",
+        )
+        for planner in (hosted, organization):
+            self.assertEqual(
+                planner["outputs"]["runs_on_json"],
+                "${{ steps.plan.outputs.runs_on_json }}",
+            )
+            step = planner["steps"][0]
+            self.assertEqual(
+                step["with"]["execution_backend"],
+                "${{ inputs.execution_backend }}",
+            )
+            self.assertEqual(step["with"]["phase"], "plan")
+        self.assertIn(
+            "profile: ${{ needs.plan.outputs.workspace_profile || needs.plan_organization.outputs.workspace_profile }}",
+            self.workflow_text,
+        )
+        self.assertIn(
+            "trust_mode: ${{ needs.plan.outputs.source_trust || needs.plan_organization.outputs.source_trust }}",
+            self.workflow_text,
+        )
+        self.assertIn(
+            "node-version: ${{ needs.plan.outputs.node_version || needs.plan_organization.outputs.node_version }}",
+            self.workflow_text,
+        )
+        self.assertEqual(validate["name"], "CI / Node validation")
+        self.assertEqual(validate["timeout-minutes"], 90)
+        self.assertNotIn("strategy", hosted)
+        self.assertNotIn("strategy", organization)
+        self.assertNotIn("strategy", validate)
         self.assertNotIn("self-hosted", self.workflow_text)
         self.assertNotIn("runs-on: portable", self.workflow_text)
         self.assertNotIn("runs-on: [linux, amd64, general]", self.workflow_text)
@@ -137,7 +169,8 @@ class NodeWorkflowContractTests(unittest.TestCase):
         )
         self.assertEqual(step["uses"], setup)
         self.assertEqual(
-            step["with"]["node-version"], "${{ needs.plan.outputs.node_version }}"
+            step["with"]["node-version"],
+            "${{ needs.plan.outputs.node_version || needs.plan_organization.outputs.node_version }}",
         )
         self.assertFalse(step["with"]["package-manager-cache"])
         entry = next(
@@ -163,18 +196,20 @@ class NodeWorkflowContractTests(unittest.TestCase):
             self.assertEqual(release, locked[uses]["release"])
             self.assertEqual("composite", locked[uses]["runtime"])
 
-        plan_steps = self.workflow["jobs"]["plan"]["steps"]
-        self.assertEqual(len(plan_steps), 1)
-        plan = plan_steps[0]
-        self.assertEqual(
-            plan["uses"],
-            f"StreamScapeTV/ci-workflows/actions/validate-node@{VALIDATE_NODE_SHA}",
-        )
-        self.assertEqual(plan["with"]["phase"], "plan")
-        self.assertEqual(
-            plan["with"]["execution_backend"],
-            "${{ inputs.execution_backend }}",
-        )
+        for planner_name in ("plan", "plan_organization"):
+            with self.subTest(planner=planner_name):
+                plan_steps = self.workflow["jobs"][planner_name]["steps"]
+                self.assertEqual(len(plan_steps), 1)
+                plan = plan_steps[0]
+                self.assertEqual(
+                    plan["uses"],
+                    f"StreamScapeTV/ci-workflows/actions/validate-node@{VALIDATE_NODE_SHA}",
+                )
+                self.assertEqual(plan["with"]["phase"], "plan")
+                self.assertEqual(
+                    plan["with"]["execution_backend"],
+                    "${{ inputs.execution_backend }}",
+                )
 
         validate_steps = self.workflow["jobs"]["validate"]["steps"]
         uses = [item.get("uses") for item in validate_steps if item.get("uses")]
