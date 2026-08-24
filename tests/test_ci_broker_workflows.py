@@ -46,8 +46,8 @@ class BrokerWorkflowTests(unittest.TestCase):
 
     def test_dispatch_surface_is_manual_opaque_and_oidc_only(self) -> None:
         events = self.document.data["on"]
-        self.assertEqual(set(events), {"workflow_dispatch"})
         inputs = events["workflow_dispatch"]["inputs"]
+        self.assertEqual(set(events), {"workflow_dispatch"})
         self.assertEqual(set(inputs), {"dispatch_id", "dispatch_token"})
         self.assertTrue(all(value["required"] for value in inputs.values()))
         for forbidden in ("repository", "ref", "source_sha", "workflow_key", "test_profile"):
@@ -149,7 +149,7 @@ class BrokerWorkflowTests(unittest.TestCase):
         self.assertEqual(self.values_schema["properties"]["replicaCount"]["const"], 1)
         self.assertEqual(
             self.values["image"]["repository"],
-            "git.faruqi.dev/mimranfaruqi/ci-broker",
+            "git.faruqi.dev/mimranfaruqi/ci-workflows/ci-broker",
         )
         self.assertEqual(self.values["image"]["tag"], "")
         self.assertEqual(self.values["image"]["pullSecrets"], ["private-registry"])
@@ -180,6 +180,11 @@ class BrokerWorkflowTests(unittest.TestCase):
         self.assertEqual(jobs["image"]["runs-on"], ["linux", "amd64", "buildah", "small"])
         self.assertEqual(jobs["chart"]["runs-on"], ["linux", "amd64", "general", "small"])
         self.assertEqual(jobs["chart"]["needs"], ["admit", "image"])
+        self.assertIn("REGISTRY_NAMESPACE: mimranfaruqi/ci-workflows", self.release_text)
+        self.assertIn(
+            "CHART_NAMESPACE: mimranfaruqi/ci-workflows/helm-charts",
+            self.release_text,
+        )
         self.assertIn("git.faruqi.dev", self.release_text)
         self.assertIn("secrets.FORGEJO_REGISTRY_USERNAME", self.release_text)
         self.assertIn("secrets.FORGEJO_REGISTRY_TOKEN", self.release_text)
