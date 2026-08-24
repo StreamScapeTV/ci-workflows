@@ -12,7 +12,7 @@ WORKFLOW_PATH = ROOT / ".github/workflows/reusable-static-web.yml"
 ACTION_PATH = ROOT / "actions/validate-static-web/action.yml"
 DOC_PATH = ROOT / "docs/workflows/static-web.md"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-STATIC_WEB_SHA = "31af596623516257506bfc3a08fa9d8ba2560a4e"
+STATIC_WEB_SHA = "f0e3cd313b6350e3869b8a69a925f42db5aba0e2"
 
 
 class StaticWebWorkflowContractTests(unittest.TestCase):
@@ -124,7 +124,7 @@ class StaticWebWorkflowContractTests(unittest.TestCase):
         self.assertIn("cache_mode: disabled", self.workflow_text)
         self.assertEqual(self.workflow["permissions"], {"contents": "read"})
 
-    def test_action_is_thin_and_dispatches_typed_python_module(self) -> None:
+    def test_action_is_thin_and_dispatches_shared_ciw_registry(self) -> None:
         self.assertEqual(self.action["runs"]["using"], "composite")
         self.assertEqual(len(self.action["runs"]["steps"]), 1)
         step = self.action["runs"]["steps"][0]
@@ -135,7 +135,9 @@ class StaticWebWorkflowContractTests(unittest.TestCase):
         )
         self.assertIn("type -P python3.12", script)
         self.assertIn("type -P python3", script)
-        self.assertIn("-m ci_workflows.ciw_web", script)
+        self.assertIn("scripts/ci/ciw.py", script)
+        self.assertIn("static-web validate", script)
+        self.assertNotIn("-m ci_workflows.ciw_web", script)
         self.assertIn('GITHUB_WORKSPACE="${GITHUB_WORKSPACE}/source"', script)
         self.assertNotIn("eval ", script)
         self.assertNotIn("bash -c", script)
