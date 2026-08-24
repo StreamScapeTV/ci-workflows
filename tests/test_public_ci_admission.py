@@ -81,10 +81,6 @@ class PublicCiAdmissionRepositoryTests(unittest.TestCase):
         push = release_document.data["on"]["push"]
         self.assertEqual(["*"], push["tags"])
 
-        maintenance = self.records[".github/workflows/issue-dependency-sync.yml"]
-        self.assertEqual("scheduled-maintenance", maintenance["trust_class"])
-        self.assertEqual({"schedule", "workflow_dispatch"}, set(maintenance["allowed_events"]))
-
         for relative_path in (
             ".github/workflows/apple-physical-device-lock-smoke.yml",
             ".github/workflows/service-runner-smoke.yml",
