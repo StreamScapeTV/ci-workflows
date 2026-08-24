@@ -16,7 +16,7 @@
       "status": "current",
       "release_mode": "tag-triggered-immutable-publication",
       "owner": "product-repository",
-      "central_workflow_target": "reusable-oci-build.yml + reusable-oci-publish.yml + reusable-release.yml"
+      "central_workflow_target": "reusable-tag-image-chart.yml"
     },
     {
       "id": "iptv-backend-chart",
@@ -25,7 +25,7 @@
       "status": "current",
       "release_mode": "tag-triggered-immutable-publication",
       "owner": "product-repository",
-      "central_workflow_target": "reusable-helm-validate.yml + reusable-helm-publish.yml + reusable-release.yml"
+      "central_workflow_target": "reusable-tag-image-chart.yml"
     },
     {
       "id": "streamscape-web-static-export",
@@ -88,7 +88,7 @@
       "status": "current",
       "release_mode": "tag-triggered-immutable-publication",
       "owner": "product-repository",
-      "central_workflow_target": "reusable-oci-build.yml + reusable-oci-publish.yml + reusable-release.yml"
+      "central_workflow_target": "no demonstrated current Central public workflow caller"
     },
     {
       "id": "agent-state-chart",
@@ -97,7 +97,7 @@
       "status": "current",
       "release_mode": "tag-triggered-immutable-publication",
       "owner": "product-repository",
-      "central_workflow_target": "reusable-helm-validate.yml + reusable-helm-publish.yml + reusable-release.yml"
+      "central_workflow_target": "no demonstrated current Central public workflow caller"
     },
     {
       "id": "flux-runner-images",
@@ -106,7 +106,7 @@
       "status": "current",
       "release_mode": "immutable-publication-read-back-canary-then-reviewed-selection",
       "owner": "flux-product-contract",
-      "central_workflow_target": "reusable-oci-build.yml + reusable-oci-publish.yml + reusable-flux-infrastructure-assets.yml"
+      "central_workflow_target": "no demonstrated current Central public workflow caller"
     },
     {
       "id": "flux-runner-chart-assets",
@@ -115,7 +115,7 @@
       "status": "current",
       "release_mode": "locked-upstream-or-owned-chart-publication-read-back-then-reviewed-selection",
       "owner": "flux-product-contract",
-      "central_workflow_target": "reusable-helm-validate.yml + reusable-helm-publish.yml + reusable-flux-infrastructure-assets.yml"
+      "central_workflow_target": "no demonstrated current Central public workflow caller"
     },
     {
       "id": "flux-desired-state",
@@ -124,7 +124,7 @@
       "status": "current",
       "release_mode": "reviewed-source-change-and-trusted-reconciliation",
       "owner": "flux",
-      "central_workflow_target": "reusable-gitops-validation.yml + trusted reusable-flux-reconcile.yml"
+      "central_workflow_target": "reusable-gitops-validation.yml"
     },
     {
       "id": "organization-operating-policy",

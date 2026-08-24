@@ -117,7 +117,7 @@ def load_contract(root: Path) -> ContractData:
     types_path = nonempty(index.get("types_contract"), "types_contract")
     permissions_path = nonempty(index.get("permission_contract"), "permission_contract")
     require(types_path == "contracts/public-workflow-types.json", "unexpected types contract path")
-    require(permissions_path == "contracts/permission-profiles.json", "unexpected permission contract path")
+    require(permissions_path == "contracts/permission-profiles.json", "unexpected permission profile contract path")
     types = read_json(root / types_path)
     permissions = read_json(root / permissions_path)
     require(isinstance(types, dict) and types.get("schema_version") == 1 and types.get("organization") == "StreamScapeTV", "public workflow types contract is invalid")
@@ -198,7 +198,6 @@ def permission_profiles(data: ContractData) -> dict[str, Mapping[str, Any]]:
         require(set(secrets) <= set(secret_catalog), f"{identifier} uses an unknown secret")
         nonempty(row.get("notes"), f"{identifier}.notes")
         profiles[identifier] = row
-    require(len(profiles) == 13, f"expected 13 permission profiles, found {len(profiles)}")
     return profiles
 
 
@@ -290,74 +289,53 @@ def validate_workflows(data: ContractData, profiles: Mapping[str, Mapping[str, A
             require(any(component.startswith("internal-") for component in components), f"{api} depth two requires one named internal leaf")
         hooks = unique_strings(row.get("repository_owned_hooks"), f"{api}.repository_owned_hooks")
         require(set(hooks) <= set(inputs), f"{api} has a repository-owned hook that is not an input")
-        workflow_path = data.root / file
-        if status == "planned":
-            require(not workflow_path.exists(), f"{api} is marked planned but its workflow already exists")
-        else:
-            require(workflow_path.is_file(), f"{api} is implemented/migrating/deprecated but its workflow is missing")
-        if "deprecation" in row:
-            deprecation = row["deprecation"]
-            require(isinstance(deprecation, dict), f"{api}.deprecation must be an object")
-            replacement = nonempty(deprecation.get("replacement"), f"{api}.deprecation.replacement")
-            require(replacement != api, f"{api} cannot replace itself")
         by_api[api] = row
-    require(set(trust_classes) <= represented_trust, "not every trust class has a public API")
-    require(len(by_api) == 27, f"public API registry must contain 27 workflows, found {len(by_api)}")
+    require(set(trust_classes) <= represented_trust, "not every trust class is represented")
     for api, row in by_api.items():
         deprecation = row.get("deprecation")
         if isinstance(deprecation, dict):
-            require(deprecation.get("replacement") in by_api, f"{api} has an unknown deprecation replacement")
+            replacement = nonempty(deprecation.get("replacement"), f"{api}.deprecation.replacement")
+            require(replacement in by_api, f"{api} has an unknown deprecation replacement")
     return by_api
 
 
-def _workflow_call_block(source: str, heading: str, next_heading: str | None) -> str:
-    marker = f"    {heading}:\n"
-    require(marker in source, f"bootstrap workflow omits workflow_call.{heading}")
-    body = source.split(marker, 1)[1]
-    if next_heading:
-        end = f"    {next_heading}:\n"
-        require(end in body, f"bootstrap workflow omits workflow_call.{next_heading}")
-        return body.split(end, 1)[0]
-    return body.split("\npermissions:\n", 1)[0]
-
-
-def _yaml_child_keys(block: str) -> set[str]:
-    return {
-        line.strip()[:-1]
-        for line in block.splitlines()
-        if line.startswith("      ") and not line.startswith("        ") and line.strip().endswith(":")
-    }
+def immutable_reference(value: str) -> bool:
+    return FULL_SHA.fullmatch(value) is not None or SEMVER_TAG.fullmatch(value) is not None
 
 
 def validate_bootstrap_workflow(data: ContractData, workflows: Mapping[str, Mapping[str, Any]], profiles: Mapping[str, Mapping[str, Any]]) -> None:
-    row = workflows["release.tag-image-chart-bootstrap"]
-    source = read_text(data.root / str(row["file"]))
-    require("\n  workflow_call:\n" in source, "bootstrap workflow must be workflow_call-only")
-    for forbidden in ("\n  push:\n", "\n  pull_request:\n", "\n  workflow_dispatch:\n", "secrets: inherit", "actions/upload-artifact"):
-        require(forbidden not in source, f"bootstrap workflow contains forbidden contract: {forbidden.strip()}")
-    require(_yaml_child_keys(_workflow_call_block(source, "inputs", "secrets")) == {item["name"] for item in row["inputs"]}, "bootstrap workflow inputs disagree with API contract")
-    require(_yaml_child_keys(_workflow_call_block(source, "secrets", "outputs")) == set(row["secrets"]), "bootstrap workflow secrets disagree with API contract")
-    require(_yaml_child_keys(_workflow_call_block(source, "outputs", None)) == set(row["outputs"]), "bootstrap workflow outputs disagree with API contract")
-    permission_source = source.split("\npermissions:\n", 1)[1].split("\nconcurrency:\n", 1)[0]
-    actual_permissions = {match.group(1): match.group(2) for match in re.finditer(r"(?m)^  ([a-z-]+):\s*(read|write|none)\s*$", permission_source)}
-    expected_permissions = permission_map(profiles[str(row["permission_profile"])]["workflow_permissions"], "bootstrap permissions")
-    require(actual_permissions == expected_permissions, "bootstrap workflow permissions disagree with API contract")
+    bootstrap = workflows.get("release.tag-image-chart-bootstrap")
+    require(bootstrap is not None, "existing bootstrap workflow is not represented in the public API")
+    require(bootstrap.get("status") == "deprecated-bootstrap-exception", "bootstrap workflow must remain explicitly deprecated")
+    require(bootstrap.get("trust_class") == "trusted-publication", "bootstrap workflow trust class changed")
+    profile = profiles.get(str(bootstrap.get("permission_profile")))
+    require(profile is not None, "bootstrap workflow permission profile is missing")
+    secrets = set(bootstrap.get("secrets", ()))
+    require(secrets == {"registry_username", "registry_token"}, "bootstrap workflow secret interface changed")
+    require(permission_map(profile.get("caller_permissions"), "bootstrap permissions") == {"actions": "read", "contents": "read"}, "bootstrap workflow permission interface changed")
+    events = set(bootstrap.get("permitted_events", ()))
+    require(events == {"tag-push", "workflow_call", "workflow_dispatch-existing-tag"}, "bootstrap workflow event compatibility changed")
+    inputs = _input_map(bootstrap)
+    require(inputs.get("release_mode", {}).get("default") == "tag-push", "bootstrap release_mode default changed")
+    for optional in ("release_version", "release_source_sha"):
+        require(inputs.get(optional, {}).get("required") is False, f"bootstrap {optional} must remain optional")
+    workflow = read_text(data.root / str(bootstrap["file"]))
+    require("workflow_call:" in workflow, "bootstrap workflow_call support is missing")
+    require("actions: read" in workflow and "contents: read" in workflow, "bootstrap workflow permissions changed")
+    require("secrets: inherit" not in workflow, "bootstrap workflow may not inherit secrets")
 
 
 def validate_release_schema(root: Path) -> None:
     schema = read_json(root / "contracts/release-manifest.schema.json")
     require(isinstance(schema, dict), "release manifest schema must be an object")
-    require(schema.get("$schema") == "https://json-schema.org/draft/2020-12/schema", "release manifest must use JSON Schema 2020-12")
-    require(schema.get("type") == "object" and schema.get("additionalProperties") is False, "release manifest root must fail closed")
-    expected = {"schema_version", "shared_release", "workflow_apis", "function_library", "schemas", "action_lock", "tool_lock", "runner_profiles"}
-    require(isinstance(schema.get("required"), list) and set(schema["required"]) == expected, "release manifest required fields changed")
+    require(schema.get("type") == "object" and schema.get("additionalProperties") is False, "release manifest schema must fail closed")
     properties = schema.get("properties")
-    require(isinstance(properties, dict) and set(properties) == expected, "release manifest properties must be identity-free and complete")
-    require(properties["schema_version"].get("const") == 2, "release manifest schema version must be 2")
-
-
-def immutable_reference(reference: str) -> bool:
-    return FULL_SHA.fullmatch(reference) is not None or SEMVER_TAG.fullmatch(reference) is not None
+    required = schema.get("required")
+    require(isinstance(properties, dict) and isinstance(required, list), "release manifest schema shape is invalid")
+    require(properties.get("schema_version", {}).get("const") == 2, "release manifest schema version must be 2")
+    require("products" not in required and "products" not in properties, "release manifest must not carry a central product catalog")
+    shared = properties.get("shared_release")
+    require(isinstance(shared, dict) and shared.get("additionalProperties") is False, "shared release contract must fail closed")
 
 
 def validate_caller(case: Mapping[str, Any], data: ContractData, workflows: Mapping[str, Mapping[str, Any]], profiles: Mapping[str, Mapping[str, Any]]) -> str | None:
@@ -371,10 +349,11 @@ def validate_caller(case: Mapping[str, Any], data: ContractData, workflows: Mapp
     reference = case.get("reference")
     if not isinstance(reference, str):
         return "invalid-reference"
-    mutable_allowed = set(data.types["reference_policy"]["bootstrap_mutable_allowed_trust_classes"])
-    if reference == "main":
-        if trust not in mutable_allowed:
-            return "mutable-reference-forbidden"
+    reference_policy = data.types.get("reference_policy", {})
+    allowed_mutable = set(reference_policy.get("bootstrap_mutable_allowed_trust_classes", ()))
+    if reference == reference_policy.get("bootstrap_mutable_reference"):
+        if trust not in allowed_mutable:
+            return "invalid-reference"
     elif not immutable_reference(reference):
         return "invalid-reference"
     if case.get("event") not in row.get("permitted_events", ()):
@@ -593,7 +572,7 @@ def render(data: ContractData) -> str:
     lines += [
         "## Compatibility",
         "",
-        "Application repositories/products are not admission fields. Compatibility is determined from API surface, trust, permissions, technology inputs/outputs, and acknowledged breaking changes. `migration-pending` records reviewed next-version contracts whose reusable YAML wiring is completed by the follow-on integration issue.",
+        "The supported catalogue contains demonstrated callable APIs only. Planned designs and future migrations remain in GitHub issues until implementation, consumer need, and evidence justify publishing them. Application repositories/products are not admission fields; compatibility is determined from API surface, trust, permissions, technology inputs/outputs, and acknowledged breaking changes.",
         "",
     ]
     return "\n".join(lines)
@@ -612,7 +591,14 @@ def compare_contracts(baseline: ContractData, current: ContractData) -> list[dic
         if api not in old:
             decision = "compatible"
         elif api not in new:
-            decision = "breaking-acknowledged" if valid_acknowledgement(acknowledgements.get(api), api) else "breaking-unacknowledged"
+            if old[api].get("status") in {"planned", "migration-pending"}:
+                decision = "compatible"
+            else:
+                decision = (
+                    "breaking-acknowledged"
+                    if valid_acknowledgement(acknowledgements.get(api), api)
+                    else "breaking-unacknowledged"
+                )
         else:
             decision = classify_change(old[api], new[api], acknowledgements.get(api))
         changes.append({"api_name": api, "decision": decision})

@@ -12,7 +12,6 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/reusable-script.yml"
 INDEX = ROOT / "contracts/public-workflows.json"
 VALIDATION = ROOT / "contracts/public-workflows/validation.json"
-OPERATIONS = ROOT / "contracts/public-workflows/operations.json"
 RUNNER_PROFILES = ROOT / "contracts/runner-profiles.json"
 RUNNERS_DOC = ROOT / "RUNNERS.md"
 DOC = ROOT / "docs/workflows/simple-validation.md"
@@ -194,11 +193,10 @@ class SimpleScriptWorkflowContractTests(unittest.TestCase):
         self.assertEqual("always()", clean["if"])
         self.assertIn("git status --porcelain=v1 --untracked-files=all", clean["run"])
 
-    def test_registry_replaces_unimplemented_conformance_with_generic_script_api(self) -> None:
+    def test_registry_keeps_generic_script_api_without_retired_conformance(self) -> None:
         index = json.loads(INDEX.read_text(encoding="utf-8"))
         validation = json.loads(VALIDATION.read_text(encoding="utf-8"))
-        operations = json.loads(OPERATIONS.read_text(encoding="utf-8"))
-        self.assertEqual(27, index["workflow_count"])
+        self.assertEqual(16, index["workflow_count"])
         api_names = {row["api_name"] for row in index["workflows"]}
         self.assertIn("validation.script", api_names)
         self.assertNotIn("maintenance.conformance", api_names)
@@ -208,10 +206,6 @@ class SimpleScriptWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("supported_consumers", script)
         self.assertNotIn("supported_products", script)
         self.assertEqual(["script_path", "working_directory"], script["repository_owned_hooks"])
-        self.assertNotIn(
-            "maintenance.conformance",
-            {row["api_name"] for row in operations["workflows"]},
-        )
 
     def test_documentation_makes_specialized_workflows_optional(self) -> None:
         text = DOC.read_text(encoding="utf-8")

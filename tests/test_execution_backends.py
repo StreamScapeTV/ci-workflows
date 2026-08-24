@@ -77,7 +77,6 @@ class ExecutionBackendTests(unittest.TestCase):
             "reusable-python.yml",
             "reusable-gitops-validation.yml",
             "reusable-script.yml",
-            "reusable-helm-validate.yml",
         ):
             with self.subTest(filename=filename):
                 workflow = yaml.load(
@@ -131,7 +130,6 @@ class ExecutionBackendTests(unittest.TestCase):
         for filename in (
             "reusable-gitops-validation.yml",
             "reusable-script.yml",
-            "reusable-helm-validate.yml",
         ):
             with self.subTest(filename=filename):
                 workflow = yaml.load(
@@ -169,7 +167,6 @@ class ExecutionBackendTests(unittest.TestCase):
             "reusable-python.yml",
             "reusable-gitops-validation.yml",
             "reusable-script.yml",
-            "reusable-helm-validate.yml",
         ):
             with self.subTest(filename=filename):
                 workflow = yaml.load(

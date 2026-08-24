@@ -165,7 +165,7 @@ class BrokerWorkflowTests(unittest.TestCase):
         self.assertNotIn("kind: Ingress", self.deployment_text + self.service_text)
         self.assertNotIn("LoadBalancer", self.service_text)
 
-    def test_broker_release_uses_private_arc_image_then_helm_publication(self) -> None:
+    def test_broker_release_uses_private_macos_bootstrap_image_then_helm_publication(self) -> None:
         events = self.release_document.data["on"]
         self.assertEqual(set(events), {"push", "workflow_dispatch"})
         self.assertEqual(events["push"]["tags"], ["ci-broker-*"])
@@ -176,17 +176,22 @@ class BrokerWorkflowTests(unittest.TestCase):
         self.assertEqual(self.release_document.data["permissions"], {"contents": "read"})
         jobs = self.release_document.data["jobs"]
         self.assertEqual(set(jobs), {"admit", "image", "chart"})
-        self.assertEqual(jobs["admit"]["runs-on"], ["linux", "amd64", "general", "tiny"])
-        self.assertEqual(jobs["image"]["runs-on"], ["linux", "amd64", "buildah", "small"])
-        self.assertEqual(jobs["chart"]["runs-on"], ["linux", "amd64", "general", "small"])
+        self.assertEqual(jobs["admit"]["runs-on"], ["macOS", "ARM64"])
+        self.assertEqual(jobs["image"]["runs-on"], ["macOS", "ARM64"])
+        self.assertEqual(jobs["chart"]["runs-on"], ["macOS", "ARM64"])
         self.assertEqual(jobs["chart"]["needs"], ["admit", "image"])
         self.assertIn("git.faruqi.dev", self.release_text)
         self.assertIn("secrets.FORGEJO_REGISTRY_USERNAME", self.release_text)
         self.assertIn("secrets.FORGEJO_REGISTRY_TOKEN", self.release_text)
+        self.assertIn("docker buildx build", self.release_text)
+        self.assertIn("--platform linux/amd64", self.release_text)
+        self.assertIn("docker pull --platform linux/amd64", self.release_text)
         self.assertIn("helm package", self.release_text)
         self.assertIn('--app-version "${VERSION}"', self.release_text)
-        self.assertIn("skopeo inspect", self.release_text)
+        self.assertIn("canonicalize_chart_archive", self.release_text)
         self.assertIn("helm pull", self.release_text)
+        self.assertNotIn("buildah bud", self.release_text)
+        self.assertNotIn("skopeo inspect", self.release_text)
         self.assertNotIn("ghcr.io", self.release_text)
         self.assertNotIn(":latest", self.release_text)
         self.assertNotIn("upload-artifact", self.release_text)

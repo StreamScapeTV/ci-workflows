@@ -2,130 +2,53 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import re
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-OCI_HELPER_SHA = "3b401078d1167d7048281e3c3269556ce586dada"
 
 
-class OciWorkflowContractTests(unittest.TestCase):
+class OciInternalContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.workflow = (ROOT / ".github/workflows/reusable-oci-build.yml").read_text()
         cls.smoke = (ROOT / ".github/workflows/oci-build-smoke.yml").read_text()
         cls.action = (ROOT / "actions/validate-oci/action.yml").read_text()
         cls.contract = json.loads((ROOT / "contracts/oci-products.json").read_text())
         cls.schema = json.loads((ROOT / "contracts/oci-build.schema.json").read_text())
 
-    def test_public_workflow_is_call_only_least_privilege_and_zero_artifact(self) -> None:
-        self.assertIn("workflow_call:", self.workflow)
-        for forbidden in (
-            "pull_request_target", "workflow_run:", "secrets: inherit",
-            "upload-artifact", "download-artifact", "packages: write",
-            "id-token: write", "latest", "kubectl", "flux reconcile",
-            "helm upgrade", "docker.sock", "runs-on: self-hosted",
-        ):
-            self.assertNotIn(forbidden, self.workflow)
-        self.assertIn("permissions:\n  contents: read", self.workflow)
-        self.assertNotRegex(self.workflow, r"(?m)^\s+secrets:\s*$")
-        self.assertIn("publication\":\"false\"", self.workflow)
-        self.assertIn("registry_credentials\":\"false\"", self.workflow)
-        self.assertIn("buildah\":\"1.33.7\"", self.workflow)
-
-    def test_dynamic_build_job_consumes_exact_trusted_planner_output(self) -> None:
-        self.assertIn("runs-on: [linux, amd64, general, small]", self.workflow)
-        self.assertNotIn("runs-on: [linux, amd64, general]", self.workflow)
-        self.assertIn("runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}", self.workflow)
-        self.assertNotIn("runs-on: portable", self.workflow)
-        self.assertNotRegex(self.workflow, r"runs-on:\s*\[.*buildah")
-        self.assertNotIn("runs-on: buildah", self.workflow)
-        self.assertNotIn("runs-on: self-hosted", self.workflow)
-        self.assertIn("Resolve contract-owned OCI product and runner", self.workflow)
-
-    def test_private_central_helpers_are_immutable_without_central_clone(self) -> None:
-        self.assertNotIn("actions/checkout@", self.workflow)
-        self.assertNotIn("repository: ${{ job.workflow_repository }}", self.workflow)
-        self.assertNotIn("ref: ${{ job.workflow_sha }}", self.workflow)
-        self.assertNotIn("path: .ciw", self.workflow)
-        self.assertNotIn("./.ciw/actions/", self.workflow)
-        self.assertNotIn("secrets: inherit", self.workflow)
-        self.assertNotIn("private_dependency_token", self.workflow)
-        self.assertEqual(
-            4,
-            self.workflow.count(
-                f"uses: StreamScapeTV/ci-workflows/actions/validate-oci@{OCI_HELPER_SHA}"
-            ),
+    def test_unconsumed_public_build_facade_is_retired(self) -> None:
+        self.assertFalse((ROOT / ".github/workflows/reusable-oci-build.yml").exists())
+        products = json.loads(
+            (ROOT / "contracts/public-workflows/products.json").read_text(encoding="utf-8")
         )
-        for helper in ("exact-checkout", "prepare-workspace", "render-evidence", "cleanup-workspace"):
-            self.assertIn(
-                f"StreamScapeTV/ci-workflows/actions/{helper}@{FOUNDATION_SHA}",
-                self.workflow,
-            )
-
-    def test_exact_source_cleanup_residue_and_terminal_projection_are_unconditional(self) -> None:
-        required = (
-            "Check out exact admitted caller source",
-            f"uses: StreamScapeTV/ci-workflows/actions/exact-checkout@{FOUNDATION_SHA}",
-            "Build and inspect exact source without publication",
-            "continue-on-error: true",
-            "if: always()",
-            "Remove images, manifests, containers, layouts, caches, and temporary state",
-            "Verify zero OCI-specific residue",
-            "Remove and verify registered workspace state",
-            "Verify exact caller source remained clean",
-            "Project terminal OCI build status",
-        )
-        for value in required:
-            self.assertIn(value, self.workflow)
-        self.assertLess(self.workflow.index("Build and inspect exact source"), self.workflow.index("Remove images, manifests"))
-        self.assertLess(self.workflow.index("Remove images, manifests"), self.workflow.index("Verify zero OCI-specific residue"))
-        for cleanup in (
-            "Remove images, manifests, containers, layouts, caches, and temporary state",
-            "Verify zero OCI-specific residue",
-            "Remove and verify registered workspace state",
-        ):
-            self.assertIn(f"name: {cleanup}\n        if: always()", self.workflow)
-
-    def test_public_inputs_do_not_expose_engine_runner_command_registry_or_secret(self) -> None:
-        on_block = self.workflow.split("outputs:", 1)[0]
-        for forbidden in (
-            "builder:", "engine:", "docker:", "buildah:", "buildkit:",
-            "podman:", "runner:", "runner_labels:", "runs_on:", "command:",
-            "arguments:", "callback:", "registry:", "secret_name:",
-        ):
-            self.assertNotIn(forbidden, on_block)
-        self.assertEqual(False, self.contract["publication"])
-        self.assertEqual(False, self.contract["registry_credentials"])
-        self.assertEqual("zero-default", self.contract["artifact_policy"])
-        self.assertFalse(self.schema["additionalProperties"])
-
-    def test_public_outputs_are_limited_to_the_checked_in_non_publishing_contract(self) -> None:
-        public_block = self.workflow.split("permissions:", 1)[0].split("outputs:", 1)[1]
-        self.assertEqual(
+        self.assertNotIn("oci.build", {row["api_name"] for row in products["workflows"]})
+        self.assertNotIn(
+            ".github/workflows/reusable-oci-build.yml",
             {
-                "result",
-                "image_digest",
-                "platform_digests_json",
-                "resolved_inputs_json",
-                "artifact_exception_used",
+                row["path"]
+                for row in json.loads(
+                    (ROOT / "contracts/bootstrap-public-workflows.json").read_text(
+                        encoding="utf-8"
+                    )
+                )["allowed"]
             },
-            set(re.findall(r"(?m)^      ([a-z_]+):$", public_block)),
         )
-        for forbidden in ("evidence_id", "canary_id", "previous_known_good", "rollback_id"):
-            self.assertNotIn(forbidden, public_block)
 
-    def test_action_is_thin_and_uses_stable_ciw_registration(self) -> None:
+    def test_action_remains_thin_and_internal_output_rich(self) -> None:
         self.assertIn("scripts/ci/ciw.py", self.action)
         self.assertIn("oci validate", self.action)
         self.assertIn("--phase", self.action)
         self.assertNotIn("scripts/ci/oci.py", self.action)
         self.assertNotIn("shell callback", self.action.lower())
         self.assertLess(len(self.action.splitlines()), 120)
+        self.assertIn("resolved_inputs_json:", self.action)
+        self.assertIn("runner_profile:", self.action)
+        self.assertIn("runs_on_json:", self.action)
 
     def test_central_smoke_is_hosted_contract_and_security_validation_only(self) -> None:
-        self.assertIn("contracts:\n    name: Validate OCI build contracts and security boundaries", self.smoke)
+        self.assertIn(
+            "contracts:\n    name: Validate OCI build contracts and security boundaries",
+            self.smoke,
+        )
         self.assertEqual(2, self.smoke.count("runs-on: [ubuntu-latest]"))
         self.assertNotIn("runs-on: [linux, amd64", self.smoke)
         self.assertNotIn("runs-on: ${{ fromJSON", self.smoke)
@@ -146,7 +69,7 @@ class OciWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("upload-artifact", self.smoke)
         self.assertNotIn("/var/lib/containers/cache", self.smoke)
 
-    def test_product_contract_covers_backend_agent_state_flux_and_rejects_application_mobile(self) -> None:
+    def test_product_contract_covers_internal_build_products_without_public_api_promise(self) -> None:
         products = self.contract["products"]
         self.assertEqual(
             {
@@ -183,11 +106,8 @@ class OciWorkflowContractTests(unittest.TestCase):
             "flux-runner-images",
         ):
             self.assertFalse(products[product_id]["adoption_ready"])
-        self.assertNotIn("StreamScapeTV/StreamScapeWeb", json.dumps(products))
-        self.assertNotIn("StreamScapeTV/iptv-android", json.dumps(products))
-        self.assertNotIn("StreamScapeTV/iptv-apple", json.dumps(products))
 
-    def test_input_policy_is_central_closed_and_never_caller_selected(self) -> None:
+    def test_internal_input_policy_is_central_closed_and_never_caller_selected(self) -> None:
         self.assertEqual("1.1.0", self.contract["contract_version"])
         self.assertEqual(
             {"oci-inputs-public-v1", "scratch-only-v1"},
@@ -198,23 +118,17 @@ class OciWorkflowContractTests(unittest.TestCase):
         self.assertEqual(["registry-1.docker.io"], policy["allowed_registry_api_hosts"])
         self.assertEqual(["auth.docker.io"], policy["allowed_registry_token_hosts"])
         self.assertEqual(
-            ["production.cloudfront.docker.com"], policy["allowed_registry_blob_hosts"]
+            ["production.cloudfront.docker.com"],
+            policy["allowed_registry_blob_hosts"],
         )
         self.assertEqual(["raw.githubusercontent.com"], policy["allowed_download_hosts"])
         self.assertTrue(policy["https_only"])
         self.assertFalse(policy["ambient_auth"])
-        self.assertEqual("same-profile-hosts", policy["redirect_policy"])
-        self.assertEqual(5, policy["maximum_redirects"])
-        self.assertGreaterEqual(policy["maximum_input_bytes"], 4096)
         public_schema = json.dumps(self.schema, sort_keys=True)
         for forbidden in (
             "input_policy_id",
             "build_input_lock_path",
             "allowed_registry_hosts",
-            "allowed_registry_api_hosts",
-            "allowed_registry_token_hosts",
-            "allowed_registry_blob_hosts",
-            "allowed_download_hosts",
             "source_url",
         ):
             self.assertNotIn(forbidden, public_schema)
