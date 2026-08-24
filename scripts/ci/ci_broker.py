@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 import argparse
-import io
 import json
 import os
 from pathlib import Path
 import re
 import sys
+from typing import Any, Mapping
 import urllib.error
 import urllib.request
 
@@ -46,15 +46,15 @@ def _safe_remote_code(raw: bytes) -> str | None:
 
 
 def _diagnose_broker_callback(
-    environment: dict[str, str] | os._Environ[str] = os.environ,
-    opener: object = urllib.request.urlopen,
+    environment: Mapping[str, str] = os.environ,
+    opener: Any = urllib.request.urlopen,
 ) -> str | None:
     dispatch_id = environment.get("CI_DISPATCH_ID", "")
     dispatch_token = environment.get("CI_DISPATCH_TOKEN", "")
     if not dispatch_id or not dispatch_token:
         return None
     try:
-        oidc = _request_oidc_token(environment, opener)  # type: ignore[arg-type]
+        oidc = _request_oidc_token(environment, opener)
         request = urllib.request.Request(
             _broker_url(environment) + "/actions/route",
             data=_canonical(
@@ -68,7 +68,7 @@ def _diagnose_broker_callback(
             },
         )
         try:
-            with opener(request, timeout=30) as response:  # type: ignore[operator]
+            with opener(request, timeout=30) as response:
                 raw = response.read(_DIAGNOSTIC_BYTES + 1)
                 status = int(getattr(response, "status", response.getcode()))
         except urllib.error.HTTPError as error:
