@@ -17,7 +17,7 @@ class BrokerImageTests(unittest.TestCase):
         cls.workflow = WORKFLOW.read_text(encoding="utf-8")
         cls.containerfile = CONTAINERFILE.read_text(encoding="utf-8")
 
-    def test_release_is_exact_tag_or_owner_replay_on_reviewed_macos_capacity(self) -> None:
+    def test_release_is_exact_tag_or_owner_replay_on_reviewed_arc_capacity(self) -> None:
         events = self.document.data["on"]
         self.assertEqual(set(events), {"push", "workflow_dispatch"})
         self.assertEqual(events["push"]["tags"], ["ci-broker-*"])
@@ -32,9 +32,18 @@ class BrokerImageTests(unittest.TestCase):
             admit["if"],
             "${{ github.event_name != 'workflow_dispatch' || github.actor == 'mimranfaruqi' }}",
         )
-        self.assertEqual(admit["runs-on"], ["macOS", "ARM64"])
-        self.assertEqual(self.document.data["jobs"]["image"]["runs-on"], ["macOS", "ARM64"])
-        self.assertEqual(self.document.data["jobs"]["chart"]["runs-on"], ["macOS", "ARM64"])
+        self.assertEqual(
+            admit["runs-on"],
+            ["linux", "amd64", "general", "tiny"],
+        )
+        self.assertEqual(
+            self.document.data["jobs"]["image"]["runs-on"],
+            ["linux", "amd64", "buildah", "small"],
+        )
+        self.assertEqual(
+            self.document.data["jobs"]["chart"]["runs-on"],
+            ["linux", "amd64", "general", "small"],
+        )
         self.assertIn("^ci-broker-", self.workflow)
         self.assertIn("format('refs/tags/{0}', inputs.release_tag)", self.workflow)
         self.assertIn('test "${GITHUB_REF}" = "refs/tags/${RELEASE_TAG}"', self.workflow)
@@ -60,33 +69,27 @@ class BrokerImageTests(unittest.TestCase):
         for forbidden in ("apt-get", "pip install", "curl ", "wget ", "ADD http"):
             self.assertNotIn(forbidden, self.containerfile)
 
-    def test_release_cross_builds_once_smokes_before_private_push_and_readback(self) -> None:
-        self.assertEqual(self.workflow.count("docker buildx build"), 1)
+    def test_release_builds_once_smokes_before_private_push_and_readback(self) -> None:
+        self.assertEqual(self.workflow.count("buildah bud"), 1)
         smoke = self.workflow.index("Smoke exact local broker image")
         publish = self.workflow.index("Publish immutable image version and read it back")
         chart = self.workflow.index("Package publish and read back broker Helm chart")
         self.assertLess(smoke, publish)
         self.assertLess(publish, chart)
-        self.assertIn("--platform linux/amd64", self.workflow)
-        self.assertIn("docker run", self.workflow)
         self.assertIn("git.faruqi.dev", self.workflow)
         self.assertIn("${REGISTRY}/${REGISTRY_NAMESPACE}/${IMAGE_NAME}:${VERSION}", self.workflow)
-        self.assertIn("docker pull --platform linux/amd64", self.workflow)
-        self.assertIn("docker login", self.workflow)
-        self.assertIn("canonicalize_chart_archive", self.workflow)
+        self.assertIn("skopeo inspect --authfile", self.workflow)
+        self.assertIn("buildah logout", self.workflow)
         self.assertIn("helm push", self.workflow)
         self.assertIn("helm pull", self.workflow)
-        self.assertNotIn("buildah bud", self.workflow)
-        self.assertNotIn("skopeo inspect", self.workflow)
         self.assertNotIn("ghcr.io", self.workflow)
         self.assertNotIn(":latest", self.workflow)
         self.assertNotIn("upload-artifact", self.workflow)
 
     def test_release_has_unconditional_registry_image_and_helm_cleanup(self) -> None:
         self.assertIn("if: always()", self.workflow)
-        self.assertIn("docker image rm -f", self.workflow)
-        self.assertIn('docker logout "${REGISTRY}"', self.workflow)
-        self.assertIn('rm -rf -- "${BROKER_DOCKER_CONFIG}"', self.workflow)
+        self.assertIn("buildah rmi", self.workflow)
+        self.assertIn('rm -f -- "${BROKER_REGISTRY_AUTH}"', self.workflow)
         self.assertIn('helm registry logout "${REGISTRY}"', self.workflow)
         self.assertIn('rm -rf -- "${BROKER_HELM_ROOT}"', self.workflow)
         self.assertIn("git status --porcelain=v1 --untracked-files=all", self.workflow)

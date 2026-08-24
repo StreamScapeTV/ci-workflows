@@ -172,7 +172,7 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
             ],
         )
 
-    def test_private_forgejo_broker_release_uses_bounded_macos_bootstrap_capacity(self) -> None:
+    def test_private_forgejo_broker_release_is_the_only_arc_repository_local_exception(self) -> None:
         workflow = yaml.load(BROKER_RELEASE.read_text(encoding="utf-8"), Loader=ActionsLoader)
         self.assertEqual(_events(workflow), {"push", "workflow_dispatch"})
         self.assertEqual(workflow["on"]["push"]["tags"], ["ci-broker-*"])
@@ -182,10 +182,7 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
         )
         self.assertEqual(set(workflow["jobs"]), {"admit", "image", "chart"})
 
-        reason = (
-            "owner-authorized broker bootstrap publication uses organization macOS capacity "
-            "while private Forgejo is unreachable from GitHub-hosted runners"
-        )
+        reason = "private Forgejo registry is reachable only from organization ARC capacity"
         self.assertEqual(
             _backend_contract()["repository_local_trusted_publication_exceptions"],
             [
@@ -194,7 +191,7 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
                     "job": "admit",
                     "events": ["push", "workflow_dispatch"],
                     "tag_prefix": "ci-broker-",
-                    "exact_selector": ["macOS", "ARM64"],
+                    "exact_selector": ["linux", "amd64", "general", "tiny"],
                     "reason": reason,
                 },
                 {
@@ -202,7 +199,7 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
                     "job": "image",
                     "events": ["push", "workflow_dispatch"],
                     "tag_prefix": "ci-broker-",
-                    "exact_selector": ["macOS", "ARM64"],
+                    "exact_selector": ["linux", "amd64", "buildah", "small"],
                     "reason": reason,
                 },
                 {
@@ -210,7 +207,7 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
                     "job": "chart",
                     "events": ["push", "workflow_dispatch"],
                     "tag_prefix": "ci-broker-",
-                    "exact_selector": ["macOS", "ARM64"],
+                    "exact_selector": ["linux", "amd64", "general", "small"],
                     "reason": reason,
                 },
             ],
