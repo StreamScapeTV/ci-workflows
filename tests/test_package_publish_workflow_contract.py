@@ -131,7 +131,9 @@ class PackagePublishWorkflowContractTests(unittest.TestCase):
         self.assertIn("runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}", self.workflow)
         self.assertNotIn("runs-on: portable", self.workflow)
         self.assertNotRegex(self.workflow, r"runs-on:\s*\[.*buildah")
-        self.assertIn("python3 -m ci_workflows.ciw_packages", self.workflow)
+        self.assertEqual(2, self.workflow.count('python3 "${GITHUB_WORKSPACE}/.ciw/scripts/ci/ciw.py"'))
+        self.assertEqual(2, self.workflow.count("package publish"))
+        self.assertNotIn("ci_workflows.ciw_packages", self.workflow)
         self.assertIn("--phase plan", self.workflow)
         self.assertIn("--phase execute", self.workflow)
 
