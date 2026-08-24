@@ -1,4 +1,4 @@
-"""Regression coverage for public Central repository smoke runner routing."""
+"""Regression coverage for retained public Central contract smoke runner routing."""
 
 from __future__ import annotations
 
@@ -9,14 +9,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 HOSTED_CONTROL_SMOKES = (
-    ".github/workflows/helm-validation-smoke.yml",
     ".github/workflows/device-validation-contract-smoke.yml",
     ".github/workflows/device-lock-contract-smoke.yml",
 )
 
 
 class PublicRepositorySmokeRoutingTests(unittest.TestCase):
-    def test_portable_public_smokes_use_only_canonical_hosted_linux(self) -> None:
+    def test_retained_portable_contract_smokes_use_only_canonical_hosted_linux(self) -> None:
         for relative in HOSTED_CONTROL_SMOKES:
             with self.subTest(workflow=relative):
                 source = (ROOT / relative).read_text(encoding="utf-8")
@@ -45,6 +44,9 @@ class PublicRepositorySmokeRoutingTests(unittest.TestCase):
         self.assertIn("issue-136-synthetic-owner-authorization", source)
         self.assertIn("Verify device lock smoke artifacts remain zero", source)
         self.assertEqual(2, source.count("runs-on: [ubuntu-latest]"))
+
+    def test_retired_helm_contract_smoke_is_not_a_github_entrypoint(self) -> None:
+        self.assertFalse((ROOT / ".github/workflows/helm-validation-smoke.yml").exists())
 
 
 if __name__ == "__main__":
