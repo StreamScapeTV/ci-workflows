@@ -167,8 +167,12 @@ class BrokerWorkflowTests(unittest.TestCase):
 
     def test_broker_release_uses_private_arc_image_then_helm_publication(self) -> None:
         events = self.release_document.data["on"]
-        self.assertEqual(set(events), {"push"})
+        self.assertEqual(set(events), {"push", "workflow_dispatch"})
         self.assertEqual(events["push"]["tags"], ["ci-broker-*"])
+        self.assertEqual(
+            set(events["workflow_dispatch"]["inputs"]),
+            {"release_tag"},
+        )
         self.assertEqual(self.release_document.data["permissions"], {"contents": "read"})
         jobs = self.release_document.data["jobs"]
         self.assertEqual(set(jobs), {"admit", "image", "chart"})
@@ -196,7 +200,10 @@ class BrokerWorkflowTests(unittest.TestCase):
         release = self.policy["workflow_admission"]["workflows"][
             ".github/workflows/ci-broker-image.yml"
         ]
-        self.assertEqual(release, {"trust_class": "tag-release", "allowed_events": ["push"]})
+        self.assertEqual(
+            release,
+            {"trust_class": "tag-release", "allowed_events": ["push", "workflow_dispatch"]},
+        )
         self.assertEqual(
             self.contract["dispatch"]["inputs"],
             ["dispatch_id", "dispatch_token"],
