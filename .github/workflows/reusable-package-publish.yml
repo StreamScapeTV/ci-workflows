@@ -9,7 +9,7 @@ on:
         default: organization
         type: string
       ecosystem:
-        description: Package ecosystem: python, npm, or jvm
+        description: 'Package ecosystem: python, npm, or jvm'
         required: true
         type: string
       working_directory:
