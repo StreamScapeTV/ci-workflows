@@ -223,7 +223,9 @@ class LifecycleActionTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, document["inputs"])
         text = ACTION.read_text(encoding="utf-8")
-        self.assertIn("scripts/ci/ci_lifecycle.py", text)
+        self.assertIn("scripts/ci/ciw.py", text)
+        self.assertIn("lifecycle", text)
+        self.assertNotIn("scripts/ci/ci_lifecycle.py", text)
         self.assertNotIn("secrets.", text)
 
 
