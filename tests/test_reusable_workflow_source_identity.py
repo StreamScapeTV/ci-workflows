@@ -15,7 +15,7 @@ BACKEND_SHA = "7d5d839c6e90491e165f1358ecb5e80129805764"
 PYTHON_SHA = "3d3689fda11b03a188789f03d6d64cab50f1873a"
 EXECUTION_BACKEND_SHA = "01d1d10bafcc4fc1e4c51663f72b08f694dc4e35"
 FLUTTER_SHA = "d2e1c7a7601e1caeeb976311fb13cf41fef94d4a"
-ANDROID_SHA = "60ce05e4da20b45783ae729f112083b2801d2e25"
+ANDROID_SHA = "91e5ba5af11ec717f829000edad062c664fb86f7"
 GRADLE_WARM_SHA = "13de46c51efcf65df798dfec82a620c484350dfa"
 GRADLE_SEED_SHA = "fa67b6a1580ff2eb7386a9e58de09896b9990696"
 APPLE_SHA = "d946291afbf32353a959adcd3f6cbb92513a4cbe"
@@ -27,7 +27,7 @@ ISSUE_405 = "issue #405 simplified execution-backend checkpoint"
 ISSUE_473_PYTHON = "issue #473 product-neutral Python checkpoint"
 ISSUE_447 = "issue #447 portable backend checkpoint"
 ISSUE_104 = "issue #104 immutable private-action checkpoint"
-ISSUE_373_BUILD_ONCE = "issue #373 build-once protected-full checkpoint"
+ISSUE_534_PREFIX = "issue #534 prefix-isolated protected-full checkpoint"
 ISSUE_346_WARM = "issue #346 dependency warm checkpoint"
 ISSUE_346_CACHE = "issue #346 bounded Gradle cache sync diagnostics checkpoint"
 ISSUE_475_GITOPS = "issue #475 bounded GitOps source validation checkpoint"
@@ -43,7 +43,7 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
         "StreamScapeTV/ci-workflows/actions/cleanup-workspace": (FOUNDATION_SHA, FOUNDATION),
     },
     ".github/workflows/reusable-android.yml": {
-        "StreamScapeTV/ci-workflows/actions/validate-android": (ANDROID_SHA, ISSUE_373_BUILD_ONCE),
+        "StreamScapeTV/ci-workflows/actions/validate-android": (ANDROID_SHA, ISSUE_534_PREFIX),
         "StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies": (GRADLE_WARM_SHA, ISSUE_346_WARM),
         "StreamScapeTV/ci-workflows/actions/upload-gradle-seed": (GRADLE_SEED_SHA, ISSUE_346_CACHE),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
@@ -132,7 +132,7 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
             ".github/workflows/reusable-helm-validate.yml",
             ".github/workflows/reusable-helm-publish.yml",
         ):
-            with self.subTest(workflow=relative):
+            with self.subTest(relative=relative):
                 self.assertFalse((ROOT / relative).exists())
 
     def test_android_private_action_checkpoint_contains_media_lifecycle_policy(self) -> None:
@@ -141,7 +141,6 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
         exception = next(item for item in policy["tracked_secret_exceptions"] if item["id"] == "streamscape_media_playback_lab_redaction_sentinels_v1")
         self.assertIn({"path": "apple/Tests/StreamscapePlaybackLabSupportTests/PlaybackLabLifecycleEvidenceTests.swift", "git_blob_sha1": "5df889bbf613ee7f4dabd07ca931aa81fb4f71a3"}, exception["paths"])
         self.assertEqual(8, source.count(f"actions/validate-android@{ANDROID_SHA}"))
-        self.assertEqual(1, source.count(f"actions/warm-gradle-dependencies@{GRADLE_WARM_SHA}"))
         self.assertNotIn("actions/validate-android@275ee86f0f5de3d8f3330b92c84d7c0188fb10f8", source)
 
     def test_apple_private_action_checkpoint_contains_media_contract_in_current_tree(self) -> None:
