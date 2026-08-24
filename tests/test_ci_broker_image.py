@@ -76,6 +76,10 @@ class BrokerImageTests(unittest.TestCase):
         chart = self.workflow.index("Package publish and read back broker Helm chart")
         self.assertLess(smoke, publish)
         self.assertLess(publish, chart)
+        self.assertIn(
+            'buildah from --authfile "${BROKER_REGISTRY_AUTH}" --name "${container}" "${local_ref}"',
+            self.workflow,
+        )
         self.assertIn("git.faruqi.dev", self.workflow)
         self.assertIn("${REGISTRY}/${REGISTRY_NAMESPACE}/${IMAGE_NAME}:${VERSION}", self.workflow)
         self.assertIn("skopeo inspect --authfile", self.workflow)
