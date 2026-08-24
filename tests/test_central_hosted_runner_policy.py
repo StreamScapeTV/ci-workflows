@@ -65,7 +65,7 @@ def _expected_repository_local_selector(path: Path, job_name: str) -> list[str]:
     contract = _backend_contract()
     for exception in contract.get("repository_local_trusted_publication_exceptions", []):
         if exception["workflow"] == relative and exception["job"] == job_name:
-            return list(exception["runs_on"])
+            return list(exception["exact_selector"])
     for exception in contract["github-hosted"].get("repository_local_exceptions", []):
         if exception["workflow"] == relative and exception["job"] == job_name:
             return list(exception["runs_on"])
@@ -187,7 +187,7 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
                     "job": "admit",
                     "events": ["push"],
                     "tag_prefix": "ci-broker-",
-                    "runs_on": ["linux", "amd64", "general", "tiny"],
+                    "exact_selector": ["linux", "amd64", "general", "tiny"],
                     "reason": reason,
                 },
                 {
@@ -195,7 +195,7 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
                     "job": "image",
                     "events": ["push"],
                     "tag_prefix": "ci-broker-",
-                    "runs_on": ["linux", "amd64", "buildah", "small"],
+                    "exact_selector": ["linux", "amd64", "buildah", "small"],
                     "reason": reason,
                 },
                 {
@@ -203,7 +203,7 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
                     "job": "chart",
                     "events": ["push"],
                     "tag_prefix": "ci-broker-",
-                    "runs_on": ["linux", "amd64", "general", "small"],
+                    "exact_selector": ["linux", "amd64", "general", "small"],
                     "reason": reason,
                 },
             ],
