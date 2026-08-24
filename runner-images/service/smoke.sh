@@ -43,6 +43,16 @@ if [[ "${CIW_RUNNER_IMAGE_BUILD_PHASE:-0}" = "1" ]]; then
   exit 0
 fi
 
+# The shared GitHub-hosted image builder executes this finished image inside an
+# existing rootless Buildah user namespace. That environment cannot create the
+# second user namespace required by rootless Podman (newuidmap is denied by the
+# outer namespace). Keep that packaging probe static; the same default smoke on
+# a normal service-small runner executes the live network/DNS proof below.
+if ! grep -Eq '^[[:space:]]*0[[:space:]]+0[[:space:]]+4294967295[[:space:]]*$' /proc/self/uid_map; then
+  echo 'service runner network smoke: live probe deferred inside nested validation user namespace'
+  exit 0
+fi
+
 test "$(podman info --format '{{.Host.NetworkBackend}}')" = netavark
 
 smoke_root=/home/runner/_work/runner-service-network-smoke

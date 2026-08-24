@@ -57,6 +57,8 @@ class ServiceRunnerDnsTests(unittest.TestCase):
             self.dockerfile,
         )
         for expected in (
+            "4294967295",
+            "live probe deferred inside nested validation user namespace",
             'network_name="ciw-service-smoke-$$"',
             'podman network create "${network_name}"',
             "podman network inspect --format '{{.DNSEnabled}}'",
