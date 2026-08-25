@@ -24,7 +24,7 @@ _MAX_RECEIPT_BYTES = 512
 _MAX_CAPABILITY_CHARS = 1024
 _CAPABILITY = re.compile(r"[A-Za-z0-9_-]{16,1024}\Z")
 _RECEIPT = re.compile(
-    r"r2:(ci-diagnostics/[A-Za-z0-9][A-Za-z0-9._-]{0,127}/"
+    r"r2:(ci-diagnostics/[A-Za-z0-9][A-Za-z0-9._-]{0,127}/[0-9a-f]{32}/"
     r"[1-9][0-9]{0,18}-[1-9][0-9]{0,3}[.]log[.]gz)"
     r"#sha256=([0-9a-f]{64})\Z"
 )
@@ -243,7 +243,9 @@ def serve(config: DiagnosticReadConfig | None = None) -> None:
 def self_check() -> dict[str, object]:
     receipt = (
         "r2:ci-diagnostics/00000000-0000-4000-8000-000000000019/"
-        "32860000001-1.log.gz#sha256=" + "a" * 64
+        + "b" * 32
+        + "/32860000001-1.log.gz#sha256="
+        + "a" * 64
     )
     token = encode_receipt_capability(receipt)
     parsed = decode_receipt_capability(token)
