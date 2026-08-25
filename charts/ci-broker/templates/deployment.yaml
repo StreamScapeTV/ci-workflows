@@ -51,9 +51,31 @@ spec:
           env:
             - name: CI_BROKER_PORT
               value: "8080"
-          envFrom:
-            - secretRef:
-                name: {{ .Values.existingSecret.name }}
+            - name: GITHUB_DISPATCH_APP_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret.name }}
+                  key: GITHUB_DISPATCH_APP_ID
+            - name: GITHUB_DISPATCH_APP_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret.name }}
+                  key: GITHUB_DISPATCH_APP_PRIVATE_KEY
+            - name: AGENT_STATE_SUPABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret.name }}
+                  key: AGENT_STATE_SUPABASE_URL
+            - name: AGENT_STATE_SUPABASE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret.name }}
+                  key: AGENT_STATE_SUPABASE_SECRET_KEY
+            - name: AGENT_STATE_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret.name }}
+                  key: AGENT_STATE_WEBHOOK_SECRET
           readinessProbe:
             httpGet:
               path: /healthz
