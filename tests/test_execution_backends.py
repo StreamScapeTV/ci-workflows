@@ -13,11 +13,19 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ExecutionBackendTests(unittest.TestCase):
-    def test_contract_has_only_default_and_fixed_hosted_selector(self) -> None:
+    def test_contract_has_only_default_and_fixed_hosted_selectors(self) -> None:
         contract = json.loads((ROOT / "contracts/runner-execution-backends.json").read_text())
         self.assertEqual(contract["default_backend"], "organization")
         self.assertEqual(contract["allowed_backends"], ["organization", "github-hosted"])
         self.assertEqual(contract["github-hosted"]["runs_on"], ["ubuntu-latest"])
+        self.assertEqual(
+            contract["github-hosted"]["profile_runs_on"],
+            {
+                "general-tiny": ["ubuntu-latest"],
+                "general-small": ["ubuntu-latest"],
+                "apple": ["macos-latest"],
+            },
+        )
 
     def test_organization_preserves_existing_selector_exactly(self) -> None:
         resolved = resolve_execution_backend(
@@ -27,21 +35,33 @@ class ExecutionBackendTests(unittest.TestCase):
         )
         self.assertEqual(resolved.runs_on, ("linux", "amd64", "general", "small"))
 
-    def test_hosted_maps_only_portable_general_profiles_to_ubuntu_latest(self) -> None:
-        for profile in ("general-tiny", "general-small"):
+    def test_hosted_maps_reviewed_profiles_to_fixed_hosted_selectors(self) -> None:
+        cases = {
+            "general-tiny": ("ubuntu-latest",),
+            "general-small": ("ubuntu-latest",),
+            "apple": ("macos-latest",),
+        }
+        for profile, expected in cases.items():
             with self.subTest(profile=profile):
+                organization = (
+                    ("macOS", "ARM64")
+                    if profile == "apple"
+                    else ("linux", "amd64", "general", "small")
+                )
                 resolved = resolve_execution_backend(
                     execution_backend="github-hosted",
                     execution_profile=profile,
-                    organization_runs_on=("linux", "amd64", "general", "small"),
+                    organization_runs_on=organization,
                 )
-                self.assertEqual(resolved.runs_on, ("ubuntu-latest",))
-                self.assertEqual(resolved.as_dict()["runs_on_json"], '["ubuntu-latest"]')
+                self.assertEqual(resolved.runs_on, expected)
+                self.assertEqual(
+                    resolved.as_dict()["runs_on_json"],
+                    json.dumps(list(expected), separators=(",", ":")),
+                )
 
     def test_hosted_rejects_unproven_specialized_profiles_instead_of_falling_back(self) -> None:
         selectors = {
             "mobile": ("linux", "amd64", "mobile"),
-            "apple": ("macOS", "ARM64"),
             "service-small": ("linux", "amd64", "service", "small"),
             "buildah-medium": ("linux", "amd64", "buildah", "medium"),
             "buildah-high": ("linux", "amd64", "buildah", "high"),
