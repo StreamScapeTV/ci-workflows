@@ -1,0 +1,26 @@
+# COPY/ADAPT EXAMPLE for the normal private-registry product release path.
+name: TODO tagged image and Helm release
+
+"on":
+  push:
+    tags:
+      - "*.*.*"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    permissions:
+      contents: read
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-native-image-chart.yml@main
+    with:
+      image_name: TODO_IMAGE_NAME
+      chart_name: TODO_CHART_NAME
+      chart_path: TODO_CHART_PATH
+      dockerfile_path: TODO_DOCKERFILE_PATH
+      build_context: TODO_BUILD_CONTEXT
+    secrets:
+      registry_username: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+      registry_token: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
