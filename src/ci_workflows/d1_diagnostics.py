@@ -29,7 +29,7 @@ _PROFILE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 _CODE = re.compile(r"[a-z][a-z0-9._-]{0,63}\Z")
 _STAGE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,127}\Z")
 _ACCOUNT = re.compile(r"[A-Za-z0-9]{1,32}\Z")
-_SHA256 = re.compile(r"[0-9a-f]{64}\Z")
+_API_TOKEN = re.compile(r"[A-Za-z0-9_-]{20,512}\Z")
 _ALLOWED_STATUS = {"succeeded", "failed", "cancelled", "timed_out"}
 _ALLOWED_SEVERITY = {"warning", "error"}
 _SECRET_ASSIGNMENT = re.compile(
@@ -179,20 +179,29 @@ def _ref(value: object) -> str:
 
 def _sanitize_message(value: object) -> str:
     _require(isinstance(value, str), "invalid_diagnostic_message")
-    text = " ".join(value.replace("\x00", " ").replace("\r", " ").replace("\n", " ").split())
+    text = " ".join(
+        value.replace("\x00", " ").replace("\r", " ").replace("\n", " ").split()
+    )
     _require(bool(text), "invalid_diagnostic_message")
     text = _URL_CREDENTIAL.sub("https://<redacted>@", text)
-    text = _SECRET_ASSIGNMENT.sub(lambda match: f"{match.group(1)}=<redacted>", text)
     text = _BEARER.sub("Bearer <redacted>", text)
     text = _GITHUB_TOKEN.sub("<redacted>", text)
-    encoded = text.encode("utf-8")
-    _require(len(encoded) <= _MAX_MESSAGE_BYTES, "diagnostic_message_too_large")
+    text = _SECRET_ASSIGNMENT.sub(
+        lambda match: f"{match.group(1)}=<redacted>", text
+    )
+    _require(
+        len(text.encode("utf-8")) <= _MAX_MESSAGE_BYTES,
+        "diagnostic_message_too_large",
+    )
     return text
 
 
 def _json_array(raw: object) -> list[object]:
     _require(isinstance(raw, str), "invalid_diagnostics_json")
-    _require(0 < len(raw.encode("utf-8")) <= _MAX_DIAGNOSTICS_BYTES, "diagnostics_too_large")
+    _require(
+        0 < len(raw.encode("utf-8")) <= _MAX_DIAGNOSTICS_BYTES,
+        "diagnostics_too_large",
+    )
 
     def hook(pairs: list[tuple[str, object]]) -> dict[str, object]:
         result: dict[str, object] = {}
@@ -211,13 +220,23 @@ def _json_array(raw: object) -> list[object]:
     return parsed
 
 
-def normalize_diagnostics(raw: object) -> tuple[tuple[dict[str, str], ...], str, str]:
+def normalize_diagnostics(
+    raw: object,
+) -> tuple[tuple[dict[str, str], ...], str, str]:
     rows: list[dict[str, str]] = []
     for item in _json_array(raw):
         _require(isinstance(item, dict), "invalid_diagnostic")
-        _require(set(item).issubset({"severity", "code", "stage", "message"}), "invalid_diagnostic")
-        _require({"severity", "code", "message"}.issubset(item), "invalid_diagnostic")
-        severity = _plain(item["severity"], "invalid_diagnostic_severity", maximum=16).lower()
+        _require(
+            set(item).issubset({"severity", "code", "stage", "message"}),
+            "invalid_diagnostic",
+        )
+        _require(
+            {"severity", "code", "message"}.issubset(item),
+            "invalid_diagnostic",
+        )
+        severity = _plain(
+            item["severity"], "invalid_diagnostic_severity", maximum=16
+        ).lower()
         _require(severity in _ALLOWED_SEVERITY, "invalid_diagnostic_severity")
         code = _match(item["code"], _CODE, "invalid_diagnostic_code")
         stage = ""
@@ -231,8 +250,13 @@ def normalize_diagnostics(raw: object) -> tuple[tuple[dict[str, str], ...], str,
                 "message": _sanitize_message(item["message"]),
             }
         )
-    canonical = json.dumps(rows, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    _require(len(canonical.encode("utf-8")) <= _MAX_DIAGNOSTICS_BYTES, "diagnostics_too_large")
+    canonical = json.dumps(
+        rows, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
+    _require(
+        len(canonical.encode("utf-8")) <= _MAX_DIAGNOSTICS_BYTES,
+        "diagnostics_too_large",
+    )
     digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     return tuple(rows), canonical, digest
 
@@ -288,13 +312,17 @@ def build_request(
     status: object,
     diagnostics_json: object,
 ) -> D1DiagnosticRequest:
-    _rows, canonical, digest = normalize_diagnostics(diagnostics_json)
-    checked_status = _plain(status, "invalid_diagnostic_status", maximum=16).lower()
+    rows, canonical, digest = normalize_diagnostics(diagnostics_json)
+    checked_status = _plain(
+        status, "invalid_diagnostic_status", maximum=16
+    ).lower()
     _require(checked_status in _ALLOWED_STATUS, "invalid_diagnostic_status")
     return D1DiagnosticRequest(
         ci_run_id=_uuid(ci_run_id),
         run_attempt=_positive_int(run_attempt, "invalid_run_attempt", 1000),
-        github_run_id=_positive_int(github_run_id, "invalid_github_run_id", 2**63 - 1),
+        github_run_id=_positive_int(
+            github_run_id, "invalid_github_run_id", 2**63 - 1
+        ),
         project_key=_match(project_key, _PROJECT, "invalid_project_key"),
         repository=_match(repository, _REPOSITORY, "invalid_repository"),
         ref=_ref(ref),
@@ -304,33 +332,39 @@ def build_request(
         status=checked_status,
         diagnostics_json=canonical,
         diagnostics_sha256=digest,
-        diagnostic_count=len(_rows),
+        diagnostic_count=len(rows),
     )
 
 
 def _timestamp(value: datetime) -> str:
+    _require(
+        value.tzinfo is not None and value.utcoffset() is not None,
+        "invalid_timestamp",
+    )
     checked = value.astimezone(timezone.utc).replace(microsecond=0)
     return checked.isoformat().replace("+00:00", "Z")
 
 
-def _request_payload(request: D1DiagnosticRequest, now: datetime) -> tuple[dict[str, object], str, str]:
+def _request_payload(
+    request: D1DiagnosticRequest, now: datetime
+) -> tuple[dict[str, object], str, str]:
     created_at = _timestamp(now)
     expires_at = _timestamp(now + timedelta(hours=_RETENTION_HOURS))
-    params: list[object] = [
+    params: list[str] = [
         request.diagnostic_key,
         request.ci_run_id,
-        request.run_attempt,
-        request.github_run_id,
+        str(request.run_attempt),
+        str(request.github_run_id),
         request.project_key,
         request.repository,
         request.ref,
-        1 if request.is_tag else 0,
+        "1" if request.is_tag else "0",
         request.workflow_key,
         request.profile,
         request.status,
         request.diagnostics_json,
         request.diagnostics_sha256,
-        request.diagnostic_count,
+        str(request.diagnostic_count),
         created_at,
         created_at,
         expires_at,
@@ -347,13 +381,32 @@ def _request_payload(request: D1DiagnosticRequest, now: datetime) -> tuple[dict[
     return payload, created_at, expires_at
 
 
-def _verify_response(value: object, request: D1DiagnosticRequest, expires_at: str) -> None:
-    _require(isinstance(value, dict) and value.get("success") is True, "d1_response_rejected")
+def _verify_response(
+    value: object, request: D1DiagnosticRequest, expires_at: str
+) -> None:
+    _require(
+        isinstance(value, dict) and value.get("success") is True,
+        "d1_response_rejected",
+    )
     result = value.get("result")
-    _require(isinstance(result, list) and len(result) == 5, "d1_response_invalid")
-    _require(all(isinstance(item, dict) and item.get("success") is True for item in result), "d1_query_failed")
+    _require(
+        isinstance(result, list) and len(result) == 5,
+        "d1_response_invalid",
+    )
+    _require(
+        all(
+            isinstance(item, dict) and item.get("success") is True
+            for item in result
+        ),
+        "d1_query_failed",
+    )
     rows = result[-1].get("results")
-    _require(isinstance(rows, list) and len(rows) == 1 and isinstance(rows[0], dict), "d1_readback_missing")
+    _require(
+        isinstance(rows, list)
+        and len(rows) == 1
+        and isinstance(rows[0], dict),
+        "d1_readback_missing",
+    )
     row = rows[0]
     expected: dict[str, object] = {
         "diagnostic_key": request.diagnostic_key,
@@ -372,7 +425,10 @@ def _verify_response(value: object, request: D1DiagnosticRequest, expires_at: st
         "diagnostics_json": request.diagnostics_json,
         "expires_at": expires_at,
     }
-    _require(all(row.get(key) == expected_value for key, expected_value in expected.items()), "d1_readback_mismatch")
+    _require(
+        all(row.get(key) == expected_value for key, expected_value in expected.items()),
+        "d1_readback_mismatch",
+    )
 
 
 def persist_request(
@@ -386,11 +442,12 @@ def persist_request(
 ) -> D1DiagnosticReceipt:
     account = _match(account_id, _ACCOUNT, "invalid_d1_account_id")
     database = _database_id(database_id)
-    token = _plain(api_token, "invalid_d1_api_token", maximum=1024)
-    _require(len(token) >= 20, "invalid_d1_api_token")
+    token = _match(api_token, _API_TOKEN, "invalid_d1_api_token")
     current = datetime.now(timezone.utc) if now is None else now
     payload, _created_at, expires_at = _request_payload(request, current)
-    body = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    body = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    ).encode("utf-8")
     url = (
         "https://api.cloudflare.com/client/v4/accounts/"
         + urllib.parse.quote(account, safe="")
@@ -477,7 +534,9 @@ def persist_from_environment(
 
 
 def parser() -> argparse.ArgumentParser:
-    result = argparse.ArgumentParser(description="Persist bounded normalized CI diagnostics")
+    result = argparse.ArgumentParser(
+        description="Persist bounded normalized CI diagnostics"
+    )
     result.add_argument("command", choices=("persist",))
     return result
 
