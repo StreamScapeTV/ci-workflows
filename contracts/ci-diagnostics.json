@@ -1,48 +1,50 @@
 {
-  "schema_version": 1,
-  "store": "cloudflare-d1",
-  "table": "ci_diagnostics",
-  "retention_hours": 24,
+  "schema_version": 2,
+  "store": "cloudflare-r2",
+  "object_prefix": "ci-diagnostics",
+  "content_type": "application/gzip",
+  "format": "gzip-private-runner-log",
   "limits": {
-    "max_records": 64,
-    "max_canonical_json_bytes": 65536,
-    "max_message_bytes": 2048
+    "max_raw_bytes": 52428800,
+    "max_compressed_bytes": 20971520
   },
-  "severities": ["warning", "error"],
   "identity": [
     "ci_run_id",
-    "run_attempt",
     "github_run_id",
-    "project_key",
-    "repository",
-    "ref",
-    "is_tag",
-    "workflow_key",
-    "profile"
+    "run_attempt"
   ],
-  "diagnostic_record": {
-    "required": ["severity", "code", "message"],
-    "optional": ["stage"],
-    "arbitrary_fields": false
-  },
   "credentials": {
     "transport": "fixed-environment-only",
     "environment": [
-      "CIW_D1_ACCOUNT_ID",
-      "CIW_D1_DATABASE_ID",
-      "CIW_D1_API_TOKEN"
+      "R2_ACCOUNT_ID",
+      "R2_BUCKET",
+      "R2_ACCESS_KEY_ID",
+      "R2_SECRET_ACCESS_KEY"
     ],
     "caller_selectable": false
   },
-  "outputs": [
-    "diagnostic_key",
-    "diagnostic_status",
-    "diagnostic_sha256",
-    "diagnostic_count"
-  ],
+  "write_policy": {
+    "gzip_before_upload": true,
+    "read_back_after_upload": true,
+    "sha256_verify_read_back": true,
+    "github_actions_artifact": false
+  },
+  "github_public_log": {
+    "private_repository_identity_in_dispatch_inputs": false,
+    "private_ref_in_dispatch_inputs": false,
+    "private_command_stdout_stderr": false,
+    "allowed_content": "generic-orchestration-and-pass-fail-only"
+  },
   "agent_state": {
     "raw_logs_forbidden": true,
-    "diagnostics_json_forbidden": true,
-    "terminal_order": "persist-diagnostics-before-terminal-transition"
+    "receipt_field": "diagnostic_key",
+    "status_field": "diagnostic_status",
+    "uploaded_status": "uploaded",
+    "receipt_format": "r2:<object_key>#sha256=<compressed_sha256>",
+    "terminal_order": "upload-readback-verify-r2-before-terminal-transition"
+  },
+  "retention": {
+    "agent_state_hours": 24,
+    "r2_object_lifecycle": "bucket-policy-owned"
   }
 }
