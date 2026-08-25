@@ -184,6 +184,43 @@ class AgentStateCiClientTests(unittest.TestCase):
         )
         self.assertNotIn("logs", patch)
 
+    def test_private_mode_requires_verified_r2_receipt_before_terminal_rpc(self) -> None:
+        opener = RecordingOpener()
+        client = AgentStateCiClient.from_environment(
+            {
+                "AGENT_STATE_SUPABASE_URL": "https://example.supabase.co",
+                "AGENT_STATE_SUPABASE_SECRET_KEY": "synthetic-secret",
+                "CIW_PRIVATE_LOG_PATH": "/tmp/private.log",
+            },
+            opener=opener,
+        )
+        ci_run_id = "00000000-0000-4000-8000-000000000001"
+
+        with self.assertRaisesRegex(CiLifecycleError, "private_log_not_uploaded"):
+            client.finish(
+                ci_run_id,
+                status="failed",
+                error_summary="tests_failed",
+                diagnostic_status="failed",
+                diagnostic_key=None,
+            )
+        self.assertEqual(opener.requests, [])
+
+        receipt = (
+            "r2:ci-diagnostics/00000000-0000-4000-8000-000000000001/"
+            f"32790000001-2.log.gz#sha256={'a' * 64}"
+        )
+        client.finish(
+            ci_run_id,
+            status="failed",
+            error_summary="tests_failed",
+            diagnostic_status="uploaded",
+            diagnostic_key=receipt,
+        )
+        patch = opener.requests[-1]["data"]["p_patch"]  # type: ignore[index]
+        self.assertEqual(patch["diagnostic_status"], "uploaded")
+        self.assertEqual(patch["diagnostic_key"], receipt)
+
     def test_rpc_uses_fixed_agent_api_headers_without_secret_in_payload(self) -> None:
         client, opener = self.make_client()
         client.start(identity())

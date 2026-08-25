@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import unittest
-from typing import Any
 
 from ci_workflows.ci_broker import BrokerError
 from ci_workflows.ci_relay import (
@@ -37,7 +36,7 @@ def claimed_run(**patch: object) -> dict[str, object]:
         "is_tag": False,
         "workflow_key": "validation.apple",
         "test_profile": "host",
-        "inputs": {"scope": "integration", "retries": 1, "verbose": False},
+        "inputs": {},
         "requested_source_sha": None,
     }
     value.update(patch)
@@ -61,16 +60,14 @@ def webhook(ci_run_id: str = "00000000-0000-4000-8000-000000000001") -> bytes:
 
 
 class RelayRequestTests(unittest.TestCase):
-    def test_branch_request_is_ref_based_and_sha_never_enters_dispatch_inputs(self) -> None:
+    def test_private_identity_is_validated_but_dispatch_is_opaque(self) -> None:
         request = RelayRequest.from_claimed_run(claimed_run())
-
         self.assertEqual(request.repository, "OtherOrg/private-source")
         self.assertEqual(request.ref, "develop")
         self.assertFalse(request.is_tag)
         inputs = request.workflow_inputs()
-        self.assertEqual(inputs["repository"], "OtherOrg/private-source")
-        self.assertEqual(inputs["ref"], "develop")
-        self.assertEqual(inputs["is_tag"], "false")
+        self.assertEqual(set(inputs), {"active_key", "ci_run_id"})
+        self.assertEqual(inputs["ci_run_id"], request.ci_run_id)
         self.assertEqual(
             inputs["active_key"],
             active_identity_key(
@@ -81,14 +78,15 @@ class RelayRequestTests(unittest.TestCase):
                 profile="host",
             ),
         )
-        self.assertEqual(len(inputs["active_key"]), 64)
-        self.assertEqual(
-            json.loads(inputs["inputs_json"]),
-            {"retries": 1, "scope": "integration", "verbose": False},
-        )
-        self.assertNotIn("sha", " ".join(inputs))
-        self.assertNotIn("source_sha", inputs)
-        self.assertNotIn("requested_source_sha", inputs)
+        rendered = json.dumps(inputs, sort_keys=True)
+        for private in (
+            "OtherOrg/private-source",
+            "develop",
+            "validation.apple",
+            "sample-project",
+            "host",
+        ):
+            self.assertNotIn(private, rendered)
 
     def test_active_identity_changes_for_each_non_sha_authority(self) -> None:
         base = active_identity_key(
@@ -122,7 +120,7 @@ class RelayRequestTests(unittest.TestCase):
         )
         self.assertEqual(request.ref, "release/fancy-tag")
         self.assertTrue(request.is_tag)
-        self.assertEqual(request.workflow_inputs()["is_tag"], "true")
+        self.assertEqual(set(request.workflow_inputs()), {"active_key", "ci_run_id"})
 
     def test_full_owner_name_repository_is_not_org_prefixed(self) -> None:
         request = RelayRequest.from_claimed_run(
@@ -132,28 +130,24 @@ class RelayRequestTests(unittest.TestCase):
 
     def test_sha_pinned_and_prefixed_ref_requests_fail_closed(self) -> None:
         with self.assertRaisesRegex(BrokerError, "requested_source_sha_unsupported"):
-            RelayRequest.from_claimed_run(
-                claimed_run(requested_source_sha="a" * 40)
-            )
+            RelayRequest.from_claimed_run(claimed_run(requested_source_sha="a" * 40))
         with self.assertRaisesRegex(BrokerError, "invalid_ref"):
             RelayRequest.from_claimed_run(claimed_run(ref="refs/heads/develop"))
 
-    def test_only_current_reviewed_workflow_profile_is_dispatchable(self) -> None:
-        for patch in (
-            {"workflow_key": "validation.python"},
-            {"test_profile": "release"},
-        ):
+    def test_only_current_reviewed_workflow_profile_and_empty_inputs_are_dispatchable(self) -> None:
+        cases = (
+            ({"workflow_key": "validation.python"}, "unsupported_ci_intent"),
+            ({"test_profile": "release"}, "unsupported_ci_intent"),
+            ({"inputs": {"scope": "integration"}}, "unsupported_ci_inputs"),
+        )
+        for patch, code in cases:
             with self.subTest(patch=patch):
-                with self.assertRaisesRegex(BrokerError, "unsupported_ci_intent"):
+                with self.assertRaisesRegex(BrokerError, code):
                     RelayRequest.from_claimed_run(claimed_run(**patch))
 
-    def test_is_tag_is_required_boolean_and_inputs_are_scalar_bounded(self) -> None:
+    def test_is_tag_is_required_boolean(self) -> None:
         with self.assertRaisesRegex(BrokerError, "invalid_is_tag"):
             RelayRequest.from_claimed_run(claimed_run(is_tag="false"))
-        with self.assertRaisesRegex(BrokerError, "invalid_ci_inputs"):
-            RelayRequest.from_claimed_run(claimed_run(inputs={"nested": {"x": 1}}))
-        with self.assertRaisesRegex(BrokerError, "invalid_ci_inputs"):
-            RelayRequest.from_claimed_run(claimed_run(inputs={"bad": "line\nbreak"}))
 
 
 class RelayGithubClientTests(unittest.TestCase):
@@ -162,28 +156,19 @@ class RelayGithubClientTests(unittest.TestCase):
             def __init__(self) -> None:
                 self.request: dict[str, object] | None = None
 
-            def _request(
-                self,
-                method: str,
-                path: str,
-                **kwargs: object,
-            ) -> tuple[int, object]:
-                self.request = {
-                    "method": method,
-                    "path": path,
-                    **kwargs,
-                }
+            def _request(self, method: str, path: str, **kwargs: object) -> tuple[int, object]:
+                self.request = {"method": method, "path": path, **kwargs}
                 return 204, None
 
         client = Client()
+        inputs = {"ci_run_id": "opaque", "active_key": "a" * 64}
         result = client.dispatch_relay(
             repository="StreamScapeTV/ci-workflows",
             workflow=".github/workflows/central-ci-dispatch.yml",
             ref="main",
-            inputs={"ci_run_id": "opaque", "ref": "develop"},
+            inputs=inputs,
             token="synthetic",
         )
-
         self.assertIsNone(result)
         assert client.request is not None
         self.assertEqual(client.request["method"], "POST")
@@ -191,7 +176,7 @@ class RelayGithubClientTests(unittest.TestCase):
         body = client.request["body"]
         assert isinstance(body, dict)
         self.assertEqual(body["ref"], "main")
-        self.assertEqual(body["inputs"], {"ci_run_id": "opaque", "ref": "develop"})
+        self.assertEqual(body["inputs"], inputs)
         self.assertNotIn("return_run_details", body)
 
 
@@ -206,58 +191,36 @@ class ThinCiRelayTests(unittest.TestCase):
         )
         return relay, state, dispatch
 
-    def test_webhook_claims_once_and_dispatches_fixed_central_inputs_only(self) -> None:
+    def test_webhook_claims_once_and_dispatches_only_opaque_inputs(self) -> None:
         relay, state, dispatch = self.make_relay()
-        run = claimed_run()
-        state.claim_result = {"ok": True, "run": run, "replayed": False}
-
+        state.claim_result = {"ok": True, "run": claimed_run(), "replayed": False}
         result = relay.handle_agent_state_webhook(
             webhook(),
             {"X-StreamScape-Webhook-Secret": "agent-state-webhook-secret"},
         )
-
-        self.assertEqual(
-            result,
-            {"ok": True, "dispatched": True, "recovered": False},
-        )
+        self.assertEqual(result, {"ok": True, "dispatched": True, "recovered": False})
         self.assertEqual(state.transitions, [])
         self.assertEqual(state.registrations, [])
         self.assertEqual(len(dispatch.dispatches), 2)
-        self.assertEqual(
-            dispatch.dispatches[0],
-            {"token_repository": "StreamScapeTV/ci-workflows"},
-        )
         call = dispatch.dispatches[1]
         self.assertEqual(call["repository"], "StreamScapeTV/ci-workflows")
         self.assertEqual(call["workflow"], ".github/workflows/central-ci-dispatch.yml")
         self.assertEqual(call["ref"], "main")
         workflow_inputs = call["inputs"]
         assert isinstance(workflow_inputs, dict)
-        self.assertEqual(workflow_inputs["repository"], "OtherOrg/private-source")
-        self.assertEqual(workflow_inputs["ref"], "develop")
-        self.assertEqual(workflow_inputs["is_tag"], "false")
-        self.assertEqual(len(str(workflow_inputs["active_key"])), 64)
-        self.assertNotIn("source_sha", workflow_inputs)
-        self.assertNotIn("dispatch_token", workflow_inputs)
-        self.assertNotIn("dispatch_id", workflow_inputs)
+        self.assertEqual(set(workflow_inputs), {"active_key", "ci_run_id"})
+        rendered = json.dumps(workflow_inputs, sort_keys=True)
+        self.assertNotIn("OtherOrg/private-source", rendered)
+        self.assertNotIn("develop", rendered)
 
     def test_replayed_accepted_request_recovers_dispatch(self) -> None:
         relay, state, dispatch = self.make_relay()
-        state.claim_result = {
-            "ok": True,
-            "run": claimed_run(),
-            "replayed": True,
-        }
-
+        state.claim_result = {"ok": True, "run": claimed_run(), "replayed": True}
         result = relay.handle_agent_state_webhook(
             webhook(),
             {"X-StreamScape-Webhook-Secret": "agent-state-webhook-secret"},
         )
-
-        self.assertEqual(
-            result,
-            {"ok": True, "dispatched": True, "recovered": True},
-        )
+        self.assertEqual(result, {"ok": True, "dispatched": True, "recovered": True})
         self.assertEqual(len(dispatch.dispatches), 2)
         self.assertEqual(state.transitions, [])
 
@@ -268,12 +231,10 @@ class ThinCiRelayTests(unittest.TestCase):
             "run": claimed_run(status="running"),
             "replayed": True,
         }
-
         result = relay.handle_agent_state_webhook(
             webhook(),
             {"X-StreamScape-Webhook-Secret": "agent-state-webhook-secret"},
         )
-
         self.assertEqual(result, {"ok": True, "replayed": True})
         self.assertEqual(dispatch.dispatches, [])
         self.assertEqual(state.transitions, [])
@@ -285,13 +246,11 @@ class ThinCiRelayTests(unittest.TestCase):
             "run": claimed_run(requested_source_sha="b" * 40),
             "replayed": False,
         }
-
         with self.assertRaisesRegex(BrokerError, "requested_source_sha_unsupported"):
             relay.handle_agent_state_webhook(
                 webhook(),
                 {"X-StreamScape-Webhook-Secret": "agent-state-webhook-secret"},
             )
-
         self.assertEqual(dispatch.dispatches, [])
         self.assertEqual(
             state.transitions,
@@ -309,13 +268,11 @@ class ThinCiRelayTests(unittest.TestCase):
     def test_bad_webhook_secret_is_rejected_before_claim_or_dispatch(self) -> None:
         relay, state, dispatch = self.make_relay()
         state.claim_result = {"ok": True, "run": claimed_run(), "replayed": False}
-
         with self.assertRaisesRegex(BrokerError, "agent_state_webhook_unauthorized"):
             relay.handle_agent_state_webhook(
                 webhook(),
                 {"X-StreamScape-Webhook-Secret": "wrong"},
             )
-
         self.assertEqual(dispatch.dispatches, [])
         self.assertEqual(state.transitions, [])
 

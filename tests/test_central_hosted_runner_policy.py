@@ -138,19 +138,21 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
                     "events": ["pull_request"],
                     "runs_on": HOSTED_APPLE,
                 },
+                {
+                    "workflow": ".github/workflows/central-ci-dispatch.yml",
+                    "job": "private",
+                    "events": ["workflow_dispatch"],
+                    "runs_on": HOSTED_APPLE,
+                },
             ],
         )
         dispatch = yaml.load(
             (WORKFLOWS / "central-ci-dispatch.yml").read_text(encoding="utf-8"),
             Loader=ActionsLoader,
         )
-        self.assertEqual(dispatch["jobs"]["control"]["runs-on"], HOSTED_LINUX)
-        self.assertEqual(dispatch["jobs"]["finalize"]["runs-on"], HOSTED_LINUX)
-        self.assertEqual(
-            dispatch["jobs"]["apple"]["uses"],
-            "StreamScapeTV/ci-workflows/.github/workflows/reusable-apple.yml@main",
-        )
-        self.assertNotIn("runs-on", dispatch["jobs"]["apple"])
+        self.assertEqual(set(dispatch["jobs"]), {"private"})
+        self.assertEqual(dispatch["jobs"]["private"]["runs-on"], HOSTED_APPLE)
+        self.assertNotIn("uses", dispatch["jobs"]["private"])
         for retired in ("apple-test.yml", "apple-certification-smoke.yml"):
             self.assertFalse((WORKFLOWS / retired).exists())
 
@@ -158,10 +160,7 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
         workflow = yaml.load(BROKER_RELEASE.read_text(encoding="utf-8"), Loader=ActionsLoader)
         self.assertEqual(_events(workflow), {"push", "workflow_dispatch"})
         self.assertEqual(workflow["on"]["push"]["tags"], ["ci-broker-*"])
-        self.assertEqual(
-            set(workflow["on"]["workflow_dispatch"]["inputs"]),
-            {"release_tag"},
-        )
+        self.assertEqual(set(workflow["on"]["workflow_dispatch"]["inputs"]), {"release_tag"})
         self.assertEqual(set(workflow["jobs"]), {"admit", "image", "chart"})
 
         reason = "private Forgejo registry is reachable only from organization ARC capacity"

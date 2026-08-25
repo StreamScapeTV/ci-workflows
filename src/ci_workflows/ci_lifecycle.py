@@ -21,6 +21,11 @@ _WORKFLOW = re.compile(r"[a-z0-9][a-z0-9._-]{0,127}\Z")
 _PROFILE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 _SHA = re.compile(r"[0-9a-f]{40}\Z")
 _DIAGNOSTIC_STATUS = re.compile(r"[a-z][a-z0-9_-]{0,31}\Z")
+_R2_RECEIPT = re.compile(
+    r"r2:ci-diagnostics/"
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/"
+    r"[1-9][0-9]{0,18}-[1-9][0-9]{0,3}\.log\.gz#sha256=[0-9a-f]{64}\Z"
+)
 _TERMINAL = {"succeeded", "failed", "cancelled", "timed_out"}
 
 
@@ -220,6 +225,7 @@ class AgentStateCiClient:
         secret_key: str,
         *,
         opener: Any = urllib.request.urlopen,
+        require_uploaded_diagnostic: bool = False,
     ) -> None:
         parsed = urllib.parse.urlsplit(url.rstrip("/"))
         _require(
@@ -234,6 +240,7 @@ class AgentStateCiClient:
         self._url = url.rstrip("/")
         self._key = secret_key
         self._opener = opener
+        self._require_uploaded_diagnostic = require_uploaded_diagnostic
 
     @classmethod
     def from_environment(
@@ -246,6 +253,7 @@ class AgentStateCiClient:
             environment.get("AGENT_STATE_SUPABASE_URL", ""),
             environment.get("AGENT_STATE_SUPABASE_SECRET_KEY", ""),
             opener=opener,
+            require_uploaded_diagnostic=bool(environment.get("CIW_PRIVATE_LOG_PATH", "")),
         )
 
     def _rpc(self, name: str, args: Mapping[str, object]) -> dict[str, Any]:
@@ -327,6 +335,13 @@ class AgentStateCiClient:
             "invalid_diagnostic_key",
             512,
         )
+        if self._require_uploaded_diagnostic:
+            _require(diagnostic_status == "uploaded", "private_log_not_uploaded")
+            _require(
+                safe_diagnostic_key is not None
+                and _R2_RECEIPT.fullmatch(safe_diagnostic_key) is not None,
+                "private_log_not_uploaded",
+            )
         if safe_error is not None:
             patch["error_summary"] = safe_error
         if diagnostic_status not in (None, ""):
