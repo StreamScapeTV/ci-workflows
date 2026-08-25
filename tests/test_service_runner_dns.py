@@ -27,6 +27,7 @@ class ServiceRunnerDnsTests(unittest.TestCase):
             self.lock["packages"],
             {
                 "aardvark-dns": "1.4.0-5",
+                "iptables": "1.8.10-3ubuntu2",
                 "netavark": "1.4.0-4",
                 "podman": "4.9.3+ds1-1ubuntu0.2",
                 "podman-compose": "1.0.6-1",
@@ -35,10 +36,13 @@ class ServiceRunnerDnsTests(unittest.TestCase):
         for expected in (
             "NETAVARK_PACKAGE_VERSION=1.4.0-4",
             "AARDVARK_DNS_PACKAGE_VERSION=1.4.0-5",
+            "IPTABLES_PACKAGE_VERSION=1.8.10-3ubuntu2",
             'aardvark-dns="${AARDVARK_DNS_PACKAGE_VERSION}"',
+            'iptables="${IPTABLES_PACKAGE_VERSION}"',
             'netavark="${NETAVARK_PACKAGE_VERSION}"',
-            "apt-mark hold aardvark-dns netavark podman podman-compose",
+            "apt-mark hold aardvark-dns iptables netavark podman podman-compose",
             'network_backend = "netavark"',
+            'firewall_driver = "iptables"',
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, self.dockerfile)
@@ -73,6 +77,7 @@ class ServiceRunnerDnsTests(unittest.TestCase):
             "IPTABLES_PACKAGE_VERSION=1.8.10-3ubuntu2",
             'iptables="${IPTABLES_PACKAGE_VERSION}"',
             "apt-mark hold aardvark-dns iptables netavark podman podman-compose",
+            'firewall_driver = "iptables"',
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, self.dockerfile)
