@@ -11,6 +11,7 @@ ARG PODMAN_PACKAGE_VERSION=4.9.3+ds1-1ubuntu0.2
 ARG PODMAN_COMPOSE_PACKAGE_VERSION=1.0.6-1
 ARG NETAVARK_PACKAGE_VERSION=1.4.0-4
 ARG AARDVARK_DNS_PACKAGE_VERSION=1.4.0-5
+ARG IPTABLES_PACKAGE_VERSION=1.8.10-3ubuntu2
 
 ENV DEBIAN_FRONTEND=noninteractive \
     STORAGE_DRIVER=vfs \
@@ -26,6 +27,7 @@ RUN apt-get update \
       curl \
       fuse-overlayfs \
       git \
+      iptables="${IPTABLES_PACKAGE_VERSION}" \
       jq \
       netavark="${NETAVARK_PACKAGE_VERSION}" \
       podman="${PODMAN_PACKAGE_VERSION}" \
@@ -36,7 +38,7 @@ RUN apt-get update \
       tar \
       uidmap \
       util-linux \
-    && apt-mark hold aardvark-dns netavark podman podman-compose \
+    && apt-mark hold aardvark-dns iptables netavark podman podman-compose \
     && rm -rf /var/lib/apt/lists/*
 
 # The official Actions runner image includes Docker's static runtime bundle.
@@ -101,6 +103,7 @@ RUN printf '%s\n' \
       '' \
       '[network]' \
       'network_backend = "netavark"' \
+      'firewall_driver = "iptables"' \
       > /home/runner/.config/containers/containers.conf \
     && chown -R runner:runner /home/runner/.config /home/runner/.local /home/runner/_work
 
