@@ -205,7 +205,7 @@ jobs:
     name: Canonical Apple validation
     needs: control
     if: ${{ needs.control.result == 'success' }}
-    uses: ./.github/workflows/reusable-apple.yml
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-apple.yml@main
     with:
       admitted_sha: ${{ needs.control.outputs.source_sha }}
       source_repository: ${{ inputs.repository }}

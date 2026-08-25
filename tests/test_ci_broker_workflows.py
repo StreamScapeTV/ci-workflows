@@ -127,7 +127,10 @@ class BrokerWorkflowTests(unittest.TestCase):
 
     def test_canonical_apple_reusable_is_the_only_product_executor(self) -> None:
         apple = self.document.data["jobs"]["apple"]
-        self.assertEqual(apple["uses"], "./.github/workflows/reusable-apple.yml")
+        self.assertEqual(
+            apple["uses"],
+            "StreamScapeTV/ci-workflows/.github/workflows/reusable-apple.yml@main",
+        )
         self.assertEqual(apple["needs"], "control")
         self.assertEqual(apple["with"]["source_repository"], "${{ inputs.repository }}")
         self.assertEqual(apple["with"]["admitted_sha"], "${{ needs.control.outputs.source_sha }}")
@@ -206,7 +209,10 @@ class BrokerWorkflowTests(unittest.TestCase):
         central = self.contract["central_execution"]
         self.assertEqual(central["source_mode"], "requested-ref")
         self.assertEqual(central["observed_sha"], "evidence-only")
-        self.assertEqual(central["apple_workflow"], ".github/workflows/reusable-apple.yml")
+        self.assertEqual(
+            central["apple_workflow"],
+            "StreamScapeTV/ci-workflows/.github/workflows/reusable-apple.yml@main",
+        )
         self.assertEqual(central["hosted_apple_runner"], "macos-latest")
         diagnostics = self.contract["diagnostics"]
         self.assertEqual(diagnostics["store"], "cloudflare-d1")

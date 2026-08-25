@@ -65,7 +65,7 @@
     "private_config_path": ".github/central-ci.json",
     "profile_action": "actions/resolve-central-profile",
     "lifecycle_action": "actions/ci-lifecycle",
-    "apple_workflow": ".github/workflows/reusable-apple.yml",
+    "apple_workflow": "StreamScapeTV/ci-workflows/.github/workflows/reusable-apple.yml@main",
     "source_and_dependency_credentials": "fixed-github-app-secrets",
     "hosted_apple_runner": "macos-latest"
   },
