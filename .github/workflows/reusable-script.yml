@@ -86,7 +86,7 @@ jobs:
 
       - id: backend
         name: Resolve bounded hosted execution backend
-        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@01d1d10bafcc4fc1e4c51663f72b08f694dc4e35 # issue #447 portable backend checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@83084efecc597d3bedacfe5f8628f1890b9bcd90 # issue #495 hosted Apple backend checkpoint
         with:
           workflow_api: validation.script
           source_trust: ${{ steps.plan.outputs.source_trust }}
@@ -143,7 +143,7 @@ jobs:
 
       - id: backend
         name: Resolve bounded organization execution backend
-        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@01d1d10bafcc4fc1e4c51663f72b08f694dc4e35 # issue #447 portable backend checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@83084efecc597d3bedacfe5f8628f1890b9bcd90 # issue #495 hosted Apple backend checkpoint
         with:
           workflow_api: validation.script
           source_trust: ${{ steps.plan.outputs.source_trust }}
