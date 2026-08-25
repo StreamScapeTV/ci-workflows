@@ -1,0 +1,19 @@
+{{- if .Values.diagnostics.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.fullnameOverride }}-diagnostics
+  labels:
+    app.kubernetes.io/name: ci-diagnostics
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: {{ .Values.diagnostics.service.type }}
+  selector:
+    app.kubernetes.io/name: ci-diagnostics
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: {{ .Values.diagnostics.service.port }}
+      targetPort: http
+      protocol: TCP
+{{- end }}
