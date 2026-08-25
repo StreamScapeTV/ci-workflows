@@ -208,7 +208,7 @@ class AgentStateCiClientTests(unittest.TestCase):
 
         receipt = (
             "r2:ci-diagnostics/00000000-0000-4000-8000-000000000001/"
-            f"32790000001-2.log.gz#sha256={'a' * 64}"
+            f"{'b' * 32}/32790000001-2.log.gz#sha256={'a' * 64}"
         )
         client.finish(
             ci_run_id,
