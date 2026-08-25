@@ -38,8 +38,12 @@ class R2DiagnosticsSmokeTests(unittest.TestCase):
         self.assertNotIn("inputs.", self.source)
         self.assertNotIn("secrets: inherit", self.source)
 
-    def test_smoke_delegates_remote_storage_to_bounded_helper(self) -> None:
+    def test_smoke_delegates_remote_storage_to_bounded_helpers(self) -> None:
         self.assertEqual(self.source.count("scripts/ci/r2_diagnostics.py"), 1)
+        self.assertIn("DiagnosticReader", self.source)
+        self.assertIn("encode_receipt_capability", self.source)
+        self.assertIn("reader.retrieve(capability)", self.source)
+        self.assertIn("actual != expected", self.source)
         for forbidden in (
             "curl ",
             "wget ",
@@ -52,6 +56,26 @@ class R2DiagnosticsSmokeTests(unittest.TestCase):
         ):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, self.source.lower())
+
+    def test_smoke_retrieves_the_exact_uploaded_receipt(self) -> None:
+        upload = next(step for step in self.job["steps"] if step.get("id") == "upload")
+        retrieve = next(
+            step
+            for step in self.job["steps"]
+            if step.get("name") == "Retrieve and verify decompressed diagnostic"
+        )
+        self.assertEqual(upload["name"], "Upload and verify private R2 diagnostic")
+        self.assertEqual(retrieve["env"]["R2_OBJECT_KEY"], "${{ steps.upload.outputs.object_key }}")
+        self.assertEqual(retrieve["env"]["R2_SHA256"], "${{ steps.upload.outputs.sha256 }}")
+        self.assertEqual(
+            retrieve["env"]["R2_READ_ACCESS_KEY_ID"],
+            "${{ secrets.R2_ACCESS_KEY_ID }}",
+        )
+        self.assertEqual(
+            retrieve["env"]["R2_READ_SECRET_ACCESS_KEY"],
+            "${{ secrets.R2_SECRET_ACCESS_KEY }}",
+        )
+        self.assertIn('Path(os.environ["DIAGNOSTIC_PATH"]).read_bytes()', retrieve["run"])
 
     def test_smoke_diagnostic_is_synthetic_and_cleanup_is_always_run(self) -> None:
         self.assertIn('synthetic Central R2 diagnostic smoke\\n', self.source)
