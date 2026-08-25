@@ -3,28 +3,63 @@ name: Central CI dispatch
 on:
   workflow_dispatch:
     inputs:
-      dispatch_id:
-        description: Opaque deterministic broker dispatch identity
+      active_key:
+        description: Deterministic active CI identity supplied by the thin relay
         required: true
         type: string
-      dispatch_token:
-        description: Authenticated opaque broker execution envelope
+      ci_run_id:
+        description: Existing Agent State CI run UUID
+        required: true
+        type: string
+      project_key:
+        description: Agent State source project key
+        required: true
+        type: string
+      repository:
+        description: Full source repository in owner/name form
+        required: true
+        type: string
+      ref:
+        description: Human branch or tag name
+        required: true
+        type: string
+      is_tag:
+        description: Explicit true or false tag discriminator
+        required: true
+        type: string
+      workflow_key:
+        description: Reviewed Central workflow API key
+        required: true
+        type: string
+      profile:
+        description: Reviewed source-owned CI profile
+        required: true
+        type: string
+      inputs_json:
+        description: Bounded canonical CI input object
         required: true
         type: string
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
-  group: central-ci-${{ inputs.dispatch_id }}
+  group: central-ci-${{ inputs.active_key }}
   cancel-in-progress: false
 
 jobs:
-  execute:
-    name: Execute broker-admitted Central validation
-    runs-on: [macos-latest]
-    timeout-minutes: 120
+  control:
+    name: Resolve requested Central source and profile
+    runs-on: [ubuntu-latest]
+    timeout-minutes: 15
+    outputs:
+      source_sha: ${{ steps.resolve.outputs.source_sha }}
+      validation_scope: ${{ steps.profile.outputs.validation_scope }}
+      validation_plan_json: ${{ steps.profile.outputs.validation_plan_json }}
+      private_dependency_repository: ${{ steps.profile.outputs.private_dependency_repository }}
+      private_dependency_sha: ${{ steps.profile.outputs.private_dependency_sha }}
+      private_dependency_subdirectory: ${{ steps.profile.outputs.private_dependency_subdirectory }}
+      private_dependency_id: ${{ steps.profile.outputs.private_dependency_id }}
     steps:
       - name: Check out exact Central source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -43,57 +78,119 @@ jobs:
           set -Eeuo pipefail
           test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
 
-      - name: Execute one broker-admitted validation
+      - id: lifecycle_start
+        name: Attach GitHub run identity to Agent State
+        uses: ./actions/ci-lifecycle
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: start
+          project_key: ${{ inputs.project_key }}
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          is_tag: ${{ inputs.is_tag }}
+          workflow_key: ${{ inputs.workflow_key }}
+          profile: ${{ inputs.profile }}
+          ci_run_id: ${{ inputs.ci_run_id }}
+
+      - name: Validate thin-relay intent and active identity
         shell: bash
         env:
-          PYTHONDONTWRITEBYTECODE: "1"
-          CI_BROKER_URL: ${{ secrets.CI_BROKER_URL }}
-          CI_DISPATCH_ID: ${{ inputs.dispatch_id }}
-          CI_DISPATCH_TOKEN: ${{ inputs.dispatch_token }}
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          ACTIVE_KEY: ${{ inputs.active_key }}
+          SOURCE_REPOSITORY: ${{ inputs.repository }}
+          SOURCE_REF: ${{ inputs.ref }}
+          SOURCE_IS_TAG: ${{ inputs.is_tag }}
+          WORKFLOW_KEY: ${{ inputs.workflow_key }}
+          PROFILE: ${{ inputs.profile }}
+          INPUTS_JSON: ${{ inputs.inputs_json }}
         run: |
           set -Eeuo pipefail
-          python3 scripts/ci/ci_broker.py execute-apple-host
+          test "${WORKFLOW_KEY}" = validation.apple
+          test "${PROFILE}" = host
+          test "${INPUTS_JSON}" = '{}'
+          [[ "${SOURCE_IS_TAG}" == true || "${SOURCE_IS_TAG}" == false ]]
+          PYTHONPATH=src python3 - <<'PY'
+          import os
+          from ci_workflows.ci_relay import active_identity_key
 
-      - name: Record unexpected Central failure
-        if: ${{ failure() && !cancelled() }}
-        continue-on-error: true
+          expected = active_identity_key(
+              repository=os.environ["SOURCE_REPOSITORY"],
+              ref=os.environ["SOURCE_REF"],
+              is_tag=os.environ["SOURCE_IS_TAG"] == "true",
+              workflow_key=os.environ["WORKFLOW_KEY"],
+              profile=os.environ["PROFILE"],
+          )
+          if expected != os.environ["ACTIVE_KEY"]:
+              raise SystemExit("active_identity_mismatch")
+          PY
+
+      - id: source_token
+        name: Mint exact source repository token
+        uses: ./actions/github-app-repository-token
+        env:
+          CIW_GITHUB_APP_ID: ${{ secrets.GITHUB_SOURCE_APP_ID }}
+          CIW_GITHUB_APP_PRIVATE_KEY: ${{ secrets.GITHUB_SOURCE_APP_PRIVATE_KEY }}
+        with:
+          repository: ${{ inputs.repository }}
+
+      - id: resolve
+        name: Resolve requested human ref inside Central
+        uses: ./actions/resolve-source
+        with:
+          source_mode: requested-ref
+          requested_ref: ${{ inputs.ref }}
+          is_tag: ${{ inputs.is_tag }}
+          source_token: ${{ steps.source_token.outputs.token }}
+          caller_repository: ${{ inputs.repository }}
+          history_depth: "1"
+
+      - name: Check out exact observed source for product profile
+        uses: ./actions/exact-checkout
+        with:
+          repository: ${{ inputs.repository }}
+          admitted_sha: ${{ steps.resolve.outputs.source_sha }}
+          path: source
+          fetch_depth: "1"
+          token: ${{ steps.source_token.outputs.token }}
+
+      - name: Record observed checkout SHA as evidence
+        uses: ./actions/ci-lifecycle
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: evidence
+          ci_run_id: ${{ inputs.ci_run_id }}
+          observed_sha: ${{ steps.resolve.outputs.source_sha }}
+
+      - id: profile
+        name: Resolve bounded source-owned Central profile
+        uses: ./actions/resolve-central-profile
+        with:
+          source_root: source
+          project_key: ${{ inputs.project_key }}
+          workflow_key: ${{ inputs.workflow_key }}
+          test_profile: ${{ inputs.profile }}
+          source_repository: ${{ inputs.repository }}
+          admitted_sha: ${{ steps.resolve.outputs.source_sha }}
+
+      - name: Require the reviewed Apple host capability
         shell: bash
         env:
-          PYTHONDONTWRITEBYTECODE: "1"
-          CI_BROKER_URL: ${{ secrets.CI_BROKER_URL }}
-          CI_DISPATCH_ID: ${{ inputs.dispatch_id }}
-          CI_DISPATCH_TOKEN: ${{ inputs.dispatch_token }}
+          CAPABILITY: ${{ steps.profile.outputs.capability }}
         run: |
           set -Eeuo pipefail
-          python3 scripts/ci/ci_broker.py fail-if-active
+          test "${CAPABILITY}" = apple-host-test
 
-      - name: Record Central cancellation
-        if: ${{ cancelled() }}
-        continue-on-error: true
-        shell: bash
-        env:
-          PYTHONDONTWRITEBYTECODE: "1"
-          CI_BROKER_URL: ${{ secrets.CI_BROKER_URL }}
-          CI_DISPATCH_ID: ${{ inputs.dispatch_id }}
-          CI_DISPATCH_TOKEN: ${{ inputs.dispatch_token }}
-        run: |
-          set -Eeuo pipefail
-          python3 scripts/ci/ci_broker.py cancel-if-active
-
-      - name: Remove private source and execution residue
+      - name: Remove product control checkout
         if: ${{ always() }}
         shell: bash
-        env:
-          PYTHONDONTWRITEBYTECODE: "1"
         run: |
           set -Eeuo pipefail
-          python3 scripts/ci/ci_broker.py cleanup
+          python3 scripts/ci/apple_checkout_cleanup.py source
 
-      - name: Verify Central checkout and workspace residue
+      - name: Verify Central control residue
         if: ${{ always() }}
         shell: bash
         env:
@@ -103,3 +200,107 @@ jobs:
           test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
           test ! -e source
+
+  apple:
+    name: Canonical Apple validation
+    needs: control
+    if: ${{ needs.control.result == 'success' }}
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-apple.yml@main
+    with:
+      admitted_sha: ${{ needs.control.outputs.source_sha }}
+      source_repository: ${{ inputs.repository }}
+      validation_scope: ${{ needs.control.outputs.validation_scope }}
+      validation_plan_json: ${{ needs.control.outputs.validation_plan_json }}
+      private_dependency_repository: ${{ needs.control.outputs.private_dependency_repository }}
+      private_dependency_sha: ${{ needs.control.outputs.private_dependency_sha }}
+      private_dependency_subdirectory: ${{ needs.control.outputs.private_dependency_subdirectory }}
+      private_dependency_id: ${{ needs.control.outputs.private_dependency_id }}
+    secrets:
+      repository_app_id: ${{ secrets.GITHUB_SOURCE_APP_ID }}
+      repository_app_private_key: ${{ secrets.GITHUB_SOURCE_APP_PRIVATE_KEY }}
+
+  finalize:
+    name: Persist diagnostics then terminalize Agent State
+    needs: [control, apple]
+    if: ${{ always() }}
+    runs-on: [ubuntu-latest]
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact Central finalizer source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - id: terminal
+        name: Normalize bounded terminal diagnostics
+        shell: bash
+        env:
+          CONTROL_RESULT: ${{ needs.control.result }}
+          APPLE_RESULT: ${{ needs.apple.result }}
+        run: |
+          set -Eeuo pipefail
+          status=failed
+          code=validation_apple_failed
+          message='Canonical Apple validation failed; inspect the GitHub run for raw logs.'
+          if [[ "${CONTROL_RESULT}" == cancelled || "${APPLE_RESULT}" == cancelled ]]; then
+            status=cancelled; code=central_ci_cancelled; message='Central CI was cancelled.'
+          elif [[ "${CONTROL_RESULT}" == timed_out || "${APPLE_RESULT}" == timed_out ]]; then
+            status=timed_out; code=central_ci_timed_out; message='Central CI timed out.'
+          elif [[ "${CONTROL_RESULT}" != success ]]; then
+            code=central_control_failed; message='Central source or profile control failed.'
+          elif [[ "${APPLE_RESULT}" == success ]]; then
+            status=succeeded; code=''; message=''
+          elif [[ "${APPLE_RESULT}" == skipped ]]; then
+            code=central_validation_skipped; message='Canonical Apple validation was skipped.'
+          fi
+          diagnostics='[]'
+          if [[ -n "${code}" ]]; then
+            diagnostics="[{\"severity\":\"error\",\"code\":\"${code}\",\"stage\":\"central\",\"message\":\"${message}\"}]"
+          fi
+          printf 'status=%s\nerror_summary=%s\ndiagnostics_json=%s\n' \
+            "${status}" "${code}" "${diagnostics}" >> "${GITHUB_OUTPUT}"
+
+      - id: diagnostics
+        name: Persist and verify normalized D1 diagnostics
+        uses: ./actions/persist-ci-diagnostics
+        env:
+          CIW_D1_ACCOUNT_ID: ${{ secrets.CI_D1_ACCOUNT_ID }}
+          CIW_D1_DATABASE_ID: ${{ secrets.CI_D1_DATABASE_ID }}
+          CIW_D1_API_TOKEN: ${{ secrets.CI_D1_API_TOKEN }}
+        with:
+          ci_run_id: ${{ inputs.ci_run_id }}
+          project_key: ${{ inputs.project_key }}
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          is_tag: ${{ inputs.is_tag }}
+          workflow_key: ${{ inputs.workflow_key }}
+          profile: ${{ inputs.profile }}
+          status: ${{ steps.terminal.outputs.status }}
+          diagnostics_json: ${{ steps.terminal.outputs.diagnostics_json }}
+
+      - name: Record terminal Agent State only after D1 verification
+        uses: ./actions/ci-lifecycle
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: finish
+          ci_run_id: ${{ inputs.ci_run_id }}
+          terminal_status: ${{ steps.terminal.outputs.status }}
+          error_summary: ${{ steps.terminal.outputs.error_summary }}
+          diagnostic_status: ${{ steps.diagnostics.outputs.diagnostic_status }}
+          diagnostic_key: ${{ steps.diagnostics.outputs.diagnostic_key }}
+
+      - name: Verify exact finalizer source remained clean
+        if: ${{ always() }}
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
