@@ -1,22 +1,21 @@
 """Thin Agent State webhook to fixed Central workflow relay.
 
-This module is the replacement transport core for issue #495.  It intentionally
-owns no source admission, checkout, product configuration, dependency handling,
-workflow lifecycle, or diagnostics.  Production wiring remains on the legacy
-broker until the matching Agent State and Central workflow contracts are live.
+The relay authenticates one Agent State INSERT, claims the request exactly once,
+and dispatches the fixed Central workflow.  It owns no source admission, checkout,
+product configuration, dependency handling, workflow lifecycle, or diagnostics.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 import hmac
 import json
+import os
 import re
 from typing import Any, Mapping
 import urllib.parse
 
 from .ci_broker import (
     AgentStateClient,
-    BrokerConfig,
     BrokerError,
     CENTRAL_REF,
     CENTRAL_REPOSITORY,
@@ -36,6 +35,61 @@ _INPUT_KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\Z")
 _MAX_INPUTS = 16
 _MAX_INPUT_VALUE_BYTES = 512
 _MAX_INPUTS_JSON_BYTES = 8 * 1024
+
+
+def _required(environment: Mapping[str, str], name: str) -> str:
+    value = environment.get(name, "")
+    _require(bool(value), f"missing_{name.lower()}", 500)
+    return value
+
+
+@dataclass(frozen=True)
+class RelayConfig:
+    dispatch_app_id: int
+    dispatch_app_private_key: str
+    agent_state_url: str
+    agent_state_secret_key: str
+    agent_state_webhook_secret: str
+    port: int = 8080
+
+    @classmethod
+    def from_environment(
+        cls,
+        environment: Mapping[str, str] = os.environ,
+    ) -> "RelayConfig":
+        app_id = _required(environment, "GITHUB_DISPATCH_APP_ID")
+        _require(app_id.isdigit() and int(app_id) > 0, "invalid_github_dispatch_app_id", 500)
+        url = _required(environment, "AGENT_STATE_SUPABASE_URL").rstrip("/")
+        parsed = urllib.parse.urlsplit(url)
+        _require(
+            parsed.scheme == "https"
+            and bool(parsed.netloc)
+            and parsed.path in ("", "/")
+            and not parsed.query
+            and not parsed.fragment,
+            "invalid_agent_state_url",
+            500,
+        )
+        port_text = environment.get("CI_BROKER_PORT", "8080")
+        _require(
+            port_text.isdigit() and 1 <= int(port_text) <= 65535,
+            "invalid_ci_broker_port",
+            500,
+        )
+        return cls(
+            dispatch_app_id=int(app_id),
+            dispatch_app_private_key=_required(
+                environment, "GITHUB_DISPATCH_APP_PRIVATE_KEY"
+            ),
+            agent_state_url=url,
+            agent_state_secret_key=_required(
+                environment, "AGENT_STATE_SUPABASE_SECRET_KEY"
+            ),
+            agent_state_webhook_secret=_required(
+                environment, "AGENT_STATE_WEBHOOK_SECRET"
+            ),
+            port=int(port_text),
+        )
 
 
 def _human_ref(value: object) -> str:
@@ -62,7 +116,11 @@ def _is_tag(value: object) -> bool:
 def _bounded_inputs(value: object) -> dict[str, str | bool | int]:
     if value is None:
         return {}
-    _require(isinstance(value, dict) and len(value) <= _MAX_INPUTS, "invalid_ci_inputs", 422)
+    _require(
+        isinstance(value, dict) and len(value) <= _MAX_INPUTS,
+        "invalid_ci_inputs",
+        422,
+    )
     result: dict[str, str | bool | int] = {}
     for raw_key, raw_value in value.items():
         _require(
@@ -85,10 +143,23 @@ def _bounded_inputs(value: object) -> dict[str, str | bool | int]:
                 422,
             )
         if isinstance(raw_value, int) and not isinstance(raw_value, bool):
-            _require(-(2**63) <= raw_value <= 2**63 - 1, "invalid_ci_inputs", 422)
+            _require(
+                -(2**63) <= raw_value <= 2**63 - 1,
+                "invalid_ci_inputs",
+                422,
+            )
         result[raw_key] = raw_value
-    encoded = json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    _require(len(encoded.encode("utf-8")) <= _MAX_INPUTS_JSON_BYTES, "invalid_ci_inputs", 422)
+    encoded = json.dumps(
+        result,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    _require(
+        len(encoded.encode("utf-8")) <= _MAX_INPUTS_JSON_BYTES,
+        "invalid_ci_inputs",
+        422,
+    )
     return result
 
 
@@ -170,7 +241,7 @@ class ThinCiRelay:
 
     def __init__(
         self,
-        config: BrokerConfig,
+        config: RelayConfig,
         *,
         agent_state: AgentStateClient | None = None,
         dispatch_github: RelayGitHubClient | None = None,
@@ -195,7 +266,7 @@ class ThinCiRelay:
         )
         return run
 
-    def _cancel_invalid(self, ci_run_id: str, code: str) -> None:
+    def _cancel(self, ci_run_id: str, code: str) -> None:
         try:
             self.agent_state.transition(
                 ci_run_id,
@@ -230,7 +301,11 @@ class ThinCiRelay:
             401,
         )
         payload = _json_object(raw)
-        _require(payload.get("type") == "INSERT", "agent_state_webhook_ignored", 202)
+        _require(
+            payload.get("type") == "INSERT",
+            "agent_state_webhook_ignored",
+            202,
+        )
         _require(
             payload.get("schema") == "agent_private"
             and payload.get("table") == "ci_runs",
@@ -250,17 +325,15 @@ class ThinCiRelay:
 
         try:
             request = RelayRequest.from_claimed_run(run)
+            self._dispatch(request)
         except BrokerError as error:
-            self._cancel_invalid(ci_run_id, error.code)
+            self._cancel(ci_run_id, error.code)
             raise
-
-        # Dispatch is deliberately the last broker operation.  The workflow owns
-        # run registration, checkout evidence, diagnostics, and terminal state.
-        self._dispatch(request)
         return {"ok": True, "dispatched": True}
 
 
 __all__ = (
+    "RelayConfig",
     "RelayGitHubClient",
     "RelayRequest",
     "ThinCiRelay",
