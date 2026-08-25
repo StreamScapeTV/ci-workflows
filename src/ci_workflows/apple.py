@@ -44,6 +44,7 @@ _ALLOWED_INPUT_KEYS = {
     "platform",
     "scheme",
     "script_path",
+    "source_repository",
     "source_trust",
     "validation_profile",
     "validation_scope",
@@ -123,7 +124,10 @@ def request_from_environment(
             if logical in forbidden or logical not in _ALLOWED_INPUT_KEYS:
                 raise AppleValidationError("forbidden_input")
     try:
-        repository = environment["GITHUB_REPOSITORY"].strip()
+        repository = (
+            environment.get("INPUT_SOURCE_REPOSITORY", "").strip()
+            or environment["GITHUB_REPOSITORY"].strip()
+        )
         admitted_sha = environment["INPUT_ADMITTED_SHA"].strip()
         consumer_contract = (
             environment.get("INPUT_COMMAND_PROFILE")

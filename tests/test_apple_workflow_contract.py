@@ -11,7 +11,8 @@ from ci_workflows.apple_types import AppleProfile, AppleValidationRequest
 
 ROOT = Path(__file__).resolve().parents[1]
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-APPLE_HELPER_SHA = "d946291afbf32353a959adcd3f6cbb92513a4cbe"
+APPLE_HELPER_SHA = "33da58aed7f0423d33cea69ebd7eb829b283ec0d"
+REPOSITORY_TOKEN_SHA = "56f4859ae09944df6eaaafa7c808e5a1081e61af"
 OWNER_GATE = "github.event.pull_request.user.login == 'mimranfaruqi'"
 REPOSITORY_GATE = "github.event.pull_request.head.repo.full_name == github.repository"
 
@@ -60,6 +61,7 @@ class AppleWorkflowContractTests(unittest.TestCase):
         self.assertIn("workflow_call:", self.workflow)
         expected_inputs = {
             "admitted_sha",
+            "source_repository",
             "artifact_exception_id",
             "command_profile",
             "destination_profile",
@@ -87,7 +89,12 @@ class AppleWorkflowContractTests(unittest.TestCase):
             {"artifact_exception_used", "cleanup_result", "result", "test_summary"},
             actual_outputs,
         )
-        self.assertIn("private_dependency_token:", self.workflow)
+        for secret in (
+            "repository_app_id:",
+            "repository_app_private_key:",
+            "private_dependency_token:",
+        ):
+            self.assertIn(secret, self.workflow)
         self.assertNotIn("secrets: inherit", self.workflow)
 
     def test_reusable_semantic_selection_and_hosted_self_ci_are_separated(self) -> None:
@@ -184,7 +191,12 @@ class AppleWorkflowContractTests(unittest.TestCase):
         text = (self.workflow + self.smoke + self.action).lower()
         self.assertNotIn("upload-artifact", text)
         self.assertNotIn("download-artifact", text)
-        self.assertIn("private_dependency_token", self.workflow)
+        for secret in (
+            "private_dependency_token",
+            "repository_app_id",
+            "repository_app_private_key",
+        ):
+            self.assertIn(secret, self.workflow)
         self.assertNotIn("secrets: inherit", text)
         self.assertIn("routine apple actions artifacts verified: zero", self.smoke.lower())
         self.assertIn("total_count", self.smoke)
@@ -200,6 +212,12 @@ class AppleWorkflowContractTests(unittest.TestCase):
                 f"uses: StreamScapeTV/ci-workflows/actions/validate-apple@{APPLE_HELPER_SHA}"
             ),
             4,
+        )
+        self.assertEqual(
+            self.workflow.count(
+                f"uses: StreamScapeTV/ci-workflows/actions/github-app-repository-token@{REPOSITORY_TOKEN_SHA}"
+            ),
+            2,
         )
         for action in (
             "exact-checkout",
@@ -222,6 +240,31 @@ class AppleWorkflowContractTests(unittest.TestCase):
         self.assertIn("os.lstat", self.workflow)
         self.assertIn("stat.S_ISLNK", self.workflow)
         self.assertIn("os.path.lexists", self.workflow)
+
+    def test_central_source_repository_and_tokens_stay_inside_canonical_apple(self) -> None:
+        self.assertIn("source_repository: ${{ inputs.source_repository }}", self.workflow)
+        self.assertIn(
+            "if: inputs.source_repository != '' && inputs.source_repository != github.repository",
+            self.workflow,
+        )
+        self.assertIn("CIW_GITHUB_APP_ID: ${{ secrets.repository_app_id }}", self.workflow)
+        self.assertIn(
+            "CIW_GITHUB_APP_PRIVATE_KEY: ${{ secrets.repository_app_private_key }}",
+            self.workflow,
+        )
+        self.assertIn(
+            "repository: ${{ inputs.source_repository || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository) }}",
+            self.workflow,
+        )
+        self.assertIn("token: ${{ steps.source_token.outputs.token }}", self.workflow)
+        self.assertIn(
+            "token: ${{ steps.dependency_token.outputs.token || secrets.private_dependency_token }}",
+            self.workflow,
+        )
+        self.assertIn("INPUT_SOURCE_REPOSITORY: ${{ inputs.source_repository }}", self.action)
+        self.assertIn('"source_repository",', self.facade)
+        self.assertIn('environment.get("INPUT_SOURCE_REPOSITORY", "").strip()', self.facade)
+        self.assertNotIn("CIW_GITHUB_APP_PRIVATE_KEY", self.action)
 
     def test_media_vlc_tvos_native_contract_is_bounded_and_distinct_from_mpv(self) -> None:
         merged = load_apple_contract(ROOT)

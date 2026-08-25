@@ -23,8 +23,8 @@
       "caller_permissions": {"contents": "read"},
       "workflow_permissions": {"contents": "read"},
       "forbidden_permissions": ["actions:write", "checks:write", "contents:write", "deployments:write", "id-token:write", "issues:write", "packages:write", "pull-requests:write", "statuses:write"],
-      "named_secrets_allowed": ["maven_package_read_token", "private_dependency_token", "service_username", "service_password"],
-      "notes": "Exact-source validation permits the fixed package-read credential only when an API explicitly forwards it to bounded product execution; routine planning and evidence remain credential-free."
+      "named_secrets_allowed": ["maven_package_read_token", "private_dependency_token", "repository_app_id", "repository_app_private_key", "service_username", "service_password"],
+      "notes": "Exact-source validation permits fixed package/read and repository App credentials only when an API explicitly projects them into bounded source or dependency access; routine planning and evidence remain credential-free."
     },
     {
       "id": "validation-artifact-read",
