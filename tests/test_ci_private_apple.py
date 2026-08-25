@@ -18,6 +18,7 @@ from ci_workflows.ci_private_apple import (
 )
 from ci_workflows.ci_relay import RelayRequest
 from ci_workflows.r2_diagnostics import R2DiagnosticResult
+from ci_workflows.validation_model import load_actions_yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTION = ROOT / "actions/private-apple-ci/action.yml"
@@ -197,12 +198,12 @@ class PrivateAppleExecutorTests(unittest.TestCase):
             self.assertEqual(kwargs["diagnostic_status"], "uploaded")
             self.assertTrue(str(kwargs["diagnostic_key"]).startswith("r2:ci-diagnostics/"))
 
-    def test_r2_failure_never_invents_log_pointer(self) -> None:
+    def test_r2_failure_cannot_terminalize_private_ci_without_pointer(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             env = environment(root)
-            lifecycle = LifecycleStub()
             request = claimed_request()
+            lifecycle = LifecycleStub()
 
             def checkout(**kwargs: object) -> Path:
                 source = Path(kwargs["workspace"]) / "source"
@@ -284,7 +285,7 @@ class PrivateAppleSourceContractTests(unittest.TestCase):
         action_text = ACTION.read_text(encoding="utf-8")
         self.assertIn("CIW_PRIVATE_LOG_PATH", action_text)
         self.assertIn("runner.temp", action_text)
-        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        workflow = load_actions_yaml(WORKFLOW, ROOT).data
         dispatch = workflow["on"]["workflow_dispatch"]["inputs"]
         self.assertEqual(set(dispatch), {"active_key", "ci_run_id"})
         rendered = WORKFLOW.read_text(encoding="utf-8")
