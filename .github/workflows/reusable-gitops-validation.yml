@@ -71,7 +71,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve contract-owned GitOps plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-gitops@dfbd4c4396edffc5ac7a0a5804b1490d8ec9e239 # issue #557 Helm-template classifier checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-gitops@1e703ba47bc0e8f01b72bc805c2375aa38df609e # issue #571 active composition classifier checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -104,7 +104,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve contract-owned GitOps plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-gitops@dfbd4c4396edffc5ac7a0a5804b1490d8ec9e239 # issue #557 Helm-template classifier checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-gitops@1e703ba47bc0e8f01b72bc805c2375aa38df609e # issue #571 active composition classifier checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -155,7 +155,7 @@ jobs:
 
       - id: execute
         name: Execute pinned source-only GitOps validation
-        uses: StreamScapeTV/ci-workflows/actions/validate-gitops@dfbd4c4396edffc5ac7a0a5804b1490d8ec9e239 # issue #557 Helm-template classifier checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-gitops@1e703ba47bc0e8f01b72bc805c2375aa38df609e # issue #571 active composition classifier checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -181,7 +181,7 @@ jobs:
       - id: gitops_cleanup
         name: Remove exact GitOps downloads, tools, caches, logs, and results
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-gitops@dfbd4c4396edffc5ac7a0a5804b1490d8ec9e239 # issue #557 Helm-template classifier checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-gitops@1e703ba47bc0e8f01b72bc805c2375aa38df609e # issue #571 active composition classifier checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -193,7 +193,7 @@ jobs:
 
       - name: Verify zero GitOps issue-owned residue
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-gitops@dfbd4c4396edffc5ac7a0a5804b1490d8ec9e239 # issue #557 Helm-template classifier checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-gitops@1e703ba47bc0e8f01b72bc805c2375aa38df609e # issue #571 active composition classifier checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
