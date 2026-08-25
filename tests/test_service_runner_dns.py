@@ -51,6 +51,22 @@ class ServiceRunnerDnsTests(unittest.TestCase):
             with self.subTest(expected=expected):
                 self.assertIn(expected, self.smoke)
 
+    def test_network_helpers_are_discoverable_and_executable_before_live_probe(self) -> None:
+        self.assertIn(
+            'helper_binaries_dir = ["/usr/lib/podman"]',
+            self.dockerfile,
+        )
+        build_phase_guard = self.smoke.index(
+            'if [[ "${CIW_RUNNER_IMAGE_BUILD_PHASE:-0}" = "1" ]]'
+        )
+        for command in (
+            "/usr/lib/podman/netavark --version",
+            "/usr/lib/podman/aardvark-dns --version",
+        ):
+            with self.subTest(command=command):
+                self.assertIn(command, self.smoke)
+                self.assertLess(self.smoke.index(command), build_phase_guard)
+
     def test_full_image_smoke_proves_alias_and_ip_connectivity(self) -> None:
         self.assertIn(
             "RUN CIW_RUNNER_IMAGE_BUILD_PHASE=1 /usr/local/bin/runner-image-smoke",

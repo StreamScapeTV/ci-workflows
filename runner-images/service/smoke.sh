@@ -13,6 +13,8 @@ test "$(dpkg-query -W -f='${Version}' netavark)" = '1.4.0-4'
 test "$(dpkg-query -W -f='${Version}' aardvark-dns)" = '1.4.0-5'
 test -x /usr/lib/podman/netavark
 test -x /usr/lib/podman/aardvark-dns
+/usr/lib/podman/netavark --version >/dev/null
+/usr/lib/podman/aardvark-dns --version >/dev/null
 crun --version >/dev/null
 python3 --version >/dev/null
 jq --version >/dev/null
