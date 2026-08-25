@@ -1,8 +1,9 @@
 """Thin Agent State webhook to fixed Central workflow relay.
 
-The relay authenticates one Agent State INSERT, claims the request exactly once,
-and dispatches the fixed Central workflow. It owns no source admission, checkout,
-product configuration, dependency handling, workflow lifecycle, or diagnostics.
+The relay authenticates one Agent State INSERT, claims the request, validates the
+reviewed semantic lane, and dispatches only an opaque CI UUID plus a hashed active
+identity. Private repository/ref/profile data remains in Agent State and is never
+copied into public GitHub workflow-dispatch inputs.
 """
 from __future__ import annotations
 
@@ -11,7 +12,6 @@ import hashlib
 import hmac
 import json
 import os
-import re
 from typing import Any, Mapping
 import urllib.parse
 
@@ -32,10 +32,6 @@ from .ci_broker import (
     _uuid,
 )
 
-_INPUT_KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\Z")
-_MAX_INPUTS = 16
-_MAX_INPUT_VALUE_BYTES = 512
-_MAX_INPUTS_JSON_BYTES = 8 * 1024
 _SUPPORTED_WORKFLOW_KEY = "validation.apple"
 _SUPPORTED_PROFILE = "host"
 
@@ -81,16 +77,10 @@ class RelayConfig:
         )
         return cls(
             dispatch_app_id=int(app_id),
-            dispatch_app_private_key=_required(
-                environment, "GITHUB_DISPATCH_APP_PRIVATE_KEY"
-            ),
+            dispatch_app_private_key=_required(environment, "GITHUB_DISPATCH_APP_PRIVATE_KEY"),
             agent_state_url=url,
-            agent_state_secret_key=_required(
-                environment, "AGENT_STATE_SUPABASE_SECRET_KEY"
-            ),
-            agent_state_webhook_secret=_required(
-                environment, "AGENT_STATE_WEBHOOK_SECRET"
-            ),
+            agent_state_secret_key=_required(environment, "AGENT_STATE_SUPABASE_SECRET_KEY"),
+            agent_state_webhook_secret=_required(environment, "AGENT_STATE_WEBHOOK_SECRET"),
             port=int(port_text),
         )
 
@@ -116,56 +106,6 @@ def _is_tag(value: object) -> bool:
     return value
 
 
-def _bounded_inputs(value: object) -> dict[str, str | bool | int]:
-    if value is None:
-        return {}
-    _require(
-        isinstance(value, dict) and len(value) <= _MAX_INPUTS,
-        "invalid_ci_inputs",
-        422,
-    )
-    result: dict[str, str | bool | int] = {}
-    for raw_key, raw_value in value.items():
-        _require(
-            isinstance(raw_key, str) and _INPUT_KEY.fullmatch(raw_key) is not None,
-            "invalid_ci_inputs",
-            422,
-        )
-        _require(
-            isinstance(raw_value, (str, bool, int)) and not isinstance(raw_value, float),
-            "invalid_ci_inputs",
-            422,
-        )
-        if isinstance(raw_value, str):
-            _require(
-                len(raw_value.encode("utf-8")) <= _MAX_INPUT_VALUE_BYTES
-                and "\x00" not in raw_value
-                and "\r" not in raw_value
-                and "\n" not in raw_value,
-                "invalid_ci_inputs",
-                422,
-            )
-        if isinstance(raw_value, int) and not isinstance(raw_value, bool):
-            _require(
-                -(2**63) <= raw_value <= 2**63 - 1,
-                "invalid_ci_inputs",
-                422,
-            )
-        result[raw_key] = raw_value
-    encoded = json.dumps(
-        result,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=True,
-    )
-    _require(
-        len(encoded.encode("utf-8")) <= _MAX_INPUTS_JSON_BYTES,
-        "invalid_ci_inputs",
-        422,
-    )
-    return result
-
-
 def active_identity_key(
     *,
     repository: object,
@@ -174,7 +114,7 @@ def active_identity_key(
     workflow_key: object,
     profile: object,
 ) -> str:
-    """Return a bounded deterministic concurrency key for one active CI identity."""
+    """Hash the full active identity so public workflow concurrency stays opaque."""
     payload = {
         "is_tag": _is_tag(is_tag),
         "profile": _safe_profile(profile),
@@ -200,18 +140,13 @@ class RelayRequest:
     is_tag: bool
     workflow_key: str
     profile: str
-    inputs: dict[str, str | bool | int]
+    inputs: dict[str, object]
 
     @classmethod
     def from_claimed_run(cls, value: Mapping[str, object]) -> "RelayRequest":
         _require(value.get("origin") == "agent_request", "invalid_ci_origin", 422)
         _require(value.get("status") == "accepted", "invalid_ci_status", 409)
-        requested_sha = value.get("requested_source_sha")
-        _require(
-            requested_sha in (None, ""),
-            "requested_source_sha_unsupported",
-            422,
-        )
+        _require(value.get("requested_source_sha") in (None, ""), "requested_source_sha_unsupported", 422)
         workflow_key = _safe_workflow_key(value.get("workflow_key"))
         profile = _safe_profile(value.get("test_profile"))
         _require(
@@ -219,6 +154,8 @@ class RelayRequest:
             "unsupported_ci_intent",
             422,
         )
+        raw_inputs = value.get("inputs")
+        _require(raw_inputs in (None, {}) or raw_inputs == {}, "unsupported_ci_inputs", 422)
         return cls(
             ci_run_id=_uuid(value.get("ci_run_id")),
             project_key=_safe_project(value.get("project_key")),
@@ -227,7 +164,7 @@ class RelayRequest:
             is_tag=_is_tag(value.get("is_tag")),
             workflow_key=workflow_key,
             profile=profile,
-            inputs=_bounded_inputs(value.get("inputs")),
+            inputs={},
         )
 
     @property
@@ -241,21 +178,10 @@ class RelayRequest:
         )
 
     def workflow_inputs(self) -> dict[str, str]:
+        """Return the only values allowed to enter the public workflow event."""
         return {
             "active_key": self.active_key,
             "ci_run_id": self.ci_run_id,
-            "project_key": self.project_key,
-            "repository": self.repository,
-            "ref": self.ref,
-            "is_tag": "true" if self.is_tag else "false",
-            "workflow_key": self.workflow_key,
-            "profile": self.profile,
-            "inputs_json": json.dumps(
-                self.inputs,
-                sort_keys=True,
-                separators=(",", ":"),
-                ensure_ascii=True,
-            ),
         }
 
 
@@ -347,14 +273,9 @@ class ThinCiRelay:
             401,
         )
         payload = _json_object(raw)
+        _require(payload.get("type") == "INSERT", "agent_state_webhook_ignored", 202)
         _require(
-            payload.get("type") == "INSERT",
-            "agent_state_webhook_ignored",
-            202,
-        )
-        _require(
-            payload.get("schema") == "agent_private"
-            and payload.get("table") == "ci_runs",
+            payload.get("schema") == "agent_private" and payload.get("table") == "ci_runs",
             "agent_state_webhook_ignored",
             202,
         )
