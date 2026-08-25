@@ -1,12 +1,13 @@
 """Thin Agent State webhook to fixed Central workflow relay.
 
 The relay authenticates one Agent State INSERT, claims the request exactly once,
-and dispatches the fixed Central workflow.  It owns no source admission, checkout,
+and dispatches the fixed Central workflow. It owns no source admission, checkout,
 product configuration, dependency handling, workflow lifecycle, or diagnostics.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import hmac
 import json
 import os
@@ -35,6 +36,8 @@ _INPUT_KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\Z")
 _MAX_INPUTS = 16
 _MAX_INPUT_VALUE_BYTES = 512
 _MAX_INPUTS_JSON_BYTES = 8 * 1024
+_SUPPORTED_WORKFLOW_KEY = "validation.apple"
+_SUPPORTED_PROFILE = "host"
 
 
 def _required(environment: Mapping[str, str], name: str) -> str:
@@ -163,6 +166,31 @@ def _bounded_inputs(value: object) -> dict[str, str | bool | int]:
     return result
 
 
+def active_identity_key(
+    *,
+    repository: object,
+    ref: object,
+    is_tag: object,
+    workflow_key: object,
+    profile: object,
+) -> str:
+    """Return a bounded deterministic concurrency key for one active CI identity."""
+    payload = {
+        "is_tag": _is_tag(is_tag),
+        "profile": _safe_profile(profile),
+        "ref": _human_ref(ref),
+        "repository": _safe_repository(repository),
+        "workflow_key": _safe_workflow_key(workflow_key),
+    }
+    raw = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
 @dataclass(frozen=True)
 class RelayRequest:
     ci_run_id: str
@@ -184,19 +212,37 @@ class RelayRequest:
             "requested_source_sha_unsupported",
             422,
         )
+        workflow_key = _safe_workflow_key(value.get("workflow_key"))
+        profile = _safe_profile(value.get("test_profile"))
+        _require(
+            workflow_key == _SUPPORTED_WORKFLOW_KEY and profile == _SUPPORTED_PROFILE,
+            "unsupported_ci_intent",
+            422,
+        )
         return cls(
             ci_run_id=_uuid(value.get("ci_run_id")),
             project_key=_safe_project(value.get("project_key")),
             repository=_safe_repository(value.get("repository")),
             ref=_human_ref(value.get("ref")),
             is_tag=_is_tag(value.get("is_tag")),
-            workflow_key=_safe_workflow_key(value.get("workflow_key")),
-            profile=_safe_profile(value.get("test_profile")),
+            workflow_key=workflow_key,
+            profile=profile,
             inputs=_bounded_inputs(value.get("inputs")),
+        )
+
+    @property
+    def active_key(self) -> str:
+        return active_identity_key(
+            repository=self.repository,
+            ref=self.ref,
+            is_tag=self.is_tag,
+            workflow_key=self.workflow_key,
+            profile=self.profile,
         )
 
     def workflow_inputs(self) -> dict[str, str]:
         return {
+            "active_key": self.active_key,
             "ci_run_id": self.ci_run_id,
             "project_key": self.project_key,
             "repository": self.repository,
@@ -320,7 +366,7 @@ class ThinCiRelay:
         ci_run_id = _uuid(record.get("ci_run_id"))
         claim = self.agent_state.claim(ci_run_id)
         run = self._run_from_result(claim)
-        if claim.get("replayed") is True:
+        if claim.get("replayed") is True and run.get("status") != "accepted":
             return {"ok": True, "replayed": True}
 
         try:
@@ -329,7 +375,11 @@ class ThinCiRelay:
         except BrokerError as error:
             self._cancel(ci_run_id, error.code)
             raise
-        return {"ok": True, "dispatched": True}
+        return {
+            "ok": True,
+            "dispatched": True,
+            "recovered": claim.get("replayed") is True,
+        }
 
 
 __all__ = (
@@ -337,4 +387,5 @@ __all__ = (
     "RelayGitHubClient",
     "RelayRequest",
     "ThinCiRelay",
+    "active_identity_key",
 )
