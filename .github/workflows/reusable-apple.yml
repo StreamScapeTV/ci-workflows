@@ -7,6 +7,11 @@ on:
         description: Exact lowercase source SHA admitted by source.resolve
         required: true
         type: string
+      source_repository:
+        description: Optional exact source repository in owner/name form for Central-dispatched validation
+        required: false
+        default: ""
+        type: string
       validation_scope:
         description: legacy, protected-full, or simulator-confidence
         required: false
@@ -83,8 +88,14 @@ on:
         default: ""
         type: string
     secrets:
+      repository_app_id:
+        description: Optional fixed GitHub App id used only when source_repository selects a different repository
+        required: false
+      repository_app_private_key:
+        description: Optional fixed GitHub App private key used only for transient contents-read repository tokens
+        required: false
       private_dependency_token:
-        description: Optional transient contents-read token used only by exact private dependency checkout
+        description: Optional transient contents-read token used only by legacy caller-owned private dependency checkout
         required: false
     outputs:
       result:
@@ -120,10 +131,11 @@ jobs:
     steps:
       - id: plan
         name: Resolve one Apple executor plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@d946291afbf32353a959adcd3f6cbb92513a4cbe # issue #525 bounded compiler diagnostics checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@33da58aed7f0423d33cea69ebd7eb829b283ec0d # issue #495 external-source identity checkpoint
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
+          source_repository: ${{ inputs.source_repository }}
           validation_scope: ${{ inputs.validation_scope }}
           validation_plan_json: ${{ inputs.validation_plan_json }}
           validation_profile: ${{ inputs.validation_profile }}
@@ -181,14 +193,25 @@ jobs:
               raise SystemExit("fixed source root remains")
           PY
 
+      - id: source_token
+        name: Mint exact source repository token only for Central-dispatched source
+        if: inputs.source_repository != '' && inputs.source_repository != github.repository
+        uses: StreamScapeTV/ci-workflows/actions/github-app-repository-token@56f4859ae09944df6eaaafa7c808e5a1081e61af # issue #495 bounded repository token primitive
+        env:
+          CIW_GITHUB_APP_ID: ${{ secrets.repository_app_id }}
+          CIW_GITHUB_APP_PRIVATE_KEY: ${{ secrets.repository_app_private_key }}
+        with:
+          repository: ${{ inputs.source_repository }}
+
       - id: checkout
         name: Check out exact admitted caller source once
         uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
         with:
-          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          repository: ${{ inputs.source_repository || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository) }}
           admitted_sha: ${{ inputs.admitted_sha }}
           path: source
           fetch_depth: "1"
+          token: ${{ steps.source_token.outputs.token }}
 
       - id: workspace
         name: Prepare one isolated marker-bound Apple workspace
@@ -198,6 +221,16 @@ jobs:
           cache_mode: disabled
           source_sha: ${{ inputs.admitted_sha }}
           trust_mode: ${{ needs.plan.outputs.source_trust }}
+
+      - id: dependency_token
+        name: Mint exact dependency token only for Central-dispatched source
+        if: needs.plan.outputs.private_dependency_used == 'true' && inputs.source_repository != '' && inputs.source_repository != github.repository
+        uses: StreamScapeTV/ci-workflows/actions/github-app-repository-token@56f4859ae09944df6eaaafa7c808e5a1081e61af # issue #495 bounded repository token primitive
+        env:
+          CIW_GITHUB_APP_ID: ${{ secrets.repository_app_id }}
+          CIW_GITHUB_APP_PRIVATE_KEY: ${{ secrets.repository_app_private_key }}
+        with:
+          repository: ${{ needs.plan.outputs.private_dependency_repository }}
 
       - id: dependency
         name: Check out exact private dependency at most once
@@ -209,14 +242,15 @@ jobs:
           dependency_id: ${{ needs.plan.outputs.private_dependency_id }}
           expected_subpath: ${{ needs.plan.outputs.private_dependency_subdirectory }}
           fetch_depth: "1"
-          token: ${{ secrets.private_dependency_token }}
+          token: ${{ steps.dependency_token.outputs.token || secrets.private_dependency_token }}
 
       - id: execute
         name: Execute one sequential Apple validation plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@d946291afbf32353a959adcd3f6cbb92513a4cbe # issue #525 bounded compiler diagnostics checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@33da58aed7f0423d33cea69ebd7eb829b283ec0d # issue #495 external-source identity checkpoint
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
+          source_repository: ${{ inputs.source_repository }}
           validation_scope: ${{ inputs.validation_scope }}
           validation_plan_json: ${{ inputs.validation_plan_json }}
           validation_profile: ${{ inputs.validation_profile }}
@@ -256,10 +290,11 @@ jobs:
       - id: apple_cleanup
         name: Remove Apple-specific state once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@d946291afbf32353a959adcd3f6cbb92513a4cbe # issue #525 bounded compiler diagnostics checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@33da58aed7f0423d33cea69ebd7eb829b283ec0d # issue #495 external-source identity checkpoint
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
+          source_repository: ${{ inputs.source_repository }}
           validation_scope: ${{ inputs.validation_scope }}
           validation_plan_json: ${{ inputs.validation_plan_json }}
           validation_profile: ${{ inputs.validation_profile }}
@@ -280,10 +315,11 @@ jobs:
       - id: residue
         name: Verify zero Apple-specific residue once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@d946291afbf32353a959adcd3f6cbb92513a4cbe # issue #525 bounded compiler diagnostics checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@33da58aed7f0423d33cea69ebd7eb829b283ec0d # issue #495 external-source identity checkpoint
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
+          source_repository: ${{ inputs.source_repository }}
           validation_scope: ${{ inputs.validation_scope }}
           validation_plan_json: ${{ inputs.validation_plan_json }}
           validation_profile: ${{ inputs.validation_profile }}
