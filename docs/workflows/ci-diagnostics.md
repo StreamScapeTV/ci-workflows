@@ -1,63 +1,93 @@
-# Central CI normalized diagnostics
+# Central CI private logs
 
-Central CI keeps full raw execution output in GitHub Actions. Agent State never stores
-log bodies. The shared `persist-ci-diagnostics` action writes only a bounded normalized
-diagnostic record to the fixed Cloudflare D1 database and returns a small receipt that
-can be attached to the terminal Agent State transition.
+Central CI runs in the public `StreamScapeTV/ci-workflows` repository, so the
+GitHub Actions log is **not** a storage location for private product output. For
+private-source execution, GitHub receives only generic orchestration/pass-fail
+messages. Detailed private checkout, build, test, compiler, package-resolution,
+and cleanup output is captured into a runner-local file and exported to the
+private Cloudflare R2 bucket.
 
-## Stored identity
+Agent State remains the short-lived CI metadata index. It stores no log body.
+After R2 upload and read-back verification, the terminal CI row records only a
+small R2 receipt in the existing `diagnostic_key`/`diagnostic_status`
+compatibility fields.
 
-One D1 record is keyed by `ci/<ci_run_id>/<run_attempt>` and records the Agent State CI
-run UUID, GitHub run id/attempt, project key, full `owner/name` source repository,
-human branch/tag `ref`, explicit `is_tag`, workflow key, profile, intended terminal
-status, normalized diagnostics, and their SHA-256 digest. Commit SHA is not request or
-D1 identity; Agent State retains the actually observed checkout SHA separately as
-evidence.
+## Public GitHub boundary
 
-The record is visible for 24 hours, matching the recent-CI discovery window. Each write
-also opportunistically removes expired records.
+Webhook dispatch into `central-ci-dispatch.yml` contains only:
 
-## Diagnostic payload
+- an opaque Agent State `ci_run_id` UUID;
+- an opaque SHA-256 active-identity key used only for workflow concurrency.
 
-The payload is an array of at most 64 records and at most 64 KiB after canonical
-normalization. Each record contains only:
+Repository, project key, branch/tag ref, workflow/profile, product configuration,
+source SHA, dependency identity, and private command output are not workflow
+inputs. The trusted private executor re-claims the canonical row from Agent
+State by UUID and keeps those values inside the Python process.
 
-- `severity`: `warning` or `error`;
-- `code`: one stable bounded machine code;
-- optional `stage`: one bounded stage identity;
-- `message`: one normalized single-line message, at most 2048 bytes after sanitization.
+The GitHub Actions log may show public Central checkout information, fixed secret
+*names*, the opaque UUID/hash, and generic results such as `private_ci_succeeded`
+or `private_ci_failed`. Private source values and detailed command stdout/stderr
+must not be emitted through workflow `with:`, `env:`, step outputs, summaries, or
+shell tracing.
 
-`debug` and `info` rows are rejected rather than copied into the secondary diagnostic
-store. Secret assignments, bearer credentials, GitHub token-shaped values, and URL
-userinfo are redacted again at the persistence boundary. Product workflows should
-still normalize diagnostics before calling the action; this sink is a final bounded
-safety boundary, not a raw-log parser.
+## Runner-local capture
 
-## D1 transport
+The private executor creates one mode-0600 log below `RUNNER_TEMP`. Private Git
+checkout output is redirected there. Canonical Apple validation already captures
+subprocess stdout/stderr rather than streaming it; the executor redirects its
+Python stdout/stderr to the same private log and appends the canonical per-stage
+Apple state logs before cleanup.
 
-The action has no credential inputs and no caller-selectable endpoint. The trusted
-workflow supplies fixed environment values `CIW_D1_ACCOUNT_ID`, `CIW_D1_DATABASE_ID`,
-and `CIW_D1_API_TOKEN`. The implementation calls Cloudflare's D1 query endpoint with
-fixed SQL and parameter arrays only. It never executes caller-provided SQL.
+Secret-bearing command files (`GITHUB_OUTPUT`, `GITHUB_ENV`, and
+`GITHUB_STEP_SUMMARY`) are removed from the private product execution environment
+so product details cannot escape through workflow commands. The source checkout,
+workspace state, dependency checkout, and temporary private log are removed from
+the runner after terminal handling/recovery.
 
-One transactional batch creates the fixed table/index when absent, removes expired
-rows, inserts or idempotently updates the exact diagnostic identity, and reads the row
-back. `diagnostic_status=uploaded` is emitted only after the read-back identity,
-digest, count, status, and canonical JSON all match.
+## R2 transport
 
-The action outputs only `diagnostic_key`, `diagnostic_status`, `diagnostic_sha256`, and
-`diagnostic_count`. Diagnostic JSON, Cloudflare credentials, API responses, and raw
-GitHub logs are never written to GitHub outputs or Agent State.
+The existing R2 implementation uses the S3-compatible endpoint with fixed trusted
+environment variables:
 
-## Lifecycle ordering
+- `R2_ACCOUNT_ID`
+- `R2_BUCKET`
+- `R2_ACCESS_KEY_ID`
+- `R2_SECRET_ACCESS_KEY`
 
-For a terminal Central CI path the required ordering is:
+There are no caller-selected bucket, host, secret-name, SQL, or storage inputs.
+The private log is bounded, deterministically gzip-compressed, uploaded to R2,
+then downloaded again and SHA-256 verified before it is considered available.
+The current object form is:
 
-1. finish build/test and cleanup;
-2. normalize warning/error diagnostics;
-3. persist and verify the D1 record;
-4. transition Agent State to `succeeded`, `failed`, `cancelled`, or `timed_out` with
-   only the bounded diagnostic key/status and stable error summary.
+```text
+ci-diagnostics/<ci_run_id>/<github_run_id>-<run_attempt>.log.gz
+```
 
-A terminal Agent State row therefore never points at a diagnostic record that has not
-already been persisted successfully.
+The compatibility Agent State receipt is:
+
+```text
+r2:<object_key>#sha256=<compressed_sha256>
+```
+
+with `diagnostic_status=uploaded`. If upload/read-back fails, the workflow fails
+closed and records a stable upload failure instead of inventing a log pointer.
+R2 object retention is owned by the bucket lifecycle policy; Agent State remains
+a 24-hour recent-CI index.
+
+## Terminal ordering
+
+For both success and failure the intended order is:
+
+1. register/attach the real GitHub run identity in Agent State;
+2. resolve and check out the requested private branch/tag internally;
+3. record the observed checkout SHA as evidence only;
+4. execute private validation while detailed output stays runner-local;
+5. perform deterministic cleanup/residue checks;
+6. gzip, upload, read back, and digest-verify the private log in R2;
+7. update terminal Agent State status with only the stable result/error and R2
+   receipt/status;
+8. remove local private state.
+
+GitHub Actions is therefore execution/orchestration evidence, Agent State is the
+short-lived status/discovery index, and R2 is the detailed private log authority.
+Cloudflare D1 is not part of this path.
