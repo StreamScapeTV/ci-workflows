@@ -6,8 +6,6 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import yaml
-
 from ci_workflows.central_profile import CentralProfileResolution
 from ci_workflows.ci_private_apple import (
     _execution_environment,
@@ -17,6 +15,8 @@ from ci_workflows.ci_private_apple import (
 )
 from ci_workflows.ci_relay import RelayRequest
 from ci_workflows.r2_diagnostics import R2DiagnosticError, R2DiagnosticResult
+from ci_workflows.validation_model import ActionsLoader
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTION = ROOT / "actions/private-apple-ci/action.yml"
@@ -49,8 +49,8 @@ def request() -> RelayRequest:
 def resolution() -> CentralProfileResolution:
     return CentralProfileResolution(
         project_key="private-project",
+        test_profile="host",
         workflow_key="validation.apple",
-        profile="host",
         capability="apple-host-test",
         source_repository="OtherOrg/private-app",
         admitted_sha=SOURCE_SHA,
@@ -247,11 +247,19 @@ class PrivateAppleExecutorTests(unittest.TestCase):
         self.assertEqual(client.finishes[-1]["error_summary"], "private_ci_interrupted")
         self.assertEqual(client.finishes[-1]["diagnostic_status"], "uploaded")
 
+    def test_recovery_without_state_creates_no_private_run_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = environment(root)
+            recover_private_apple(env)
+            state_root = Path(env["RUNNER_TEMP"]) / "central-private-ci" / CI_RUN_ID
+            self.assertFalse(state_root.exists())
+
 
 class PrivateAppleSourceContractTests(unittest.TestCase):
     def test_action_and_workflow_expose_no_private_identity_fields(self) -> None:
-        action = yaml.safe_load(ACTION.read_text(encoding="utf-8"))
-        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        action = yaml.load(ACTION.read_text(encoding="utf-8"), Loader=ActionsLoader)
+        workflow = yaml.load(WORKFLOW.read_text(encoding="utf-8"), Loader=ActionsLoader)
         self.assertEqual(set(action["inputs"]), {"phase", "ci_run_id"})
         self.assertEqual(
             set(workflow["on"]["workflow_dispatch"]["inputs"]),
