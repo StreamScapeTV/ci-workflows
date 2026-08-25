@@ -19,7 +19,7 @@ import urllib.request
 _MAX_RESPONSE_BYTES = 64 * 1024
 _HTTP_TIMEOUT_SECONDS = 30
 _REPOSITORY = re.compile(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}\Z")
-_TOKEN = re.compile(r"[A-Za-z0-9_]{20,512}\Z")
+_TOKEN = re.compile(r"ghs_[A-Za-z0-9._-]{36,4092}\Z")
 
 
 class GitHubAppTokenError(RuntimeError):
