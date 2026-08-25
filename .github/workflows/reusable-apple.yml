@@ -12,6 +12,11 @@ on:
         required: false
         default: ""
         type: string
+      execution_backend:
+        description: organization or fixed GitHub-hosted execution selected by Central policy
+        required: false
+        default: organization
+        type: string
       validation_scope:
         description: legacy, protected-full, or simulator-confidence
         required: false
@@ -120,7 +125,7 @@ jobs:
     runs-on: [linux, amd64, general, small]
     timeout-minutes: 10
     outputs:
-      runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
+      runs_on_json: ${{ steps.backend.outputs.runs_on_json || steps.plan.outputs.runs_on_json }}
       workspace_profile: ${{ steps.plan.outputs.workspace_profile }}
       source_trust: ${{ steps.plan.outputs.source_trust }}
       private_dependency_used: ${{ steps.plan.outputs.private_dependency_used }}
@@ -151,6 +156,16 @@ jobs:
           private_dependency_sha: ${{ inputs.private_dependency_sha }}
           private_dependency_subdirectory: ${{ inputs.private_dependency_subdirectory }}
           private_dependency_id: ${{ inputs.private_dependency_id }}
+
+      - id: backend
+        name: Resolve bounded Apple execution backend
+        if: inputs.validation_scope != 'simulator-confidence'
+        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@83084efecc597d3bedacfe5f8628f1890b9bcd90 # issue #495 hosted Apple backend checkpoint
+        with:
+          workflow_api: validation.apple
+          source_trust: ${{ steps.plan.outputs.source_trust }}
+          execution_backend: ${{ inputs.execution_backend }}
+          runner_profile: ${{ steps.plan.outputs.runner_profile }}
 
   apple:
     name: Execute exact Apple validation
@@ -282,7 +297,7 @@ jobs:
         with:
           source_sha: ${{ inputs.admitted_sha }}
           workflow_release: validation-apple-v2
-          runner_profile: ${{ inputs.validation_scope == 'simulator-confidence' && 'github-hosted-macos' || 'apple' }}
+          runner_profile: ${{ inputs.execution_backend == 'github-hosted' && 'github-hosted-macos' || (inputs.validation_scope == 'simulator-confidence' && 'github-hosted-macos' || 'apple') }}
           toolchain_json: '{}'
           command_profile: ${{ inputs.validation_scope }}
           result: ${{ steps.execute.outputs.result }}
