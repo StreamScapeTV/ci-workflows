@@ -49,9 +49,6 @@ inputs:
     description: Exact admitted source checkout root used by config resolution, execute, cleanup, and residue
     required: false
     default: source
-  token:
-    description: Transient contents-read GitHub token; used only by execute
-    required: false
 
 outputs:
   used:
@@ -96,7 +93,6 @@ runs:
         INPUT_RELEASE_ASSET_ID: ${{ inputs.dependency_id }}
         INPUT_PRIVATE_DEPENDENCY_REPOSITORY: ${{ inputs.private_dependency_repository }}
         INPUT_SOURCE_ROOT: ${{ inputs.source_root }}
-        PRIVATE_RELEASE_ASSET_TOKEN: ${{ inputs.token }}
       run: |
         set -Eeuo pipefail
         python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
