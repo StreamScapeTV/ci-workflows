@@ -25,6 +25,20 @@
         "tests/test_reusable_tag_image_chart.py",
         "tests/test_validation_harness.py"
       ]
+    },
+    {
+      "id": "issue-495-central-dispatch-canonical-apple",
+      "issue": 495,
+      "path": ".github/workflows/central-ci-dispatch.yml",
+      "reason": "The owner-approved webhook path must call the same canonical validation.apple reusable workflow as private callers; one trusted event-to-reusable hop is safer than duplicating Apple orchestration in the dispatch entrypoint.",
+      "removal_condition": "Remove if the dispatch entrypoint no longer needs to converge on reusable-apple.yml or the reviewed call-depth model natively distinguishes this trusted event-to-canonical-reusable boundary.",
+      "rules": [
+        "reusable-workflow-depth"
+      ],
+      "tests": [
+        "tests/test_ci_broker_workflows.py",
+        "tests/test_validation_harness.py"
+      ]
     }
   ],
   "forbidden_generic_inputs": [
