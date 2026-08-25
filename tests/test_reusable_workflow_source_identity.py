@@ -13,7 +13,7 @@ SOURCE_SHA = "0b55b5f4bc2623815e47759d186e4955b6444075"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 BACKEND_SHA = "7d5d839c6e90491e165f1358ecb5e80129805764"
 PYTHON_SHA = "3d3689fda11b03a188789f03d6d64cab50f1873a"
-EXECUTION_BACKEND_SHA = "01d1d10bafcc4fc1e4c51663f72b08f694dc4e35"
+EXECUTION_BACKEND_SHA = "83084efecc597d3bedacfe5f8628f1890b9bcd90"
 FLUTTER_SHA = "d2e1c7a7601e1caeeb976311fb13cf41fef94d4a"
 ANDROID_SHA = "91e5ba5af11ec717f829000edad062c664fb86f7"
 GRADLE_WARM_SHA = "13de46c51efcf65df798dfec82a620c484350dfa"
@@ -26,7 +26,7 @@ FOUNDATION = "issue #116 immutable private-action checkpoint"
 ISSUE_350 = "issue #350 PR-merge snapshot race checkpoint"
 ISSUE_405 = "issue #405 simplified execution-backend checkpoint"
 ISSUE_473_PYTHON = "issue #473 product-neutral Python checkpoint"
-ISSUE_447 = "issue #447 portable backend checkpoint"
+ISSUE_495_BACKEND = "issue #495 hosted Apple backend checkpoint"
 ISSUE_104 = "issue #104 immutable private-action checkpoint"
 ISSUE_534_PREFIX = "issue #534 prefix-isolated protected-full checkpoint"
 ISSUE_346_WARM = "issue #346 dependency warm checkpoint"
@@ -68,6 +68,7 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
     },
     ".github/workflows/reusable-apple.yml": {
         "StreamScapeTV/ci-workflows/actions/validate-apple": (APPLE_SHA, ISSUE_495_APPLE),
+        "StreamScapeTV/ci-workflows/actions/resolve-execution-backend": (EXECUTION_BACKEND_SHA, ISSUE_495_BACKEND),
         "StreamScapeTV/ci-workflows/actions/github-app-repository-token": (REPOSITORY_TOKEN_SHA, ISSUE_495_REPOSITORY_TOKEN),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
@@ -77,7 +78,7 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
     },
     ".github/workflows/reusable-gitops-validation.yml": {
         "StreamScapeTV/ci-workflows/actions/validate-gitops": (GITOPS_SHA, ISSUE_475_GITOPS),
-        "StreamScapeTV/ci-workflows/actions/resolve-execution-backend": (EXECUTION_BACKEND_SHA, ISSUE_447),
+        "StreamScapeTV/ci-workflows/actions/resolve-execution-backend": (EXECUTION_BACKEND_SHA, ISSUE_495_BACKEND),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/render-evidence": (FOUNDATION_SHA, FOUNDATION),
@@ -152,6 +153,7 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
         fragment = ROOT / "contracts/apple-validation-media-tvos-simulator-confidence.json"
         self.assertTrue(fragment.is_file())
         self.assertEqual(4, source.count(f"actions/validate-apple@{APPLE_SHA}"))
+        self.assertEqual(1, source.count(f"actions/resolve-execution-backend@{EXECUTION_BACKEND_SHA}"))
         self.assertEqual(2, source.count(f"actions/github-app-repository-token@{REPOSITORY_TOKEN_SHA}"))
         self.assertNotIn("actions/validate-apple@293dee450e3464032d67f702b768f493abf65d7b", source)
 
