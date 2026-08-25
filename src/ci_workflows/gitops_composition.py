@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from .gitops_contract import bounded_path
+from .gitops_render import _is_helm_template_source
 from .gitops_runtime import _require
 from .gitops_source import (
     _changed_paths,
@@ -157,8 +158,13 @@ def yaml_target(
         must_exist=True,
         kind="directory",
     )
-    files = _glob_files(root, target.include)
-    _require(files, "yaml_invalid", target.target_id)
+    matched_files = _glob_files(root, target.include)
+    _require(matched_files, "yaml_invalid", target.target_id)
+    files = tuple(
+        path
+        for path in matched_files
+        if not _is_helm_template_source(path, root)
+    )
     schema = (
         _load_schema(source_root, target.schema_path, yaml)
         if target.schema_path
