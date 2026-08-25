@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import tempfile
@@ -10,7 +11,11 @@ from pathlib import Path
 from unittest import mock
 
 from ci_workflows import r2_diagnostics
-from ci_workflows.r2_diagnostics import R2DiagnosticError, upload_private_diagnostic
+from ci_workflows.r2_diagnostics import (
+    R2DiagnosticError,
+    download_private_diagnostic,
+    upload_private_diagnostic,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -54,6 +59,16 @@ class R2DiagnosticTests(unittest.TestCase):
         self.assertEqual(contract["region"], "auto")
         self.assertEqual(contract["storage_class"], r2_diagnostics.STORAGE_CLASS)
         self.assertEqual(contract["object_prefix"], r2_diagnostics.OBJECT_PREFIX)
+        self.assertEqual(
+            contract["object_format"],
+            "ci-diagnostics/<request_id>/<128-bit-capability>/<run_id>-<attempt>.log.gz",
+        )
+        self.assertEqual(contract["object_capability"]["bits"], 128)
+        self.assertEqual(
+            contract["object_capability"]["key_authority"],
+            "r2-write-secret-only",
+        )
+        self.assertFalse(contract["object_capability"]["read_service_can_mint"])
         self.assertEqual(contract["max_raw_bytes"], r2_diagnostics.MAX_RAW_BYTES)
         self.assertEqual(
             contract["max_compressed_bytes"],
@@ -75,7 +90,7 @@ class R2DiagnosticTests(unittest.TestCase):
         self.assertIn("lifecycle-mutation", contract["forbidden_runtime_operations"])
         self.assertIn("presigned-url", contract["forbidden_runtime_operations"])
 
-    def test_success_puts_standard_storage_and_verifies_readback(self) -> None:
+    def test_success_puts_capability_object_and_verifies_readback(self) -> None:
         stored: dict[str, bytes] = {}
         requests: list[object] = []
 
@@ -103,12 +118,60 @@ class R2DiagnosticTests(unittest.TestCase):
         authorization = requests[0].get_header("Authorization")  # type: ignore[attr-defined]
         self.assertTrue(authorization.startswith("AWS4-HMAC-SHA256 "))
         self.assertNotIn(self.secret_key, authorization)
-        self.assertEqual(
-            result.object_key,
-            "ci-diagnostics/request-1/123-1.log.gz",
-        )
+        self.assertTrue(r2_diagnostics.is_capability_object_key(result.object_key))
+        parts = result.object_key.split("/")
+        self.assertEqual(parts[0:2], ["ci-diagnostics", "request-1"])
+        self.assertRegex(parts[2], r"^[0-9a-f]{32}$")
+        self.assertEqual(parts[3], "123-1.log.gz")
+        self.assertNotIn(self.secret_key, result.object_key)
         self.assertEqual(len(result.sha256), 64)
         self.assertEqual(result.compressed_bytes, len(stored["data"]))
+
+    def test_object_capability_is_deterministic_and_write_secret_bound(self) -> None:
+        kwargs = {
+            "request_id": "request-1",
+            "run_id": 123,
+            "attempt": 1,
+            "digest": "a" * 64,
+        }
+        first = r2_diagnostics._object_capability(  # type: ignore[attr-defined]
+            **kwargs,
+            secret_access_key="write-secret-one",
+        )
+        replay = r2_diagnostics._object_capability(  # type: ignore[attr-defined]
+            **kwargs,
+            secret_access_key="write-secret-one",
+        )
+        other = r2_diagnostics._object_capability(  # type: ignore[attr-defined]
+            **kwargs,
+            secret_access_key="write-secret-two",
+        )
+        self.assertEqual(first, replay)
+        self.assertNotEqual(first, other)
+        self.assertRegex(first, r"^[0-9a-f]{32}$")
+
+    def test_legacy_object_remains_internal_download_compatible(self) -> None:
+        compressed = b"historical-compressed-object"
+        digest = hashlib.sha256(compressed).hexdigest()
+        requests: list[object] = []
+
+        def opener(request: object, timeout: int) -> _Response:
+            requests.append(request)
+            self.assertEqual(timeout, 30)
+            return _Response(compressed)
+
+        result = download_private_diagnostic(
+            object_key="ci-diagnostics/request-1/123-1.log.gz",
+            expected_sha256=digest,
+            account_id=self.account,
+            bucket=self.bucket,
+            access_key_id=self.access_key,
+            secret_access_key=self.secret_key,
+            opener=opener,
+            clock=lambda: self.when,
+        )
+        self.assertEqual(result, compressed)
+        self.assertEqual(len(requests), 1)
 
     def test_unsafe_request_id_is_rejected_before_network_access(self) -> None:
         calls: list[object] = []
