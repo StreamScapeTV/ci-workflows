@@ -101,6 +101,7 @@ def self_check() -> dict[str, object]:
     )
     inputs = request.workflow_inputs()
     if set(inputs) != {
+        "active_key",
         "ci_run_id",
         "project_key",
         "repository",
@@ -112,6 +113,8 @@ def self_check() -> dict[str, object]:
     }:
         raise BrokerError("relay_self_check_failed", 500)
     if inputs["ref"] != "develop" or inputs["is_tag"] != "false":
+        raise BrokerError("relay_self_check_failed", 500)
+    if len(inputs["active_key"]) != 64:
         raise BrokerError("relay_self_check_failed", 500)
     if any("sha" in key or "dispatch_token" in key for key in inputs):
         raise BrokerError("relay_self_check_failed", 500)
