@@ -67,6 +67,32 @@ class ServiceRunnerDnsTests(unittest.TestCase):
                 self.assertIn(command, self.smoke)
                 self.assertLess(self.smoke.index(command), build_phase_guard)
 
+    def test_netavark_firewall_runtime_is_explicit_and_executable(self) -> None:
+        self.assertEqual(self.lock["packages"]["iptables"], "1.8.10-3ubuntu2")
+        for expected in (
+            "IPTABLES_PACKAGE_VERSION=1.8.10-3ubuntu2",
+            'iptables="${IPTABLES_PACKAGE_VERSION}"',
+            "apt-mark hold aardvark-dns iptables netavark podman podman-compose",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, self.dockerfile)
+
+        build_phase_guard = self.smoke.index(
+            'if [[ "${CIW_RUNNER_IMAGE_BUILD_PHASE:-0}" = "1" ]]'
+        )
+        for command in (
+            "test \"$(dpkg-query -W -f='${Version}' iptables)\" = '1.8.10-3ubuntu2'",
+            "command -v iptables >/dev/null",
+            "iptables --version >/dev/null",
+            "netavark_ldd=\"$(ldd /usr/lib/podman/netavark)\"",
+            "aardvark_ldd=\"$(ldd /usr/lib/podman/aardvark-dns)\"",
+            "! grep -F 'not found' <<<\"${netavark_ldd}\"",
+            "! grep -F 'not found' <<<\"${aardvark_ldd}\"",
+        ):
+            with self.subTest(command=command):
+                self.assertIn(command, self.smoke)
+                self.assertLess(self.smoke.index(command), build_phase_guard)
+
     def test_full_image_smoke_proves_alias_and_ip_connectivity(self) -> None:
         self.assertIn(
             "RUN CIW_RUNNER_IMAGE_BUILD_PHASE=1 /usr/local/bin/runner-image-smoke",
