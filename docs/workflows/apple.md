@@ -1,11 +1,21 @@
 # Apple validation workflow
 
-`validation.apple` version `2.0.0` is the product-neutral reusable workflow at
+`validation.apple` version `2.1.0` is the product-neutral reusable workflow at
 `.github/workflows/reusable-apple.yml`. Its stable public check remains
 `CI / Apple validation`.
 
 The v2 API keeps the existing legacy profile inputs for current consumers and adds
 a `protected-full` mode with one strict caller-owned `validation_plan_json`.
+Version 2.1 adds one optional full `owner/name` `source_repository` for Central-
+dispatched validation. When that value is absent, existing callers retain their
+current repository identity and credential behavior. When it identifies a source
+repository different from the Central workflow repository, the Apple execution
+job uses fixed named GitHub App credentials to mint a transient contents-read
+token restricted to that exact repository. The token is masked, used only for
+exact source checkout, and is neither a public workflow output nor product-source
+input. The request authority remains the admitted source/ref contract; repository
+credentials do not add source-selection, signing, release, or deployment authority.
+
 Protected-full validates a bounded list of Apple stages before the heavy executor
 runs. Each stage describes only technology-level data: a relative project or
 workspace, scheme, configuration, platform, Xcode operation, optional test plan,
@@ -30,11 +40,13 @@ signing identity, environment-variable name, or deployment/store control.
 A protected-full call has one protected Linux planner and exactly one semantic
 `apple` execution job. That Apple job:
 
-1. checks out the exact admitted caller source once;
+1. when an external `source_repository` is selected, mints one exact repository
+   contents-read token and checks out the exact admitted caller source once;
 2. prepares one marker-bound Apple workspace with Actions cache disabled;
 3. optionally checks out one exact private dependency once and accepts it only
    after exact SHA, repository, subdirectory, remote-erasure, and credential-
-   erasure evidence match the plan;
+   erasure evidence match the plan; Central-dispatched execution mints a separate
+   exact dependency contents-read token in that same Apple job when needed;
 4. executes the requested Apple stages sequentially in one isolated process
    environment;
 5. shares DerivedData and SwiftPM state between stages while giving each stage
@@ -165,7 +177,10 @@ migrate. It supports:
 Legacy consumers keep their checked-in consumer/task mappings. Protected-full
 and simulator-confidence are product-neutral and do not add a central
 application repository allowlist, product ID, product command, or
-branch/path/concurrency policy.
+branch/path/concurrency policy. `source_repository` is a full repository identity,
+not a StreamScapeTV prefix or product selector, so an authorized GitHub App
+installation may serve a private repository in another organization without
+changing the validation API.
 
 ## Exact toolchain and signing boundary
 
@@ -188,17 +203,24 @@ imports a keychain, reaches Kubernetes, or deploys a product.
 
 ## Immutable helper reuse
 
-The reusable workflow invokes `actions/validate-apple` through the issue #525
-bounded compiler-diagnostics checkpoint
-`d946291afbf32353a959adcd3f6cbb92513a4cbe`.
-That checkpoint preserves the issue #516 hosted simulator-confidence boundary
-and adds only generic bounded failure projection: ordinary failing-command
-stdout/stderr remains the primary diagnostic, while a failing `xcodebuild` may
-read one Central-owned result bundle when that ordinary output lacks a concrete
-compiler error. The corresponding action-lock release label is
-`issue #525 bounded compiler diagnostics checkpoint`.
+The reusable workflow invokes `actions/validate-apple` through the issue #495
+external-source identity checkpoint
+`33da58aed7f0423d33cea69ebd7eb829b283ec0d`.
+That checkpoint preserves the previously reviewed hosted simulator-confidence
+and bounded compiler-diagnostics behavior while adding only explicit external
+source repository identity to the existing typed Apple request. The corresponding
+action-lock release label is `issue #495 external-source identity checkpoint`.
 
-Result-bundle fallback is fail-closed and caller-independent: Central accepts
+When Central must access a private source or private dependency repository, the
+same Apple execution job invokes `actions/github-app-repository-token` through
+the issue #495 bounded repository-token checkpoint
+`56f4859ae09944df6eaaafa7c808e5a1081e61af`. That helper accepts only one full
+`owner/name` repository, reads the App id/private key from fixed environment
+variables, requests only `contents: read` for that repository, masks the issued
+token before exporting it as a step output, and exposes no caller-selected secret
+name or permission surface.
+
+Result-bundle fallback remains fail-closed and caller-independent: Central accepts
 only the exact stage-local `.xcresult` path already constructed under its owned
 Apple validation state, parses a bounded build-results response, projects at
 most one compiler diagnostic, strips paths to safe basenames, redacts URLs and
@@ -223,18 +245,22 @@ The action archive supplies its Python modules relative to `GITHUB_ACTION_PATH`;
 the reusable workflow does not clone a second central checkout or use a caller-
 selected helper version. The helper identity is recorded in
 `contracts/action-tool-lock.json`. Product callers consume the reusable workflow
-through the active library channel such as `@main`; they do not configure this
-internal helper checkpoint themselves.
+through the active library channel such as `@main`; they do not configure these
+internal helper checkpoints themselves.
 
 ## Private dependency boundary
 
 Protected-full accepts at most one optional exact private dependency repository,
-SHA, subdirectory, and bounded dependency ID plus one named transient
-`private_dependency_token`. The standard private-dependency action performs the
-exact detached checkout, verifies the selected subpath, erases Git remotes and
-credentials, and exposes registered-state identity. Apple execution rejects the
-dependency unless every piece of checkout evidence matches the requested exact
-identity. `secrets: inherit` is not used.
+SHA, subdirectory, and bounded dependency ID. Existing callers may continue to
+supply the named transient `private_dependency_token`. When Central-dispatched
+execution selects an external `source_repository`, the Apple job instead mints a
+separate transient contents-read token for the exact dependency repository using
+the same fixed GitHub App credentials. The standard private-dependency action
+performs the exact detached checkout, verifies the selected subpath, erases Git
+remotes and credentials, and exposes registered-state identity. Apple execution
+rejects the dependency unless every piece of checkout evidence matches the
+requested exact identity. `secrets: inherit` is not used, and neither App
+credential nor issued token is exposed to product source.
 
 Simulator-confidence does not consume the private-dependency channel. Its
 planner emits no dependency request, so the optional checkout step remains
