@@ -74,6 +74,42 @@ closed and records a stable upload failure instead of inventing a log pointer.
 R2 object retention is owned by the bucket lifecycle policy; Agent State remains
 a 24-hour recent-CI index.
 
+## Authorized receipt-capability retrieval
+
+Detailed logs are retrieved by a separate read-only service, not by the thin
+Agent State relay. The reader receives only `R2_ACCOUNT_ID`, `R2_BUCKET`,
+`R2_READ_ACCESS_KEY_ID`, and `R2_READ_SECRET_ACCESS_KEY`. It has no Agent State,
+GitHub App, source, workflow-dispatch, lifecycle, or R2 write credentials. The
+thin relay therefore remains unable to inspect or return build logs.
+
+The exact uploaded Agent State receipt is the authorization material. An agent
+that is authorized to read the CI row obtains `diagnostic_key`, UTF-8 encodes the
+exact receipt, applies URL-safe base64 without `=` padding, and requests:
+
+```text
+/diagnostics/<receipt-capability>
+```
+
+The receipt-capability is a bearer capability and must be handled accordingly:
+do not paste it into GitHub issues, public Actions logs, workflow inputs, or
+other durable shared text. The service itself suppresses application request
+logging and returns `Cache-Control: private, no-store` plus no-referrer/nosniff
+headers. Access remains possible only while the R2 object exists, so the bucket
+lifecycle is also the capability lifetime boundary.
+
+The reader decodes one exact receipt, accepts only the canonical
+`ci-diagnostics/<ci_run_id>/<run>-<attempt>.log.gz` object shape, downloads that
+exact object with the read-only R2 key, and verifies the receipt's compressed
+SHA-256 **before** gzip decompression. A missing object or digest mismatch is
+reported as the same generic not-found result. Successful retrieval returns the
+bounded decompressed UTF-8 log as `text/plain`; it does not create a GitHub
+Actions artifact, copy the log into a GitHub job, or write any body back into
+Agent State.
+
+The service is intentionally receipt-capability based rather than Agent State
+aware. Agent State continues to be RPC-only and metadata-only; the reader does
+not receive a database credential or acquire ownership/lifecycle authority.
+
 ## Terminal ordering
 
 For both success and failure the intended order is:
