@@ -12,11 +12,6 @@ on:
         required: false
         default: ""
         type: string
-      execution_backend:
-        description: organization or fixed GitHub-hosted execution selected by Central policy
-        required: false
-        default: organization
-        type: string
       validation_scope:
         description: legacy, protected-full, or simulator-confidence
         required: false
@@ -158,13 +153,13 @@ jobs:
           private_dependency_id: ${{ inputs.private_dependency_id }}
 
       - id: backend
-        name: Resolve bounded Apple execution backend
-        if: inputs.validation_scope != 'simulator-confidence'
+        name: Resolve fixed hosted backend only for Central external source
+        if: inputs.source_repository != '' && inputs.source_repository != github.repository && inputs.validation_scope != 'simulator-confidence'
         uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@83084efecc597d3bedacfe5f8628f1890b9bcd90 # issue #495 hosted Apple backend checkpoint
         with:
           workflow_api: validation.apple
           source_trust: ${{ steps.plan.outputs.source_trust }}
-          execution_backend: ${{ inputs.execution_backend }}
+          execution_backend: github-hosted
           runner_profile: ${{ steps.plan.outputs.runner_profile }}
 
   apple:
@@ -297,7 +292,7 @@ jobs:
         with:
           source_sha: ${{ inputs.admitted_sha }}
           workflow_release: validation-apple-v2
-          runner_profile: ${{ inputs.execution_backend == 'github-hosted' && 'github-hosted-macos' || (inputs.validation_scope == 'simulator-confidence' && 'github-hosted-macos' || 'apple') }}
+          runner_profile: ${{ inputs.source_repository != '' && inputs.source_repository != github.repository && 'github-hosted-macos' || (inputs.validation_scope == 'simulator-confidence' && 'github-hosted-macos' || 'apple') }}
           toolchain_json: '{}'
           command_profile: ${{ inputs.validation_scope }}
           result: ${{ steps.execute.outputs.result }}
