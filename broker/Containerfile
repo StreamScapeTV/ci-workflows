@@ -15,5 +15,6 @@ RUN set -eux; \
     python3 /opt/ci-broker/scripts/ci/ci_diagnostics.py self-check
 
 USER 65532:65532
-EXPOSE 8080 8081
+EXPOSE 8080
+EXPOSE 8081
 ENTRYPOINT ["python3", "/opt/ci-broker/scripts/ci/ci_broker.py", "server"]
