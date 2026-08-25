@@ -5,6 +5,10 @@ inputs:
   phase:
     description: plan, execute, cleanup, or residue
     required: true
+  config_workflow_key:
+    description: Optional workflow key used to resolve one identical release-asset declaration from checked-out central-ci.json
+    required: false
+    default: ""
   repository:
     description: Exact approved private release repository in owner/name form
     required: false
@@ -38,11 +42,11 @@ inputs:
     required: false
     default: ""
   private_dependency_repository:
-    description: Existing exact-source dependency repository used only for early mutual-exclusion validation
+    description: Existing exact-source dependency repository used only for mutual-exclusion validation
     required: false
     default: ""
   source_root:
-    description: Exact admitted source checkout root used by execute, cleanup, and residue
+    description: Exact admitted source checkout root used by config resolution, execute, cleanup, and residue
     required: false
     default: source
   token:
@@ -81,6 +85,7 @@ runs:
       shell: bash
       env:
         PYTHONDONTWRITEBYTECODE: "1"
+        INPUT_CONFIG_WORKFLOW_KEY: ${{ inputs.config_workflow_key }}
         INPUT_RELEASE_ASSET_REPOSITORY: ${{ inputs.repository }}
         INPUT_RELEASE_ASSET_TAG: ${{ inputs.tag }}
         INPUT_RELEASE_ASSET_COMMIT_SHA: ${{ inputs.commit_sha }}
