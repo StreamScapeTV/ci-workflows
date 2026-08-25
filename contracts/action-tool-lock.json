@@ -206,10 +206,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/materialize-private-release-asset",
-      "sha": "8d393b07bf23cebe3b01572a42c93dc9e203c125",
-      "release": "issue #495 release-asset checkpoint",
+      "sha": "3fa645e1aa7ab8ae8c681afeb7c73627617b09c8",
+      "release": "issue #495 corrected release-asset checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/8d393b07bf23cebe3b01572a42c93dc9e203c125/actions/materialize-private-release-asset"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/3fa645e1aa7ab8ae8c681afeb7c73627617b09c8/actions/materialize-private-release-asset"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-oci",
