@@ -36,6 +36,7 @@
     "source_mode": {"type": "string", "enum": ["auto", "pr-head", "pr-merge", "push", "manual", "workflow-call", "tag", "trusted-maintenance"]},
     "requested_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$", "nullable": true},
     "admitted_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "source_repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", "nullable": true},
     "expected_branch": {"type": "string", "pattern": "^[A-Za-z0-9._/-]{1,255}$", "nullable": true},
     "release_contract": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$", "nullable": true},
     "request_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"},
@@ -95,6 +96,8 @@
   },
   "secret_catalog": {
     "private_dependency_token": {"required_scope": "contents:read", "exposed_to_product_source": false},
+    "repository_app_id": {"required_scope": "github-app-identity", "exposed_to_product_source": false},
+    "repository_app_private_key": {"required_scope": "github-app-signing", "exposed_to_product_source": false},
     "maven_package_read_token": {"required_scope": "package-read", "exposed_to_product_source": true},
     "service_username": {"required_scope": "test-environment", "exposed_to_product_source": true},
     "service_password": {"required_scope": "test-environment", "exposed_to_product_source": true},
