@@ -6,6 +6,20 @@
   "storage_class": "STANDARD",
   "object_prefix": "ci-diagnostics",
   "object_extension": ".log.gz",
+  "object_format": "ci-diagnostics/<request_id>/<128-bit-capability>/<run_id>-<attempt>.log.gz",
+  "object_capability": {
+    "bits": 128,
+    "encoding": "lowercase-hex",
+    "derivation": "domain-separated-hmac-sha256",
+    "key_authority": "r2-write-secret-only",
+    "inputs": [
+      "request_id",
+      "run_id",
+      "attempt",
+      "compressed_sha256"
+    ],
+    "read_service_can_mint": false
+  },
   "max_raw_bytes": 52428800,
   "max_compressed_bytes": 20971520,
   "max_objects_per_request": 1,
