@@ -12,7 +12,7 @@ import yaml
 
 from ci_workflows.ci_lifecycle import WorkflowIdentity
 from ci_workflows.ci_private_apple import (
-    PrivateAppleError,
+    PrivateAppleCiError,
     _private_execution_environment,
     _r2_receipt,
     execute_private_apple,
@@ -224,10 +224,10 @@ class PrivateAppleExecutorTests(unittest.TestCase):
                 mock.patch("ci_workflows.ci_private_apple.AgentStateCiClient.from_environment", return_value=lifecycle),
                 mock.patch("ci_workflows.ci_private_apple.GitHubAppRepositoryTokenClient", return_value=AppClientStub()),
                 mock.patch("ci_workflows.ci_private_apple.GitHubSourceProvider", return_value=ProviderStub()),
-                mock.patch("ci_workflows.ci_private_apple.exact_checkout", side_effect=PrivateAppleError("source_checkout_failed")),
+                mock.patch("ci_workflows.ci_private_apple.exact_checkout", side_effect=PrivateAppleCiError("source_checkout_failed")),
                 mock.patch("ci_workflows.ci_private_apple.upload_private_diagnostic", side_effect=RuntimeError("storage down")),
             ):
-                with self.assertRaisesRegex(PrivateAppleError, "private_log_upload_failed"):
+                with self.assertRaisesRegex(PrivateAppleCiError, "private_log_upload_failed"):
                     execute_private_apple(env)
             self.assertFalse(any(name == "finish" for name, _value in lifecycle.calls))
 
