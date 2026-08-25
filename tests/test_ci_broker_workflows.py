@@ -6,10 +6,6 @@ from pathlib import Path
 
 import yaml
 
-from ci_workflows.apple_contract_fragments import load_apple_contract
-from ci_workflows.apple_multistage import build_protected_full_plan
-from ci_workflows.apple_plan_guard import validate_protected_full_plan_json
-from ci_workflows.ci_broker_action import _apple_validation_plan, _shared_apple_environment
 from ci_workflows.validation_model import load_actions_yaml
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,8 +13,9 @@ WORKFLOW = ROOT / ".github/workflows/central-ci-dispatch.yml"
 RELEASE_WORKFLOW = ROOT / ".github/workflows/ci-broker-image.yml"
 POLICY = ROOT / "contracts/repository-policy.json"
 CONTRACT = ROOT / "contracts/ci-broker.json"
-BROKER_CORE = ROOT / "src/ci_workflows/ci_broker.py"
-BROKER_ACTION = ROOT / "src/ci_workflows/ci_broker_action.py"
+BROKER_SCRIPT = ROOT / "scripts/ci/ci_broker.py"
+RELAY = ROOT / "src/ci_workflows/ci_relay.py"
+RELAY_SERVER = ROOT / "src/ci_workflows/ci_relay_server.py"
 CHART_ROOT = ROOT / "charts/ci-broker"
 CHART = CHART_ROOT / "Chart.yaml"
 VALUES = CHART_ROOT / "values.yaml"
@@ -36,111 +33,200 @@ class BrokerWorkflowTests(unittest.TestCase):
         cls.release_text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
         cls.policy = json.loads(POLICY.read_text(encoding="utf-8"))
         cls.contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
-        cls.broker_core_text = BROKER_CORE.read_text(encoding="utf-8")
-        cls.broker_action_text = BROKER_ACTION.read_text(encoding="utf-8")
+        cls.broker_script = BROKER_SCRIPT.read_text(encoding="utf-8")
+        cls.relay = RELAY.read_text(encoding="utf-8")
+        cls.relay_server = RELAY_SERVER.read_text(encoding="utf-8")
         cls.chart = yaml.safe_load(CHART.read_text(encoding="utf-8"))
         cls.values = yaml.safe_load(VALUES.read_text(encoding="utf-8"))
         cls.values_schema = json.loads(VALUES_SCHEMA.read_text(encoding="utf-8"))
         cls.deployment_text = DEPLOYMENT.read_text(encoding="utf-8")
         cls.service_text = SERVICE.read_text(encoding="utf-8")
 
-    def test_dispatch_surface_is_manual_opaque_and_oidc_only(self) -> None:
+    def test_dispatch_surface_is_ref_based_and_contains_no_broker_execution_envelope(self) -> None:
         events = self.document.data["on"]
         self.assertEqual(set(events), {"workflow_dispatch"})
         inputs = events["workflow_dispatch"]["inputs"]
-        self.assertEqual(set(inputs), {"dispatch_id", "dispatch_token"})
+        self.assertEqual(
+            set(inputs),
+            {
+                "active_key",
+                "ci_run_id",
+                "project_key",
+                "repository",
+                "ref",
+                "is_tag",
+                "workflow_key",
+                "profile",
+                "inputs_json",
+            },
+        )
         self.assertTrue(all(value["required"] for value in inputs.values()))
-        for forbidden in ("repository", "ref", "source_sha", "workflow_key", "test_profile"):
-            self.assertNotIn(forbidden, inputs)
-        permissions = self.document.data["permissions"]
-        self.assertEqual(permissions, {"contents": "read", "id-token": "write"})
-
-    def test_one_hosted_job_is_replay_serialized_by_dispatch_id(self) -> None:
-        concurrency = self.document.data["concurrency"]
-        self.assertIn("inputs.dispatch_id", concurrency["group"])
-        self.assertIs(False, concurrency["cancel-in-progress"])
-        self.assertEqual(set(self.document.data["jobs"]), {"execute"})
-        job = self.document.data["jobs"]["execute"]
-        self.assertEqual(job["runs-on"], ["macos-latest"])
-        self.assertEqual(job["timeout-minutes"], 120)
-
-    def test_actions_receive_broker_and_r2_writer_only(self) -> None:
-        self.assertIn("secrets.CI_BROKER_URL", self.text)
-        for name in (
-            "R2_ACCOUNT_ID",
-            "R2_BUCKET",
-            "R2_ACCESS_KEY_ID",
-            "R2_SECRET_ACCESS_KEY",
-        ):
-            self.assertIn(f"secrets.{name}", self.text)
         for forbidden in (
-            "AGENT_STATE_SUPABASE",
-            "AGENT_STATE_WEBHOOK",
-            "GITHUB_SOURCE_APP",
-            "GITHUB_DISPATCH_APP",
-            "R2_READ_ACCESS_KEY_ID",
-            "R2_READ_SECRET_ACCESS_KEY",
-            "secrets: inherit",
+            "dispatch_id",
+            "dispatch_token",
+            "source_sha",
+            "requested_source_sha",
+        ):
+            self.assertNotIn(forbidden, inputs)
+        self.assertEqual(self.document.data["permissions"], {"contents": "read"})
+        self.assertNotIn("id-token", self.text)
+
+    def test_active_identity_serializes_relay_recovery_without_sha_authority(self) -> None:
+        concurrency = self.document.data["concurrency"]
+        self.assertEqual(concurrency["group"], "central-ci-${{ inputs.active_key }}")
+        self.assertIs(False, concurrency["cancel-in-progress"])
+        self.assertEqual(
+            self.contract["relay"]["active_identity_fields"],
+            ["repository", "ref", "is_tag", "workflow_key", "profile"],
+        )
+        self.assertEqual(
+            self.contract["relay"]["active_key"],
+            "sha256-canonical-active-identity",
+        )
+        self.assertTrue(self.contract["relay"]["replayed_accepted_request_recoverable"])
+        self.assertTrue(self.contract["relay"]["requested_sha_forbidden"])
+
+    def test_control_job_owns_lifecycle_ref_resolution_profile_and_observed_sha(self) -> None:
+        jobs = self.document.data["jobs"]
+        self.assertEqual(set(jobs), {"control", "apple", "finalize"})
+        control = jobs["control"]
+        self.assertEqual(control["runs-on"], ["ubuntu-latest"])
+        self.assertEqual(control["timeout-minutes"], 15)
+        names = [step.get("name", "") for step in control["steps"]]
+        ordered = (
+            "Attach GitHub run identity to Agent State",
+            "Validate thin-relay intent and active identity",
+            "Mint exact source repository token",
+            "Resolve requested human ref inside Central",
+            "Check out exact observed source for product profile",
+            "Record observed checkout SHA as evidence",
+            "Resolve bounded source-owned Central profile",
+            "Require the reviewed Apple host capability",
+        )
+        positions = [names.index(name) for name in ordered]
+        self.assertEqual(positions, sorted(positions))
+        by_name = {step.get("name"): step for step in control["steps"]}
+        start = by_name["Attach GitHub run identity to Agent State"]
+        self.assertEqual(start["uses"], "./actions/ci-lifecycle")
+        self.assertEqual(start["with"]["phase"], "start")
+        self.assertEqual(start["with"]["ref"], "${{ inputs.ref }}")
+        self.assertNotIn("observed_sha", start["with"])
+        resolve = by_name["Resolve requested human ref inside Central"]
+        self.assertEqual(resolve["uses"], "./actions/resolve-source")
+        self.assertEqual(resolve["with"]["source_mode"], "requested-ref")
+        self.assertEqual(resolve["with"]["requested_ref"], "${{ inputs.ref }}")
+        self.assertEqual(resolve["with"]["caller_repository"], "${{ inputs.repository }}")
+        self.assertNotIn("requested_sha", resolve["with"])
+        evidence = by_name["Record observed checkout SHA as evidence"]
+        self.assertEqual(evidence["with"]["phase"], "evidence")
+        self.assertEqual(evidence["with"]["observed_sha"], "${{ steps.resolve.outputs.source_sha }}")
+        profile = by_name["Resolve bounded source-owned Central profile"]
+        self.assertEqual(profile["uses"], "./actions/resolve-central-profile")
+        self.assertEqual(profile["with"]["source_repository"], "${{ inputs.repository }}")
+        self.assertEqual(profile["with"]["admitted_sha"], "${{ steps.resolve.outputs.source_sha }}")
+
+    def test_canonical_apple_reusable_is_the_only_product_executor(self) -> None:
+        apple = self.document.data["jobs"]["apple"]
+        self.assertEqual(apple["uses"], "./.github/workflows/reusable-apple.yml")
+        self.assertEqual(apple["needs"], "control")
+        self.assertEqual(apple["with"]["source_repository"], "${{ inputs.repository }}")
+        self.assertEqual(apple["with"]["admitted_sha"], "${{ needs.control.outputs.source_sha }}")
+        self.assertEqual(
+            set(apple["secrets"]),
+            {"repository_app_id", "repository_app_private_key"},
+        )
+        for forbidden in (
+            "execute-apple-host",
+            "xcodebuild ",
+            "private_dependency_token:",
+            "CI_BROKER_URL",
         ):
             self.assertNotIn(forbidden, self.text)
 
-    def test_private_execution_has_terminal_fallback_and_unconditional_cleanup(self) -> None:
-        self.assertIn("execute-apple-host", self.text)
-        self.assertIn("fail-if-active", self.text)
-        self.assertIn("cancel-if-active", self.text)
-        self.assertIn("python3 scripts/ci/ci_broker.py cleanup", self.text)
-        self.assertIn("if: ${{ always() }}", self.text)
-        self.assertIn("git status --porcelain=v1 --untracked-files=all", self.text)
-        self.assertNotIn("upload-artifact", self.text)
-
-    def test_broker_dispatch_uses_main_and_shared_apple_implementation(self) -> None:
-        self.assertIn('CENTRAL_REF = "main"', self.broker_core_text)
-        self.assertIn("execute_apple_validate", self.broker_action_text)
-        self.assertIn("prepare_workspace", self.broker_action_text)
-        self.assertIn('INPUT_VALIDATION_SCOPE="protected-full"', self.broker_action_text)
-        self.assertIn('INPUT_SOURCE_TRUST="trusted-exact"', self.broker_action_text)
-        self.assertNotIn('["xcodebuild",', self.broker_action_text)
-
-    def test_broker_generated_host_plan_is_accepted_by_shared_apple_contract(self) -> None:
-        raw = _apple_validation_plan(
-            "Sample.xcworkspace",
-            "Sample",
-            "SampleTests/SelectedIntegrationTests",
+    def test_finalizer_persists_d1_before_terminal_agent_state(self) -> None:
+        finalizer = self.document.data["jobs"]["finalize"]
+        self.assertEqual(finalizer["runs-on"], ["ubuntu-latest"])
+        self.assertEqual(finalizer["if"], "${{ always() }}")
+        steps = finalizer["steps"]
+        diagnostics_index = next(
+            index for index, step in enumerate(steps)
+            if step.get("uses") == "./actions/persist-ci-diagnostics"
         )
-        validate_protected_full_plan_json(raw)
-        plan = build_protected_full_plan(
-            raw,
-            repository="example/private-source",
-            admitted_sha="a" * 40,
-            source_trust="trusted-exact",
-            contract=load_apple_contract(ROOT),
+        finish_index = next(
+            index for index, step in enumerate(steps)
+            if step.get("uses") == "./actions/ci-lifecycle"
+            and step.get("with", {}).get("phase") == "finish"
         )
-        self.assertEqual(len(plan.stages), 1)
-        self.assertEqual(plan.stages[0].platform, "macos")
-        self.assertEqual(plan.stages[0].operation, "test")
+        self.assertLess(diagnostics_index, finish_index)
+        diagnostics = steps[diagnostics_index]
         self.assertEqual(
-            plan.stages[0].plan.commands[0].fixed_arguments,
-            ("-only-testing:SampleTests/SelectedIntegrationTests",),
+            set(diagnostics["env"]),
+            {"CIW_D1_ACCOUNT_ID", "CIW_D1_DATABASE_ID", "CIW_D1_API_TOKEN"},
         )
+        finish = steps[finish_index]
+        self.assertEqual(
+            finish["with"]["diagnostic_status"],
+            "${{ steps.diagnostics.outputs.diagnostic_status }}",
+        )
+        self.assertEqual(
+            finish["with"]["diagnostic_key"],
+            "${{ steps.diagnostics.outputs.diagnostic_key }}",
+        )
+        for forbidden in ("R2_", "upload-artifact", "download-artifact", "diagnostics_json:"):
+            if forbidden == "diagnostics_json:":
+                self.assertNotIn(forbidden, json.dumps(finish, sort_keys=True))
+            else:
+                self.assertNotIn(forbidden, self.text)
 
-        child_environment = _shared_apple_environment(
-            repository="example/private-source",
-            source_sha="a" * 40,
-            source_token="opaque-token",
-            workspace="Sample.xcworkspace",
-            scheme="Sample",
-            test_target="SampleTests/SelectedIntegrationTests",
-            environment={
-                "GITHUB_OUTPUT": "/tmp/output",
-                "GITHUB_ENV": "/tmp/env",
-                "GITHUB_STEP_SUMMARY": "/tmp/summary",
-            },
+    def test_deployed_broker_entrypoint_is_thin_relay_only(self) -> None:
+        self.assertIn("RelayConfig", self.broker_script)
+        self.assertIn("ci_relay_server", self.broker_script)
+        self.assertIn('choices=("server", "self-check")', self.broker_script)
+        for forbidden in (
+            "execute-apple-host",
+            "fail-if-active",
+            "cancel-if-active",
+            "R2_",
+            "_request_oidc_token",
+            "central_urlopen",
+        ):
+            self.assertNotIn(forbidden, self.broker_script)
+        self.assertIn('self.path == "/healthz"', self.relay_server)
+        self.assertIn('self.path != "/hooks/agent-state"', self.relay_server)
+        self.assertNotIn("/hooks/github", self.relay_server)
+        self.assertNotIn("/actions/start", self.relay_server)
+        self.assertNotIn("/actions/finish", self.relay_server)
+
+    def test_broker_contract_assigns_source_lifecycle_and_diagnostics_to_central(self) -> None:
+        self.assertEqual(self.contract["schema_version"], 2)
+        self.assertEqual(self.contract["relay"]["role"], "authenticated-fire-and-forget-transport")
+        self.assertFalse(self.contract["relay"]["run_discovery"])
+        self.assertEqual(self.contract["agent_state"]["retention_hours"], 24)
+        self.assertTrue(self.contract["agent_state"]["raw_logs_forbidden"])
+        central = self.contract["central_execution"]
+        self.assertEqual(central["source_mode"], "requested-ref")
+        self.assertEqual(central["observed_sha"], "evidence-only")
+        self.assertEqual(central["apple_workflow"], ".github/workflows/reusable-apple.yml")
+        self.assertEqual(central["hosted_apple_runner"], "macos-latest")
+        diagnostics = self.contract["diagnostics"]
+        self.assertEqual(diagnostics["store"], "cloudflare-d1")
+        self.assertEqual(diagnostics["retention_hours"], 24)
+        self.assertEqual(diagnostics["raw_log_source"], "github-actions-only")
+        self.assertEqual(
+            diagnostics["terminal_order"],
+            "persist-and-verify-d1-before-agent-state-terminal",
         )
-        self.assertEqual(child_environment["GITHUB_REPOSITORY"], "example/private-source")
-        self.assertEqual(child_environment["INPUT_SOURCE_TRUST"], "trusted-exact")
-        self.assertNotIn("GITHUB_OUTPUT", child_environment)
-        self.assertNotIn("GITHUB_ENV", child_environment)
-        self.assertNotIn("GITHUB_STEP_SUMMARY", child_environment)
+        forbidden = set(self.contract["forbidden"])
+        for required in (
+            "broker-source-resolution",
+            "broker-product-config-read",
+            "broker-dependency-admission",
+            "broker-build-or-test",
+            "broker-log-or-diagnostic-storage",
+            "broker-actions-callback",
+            "requested-sha-branch-authority",
+        ):
+            self.assertIn(required, forbidden)
 
     def test_broker_chart_is_one_replica_private_service_with_matching_app_version_image(self) -> None:
         self.assertEqual(self.chart["name"], "ci-broker")
@@ -173,10 +259,7 @@ class BrokerWorkflowTests(unittest.TestCase):
         events = self.release_document.data["on"]
         self.assertEqual(set(events), {"push", "workflow_dispatch"})
         self.assertEqual(events["push"]["tags"], ["ci-broker-*"])
-        self.assertEqual(
-            set(events["workflow_dispatch"]["inputs"]),
-            {"release_tag"},
-        )
+        self.assertEqual(set(events["workflow_dispatch"]["inputs"]), {"release_tag"})
         self.assertEqual(self.release_document.data["permissions"], {"contents": "read"})
         jobs = self.release_document.data["jobs"]
         self.assertEqual(set(jobs), {"admit", "image", "chart"})
@@ -185,12 +268,7 @@ class BrokerWorkflowTests(unittest.TestCase):
         self.assertEqual(jobs["chart"]["runs-on"], ["linux", "amd64", "general", "small"])
         self.assertEqual(jobs["chart"]["needs"], ["admit", "image"])
         self.assertIn("REGISTRY_NAMESPACE: mimranfaruqi/ci-workflows", self.release_text)
-        self.assertIn(
-            "CHART_NAMESPACE: mimranfaruqi/ci-workflows/helm-charts",
-            self.release_text,
-        )
-        self.assertNotIn("git.faruqi.dev/mimranfaruqi/ci-broker", self.release_text)
-        self.assertNotIn("mimranfaruqi/helm-charts", self.release_text)
+        self.assertIn("CHART_NAMESPACE: mimranfaruqi/ci-workflows/helm-charts", self.release_text)
         self.assertIn("git.faruqi.dev", self.release_text)
         self.assertIn("secrets.FORGEJO_REGISTRY_USERNAME", self.release_text)
         self.assertIn("secrets.FORGEJO_REGISTRY_TOKEN", self.release_text)
@@ -198,16 +276,15 @@ class BrokerWorkflowTests(unittest.TestCase):
         self.assertIn('--app-version "${VERSION}"', self.release_text)
         self.assertIn("skopeo inspect", self.release_text)
         self.assertIn("helm pull", self.release_text)
-        self.assertNotIn("ghcr.io", self.release_text)
         self.assertNotIn(":latest", self.release_text)
         self.assertNotIn("upload-artifact", self.release_text)
 
-    def test_repository_policy_and_broker_contract_match_workflow(self) -> None:
-        record = self.policy["workflow_admission"]["workflows"][
+    def test_repository_policy_keeps_dispatch_and_release_event_classes_bounded(self) -> None:
+        dispatch = self.policy["workflow_admission"]["workflows"][
             ".github/workflows/central-ci-dispatch.yml"
         ]
-        self.assertEqual(record["trust_class"], "broker-dispatch")
-        self.assertEqual(record["allowed_events"], ["workflow_dispatch"])
+        self.assertEqual(dispatch["trust_class"], "broker-dispatch")
+        self.assertEqual(dispatch["allowed_events"], ["workflow_dispatch"])
         release = self.policy["workflow_admission"]["workflows"][
             ".github/workflows/ci-broker-image.yml"
         ]
@@ -215,13 +292,6 @@ class BrokerWorkflowTests(unittest.TestCase):
             release,
             {"trust_class": "tag-release", "allowed_events": ["push", "workflow_dispatch"]},
         )
-        self.assertEqual(
-            self.contract["dispatch"]["inputs"],
-            ["dispatch_id", "dispatch_token"],
-        )
-        self.assertEqual(self.contract["dispatch"]["token_ttl_seconds"], 21600)
-        self.assertEqual(self.contract["dispatch"]["duplicate_concurrency_key"], "dispatch_id")
-        self.assertEqual(self.contract["agent_state"]["execution_repository_field"], "external_repository")
 
 
 if __name__ == "__main__":
