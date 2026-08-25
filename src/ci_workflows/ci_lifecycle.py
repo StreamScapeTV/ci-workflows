@@ -24,6 +24,7 @@ _DIAGNOSTIC_STATUS = re.compile(r"[a-z][a-z0-9_-]{0,31}\Z")
 _R2_RECEIPT = re.compile(
     r"r2:ci-diagnostics/"
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/"
+    r"(?:[0-9a-f]{32}/)?"
     r"[1-9][0-9]{0,18}-[1-9][0-9]{0,3}\.log\.gz#sha256=[0-9a-f]{64}\Z"
 )
 _TERMINAL = {"succeeded", "failed", "cancelled", "timed_out"}

@@ -6,12 +6,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 COPY --chown=65532:65532 src/ci_workflows/ /opt/ci-broker/src/ci_workflows/
 COPY --chown=65532:65532 scripts/ci/ci_broker.py /opt/ci-broker/scripts/ci/ci_broker.py
+COPY --chown=65532:65532 scripts/ci/ci_diagnostics.py /opt/ci-broker/scripts/ci/ci_diagnostics.py
 
 RUN set -eux; \
     python3 --version; \
     command -v openssl >/dev/null; \
-    python3 /opt/ci-broker/scripts/ci/ci_broker.py self-check
+    python3 /opt/ci-broker/scripts/ci/ci_broker.py self-check; \
+    python3 /opt/ci-broker/scripts/ci/ci_diagnostics.py self-check
 
 USER 65532:65532
 EXPOSE 8080
+EXPOSE 8081
 ENTRYPOINT ["python3", "/opt/ci-broker/scripts/ci/ci_broker.py", "server"]

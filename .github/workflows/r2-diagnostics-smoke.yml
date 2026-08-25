@@ -45,7 +45,8 @@ jobs:
           PY
           test -f "${DIAGNOSTIC_PATH}"
 
-      - name: Upload and verify private R2 diagnostic
+      - id: upload
+        name: Upload and verify private R2 diagnostic
         shell: bash
         env:
           DIAGNOSTIC_PATH: ${{ runner.temp }}/r2-diagnostics-smoke.log
@@ -61,7 +62,40 @@ jobs:
             --run-id "${GITHUB_RUN_ID}" \
             --attempt "${GITHUB_RUN_ATTEMPT}" \
             --github-output "${GITHUB_OUTPUT}"
-          echo "Private R2 diagnostic smoke passed."
+          echo "Private R2 diagnostic upload/read-back passed."
+
+      - name: Retrieve and verify decompressed diagnostic
+        shell: bash
+        env:
+          PYTHONPATH: src
+          DIAGNOSTIC_PATH: ${{ runner.temp }}/r2-diagnostics-smoke.log
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_READ_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_READ_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_OBJECT_KEY: ${{ steps.upload.outputs.object_key }}
+          R2_SHA256: ${{ steps.upload.outputs.sha256 }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          from ci_workflows.ci_diagnostics import (
+              DiagnosticReadConfig,
+              DiagnosticReader,
+              encode_receipt_capability,
+          )
+
+          receipt = f"r2:{os.environ['R2_OBJECT_KEY']}#sha256={os.environ['R2_SHA256']}"
+          capability = encode_receipt_capability(receipt)
+          reader = DiagnosticReader(DiagnosticReadConfig.from_environment(os.environ))
+          actual = reader.retrieve(capability)
+          expected = Path(os.environ["DIAGNOSTIC_PATH"]).read_bytes()
+          if actual != expected:
+              raise SystemExit("private R2 diagnostic round-trip mismatch")
+          print("Private R2 diagnostic retrieval round trip passed.")
+          PY
 
       - name: Remove local smoke diagnostic
         if: always()

@@ -1,20 +1,21 @@
+{{- if .Values.diagnostics.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Values.fullnameOverride }}
+  name: {{ .Values.fullnameOverride }}-diagnostics
   labels:
-    app.kubernetes.io/name: ci-broker
+    app.kubernetes.io/name: ci-diagnostics
     app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
-  replicas: {{ .Values.replicaCount }}
+  replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: ci-broker
+      app.kubernetes.io/name: ci-diagnostics
       app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: ci-broker
+        app.kubernetes.io/name: ci-diagnostics
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
       automountServiceAccountToken: false
@@ -32,9 +33,13 @@ spec:
         {{- end }}
       {{- end }}
       containers:
-        - name: ci-broker
+        - name: ci-diagnostics
           image: "{{ .Values.image.repository }}:{{ default .Chart.AppVersion .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - python3
+            - /opt/ci-broker/scripts/ci/ci_diagnostics.py
+            - server
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -46,36 +51,31 @@ spec:
                 - ALL
           ports:
             - name: http
-              containerPort: 8080
+              containerPort: 8081
               protocol: TCP
           env:
-            - name: CI_BROKER_PORT
-              value: "8080"
-            - name: GITHUB_DISPATCH_APP_ID
+            - name: CI_DIAGNOSTICS_PORT
+              value: "8081"
+            - name: R2_ACCOUNT_ID
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.existingSecret.name }}
-                  key: GITHUB_DISPATCH_APP_ID
-            - name: GITHUB_DISPATCH_APP_PRIVATE_KEY
+                  key: R2_ACCOUNT_ID
+            - name: R2_BUCKET
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.existingSecret.name }}
-                  key: GITHUB_DISPATCH_APP_PRIVATE_KEY
-            - name: AGENT_STATE_SUPABASE_URL
+                  key: R2_BUCKET
+            - name: R2_READ_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.existingSecret.name }}
-                  key: AGENT_STATE_SUPABASE_URL
-            - name: AGENT_STATE_SUPABASE_SECRET_KEY
+                  key: R2_READ_ACCESS_KEY_ID
+            - name: R2_READ_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.existingSecret.name }}
-                  key: AGENT_STATE_SUPABASE_SECRET_KEY
-            - name: AGENT_STATE_WEBHOOK_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.existingSecret.name }}
-                  key: AGENT_STATE_WEBHOOK_SECRET
+                  key: R2_READ_SECRET_ACCESS_KEY
           readinessProbe:
             httpGet:
               path: /healthz
@@ -93,12 +93,5 @@ spec:
             timeoutSeconds: 2
             failureThreshold: 3
           resources:
-            {{- toYaml .Values.resources | nindent 12 }}
-          volumeMounts:
-            - name: tmp
-              mountPath: /tmp
-      volumes:
-        - name: tmp
-          emptyDir:
-            medium: Memory
-            sizeLimit: 8Mi
+            {{- toYaml .Values.diagnostics.resources | nindent 12 }}
+{{- end }}
