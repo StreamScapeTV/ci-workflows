@@ -226,9 +226,9 @@ jobs:
       - id: release_plan
         name: Resolve one product-owned private release asset
         if: inputs.validation_scope == 'protected-full'
-        uses: StreamScapeTV/ci-workflows/actions/materialize-private-release-asset@e6bab60099a20573d88a5af1015ef110575bfa8d # issue #495 release-asset checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/materialize-private-release-asset@8d393b07bf23cebe3b01572a42c93dc9e203c125 # issue #495 release-asset checkpoint
         with:
-          phase: plan
+          phase: "plan"
           config_workflow_key: validation.apple
           private_dependency_repository: ${{ inputs.private_dependency_repository }}
           source_root: source
@@ -277,9 +277,9 @@ jobs:
       - id: release_asset
         name: Materialize exact verified private release asset
         if: steps.release_plan.outputs.used == 'true'
-        uses: StreamScapeTV/ci-workflows/actions/materialize-private-release-asset@e6bab60099a20573d88a5af1015ef110575bfa8d # issue #495 release-asset checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/materialize-private-release-asset@8d393b07bf23cebe3b01572a42c93dc9e203c125 # issue #495 release-asset checkpoint
         with:
-          phase: execute
+          phase: "execute"
           repository: ${{ steps.release_plan.outputs.repository }}
           tag: ${{ steps.release_plan.outputs.tag }}
           commit_sha: ${{ steps.release_plan.outputs.commit_sha }}
@@ -362,9 +362,9 @@ jobs:
       - id: release_cleanup
         name: Remove materialized private release asset once
         if: always() && steps.release_plan.outputs.used == 'true' && steps.release_asset.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/materialize-private-release-asset@e6bab60099a20573d88a5af1015ef110575bfa8d # issue #495 release-asset checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/materialize-private-release-asset@8d393b07bf23cebe3b01572a42c93dc9e203c125 # issue #495 release-asset checkpoint
         with:
-          phase: cleanup
+          phase: "cleanup"
           repository: ${{ steps.release_plan.outputs.repository }}
           tag: ${{ steps.release_plan.outputs.tag }}
           commit_sha: ${{ steps.release_plan.outputs.commit_sha }}
@@ -378,9 +378,9 @@ jobs:
       - id: release_residue
         name: Verify zero private release-asset residue
         if: always() && steps.release_plan.outputs.used == 'true' && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/materialize-private-release-asset@e6bab60099a20573d88a5af1015ef110575bfa8d # issue #495 release-asset checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/materialize-private-release-asset@8d393b07bf23cebe3b01572a42c93dc9e203c125 # issue #495 release-asset checkpoint
         with:
-          phase: residue
+          phase: "residue"
           repository: ${{ steps.release_plan.outputs.repository }}
           tag: ${{ steps.release_plan.outputs.tag }}
           commit_sha: ${{ steps.release_plan.outputs.commit_sha }}
