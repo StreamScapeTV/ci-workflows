@@ -20,6 +20,9 @@ ACTION = ROOT / "actions/github-app-repository-token/action.yml"
 CIW = ROOT / "scripts/ci/ciw.py"
 PRIVATE_KEY = "-----BEGIN PRIVATE KEY-----\nsynthetic-test-key-material\n-----END PRIVATE KEY-----"
 SYNTHETIC_TOKEN = "ghs_" + "a" * 40
+SYNTHETIC_STATELESS_TOKEN = (
+    "ghs_12345_" + "a" * 180 + "." + "b" * 180 + "." + "c" * 180
+)
 
 
 class Response:
@@ -41,8 +44,9 @@ class Response:
 
 
 class RecordingOpener:
-    def __init__(self) -> None:
+    def __init__(self, token: str = SYNTHETIC_TOKEN) -> None:
         self.requests: list[dict[str, object]] = []
+        self.token = token
 
     def __call__(self, request: object, timeout: int = 0) -> Response:
         assert hasattr(request, "full_url")
@@ -59,7 +63,7 @@ class RecordingOpener:
         )
         if str(request.full_url).endswith("/installation"):  # type: ignore[attr-defined]
             return Response({"id": 71}, 200)
-        return Response({"token": SYNTHETIC_TOKEN}, 201)
+        return Response({"token": self.token}, 201)
 
 
 class GitHubAppRepositoryTokenClientTests(unittest.TestCase):
@@ -112,6 +116,21 @@ class GitHubAppRepositoryTokenClientTests(unittest.TestCase):
             }
             self.assertTrue(headers["authorization"].startswith("Bearer "))
             self.assertNotIn(PRIVATE_KEY, headers["authorization"])
+
+    def test_stateless_installation_token_is_accepted(self) -> None:
+        opener = RecordingOpener(SYNTHETIC_STATELESS_TOKEN)
+        client = GitHubAppRepositoryTokenClient(
+            1,
+            PRIVATE_KEY,
+            opener=opener,
+            signer=lambda _payload, _key: b"signature",
+        )
+
+        result = client.repository_contents_read_token("OtherOrg/private-app")
+
+        self.assertEqual(result, SYNTHETIC_STATELESS_TOKEN)
+        self.assertGreater(len(result), 512)
+        self.assertEqual(result.count("."), 2)
 
     def test_repository_and_returned_token_are_fail_closed(self) -> None:
         client = GitHubAppRepositoryTokenClient(
