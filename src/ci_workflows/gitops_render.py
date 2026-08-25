@@ -34,6 +34,20 @@ from .gitops_types import (
 )
 
 
+def _is_helm_template_source(path: Path, root: Path) -> bool:
+    """Classify only template source beneath an actual checked-in Helm chart."""
+
+    relative = path.relative_to(root)
+    for index, part in enumerate(relative.parts[:-1]):
+        if part != "templates":
+            continue
+        chart_root = root.joinpath(*relative.parts[:index])
+        chart_path = chart_root / "Chart.yaml"
+        if chart_path.is_file() and not chart_path.is_symlink():
+            return True
+    return False
+
+
 def _yaml_target(
     target: GitOpsTarget,
     source_root: Path,
@@ -48,8 +62,13 @@ def _yaml_target(
         must_exist=True,
         kind="directory",
     )
-    files = _glob_files(root, target.include)
-    _require(files, "yaml_invalid", target.target_id)
+    matched_files = _glob_files(root, target.include)
+    _require(matched_files, "yaml_invalid", target.target_id)
+    files = tuple(
+        path
+        for path in matched_files
+        if not _is_helm_template_source(path, root)
+    )
     schema = (
         _load_schema(source_root, target.schema_path, yaml)
         if target.schema_path
