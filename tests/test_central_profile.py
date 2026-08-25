@@ -18,9 +18,11 @@ from ci_workflows.ci_broker import BrokerError
 
 ROOT = Path(__file__).resolve().parents[1]
 SHA = "a" * 40
+RELEASE_SHA = "c" * 40
+RELEASE_DIGEST = "d" * 64
 
 
-def product_config(*, dependency: bool = True) -> dict[str, object]:
+def product_config(*, dependency: bool = True, release_asset: bool = False) -> dict[str, object]:
     profile: dict[str, object] = {
         "workflow_key": "validation.apple",
         "capability": "apple-host-test",
@@ -34,6 +36,17 @@ def product_config(*, dependency: bool = True) -> dict[str, object]:
             "sha": "b" * 40,
             "subdirectory": ".",
             "id": "example-media",
+        }
+    if release_asset:
+        profile["private_release_asset"] = {
+            "repository": "StreamScapeTV/example-media",
+            "tag": "v1.2.1",
+            "commit_sha": RELEASE_SHA,
+            "asset_name": "example-media-1.2.1-apple-binary.zip",
+            "sha256": RELEASE_DIGEST,
+            "archive_subpath": "ExampleMediaApple",
+            "destination": "Vendor/ExampleMediaApple",
+            "id": "example-media-binary",
         }
     return {
         "schema_version": 1,
@@ -72,6 +85,7 @@ class CentralProfileTests(unittest.TestCase):
         self.assertEqual(resolved.private_dependency_repository, "StreamScapeTV/example-media")
         self.assertEqual(resolved.private_dependency_sha, "b" * 40)
         self.assertEqual(resolved.private_dependency_id, "example-media")
+        self.assertIsNone(resolved.release_asset())
         validate_protected_full_plan_json(resolved.validation_plan_json)
         plan = build_protected_full_plan(
             resolved.validation_plan_json,
@@ -92,7 +106,47 @@ class CentralProfileTests(unittest.TestCase):
             ("-only-testing:ExampleTests/SelectedIntegrationTests",),
         )
 
-    def test_profile_without_dependency_keeps_optional_channel_empty(self) -> None:
+    def test_release_asset_profile_projects_immutable_materialization_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "source"
+            source.mkdir()
+            write_config(source, product_config(dependency=False, release_asset=True))
+            resolved = resolve_profile(
+                source_root=str(source),
+                project_key="example-project",
+                workflow_key="validation.apple",
+                test_profile="host",
+                source_repository="StreamScapeTV/example-app",
+                admitted_sha=SHA,
+            )
+        self.assertEqual(resolved.private_dependency_repository, "")
+        self.assertEqual(resolved.private_release_asset_repository, "StreamScapeTV/example-media")
+        self.assertEqual(resolved.private_release_asset_tag, "v1.2.1")
+        self.assertEqual(resolved.private_release_asset_commit_sha, RELEASE_SHA)
+        self.assertEqual(resolved.private_release_asset_sha256, RELEASE_DIGEST)
+        self.assertEqual(resolved.private_release_asset_destination, "Vendor/ExampleMediaApple")
+        release = resolved.release_asset()
+        self.assertIsNotNone(release)
+        assert release is not None
+        self.assertEqual(release.asset_name, "example-media-1.2.1-apple-binary.zip")
+        self.assertEqual(release.dependency_id, "example-media-binary")
+
+    def test_profile_rejects_mixed_private_dependency_kinds(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "source"
+            source.mkdir()
+            write_config(source, product_config(dependency=True, release_asset=True))
+            with self.assertRaisesRegex(CentralProfileError, "private_dependency_kind_conflict"):
+                resolve_profile(
+                    source_root=str(source),
+                    project_key="example-project",
+                    workflow_key="validation.apple",
+                    test_profile="host",
+                    source_repository="StreamScapeTV/example-app",
+                    admitted_sha=SHA,
+                )
+
+    def test_profile_without_dependency_keeps_optional_channels_empty(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary) / "source"
             source.mkdir()
@@ -109,6 +163,8 @@ class CentralProfileTests(unittest.TestCase):
         self.assertEqual(resolved.private_dependency_sha, "")
         self.assertEqual(resolved.private_dependency_subdirectory, ".")
         self.assertEqual(resolved.private_dependency_id, "")
+        self.assertEqual(resolved.private_release_asset_repository, "")
+        self.assertIsNone(resolved.release_asset())
 
     def test_project_workflow_and_profile_identity_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -171,7 +227,7 @@ class CentralProfileTests(unittest.TestCase):
             root = Path(temporary)
             source = root / "source"
             source.mkdir()
-            write_config(source, product_config())
+            write_config(source, product_config(dependency=False, release_asset=True))
             output = root / "github-output"
             output.touch()
             resolved = resolve_from_environment(
@@ -188,7 +244,10 @@ class CentralProfileTests(unittest.TestCase):
             text = output.read_text(encoding="utf-8")
         self.assertIn("workflow_key=validation.apple\n", text)
         self.assertIn("validation_scope=protected-full\n", text)
-        self.assertIn("private_dependency_repository=StreamScapeTV/example-media\n", text)
+        self.assertIn("private_dependency_repository=\n", text)
+        self.assertIn("private_release_asset_repository=StreamScapeTV/example-media\n", text)
+        self.assertIn("private_release_asset_tag=v1.2.1\n", text)
+        self.assertIn(f"private_release_asset_sha256={RELEASE_DIGEST}\n", text)
         self.assertIn(f"admitted_sha={SHA}\n", text)
         self.assertNotIn("token", text.lower())
         self.assertEqual(resolved.source_repository, "StreamScapeTV/example-app")
