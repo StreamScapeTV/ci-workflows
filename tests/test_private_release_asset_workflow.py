@@ -7,7 +7,7 @@ from ci_workflows.validation_model import load_actions_yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/reusable-apple.yml"
-CHECKPOINT = "8d393b07bf23cebe3b01572a42c93dc9e203c125"
+CHECKPOINT = "3fa645e1aa7ab8ae8c681afeb7c73627617b09c8"
 
 
 class PrivateReleaseAssetWorkflowTests(unittest.TestCase):
@@ -26,6 +26,7 @@ class PrivateReleaseAssetWorkflowTests(unittest.TestCase):
         pin = f"actions/materialize-private-release-asset@{CHECKPOINT}"
         self.assertEqual(text.count(pin), 4)
         self.assertIn("config_workflow_key: validation.apple", text)
+        self.assertIn("PRIVATE_RELEASE_ASSET_TOKEN:", text)
         self.assertIn("steps.release_token.outputs.token || secrets.private_dependency_token", text)
         self.assertIn('phase: "plan"', text)
         self.assertIn('phase: "execute"', text)
