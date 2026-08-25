@@ -11,10 +11,17 @@ podman --version | grep -F '4.9.3'
 podman-compose --version | grep -F '1.0.6'
 test "$(dpkg-query -W -f='${Version}' netavark)" = '1.4.0-4'
 test "$(dpkg-query -W -f='${Version}' aardvark-dns)" = '1.4.0-5'
+test "$(dpkg-query -W -f='${Version}' iptables)" = '1.8.10-3ubuntu2'
 test -x /usr/lib/podman/netavark
 test -x /usr/lib/podman/aardvark-dns
 /usr/lib/podman/netavark --version >/dev/null
 /usr/lib/podman/aardvark-dns --version >/dev/null
+command -v iptables >/dev/null
+iptables --version >/dev/null
+netavark_ldd="$(ldd /usr/lib/podman/netavark)"
+aardvark_ldd="$(ldd /usr/lib/podman/aardvark-dns)"
+! grep -F 'not found' <<<"${netavark_ldd}"
+! grep -F 'not found' <<<"${aardvark_ldd}"
 crun --version >/dev/null
 python3 --version >/dev/null
 jq --version >/dev/null
@@ -29,6 +36,7 @@ grep -Fx 'runner:100000:65536' /etc/subgid >/dev/null
 grep -F 'driver = "vfs"' /home/runner/.config/containers/storage.conf >/dev/null
 grep -F 'runtime = "crun"' /home/runner/.config/containers/containers.conf >/dev/null
 grep -F 'network_backend = "netavark"' /home/runner/.config/containers/containers.conf >/dev/null
+grep -F 'firewall_driver = "iptables"' /home/runner/.config/containers/containers.conf >/dev/null
 
 ! command -v docker
 ! command -v dockerd

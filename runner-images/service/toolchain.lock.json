@@ -7,6 +7,7 @@
   },
   "packages": {
     "aardvark-dns": "1.4.0-5",
+    "iptables": "1.8.10-3ubuntu2",
     "netavark": "1.4.0-4",
     "podman": "4.9.3+ds1-1ubuntu0.2",
     "podman-compose": "1.0.6-1"
