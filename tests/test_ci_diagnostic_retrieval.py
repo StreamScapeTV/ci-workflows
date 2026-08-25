@@ -3,7 +3,6 @@ from __future__ import annotations
 import gzip
 import json
 from pathlib import Path
-import tempfile
 import unittest
 from unittest import mock
 
@@ -19,10 +18,12 @@ from ci_workflows.ci_diagnostics import (
 from ci_workflows.r2_diagnostics import R2DiagnosticError
 
 ROOT = Path(__file__).resolve().parents[1]
-RECEIPT = (
-    "r2:ci-diagnostics/11111111-2222-4333-8444-555555555555/"
-    "32885563040-1.log.gz#sha256=" + "a" * 64
+OBJECT_KEY = (
+    "ci-diagnostics/11111111-2222-4333-8444-555555555555/"
+    + "b" * 32
+    + "/32885563040-1.log.gz"
 )
+RECEIPT = f"r2:{OBJECT_KEY}#sha256=" + "a" * 64
 
 
 class DiagnosticCapabilityTests(unittest.TestCase):
@@ -33,17 +34,19 @@ class DiagnosticCapabilityTests(unittest.TestCase):
         self.assertNotIn("=", token)
         parsed = decode_receipt_capability(token)
         self.assertEqual(parsed.render(), RECEIPT)
-        self.assertEqual(
-            parsed.object_key,
-            "ci-diagnostics/11111111-2222-4333-8444-555555555555/32885563040-1.log.gz",
-        )
+        self.assertEqual(parsed.object_key, OBJECT_KEY)
         self.assertEqual(parsed.sha256, "a" * 64)
 
     def test_receipt_and_capability_fail_closed_on_shape_drift(self) -> None:
+        legacy = (
+            "r2:ci-diagnostics/11111111-2222-4333-8444-555555555555/"
+            "32885563040-1.log.gz#sha256=" + "a" * 64
+        )
         cases = (
             "",
             "r2:other/key#sha256=" + "a" * 64,
-            "r2:ci-diagnostics/id/1-1.log.gz#sha256=UPPER",
+            legacy,
+            "r2:ci-diagnostics/id/" + "b" * 32 + "/1-1.log.gz#sha256=UPPER",
             RECEIPT + "&extra=true",
         )
         for value in cases:
@@ -80,7 +83,7 @@ class DiagnosticReaderTests(unittest.TestCase):
             result = DiagnosticReader(self.config()).retrieve(token)
         self.assertEqual(result, raw)
         download.assert_called_once_with(
-            object_key="ci-diagnostics/11111111-2222-4333-8444-555555555555/32885563040-1.log.gz",
+            object_key=OBJECT_KEY,
             expected_sha256="a" * 64,
             account_id="a" * 32,
             bucket="private-ci-logs",
@@ -186,6 +189,7 @@ class DiagnosticDeploymentContractTests(unittest.TestCase):
         self.assertEqual(retrieval["mode"], "receipt-capability")
         self.assertEqual(retrieval["service_authority"], "r2-read-only")
         self.assertTrue(retrieval["requires_exact_agent_state_receipt"])
+        self.assertTrue(retrieval["requires_capability_object_key"])
         self.assertTrue(retrieval["compressed_sha256_verified_before_decompression"])
         self.assertFalse(retrieval["agent_state_lookup"])
         self.assertFalse(retrieval["thin_relay_authority"])
@@ -198,6 +202,7 @@ class DiagnosticDeploymentContractTests(unittest.TestCase):
         self.assertIn("thin relay", docs)
         self.assertIn("no-store", docs)
         self.assertIn("bearer", docs)
+        self.assertIn("128-bit", docs)
 
 
 if __name__ == "__main__":
