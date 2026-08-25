@@ -221,7 +221,7 @@
     {
       "file": ".github/workflows/reusable-apple.yml",
       "api_name": "validation.apple",
-      "api_version": "2.0.0",
+      "api_version": "2.1.0",
       "status": "implemented",
       "trust_class": "read-only-validation",
       "permission_profile": "validation-read",
@@ -229,6 +229,7 @@
       "permitted_events": ["pull_request", "push", "workflow_dispatch", "workflow_call"],
       "inputs": [
         {"name": "admitted_sha", "required": true},
+        {"name": "source_repository", "required": false, "default": ""},
         {"name": "validation_scope", "required": false, "default": "legacy"},
         {"name": "validation_plan_json", "required": false, "default": ""},
         {"name": "validation_profile", "required": false, "default": ""},
@@ -245,7 +246,7 @@
         {"name": "private_dependency_subdirectory", "required": false, "default": "."},
         {"name": "private_dependency_id", "required": false, "default": ""}
       ],
-      "secrets": ["private_dependency_token"],
+      "secrets": ["repository_app_id", "repository_app_private_key", "private_dependency_token"],
       "outputs": ["result", "test_summary", "cleanup_result", "artifact_exception_used"],
       "stable_check_name": "CI / Apple validation",
       "timeout_minutes": 120,
