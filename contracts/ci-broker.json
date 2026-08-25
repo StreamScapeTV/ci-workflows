@@ -1,101 +1,116 @@
 {
-  "schema_version": 1,
-  "private_config_path": ".github/central-ci.json",
+  "schema_version": 2,
   "central_repository": "StreamScapeTV/ci-workflows",
   "central_workflow": ".github/workflows/central-ci-dispatch.yml",
   "central_ref": "main",
-  "oidc_audience": "streamscape-ci-broker",
   "supported_capabilities": [
     "apple-host-test"
   ],
-  "dispatch": {
-    "inputs": [
-      "dispatch_id",
-      "dispatch_token"
+  "relay": {
+    "role": "authenticated-fire-and-forget-transport",
+    "routes": [
+      "/healthz",
+      "/hooks/agent-state"
     ],
-    "public_metadata": "opaque_only",
-    "token_ttl_seconds": 21600,
-    "envelope_state": "self-contained-authenticated",
-    "duplicate_concurrency_key": "dispatch_id",
-    "replayed_accepted_request_recoverable": true
+    "agent_state_event": "ci_runs INSERT",
+    "dispatch_inputs": [
+      "active_key",
+      "ci_run_id",
+      "project_key",
+      "repository",
+      "ref",
+      "is_tag",
+      "workflow_key",
+      "profile",
+      "inputs_json"
+    ],
+    "active_identity_fields": [
+      "repository",
+      "ref",
+      "is_tag",
+      "workflow_key",
+      "profile"
+    ],
+    "active_key": "sha256-canonical-active-identity",
+    "requested_sha_forbidden": true,
+    "full_repository_input": true,
+    "replayed_accepted_request_recoverable": true,
+    "run_discovery": false
   },
   "agent_state": {
     "schema": "agent_api",
     "transport": "supabase-secret-api-key",
     "rpc_only": true,
+    "retention_hours": 24,
     "source_repository_field": "repository",
     "execution_repository_field": "external_repository",
-    "functions": [
+    "relay_functions": [
       "claim_ci_run",
+      "transition_ci_run"
+    ],
+    "workflow_functions": [
       "register_ci_run",
-      "transition_ci_run",
+      "transition_ci_run"
+    ],
+    "discovery_functions": [
       "get_ci_run",
       "list_ci_runs"
-    ]
+    ],
+    "raw_logs_forbidden": true
   },
-  "webhooks": {
-    "agent_state": {
-      "path": "/hooks/agent-state",
-      "event": "ci_runs INSERT",
-      "authentication": "fixed-shared-header"
-    },
-    "github": {
-      "path": "/hooks/github",
-      "events": [
-        "push"
-      ],
-      "authentication": "x-hub-signature-256"
-    }
-  },
-  "actions": {
-    "route": "/actions/route",
-    "start": "/actions/start",
-    "finish": "/actions/finish",
-    "authentication": "github-actions-oidc"
+  "central_execution": {
+    "source_mode": "requested-ref",
+    "request_identity": "repository-ref-is_tag-workflow-profile",
+    "observed_sha": "evidence-only",
+    "private_config_path": ".github/central-ci.json",
+    "profile_action": "actions/resolve-central-profile",
+    "lifecycle_action": "actions/ci-lifecycle",
+    "apple_workflow": ".github/workflows/reusable-apple.yml",
+    "source_and_dependency_credentials": "fixed-github-app-secrets",
+    "hosted_apple_runner": "macos-latest"
   },
   "diagnostics": {
-    "path": "/diagnostics/{project_key}/{ci_run_id}",
-    "authorization": "unguessable-ci-run-id-capability",
-    "metadata_source": "agent-state",
-    "object_store": "r2",
-    "digest_required": true,
-    "maximum_compressed_bytes": 20971520
-  },
-  "private_config": {
-    "schema_version": 1,
-    "max_bytes": 65536,
-    "max_profiles": 16,
-    "automatic_events": [
-      "push",
-      "tag"
+    "store": "cloudflare-d1",
+    "action": "actions/persist-ci-diagnostics",
+    "retention_hours": 24,
+    "severities": [
+      "warning",
+      "error"
     ],
-    "profile_fields": [
-      "workflow_key",
-      "capability",
-      "workspace",
-      "scheme",
-      "test_target"
+    "raw_log_source": "github-actions-only",
+    "agent_state_payload": "diagnostic-key-status-and-stable-error-only",
+    "terminal_order": "persist-and-verify-d1-before-agent-state-terminal"
+  },
+  "fixed_environment": {
+    "relay": [
+      "GITHUB_DISPATCH_APP_ID",
+      "GITHUB_DISPATCH_APP_PRIVATE_KEY",
+      "AGENT_STATE_SUPABASE_URL",
+      "AGENT_STATE_SUPABASE_SECRET_KEY",
+      "AGENT_STATE_WEBHOOK_SECRET"
+    ],
+    "central_workflow_secrets": [
+      "GITHUB_SOURCE_APP_ID",
+      "GITHUB_SOURCE_APP_PRIVATE_KEY",
+      "AGENT_STATE_SUPABASE_URL",
+      "AGENT_STATE_SUPABASE_SECRET_KEY",
+      "CI_D1_ACCOUNT_ID",
+      "CI_D1_DATABASE_ID",
+      "CI_D1_API_TOKEN"
     ]
   },
-  "fixed_environment": [
-    "GITHUB_SOURCE_APP_ID",
-    "GITHUB_SOURCE_APP_PRIVATE_KEY",
-    "GITHUB_SOURCE_WEBHOOK_SECRET",
-    "GITHUB_DISPATCH_APP_ID",
-    "GITHUB_DISPATCH_APP_PRIVATE_KEY",
-    "AGENT_STATE_SUPABASE_URL",
-    "AGENT_STATE_SUPABASE_SECRET_KEY",
-    "AGENT_STATE_WEBHOOK_SECRET",
-    "R2_ACCOUNT_ID",
-    "R2_BUCKET",
-    "R2_READ_ACCESS_KEY_ID",
-    "R2_READ_SECRET_ACCESS_KEY"
-  ],
   "forbidden": [
-    "arbitrary-shell-command",
+    "broker-source-resolution",
+    "broker-source-checkout",
+    "broker-product-config-read",
+    "broker-dependency-admission",
+    "broker-build-or-test",
+    "broker-log-or-diagnostic-storage",
+    "broker-github-run-discovery",
+    "broker-actions-callback",
+    "requested-sha-branch-authority",
     "caller-selected-secret-name",
     "caller-selected-runner",
-    "public-private-repository-input",
     "raw-agent-state-table-query",
     "raw-log-storage-in-agent-state",
     "polling-dispatch-loop"
