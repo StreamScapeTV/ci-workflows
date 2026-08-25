@@ -20,7 +20,7 @@ GRADLE_WARM_SHA = "13de46c51efcf65df798dfec82a620c484350dfa"
 GRADLE_SEED_SHA = "fa67b6a1580ff2eb7386a9e58de09896b9990696"
 APPLE_SHA = "33da58aed7f0423d33cea69ebd7eb829b283ec0d"
 REPOSITORY_TOKEN_SHA = "56f4859ae09944df6eaaafa7c808e5a1081e61af"
-RELEASE_ASSET_SHA = "8d393b07bf23cebe3b01572a42c93dc9e203c125"
+RELEASE_ASSET_SHA = "3fa645e1aa7ab8ae8c681afeb7c73627617b09c8"
 GITOPS_SHA = "b99c4296fe7cad06ef6c5956b1b0eb86a49f0145"
 
 FOUNDATION = "issue #116 immutable private-action checkpoint"
@@ -35,7 +35,7 @@ ISSUE_346_CACHE = "issue #346 bounded Gradle cache sync diagnostics checkpoint"
 ISSUE_475_GITOPS = "issue #475 bounded GitOps source validation checkpoint"
 ISSUE_495_APPLE = "issue #495 external-source identity checkpoint"
 ISSUE_495_REPOSITORY_TOKEN = "issue #495 bounded repository token primitive"
-ISSUE_495_RELEASE_ASSET = "issue #495 private release-asset materialization checkpoint"
+ISSUE_495_RELEASE_ASSET = "issue #495 corrected release-asset checkpoint"
 ISSUE_27 = "issue #27 Finance composition publication checkpoint"
 
 PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
