@@ -1,0 +1,78 @@
+name: Resolve Central product CI profile
+description: Project one exact source-owned Central CI profile onto existing canonical workflow inputs
+
+inputs:
+  source_root:
+    description: Exact already-checked-out product source root
+    required: true
+  project_key:
+    description: Expected Agent State project key
+    required: true
+  workflow_key:
+    description: Requested Central workflow API key
+    required: true
+  test_profile:
+    description: Requested product-owned CI profile name
+    required: true
+  source_repository:
+    description: Exact source repository in owner/name form
+    required: true
+  admitted_sha:
+    description: Exact observed source commit SHA
+    required: true
+
+outputs:
+  project_key:
+    description: Validated source-owned project key
+    value: ${{ steps.profile.outputs.project_key }}
+  test_profile:
+    description: Validated source-owned profile name
+    value: ${{ steps.profile.outputs.test_profile }}
+  workflow_key:
+    description: Validated canonical workflow API key
+    value: ${{ steps.profile.outputs.workflow_key }}
+  capability:
+    description: Validated technology capability
+    value: ${{ steps.profile.outputs.capability }}
+  source_repository:
+    description: Exact source repository
+    value: ${{ steps.profile.outputs.source_repository }}
+  admitted_sha:
+    description: Exact observed source commit SHA
+    value: ${{ steps.profile.outputs.admitted_sha }}
+  validation_scope:
+    description: Existing canonical Apple validation scope
+    value: ${{ steps.profile.outputs.validation_scope }}
+  validation_plan_json:
+    description: Deterministic canonical Apple validation plan
+    value: ${{ steps.profile.outputs.validation_plan_json }}
+  private_dependency_repository:
+    description: Optional exact private dependency repository
+    value: ${{ steps.profile.outputs.private_dependency_repository }}
+  private_dependency_sha:
+    description: Optional exact private dependency SHA
+    value: ${{ steps.profile.outputs.private_dependency_sha }}
+  private_dependency_subdirectory:
+    description: Optional exact private dependency subdirectory
+    value: ${{ steps.profile.outputs.private_dependency_subdirectory }}
+  private_dependency_id:
+    description: Optional bounded private dependency id
+    value: ${{ steps.profile.outputs.private_dependency_id }}
+
+runs:
+  using: composite
+  steps:
+    - id: profile
+      name: Resolve one bounded product profile
+      shell: bash
+      env:
+        PYTHONDONTWRITEBYTECODE: "1"
+        INPUT_SOURCE_ROOT: ${{ inputs.source_root }}
+        INPUT_PROJECT_KEY: ${{ inputs.project_key }}
+        INPUT_WORKFLOW_KEY: ${{ inputs.workflow_key }}
+        INPUT_TEST_PROFILE: ${{ inputs.test_profile }}
+        INPUT_SOURCE_REPOSITORY: ${{ inputs.source_repository }}
+        INPUT_ADMITTED_SHA: ${{ inputs.admitted_sha }}
+      run: |
+        set -Eeuo pipefail
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" central-profile resolve
