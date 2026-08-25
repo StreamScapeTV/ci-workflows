@@ -19,8 +19,7 @@ bootstrap/synchronization handshake before it can call Central.
 
 A later human-readable compatibility tag such as `@v1` can replace `@main`
 without changing caller structure. Full commit SHAs remain normal GitHub
-functionality for exceptional pinning or historical evidence, but they are not
-the normal adoption ceremony shown here.
+functionality for exceptional pinning or historical evidence, but they are not the normal adoption ceremony shown here.
 
 ## Trigger, source and concurrency ownership
 
