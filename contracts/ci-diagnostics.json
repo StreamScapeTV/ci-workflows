@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "store": "cloudflare-d1",
+  "table": "ci_diagnostics",
+  "retention_hours": 24,
+  "limits": {
+    "max_records": 64,
+    "max_canonical_json_bytes": 65536,
+    "max_message_bytes": 2048
+  },
+  "severities": ["warning", "error"],
+  "identity": [
+    "ci_run_id",
+    "run_attempt",
+    "github_run_id",
+    "project_key",
+    "repository",
+    "ref",
+    "is_tag",
+    "workflow_key",
+    "profile"
+  ],
+  "diagnostic_record": {
+    "required": ["severity", "code", "message"],
+    "optional": ["stage"],
+    "arbitrary_fields": false
+  },
+  "credentials": {
+    "transport": "fixed-environment-only",
+    "environment": [
+      "CIW_D1_ACCOUNT_ID",
+      "CIW_D1_DATABASE_ID",
+      "CIW_D1_API_TOKEN"
+    ],
+    "caller_selectable": false
+  },
+  "outputs": [
+    "diagnostic_key",
+    "diagnostic_status",
+    "diagnostic_sha256",
+    "diagnostic_count"
+  ],
+  "agent_state": {
+    "raw_logs_forbidden": true,
+    "diagnostics_json_forbidden": true,
+    "terminal_order": "persist-diagnostics-before-terminal-transition"
+  }
+}
