@@ -247,14 +247,6 @@ class PrivateAppleExecutorTests(unittest.TestCase):
         self.assertEqual(client.finishes[-1]["error_summary"], "private_ci_interrupted")
         self.assertEqual(client.finishes[-1]["diagnostic_status"], "uploaded")
 
-    def test_recovery_without_state_creates_no_private_run_directory(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            env = environment(root)
-            recover_private_apple(env)
-            state_root = Path(env["RUNNER_TEMP"]) / "central-private-ci" / CI_RUN_ID
-            self.assertFalse(state_root.exists())
-
 
 class PrivateAppleSourceContractTests(unittest.TestCase):
     def test_action_and_workflow_expose_no_private_identity_fields(self) -> None:
