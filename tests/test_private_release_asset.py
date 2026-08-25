@@ -12,6 +12,8 @@ from unittest import mock
 import urllib.error
 import zipfile
 
+import yaml
+
 from ci_workflows.private_release_asset import (
     PrivateReleaseAssetError,
     PrivateReleaseAssetSpec,
@@ -19,7 +21,11 @@ from ci_workflows.private_release_asset import (
     materialize_private_release_asset,
     run_phase,
 )
+from ci_workflows.private_release_asset_action import hydrate_environment
 
+ROOT = Path(__file__).resolve().parents[1]
+ACTION = ROOT / "actions/materialize-private-release-asset/action.yml"
+GATEWAY = ROOT / "scripts/ci/ciw.py"
 COMMIT = "a" * 40
 TOKEN = "synthetic-installation-token"
 
@@ -65,10 +71,10 @@ class Provider:
         return {"sha": sha}
 
 
-def spec(*, sha256: str) -> PrivateReleaseAssetSpec:
+def spec(*, sha256: str, repository: str = "StreamScapeTV/example-media") -> PrivateReleaseAssetSpec:
     return PrivateReleaseAssetSpec.parse(
         {
-            "repository": "StreamScapeTV/example-media",
+            "repository": repository,
             "tag": "v1.2.1",
             "commit_sha": COMMIT,
             "asset_name": "example-media-1.2.1-apple-binary.zip",
@@ -176,6 +182,19 @@ class PrivateReleaseAssetTests(unittest.TestCase):
                 for key, value in request.header_items()  # type: ignore[attr-defined]
             }
             self.assertEqual(headers.get("authorization"), f"Bearer {TOKEN}")
+
+    def test_full_owner_name_is_supported_without_streamscapetv_prefix(self) -> None:
+        release = spec(sha256="1" * 64, repository="OtherOrg/private-media")
+        self.assertEqual(release.repository, "OtherOrg/private-media")
+
+    def test_hashes_are_exact_lowercase_not_silently_normalized(self) -> None:
+        raw = spec(sha256="1" * 64).as_payload()
+        for patch, code in (
+            ({"commit_sha": COMMIT.upper()}, "release_commit_invalid"),
+            ({"sha256": ("a" * 64).upper()}, "release_asset_checksum_invalid"),
+        ):
+            with self.subTest(code=code), self.assertRaisesRegex(PrivateReleaseAssetError, code):
+                PrivateReleaseAssetSpec.parse({**raw, **patch})
 
     def test_checksum_failure_leaves_no_destination(self) -> None:
         payload = archive_bytes()
@@ -291,6 +310,66 @@ class PrivateReleaseAssetTests(unittest.TestCase):
         with self.assertRaisesRegex(PrivateReleaseAssetError, "private_dependency_kind_conflict"):
             run_phase("plan", env)
 
+    def test_config_source_accepts_identical_profiles_and_rejects_ambiguity_or_explicit_mix(self) -> None:
+        raw = spec(sha256="1" * 64).as_payload()
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "source"
+            github = source / ".github"
+            github.mkdir(parents=True)
+            config = github / "central-ci.json"
+            base_profile = {
+                "workflow_key": "validation.apple",
+                "capability": "apple-host-test",
+                "workspace": "Example.xcworkspace",
+                "scheme": "Example",
+                "test_target": "ExampleTests/Smoke",
+            }
+            config.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "project_key": "example-project",
+                        "profiles": {
+                            "host": {**base_profile, "private_release_asset": raw},
+                            "tag": {**base_profile, "private_release_asset": raw},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            env = {
+                "INPUT_CONFIG_WORKFLOW_KEY": "validation.apple",
+                "INPUT_SOURCE_ROOT": str(source),
+            }
+            hydrated = hydrate_environment(env)
+            self.assertEqual(hydrated["INPUT_RELEASE_ASSET_REPOSITORY"], raw["repository"])
+            self.assertEqual(hydrated["INPUT_RELEASE_ASSET_SHA256"], raw["sha256"])
+
+            different = {**raw, "id": "other-binary"}
+            config.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "project_key": "example-project",
+                        "profiles": {
+                            "host": {**base_profile, "private_release_asset": raw},
+                            "tag": {**base_profile, "private_release_asset": different},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(PrivateReleaseAssetError, "private_release_asset_ambiguous"):
+                hydrate_environment(env)
+
+            with self.assertRaisesRegex(PrivateReleaseAssetError, "private_release_asset_source_conflict"):
+                hydrate_environment(
+                    {
+                        **env,
+                        "INPUT_RELEASE_ASSET_REPOSITORY": raw["repository"],
+                    }
+                )
+
     def test_execute_cleanup_and_residue_use_marker_without_retaining_token(self) -> None:
         payload = archive_bytes()
         digest = __import__("hashlib").sha256(payload).hexdigest()
@@ -332,11 +411,28 @@ class PrivateReleaseAssetTests(unittest.TestCase):
             self.assertTrue(marker.is_file())
             self.assertNotIn(TOKEN, marker.read_text(encoding="utf-8"))
 
-            with mock.patch.dict(os.environ, env, clear=False):
-                run_phase("cleanup", env)
-                run_phase("residue", env)
+            run_phase("cleanup", env)
+            release_state = state / "release-assets"
+            self.assertFalse(release_state.exists())
+            run_phase("residue", env)
+            self.assertFalse(release_state.exists(), "residue check must not create state")
             self.assertFalse(materialized.destination.exists())
             self.assertFalse(marker.exists())
+
+    def test_composite_action_and_gateway_are_thin_and_secret_name_neutral(self) -> None:
+        action = yaml.safe_load(ACTION.read_text(encoding="utf-8"))
+        self.assertEqual(action["runs"]["using"], "composite")
+        self.assertIn("config_workflow_key", action["inputs"])
+        self.assertIn("token", action["inputs"])
+        text = ACTION.read_text(encoding="utf-8")
+        self.assertIn("release-asset", text)
+        self.assertIn("scripts/ci/ciw.py", text)
+        self.assertNotIn("secrets.", text)
+        self.assertNotIn("curl ", text)
+        self.assertNotIn("gh ", text)
+        gateway = GATEWAY.read_text(encoding="utf-8")
+        self.assertIn('arguments[:1] == ["release-asset"]', gateway)
+        self.assertIn("private_release_asset_main(arguments[1:])", gateway)
 
 
 if __name__ == "__main__":
