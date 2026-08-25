@@ -21,12 +21,6 @@
         "job": "ios",
         "events": ["pull_request"],
         "runs_on": ["macos-latest"]
-      },
-      {
-        "workflow": ".github/workflows/central-ci-dispatch.yml",
-        "job": "execute",
-        "events": ["workflow_dispatch"],
-        "runs_on": ["macos-latest"]
       }
     ]
   },
