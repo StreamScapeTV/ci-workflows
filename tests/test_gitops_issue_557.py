@@ -76,6 +76,17 @@ class GitOpsIssue557HelmTemplateClassificationTests(unittest.TestCase):
         with self.assertRaisesRegex(GitOpsValidationError, "yaml_invalid"):
             _yaml_target(self.target, self.source, yaml)
 
+    def test_chartless_templates_directory_is_not_excluded(self) -> None:
+        chartless = self.source / "apps" / "templates"
+        chartless.mkdir()
+        (chartless / "not-a-chart-template.yaml").write_text(
+            "metadata:\n"
+            "  name: {{ .Values.name }}\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(GitOpsValidationError, "yaml_invalid"):
+            _yaml_target(self.target, self.source, yaml)
+
 
 if __name__ == "__main__":
     unittest.main()
