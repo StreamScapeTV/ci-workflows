@@ -18,6 +18,7 @@ runs:
       env:
         PYTHONDONTWRITEBYTECODE: "1"
         INPUT_CI_RUN_ID: ${{ inputs.ci_run_id }}
+        CIW_PRIVATE_LOG_PATH: ${{ runner.temp }}/central-private-ci/${{ inputs.ci_run_id }}/private.log
       run: |
         set -Eeuo pipefail
         python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" private-apple "${{ inputs.phase }}"
