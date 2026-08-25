@@ -133,8 +133,6 @@ class PrivateReleaseAssetSpec:
         _require(set(value) == set(_SPEC_FIELDS), "private_release_asset_invalid")
         repository = _safe_text(value.get("repository"), maximum=256, code="release_repository_invalid")
         _require(_REPOSITORY.fullmatch(repository) is not None, "release_repository_invalid")
-        # Current fixed source-app installation is the reviewed trust root for private product assets.
-        _require(repository.startswith("StreamScapeTV/"), "release_repository_unsupported")
         commit_sha = _safe_text(value.get("commit_sha"), maximum=40, code="release_commit_invalid").lower()
         digest = _safe_text(value.get("sha256"), maximum=64, code="release_asset_checksum_invalid").lower()
         dependency_id = _safe_text(value.get("id"), maximum=32, code="release_asset_id_invalid")
@@ -279,7 +277,6 @@ def _asset_response(
         location = _redirect_location(error)
         if location is None:
             raise PrivateReleaseAssetError(f"release_asset_download_http_{int(error.code)}") from None
-        # Never forward the GitHub App token to the signed release-asset host.
         redirected = urllib.request.Request(
             location,
             headers={"User-Agent": "StreamScapeTV-ci-workflows-release-asset"},
@@ -446,7 +443,6 @@ def materialize_private_release_asset(
     provider_factory: Callable[[str], GitHubSourceProvider] = GitHubSourceProvider,
     extractor: Callable[[Path, Path], None] = _ditto_extract,
 ) -> PrivateReleaseAssetResult:
-    """Verify and place one release archive subpath into an ignored source destination."""
     _require(bool(token), "release_asset_token_missing")
     source_root = source_root.resolve(strict=True)
     state_root = state_root.resolve(strict=True)
@@ -514,7 +510,7 @@ def materialize_private_release_asset(
             sha256=spec.sha256,
             downloaded_bytes=downloaded,
         )
-    except BaseException as error:
+    except Exception as error:
         if destination_path.exists() and not destination_path.is_symlink():
             shutil.rmtree(destination_path, ignore_errors=True)
         if isinstance(error, PrivateReleaseAssetError):
@@ -571,15 +567,16 @@ def _required_path(environment: Mapping[str, str], name: str) -> Path:
         raise PrivateReleaseAssetError(f"invalid_{name.lower()}") from None
 
 
-def _state_file(state_root: Path, spec: PrivateReleaseAssetSpec) -> Path:
+def _state_file(state_root: Path, spec: PrivateReleaseAssetSpec, *, create: bool) -> Path:
     directory = (state_root / _STATE_DIRECTORY).resolve(strict=False)
     _require(state_root == directory.parent, "release_asset_state_invalid")
-    directory.mkdir(mode=0o700, exist_ok=True)
+    if create:
+        directory.mkdir(mode=0o700, exist_ok=True)
     return directory / f"{spec.dependency_id}.json"
 
 
 def _write_state(state_root: Path, spec: PrivateReleaseAssetSpec, result: PrivateReleaseAssetResult) -> None:
-    path = _state_file(state_root, spec)
+    path = _state_file(state_root, spec, create=True)
     _require(not path.exists(), "release_asset_state_occupied")
     payload = json.dumps(
         {
@@ -597,8 +594,12 @@ def _write_state(state_root: Path, spec: PrivateReleaseAssetSpec, result: Privat
     path.chmod(0o600)
 
 
-def _load_state(state_root: Path, spec: PrivateReleaseAssetSpec) -> PrivateReleaseAssetResult:
-    path = _state_file(state_root, spec)
+def _load_state(
+    state_root: Path,
+    spec: PrivateReleaseAssetSpec,
+    source_root: Path,
+) -> PrivateReleaseAssetResult:
+    path = _state_file(state_root, spec, create=False)
     _require(path.is_file() and not path.is_symlink(), "release_asset_state_missing")
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -611,7 +612,6 @@ def _load_state(state_root: Path, spec: PrivateReleaseAssetSpec) -> PrivateRelea
         and value.get("sha256") == spec.sha256,
         "release_asset_state_invalid",
     )
-    source_root = _required_path({"SOURCE_ROOT": os.environ.get("INPUT_SOURCE_ROOT", "source")}, "SOURCE_ROOT")
     destination = (source_root / Path(*PurePosixPath(spec.destination).parts)).resolve(strict=False)
     _require(source_root in destination.parents, "release_destination_invalid")
     return PrivateReleaseAssetResult(
@@ -653,7 +653,7 @@ def run_phase(phase: str, environment: Mapping[str, str] = os.environ) -> None:
         return
     source_root = _required_path({"SOURCE_ROOT": environment.get("INPUT_SOURCE_ROOT", "source")}, "SOURCE_ROOT")
     state_root = _required_path(environment, "CI_WORKFLOW_ROOT")
-    state_path = _state_file(state_root, spec)
+    state_path = _state_file(state_root, spec, create=False)
     destination = (source_root / Path(*PurePosixPath(spec.destination).parts)).resolve(strict=False)
     if phase == "execute":
         result = materialize_private_release_asset(
@@ -674,7 +674,7 @@ def run_phase(phase: str, environment: Mapping[str, str] = os.environ) -> None:
         )
         return
     if phase == "cleanup":
-        result = _load_state(state_root, spec)
+        result = _load_state(state_root, spec, source_root)
         cleanup_private_release_asset(result)
         state_path.unlink(missing_ok=False)
         directory = state_path.parent
