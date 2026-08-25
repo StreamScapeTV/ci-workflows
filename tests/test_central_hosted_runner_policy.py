@@ -14,7 +14,6 @@ HOSTED_LINUX = ["ubuntu-latest"]
 HOSTED_APPLE = ["macos-latest"]
 BROKER_RELEASE = WORKFLOWS / "ci-broker-image.yml"
 BACKEND_CONTRACT = ROOT / "contracts" / "runner-execution-backends.json"
-SELF_PREFIX = "StreamScapeTV/ci-workflows/.github/workflows/"
 OWNER_GATE = "github.event.pull_request.user.login == 'mimranfaruqi'"
 REPOSITORY_GATE = "github.event.pull_request.head.repo.full_name == github.repository"
 
@@ -42,15 +41,10 @@ def _cannot_run_in_public_central(job: dict) -> bool:
     )
 
 
-def _self_reusable(uses: object) -> Path | None:
-    if not isinstance(uses, str):
+def _local_reusable(uses: object) -> Path | None:
+    if not isinstance(uses, str) or not uses.startswith("./.github/workflows/"):
         return None
-    if uses.startswith("./.github/workflows/"):
-        relative = uses.removeprefix("./")
-    elif uses.startswith(SELF_PREFIX):
-        relative = ".github/workflows/" + uses.removeprefix(SELF_PREFIX).split("@", 1)[0]
-    else:
-        return None
+    relative = uses.removeprefix("./")
     path = ROOT / relative
     return path if path.is_file() else None
 
@@ -89,7 +83,7 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
                     failures.append(
                         f"{path.relative_to(ROOT)}:{job_name} uses {job['runs-on']!r}; expected {expected!r}"
                     )
-                called = _self_reusable(job.get("uses"))
+                called = _local_reusable(job.get("uses"))
                 if called is not None:
                     inspect(called)
 
@@ -144,14 +138,19 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
                     "events": ["pull_request"],
                     "runs_on": HOSTED_APPLE,
                 },
-                {
-                    "workflow": ".github/workflows/central-ci-dispatch.yml",
-                    "job": "execute",
-                    "events": ["workflow_dispatch"],
-                    "runs_on": HOSTED_APPLE,
-                },
             ],
         )
+        dispatch = yaml.load(
+            (WORKFLOWS / "central-ci-dispatch.yml").read_text(encoding="utf-8"),
+            Loader=ActionsLoader,
+        )
+        self.assertEqual(dispatch["jobs"]["control"]["runs-on"], HOSTED_LINUX)
+        self.assertEqual(dispatch["jobs"]["finalize"]["runs-on"], HOSTED_LINUX)
+        self.assertEqual(
+            dispatch["jobs"]["apple"]["uses"],
+            "StreamScapeTV/ci-workflows/.github/workflows/reusable-apple.yml@main",
+        )
+        self.assertNotIn("runs-on", dispatch["jobs"]["apple"])
         for retired in ("apple-test.yml", "apple-certification-smoke.yml"):
             self.assertFalse((WORKFLOWS / retired).exists())
 
