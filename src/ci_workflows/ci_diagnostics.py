@@ -6,11 +6,12 @@ import base64
 from dataclasses import dataclass
 import gzip
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import io
 import json
 import os
 import re
 import sys
-from typing import Any, Mapping, Sequence
+from typing import Mapping, Sequence
 import urllib.parse
 
 from .r2_diagnostics import (
@@ -57,6 +58,7 @@ class DiagnosticReceipt:
     @classmethod
     def parse(cls, value: object) -> "DiagnosticReceipt":
         _require(isinstance(value, str), "diagnostic_not_found")
+        assert isinstance(value, str)
         _require(0 < len(value.encode("utf-8")) <= _MAX_RECEIPT_BYTES, "diagnostic_not_found")
         match = _RECEIPT.fullmatch(value)
         _require(match is not None, "diagnostic_not_found")
@@ -76,7 +78,10 @@ def encode_receipt_capability(receipt: object) -> str:
 
 
 def decode_receipt_capability(token: object) -> DiagnosticReceipt:
-    _require(isinstance(token, str) and _CAPABILITY.fullmatch(token) is not None, "diagnostic_not_found")
+    _require(
+        isinstance(token, str) and _CAPABILITY.fullmatch(token) is not None,
+        "diagnostic_not_found",
+    )
     assert isinstance(token, str)
     padding = "=" * (-len(token) % 4)
     try:
@@ -104,7 +109,11 @@ class DiagnosticReadConfig:
         environment: Mapping[str, str] = os.environ,
     ) -> "DiagnosticReadConfig":
         port_text = environment.get("CI_DIAGNOSTICS_PORT", "8081")
-        _require(port_text.isdigit() and 1 <= int(port_text) <= 65535, "invalid_ci_diagnostics_port", 500)
+        _require(
+            port_text.isdigit() and 1 <= int(port_text) <= 65535,
+            "invalid_ci_diagnostics_port",
+            500,
+        )
         return cls(
             account_id=_required(environment, "R2_ACCOUNT_ID"),
             bucket=_required(environment, "R2_BUCKET"),
@@ -112,6 +121,20 @@ class DiagnosticReadConfig:
             secret_access_key=_required(environment, "R2_READ_SECRET_ACCESS_KEY"),
             port=int(port_text),
         )
+
+
+def _decompress_bounded(compressed: bytes) -> bytes:
+    try:
+        with gzip.GzipFile(fileobj=io.BytesIO(compressed), mode="rb") as archive:
+            raw = archive.read(MAX_RAW_BYTES + 1)
+    except (OSError, EOFError):
+        raise DiagnosticReadError("diagnostic_unavailable", 502) from None
+    _require(len(raw) <= MAX_RAW_BYTES, "diagnostic_unavailable", 502)
+    try:
+        raw.decode("utf-8")
+    except UnicodeDecodeError:
+        raise DiagnosticReadError("diagnostic_unavailable", 502) from None
+    return raw
 
 
 class DiagnosticReader:
@@ -135,16 +158,7 @@ class DiagnosticReader:
             if error.code in {"r2_download_http_404", "r2_download_digest_mismatch"}:
                 raise DiagnosticReadError("diagnostic_not_found", 404) from None
             raise DiagnosticReadError("diagnostic_unavailable", 502) from None
-        try:
-            raw = gzip.decompress(compressed)
-        except (OSError, EOFError):
-            raise DiagnosticReadError("diagnostic_unavailable", 502) from None
-        _require(len(raw) <= MAX_RAW_BYTES, "diagnostic_unavailable", 502)
-        try:
-            raw.decode("utf-8")
-        except UnicodeDecodeError:
-            raise DiagnosticReadError("diagnostic_unavailable", 502) from None
-        return raw
+        return _decompress_bounded(compressed)
 
 
 class DiagnosticHttpServer(ThreadingHTTPServer):
@@ -171,7 +185,12 @@ class DiagnosticHttpHandler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
 
     def _json(self, status: int, value: Mapping[str, object]) -> None:
-        raw = json.dumps(dict(value), sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+        raw = json.dumps(
+            dict(value),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        ).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self._security_headers()
@@ -222,11 +241,18 @@ def serve(config: DiagnosticReadConfig | None = None) -> None:
 
 
 def self_check() -> dict[str, object]:
-    receipt = "r2:ci-diagnostics/00000000-0000-4000-8000-000000000019/32860000001-1.log.gz#sha256=" + "a" * 64
+    receipt = (
+        "r2:ci-diagnostics/00000000-0000-4000-8000-000000000019/"
+        "32860000001-1.log.gz#sha256=" + "a" * 64
+    )
     token = encode_receipt_capability(receipt)
     parsed = decode_receipt_capability(token)
     _require(parsed.render() == receipt, "diagnostic_self_check_failed", 500)
-    _require("/" not in token and "#" not in token and "=" not in token, "diagnostic_self_check_failed", 500)
+    _require(
+        "/" not in token and "#" not in token and "=" not in token,
+        "diagnostic_self_check_failed",
+        500,
+    )
     return {
         "ok": True,
         "mode": "receipt-bound-r2-reader",
