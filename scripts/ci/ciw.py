@@ -19,6 +19,7 @@ from ci_workflows.ciw_gradle_seed import main as gradle_seed_main  # noqa: E402
 from ci_workflows.github_app_token import main as github_app_token_main  # noqa: E402
 from ci_workflows.gradle_dependency_warm import main as gradle_dependency_warm_main  # noqa: E402
 from ci_workflows.gradle_maven_publish import main as gradle_maven_publish_main  # noqa: E402
+from ci_workflows.private_release_asset import main as private_release_asset_main  # noqa: E402
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -31,6 +32,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return ci_private_apple_main(arguments[1:])
     if arguments[:1] == ["github-app"]:
         return github_app_token_main(arguments[1:])
+    if arguments[:1] == ["release-asset"]:
+        return private_release_asset_main(arguments[1:])
     if arguments[:2] == ["gradle-seed", "upload"]:
         return gradle_seed_main(["--root", str(ROOT), *arguments[2:]])
     if arguments[:2] == ["gradle", "warm-dependencies"]:
