@@ -9,6 +9,10 @@ inputs:
   admitted_sha:
     description: Exact admitted caller source SHA
     required: true
+  source_repository:
+    description: Optional exact source repository in owner/name form; defaults to the caller repository
+    required: false
+    default: ""
   validation_scope:
     description: legacy, protected-full, or simulator-confidence
     required: false
@@ -171,6 +175,7 @@ runs:
       env:
         PYTHONDONTWRITEBYTECODE: "1"
         INPUT_ADMITTED_SHA: ${{ inputs.admitted_sha }}
+        INPUT_SOURCE_REPOSITORY: ${{ inputs.source_repository }}
         INPUT_VALIDATION_SCOPE: ${{ inputs.validation_scope }}
         INPUT_VALIDATION_PLAN_JSON: ${{ inputs.validation_plan_json }}
         INPUT_VALIDATION_PROFILE: ${{ inputs.validation_profile }}
