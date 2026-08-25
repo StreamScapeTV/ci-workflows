@@ -4,6 +4,11 @@
   "allowed_backends": ["organization", "github-hosted"],
   "github-hosted": {
     "runs_on": ["ubuntu-latest"],
+    "profile_runs_on": {
+      "general-tiny": ["ubuntu-latest"],
+      "general-small": ["ubuntu-latest"],
+      "apple": ["macos-latest"]
+    },
     "repository_local_exceptions": [
       {
         "workflow": ".github/workflows/apple-validation-smoke.yml",
