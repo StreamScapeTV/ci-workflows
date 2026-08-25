@@ -19,7 +19,7 @@ from ci_workflows.ciw_gradle_seed import main as gradle_seed_main  # noqa: E402
 from ci_workflows.github_app_token import main as github_app_token_main  # noqa: E402
 from ci_workflows.gradle_dependency_warm import main as gradle_dependency_warm_main  # noqa: E402
 from ci_workflows.gradle_maven_publish import main as gradle_maven_publish_main  # noqa: E402
-from ci_workflows.private_release_asset import main as private_release_asset_main  # noqa: E402
+from ci_workflows.private_release_asset_action import main as private_release_asset_main  # noqa: E402
 
 
 def main(argv: Sequence[str] | None = None) -> int:
