@@ -97,6 +97,7 @@ RUN printf '%s\n' \
       'cgroup_manager = "cgroupfs"' \
       'events_logger = "file"' \
       'runtime = "crun"' \
+      'helper_binaries_dir = ["/usr/lib/podman"]' \
       '' \
       '[network]' \
       'network_backend = "netavark"' \
