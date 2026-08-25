@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -26,6 +29,21 @@ class RecordingRunner:
         if call[:3] == ("xcrun", "simctl", "create"):
             return CommandOutcome(0, f"{UDID}\n", "")
         return CommandOutcome(0, "", "")
+
+
+class OutputRunner:
+    def run(self, argv, *, cwd, env, timeout_seconds):
+        return CommandOutcome(0, "full stdout line 1\nfull stdout line 2\n", "full stderr line\n")
+
+
+class TimeoutRunner:
+    def run(self, argv, *, cwd, env, timeout_seconds):
+        raise subprocess.TimeoutExpired(
+            list(argv),
+            timeout_seconds,
+            output="partial stdout\n",
+            stderr="partial stderr\n",
+        )
 
 
 class MediaTvOSSimulatorConfidenceTests(unittest.TestCase):
@@ -95,6 +113,74 @@ class MediaTvOSSimulatorConfidenceTests(unittest.TestCase):
         )
         self.assertEqual(delegate.calls[-1][-1], UDID)
         self.assertNotIn(SIMULATOR_UDID_TOKEN, delegate.calls[-1])
+
+    def test_private_mode_appends_full_captured_command_output_to_runner_local_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            runner_temp = Path(temporary).resolve()
+            private_root = runner_temp / "central-private-ci" / "11111111-2222-4333-8444-555555555555"
+            private_root.mkdir(parents=True, mode=0o700)
+            log = private_root / "private.log"
+            log.touch(mode=0o600)
+            os.chmod(log, 0o600)
+            runner = SimulatorLeaseArgumentRunner(OutputRunner())
+            outcome = runner.run(
+                ("bash", "private-task.sh"),
+                cwd=ROOT,
+                env={
+                    "RUNNER_TEMP": str(runner_temp),
+                    "CIW_PRIVATE_LOG_PATH": str(log),
+                },
+                timeout_seconds=1,
+            )
+            self.assertEqual(outcome.stdout, "full stdout line 1\nfull stdout line 2\n")
+            self.assertEqual(
+                log.read_text(encoding="utf-8"),
+                "full stdout line 1\nfull stdout line 2\nfull stderr line\n",
+            )
+
+    def test_private_mode_records_timeout_partial_output_before_reraising(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            runner_temp = Path(temporary).resolve()
+            private_root = runner_temp / "central-private-ci" / "11111111-2222-4333-8444-555555555555"
+            private_root.mkdir(parents=True, mode=0o700)
+            log = private_root / "private.log"
+            log.touch(mode=0o600)
+            os.chmod(log, 0o600)
+            runner = SimulatorLeaseArgumentRunner(TimeoutRunner())
+            with self.assertRaises(subprocess.TimeoutExpired):
+                runner.run(
+                    ("xcodebuild", "test"),
+                    cwd=ROOT,
+                    env={
+                        "RUNNER_TEMP": str(runner_temp),
+                        "CIW_PRIVATE_LOG_PATH": str(log),
+                    },
+                    timeout_seconds=1,
+                )
+            self.assertEqual(
+                log.read_text(encoding="utf-8"),
+                "partial stdout\npartial stderr\n",
+            )
+
+    def test_private_log_target_must_be_regular_private_file_under_runner_temp(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            runner_temp = root / "runner"
+            runner_temp.mkdir()
+            outside = root / "outside.log"
+            outside.touch(mode=0o600)
+            os.chmod(outside, 0o600)
+            runner = SimulatorLeaseArgumentRunner(OutputRunner())
+            with self.assertRaisesRegex(AppleValidationError, "private_log_path_invalid"):
+                runner.run(
+                    ("bash", "private-task.sh"),
+                    cwd=ROOT,
+                    env={
+                        "RUNNER_TEMP": str(runner_temp),
+                        "CIW_PRIVATE_LOG_PATH": str(outside),
+                    },
+                    timeout_seconds=1,
+                )
 
     def test_contract_is_confidence_only_and_has_no_native_or_physical_authority(self) -> None:
         fragment = (ROOT / "contracts/apple-validation-media-tvos-simulator-confidence.json").read_text(encoding="utf-8").casefold()
