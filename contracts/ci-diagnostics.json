@@ -43,6 +43,29 @@
     "receipt_format": "r2:<object_key>#sha256=<compressed_sha256>",
     "terminal_order": "upload-readback-verify-r2-before-terminal-transition"
   },
+  "retrieval": {
+    "mode": "receipt-capability",
+    "capability_encoding": "base64url-utf8-exact-r2-receipt-without-padding",
+    "route": "/diagnostics/<capability>",
+    "service_authority": "r2-read-only",
+    "service_credentials": [
+      "R2_ACCOUNT_ID",
+      "R2_BUCKET",
+      "R2_READ_ACCESS_KEY_ID",
+      "R2_READ_SECRET_ACCESS_KEY"
+    ],
+    "requires_exact_agent_state_receipt": true,
+    "receipt_is_bearer_capability": true,
+    "agent_state_lookup": false,
+    "thin_relay_authority": false,
+    "github_actions_log_copy": false,
+    "github_actions_artifact": false,
+    "compressed_sha256_verified_before_decompression": true,
+    "max_raw_bytes": 52428800,
+    "max_compressed_bytes": 20971520,
+    "response_content_type": "text/plain; charset=utf-8",
+    "cache_control": "private, no-store"
+  },
   "retention": {
     "agent_state_hours": 24,
     "r2_object_lifecycle": "bucket-policy-owned"
