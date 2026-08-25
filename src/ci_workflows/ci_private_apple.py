@@ -20,6 +20,11 @@ from .ciw_apple import execute_apple_validate
 from .ciw_types import CIWContext
 from .dependencies import DependencyResult, checkout_private_dependency
 from .github_app_token import GitHubAppRepositoryTokenClient
+from .private_release_asset import (
+    PrivateReleaseAssetResult,
+    cleanup_private_release_asset,
+    materialize_private_release_asset,
+)
 from .r2_diagnostics import R2DiagnosticError, R2DiagnosticResult, upload_private_diagnostic
 from .source_admission import _resolve_tag
 from .source_github import GitHubSourceProvider
@@ -480,6 +485,7 @@ def execute_private_apple(
     error_summary: str | None = "private_ci_failed"
     upload: R2DiagnosticResult | None = None
     source: Path | None = None
+    release_asset: PrivateReleaseAssetResult | None = None
 
     with log_path.open("a", encoding="utf-8", buffering=1) as log:
         try:
@@ -515,6 +521,18 @@ def execute_private_apple(
             _require(resolution.capability == "apple-host-test", "unsupported_ci_capability")
             _append(log, "[profile] bounded private profile resolved")
 
+            release_spec = resolution.release_asset()
+            if release_spec is not None:
+                _append(log, "[release-asset] verified materialization started")
+                release_token = token_client.repository_contents_read_token(release_spec.repository)
+                release_asset = materialize_private_release_asset(
+                    spec=release_spec,
+                    token=release_token,
+                    source_root=source,
+                    state_root=_state_root(environment, ci_run_id),
+                )
+                _append(log, "[release-asset] verified materialization completed")
+
             validation_ok, cleanup_ok = _execute_validation(
                 request=request,
                 source_sha=source_sha,
@@ -534,6 +552,14 @@ def execute_private_apple(
             error_summary = _stable_code(error)
             _append(log, f"[private-ci] error={error_summary}")
         finally:
+            if release_asset is not None:
+                try:
+                    cleanup_private_release_asset(release_asset)
+                    _append(log, "[release-asset] cleanup completed")
+                except BaseException as error:
+                    status = "failed"
+                    error_summary = "release_asset_cleanup_failed"
+                    _append(log, f"[release-asset] cleanup error={_stable_code(error)}")
             if source is not None:
                 try:
                     _remove_no_follow(source)

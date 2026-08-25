@@ -21,6 +21,7 @@ from .ci_broker import (
     _safe_workflow_key,
     _safe_workspace,
 )
+from .private_release_asset import PrivateReleaseAssetError, PrivateReleaseAssetSpec, optional_spec
 
 CONFIG_RELATIVE_PATH = ".github/central-ci.json"
 _SUPPORTED_PROJECTIONS = {("validation.apple", "apple-host-test")}
@@ -115,6 +116,35 @@ def _read_config(source_root: Path) -> Mapping[str, object]:
     return value
 
 
+def _strip_release_assets(
+    value: Mapping[str, object],
+) -> tuple[dict[str, object], dict[str, PrivateReleaseAssetSpec]]:
+    """Project the additive active-only release asset while preserving the legacy config parser."""
+    sanitized = dict(value)
+    raw_profiles = value.get("profiles")
+    if not isinstance(raw_profiles, dict):
+        return sanitized, {}
+    profiles: dict[str, object] = {}
+    release_assets: dict[str, PrivateReleaseAssetSpec] = {}
+    for raw_name, raw_profile in raw_profiles.items():
+        if not isinstance(raw_profile, dict):
+            profiles[str(raw_name)] = raw_profile
+            continue
+        profile = dict(raw_profile)
+        raw_release = profile.pop("private_release_asset", None)
+        if raw_release is not None:
+            _require("private_dependency" not in profile, "private_dependency_kind_conflict")
+            try:
+                parsed = optional_spec(raw_release)
+            except PrivateReleaseAssetError as error:
+                raise CentralProfileError(error.code) from None
+            assert parsed is not None
+            release_assets[str(raw_name)] = parsed
+        profiles[str(raw_name)] = profile
+    sanitized["profiles"] = profiles
+    return sanitized, release_assets
+
+
 @dataclass(frozen=True, slots=True)
 class CentralProfileResolution:
     project_key: str
@@ -129,6 +159,14 @@ class CentralProfileResolution:
     private_dependency_sha: str = ""
     private_dependency_subdirectory: str = "."
     private_dependency_id: str = ""
+    private_release_asset_repository: str = ""
+    private_release_asset_tag: str = ""
+    private_release_asset_commit_sha: str = ""
+    private_release_asset_name: str = ""
+    private_release_asset_sha256: str = ""
+    private_release_asset_archive_subpath: str = ""
+    private_release_asset_destination: str = ""
+    private_release_asset_id: str = ""
 
     def output_values(self) -> dict[str, str]:
         return {
@@ -144,7 +182,31 @@ class CentralProfileResolution:
             "private_dependency_sha": self.private_dependency_sha,
             "private_dependency_subdirectory": self.private_dependency_subdirectory,
             "private_dependency_id": self.private_dependency_id,
+            "private_release_asset_repository": self.private_release_asset_repository,
+            "private_release_asset_tag": self.private_release_asset_tag,
+            "private_release_asset_commit_sha": self.private_release_asset_commit_sha,
+            "private_release_asset_name": self.private_release_asset_name,
+            "private_release_asset_sha256": self.private_release_asset_sha256,
+            "private_release_asset_archive_subpath": self.private_release_asset_archive_subpath,
+            "private_release_asset_destination": self.private_release_asset_destination,
+            "private_release_asset_id": self.private_release_asset_id,
         }
+
+    def release_asset(self) -> PrivateReleaseAssetSpec | None:
+        if not self.private_release_asset_repository:
+            return None
+        return PrivateReleaseAssetSpec.parse(
+            {
+                "repository": self.private_release_asset_repository,
+                "tag": self.private_release_asset_tag,
+                "commit_sha": self.private_release_asset_commit_sha,
+                "asset_name": self.private_release_asset_name,
+                "sha256": self.private_release_asset_sha256,
+                "archive_subpath": self.private_release_asset_archive_subpath,
+                "destination": self.private_release_asset_destination,
+                "id": self.private_release_asset_id,
+            }
+        )
 
 
 def resolve_profile(*, source_root: object, project_key: object, workflow_key: object, test_profile: object, source_repository: object, admitted_sha: object) -> CentralProfileResolution:
@@ -157,11 +219,13 @@ def resolve_profile(*, source_root: object, project_key: object, workflow_key: o
 
     from .ci_broker_dependencies import BrokerProductConfig
 
-    config = BrokerProductConfig.parse(value)
+    sanitized, release_assets = _strip_release_assets(value)
+    config = BrokerProductConfig.parse(sanitized)
     _require(config.project_key == checked_project, "project_config_mismatch")
     profile = config.profile(checked_profile, checked_workflow)
     _require((profile.workflow_key, profile.capability) in _SUPPORTED_PROJECTIONS, "central_profile_unsupported")
     dependency = profile.private_dependency
+    release = release_assets.get(profile.name)
     return CentralProfileResolution(
         project_key=checked_project,
         test_profile=profile.name,
@@ -175,6 +239,14 @@ def resolve_profile(*, source_root: object, project_key: object, workflow_key: o
         private_dependency_sha=(dependency.sha if dependency else ""),
         private_dependency_subdirectory=(dependency.subdirectory if dependency else "."),
         private_dependency_id=(dependency.dependency_id if dependency else ""),
+        private_release_asset_repository=(release.repository if release else ""),
+        private_release_asset_tag=(release.tag if release else ""),
+        private_release_asset_commit_sha=(release.commit_sha if release else ""),
+        private_release_asset_name=(release.asset_name if release else ""),
+        private_release_asset_sha256=(release.sha256 if release else ""),
+        private_release_asset_archive_subpath=(release.archive_subpath if release else ""),
+        private_release_asset_destination=(release.destination if release else ""),
+        private_release_asset_id=(release.dependency_id if release else ""),
     )
 
 
@@ -216,7 +288,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "resolve":
             resolve_from_environment()
-    except (BrokerError, CentralProfileError) as error:
+    except (BrokerError, CentralProfileError, PrivateReleaseAssetError) as error:
         print(error.code, file=sys.stderr)
         return 1
     return 0

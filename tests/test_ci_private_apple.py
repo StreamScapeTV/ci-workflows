@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 from unittest import mock
@@ -17,6 +18,7 @@ from ci_workflows.ci_private_apple import (
     recover_private_apple,
 )
 from ci_workflows.ci_relay import RelayRequest
+from ci_workflows.private_release_asset import PrivateReleaseAssetResult, PrivateReleaseAssetSpec
 from ci_workflows.r2_diagnostics import R2DiagnosticResult
 from ci_workflows.validation_model import load_actions_yaml
 
@@ -27,6 +29,8 @@ CONTRACT = ROOT / "contracts/ci-diagnostics.json"
 DOC = ROOT / "docs/workflows/ci-diagnostics.md"
 CI_RUN_ID = "11111111-2222-4333-8444-555555555555"
 SOURCE_SHA = "a" * 40
+RELEASE_COMMIT = "b" * 40
+RELEASE_DIGEST = "c" * 64
 
 
 class LifecycleStub:
@@ -45,7 +49,11 @@ class LifecycleStub:
 
 
 class TokenClientStub:
+    def __init__(self) -> None:
+        self.repositories: list[object] = []
+
     def repository_contents_read_token(self, repository: object) -> str:
+        self.repositories.append(repository)
         return "synthetic-repository-token"
 
 
@@ -57,6 +65,25 @@ class ProfileStub:
     private_dependency_sha = ""
     private_dependency_subdirectory = "."
     private_dependency_id = ""
+
+    def release_asset(self) -> PrivateReleaseAssetSpec | None:
+        return None
+
+
+class ReleaseProfileStub(ProfileStub):
+    def release_asset(self) -> PrivateReleaseAssetSpec:
+        return PrivateReleaseAssetSpec.parse(
+            {
+                "repository": "StreamScapeTV/example-media",
+                "tag": "v1.2.1",
+                "commit_sha": RELEASE_COMMIT,
+                "asset_name": "example-media-1.2.1-apple-binary.zip",
+                "sha256": RELEASE_DIGEST,
+                "archive_subpath": "ExampleMediaApple",
+                "destination": "Vendor/ExampleMediaApple",
+                "id": "example-media-binary",
+            }
+        )
 
 
 def claimed_request() -> RelayRequest:
@@ -197,6 +224,81 @@ class PrivateAppleExecutorTests(unittest.TestCase):
             self.assertEqual(kwargs["status"], "succeeded")
             self.assertEqual(kwargs["diagnostic_status"], "uploaded")
             self.assertTrue(str(kwargs["diagnostic_key"]).startswith("r2:ci-diagnostics/"))
+
+    def test_release_asset_materializes_before_apple_and_cleans_before_r2_terminalization(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            env = environment(root)
+            lifecycle = LifecycleStub()
+            request = claimed_request()
+            token_client = TokenClientStub()
+            events: list[str] = []
+            destination_holder: dict[str, Path] = {}
+
+            def checkout(**kwargs: object) -> Path:
+                source = Path(kwargs["workspace"]) / "source"
+                source.mkdir()
+                return source
+
+            def materialize(**kwargs: object) -> PrivateReleaseAssetResult:
+                events.append("materialize")
+                source = Path(kwargs["source_root"])
+                destination = source / "Vendor/ExampleMediaApple"
+                destination.mkdir(parents=True)
+                destination_holder["path"] = destination
+                selected = kwargs["spec"]
+                return PrivateReleaseAssetResult(
+                    source_root=source,
+                    destination=destination,
+                    release_commit=selected.commit_sha,  # type: ignore[union-attr]
+                    sha256=selected.sha256,  # type: ignore[union-attr]
+                    downloaded_bytes=123,
+                )
+
+            def validate(**_kwargs: object) -> tuple[bool, bool]:
+                events.append("validate")
+                self.assertTrue(destination_holder["path"].is_dir())
+                return True, True
+
+            def cleanup(result: PrivateReleaseAssetResult | None) -> None:
+                events.append("release-cleanup")
+                assert result is not None
+                shutil.rmtree(result.destination)
+
+            def upload(**_kwargs: object) -> R2DiagnosticResult:
+                events.append("upload")
+                self.assertFalse(destination_holder["path"].exists())
+                return R2DiagnosticResult(
+                    object_key=f"ci-diagnostics/{CI_RUN_ID}/32860000001-1.log.gz",
+                    sha256="e" * 64,
+                    compressed_bytes=100,
+                )
+
+            def finish(ci_run_id: str, **kwargs: object) -> None:
+                events.append("finish")
+                lifecycle.calls.append(("finish", (ci_run_id, kwargs)))
+
+            lifecycle.finish = finish  # type: ignore[method-assign]
+            with (
+                mock.patch("ci_workflows.ci_private_apple.AgentStateCiClient.from_environment", return_value=lifecycle),
+                mock.patch("ci_workflows.ci_private_apple._claim_request", return_value=request),
+                mock.patch("ci_workflows.ci_private_apple._start_lifecycle"),
+                mock.patch("ci_workflows.ci_private_apple._source_token_client", return_value=token_client),
+                mock.patch("ci_workflows.ci_private_apple._resolve_source_sha", return_value=SOURCE_SHA),
+                mock.patch("ci_workflows.ci_private_apple._checkout_source", side_effect=checkout),
+                mock.patch("ci_workflows.ci_private_apple.resolve_profile", return_value=ReleaseProfileStub()),
+                mock.patch("ci_workflows.ci_private_apple.materialize_private_release_asset", side_effect=materialize),
+                mock.patch("ci_workflows.ci_private_apple._execute_validation", side_effect=validate),
+                mock.patch("ci_workflows.ci_private_apple.cleanup_private_release_asset", side_effect=cleanup),
+                mock.patch("ci_workflows.ci_private_apple._r2_upload", side_effect=upload),
+            ):
+                self.assertTrue(execute_private_apple(env))
+
+            self.assertEqual(events, ["materialize", "validate", "release-cleanup", "upload", "finish"])
+            self.assertEqual(
+                token_client.repositories,
+                ["OtherOrg/private-app", "StreamScapeTV/example-media"],
+            )
 
     def test_r2_failure_cannot_terminalize_private_ci_without_pointer(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

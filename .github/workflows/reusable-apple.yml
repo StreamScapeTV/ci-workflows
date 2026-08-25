@@ -95,7 +95,7 @@ on:
         description: Optional fixed GitHub App private key used only for transient contents-read repository tokens
         required: false
       private_dependency_token:
-        description: Optional transient contents-read token used only by legacy caller-owned private dependency checkout
+        description: Optional transient contents-read token used by caller-owned private source or release-asset dependencies
         required: false
     outputs:
       result:
@@ -105,7 +105,7 @@ on:
         description: Bounded machine-readable Apple stage summary
         value: ${{ jobs.apple.outputs.test_summary }}
       cleanup_result:
-        description: Success only after Apple state and workspace cleanup are residue-free
+        description: Success only after Apple state, optional release asset, and workspace cleanup are residue-free
         value: ${{ jobs.apple.outputs.cleanup_result }}
       artifact_exception_used:
         description: Whether a registered legacy redacted artifact exception was used
@@ -170,7 +170,7 @@ jobs:
     outputs:
       result: ${{ steps.terminal.outputs.result }}
       test_summary: ${{ steps.execute.outputs.test_summary }}
-      cleanup_result: ${{ steps.apple_cleanup.outcome == 'success' && steps.residue.outcome == 'success' && steps.workspace_cleanup.outcome == 'success' && steps.source_cleanup.outcome == 'success' && 'success' || 'failure' }}
+      cleanup_result: ${{ steps.apple_cleanup.outcome == 'success' && steps.residue.outcome == 'success' && (steps.release_plan.outputs.used != 'true' || (steps.release_cleanup.outcome == 'success' && steps.release_residue.outcome == 'success')) && steps.workspace_cleanup.outcome == 'success' && steps.source_cleanup.outcome == 'success' && 'success' || 'failure' }}
       artifact_exception_used: ${{ steps.execute.outputs.artifact_exception_used }}
     steps:
       - name: Clear fixed admitted source root without following links
@@ -223,6 +223,16 @@ jobs:
           fetch_depth: "1"
           token: ${{ steps.source_token.outputs.token }}
 
+      - id: release_plan
+        name: Resolve one product-owned private release asset
+        if: inputs.validation_scope == 'protected-full'
+        uses: StreamScapeTV/ci-workflows/actions/materialize-private-release-asset@3fa645e1aa7ab8ae8c681afeb7c73627617b09c8 # issue #495 corrected release-asset checkpoint
+        with:
+          phase: "plan"
+          config_workflow_key: validation.apple
+          private_dependency_repository: ${{ inputs.private_dependency_repository }}
+          source_root: source
+
       - id: workspace
         name: Prepare one isolated marker-bound Apple workspace
         uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
@@ -253,6 +263,34 @@ jobs:
           expected_subpath: ${{ needs.plan.outputs.private_dependency_subdirectory }}
           fetch_depth: "1"
           token: ${{ steps.dependency_token.outputs.token || secrets.private_dependency_token }}
+
+      - id: release_token
+        name: Mint exact release-asset token only for Central-dispatched source
+        if: steps.release_plan.outputs.used == 'true' && inputs.source_repository != '' && inputs.source_repository != github.repository
+        uses: StreamScapeTV/ci-workflows/actions/github-app-repository-token@56f4859ae09944df6eaaafa7c808e5a1081e61af # issue #495 bounded repository token primitive
+        env:
+          CIW_GITHUB_APP_ID: ${{ secrets.repository_app_id }}
+          CIW_GITHUB_APP_PRIVATE_KEY: ${{ secrets.repository_app_private_key }}
+        with:
+          repository: ${{ steps.release_plan.outputs.repository }}
+
+      - id: release_asset
+        name: Materialize exact verified private release asset
+        if: steps.release_plan.outputs.used == 'true'
+        uses: StreamScapeTV/ci-workflows/actions/materialize-private-release-asset@3fa645e1aa7ab8ae8c681afeb7c73627617b09c8 # issue #495 corrected release-asset checkpoint
+        env:
+          PRIVATE_RELEASE_ASSET_TOKEN: ${{ steps.release_token.outputs.token || secrets.private_dependency_token }}
+        with:
+          phase: "execute"
+          repository: ${{ steps.release_plan.outputs.repository }}
+          tag: ${{ steps.release_plan.outputs.tag }}
+          commit_sha: ${{ steps.release_plan.outputs.commit_sha }}
+          asset_name: ${{ steps.release_plan.outputs.asset_name }}
+          sha256: ${{ steps.release_plan.outputs.sha256 }}
+          archive_subpath: ${{ steps.release_plan.outputs.archive_subpath }}
+          destination: ${{ steps.release_plan.outputs.destination }}
+          dependency_id: ${{ steps.release_plan.outputs.dependency_id }}
+          source_root: source
 
       - id: execute
         name: Execute one sequential Apple validation plan
@@ -321,6 +359,38 @@ jobs:
           private_dependency_sha: ${{ inputs.private_dependency_sha }}
           private_dependency_subdirectory: ${{ inputs.private_dependency_subdirectory }}
           private_dependency_id: ${{ inputs.private_dependency_id }}
+
+      - id: release_cleanup
+        name: Remove materialized private release asset once
+        if: always() && steps.release_plan.outputs.used == 'true' && steps.release_asset.outcome == 'success'
+        uses: StreamScapeTV/ci-workflows/actions/materialize-private-release-asset@3fa645e1aa7ab8ae8c681afeb7c73627617b09c8 # issue #495 corrected release-asset checkpoint
+        with:
+          phase: "cleanup"
+          repository: ${{ steps.release_plan.outputs.repository }}
+          tag: ${{ steps.release_plan.outputs.tag }}
+          commit_sha: ${{ steps.release_plan.outputs.commit_sha }}
+          asset_name: ${{ steps.release_plan.outputs.asset_name }}
+          sha256: ${{ steps.release_plan.outputs.sha256 }}
+          archive_subpath: ${{ steps.release_plan.outputs.archive_subpath }}
+          destination: ${{ steps.release_plan.outputs.destination }}
+          dependency_id: ${{ steps.release_plan.outputs.dependency_id }}
+          source_root: source
+
+      - id: release_residue
+        name: Verify zero private release-asset residue
+        if: always() && steps.release_plan.outputs.used == 'true' && steps.workspace.outcome == 'success'
+        uses: StreamScapeTV/ci-workflows/actions/materialize-private-release-asset@3fa645e1aa7ab8ae8c681afeb7c73627617b09c8 # issue #495 corrected release-asset checkpoint
+        with:
+          phase: "residue"
+          repository: ${{ steps.release_plan.outputs.repository }}
+          tag: ${{ steps.release_plan.outputs.tag }}
+          commit_sha: ${{ steps.release_plan.outputs.commit_sha }}
+          asset_name: ${{ steps.release_plan.outputs.asset_name }}
+          sha256: ${{ steps.release_plan.outputs.sha256 }}
+          archive_subpath: ${{ steps.release_plan.outputs.archive_subpath }}
+          destination: ${{ steps.release_plan.outputs.destination }}
+          dependency_id: ${{ steps.release_plan.outputs.dependency_id }}
+          source_root: source
 
       - id: residue
         name: Verify zero Apple-specific residue once
@@ -405,6 +475,10 @@ jobs:
           WORKSPACE_OUTCOME: ${{ steps.workspace.outcome }}
           DEPENDENCY_REQUIRED: ${{ needs.plan.outputs.private_dependency_used }}
           DEPENDENCY_OUTCOME: ${{ steps.dependency.outcome }}
+          RELEASE_REQUIRED: ${{ steps.release_plan.outputs.used }}
+          RELEASE_OUTCOME: ${{ steps.release_asset.outcome }}
+          RELEASE_CLEANUP_OUTCOME: ${{ steps.release_cleanup.outcome }}
+          RELEASE_RESIDUE_OUTCOME: ${{ steps.release_residue.outcome }}
           EXECUTE_OUTCOME: ${{ steps.execute.outcome }}
           APPLE_CLEANUP_OUTCOME: ${{ steps.apple_cleanup.outcome }}
           RESIDUE_OUTCOME: ${{ steps.residue.outcome }}
@@ -417,10 +491,19 @@ jobs:
           if [[ "${DEPENDENCY_REQUIRED}" == "true" ]]; then
             test "${DEPENDENCY_OUTCOME}" = "success" || dependency_ok=false
           fi
+          release_ok=true
+          if [[ "${RELEASE_REQUIRED}" == "true" ]]; then
+            if [[ "${RELEASE_OUTCOME}" != "success" ||
+                  "${RELEASE_CLEANUP_OUTCOME}" != "success" ||
+                  "${RELEASE_RESIDUE_OUTCOME}" != "success" ]]; then
+              release_ok=false
+            fi
+          fi
           if [[ "${PLAN_OUTCOME}" == "success" &&
                 "${CHECKOUT_OUTCOME}" == "success" &&
                 "${WORKSPACE_OUTCOME}" == "success" &&
                 "${dependency_ok}" == "true" &&
+                "${release_ok}" == "true" &&
                 "${EXECUTE_OUTCOME}" == "success" &&
                 "${APPLE_CLEANUP_OUTCOME}" == "success" &&
                 "${RESIDUE_OUTCOME}" == "success" &&

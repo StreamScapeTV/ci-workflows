@@ -1,0 +1,99 @@
+name: Materialize verified private release asset
+description: Validate, materialize, clean, and prove residue-free one immutable private GitHub release asset
+
+inputs:
+  phase:
+    description: plan, execute, cleanup, or residue
+    required: true
+  config_workflow_key:
+    description: Optional workflow key used to resolve one identical release-asset declaration from checked-out central-ci.json
+    required: false
+    default: ""
+  repository:
+    description: Exact approved private release repository in owner/name form
+    required: false
+    default: ""
+  tag:
+    description: Exact immutable human release tag
+    required: false
+    default: ""
+  commit_sha:
+    description: Exact lowercase commit SHA behind the release tag
+    required: false
+    default: ""
+  asset_name:
+    description: Exact ZIP release asset name
+    required: false
+    default: ""
+  sha256:
+    description: Exact lowercase SHA-256 of the release asset bytes
+    required: false
+    default: ""
+  archive_subpath:
+    description: Exact normalized package directory inside the verified archive
+    required: false
+    default: ""
+  destination:
+    description: Exact ignored source-relative materialization destination
+    required: false
+    default: ""
+  dependency_id:
+    description: Bounded stable release-asset dependency identity
+    required: false
+    default: ""
+  private_dependency_repository:
+    description: Existing exact-source dependency repository used only for mutual-exclusion validation
+    required: false
+    default: ""
+  source_root:
+    description: Exact admitted source checkout root used by config resolution, execute, cleanup, and residue
+    required: false
+    default: source
+
+outputs:
+  used:
+    value: ${{ steps.release.outputs.used }}
+  repository:
+    value: ${{ steps.release.outputs.repository }}
+  tag:
+    value: ${{ steps.release.outputs.tag }}
+  commit_sha:
+    value: ${{ steps.release.outputs.commit_sha }}
+  asset_name:
+    value: ${{ steps.release.outputs.asset_name }}
+  sha256:
+    value: ${{ steps.release.outputs.sha256 }}
+  archive_subpath:
+    value: ${{ steps.release.outputs.archive_subpath }}
+  destination:
+    value: ${{ steps.release.outputs.destination }}
+  dependency_id:
+    value: ${{ steps.release.outputs.id }}
+  verified:
+    value: ${{ steps.release.outputs.verified }}
+  release_commit:
+    value: ${{ steps.release.outputs.release_commit }}
+
+runs:
+  using: composite
+  steps:
+    - id: release
+      name: Run bounded private release asset phase
+      shell: bash
+      env:
+        PYTHONDONTWRITEBYTECODE: "1"
+        INPUT_CONFIG_WORKFLOW_KEY: ${{ inputs.config_workflow_key }}
+        INPUT_RELEASE_ASSET_REPOSITORY: ${{ inputs.repository }}
+        INPUT_RELEASE_ASSET_TAG: ${{ inputs.tag }}
+        INPUT_RELEASE_ASSET_COMMIT_SHA: ${{ inputs.commit_sha }}
+        INPUT_RELEASE_ASSET_NAME: ${{ inputs.asset_name }}
+        INPUT_RELEASE_ASSET_SHA256: ${{ inputs.sha256 }}
+        INPUT_RELEASE_ASSET_ARCHIVE_SUBPATH: ${{ inputs.archive_subpath }}
+        INPUT_RELEASE_ASSET_DESTINATION: ${{ inputs.destination }}
+        INPUT_RELEASE_ASSET_ID: ${{ inputs.dependency_id }}
+        INPUT_PRIVATE_DEPENDENCY_REPOSITORY: ${{ inputs.private_dependency_repository }}
+        INPUT_SOURCE_ROOT: ${{ inputs.source_root }}
+      run: |
+        set -Eeuo pipefail
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" \
+          release-asset "${{ inputs.phase }}"

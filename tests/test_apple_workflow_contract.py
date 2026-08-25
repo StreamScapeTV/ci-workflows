@@ -217,7 +217,7 @@ class AppleWorkflowContractTests(unittest.TestCase):
             self.workflow.count(
                 f"uses: StreamScapeTV/ci-workflows/actions/github-app-repository-token@{REPOSITORY_TOKEN_SHA}"
             ),
-            2,
+            3,
         )
         for action in (
             "exact-checkout",
