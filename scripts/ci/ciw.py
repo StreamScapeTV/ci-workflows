@@ -11,6 +11,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from ci_workflows.central_profile import main as central_profile_main  # noqa: E402
 from ci_workflows.ci_lifecycle import main as ci_lifecycle_main  # noqa: E402
 from ci_workflows.ciw import main as registry_main  # noqa: E402
 from ci_workflows.ciw_gradle_seed import main as gradle_seed_main  # noqa: E402
@@ -23,6 +24,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments[:1] == ["lifecycle"]:
         return ci_lifecycle_main(arguments[1:])
+    if arguments[:1] == ["central-profile"]:
+        return central_profile_main(arguments[1:])
     if arguments[:1] == ["github-app"]:
         return github_app_token_main(arguments[1:])
     if arguments[:2] == ["gradle-seed", "upload"]:
