@@ -206,7 +206,7 @@ jobs:
       - id: source_token
         name: Mint exact source repository token only for Central-dispatched source
         if: inputs.source_repository != '' && inputs.source_repository != github.repository
-        uses: StreamScapeTV/ci-workflows/actions/github-app-repository-token@fbe709a7c57f399b88176d3cce7548b04e9ab4b5 # issue #495 stateless installation-token checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/github-app-repository-token@56f4859ae09944df6eaaafa7c808e5a1081e61af # issue #495 bounded repository token primitive
         env:
           CIW_GITHUB_APP_ID: ${{ secrets.repository_app_id }}
           CIW_GITHUB_APP_PRIVATE_KEY: ${{ secrets.repository_app_private_key }}
@@ -245,7 +245,7 @@ jobs:
       - id: dependency_token
         name: Mint exact dependency token only for Central-dispatched source
         if: needs.plan.outputs.private_dependency_used == 'true' && inputs.source_repository != '' && inputs.source_repository != github.repository
-        uses: StreamScapeTV/ci-workflows/actions/github-app-repository-token@fbe709a7c57f399b88176d3cce7548b04e9ab4b5 # issue #495 stateless installation-token checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/github-app-repository-token@56f4859ae09944df6eaaafa7c808e5a1081e61af # issue #495 bounded repository token primitive
         env:
           CIW_GITHUB_APP_ID: ${{ secrets.repository_app_id }}
           CIW_GITHUB_APP_PRIVATE_KEY: ${{ secrets.repository_app_private_key }}
@@ -267,7 +267,7 @@ jobs:
       - id: release_token
         name: Mint exact release-asset token only for Central-dispatched source
         if: steps.release_plan.outputs.used == 'true' && inputs.source_repository != '' && inputs.source_repository != github.repository
-        uses: StreamScapeTV/ci-workflows/actions/github-app-repository-token@fbe709a7c57f399b88176d3cce7548b04e9ab4b5 # issue #495 stateless installation-token checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/github-app-repository-token@56f4859ae09944df6eaaafa7c808e5a1081e61af # issue #495 bounded repository token primitive
         env:
           CIW_GITHUB_APP_ID: ${{ secrets.repository_app_id }}
           CIW_GITHUB_APP_PRIVATE_KEY: ${{ secrets.repository_app_private_key }}
