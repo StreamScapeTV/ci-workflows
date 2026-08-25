@@ -450,7 +450,7 @@ class PublicApiContractTests(unittest.TestCase):
 
     def test_breaking_acknowledgements_reference_only_supported_api_changes(self) -> None:
         acknowledgements = self.data.types["breaking_change_acknowledgements"]
-        self.assertEqual(8, len(acknowledgements))
+        self.assertEqual(9, len(acknowledgements))
         self.assertTrue(
             {item["api_name"] for item in acknowledgements} <= SUPPORTED_APIS
         )
