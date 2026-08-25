@@ -100,24 +100,22 @@ def self_check() -> dict[str, object]:
         }
     )
     inputs = request.workflow_inputs()
-    if set(inputs) != {
-        "active_key",
-        "ci_run_id",
-        "project_key",
-        "repository",
-        "ref",
-        "is_tag",
-        "workflow_key",
-        "profile",
-        "inputs_json",
-    }:
+    if set(inputs) != {"active_key", "ci_run_id"}:
         raise BrokerError("relay_self_check_failed", 500)
-    if inputs["ref"] != "develop" or inputs["is_tag"] != "false":
+    if inputs["ci_run_id"] != "00000000-0000-4000-8000-000000000019":
         raise BrokerError("relay_self_check_failed", 500)
     if len(inputs["active_key"]) != 64:
         raise BrokerError("relay_self_check_failed", 500)
-    if any("sha" in key or "dispatch_token" in key for key in inputs):
-        raise BrokerError("relay_self_check_failed", 500)
+    rendered = json.dumps(inputs, sort_keys=True, separators=(",", ":"))
+    for private in (
+        "ExampleOrg/private-app",
+        "develop",
+        "synthetic-project",
+        "validation.apple",
+        "host",
+    ):
+        if private in rendered:
+            raise BrokerError("relay_self_check_failed", 500)
     return {
         "ok": True,
         "mode": "thin-relay",
