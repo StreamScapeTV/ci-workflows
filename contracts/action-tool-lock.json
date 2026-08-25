@@ -220,10 +220,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-gitops",
-      "sha": "dfbd4c4396edffc5ac7a0a5804b1490d8ec9e239",
-      "release": "issue #557 Helm-template classifier checkpoint",
+      "sha": "1e703ba47bc0e8f01b72bc805c2375aa38df609e",
+      "release": "issue #571 active composition classifier checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/dfbd4c4396edffc5ac7a0a5804b1490d8ec9e239/actions/validate-gitops"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/1e703ba47bc0e8f01b72bc805c2375aa38df609e/actions/validate-gitops"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-helm",

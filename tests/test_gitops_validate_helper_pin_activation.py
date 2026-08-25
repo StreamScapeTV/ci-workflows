@@ -11,11 +11,14 @@ from ci_workflows.validation_model import ActionsLoader
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "reusable-gitops-validation.yml"
 ACTION_LOCK = ROOT / "contracts" / "action-tool-lock.json"
-IMPLEMENTATION = ROOT / "src" / "ci_workflows" / "gitops_render.py"
+IMPLEMENTATION = ROOT / "src" / "ci_workflows" / "gitops_composition.py"
 HELPER = "StreamScapeTV/ci-workflows/actions/validate-gitops"
-REVIEWED_SHA = "dfbd4c4396edffc5ac7a0a5804b1490d8ec9e239"
-STALE_SHA = "b99c4296fe7cad06ef6c5956b1b0eb86a49f0145"
-RELEASE = "issue #557 Helm-template classifier checkpoint"
+REVIEWED_SHA = "1e703ba47bc0e8f01b72bc805c2375aa38df609e"
+STALE_SHAS = (
+    "dfbd4c4396edffc5ac7a0a5804b1490d8ec9e239",
+    "b99c4296fe7cad06ef6c5956b1b0eb86a49f0145",
+)
+RELEASE = "issue #571 active composition classifier checkpoint"
 
 
 class GitOpsValidateHelperPinActivationTests(unittest.TestCase):
@@ -30,7 +33,8 @@ class GitOpsValidateHelperPinActivationTests(unittest.TestCase):
         ]
         self.assertEqual(5, len(helper_refs))
         self.assertEqual({f"{HELPER}@{REVIEWED_SHA}"}, set(helper_refs))
-        self.assertNotIn(f"{HELPER}@{STALE_SHA}", source)
+        for stale_sha in STALE_SHAS:
+            self.assertNotIn(f"{HELPER}@{stale_sha}", source)
 
     def test_action_lock_and_current_source_match_the_reviewed_checkpoint(self) -> None:
         lock = json.loads(ACTION_LOCK.read_text(encoding="utf-8"))
@@ -44,7 +48,7 @@ class GitOpsValidateHelperPinActivationTests(unittest.TestCase):
         )
 
         implementation = IMPLEMENTATION.read_text(encoding="utf-8")
-        self.assertIn("def _is_helm_template_source", implementation)
+        self.assertIn("from .gitops_render import _is_helm_template_source", implementation)
         self.assertIn("if not _is_helm_template_source(path, root)", implementation)
 
 
