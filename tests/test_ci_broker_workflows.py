@@ -124,8 +124,12 @@ class BrokerWorkflowTests(unittest.TestCase):
     def test_private_action_accepts_only_phase_and_opaque_uuid(self) -> None:
         self.assertEqual(set(self.private_action["inputs"]), {"phase", "ci_run_id"})
         step = self.private_action["runs"]["steps"][0]
-        self.assertEqual(set(step["env"]), {"PYTHONDONTWRITEBYTECODE", "INPUT_CI_RUN_ID"})
+        self.assertEqual(
+            set(step["env"]),
+            {"PYTHONDONTWRITEBYTECODE", "INPUT_CI_RUN_ID", "CIW_PRIVATE_LOG_PATH"},
+        )
         text = PRIVATE_ACTION.read_text(encoding="utf-8")
+        self.assertIn("runner.temp", text)
         for private_field in ("repository:", "ref:", "project_key:", "workflow_key:", "profile:"):
             self.assertNotIn(private_field, text)
 
