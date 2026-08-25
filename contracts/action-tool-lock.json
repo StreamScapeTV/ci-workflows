@@ -205,6 +205,13 @@
       "source": "https://github.com/StreamScapeTV/ci-workflows/tree/56f4859ae09944df6eaaafa7c808e5a1081e61af/actions/github-app-repository-token"
     },
     {
+      "uses": "StreamScapeTV/ci-workflows/actions/materialize-private-release-asset",
+      "sha": "8d393b07bf23cebe3b01572a42c93dc9e203c125",
+      "release": "issue #495 release-asset checkpoint",
+      "runtime": "composite",
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/8d393b07bf23cebe3b01572a42c93dc9e203c125/actions/materialize-private-release-asset"
+    },
+    {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-oci",
       "sha": "3b401078d1167d7048281e3c3269556ce586dada",
       "release": "issue #150 immutable OCI input checkpoint",
