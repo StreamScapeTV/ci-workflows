@@ -18,13 +18,20 @@ MAX_COMPRESSED_BYTES = 20 * 1024 * 1024
 OBJECT_PREFIX = "ci-diagnostics"
 STORAGE_CLASS = "STANDARD"
 _TIMEOUT_SECONDS = 30
+_CAPABILITY_HEX_CHARS = 32
+_CAPABILITY_DOMAIN = b"StreamScapeTV/ci-diagnostics/object-capability/v1"
 
 _ACCOUNT_ID = re.compile(r"[0-9a-f]{32}")
 _BUCKET = re.compile(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]")
 _REQUEST_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 _DIGEST = re.compile(r"[0-9a-f]{64}")
-_OBJECT_KEY = re.compile(
-    r"ci-diagnostics/[A-Za-z0-9][A-Za-z0-9._-]{0,127}/[1-9][0-9]{0,18}-[1-9][0-9]{0,3}[.]log[.]gz"
+_LEGACY_OBJECT_KEY = re.compile(
+    r"ci-diagnostics/[A-Za-z0-9][A-Za-z0-9._-]{0,127}/"
+    r"[1-9][0-9]{0,18}-[1-9][0-9]{0,3}[.]log[.]gz"
+)
+_CAPABILITY_OBJECT_KEY = re.compile(
+    r"ci-diagnostics/[A-Za-z0-9][A-Za-z0-9._-]{0,127}/[0-9a-f]{32}/"
+    r"[1-9][0-9]{0,18}-[1-9][0-9]{0,3}[.]log[.]gz"
 )
 
 
@@ -155,7 +162,7 @@ def _credentials(access_key_id: str, secret_access_key: str) -> None:
     )
 
 
-def _validated_object_key(request_id: str, run_id: int, attempt: int) -> str:
+def _validated_identity(request_id: str, run_id: int, attempt: int) -> tuple[str, int, int]:
     _require(
         isinstance(request_id, str) and _REQUEST_ID.fullmatch(request_id) is not None,
         "invalid_request_id",
@@ -165,12 +172,53 @@ def _validated_object_key(request_id: str, run_id: int, attempt: int) -> str:
         isinstance(attempt, int) and 1 <= attempt <= 1000,
         "invalid_run_attempt",
     )
-    return f"{OBJECT_PREFIX}/{request_id}/{run_id}-{attempt}.log.gz"
+    return request_id, run_id, attempt
+
+
+def _object_capability(
+    *,
+    request_id: str,
+    run_id: int,
+    attempt: int,
+    digest: str,
+    secret_access_key: str,
+) -> str:
+    _validated_identity(request_id, run_id, attempt)
+    _require(_DIGEST.fullmatch(digest) is not None, "invalid_expected_digest")
+    _credentials("capability-derivation", secret_access_key)
+    domain_key = hmac.new(
+        secret_access_key.encode("utf-8"),
+        _CAPABILITY_DOMAIN,
+        hashlib.sha256,
+    ).digest()
+    identity = f"{request_id}\n{run_id}\n{attempt}\n{digest}".encode("utf-8")
+    return hmac.new(domain_key, identity, hashlib.sha256).hexdigest()[:_CAPABILITY_HEX_CHARS]
+
+
+def _capability_object_key(
+    *,
+    request_id: str,
+    run_id: int,
+    attempt: int,
+    digest: str,
+    secret_access_key: str,
+) -> str:
+    request_id, run_id, attempt = _validated_identity(request_id, run_id, attempt)
+    capability = _object_capability(
+        request_id=request_id,
+        run_id=run_id,
+        attempt=attempt,
+        digest=digest,
+        secret_access_key=secret_access_key,
+    )
+    return f"{OBJECT_PREFIX}/{request_id}/{capability}/{run_id}-{attempt}.log.gz"
 
 
 def _validated_existing_object_key(object_key: str) -> str:
+    _require(isinstance(object_key, str), "invalid_object_key")
     _require(
-        isinstance(object_key, str) and _OBJECT_KEY.fullmatch(object_key) is not None,
+        _CAPABILITY_OBJECT_KEY.fullmatch(object_key) is not None
+        or _LEGACY_OBJECT_KEY.fullmatch(object_key) is not None,
         "invalid_object_key",
     )
     tail = object_key.rsplit("/", 1)[1].removesuffix(".log.gz")
@@ -178,6 +226,10 @@ def _validated_existing_object_key(object_key: str) -> str:
     _require(int(run_text) <= 9223372036854775807, "invalid_object_key")
     _require(1 <= int(attempt_text) <= 1000, "invalid_object_key")
     return object_key
+
+
+def is_capability_object_key(object_key: object) -> bool:
+    return isinstance(object_key, str) and _CAPABILITY_OBJECT_KEY.fullmatch(object_key) is not None
 
 
 def _read_diagnostic(path: Path) -> bytes:
@@ -272,7 +324,7 @@ def upload_private_diagnostic(
     """Compress, PUT, GET, and digest-verify exactly one private diagnostic object."""
 
     _credentials(access_key_id, secret_access_key)
-    object_key = _validated_object_key(request_id, run_id, attempt)
+    request_id, run_id, attempt = _validated_identity(request_id, run_id, attempt)
     raw = _read_diagnostic(diagnostic_path)
     compressed = gzip.compress(raw, compresslevel=9, mtime=0)
     _require(
@@ -280,6 +332,13 @@ def upload_private_diagnostic(
         "diagnostic_compressed_too_large",
     )
     digest = _sha256(compressed)
+    object_key = _capability_object_key(
+        request_id=request_id,
+        run_id=run_id,
+        attempt=attempt,
+        digest=digest,
+        secret_access_key=secret_access_key,
+    )
 
     url = _r2_url(account_id, bucket, object_key)
     when = clock()
@@ -337,5 +396,6 @@ __all__ = (
     "R2DiagnosticResult",
     "STORAGE_CLASS",
     "download_private_diagnostic",
+    "is_capability_object_key",
     "upload_private_diagnostic",
 )
