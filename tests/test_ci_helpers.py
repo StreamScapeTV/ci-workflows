@@ -12,7 +12,7 @@ class CiHelperTests(unittest.TestCase):
             set(inventory["workflows"]),
             {"apple", "android", "python", "node", "flutter", "gitops", "central_dispatch", "self_check", "broker_release", "runner_images"},
         )
-        self.assertEqual(set(inventory["actions"]), {"agent_state", "r2_upload"})
+        self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive"})
         self.assertFalse((ROOT / "PYTHON_INVENTORY.yml").exists())
         self.assertFalse((ROOT / "contracts").exists())
 
@@ -25,7 +25,7 @@ class CiHelperTests(unittest.TestCase):
 
     def test_only_two_custom_actions_exist(self) -> None:
         actions = {p.name for p in (ROOT / "actions").iterdir() if p.is_dir()}
-        self.assertEqual(actions, {"agent-state", "r2-upload"})
+        self.assertEqual(actions, {"agent-state", "google-drive"})
 
     def test_agent_state_action_has_only_claim_start_finish_lifecycle(self) -> None:
         text = (ROOT / "actions/agent-state/action.yml").read_text()
@@ -34,12 +34,32 @@ class CiHelperTests(unittest.TestCase):
         self.assertNotIn("observed_source_sha", text)
         self.assertNotIn("diagnostic_", text)
 
-    def test_r2_action_is_one_put_without_readback(self) -> None:
-        text = (ROOT / "actions/r2-upload/action.yml").read_text()
-        self.assertIn("ci-runs/${CI_RUN_ID}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.log.gz", text)
-        self.assertEqual(text.count("--upload-file"), 1)
-        self.assertNotIn("sha256", text.lower())
-        self.assertNotIn("read-back", text.lower())
+    def test_google_drive_action_is_parent_scoped_resumable_and_in_place(self) -> None:
+        text = (ROOT / "actions/google-drive/action.yml").read_text()
+        self.assertIn("https://oauth2.googleapis.com/token", text)
+        self.assertIn("GOOGLE_DRIVE_ROOT_FOLDER_ID", text)
+        self.assertIn("in parents", text)
+        self.assertIn("uploadType=resumable", text)
+        self.assertIn("--request PATCH", text)
+        self.assertIn("--request POST", text)
+        self.assertNotIn("cloudflarestorage.com", text)
+        self.assertNotIn("R2_", text)
+
+    def test_agent_state_workflows_use_private_drive_logs_without_public_command_tee(self) -> None:
+        for name in ("apple", "android", "python", "node", "flutter", "gitops"):
+            text = (ROOT / ".github/workflows" / f"{name}.yml").read_text()
+            self.assertIn("GOOGLE_DRIVE_CI_LOGS_FOLDER_ID", text)
+            self.assertIn("actions/google-drive@", text)
+            self.assertIn("${{ github.run_id }}-${{ github.run_attempt }}.log.gz", text)
+            self.assertIn("inspect the private Google Drive CI log", text)
+            self.assertNotIn("R2_", text)
+            self.assertNotIn("r2-upload", text)
+            self.assertNotIn("tee -a", text)
+
+    def test_central_dispatch_passes_the_human_ref_directly(self) -> None:
+        text = (ROOT / ".github/workflows/central-ci-dispatch.yml").read_text()
+        self.assertNotIn("refs/tags/{0}", text)
+        self.assertGreaterEqual(text.count("ref: ${{ needs.request.outputs.ref }}"), 6)
 
 
 if __name__ == "__main__":
