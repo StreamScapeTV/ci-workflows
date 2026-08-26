@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
+import sys
 import unittest
 
 import yaml
@@ -35,6 +37,16 @@ class BrokerWorkflowTests(unittest.TestCase):
         cls.private_executor = PRIVATE_EXECUTOR.read_text(encoding="utf-8")
         cls.ciw_script = CIW_SCRIPT.read_text(encoding="utf-8")
 
+        spec = importlib.util.spec_from_file_location(
+            "ci_broker_app_test", BROKER / "app.py"
+        )
+        if spec is None or spec.loader is None:
+            raise RuntimeError("unable to load broker module")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        cls.broker_module = module
+
     def test_public_dispatch_surface_remains_exactly_opaque(self) -> None:
         events = self.document.data["on"]
         self.assertEqual(set(events), {"workflow_dispatch"})
@@ -47,6 +59,97 @@ class BrokerWorkflowTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, inputs)
         self.assertEqual(self.document.data["permissions"], {"contents": "read"})
+        self.assertEqual(
+            self.document.data["concurrency"],
+            {
+                "group": "central-ci-${{ inputs.active_key }}",
+                "cancel-in-progress": True,
+            },
+        )
+        self.assertIn(
+            'CENTRAL_WORKFLOW = ".github/workflows/central-ci-dispatch.yml"',
+            self.broker_app,
+        )
+        self.assertIn('CENTRAL_REF = "main"', self.broker_app)
+        self.assertIn(
+            '_require(set(inputs) == {"active_key", "ci_run_id"}', self.broker_app
+        )
+
+    def test_active_key_is_source_repository_and_logical_ref_only(self) -> None:
+        active_key = self.broker_module.active_identity_key
+        first = active_key(
+            repository="ExampleOrg/private-app",
+            ref="develop",
+            is_tag=False,
+            workflow_key="validation.apple",
+            profile="host",
+        )
+        different_intent = active_key(
+            repository="ExampleOrg/private-app",
+            ref="develop",
+            is_tag=False,
+            workflow_key="validation.python",
+            profile="alternate",
+        )
+        self.assertEqual(first, different_intent)
+        self.assertRegex(first, r"^[0-9a-f]{64}$")
+
+        self.assertNotEqual(
+            first,
+            active_key(
+                repository="ExampleOrg/other-app",
+                ref="develop",
+                is_tag=False,
+                workflow_key="validation.apple",
+                profile="host",
+            ),
+        )
+        self.assertNotEqual(
+            first,
+            active_key(
+                repository="ExampleOrg/private-app",
+                ref="feature/new-run",
+                is_tag=False,
+                workflow_key="validation.apple",
+                profile="host",
+            ),
+        )
+        self.assertNotEqual(
+            first,
+            active_key(
+                repository="ExampleOrg/private-app",
+                ref="develop",
+                is_tag=True,
+                workflow_key="validation.apple",
+                profile="host",
+            ),
+        )
+        self.assertEqual(
+            self.contract["relay"]["active_identity_fields"],
+            ["repository", "ref", "is_tag"],
+        )
+
+    def test_active_key_dispatch_does_not_expose_private_identity(self) -> None:
+        request = self.broker_module.RelayRequest(
+            ci_run_id="00000000-0000-4000-8000-000000000608",
+            project_key="synthetic-project",
+            repository="ExampleOrg/private-app",
+            ref="feature/new-run",
+            is_tag=False,
+            workflow_key="validation.apple",
+            profile="host",
+        )
+        inputs = request.workflow_inputs()
+        self.assertEqual(set(inputs), {"active_key", "ci_run_id"})
+        rendered = json.dumps(inputs, sort_keys=True)
+        for private in (
+            "ExampleOrg/private-app",
+            "feature/new-run",
+            "synthetic-project",
+            "validation.apple",
+            "host",
+        ):
+            self.assertNotIn(private, rendered)
 
     def test_dispatch_uses_private_planner_then_one_fixed_hosted_family(self) -> None:
         jobs = self.document.data["jobs"]
@@ -88,6 +191,10 @@ class BrokerWorkflowTests(unittest.TestCase):
         self.assertEqual(
             self.contract["relay"]["supported_semantic_intents"],
             [["validation.apple", "host"], ["validation.android", "host"], ["validation.python", "host"]],
+        )
+        self.assertEqual(
+            self.contract["relay"]["active_identity_fields"],
+            ["repository", "ref", "is_tag"],
         )
         central = self.contract["central_execution"]
         self.assertEqual(central["hosted_runners"], {"linux": "ubuntu-latest", "macos": "macos-latest"})
