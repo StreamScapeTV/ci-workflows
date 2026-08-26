@@ -23,30 +23,10 @@ class BrokerChartSchemaTests(unittest.TestCase):
         self.assertEqual(set(self.schema["required"]), expected)
         self.assertFalse(self.schema["additionalProperties"])
 
-    def test_diagnostics_defaults_match_strict_schema_contract(self) -> None:
-        diagnostics = self.values["diagnostics"]
-        schema = self.schema["properties"]["diagnostics"]
-
-        self.assertTrue(diagnostics["enabled"])
-        self.assertEqual(diagnostics["service"], {"type": "ClusterIP", "port": 8081})
-        self.assertEqual(set(schema["required"]), {"enabled", "service", "resources"})
-        self.assertFalse(schema["additionalProperties"])
-        self.assertEqual(schema["properties"]["enabled"], {"type": "boolean"})
-
-        service = schema["properties"]["service"]
-        self.assertFalse(service["additionalProperties"])
-        self.assertEqual(set(service["required"]), {"type", "port"})
-        self.assertEqual(service["properties"]["type"]["const"], "ClusterIP")
-        self.assertEqual(service["properties"]["port"]["const"], 8081)
-
-        resources = schema["properties"]["resources"]
-        self.assertFalse(resources["additionalProperties"])
-        self.assertEqual(set(resources["required"]), {"requests", "limits"})
-        for bucket in ("requests", "limits"):
-            bounded = resources["properties"][bucket]
-            self.assertFalse(bounded["additionalProperties"])
-            self.assertEqual(set(bounded["required"]), {"cpu", "memory"})
-            self.assertEqual(set(bounded["properties"]), {"cpu", "memory"})
+    def test_withdrawn_diagnostics_surface_cannot_be_configured(self) -> None:
+        self.assertNotIn("diagnostics", self.values)
+        self.assertNotIn("diagnostics", self.schema["properties"])
+        self.assertNotIn("diagnostics", self.schema["required"])
 
 
 if __name__ == "__main__":
