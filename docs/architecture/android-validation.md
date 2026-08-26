@@ -84,22 +84,9 @@ Explicit maintenance reports bounded `gradle_dependency_cache_mode=read-only-see
 
 Failed dependency-warm or Android operations emit sanitized bounded diagnostic tails before preserving stable failure codes. Successful operations retain bounded summaries only.
 
-## Helper checkpoints
+## Shared Central helpers
 
-`reusable-android.yml` composes reviewed Central helpers by immutable source identity:
-
-- `validate-android@91e5ba5af11ec717f829000edad062c664fb86f7` — `issue #534 prefix-isolated protected-full checkpoint`;
-- `warm-gradle-dependencies@13de46c51efcf65df798dfec82a620c484350dfa` — `issue #346 dependency warm checkpoint`;
-- `upload-gradle-seed@fa67b6a1580ff2eb7386a9e58de09896b9990696` — `issue #346 bounded Gradle cache sync diagnostics checkpoint`;
-- `exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`;
-- `prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`;
-- `render-evidence@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`;
-- `cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`;
-- `checkout-private-dependency@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #104 immutable private-action checkpoint`.
-
-`reusable-android-live-service.yml` and `reusable-android-release.yml` remain on their existing #443 action checkpoints because #534 changes only the generic protected-full task-process composition path. Their package-credential boundary is unchanged.
-
-The action lock must record the same helper identities before the candidate is merge-state.
+The Android reusable workflows consume the current Central library through `@main` for repository-qualified first-party helpers. There is no per-action checkpoint registry or action lock, and ordinary helper development does not propagate component SHAs through workflows or documentation. Exact caller source, exact private-dependency source when requested, credential scoping, cleanup/residue checks, and product release identities remain verified independently because those are functional or confidentiality boundaries.
 
 ## Runtime state and cleanup
 
