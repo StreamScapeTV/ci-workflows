@@ -8,6 +8,8 @@ from ci_workflows.validation_model import load_actions_yaml
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/ci-broker-image.yml"
 CONTAINERFILE = ROOT / "broker/Containerfile"
+DEPLOYED_VALUES = ROOT / "tests/fixtures/ci-broker/flux-values.yaml"
+HTTP_INTEGRATION = ROOT / "tests/test_ci_broker_http_integration.py"
 
 
 class BrokerImageTests(unittest.TestCase):
@@ -32,10 +34,7 @@ class BrokerImageTests(unittest.TestCase):
             admit["if"],
             "${{ github.event_name != 'workflow_dispatch' || github.actor == 'mimranfaruqi' }}",
         )
-        self.assertEqual(
-            admit["runs-on"],
-            ["linux", "amd64", "general", "tiny"],
-        )
+        self.assertEqual(admit["runs-on"], ["linux", "amd64", "general", "tiny"])
         self.assertEqual(
             self.document.data["jobs"]["image"]["runs-on"],
             ["linux", "amd64", "buildah", "small"],
@@ -50,14 +49,11 @@ class BrokerImageTests(unittest.TestCase):
         self.assertIn('test "${GITHUB_ACTOR}" = "mimranfaruqi"', self.workflow)
         self.assertNotIn("ubuntu-latest", self.workflow)
 
-    def test_container_uses_one_immutable_base_and_non_root_runtime(self) -> None:
+    def test_container_uses_one_immutable_base_non_root_and_real_http_build_smoke(self) -> None:
         lines = [line.strip() for line in self.containerfile.splitlines() if line.strip()]
         from_lines = [line for line in lines if line.startswith("FROM ")]
         self.assertEqual(len(from_lines), 1)
-        self.assertRegex(
-            from_lines[0],
-            r"^FROM docker[.]io/library/python@sha256:[0-9a-f]{64}$",
-        )
+        self.assertRegex(from_lines[0], r"^FROM docker[.]io/library/python@sha256:[0-9a-f]{64}$")
         self.assertIn("USER 65532:65532", lines)
         self.assertIn("EXPOSE 8080", lines)
         self.assertIn(
@@ -66,12 +62,15 @@ class BrokerImageTests(unittest.TestCase):
         )
         self.assertIn("command -v openssl", self.containerfile)
         self.assertIn("ci_broker.py self-check", self.containerfile)
+        self.assertIn("test_ci_broker_http_integration.py", self.containerfile)
+        self.assertIn("python3 /tmp/ci-broker-http-integration.py", self.containerfile)
+        self.assertTrue(HTTP_INTEGRATION.is_file())
         for forbidden in ("apt-get", "pip install", "curl ", "wget ", "ADD http"):
             self.assertNotIn(forbidden, self.containerfile)
 
-    def test_release_builds_once_smokes_before_private_push_and_readback(self) -> None:
+    def test_release_builds_once_runs_http_relay_smoke_before_private_push_and_readback(self) -> None:
         self.assertEqual(self.workflow.count("buildah bud"), 1)
-        smoke = self.workflow.index("Smoke exact local broker image")
+        smoke = self.workflow.index("Smoke exact local broker image over HTTP")
         publish = self.workflow.index("Publish immutable image version and read it back")
         chart = self.workflow.index("Package publish and read back broker Helm chart")
         self.assertLess(smoke, publish)
@@ -80,6 +79,9 @@ class BrokerImageTests(unittest.TestCase):
             'buildah from --authfile "${BROKER_REGISTRY_AUTH}" --name "${container}" "${local_ref}"',
             self.workflow,
         )
+        self.assertIn("buildah copy", self.workflow)
+        self.assertIn("tests/test_ci_broker_http_integration.py", self.workflow)
+        self.assertIn("python3 /tmp/ci-broker-http-integration.py", self.workflow)
         self.assertIn("git.faruqi.dev", self.workflow)
         self.assertIn("${REGISTRY}/${REGISTRY_NAMESPACE}/${IMAGE_NAME}:${VERSION}", self.workflow)
         self.assertIn("skopeo inspect --authfile", self.workflow)
@@ -89,6 +91,22 @@ class BrokerImageTests(unittest.TestCase):
         self.assertNotIn("ghcr.io", self.workflow)
         self.assertNotIn(":latest", self.workflow)
         self.assertNotIn("upload-artifact", self.workflow)
+
+    def test_release_validates_deployment_values_before_chart_publication(self) -> None:
+        self.assertTrue(DEPLOYED_VALUES.is_file())
+        self.assertIn('deployed_values="tests/fixtures/ci-broker/flux-values.yaml"', self.workflow)
+        self.assertIn(
+            'helm lint --strict "${chart}" --values "${deployed_values}" --set-string image.tag="${VERSION}"',
+            self.workflow,
+        )
+        self.assertIn(
+            'helm template ci-broker "${chart}" --values "${deployed_values}" --set-string image.tag="${VERSION}"',
+            self.workflow,
+        )
+        self.assertIn("ci-broker-diagnostics", self.workflow)
+        lint = self.workflow.index('helm lint --strict "${chart}" --values "${deployed_values}"')
+        publish = self.workflow.index("Publish immutable chart version and read it back")
+        self.assertLess(lint, publish)
 
     def test_release_has_unconditional_registry_image_and_helm_cleanup(self) -> None:
         self.assertIn("if: always()", self.workflow)
