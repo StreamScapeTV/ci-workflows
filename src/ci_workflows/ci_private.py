@@ -116,6 +116,11 @@ def _verify_family(resolution: CentralProfileResolution, environment: Mapping[st
     _require(resolution.executor_family == expected, "private_ci_runner_mismatch")
 
 
+def _product_base_environment(base: Mapping[str, str]) -> dict[str, str]:
+    """Remove opaque transport/action inputs before entering product validators."""
+    return {key: value for key, value in base.items() if not key.startswith("INPUT_")}
+
+
 def _canonical_environment(
     *,
     request: RelayRequest,
@@ -130,7 +135,7 @@ def _canonical_environment(
         source_sha=source_sha,
         resolution=resolution,
         dependency=dependency,
-        base=base,
+        base=_product_base_environment(base),
         workspace_environment=workspace_environment,
     )
     result["INPUT_EXECUTION_BACKEND"] = "github-hosted"
@@ -319,7 +324,7 @@ def _execute_family(
 ) -> tuple[bool, bool]:
     _verify_family(resolution, environment)
     if request.workflow_key == "validation.apple":
-        apple_environment = dict(environment)
+        apple_environment = _product_base_environment(environment)
         for key, value in resolution.canonical_inputs().items():
             apple_environment[f"INPUT_{key.upper()}"] = value
         return _execute_apple_validation(
