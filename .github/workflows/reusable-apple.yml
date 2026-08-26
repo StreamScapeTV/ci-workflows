@@ -131,7 +131,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve one Apple executor plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@33da58aed7f0423d33cea69ebd7eb829b283ec0d # issue #495 external-source identity checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@main
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -155,7 +155,7 @@ jobs:
       - id: backend
         name: Resolve fixed hosted backend only for Central external source
         if: inputs.source_repository != '' && inputs.source_repository != github.repository && inputs.validation_scope != 'simulator-confidence'
-        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@5b3093056bd77d18bf094e1ba8d8d1613ccc472b # issue #577 hosted Android backend checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@main
         with:
           workflow_api: validation.apple
           source_trust: ${{ steps.plan.outputs.source_trust }}
@@ -206,7 +206,7 @@ jobs:
       - id: source_token
         name: Mint exact source repository token only for Central-dispatched source
         if: inputs.source_repository != '' && inputs.source_repository != github.repository
-        uses: StreamScapeTV/ci-workflows/actions/github-app-repository-token@56f4859ae09944df6eaaafa7c808e5a1081e61af # issue #495 bounded repository token primitive
+        uses: StreamScapeTV/ci-workflows/actions/github-app-repository-token@main
         env:
           CIW_GITHUB_APP_ID: ${{ secrets.repository_app_id }}
           CIW_GITHUB_APP_PRIVATE_KEY: ${{ secrets.repository_app_private_key }}
@@ -215,7 +215,7 @@ jobs:
 
       - id: checkout
         name: Check out exact admitted caller source once
-        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@main
         with:
           repository: ${{ inputs.source_repository || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository) }}
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -238,7 +238,7 @@ jobs:
       - id: release_plan
         name: Resolve one product-owned private release asset
         if: inputs.validation_scope == 'protected-full' && (needs.plan.outputs.private_dependency_used != 'true' || steps.release_config.outputs.present == 'true')
-        uses: StreamScapeTV/ci-workflows/actions/materialize-private-release-asset@3fa645e1aa7ab8ae8c681afeb7c73627617b09c8 # issue #495 corrected release-asset checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/materialize-private-release-asset@main
         with:
           phase: "plan"
           config_workflow_key: validation.apple
@@ -247,7 +247,7 @@ jobs:
 
       - id: workspace
         name: Prepare one isolated marker-bound Apple workspace
-        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@main
         with:
           profile: ${{ needs.plan.outputs.workspace_profile }}
           cache_mode: disabled
@@ -257,7 +257,7 @@ jobs:
       - id: dependency_token
         name: Mint exact dependency token only for Central-dispatched source
         if: needs.plan.outputs.private_dependency_used == 'true' && inputs.source_repository != '' && inputs.source_repository != github.repository
-        uses: StreamScapeTV/ci-workflows/actions/github-app-repository-token@56f4859ae09944df6eaaafa7c808e5a1081e61af # issue #495 bounded repository token primitive
+        uses: StreamScapeTV/ci-workflows/actions/github-app-repository-token@main
         env:
           CIW_GITHUB_APP_ID: ${{ secrets.repository_app_id }}
           CIW_GITHUB_APP_PRIVATE_KEY: ${{ secrets.repository_app_private_key }}
@@ -267,7 +267,7 @@ jobs:
       - id: dependency
         name: Check out exact private dependency at most once
         if: needs.plan.outputs.private_dependency_used == 'true'
-        uses: StreamScapeTV/ci-workflows/actions/checkout-private-dependency@70e08d4ddf8930046632a7135950e924b82e22bf # issue #104 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/checkout-private-dependency@main
         with:
           repository: ${{ needs.plan.outputs.private_dependency_repository }}
           admitted_sha: ${{ needs.plan.outputs.private_dependency_sha }}
@@ -279,7 +279,7 @@ jobs:
       - id: release_token
         name: Mint exact release-asset token only for Central-dispatched source
         if: steps.release_plan.outputs.used == 'true' && inputs.source_repository != '' && inputs.source_repository != github.repository
-        uses: StreamScapeTV/ci-workflows/actions/github-app-repository-token@56f4859ae09944df6eaaafa7c808e5a1081e61af # issue #495 bounded repository token primitive
+        uses: StreamScapeTV/ci-workflows/actions/github-app-repository-token@main
         env:
           CIW_GITHUB_APP_ID: ${{ secrets.repository_app_id }}
           CIW_GITHUB_APP_PRIVATE_KEY: ${{ secrets.repository_app_private_key }}
@@ -289,7 +289,7 @@ jobs:
       - id: release_asset
         name: Materialize exact verified private release asset
         if: steps.release_plan.outputs.used == 'true'
-        uses: StreamScapeTV/ci-workflows/actions/materialize-private-release-asset@3fa645e1aa7ab8ae8c681afeb7c73627617b09c8 # issue #495 corrected release-asset checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/materialize-private-release-asset@main
         env:
           PRIVATE_RELEASE_ASSET_TOKEN: ${{ steps.release_token.outputs.token || secrets.private_dependency_token }}
         with:
@@ -306,7 +306,7 @@ jobs:
 
       - id: execute
         name: Execute one sequential Apple validation plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@33da58aed7f0423d33cea69ebd7eb829b283ec0d # issue #495 external-source identity checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@main
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -338,10 +338,10 @@ jobs:
       - id: evidence
         name: Render bounded Apple validation evidence
         if: steps.execute.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/render-evidence@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/render-evidence@main
         with:
           source_sha: ${{ inputs.admitted_sha }}
-          workflow_release: validation-apple-v2
+          workflow_release: main
           runner_profile: ${{ inputs.source_repository != '' && inputs.source_repository != github.repository && 'github-hosted-macos' || (inputs.validation_scope == 'simulator-confidence' && 'github-hosted-macos' || 'apple') }}
           toolchain_json: '{}'
           command_profile: ${{ inputs.validation_scope }}
@@ -350,7 +350,7 @@ jobs:
       - id: apple_cleanup
         name: Remove Apple-specific state once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@33da58aed7f0423d33cea69ebd7eb829b283ec0d # issue #495 external-source identity checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@main
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -375,7 +375,7 @@ jobs:
       - id: release_cleanup
         name: Remove materialized private release asset once
         if: always() && steps.release_plan.outputs.used == 'true' && steps.release_asset.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/materialize-private-release-asset@3fa645e1aa7ab8ae8c681afeb7c73627617b09c8 # issue #495 corrected release-asset checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/materialize-private-release-asset@main
         with:
           phase: "cleanup"
           repository: ${{ steps.release_plan.outputs.repository }}
@@ -391,7 +391,7 @@ jobs:
       - id: release_residue
         name: Verify zero private release-asset residue
         if: always() && steps.release_plan.outputs.used == 'true' && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/materialize-private-release-asset@3fa645e1aa7ab8ae8c681afeb7c73627617b09c8 # issue #495 corrected release-asset checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/materialize-private-release-asset@main
         with:
           phase: "residue"
           repository: ${{ steps.release_plan.outputs.repository }}
@@ -407,7 +407,7 @@ jobs:
       - id: residue
         name: Verify zero Apple-specific residue once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-apple@33da58aed7f0423d33cea69ebd7eb829b283ec0d # issue #495 external-source identity checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-apple@main
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -475,7 +475,7 @@ jobs:
       - id: workspace_cleanup
         name: Remove and verify the one registered Apple workspace
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@main
 
       - id: terminal
         name: Project terminal Apple validation status
