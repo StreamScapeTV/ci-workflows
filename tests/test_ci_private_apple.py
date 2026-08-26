@@ -9,7 +9,7 @@ from unittest import mock
 
 import yaml
 
-from ci_workflows.ci_lifecycle import WorkflowIdentity
+from ci_workflows.ci_lifecycle import RelayRequest, WorkflowIdentity
 from ci_workflows.ci_private_apple import (
     PrivateAppleCiError,
     _execution_environment,
@@ -17,7 +17,6 @@ from ci_workflows.ci_private_apple import (
     execute_private_apple,
     recover_private_apple,
 )
-from ci_workflows.ci_relay import RelayRequest
 from ci_workflows.private_release_asset import PrivateReleaseAssetResult, PrivateReleaseAssetSpec
 from ci_workflows.r2_diagnostics import R2DiagnosticResult
 from ci_workflows.validation_model import load_actions_yaml
