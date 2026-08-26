@@ -28,6 +28,13 @@ _R2_RECEIPT = re.compile(
     r"[1-9][0-9]{0,18}-[1-9][0-9]{0,3}\.log\.gz#sha256=[0-9a-f]{64}\Z"
 )
 _TERMINAL = {"succeeded", "failed", "cancelled", "timed_out"}
+_SUPPORTED_PRIVATE_INTENTS = frozenset(
+    {
+        ("validation.apple", "host"),
+        ("validation.android", "host"),
+        ("validation.python", "host"),
+    }
+)
 
 
 class CiLifecycleError(RuntimeError):
@@ -132,6 +139,46 @@ def _bool(value: object) -> bool:
         if lowered == "false":
             return False
     raise CiLifecycleError("invalid_is_tag")
+
+
+@dataclass(frozen=True)
+class RelayRequest:
+    """Canonical claimed Agent State request used only inside trusted Central CI."""
+
+    ci_run_id: str
+    project_key: str
+    repository: str
+    ref: str
+    is_tag: bool
+    workflow_key: str
+    profile: str
+    inputs: dict[str, object]
+
+    @classmethod
+    def from_claimed_run(cls, value: Mapping[str, object]) -> "RelayRequest":
+        _require(value.get("origin") == "agent_request", "invalid_ci_origin")
+        _require(value.get("status") == "accepted", "invalid_ci_status")
+        _require(
+            value.get("requested_source_sha") in (None, ""),
+            "requested_source_sha_unsupported",
+        )
+        workflow_key = _safe_workflow(value.get("workflow_key"))
+        profile = _safe_profile(value.get("test_profile"))
+        _require(
+            (workflow_key, profile) in _SUPPORTED_PRIVATE_INTENTS,
+            "unsupported_ci_intent",
+        )
+        _require(value.get("inputs") in (None, {}), "unsupported_ci_inputs")
+        return cls(
+            ci_run_id=_uuid(value.get("ci_run_id")),
+            project_key=_safe_project(value.get("project_key")),
+            repository=_safe_repository(value.get("repository")),
+            ref=_safe_ref(value.get("ref")),
+            is_tag=_bool(value.get("is_tag")),
+            workflow_key=workflow_key,
+            profile=profile,
+            inputs={},
+        )
 
 
 @dataclass(frozen=True)
@@ -447,6 +494,7 @@ def main(
 __all__ = (
     "AgentStateCiClient",
     "CiLifecycleError",
+    "RelayRequest",
     "WorkflowIdentity",
     "lifecycle_evidence",
     "lifecycle_finish",

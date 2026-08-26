@@ -1,15 +1,18 @@
 version: 1
 source_root: src/ci_workflows
-generated_from_sha: c8aea15418628db39c2da0100e290039da424133
+generated_from_sha: 643d08009168f354bf7e87f49acbb837e1d62e2c
 inventory_complete: false
 new_module_creation_locked: true
 summary:
-  python_files_discovered: 173
+  python_files_discovered: 166
   status: bootstrap-schema-established-full-ast-scan-required
   note: >-
     This file is the mandatory Python architecture inventory. The initial policy
-    commit establishes its schema and target domains. A dedicated consolidation
-    issue must populate every current src/ci_workflows Python file, class, and
+    commit establishes its schema and target domains. Issue #576 removed seven
+    legacy broker/relay implementation modules from src/ci_workflows and moved
+    the deployable transport into the standalone ci-broker project without adding
+    a replacement Central Python module. A dedicated consolidation issue must
+    still populate every remaining src/ci_workflows Python file, class, and
     function from the exact current tree before broad refactoring begins.
 
 rules:
@@ -43,10 +46,11 @@ entry_schema:
           - name: example_function
             purpose: Short description of the function responsibility.
 
-# Target architecture is intentionally small and portfolio-driven. The complete
-# inventory will record all existing files underneath these or explicitly
-# justified additional domains, then consolidation will migrate callers toward
-# the target modules rather than creating another compatibility layer.
+# Issue #576 intentionally removed these superseded Central broker/relay modules:
+# ci_broker.py, ci_broker_action.py, ci_broker_dependencies.py,
+# ci_broker_fallback.py, ci_broker_start_guard.py, ci_relay.py, ci_relay_server.py.
+# The transport runtime now lives outside this inventory in ci-broker/app.py.
+
 domains:
   r2:
     target_module: src/ci_workflows/r2.py
@@ -103,7 +107,49 @@ domains:
       CI-only Agent State request claim/start/evidence/finish operations used by
       the reviewed opaque Central CI path. This domain must not absorb ordinary
       agent ownership/work/resource APIs.
-    files: []
+    files:
+      - path: src/ci_workflows/ci_lifecycle.py
+        responsibility: Current RPC-only private CI request and lifecycle owner.
+        status: consolidate
+        classes:
+          - name: AgentStateCiClient
+            purpose: Fixed Agent State CI register/claim-transition/evidence/finish client.
+          - name: RelayRequest
+            purpose: Validate and project one claimed opaque private CI request for trusted Central execution.
+          - name: WorkflowIdentity
+            purpose: Bind the private request to the actual Central GitHub run identity.
+        functions:
+          - name: lifecycle_start
+            purpose: Start or attach one Central CI lifecycle.
+          - name: lifecycle_evidence
+            purpose: Record observed exact source SHA evidence.
+          - name: lifecycle_finish
+            purpose: Write bounded terminal state and private-log receipt metadata.
+
+  private_ci_profile:
+    target_module: src/ci_workflows/central_profile.py
+    responsibility: >-
+      Parse the bounded product-owned .github/central-ci.json contract after exact
+      private source checkout and project only reviewed Apple, Android, or Python
+      validation inputs into the trusted Central executor.
+    files:
+      - path: src/ci_workflows/central_profile.py
+        responsibility: Current private Central profile/config parser and canonical input projection.
+        status: keep
+        classes:
+          - name: CentralProfileError
+            purpose: Stable fail-closed Central profile error.
+          - name: CentralProfileResolution
+            purpose: Immutable reviewed technology-family execution projection.
+          - name: PrivateDependency
+            purpose: Exact bounded private dependency identity parsed from product configuration.
+          - name: LegacyAppleConfig
+            purpose: Preserve the reviewed schema-v1 Apple profile contract while generic schema-v2 is adopted.
+        functions:
+          - name: resolve_profile
+            purpose: Resolve one exact source checkout to a bounded private CI technology profile.
+          - name: apple_host_validation_plan
+            purpose: Preserve the legacy Apple host-test projection without broker ownership.
 
   source:
     target_module: src/ci_workflows/source.py

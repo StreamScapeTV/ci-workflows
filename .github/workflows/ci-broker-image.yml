@@ -138,20 +138,22 @@ jobs:
             --label "org.opencontainers.image.revision=${SOURCE_SHA}" \
             --label "org.opencontainers.image.version=${VERSION}" \
             --label 'org.opencontainers.image.title=StreamScape CI broker' \
-            --label 'org.opencontainers.image.description=Event-driven Central CI webhook broker' \
+            --label 'org.opencontainers.image.description=Transport-only Agent State to Central CI relay' \
             --label 'org.opencontainers.image.licenses=MIT' \
             --tag "${local_ref}" \
-            --file broker/Containerfile \
-            .
+            --file ci-broker/Containerfile \
+            ci-broker
 
-      - name: Smoke exact local broker image
+      - name: Smoke exact local broker image over HTTP
         shell: bash
         run: |
           set -Eeuo pipefail
           local_ref="localhost/${IMAGE_NAME}:${SOURCE_SHA}"
           container="ci-broker-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           buildah from --authfile "${BROKER_REGISTRY_AUTH}" --name "${container}" "${local_ref}" >/dev/null
-          buildah run "${container}" -- python3 /opt/ci-broker/scripts/ci/ci_broker.py self-check
+          buildah copy "${container}" ci-broker/smoke_test.py /opt/ci-broker/smoke_test.py >/dev/null
+          buildah run "${container}" -- python3 /opt/ci-broker/app.py self-check
+          buildah run "${container}" -- python3 /opt/ci-broker/smoke_test.py
           buildah rm "${container}" >/dev/null
 
       - name: Authenticate to fixed private Forgejo registry
@@ -172,7 +174,6 @@ jobs:
           set -Eeuo pipefail
           local_ref="localhost/${IMAGE_NAME}:${SOURCE_SHA}"
           remote_ref="${REGISTRY}/${REGISTRY_NAMESPACE}/${IMAGE_NAME}:${VERSION}"
-
           if existing="$(skopeo inspect --authfile "${BROKER_REGISTRY_AUTH}" "docker://${remote_ref}" 2>/dev/null)"; then
             existing_revision="$(printf '%s' "${existing}" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("Labels") or {}).get("org.opencontainers.image.revision", ""))')"
             existing_version="$(printf '%s' "${existing}" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("Labels") or {}).get("org.opencontainers.image.version", ""))')"
@@ -181,7 +182,6 @@ jobs:
           else
             buildah push --authfile "${BROKER_REGISTRY_AUTH}" "${local_ref}" "docker://${remote_ref}"
           fi
-
           readback="$(skopeo inspect --authfile "${BROKER_REGISTRY_AUTH}" "docker://${remote_ref}")"
           digest="$(printf '%s' "${readback}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["Digest"])')"
           revision="$(printf '%s' "${readback}" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("Labels") or {}).get("org.opencontainers.image.revision", ""))')"
@@ -191,7 +191,6 @@ jobs:
           test "${version}" = "${VERSION}"
           printf 'image_digest=%s\n' "${digest}" >> "${GITHUB_OUTPUT}"
           printf 'image_reference=%s@%s\n' "${remote_ref%%:*}" "${digest}" >> "${GITHUB_OUTPUT}"
-          echo "Broker image published and read back from private Forgejo OCI."
 
       - name: Remove broker image and registry residue
         if: always()
@@ -258,23 +257,26 @@ jobs:
           printf 'HELM_CACHE_HOME=%s\n' "${root}/cache" >> "${GITHUB_ENV}"
           printf 'HELM_DATA_HOME=%s\n' "${root}/data" >> "${GITHUB_ENV}"
 
-      - name: Lint render and deterministically package matching broker chart
+      - name: Lint deployed values render and deterministically package matching broker chart
         shell: bash
         run: |
           set -Eeuo pipefail
-          chart="charts/ci-broker"
+          chart="ci-broker/chart"
+          deployed_values="ci-broker/deployment-values.yaml"
+          test -f "${deployed_values}"
           helm lint --strict "${chart}"
-          rendered="$(helm template ci-broker "${chart}" --set-string image.tag="${VERSION}")"
+          helm lint --strict "${chart}" --values "${deployed_values}" --set-string image.tag="${VERSION}"
+          rendered="$(helm template ci-broker "${chart}" --values "${deployed_values}" --set-string image.tag="${VERSION}")"
           test -n "${rendered}"
           printf '%s\n' "${rendered}" | grep -F "image: \"${REGISTRY}/${REGISTRY_NAMESPACE}/${IMAGE_NAME}:${VERSION}\"" >/dev/null
           printf '%s\n' "${rendered}" | grep -F 'replicas: 1' >/dev/null
+          ! printf '%s\n' "${rendered}" | grep -F 'ci-broker-diagnostics' >/dev/null
           helm package "${chart}" \
             --destination "${BROKER_HELM_ROOT}/package" \
             --version "${VERSION}" \
             --app-version "${VERSION}" >/dev/null
           package="${BROKER_HELM_ROOT}/package/${CHART_NAME}-${VERSION}.tgz"
           test -f "${package}"
-
           normalized_root="${BROKER_HELM_ROOT}/normalized"
           mkdir -m 0700 "${normalized_root}"
           tar -xzf "${package}" -C "${normalized_root}"
@@ -313,7 +315,6 @@ jobs:
           local_sha="$(sha256sum "${BROKER_CHART_PACKAGE}" | awk '{print $1}')"
           existing_dir="${BROKER_HELM_ROOT}/existing"
           mkdir -m 0700 "${existing_dir}"
-
           if helm pull "${chart_ref}" --version "${VERSION}" --destination "${existing_dir}" >/dev/null 2>&1; then
             existing="${existing_dir}/${CHART_NAME}-${VERSION}.tgz"
             test -f "${existing}"
@@ -321,7 +322,6 @@ jobs:
           else
             helm push "${BROKER_CHART_PACKAGE}" "oci://${REGISTRY}/${CHART_NAMESPACE}" >/dev/null
           fi
-
           rm -f "${BROKER_HELM_ROOT}/readback/${CHART_NAME}-${VERSION}.tgz"
           helm pull "${chart_ref}" --version "${VERSION}" --destination "${BROKER_HELM_ROOT}/readback" >/dev/null
           readback="${BROKER_HELM_ROOT}/readback/${CHART_NAME}-${VERSION}.tgz"
@@ -331,7 +331,6 @@ jobs:
           test "$(printf '%s\n' "${metadata}" | yq -r '.name')" = "${CHART_NAME}"
           test "$(printf '%s\n' "${metadata}" | yq -r '.version')" = "${VERSION}"
           test "$(printf '%s\n' "${metadata}" | yq -r '.appVersion')" = "${VERSION}"
-          echo "Broker Helm chart published and read back from private Forgejo OCI."
 
       - name: Remove Helm and registry residue
         if: always()

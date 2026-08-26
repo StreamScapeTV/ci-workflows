@@ -10,7 +10,6 @@ from ci_workflows.apple_contract_fragments import load_apple_contract
 from ci_workflows.apple_multistage import build_protected_full_plan
 from ci_workflows.apple_plan_guard import validate_protected_full_plan_json
 from ci_workflows.central_profile import CentralProfileError, resolve_from_environment, resolve_profile
-from ci_workflows.ci_broker import BrokerError
 
 ROOT = Path(__file__).resolve().parents[1]
 SHA = "a" * 40
@@ -97,7 +96,7 @@ def write_config(root: Path, value: object) -> None:
     )
 
 
-def resolve(root: Path, workflow_key: str) -> object:
+def resolve(root: Path, workflow_key: str):
     return resolve_profile(
         source_root=str(root),
         project_key="example-project",
@@ -153,9 +152,7 @@ class CentralProfileTests(unittest.TestCase):
         self.assertEqual(resolved.executor_family, "linux")
         self.assertEqual(resolved.capability, "android-hosted")
         inputs = resolved.canonical_inputs()
-        self.assertEqual(set(inputs), {
-            "working_directory", "gradle_wrapper_path", "validation_plan_json", "dependency_prebuild_plan_json"
-        })
+        self.assertEqual(set(inputs), {"working_directory", "gradle_wrapper_path", "validation_plan_json", "dependency_prebuild_plan_json"})
         self.assertEqual(inputs["working_directory"], ".")
         self.assertEqual(inputs["gradle_wrapper_path"], "gradlew")
         self.assertEqual(json.loads(inputs["validation_plan_json"])["groups"][0]["id"], "product")
@@ -215,19 +212,13 @@ class CentralProfileTests(unittest.TestCase):
             config = github / "central-ci.json"
             config.write_text('{"schema_version":2,"project_key":"one","project_key":"two","profiles":{}}', encoding="utf-8")
             with self.assertRaisesRegex(CentralProfileError, "private_ci_config_duplicate_key"):
-                resolve_profile(
-                    source_root=str(source), project_key="one", workflow_key="validation.python",
-                    test_profile="host", source_repository="StreamScapeTV/example-app", admitted_sha=SHA,
-                )
+                resolve_profile(source_root=str(source), project_key="one", workflow_key="validation.python", test_profile="host", source_repository="StreamScapeTV/example-app", admitted_sha=SHA)
             config.unlink()
             target = Path(temporary) / "outside.json"
             target.write_text(json.dumps(python_config()), encoding="utf-8")
             os.symlink(target, config)
             with self.assertRaisesRegex(CentralProfileError, "private_ci_config_invalid_path"):
-                resolve_profile(
-                    source_root=str(source), project_key="example-project", workflow_key="validation.python",
-                    test_profile="host", source_repository="StreamScapeTV/example-app", admitted_sha=SHA,
-                )
+                resolve_profile(source_root=str(source), project_key="example-project", workflow_key="validation.python", test_profile="host", source_repository="StreamScapeTV/example-app", admitted_sha=SHA)
 
     def test_environment_adapter_outputs_bounded_projection_only(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -237,17 +228,15 @@ class CentralProfileTests(unittest.TestCase):
             write_config(source, python_config())
             output = root / "github-output"
             output.touch()
-            resolved = resolve_from_environment(
-                {
-                    "INPUT_SOURCE_ROOT": str(source),
-                    "INPUT_PROJECT_KEY": "example-project",
-                    "INPUT_WORKFLOW_KEY": "validation.python",
-                    "INPUT_TEST_PROFILE": "host",
-                    "INPUT_SOURCE_REPOSITORY": "StreamScapeTV/example-app",
-                    "INPUT_ADMITTED_SHA": SHA,
-                    "GITHUB_OUTPUT": str(output),
-                }
-            )
+            resolved = resolve_from_environment({
+                "INPUT_SOURCE_ROOT": str(source),
+                "INPUT_PROJECT_KEY": "example-project",
+                "INPUT_WORKFLOW_KEY": "validation.python",
+                "INPUT_TEST_PROFILE": "host",
+                "INPUT_SOURCE_REPOSITORY": "StreamScapeTV/example-app",
+                "INPUT_ADMITTED_SHA": SHA,
+                "GITHUB_OUTPUT": str(output),
+            })
             text = output.read_text(encoding="utf-8")
         self.assertIn("workflow_key=validation.python\n", text)
         self.assertIn("executor_family=linux\n", text)

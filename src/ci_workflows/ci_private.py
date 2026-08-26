@@ -18,7 +18,7 @@ import sys
 from typing import Mapping, Sequence, TextIO
 
 from .central_profile import CentralProfileResolution, resolve_profile
-from .ci_lifecycle import AgentStateCiClient
+from .ci_lifecycle import AgentStateCiClient, RelayRequest
 from .ci_private_apple import (
     PrivateAppleCiError,
     _append,
@@ -44,7 +44,6 @@ from .ci_private_apple import (
     _write_state,
     _execute_validation as _execute_apple_validation,
 )
-from .ci_relay import RelayRequest
 from .ciw_android import execute_android_validate
 from .ciw_python import execute_python_validate
 from .ciw_types import CIWContext
