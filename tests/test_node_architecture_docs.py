@@ -6,6 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 GUIDE = ROOT / "docs/architecture/node-validation.md"
+WORKFLOW_GUIDE = ROOT / "docs/workflows/node.md"
 WORKFLOWS = (
     ROOT / ".github/workflows/reusable-node.yml",
     ROOT / ".github/workflows/reusable-python.yml",
@@ -39,6 +40,23 @@ class NodeArchitectureDocumentationTests(unittest.TestCase):
             "Android/Flutter/Python reusable workflows that still use an exact `job.workflow_repository` / `job.workflow_sha` checkout",
             source,
         )
+
+    def test_node_workflow_guide_matches_live_main_library_and_setup_release(self) -> None:
+        source = WORKFLOW_GUIDE.read_text(encoding="utf-8")
+        for helper in (
+            "actions/validate-node@main",
+            "actions/exact-checkout@main",
+            "actions/prepare-workspace@main",
+            "actions/render-evidence@main",
+            "actions/cleanup-workspace@main",
+        ):
+            self.assertIn(helper, source)
+        self.assertIn("actions/setup-node@v6.5.0", source)
+        self.assertIn("Private source, credentials, detailed command output", source)
+        self.assertNotIn("contracts/action-tool-lock.json", source)
+        self.assertNotIn("Immutable Central helper reuse", source)
+        self.assertNotIn("pinned to a full commit SHA", source)
+        self.assertNotIn("zero Actions artifacts", source)
 
 
 if __name__ == "__main__":
