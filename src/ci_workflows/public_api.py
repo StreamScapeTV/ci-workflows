@@ -1,14 +1,13 @@
-"""Public API contract facade for the owner-selected initial ``@main`` channel.
+"""Public API contract facade for the owner-selected ``@main`` channel.
 
 The reusable schema, compatibility, rendering, and release-manifest validators
-live in :mod:`ci_workflows.public_api_contract`.  This facade owns the current
+live in :mod:`ci_workflows.public_api_contract`. This facade owns the current
 supported-catalogue policy: only demonstrated callable APIs are published, every
 public permission/trust row is actually represented, and protected ``main`` is
-an allowed bootstrap reference for the current supported trust classes.
+the ordinary shared-library reference for the current supported trust classes.
 """
 from __future__ import annotations
 
-import copy
 import re
 from pathlib import Path
 from typing import Any, Mapping
@@ -25,11 +24,9 @@ load_contract = core.load_contract
 read_text = core.read_text
 render = core.render
 require = core.require
-validate_bootstrap_workflow = core.validate_bootstrap_workflow
 validate_caller = core.validate_caller
 validate_caller_fixtures = core.validate_caller_fixtures
 validate_compatibility_fixtures = core.validate_compatibility_fixtures
-validate_docs = core.validate_docs
 validate_release_schema = core.validate_release_schema
 
 
@@ -161,14 +158,14 @@ def validate_workflows(
         matrix = row.get("matrix_max_jobs")
         require(isinstance(timeout, int) and 1 <= timeout <= 240, f"{api} timeout is invalid")
         require(isinstance(matrix, int) and 1 <= matrix <= 16, f"{api} matrix maximum is invalid")
-        artifact_policy = row.get("artifact_policy", "zero-default")
-        require(artifact_policy in {"zero-default", "bounded-evidence"}, f"{api} artifact policy is invalid")
-        if artifact_policy == "bounded-evidence":
+        artifact_policy = row.get("artifact_policy")
+        if artifact_policy is None:
+            require("artifact_retention_max_days" not in row, f"{api} artifact retention requires an explicit bounded artifact policy")
+        else:
+            require(artifact_policy == "bounded-evidence", f"{api} artifact policy is invalid")
             retention_max = row.get("artifact_retention_max_days")
             require(type(retention_max) is int and 1 <= retention_max <= 7, f"{api} artifact retention maximum is invalid")
             require("artifact_manifest_json" in outputs, f"{api} bounded artifact policy requires artifact_manifest_json output")
-        else:
-            require("artifact_retention_max_days" not in row, f"{api} zero-artifact policy may not declare artifact retention")
         depth = row.get("max_reusable_workflow_depth", 1)
         require(isinstance(depth, int) and 1 <= depth <= core.MAX_PUBLIC_DEPTH, f"{api} call depth is invalid")
         components = core.unique_strings(row.get("implementation_components"), f"{api}.implementation_components", allow_empty=False)
@@ -196,21 +193,11 @@ def validate_workflows(
 
 
 def validate_reference_policy(types: Mapping[str, Any]) -> None:
-    """Validate protected ``main`` plus fixed SHA and SemVer alternatives."""
-
-    normalized = copy.deepcopy(dict(types))
-    normalized_reference = normalized.get("reference_policy")
-    require(isinstance(normalized_reference, dict), "reference_policy must be an object")
-    normalized_reference["bootstrap_mutable_allowed_trust_classes"] = [
-        "source-admission",
-        "read-only-validation",
-    ]
-    normalized_reference["privileged_mutable_references_forbidden"] = True
-    core._validate_policy(normalized)
+    """Validate ``@main`` as the normal channel plus optional whole-repository snapshots."""
 
     reference = types.get("reference_policy")
     require(isinstance(reference, dict), "reference_policy must be an object")
-    require(reference.get("bootstrap_mutable_reference") == "main", "initial mutable reference must be main")
+    require(reference.get("bootstrap_mutable_reference") == "main", "normal shared-library reference must be main")
     trust_classes = types.get("trust_classes")
     require(isinstance(trust_classes, dict), "trust class catalog is missing")
     allowed = set(
@@ -220,17 +207,92 @@ def validate_reference_policy(types: Mapping[str, Any]) -> None:
             allow_empty=False,
         )
     )
-    require(allowed == set(trust_classes), "protected main must be available to every initial trust class")
-    require(reference.get("privileged_mutable_references_forbidden") is False, "initial protected-main use must include privileged APIs")
-    require(reference.get("immutable_references") == ["full-sha", "immutable-semver-tag"], "full SHA and immutable SemVer alternatives must remain supported")
+    require(allowed == set(trust_classes), "main must be available to every supported trust class")
+    require(reference.get("privileged_mutable_references_forbidden") is False, "main must remain available to privileged APIs")
+    require(reference.get("immutable_references") == ["full-sha", "immutable-semver-tag"], "whole-repository SHA and SemVer snapshot references must remain supported")
+    require(reference.get("consumer_updates") == "reviewable-pull-request", "consumer updates must remain reviewable")
+    require("rollback_reference_required" not in reference, "rollback-reference ceremony is not part of the public API policy")
+    require("delete_referenced_release_forbidden" not in reference, "release-retention ceremony is not part of the public API policy")
+    compatibility = types.get("compatibility_policy")
+    require(isinstance(compatibility, dict), "compatibility_policy must be an object")
+    for name in ("compatible", "conditional", "breaking"):
+        core.unique_strings(compatibility.get(name), f"compatibility_policy.{name}", allow_empty=False)
+    required_ack = core.unique_strings(
+        compatibility.get("acknowledgement_required_fields"),
+        "compatibility_policy.acknowledgement_required_fields",
+        allow_empty=False,
+    )
+    require(
+        set(required_ack) == {"id", "api_name", "kind", "reason", "migration_issue", "effective_version"},
+        "breaking acknowledgement fields changed",
+    )
+    defaults = types.get("defaults")
+    require(isinstance(defaults, dict), "public API defaults are missing")
+    require("artifact_policy" not in defaults, "ordinary public APIs must not inherit a global artifact policy")
+    require(defaults.get("cleanup_policy") == "always-residue-checked", "cleanup policy changed")
     require(
         all(
             isinstance(policy, dict)
             and policy.get("reference_policy") == "bootstrap-main-or-immutable"
             for policy in trust_classes.values()
         ),
-        "every trust class must document main-or-immutable reference support",
+        "every trust class must document main plus optional whole-repository snapshot support",
     )
+
+
+def validate_bootstrap_workflow(
+    data: ContractData,
+    workflows: Mapping[str, Mapping[str, Any]],
+    profiles: Mapping[str, Mapping[str, Any]],
+) -> None:
+    """Keep the deprecated bootstrap publisher bounded to functional release authority."""
+
+    bootstrap = workflows.get("release.tag-image-chart-bootstrap")
+    require(bootstrap is not None, "existing bootstrap workflow is not represented in the public API")
+    require(bootstrap.get("status") == "deprecated-bootstrap-exception", "bootstrap workflow must remain explicitly deprecated")
+    require(bootstrap.get("trust_class") == "trusted-publication", "bootstrap workflow trust class changed")
+    profile = profiles.get(str(bootstrap.get("permission_profile")))
+    require(profile is not None, "bootstrap workflow permission profile is missing")
+    secrets = set(bootstrap.get("secrets", ()))
+    require(secrets == {"registry_username", "registry_token"}, "bootstrap workflow secret interface changed")
+    require(core.permission_map(profile.get("caller_permissions"), "bootstrap permissions") == {"contents": "read"}, "bootstrap workflow permission interface changed")
+    events = set(bootstrap.get("permitted_events", ()))
+    require(events == {"tag-push", "workflow_call", "workflow_dispatch-existing-tag"}, "bootstrap workflow event compatibility changed")
+    inputs = core._input_map(bootstrap)
+    require(inputs.get("release_mode", {}).get("default") == "tag-push", "bootstrap release_mode default changed")
+    for optional in ("release_version", "release_source_sha"):
+        require(inputs.get(optional, {}).get("required") is False, f"bootstrap {optional} must remain optional")
+    workflow = core.read_text(data.root / str(bootstrap["file"]))
+    require("workflow_call:" in workflow, "bootstrap workflow_call support is missing")
+    require("contents: read" in workflow, "bootstrap workflow contents permission changed")
+    require("actions: read" not in workflow, "bootstrap workflow no longer needs Actions artifact inventory permission")
+    require("secrets: inherit" not in workflow, "bootstrap workflow may not inherit secrets")
+
+
+def validate_docs(root: Path) -> None:
+    """Require documentation for main-library, privacy, and functional boundaries."""
+
+    architecture = core.read_text(root / "docs/architecture/public-api.md")
+    upgrades = core.read_text(root / "docs/consumers/versioning-and-upgrades.md")
+    for phrase in (
+        "consumer caller → public reusable workflow → named function",
+        "cannot elevate",
+        "Agent State",
+        "Flux",
+        "private-source",
+        "repository-owned",
+        "application identity",
+    ):
+        require(phrase in architecture, f"public API architecture is missing: {phrase}")
+    for phrase in (
+        "reviewable pull requests",
+        "whole-repository",
+        "@main",
+        "breaking",
+        "revocation",
+        "technology contract",
+    ):
+        require(phrase in upgrades, f"versioning guide is missing: {phrase}")
 
 
 def validate(root: Path) -> ContractData:
