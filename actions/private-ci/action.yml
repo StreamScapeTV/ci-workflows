@@ -1,0 +1,30 @@
+name: Execute opaque private Central CI
+description: Plan, execute, or recover one Agent State-owned private CI run without exposing private request fields to GitHub logs
+
+inputs:
+  phase:
+    description: plan, execute, or recover
+    required: false
+    default: execute
+  ci_run_id:
+    description: Opaque Agent State CI run UUID
+    required: true
+
+outputs:
+  executor_family:
+    description: Coarse fixed hosted executor family; populated only by plan
+    value: ${{ steps.private.outputs.executor_family }}
+
+runs:
+  using: composite
+  steps:
+    - id: private
+      name: Run opaque private Central CI phase
+      shell: bash
+      env:
+        PYTHONDONTWRITEBYTECODE: "1"
+        INPUT_CI_RUN_ID: ${{ inputs.ci_run_id }}
+        CIW_PRIVATE_LOG_PATH: ${{ runner.temp }}/central-private-ci/${{ inputs.ci_run_id }}/private.log
+      run: |
+        set -Eeuo pipefail
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ciw.py" private-ci "${{ inputs.phase }}"
