@@ -73,9 +73,9 @@ outputs:
   test_summary:
     value: ${{ steps.android.outputs.test_summary }}
   runner_profile:
-    value: ${{ steps.android.outputs.runner_profile }}
+    value: ${{ steps.backend.outputs.execution_profile || steps.android.outputs.runner_profile }}
   runs_on_json:
-    value: ${{ steps.android.outputs.runs_on_json }}
+    value: ${{ steps.backend.outputs.runs_on_json || steps.android.outputs.runs_on_json }}
   workspace_profile:
     value: ${{ steps.android.outputs.workspace_profile }}
   execution_model:
@@ -105,7 +105,6 @@ runs:
       shell: bash
       env:
         PYTHONDONTWRITEBYTECODE: "1"
-        INPUT_EXECUTION_BACKEND: ${{ inputs.execution_backend }}
         INPUT_ADMITTED_SHA: ${{ inputs.admitted_sha }}
         INPUT_VALIDATION_SCOPE: ${{ inputs.validation_scope }}
         INPUT_WORKING_DIRECTORY: ${{ inputs.working_directory }}
@@ -129,3 +128,18 @@ runs:
           android validate \
           --phase "${{ inputs.phase }}" \
           --source-root source
+
+    - id: backend
+      name: Resolve bounded Android execution backend
+      if: ${{ inputs.phase == 'plan' && steps.android.outcome == 'success' }}
+      shell: bash
+      env:
+        SOURCE_TRUST: ${{ github.event_name == 'pull_request' && 'trusted-pr' || 'trusted-exact' }}
+      run: |
+        set -Eeuo pipefail
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/execution_backend.py" \
+          --workflow-api validation.android \
+          --source-trust "${SOURCE_TRUST}" \
+          --execution-backend "${{ inputs.execution_backend }}" \
+          --profile mobile \
+          --github-output "${GITHUB_OUTPUT}"
