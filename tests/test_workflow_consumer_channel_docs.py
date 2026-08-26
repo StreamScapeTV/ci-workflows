@@ -24,16 +24,19 @@ class WorkflowConsumerChannelDocsTests(unittest.TestCase):
                 self.assertEqual(set(refs), {"main"})
         self.assertGreaterEqual(guides_with_calls, 1)
 
-    def test_public_main_examples_do_not_weaken_private_helper_immutability(self) -> None:
+    def test_public_main_examples_keep_private_source_boundaries_without_helper_pins(self) -> None:
         flutter = (WORKFLOW_DOCS / "flutter.md").read_text(encoding="utf-8")
         self.assertIn(
-            "invoke reviewed central composite actions directly through exact\nfull-SHA references",
+            "invoke first-party Central composite actions through the current\nshared-library channel `@main`",
             flutter,
         )
         self.assertIn(
-            "This does not weaken internal/private helper pins, which remain\nexact immutable SHAs.",
+            "Exact admitted\nconsumer source is checked out through `exact-checkout@main`",
             flutter,
         )
+        self.assertIn("private source", flutter.lower())
+        self.assertNotIn("exact immutable SHAs", flutter)
+        self.assertNotIn("full-SHA references", flutter)
 
 
 if __name__ == "__main__":
