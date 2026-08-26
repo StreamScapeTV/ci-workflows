@@ -54,6 +54,21 @@ def request(sha: str, *, version: str = "3.12") -> PythonValidationRequest:
     )
 
 
+def container_request(sha: str, *, profile: str = "podman") -> PythonValidationRequest:
+    return PythonValidationRequest(
+        repository="ExampleOrg/example-service",
+        admitted_sha=sha,
+        validation_profile=profile,
+        python_version="3.12.8",
+        working_directory=".",
+        version_file=None,
+        dependency_file=None,
+        script_path="ci/validate.py",
+        artifact_exception_id=None,
+        source_trust="trusted-exact",
+    )
+
+
 class PythonValidationTests(unittest.TestCase):
     def test_plan_phase_is_product_neutral_and_does_not_require_source_checkout(self) -> None:
         plan = python_validation.validate(
@@ -101,6 +116,56 @@ class PythonValidationTests(unittest.TestCase):
             self.assertFalse((source / "proof").exists())
             isolated_home = state / "python-validation" / "host" / "home"
             self.assertEqual("ok", (isolated_home / "proof").read_text(encoding="utf-8"))
+
+    def test_github_hosted_container_profile_uses_docker_implementation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, sha = committed_source(root, "pass\n")
+            state = root / "state"
+            state.mkdir()
+            environment = {**os.environ, "INPUT_EXECUTION_BACKEND": "github-hosted"}
+            with (
+                mock.patch.object(python_validation, "_verify_policy"),
+                mock.patch.object(python_validation, "execute_docker_plan", return_value=1) as docker,
+                mock.patch.object(python_validation, "execute_podman_plan", return_value=1) as podman,
+            ):
+                result = python_validation.validate(
+                    contract_root=ROOT,
+                    source_root=source,
+                    state_root=state,
+                    request=container_request(sha),
+                    phase="execute",
+                    environment=environment,
+                )
+            self.assertIsInstance(result, PythonValidationResult)
+            self.assertEqual("podman", result.validation_profile)
+            docker.assert_called_once()
+            podman.assert_not_called()
+
+    def test_organization_container_profile_preserves_podman_implementation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, sha = committed_source(root, "pass\n")
+            state = root / "state"
+            state.mkdir()
+            environment = {**os.environ, "INPUT_EXECUTION_BACKEND": "organization"}
+            with (
+                mock.patch.object(python_validation, "_verify_policy"),
+                mock.patch.object(python_validation, "execute_docker_plan", return_value=1) as docker,
+                mock.patch.object(python_validation, "execute_podman_plan", return_value=1) as podman,
+            ):
+                result = python_validation.validate(
+                    contract_root=ROOT,
+                    source_root=source,
+                    state_root=state,
+                    request=container_request(sha, profile="podman-postgres"),
+                    phase="execute",
+                    environment=environment,
+                )
+            self.assertIsInstance(result, PythonValidationResult)
+            self.assertEqual("podman-postgres", result.validation_profile)
+            podman.assert_called_once()
+            docker.assert_not_called()
 
     def test_nonzero_consumer_script_is_stable_command_failure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
