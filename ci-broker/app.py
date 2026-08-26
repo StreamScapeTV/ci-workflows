@@ -385,13 +385,13 @@ def active_identity_key(
     workflow_key: object,
     profile: object,
 ) -> str:
+    _safe_workflow(workflow_key)
+    _safe_profile(profile)
     raw = _canonical(
         {
             "is_tag": _is_tag(is_tag),
-            "profile": _safe_profile(profile),
             "ref": _human_ref(ref),
             "repository": _safe_repository(repository),
-            "workflow_key": _safe_workflow(workflow_key),
         }
     )
     return hashlib.sha256(raw).hexdigest()
