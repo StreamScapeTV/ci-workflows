@@ -6,26 +6,15 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+import re
 import stat
 import sys
 from typing import Mapping, Sequence
 
-from .private_ci_config import (
-    LegacyAppleConfig,
-    MAX_CONFIG_BYTES,
-    PrivateCiConfigError,
-    PrivateDependency,
-    _safe_product_scalar,
-    _safe_profile,
-    _safe_project,
-    _safe_repository,
-    _safe_sha,
-    _safe_workflow_key,
-    _safe_workspace,
-)
 from .private_release_asset import PrivateReleaseAssetError, PrivateReleaseAssetSpec, optional_spec
 
 CONFIG_RELATIVE_PATH = ".github/central-ci.json"
+MAX_CONFIG_BYTES = 64 * 1024
 _LEGACY_APPLE_PROJECTION = ("validation.apple", "apple-host-test")
 _GENERIC_CAPABILITIES = {
     "validation.apple": "apple-hosted",
@@ -34,6 +23,13 @@ _GENERIC_CAPABILITIES = {
 }
 _APPLE_HOSTED_PROFILES = {"source-audit", "swift-package"}
 _PYTHON_PROFILES = {"audit", "host", "podman", "podman-postgres"}
+_SHA = re.compile(r"[0-9a-f]{40}\Z")
+_PROJECT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
+_PROFILE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
+_WORKFLOW = re.compile(r"[a-z0-9][a-z0-9._-]{0,127}\Z")
+_REPOSITORY = re.compile(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}\Z")
+_SCALAR = re.compile(r"[^\r\n\x00]{1,512}\Z")
+_DEPENDENCY_ID = re.compile(r"[a-z][a-z0-9-]{1,31}\Z")
 
 
 class CentralProfileError(RuntimeError):
@@ -47,17 +43,185 @@ def _require(condition: bool, code: str) -> None:
         raise CentralProfileError(code)
 
 
-def _safe_call(function, *args):
-    try:
-        return function(*args)
-    except PrivateCiConfigError as error:
-        raise CentralProfileError(error.code) from None
+def _safe(value: object, pattern: re.Pattern[str], code: str) -> str:
+    _require(isinstance(value, str) and pattern.fullmatch(value) is not None, code)
+    return value
+
+
+def _safe_project(value: object) -> str:
+    return _safe(value, _PROJECT, "invalid_project_key")
+
+
+def _safe_profile(value: object) -> str:
+    return _safe(value, _PROFILE, "invalid_test_profile")
+
+
+def _safe_workflow_key(value: object) -> str:
+    return _safe(value, _WORKFLOW, "invalid_workflow_key")
+
+
+def _safe_repository(value: object) -> str:
+    return _safe(value, _REPOSITORY, "invalid_repository")
+
+
+def _safe_sha(value: object) -> str:
+    return _safe(value, _SHA, "invalid_source_sha")
+
+
+def _safe_product_scalar(value: object, code: str) -> str:
+    return _safe(value, _SCALAR, code)
+
+
+def _safe_workspace(value: object) -> str:
+    text = _safe_product_scalar(value, "invalid_workspace")
+    path = PurePosixPath(text)
+    _require(
+        not path.is_absolute()
+        and ".." not in path.parts
+        and text not in (".", "")
+        and text.endswith(".xcworkspace"),
+        "invalid_workspace",
+    )
+    return text
+
+
+def _safe_dependency_subdirectory(value: object) -> str:
+    _require(isinstance(value, str), "invalid_dependency_subdirectory")
+    text = value.strip()
+    _require(
+        bool(text)
+        and len(text.encode("utf-8")) <= 1024
+        and "\\" not in text
+        and not any(character in text for character in ("\x00", "\r", "\n")),
+        "invalid_dependency_subdirectory",
+    )
+    if text == ".":
+        return text
+    path = PurePosixPath(text)
+    _require(
+        not path.is_absolute()
+        and ".." not in path.parts
+        and all(part not in {"", "."} for part in path.parts),
+        "invalid_dependency_subdirectory",
+    )
+    return path.as_posix()
+
+
+@dataclass(frozen=True, slots=True)
+class PrivateDependency:
+    repository: str
+    sha: str
+    subdirectory: str
+    dependency_id: str
+
+    @classmethod
+    def parse(cls, value: Mapping[str, object]) -> "PrivateDependency":
+        _require(
+            set(value) == {"repository", "sha", "subdirectory", "id"},
+            "private_ci_dependency_invalid",
+        )
+        repository = _safe_repository(value.get("repository"))
+        _require(
+            repository.startswith("StreamScapeTV/"),
+            "private_ci_dependency_repository_unsupported",
+        )
+        return cls(
+            repository=repository,
+            sha=_safe_sha(value.get("sha")),
+            subdirectory=_safe_dependency_subdirectory(value.get("subdirectory")),
+            dependency_id=_safe(value.get("id"), _DEPENDENCY_ID, "invalid_dependency_id"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class LegacyAppleProfile:
+    name: str
+    workflow_key: str
+    capability: str
+    workspace: str
+    scheme: str
+    test_target: str
+    private_dependency: PrivateDependency | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class LegacyAppleConfig:
+    project_key: str
+    profiles: dict[str, LegacyAppleProfile]
+
+    @classmethod
+    def parse(cls, value: Mapping[str, object]) -> "LegacyAppleConfig":
+        allowed = {"schema_version", "project_key", "profiles", "automatic"}
+        _require(set(value).issubset(allowed), "private_ci_config_unsupported")
+        _require(value.get("schema_version") == 1, "private_ci_config_version")
+        project_key = _safe_project(value.get("project_key"))
+        raw_profiles = value.get("profiles")
+        _require(
+            isinstance(raw_profiles, dict) and 1 <= len(raw_profiles) <= 16,
+            "private_ci_profiles_invalid",
+        )
+        profiles: dict[str, LegacyAppleProfile] = {}
+        required = {
+            "workflow_key",
+            "capability",
+            "workspace",
+            "scheme",
+            "test_target",
+        }
+        allowed_profile = required | {"private_dependency"}
+        for raw_name, raw_profile in raw_profiles.items():
+            name = _safe_profile(raw_name)
+            _require(isinstance(raw_profile, dict), "private_ci_profile_invalid")
+            fields = set(raw_profile)
+            _require(
+                required.issubset(fields) and fields.issubset(allowed_profile),
+                "private_ci_profile_invalid",
+            )
+            workflow_key = _safe_workflow_key(raw_profile.get("workflow_key"))
+            capability = raw_profile.get("capability")
+            _require(
+                isinstance(capability, str) and capability == "apple-host-test",
+                "private_ci_capability_unsupported",
+            )
+            raw_dependency = raw_profile.get("private_dependency")
+            dependency = None
+            if raw_dependency is not None:
+                _require(isinstance(raw_dependency, dict), "private_ci_dependency_invalid")
+                dependency = PrivateDependency.parse(raw_dependency)
+            profiles[name] = LegacyAppleProfile(
+                name=name,
+                workflow_key=workflow_key,
+                capability=capability,
+                workspace=_safe_workspace(raw_profile.get("workspace")),
+                scheme=_safe_product_scalar(raw_profile.get("scheme"), "invalid_scheme"),
+                test_target=_safe_product_scalar(
+                    raw_profile.get("test_target"), "invalid_test_target"
+                ),
+                private_dependency=dependency,
+            )
+
+        automatic = value.get("automatic", {})
+        _require(isinstance(automatic, dict), "private_ci_automatic_invalid")
+        _require(set(automatic).issubset({"push", "tag"}), "private_ci_automatic_invalid")
+        for profile_name in automatic.values():
+            _require(_safe_profile(profile_name) in profiles, "private_ci_automatic_profile_missing")
+        return cls(project_key=project_key, profiles=profiles)
+
+    def profile(self, name: object, workflow_key: object) -> LegacyAppleProfile:
+        checked_name = _safe_profile(name)
+        _require(checked_name in self.profiles, "private_ci_profile_missing")
+        profile = self.profiles[checked_name]
+        _require(
+            profile.workflow_key == _safe_workflow_key(workflow_key),
+            "workflow_profile_mismatch",
+        )
+        return profile
 
 
 def apple_host_validation_plan(workspace: object, scheme: object, test_target: object) -> str:
-    checked_workspace = _safe_call(_safe_workspace, workspace)
-    checked_scheme = _safe_call(_safe_product_scalar, scheme, "invalid_scheme")
-    checked_target = _safe_call(_safe_product_scalar, test_target, "invalid_test_target")
+    checked_workspace = _safe_workspace(workspace)
+    checked_scheme = _safe_product_scalar(scheme, "invalid_scheme")
+    checked_target = _safe_product_scalar(test_target, "invalid_test_target")
     return json.dumps(
         {"stages": [{
             "id": "central-host-test",
@@ -193,7 +357,7 @@ def _generic_inputs(workflow_key: str, value: object) -> dict[str, str]:
         validation_profile = raw.get("validation_profile")
         _require(isinstance(validation_profile, str) and validation_profile in _APPLE_HOSTED_PROFILES, "invalid_apple_validation_profile")
         return {
-            "command_profile": _safe_call(_safe_product_scalar, raw.get("command_profile"), "invalid_apple_command_profile"),
+            "command_profile": _safe_product_scalar(raw.get("command_profile"), "invalid_apple_command_profile"),
             "validation_profile": validation_profile,
         }
     if workflow_key == "validation.android":
@@ -213,7 +377,7 @@ def _generic_inputs(workflow_key: str, value: object) -> dict[str, str]:
         _require(isinstance(validation_profile, str) and validation_profile in _PYTHON_PROFILES, "invalid_python_validation_profile")
         return {
             "validation_profile": validation_profile,
-            "python_version": _safe_call(_safe_product_scalar, raw.get("python_version"), "invalid_python_version"),
+            "python_version": _safe_product_scalar(raw.get("python_version"), "invalid_python_version"),
             "version_file": _relative_path(raw.get("version_file", ""), "invalid_version_file", allow_empty=True),
             "dependency_file": _relative_path(raw.get("dependency_file", ""), "invalid_dependency_file", allow_empty=True),
             "working_directory": _relative_path(raw.get("working_directory", "."), "invalid_working_directory"),
@@ -312,11 +476,8 @@ class CentralProfileResolution:
 
 def _resolve_v1_apple(value: Mapping[str, object], *, checked_project: str, checked_workflow: str, checked_profile: str, checked_repository: str, checked_sha: str) -> CentralProfileResolution:
     sanitized, release_assets = _strip_release_assets(value)
-    try:
-        config = LegacyAppleConfig.parse(sanitized)
-        profile = config.profile(checked_profile, checked_workflow)
-    except PrivateCiConfigError as error:
-        raise CentralProfileError(error.code) from None
+    config = LegacyAppleConfig.parse(sanitized)
+    profile = config.profile(checked_profile, checked_workflow)
     _require(config.project_key == checked_project, "project_config_mismatch")
     _require((profile.workflow_key, profile.capability) == _LEGACY_APPLE_PROJECTION, "central_profile_unsupported")
     dependency = profile.private_dependency
@@ -349,12 +510,12 @@ def _resolve_v1_apple(value: Mapping[str, object], *, checked_project: str, chec
 
 def _resolve_v2_generic(value: Mapping[str, object], *, checked_project: str, checked_workflow: str, checked_profile: str, checked_repository: str, checked_sha: str) -> CentralProfileResolution:
     _require(set(value).issubset({"schema_version", "project_key", "profiles"}), "private_ci_config_unsupported")
-    _require(_safe_call(_safe_project, value.get("project_key")) == checked_project, "project_config_mismatch")
+    _require(_safe_project(value.get("project_key")) == checked_project, "project_config_mismatch")
     raw_profiles = value.get("profiles")
     _require(isinstance(raw_profiles, dict) and 1 <= len(raw_profiles) <= 16, "private_ci_profiles_invalid")
     raw_profile = _select_v2_profile(raw_profiles, checked_profile=checked_profile, checked_workflow=checked_workflow)
     _require(set(raw_profile).issubset({"workflow_key", "capability", "inputs", "private_dependency"}), "private_ci_profile_invalid")
-    workflow_key = _safe_call(_safe_workflow_key, raw_profile.get("workflow_key"))
+    workflow_key = _safe_workflow_key(raw_profile.get("workflow_key"))
     _require(workflow_key == checked_workflow, "workflow_profile_mismatch")
     capability = raw_profile.get("capability")
     _require(isinstance(capability, str) and capability == _GENERIC_CAPABILITIES.get(workflow_key), "central_profile_unsupported")
@@ -368,10 +529,7 @@ def _resolve_v2_generic(value: Mapping[str, object], *, checked_project: str, ch
     if raw_dependency is not None:
         _require(workflow_key != "validation.apple", "apple_private_dependency_unsupported")
         _require(isinstance(raw_dependency, dict), "private_ci_dependency_invalid")
-        try:
-            dependency = PrivateDependency.parse(raw_dependency)
-        except PrivateCiConfigError as error:
-            raise CentralProfileError(error.code) from None
+        dependency = PrivateDependency.parse(raw_dependency)
         dependency_repository = dependency.repository
         dependency_sha = dependency.sha
         dependency_subdirectory = dependency.subdirectory
@@ -397,14 +555,11 @@ def _resolve_v2_generic(value: Mapping[str, object], *, checked_project: str, ch
 
 
 def resolve_profile(*, source_root: object, project_key: object, workflow_key: object, test_profile: object, source_repository: object, admitted_sha: object) -> CentralProfileResolution:
-    try:
-        checked_project = _safe_project(project_key)
-        checked_workflow = _safe_workflow_key(workflow_key)
-        checked_profile = _safe_profile(test_profile)
-        checked_repository = _safe_repository(source_repository)
-        checked_sha = _safe_sha(admitted_sha)
-    except PrivateCiConfigError as error:
-        raise CentralProfileError(error.code) from None
+    checked_project = _safe_project(project_key)
+    checked_workflow = _safe_workflow_key(workflow_key)
+    checked_profile = _safe_profile(test_profile)
+    checked_repository = _safe_repository(source_repository)
+    checked_sha = _safe_sha(admitted_sha)
     value = _read_config(_source_root(source_root))
     version = value.get("schema_version")
     if version == 1:
@@ -452,7 +607,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "resolve":
             resolve_from_environment()
-    except (CentralProfileError, PrivateCiConfigError, PrivateReleaseAssetError) as error:
+    except (CentralProfileError, PrivateReleaseAssetError) as error:
         print(error.code, file=sys.stderr)
         return 1
     return 0
