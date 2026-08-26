@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import importlib.util
-import json
 import unittest
 from pathlib import Path
-from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
+
+import importlib.util
+
 MODULE_PATH = ROOT / "scripts" / "ci" / "bootstrap_check.py"
 SPEC = importlib.util.spec_from_file_location("bootstrap_check", MODULE_PATH)
 assert SPEC and SPEC.loader
@@ -18,18 +18,28 @@ class BootstrapContractTests(unittest.TestCase):
     def test_complete_bootstrap_contract(self) -> None:
         MODULE.validate_required_paths()
         MODULE.validate_public_workflow_exceptions()
+        MODULE.validate_runner_contract()
         MODULE.validate_self_check()
-        MODULE.validate_runtime_lock()
-        MODULE.validate_policies()
+        MODULE.validate_requirements()
         MODULE.validate_authority_docs()
 
-    def test_release_policy_uses_main_and_tag_without_release_assets(self) -> None:
-        policy = json.loads((ROOT / "contracts/security-policy.json").read_text())
-        release = policy["release_reference_policy"]
-        self.assertEqual(release["bootstrap_channel"], "main")
-        self.assertIn("git-tag", release["supported_immutable_references"])
-        self.assertFalse(release["github_release_required"])
-        self.assertFalse(release["attached_artifacts_required"])
+    def test_retired_global_policy_and_custom_runtime_are_absent(self) -> None:
+        for relative in (
+            "contracts/action-tool-lock.json",
+            "contracts/artifact-policy.json",
+            "contracts/security-policy.json",
+            "requirements/validation.lock",
+            "scripts/ci/bootstrap_validation_runtime.py",
+            "src/ci_workflows/validation_runtime.py",
+        ):
+            self.assertFalse((ROOT / relative).exists(), relative)
+
+    def test_validation_dependencies_are_conventional_repository_requirements(self) -> None:
+        source = (ROOT / "requirements/validation.txt").read_text(encoding="utf-8")
+        self.assertIn("PyYAML", source)
+        self.assertNotIn("--hash", source)
+        self.assertNotIn("sha256", source.casefold())
+        self.assertNotIn("files.pythonhosted.org", source)
 
     def test_public_workflow_bootstrap_contract_is_exactly_supported_surface(self) -> None:
         self.assertEqual(
@@ -78,55 +88,19 @@ class BootstrapContractTests(unittest.TestCase):
         )
         self.assertNotIn("python3 -m unittest discover", source)
         self.assertNotIn("actions/setup-python@", source)
+        self.assertIn("requirements/validation.txt", source)
+        self.assertIn('"${VERIFIED_PYTHON}" -m pip install', source)
+        self.assertNotIn("bootstrap_validation_runtime.py", source)
+        self.assertNotIn("action-tool-lock.json", source)
 
     def test_self_check_uses_final_general_linux_capability_contract(self) -> None:
         source = (ROOT / ".github/workflows/self-check.yml").read_text()
-        harness = json.loads((ROOT / "contracts/validation-harness.json").read_text())
-        runner_contract = json.loads((ROOT / "contracts/runner-profiles.json").read_text())
-        general_small = next(
-            profile
-            for profile in runner_contract["profiles"]
-            if profile["id"] == "general-small"
-        )
         self.assertEqual(source.count("runs-on: [ubuntu-latest]"), 1)
         self.assertNotIn("runs-on: [linux, amd64, general, small]", source)
         self.assertNotIn("runs-on: [linux, amd64, general]", source)
         self.assertNotIn("runs-on: portable", source)
         self.assertNotIn("runs-on: macOS", source)
-        self.assertEqual(harness["allowed_runner_profiles"], ["portable"])
-        self.assertEqual(
-            runner_contract["direct_selection_policy"]["portable_maps_only_to"],
-            "general-small",
-        )
-        self.assertIn("portable", general_small["public_labels"])
-        self.assertEqual(
-            general_small["default_internal_selector"],
-            ["linux", "amd64", "general", "small"],
-        )
-        self.assertEqual(
-            general_small["internal_selectors"],
-            [["linux", "amd64", "general", "small"]],
-        )
-        exception = [
-            item
-            for item in harness["exceptions"]
-            if item["path"] == ".github/workflows/self-check.yml"
-        ]
-        self.assertEqual([], exception)
-
-    def test_self_check_rejects_obsolete_concrete_selector(self) -> None:
-        source = (ROOT / ".github/workflows/self-check.yml").read_text()
-        contaminated_source = source + "\n# homelab-portable-linux-x64\n"
-        original = MODULE.read_text
-
-        def read_text(relative: str) -> str:
-            if relative == ".github/workflows/self-check.yml":
-                return contaminated_source
-            return original(relative)
-
-        with mock.patch.object(MODULE, "read_text", side_effect=read_text):
-            with self.assertRaisesRegex(SystemExit, "homelab-portable-linux-x64"):
-                MODULE.validate_self_check()
+        MODULE.validate_runner_contract()
 
 
 if __name__ == "__main__":
