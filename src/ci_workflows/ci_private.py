@@ -319,12 +319,15 @@ def _execute_family(
 ) -> tuple[bool, bool]:
     _verify_family(resolution, environment)
     if request.workflow_key == "validation.apple":
+        apple_environment = dict(environment)
+        for key, value in resolution.canonical_inputs().items():
+            apple_environment[f"INPUT_{key.upper()}"] = value
         return _execute_apple_validation(
             request=request,
             source_sha=source_sha,
             resolution=resolution,
             token_client=token_client,
-            environment=environment,
+            environment=apple_environment,
             log=log,
         )
     if request.workflow_key == "validation.android":
