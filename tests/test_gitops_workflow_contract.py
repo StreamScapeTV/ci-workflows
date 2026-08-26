@@ -7,9 +7,6 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-GITOPS_SHA = "1e703ba47bc0e8f01b72bc805c2375aa38df609e"
-EXECUTION_BACKEND_SHA = "5b3093056bd77d18bf094e1ba8d8d1613ccc472b"
 
 
 class GitOpsWorkflowContractTests(unittest.TestCase):
@@ -45,9 +42,10 @@ class GitOpsWorkflowContractTests(unittest.TestCase):
             "deployment",
         ):
             self.assertNotIn(forbidden, inputs)
-        self.assertEqual({"actions": "read", "contents": "read"}, workflow["permissions"])
+        self.assertEqual({"contents": "read"}, workflow["permissions"])
         self.assertNotIn("secrets:", source)
         self.assertNotIn("upload-artifact", source)
+        self.assertNotIn("/artifacts", source)
         self.assertNotIn("runs-on: macOS", source)
         self.assertNotIn("self-hosted", source)
         self.assertNotIn("runs-on: portable", source)
@@ -84,7 +82,7 @@ class GitOpsWorkflowContractTests(unittest.TestCase):
                 step for step in planner["steps"] if step.get("id") == "backend"
             )
             self.assertEqual(
-                f"StreamScapeTV/ci-workflows/actions/resolve-execution-backend@{EXECUTION_BACKEND_SHA}",
+                "StreamScapeTV/ci-workflows/actions/resolve-execution-backend@main",
                 backend["uses"],
             )
             self.assertEqual("validation.gitops", backend["with"]["workflow_api"])
@@ -98,9 +96,8 @@ class GitOpsWorkflowContractTests(unittest.TestCase):
             )
         self.assertIn("CI / GitOps validation", source)
         self.assertIn("if: always()", source)
-        self.assertIn("Confirm zero Actions artifacts", source)
 
-    def test_private_central_helpers_are_immutable_without_central_clone(self) -> None:
+    def test_private_central_helpers_follow_main_without_central_clone(self) -> None:
         source = (ROOT / ".github/workflows/reusable-gitops-validation.yml").read_text(
             encoding="utf-8"
         )
@@ -125,12 +122,12 @@ class GitOpsWorkflowContractTests(unittest.TestCase):
         }
         self.assertEqual(
             {
-                "StreamScapeTV/ci-workflows/actions/validate-gitops": GITOPS_SHA,
-                "StreamScapeTV/ci-workflows/actions/resolve-execution-backend": EXECUTION_BACKEND_SHA,
-                "StreamScapeTV/ci-workflows/actions/exact-checkout": FOUNDATION_SHA,
-                "StreamScapeTV/ci-workflows/actions/prepare-workspace": FOUNDATION_SHA,
-                "StreamScapeTV/ci-workflows/actions/render-evidence": FOUNDATION_SHA,
-                "StreamScapeTV/ci-workflows/actions/cleanup-workspace": FOUNDATION_SHA,
+                "StreamScapeTV/ci-workflows/actions/validate-gitops": "main",
+                "StreamScapeTV/ci-workflows/actions/resolve-execution-backend": "main",
+                "StreamScapeTV/ci-workflows/actions/exact-checkout": "main",
+                "StreamScapeTV/ci-workflows/actions/prepare-workspace": "main",
+                "StreamScapeTV/ci-workflows/actions/render-evidence": "main",
+                "StreamScapeTV/ci-workflows/actions/cleanup-workspace": "main",
             },
             remote,
         )
@@ -142,61 +139,44 @@ class GitOpsWorkflowContractTests(unittest.TestCase):
         )
         self.assertEqual("1000", checkout["with"]["fetch_depth"])
 
-        locked = {
-            item["uses"]: item
-            for item in json.loads(
-                (ROOT / "contracts/action-tool-lock.json").read_text(encoding="utf-8")
-            )["third_party_actions"]
-        }
-        gitops = locked["StreamScapeTV/ci-workflows/actions/validate-gitops"]
-        self.assertEqual(GITOPS_SHA, gitops["sha"])
-        self.assertEqual("issue #571 active composition classifier checkpoint", gitops["release"])
-        self.assertEqual("composite", gitops["runtime"])
-
-    def test_smoke_is_exact_head_hosted_linux_and_zero_artifact(self) -> None:
+    def test_smoke_is_exact_head_hosted_linux_and_source_clean(self) -> None:
         source = (ROOT / ".github/workflows/gitops-validation-smoke.yml").read_text()
         workflow = yaml.safe_load(source)
-        self.assertEqual({"actions": "read", "contents": "read"}, workflow["permissions"])
+        self.assertEqual({"contents": "read"}, workflow["permissions"])
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", source)
         self.assertIn('test "$(git rev-parse HEAD)"', source)
         self.assertIn("full", source)
         self.assertIn("synthetic", source)
         self.assertIn("3.18.6", source)
         self.assertIn("5.8.1", source)
-        self.assertIn("Verify GitOps smoke retained zero artifacts", source)
+        self.assertNotIn("/artifacts", source)
         self.assertNotIn("upload-artifact", source)
         self.assertNotIn("macOS", source)
         self.assertNotIn("runs-on: portable", source)
         self.assertNotIn("runs-on: [linux, amd64, general]", source)
         self.assertNotIn("runs-on: [linux, amd64, general, small]", source)
+        self.assertEqual({"plan", "execute"}, set(workflow["jobs"]))
         self.assertEqual(["ubuntu-latest"], workflow["jobs"]["plan"]["runs-on"])
         self.assertEqual(["ubuntu-latest"], workflow["jobs"]["execute"]["runs-on"])
-        self.assertEqual(["ubuntu-latest"], workflow["jobs"]["artifacts"]["runs-on"])
         self.assertIn("PLANNED_RUNNER_JSON", source)
         self.assertIn("needs.plan.outputs.runs_on_json", source)
-        condition = workflow["jobs"]["artifacts"]["if"]
-        self.assertIn("github.event.pull_request.user.login == 'mimranfaruqi'", condition)
-        self.assertIn(
-            "github.event.pull_request.head.repo.full_name == github.repository",
-            condition,
-        )
-        self.assertIn("always() && !cancelled()", condition)
-        self.assertIn("needs.plan.result != 'skipped'", condition)
         for job in workflow["jobs"].values():
             if "uses" not in job:
                 self.assertGreater(job.get("timeout-minutes", 0), 0)
 
-    def test_smoke_bootstraps_and_removes_locked_pyyaml_for_source_tests(self) -> None:
+    def test_smoke_prepares_and_removes_repository_validation_dependencies(self) -> None:
         workflow = yaml.safe_load(
             (ROOT / ".github/workflows/gitops-validation-smoke.yml").read_text()
         )
         steps = workflow["jobs"]["plan"]["steps"]
         by_name = {step["name"]: step for step in steps if "name" in step}
-        bootstrap = by_name["Bootstrap locked PyYAML for focused source tests"]
+        bootstrap = by_name["Prepare repository validation dependencies for focused source tests"]
         focused_tests = by_name["Run focused source package tests"]
-        cleanup = by_name["Remove locked PyYAML test state"]
-        self.assertIn("scripts/ci/bootstrap_validation_runtime.py", bootstrap["run"])
-        self.assertIn("--lock contracts/action-tool-lock.json", bootstrap["run"])
+        cleanup = by_name["Remove focused-test validation state"]
+        self.assertIn("python3 -m pip install", bootstrap["run"])
+        self.assertIn("-r requirements/validation.txt", bootstrap["run"])
+        self.assertNotIn("bootstrap_validation_runtime.py", bootstrap["run"])
+        self.assertNotIn("action-tool-lock.json", bootstrap["run"])
         self.assertIn("gitops-smoke-pyyaml-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}", bootstrap["run"])
         self.assertIn("GITOPS_SMOKE_PYTHONPATH", bootstrap["run"])
         self.assertIn("printf 'GITOPS_SMOKE_PYTHONPATH=%s\\n'", bootstrap["run"])
@@ -256,12 +236,11 @@ class GitOpsWorkflowContractTests(unittest.TestCase):
             "kustomize 5.8.1",
             "sops",
             "never decrypt",
-            "zero routine artifacts",
             "portable",
             "flux",
             "iptv-backend",
             "agent-state",
-            "immutable private",
+            "@main",
             "1000",
         ):
             self.assertIn(required, combined)
@@ -271,6 +250,9 @@ class GitOpsWorkflowContractTests(unittest.TestCase):
             "flux reconcile",
             "registry login",
             "runs-on: macos",
+            "contracts/action-tool-lock.json",
+            "zero routine artifacts",
+            "immutable private",
         ):
             self.assertNotIn(forbidden, combined)
 
