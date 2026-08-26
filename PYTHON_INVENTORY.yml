@@ -1,0 +1,156 @@
+version: 1
+source_root: src/ci_workflows
+generated_from_sha: c8aea15418628db39c2da0100e290039da424133
+inventory_complete: false
+new_module_creation_locked: true
+summary:
+  python_files_discovered: 173
+  status: bootstrap-schema-established-full-ast-scan-required
+  note: >-
+    This file is the mandatory Python architecture inventory. The initial policy
+    commit establishes its schema and target domains. A dedicated consolidation
+    issue must populate every current src/ci_workflows Python file, class, and
+    function from the exact current tree before broad refactoring begins.
+
+rules:
+  - Read this inventory before creating or substantially modifying Python implementation.
+  - Reuse or refactor an existing owner before creating a parallel module/function/class.
+  - Cross-cutting infrastructure belongs to product-neutral domain providers.
+  - Default to one cohesive implementation module per domain; use a second only for a real boundary.
+  - More than two implementation modules for one domain/build/release concern requires owner review first.
+  - Every finalized Python add/remove/rename/move/material responsibility change updates this inventory.
+  - Until inventory_complete is true, creating a new src/ci_workflows/*.py module requires explicit owner approval.
+
+status_values:
+  - keep
+  - consolidate
+  - compatibility
+  - remove-after-migration
+  - review
+
+entry_schema:
+  domain:
+    target_module: src/ci_workflows/example.py
+    responsibility: Short description of the domain boundary.
+    files:
+      - path: src/ci_workflows/example_old.py
+        responsibility: Short description of the current file responsibility.
+        status: review
+        classes:
+          - name: ExampleClass
+            purpose: Short description of the class responsibility.
+        functions:
+          - name: example_function
+            purpose: Short description of the function responsibility.
+
+# Target architecture is intentionally small and portfolio-driven. The complete
+# inventory will record all existing files underneath these or explicitly
+# justified additional domains, then consolidation will migrate callers toward
+# the target modules rather than creating another compatibility layer.
+domains:
+  r2:
+    target_module: src/ci_workflows/r2.py
+    responsibility: >-
+      Cloudflare R2/S3-compatible authentication, object naming, upload,
+      download/read-back, compression, digest verification, and bounded log
+      receipt helpers used by any CI family.
+    files:
+      - path: src/ci_workflows/r2_diagnostics.py
+        responsibility: Current low-level R2 private diagnostic transport and verification.
+        status: consolidate
+        classes:
+          - name: R2DiagnosticError
+            purpose: Stable fail-closed R2 transport error.
+          - name: R2DiagnosticResult
+            purpose: Immutable uploaded-object receipt metadata.
+        functions:
+          - name: upload_private_diagnostic
+            purpose: Compress, upload, read back, and digest-verify one private diagnostic.
+          - name: download_private_diagnostic
+            purpose: Download one exact private diagnostic and verify compressed digest.
+          - name: is_capability_object_key
+            purpose: Validate whether an R2 object key uses the capability-bound format.
+      - path: src/ci_workflows/ci_private_apple.py
+        responsibility: Current Apple-specific private CI executor; contains infrastructure helpers that generic CI imports.
+        status: consolidate
+        classes:
+          - name: PrivateAppleCiError
+            purpose: Stable Apple-private-executor error code wrapper.
+        functions:
+          - name: _r2_upload
+            purpose: Apple-local wrapper around generic R2 diagnostic upload; should move behind the R2/private-CI domain boundary.
+          - name: execute_private_apple
+            purpose: Legacy Apple-specific opaque private CI lifecycle/execution.
+          - name: recover_private_apple
+            purpose: Legacy Apple-specific interrupted-run recovery.
+      - path: src/ci_workflows/ci_private.py
+        responsibility: Current product-neutral opaque private CI executor, presently dependent on Apple-private helper internals.
+        status: consolidate
+        classes:
+          - name: PrivateCiError
+            purpose: Stable generic opaque-private-CI error wrapper.
+        functions:
+          - name: execute_private_ci
+            purpose: Execute one opaque private CI request through a technology adapter.
+          - name: recover_private_ci
+            purpose: Recover/terminalize an interrupted generic private CI request.
+          - name: plan_private_ci
+            purpose: Resolve the coarse hosted executor family for an opaque request.
+
+  agent_state:
+    target_module: src/ci_workflows/agent_state.py
+    responsibility: >-
+      CI-only Agent State request claim/start/evidence/finish operations used by
+      the reviewed opaque Central CI path. This domain must not absorb ordinary
+      agent ownership/work/resource APIs.
+    files: []
+
+  source:
+    target_module: src/ci_workflows/source.py
+    responsibility: GitHub source resolution, exact SHA admission, and exact checkout helpers.
+    files: []
+
+  workspace:
+    target_module: src/ci_workflows/workspace.py
+    responsibility: Isolated workspace preparation, state, cleanup, and residue verification.
+    files: []
+
+  apple:
+    target_module: src/ci_workflows/apple.py
+    responsibility: Apple-specific validation/build/test planning and execution only.
+    files: []
+
+  android:
+    target_module: src/ci_workflows/android.py
+    responsibility: Android-specific validation/build/test planning and execution only.
+    files: []
+
+  python:
+    target_module: src/ci_workflows/python.py
+    responsibility: Python-specific validation/build/test planning and execution only.
+    files: []
+
+  node:
+    target_module: src/ci_workflows/node.py
+    responsibility: Node.js/npm-specific validation/build/test planning and execution only.
+    files: []
+
+  service:
+    target_module: src/ci_workflows/service.py
+    responsibility: Podman/Compose/service-backed validation primitives shared by consumers.
+    files: []
+
+  gitops:
+    target_module: src/ci_workflows/gitops.py
+    responsibility: GitOps source/render/SOPS/Kustomize/Helm validation used by Flux-owned desired state.
+    files: []
+
+  release:
+    target_module: src/ci_workflows/release.py
+    responsibility: Shared tag/release/publication mechanics that are not technology-specific.
+    files: []
+
+  runners:
+    target_module: src/ci_workflows/runners.py
+    responsibility: Semantic runner profiles, execution backend resolution, and compatibility mapping.
+    files: []
