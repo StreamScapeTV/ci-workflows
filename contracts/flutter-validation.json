@@ -9,8 +9,7 @@
     "remove_pub_cache": true,
     "verify_clean_tree": true,
     "verify_lock_hash": true,
-    "verify_persistent_pub_cache_unchanged": true,
-    "zero_artifacts": true
+    "verify_persistent_pub_cache_unchanged": true
   },
   "commands": {
     "android-apk-debug": {
@@ -664,8 +663,7 @@
     "caller_download_url": false,
     "caller_jdk": false,
     "caller_runtime": false,
-    "immutable": true,
-    "jdk_action": "actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95",
+    "jdk_action": "actions/setup-java@v5.6.0",
     "jdk_distribution": "temurin"
   },
   "source_trust": [
