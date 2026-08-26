@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import os
 import subprocess
 import tempfile
@@ -8,6 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 from ci_workflows import python as python_validation
+from ci_workflows import python_docker_execution as docker_execution
 from ci_workflows.python_types import PythonValidationError, PythonValidationPlan, PythonValidationRequest, PythonValidationResult
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -166,6 +168,125 @@ class PythonValidationTests(unittest.TestCase):
             self.assertEqual("podman-postgres", result.validation_profile)
             podman.assert_called_once()
             docker.assert_not_called()
+
+    def test_hosted_docker_partial_pull_failure_cleans_already_pulled_image(self) -> None:
+        plan = python_validation.validate(
+            contract_root=ROOT,
+            source_root=None,
+            state_root=None,
+            request=container_request("a" * 40, profile="podman-postgres"),
+            phase="plan",
+            environment={},
+        )
+        self.assertIsInstance(plan, PythonValidationPlan)
+        contract = python_validation.load_python_contract(ROOT)
+        calls: list[list[str]] = []
+        pull_count = 0
+
+        def run(
+            argv: list[str],
+            *,
+            cwd: Path,
+            environment: dict[str, str],
+            timeout_seconds: int,
+            code: str = "command_failed",
+            allow_failure: bool = False,
+            failure_stage: str | None = None,
+        ) -> subprocess.CompletedProcess[str]:
+            del cwd, environment, timeout_seconds, code, allow_failure, failure_stage
+            nonlocal pull_count
+            calls.append(list(argv))
+            if argv[:2] == ["docker", "pull"]:
+                pull_count += 1
+                if pull_count == 2:
+                    raise PythonValidationError("toolchain_mismatch")
+                return subprocess.CompletedProcess(argv, 0, "", "")
+            if "inspect" in argv:
+                return subprocess.CompletedProcess(argv, 1, "", "Error: No such object: absent")
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"
+            source.mkdir()
+            state = root / "state"
+            state.mkdir()
+            with (
+                mock.patch.object(docker_execution.shutil, "which", return_value="/usr/bin/docker"),
+                mock.patch.object(docker_execution, "run_command", side_effect=run),
+                self.assertRaises(PythonValidationError) as caught,
+            ):
+                docker_execution.execute_docker_plan(
+                    source,
+                    state,
+                    plan,
+                    contract,
+                    {
+                        "INPUT_EXECUTION_BACKEND": "github-hosted",
+                        "GITHUB_RUN_ID": "42",
+                        "GITHUB_RUN_ATTEMPT": "1",
+                    },
+                )
+        self.assertEqual("toolchain_mismatch", caught.exception.code)
+        self.assertIn(
+            ["docker", "image", "rm", "-f", str(plan.runtime_reference)],
+            calls,
+        )
+
+    def test_hosted_docker_cleanup_fails_when_absence_cannot_be_proven(self) -> None:
+        def run(
+            argv: list[str],
+            *,
+            cwd: Path,
+            environment: dict[str, str],
+            timeout_seconds: int,
+            code: str = "command_failed",
+            allow_failure: bool = False,
+            failure_stage: str | None = None,
+        ) -> subprocess.CompletedProcess[str]:
+            del cwd, environment, timeout_seconds, code, allow_failure, failure_stage
+            if "inspect" in argv:
+                return subprocess.CompletedProcess(
+                    argv,
+                    1,
+                    "",
+                    "Cannot connect to the Docker daemon",
+                )
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with (
+                mock.patch.object(docker_execution, "run_command", side_effect=run),
+                self.assertRaises(PythonValidationError) as caught,
+            ):
+                docker_execution._cleanup_docker(
+                    ["docker"],
+                    containers=["validation"],
+                    network=None,
+                    volume=None,
+                    images=[],
+                    cwd=root,
+                    environment={},
+                )
+        self.assertEqual("cleanup_failed", caught.exception.code)
+
+    def test_hosted_docker_child_output_stays_on_current_private_streams(self) -> None:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        completed = subprocess.CompletedProcess(
+            ["docker", "run"],
+            0,
+            "consumer stdout",
+            "consumer stderr",
+        )
+        with (
+            mock.patch.object(docker_execution.sys, "stdout", stdout),
+            mock.patch.object(docker_execution.sys, "stderr", stderr),
+        ):
+            docker_execution._emit_validation_output(completed)
+        self.assertEqual("consumer stdout\n", stdout.getvalue())
+        self.assertEqual("consumer stderr\n", stderr.getvalue())
 
     def test_nonzero_consumer_script_is_stable_command_failure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
