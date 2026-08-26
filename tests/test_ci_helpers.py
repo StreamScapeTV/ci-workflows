@@ -59,7 +59,20 @@ class CiHelperTests(unittest.TestCase):
     def test_central_dispatch_passes_the_human_ref_directly(self) -> None:
         text = (ROOT / ".github/workflows/central-ci-dispatch.yml").read_text()
         self.assertNotIn("refs/tags/{0}", text)
-        self.assertGreaterEqual(text.count("ref: ${{ needs.request.outputs.ref }}"), 6)
+        self.assertGreaterEqual(text.count("ref: ${{ needs.request.outputs.ref }}"), 7)
+
+    def test_source_snapshot_reuses_drive_helper_and_updates_manifest_in_place(self) -> None:
+        broker = (ROOT / "ci-broker/app.py").read_text()
+        dispatch = (ROOT / ".github/workflows/central-ci-dispatch.yml").read_text()
+        self.assertIn('"source.snapshot"', broker)
+        self.assertIn("workflow_key == 'source.snapshot'", dispatch)
+        self.assertIn("git -C source archive --format=zip", dispatch)
+        self.assertIn("GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID", dispatch)
+        self.assertIn("file_name: source.zip", dispatch)
+        self.assertEqual(dispatch.count("file_name: manifest.json"), 2)
+        self.assertIn("manifest_file_id", dispatch)
+        self.assertIn("source_zip_file_id", dispatch)
+        self.assertIn('test "${CREATED_ID}" = "${UPDATED_ID}"', dispatch)
 
 
 if __name__ == "__main__":
