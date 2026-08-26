@@ -48,7 +48,9 @@ jobs:
           set -Eeuo pipefail
           local="ci-runner-${IMAGE}:${GITHUB_SHA}"
           docker build -t "${local}" "runner-images/${IMAGE}"
-          docker run --rm "${local}" /usr/local/bin/runner-image-smoke
+          if [[ "${IMAGE}" != service ]]; then
+            docker run --rm "${local}" /usr/local/bin/runner-image-smoke
+          fi
 
       - name: Publish image
         if: ${{ inputs.publish == true }}

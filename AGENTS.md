@@ -15,7 +15,7 @@ Read this file, the shared organization rules, and `INVENTORY.yaml` before chang
 Keep this repository small and conventional.
 
 - A workflow is a workflow. Do not use a `reusable-` filename prefix.
-- Workflow YAML is the source of truth for `workflow_call` inputs, permissions, jobs, and behavior.
+- Workflow YAML is the source of truth for `workflow_call` inputs, secrets, outputs, permissions, jobs, and behavior.
 - Do not mirror workflow YAML into contracts, generated API references, validation manifests, compatibility registries, or extra inventories.
 - `INVENTORY.yaml` is the only repository inventory. It contains paths only, not duplicated workflow APIs.
 - Product repositories remain thin callers and own their prepare/build/test/release commands.
