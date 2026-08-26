@@ -16,8 +16,6 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "reusable-tag-image-chart.yml"
 SELF_CHECK = ROOT / ".github" / "workflows" / "self-check.yml"
 README = ROOT / "README.md"
-ACTION_LOCK = ROOT / "contracts" / "action-tool-lock.json"
-HELPER_SHA = "2b0443fdad002d47625386a959ebe68545cfe022"
 
 
 class ReusableTagImageChartTests(unittest.TestCase):
@@ -224,7 +222,7 @@ class ReusableTagImageChartTests(unittest.TestCase):
         run_marker = "        run: |\n"
         script_start = self.text.index(run_marker, step_start)
         step_end = self.text.index(
-            "\n      - name: Confirm zero Actions artifacts",
+            "\n      - name: Summarize immutable publication",
             script_start,
         )
         script = textwrap.dedent(
@@ -442,10 +440,7 @@ class ReusableTagImageChartTests(unittest.TestCase):
         self.assertNotIn("secrets: inherit", self.text)
 
     def test_exact_tag_authority_checkout_and_freshness_are_required(self) -> None:
-        action_reference = (
-            "StreamScapeTV/ci-workflows/actions/resolve-release-tag@"
-            + HELPER_SHA
-        )
+        action_reference = "StreamScapeTV/ci-workflows/actions/resolve-release-tag@main"
         self.assertEqual(3, self.text.count(action_reference))
         self.assertIn("Admit exact trusted release mode and tag tuple", self.text)
         self.assertIn("Revalidate exact release tag before checkout", self.text)
@@ -472,21 +467,16 @@ class ReusableTagImageChartTests(unittest.TestCase):
         )
         self.assertNotIn("github.ref_name", self.text)
 
-    def test_helper_action_and_human_release_are_exactly_locked(self) -> None:
-        lock = json.loads(ACTION_LOCK.read_text(encoding="utf-8"))
-        matches = [
-            entry
-            for entry in lock["third_party_actions"]
-            if entry["uses"]
-            == "StreamScapeTV/ci-workflows/actions/resolve-release-tag"
-        ]
-        self.assertEqual(1, len(matches))
-        self.assertEqual(HELPER_SHA, matches[0]["sha"])
+    def test_first_party_helper_follows_main_and_checkout_uses_upstream_release(self) -> None:
         self.assertEqual(
-            "issue #59 immutable helper checkpoint",
-            matches[0]["release"],
+            3,
+            self.text.count(
+                "StreamScapeTV/ci-workflows/actions/resolve-release-tag@main"
+            ),
         )
-        self.assertEqual("composite", matches[0]["runtime"])
+        self.assertIn("uses: actions/checkout@v7.0.1", self.text)
+        self.assertNotIn("immutable helper checkpoint", self.text)
+        self.assertNotIn("contracts/action-tool-lock.json", self.text)
 
     def test_version_and_input_validator_accepts_only_bounded_values(self) -> None:
         marker = "          python3 - <<'PY'\n"
@@ -580,7 +570,7 @@ class ReusableTagImageChartTests(unittest.TestCase):
             "Authenticate to fixed private OCI registry",
             "Build publish and verify exact-tag image",
             "Package publish and verify exact-tag Helm chart",
-            "Confirm zero Actions artifacts",
+            "Summarize immutable publication",
             "Clean publication credentials and state",
         ):
             self.assertEqual(1, publish.count(marker))
@@ -926,11 +916,12 @@ class ReusableTagImageChartTests(unittest.TestCase):
                 self.assertNotIn(forbidden, lower)
         self.assertIn("Deployment/rollout: not performed", self.text)
 
-    def test_zero_artifacts_auth_isolated_and_cleanup_fail_closed(self) -> None:
-        self.assertIn("actions: read", self.text)
+    def test_auth_isolated_and_cleanup_fail_closed(self) -> None:
+        self.assertNotIn("actions: read", self.text)
         self.assertIn("contents: read", self.text)
         self.assertIn("chmod 0600", self.text)
-        self.assertIn("zero artifacts", self.text)
+        self.assertNotIn("Confirm zero Actions artifacts", self.text)
+        self.assertNotIn("/artifacts?per_page=100", self.text)
         self.assertIn("if: always()", self.text)
         self.assertIn("cleanup_failed=0", self.text)
         self.assertIn('exit "${cleanup_failed}"', self.text)
@@ -1044,7 +1035,7 @@ class ReusableTagImageChartTests(unittest.TestCase):
             '"${VERIFIED_PYTHON}" -m unittest -v tests/test_reusable_tag_image_chart.py',
             self.self_check,
         )
-        self.assertIn("Confirm zero Actions artifacts", self.self_check)
+        self.assertNotIn("Confirm zero Actions artifacts", self.self_check)
         self.assertIn(
             "uses: StreamScapeTV/ci-workflows/.github/workflows/"
             "reusable-tag-image-chart.yml@",
