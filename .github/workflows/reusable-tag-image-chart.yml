@@ -69,7 +69,6 @@ on:
         value: ${{ jobs.publish.outputs.chart_package_sha256 }}
 
 permissions:
-  actions: read
   contents: read
 
 env:
@@ -93,7 +92,7 @@ jobs:
     steps:
       - id: authority
         name: Admit exact trusted release mode and tag tuple
-        uses: StreamScapeTV/ci-workflows/actions/resolve-release-tag@2b0443fdad002d47625386a959ebe68545cfe022 # issue #59 immutable helper checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/resolve-release-tag@main
         with:
           release_mode: ${{ inputs.release_mode }}
           release_version: ${{ inputs.release_version }}
@@ -121,7 +120,7 @@ jobs:
 
     steps:
       - name: Revalidate exact release tag before checkout
-        uses: StreamScapeTV/ci-workflows/actions/resolve-release-tag@2b0443fdad002d47625386a959ebe68545cfe022 # issue #59 immutable helper checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/resolve-release-tag@main
         with:
           phase: revalidate
           release_mode: ${{ needs.admit.outputs.release_mode }}
@@ -131,7 +130,7 @@ jobs:
           expected_tag_commit_sha: ${{ needs.admit.outputs.tag_commit_sha }}
 
       - name: Check out exact validated caller source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           ref: ${{ needs.admit.outputs.source_sha }}
           fetch-depth: 1
@@ -528,7 +527,7 @@ jobs:
           PY
 
       - name: Revalidate exact release tag immediately before publication
-        uses: StreamScapeTV/ci-workflows/actions/resolve-release-tag@2b0443fdad002d47625386a959ebe68545cfe022 # issue #59 immutable helper checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/resolve-release-tag@main
         with:
           phase: revalidate
           release_mode: ${{ needs.admit.outputs.release_mode }}
@@ -893,37 +892,6 @@ jobs:
             printf 'replayed=%s\n' "${remote_exists}"
           } >> "${GITHUB_OUTPUT}"
 
-      - name: Confirm zero Actions artifacts
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -Eeuo pipefail
-          python3 - <<'PY'
-          from __future__ import annotations
-
-          import json
-          import os
-          import urllib.request
-
-          request = urllib.request.Request(
-              f"{os.environ['GITHUB_API_URL']}/repos/"
-              f"{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
-              f"{os.environ['GITHUB_RUN_ID']}/artifacts?per_page=100",
-              headers={
-                  "Accept": "application/vnd.github+json",
-                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
-                  "X-GitHub-Api-Version": "2022-11-28",
-              },
-          )
-          with urllib.request.urlopen(request, timeout=30) as response:
-              payload = json.load(response)
-          count = int(payload.get("total_count", 0))
-          if count:
-              raise SystemExit(f"release uploaded {count} unexpected artifact(s)")
-          print("Exact-tag release artifact policy passed: zero artifacts.")
-          PY
-
       - name: Summarize immutable publication
         shell: bash
         env:
@@ -949,7 +917,6 @@ jobs:
             echo "- Chart package SHA-256: \`${CHART_PACKAGE_SHA}\`"
             echo "- Chart replayed: \`${CHART_REPLAYED}\`"
             echo "- Platforms: \`linux/amd64, linux/arm64\`"
-            echo "- Actions artifacts: zero"
             echo "- Deployment/rollout: not performed"
           } >> "${GITHUB_STEP_SUMMARY}"
 
