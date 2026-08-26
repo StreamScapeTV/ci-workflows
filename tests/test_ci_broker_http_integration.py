@@ -181,7 +181,7 @@ class BrokerHttpIntegrationTests(unittest.TestCase):
         with urllib.request.urlopen(request, timeout=5) as response:
             self.assertEqual(response.status, 200)
             result = json.loads(response.read().decode("utf-8"))
-        self.assertEqual(result, {"ok": True, "dispatched": True, "recovered": False})
+        self.assertEqual(result, {"ok": True, "accepted": True, "dispatched": True})
         self.assertEqual(state.claims, [CI_RUN_ID])
         self.assertEqual(state.transitions, [])
 
