@@ -172,7 +172,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 - Inputs: `execution_backend` (default `organization`), `admitted_sha` (required), `validation_profile` (required), `working_directory` (default `.`), `script_path` (required)
 - Secrets: none
 - Outputs: `result`
-- Repository-owned hooks: `script_path`, `working_directory`
+- Repository-owned hooks: `script_path`
 
 ### `validation.static-web`
 
