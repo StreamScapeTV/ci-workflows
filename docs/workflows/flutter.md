@@ -33,23 +33,21 @@ cannot consume `mobile` or `portable`; no profile grants physical-device
 authority. Dynamic execution consumes only the exact planner-produced selector
 through `${{ fromJSON(needs.plan.outputs.runs_on_json) }}`.
 
-## Immutable private helper reuse
+## Shared Central helper reuse
 
 Private same-organization consumers do not clone `StreamScapeTV/ci-workflows`
 with their caller-scoped token. The planner and each portable, mobile, and Apple
-execution lane invoke reviewed central composite actions directly through exact
-full-SHA references. `validate-flutter` uses the issue #125 immutable private
-action checkpoint, while exact checkout, workspace preparation, and terminal
-workspace cleanup reuse the foundation checkpoint established by #116.
+execution lane invoke first-party Central composite actions through the current
+shared-library channel `@main`. There is no per-action checkpoint registry or
+helper-version propagation requirement.
 
-Those private action archives supply their central scripts and Python modules
+Those private action archives supply their Central scripts and Python modules
 relative to `GITHUB_ACTION_PATH`. The reusable workflow therefore has no `.ciw`
-central checkout, central PAT input, `secrets: inherit`, mutable helper ref, or
-caller-selected helper version. Product source authority remains separate: the
-exact admitted caller SHA is checked out through the immutable exact-checkout
-action and explicitly reverified before execution proceeds. All existing
-runner, toolchain, pub-cache, cleanup, residue, and zero-artifact boundaries are
-unchanged by the helper distribution mechanism.
+Central checkout, Central PAT input, or `secrets: inherit`. Product source
+authority remains separate: the exact admitted caller SHA is checked out through
+`exact-checkout@main` and explicitly reverified before execution proceeds. All
+existing runner, toolchain, pub-cache, cleanup, residue, and confidentiality
+boundaries are unchanged by the helper distribution mechanism.
 
 ## Runtime authority
 
@@ -63,14 +61,18 @@ sources are:
 Every recognized pin file that exists is read as a regular non-symlink file and
 must remain within the admitted source root. All values must agree. Channels,
 ranges, aliases, whitespace-separated values, malformed JSON, extra FVM keys,
-missing pins, symlinks, traversal, mutable refs, and caller-selected runtimes
-fail closed.
+missing pins, symlinks, traversal, mutable runtime values, and caller-selected
+runtimes fail closed.
 
-The immutable setup action is pinned by full SHA in
-`contracts/flutter-validation.json`. After setup, the validator parses
-`flutter --version --machine` and verifies the exact Flutter version, exact Dart
-version, reviewed framework revision, and reviewed engine revision when the
-contract provides one. The setup path cannot accept a caller download URL.
+The setup actions are recorded in `contracts/flutter-validation.json` so the
+workflow and contract agree on the functional setup mechanism. The JDK setup
+uses the ordinary upstream `actions/setup-java@v5.6.0` reference. The existing
+Flutter setup reference remains the reviewed upstream reference already used by
+this repository; the contract does not impose a repository-wide immutable-action
+policy. After setup, the validator parses `flutter --version --machine` and
+verifies the exact Flutter version, exact Dart version, reviewed framework
+revision, and reviewed engine revision when the contract provides one. The setup
+path cannot accept a caller download URL.
 
 ## Dependency, Node, and command boundaries
 
@@ -110,15 +112,18 @@ Neither smoke workflow reconstructs, concatenates, or exposes runner labels.
 The product-neutral smoke projects are disposable. They run one plain
 `flutter pub get` only to create their initial synthetic lock, then the normal
 validator performs the enforced locked restore and proves the lock remains
-unchanged. Both workflows require cleanup, zero residue, and zero routine
-Actions artifacts.
+unchanged. Both workflows require cleanup and zero residue. They do not add a
+separate GitHub Actions artifact-inventory finalizer; private-source output
+confidentiality is enforced by the shared privacy boundary rather than a global
+zero-artifact ceremony.
 
 ## Outputs and cleanup
 
 Android outputs are debug and unsigned only. iOS outputs are simulator and
 unsigned only. Outputs are checked through contained non-symlink paths and then
-removed. No APK, AAB, app bundle, result bundle, log, report, or diagnostic is
-uploaded.
+removed. Private source, credentials, private logs, result bundles, and other
+confidential run material must not be exposed through public logs or public
+Actions artifacts.
 
 Validation uses the existing `minimal`, `gradle`, and `apple` workspace
 profiles and then creates a Flutter-specific marker-bound subtree. It isolates
@@ -127,16 +132,16 @@ temporary files, logs, reports, and build output. Real consumer iOS profiles run
 `pod install --deployment` before the simulator compile. Cleanup is terminal,
 no-follow, and fail closed. It removes Flutter/Dart, Gradle, Pods, DerivedData,
 coverage, logs, reports, and build residue; verifies pin and lock hashes; and
-requires a clean admitted source. Routine Actions artifacts remain zero.
+requires a clean admitted source.
 
 ## Caller example
 
-During active development/bootstrap, repository consumers call public reusable
-`ci-workflows` workflows at `@main`. Full-SHA and stable-tag references remain
-supported, but they are not the current default consumer channel; a later
-explicit stable-release/cutover decision may make an immutable channel preferred
-or required. This does not weaken internal/private helper pins, which remain
-exact immutable SHAs.
+During active development, repository consumers call public reusable
+`ci-workflows` workflows at `@main`. Whole-repository SHAs and stable repository
+tags remain supported snapshots when a caller deliberately needs one, but they
+are not independently assigned versions for Flutter functions/actions/workflows.
+This does not weaken exact caller-source, toolchain, credential, or cleanup
+verification.
 
 ```yaml
 jobs:
