@@ -13,6 +13,7 @@ if str(SRC) not in sys.path:
 
 from ci_workflows.central_profile import main as central_profile_main  # noqa: E402
 from ci_workflows.ci_lifecycle import main as ci_lifecycle_main  # noqa: E402
+from ci_workflows.ci_private import main as ci_private_main  # noqa: E402
 from ci_workflows.ci_private_apple import main as ci_private_apple_main  # noqa: E402
 from ci_workflows.ciw import main as registry_main  # noqa: E402
 from ci_workflows.ciw_gradle_seed import main as gradle_seed_main  # noqa: E402
@@ -28,6 +29,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return ci_lifecycle_main(arguments[1:])
     if arguments[:1] == ["central-profile"]:
         return central_profile_main(arguments[1:])
+    if arguments[:1] == ["private-ci"]:
+        return ci_private_main(arguments[1:])
     if arguments[:1] == ["private-apple"]:
         return ci_private_apple_main(arguments[1:])
     if arguments[:1] == ["github-app"]:
