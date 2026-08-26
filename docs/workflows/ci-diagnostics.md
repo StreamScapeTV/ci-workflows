@@ -33,10 +33,10 @@ shell tracing.
 ## Runner-local capture
 
 The private executor creates one mode-0600 log below `RUNNER_TEMP`. Private Git
-checkout output is redirected there. Canonical Apple validation already captures
-subprocess stdout/stderr rather than streaming it; the executor redirects its
-Python stdout/stderr to the same private log and appends the canonical per-stage
-Apple state logs before cleanup.
+checkout output is redirected there. Canonical validation implementations capture
+subprocess stdout/stderr rather than streaming private product output; the opaque
+executor redirects their Python stdout/stderr to the same private log and appends
+bounded implementation state logs before cleanup.
 
 Secret-bearing command files (`GITHUB_OUTPUT`, `GITHUB_ENV`, and
 `GITHUB_STEP_SUMMARY`) are removed from the private product execution environment
@@ -65,10 +65,9 @@ ci-diagnostics/<ci_run_id>/<128-bit-capability>/<github_run_id>-<run_attempt>.lo
 ```
 
 The write path derives that capability with domain-separated HMAC-SHA-256 from
-the R2 **write-only** secret plus the exact CI identity and compressed digest.
-The derivation is deterministic for the same exact object, so upload/read-back
-and recovery remain idempotent. The read service never receives the write secret
-and therefore cannot mint another valid capability-bearing object path.
+the R2 write secret plus the exact CI identity and compressed digest. The
+derivation is deterministic for the same exact object, so upload/read-back and
+recovery remain idempotent.
 
 The compatibility Agent State receipt is:
 
@@ -79,46 +78,30 @@ r2:ci-diagnostics/<ci_run_id>/<128-bit-capability>/<github_run_id>-<run_attempt>
 with `diagnostic_status=uploaded`. If upload/read-back fails, the workflow fails
 closed and records a stable upload failure instead of inventing a log pointer.
 R2 object retention is owned by the bucket lifecycle policy; Agent State remains
-a 24-hour recent-CI index. Legacy deterministic object paths may still be read
-internally for historical read-back compatibility, but they are not accepted by
-the externally reachable diagnostics reader.
+a short-lived recent-CI index.
 
-## Authorized receipt-capability retrieval
+## Receipt-bound retrieval
 
-Detailed logs are retrieved by a separate read-only service, not by the thin
-Agent State relay. The reader receives only `R2_ACCOUNT_ID`, `R2_BUCKET`,
-`R2_READ_ACCESS_KEY_ID`, and `R2_READ_SECRET_ACCESS_KEY`. It has no Agent State,
-GitHub App, source, workflow-dispatch, lifecycle, R2 write, or capability-minting
-credential. The thin relay therefore remains unable to inspect or return build
-logs.
+The former public diagnostics HTTP reader is withdrawn and must not be deployed,
+routed, or exposed. The broker image and chart contain only the webhook broker;
+there is no `ci-broker-diagnostics` Deployment, Service, route, hostname, or
+second HTTP process.
 
-The exact capability-bearing Agent State receipt is the authorization material.
-An agent that is authorized to read the CI row obtains `diagnostic_key`, UTF-8
-encodes the exact receipt, applies URL-safe base64 without `=` padding, and
-requests:
+An authorized agent retrieves the exact private object through the lowercase
+custom Cloudflare MCP using the receipt already stored in Agent State. Retrieval
+must remain exact and receipt-bound:
 
-```text
-/diagnostics/<receipt-capability>
-```
+1. read the exact R2 object key from the Agent State receipt;
+2. fetch that exact object directly from private R2 through the lowercase
+   Cloudflare MCP;
+3. compute SHA-256 over the compressed object and compare it with the receipt
+   before trusting or decompressing it;
+4. only after the digest matches, decompress locally and read the minimum private
+   log content required for the acceptance proof.
 
-The receipt-capability is a bearer capability and must be handled accordingly:
-do not paste it into GitHub issues, public Actions logs, workflow inputs, or
-other durable shared text. The service suppresses application request logging
-and returns `Cache-Control: private, no-store` plus no-referrer/nosniff headers.
-Access remains possible only while the R2 object exists, so the bucket lifecycle
-is also the capability lifetime boundary.
-
-The reader decodes one exact receipt, requires the 128-bit capability-bearing
-object shape, downloads that exact object with the read-only R2 key, and verifies
-the receipt's compressed SHA-256 **before** bounded gzip decompression. A missing
-object or digest mismatch is reported as the same generic not-found result.
-Successful retrieval returns the bounded decompressed UTF-8 log as `text/plain`;
-it does not create a GitHub Actions artifact, copy the log into a GitHub job, or
-write any body back into Agent State.
-
-The service is intentionally receipt-capability based rather than Agent State
-aware. Agent State continues to be RPC-only and metadata-only; the reader does
-not receive a database credential or acquire ownership/lifecycle authority.
+The full private log must not be copied into GitHub issues, pull requests,
+Actions logs, summaries, artifacts, or Agent State. Cloudflare D1 is not part of
+this private-log path.
 
 ## Terminal ordering
 
@@ -135,6 +118,6 @@ For both success and failure the intended order is:
    receipt/status;
 8. remove local private state.
 
-GitHub Actions is therefore execution/orchestration evidence, Agent State is the
+GitHub Actions is execution/orchestration evidence, Agent State is the
 short-lived status/discovery index, and R2 is the detailed private log authority.
-Cloudflare D1 is not part of this path.
+The transport-only broker is not a log reader or build executor.
