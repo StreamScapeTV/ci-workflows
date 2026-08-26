@@ -46,7 +46,7 @@ jobs:
     uses: ./.github/workflows/apple.yml
     with:
       repository: ${{ needs.request.outputs.repository }}
-      ref: ${{ needs.request.outputs.is_tag == 'true' && format('refs/tags/{0}', needs.request.outputs.ref) || needs.request.outputs.ref }}
+      ref: ${{ needs.request.outputs.ref }}
       working_directory: ${{ fromJSON(needs.request.outputs.inputs_json).working_directory || '.' }}
       test_profile: ${{ needs.request.outputs.test_profile }}
       prepare_command: ${{ fromJSON(needs.request.outputs.inputs_json).prepare_command || '' }}
@@ -62,7 +62,7 @@ jobs:
     uses: ./.github/workflows/android.yml
     with:
       repository: ${{ needs.request.outputs.repository }}
-      ref: ${{ needs.request.outputs.is_tag == 'true' && format('refs/tags/{0}', needs.request.outputs.ref) || needs.request.outputs.ref }}
+      ref: ${{ needs.request.outputs.ref }}
       working_directory: ${{ fromJSON(needs.request.outputs.inputs_json).working_directory || '.' }}
       test_profile: ${{ needs.request.outputs.test_profile }}
       java_version: ${{ fromJSON(needs.request.outputs.inputs_json).java_version || '25' }}
@@ -79,7 +79,7 @@ jobs:
     uses: ./.github/workflows/python.yml
     with:
       repository: ${{ needs.request.outputs.repository }}
-      ref: ${{ needs.request.outputs.is_tag == 'true' && format('refs/tags/{0}', needs.request.outputs.ref) || needs.request.outputs.ref }}
+      ref: ${{ needs.request.outputs.ref }}
       working_directory: ${{ fromJSON(needs.request.outputs.inputs_json).working_directory || '.' }}
       test_profile: ${{ needs.request.outputs.test_profile }}
       python_version: ${{ fromJSON(needs.request.outputs.inputs_json).python_version || '3.12' }}
@@ -96,7 +96,7 @@ jobs:
     uses: ./.github/workflows/node.yml
     with:
       repository: ${{ needs.request.outputs.repository }}
-      ref: ${{ needs.request.outputs.is_tag == 'true' && format('refs/tags/{0}', needs.request.outputs.ref) || needs.request.outputs.ref }}
+      ref: ${{ needs.request.outputs.ref }}
       working_directory: ${{ fromJSON(needs.request.outputs.inputs_json).working_directory || '.' }}
       test_profile: ${{ needs.request.outputs.test_profile }}
       node_version: ${{ fromJSON(needs.request.outputs.inputs_json).node_version || '22' }}
@@ -113,7 +113,7 @@ jobs:
     uses: ./.github/workflows/flutter.yml
     with:
       repository: ${{ needs.request.outputs.repository }}
-      ref: ${{ needs.request.outputs.is_tag == 'true' && format('refs/tags/{0}', needs.request.outputs.ref) || needs.request.outputs.ref }}
+      ref: ${{ needs.request.outputs.ref }}
       working_directory: ${{ fromJSON(needs.request.outputs.inputs_json).working_directory || '.' }}
       test_profile: ${{ needs.request.outputs.test_profile }}
       java_version: ${{ fromJSON(needs.request.outputs.inputs_json).java_version || '25' }}
@@ -131,7 +131,7 @@ jobs:
     uses: ./.github/workflows/gitops.yml
     with:
       repository: ${{ needs.request.outputs.repository }}
-      ref: ${{ needs.request.outputs.is_tag == 'true' && format('refs/tags/{0}', needs.request.outputs.ref) || needs.request.outputs.ref }}
+      ref: ${{ needs.request.outputs.ref }}
       working_directory: ${{ fromJSON(needs.request.outputs.inputs_json).working_directory || '.' }}
       test_profile: ${{ needs.request.outputs.test_profile }}
       prepare_command: ${{ fromJSON(needs.request.outputs.inputs_json).prepare_command || '' }}
