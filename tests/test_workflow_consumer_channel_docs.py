@@ -31,7 +31,7 @@ class WorkflowConsumerChannelDocsTests(unittest.TestCase):
             flutter,
         )
         self.assertIn(
-            "Exact admitted\nconsumer source is checked out through `exact-checkout@main`",
+            "Product source\nauthority remains separate: the exact admitted caller SHA is checked out through\n`exact-checkout@main`",
             flutter,
         )
         self.assertIn("private source", flutter.lower())
