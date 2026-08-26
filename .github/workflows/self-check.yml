@@ -65,6 +65,7 @@ jobs:
       repository: StreamScapeTV/iptv-apple
       ref: develop
       test_profile: full
+      upload_private_log: true
       prepare_command: ./scripts/bootstrap-streamscape-media-binary.sh
       build_command: >-
         xcodebuild build-for-testing -workspace streamscapetv.xcworkspace -scheme streamscapetv -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO &&
