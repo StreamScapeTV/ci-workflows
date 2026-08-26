@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "additionalProperties": false,
-  "required": ["replicaCount", "fullnameOverride", "image", "existingSecret", "service", "resources", "diagnostics"],
+  "required": ["replicaCount", "fullnameOverride", "image", "existingSecret", "service", "resources"],
   "properties": {
     "replicaCount": {
       "type": "integer",
@@ -94,56 +94,6 @@
           "properties": {
             "cpu": {"type": "string", "minLength": 1},
             "memory": {"type": "string", "minLength": 1}
-          }
-        }
-      }
-    },
-    "diagnostics": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["enabled", "service", "resources"],
-      "properties": {
-        "enabled": {
-          "type": "boolean"
-        },
-        "service": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["type", "port"],
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "ClusterIP"
-            },
-            "port": {
-              "type": "integer",
-              "const": 8081
-            }
-          }
-        },
-        "resources": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["requests", "limits"],
-          "properties": {
-            "requests": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["cpu", "memory"],
-              "properties": {
-                "cpu": {"type": "string", "minLength": 1},
-                "memory": {"type": "string", "minLength": 1}
-              }
-            },
-            "limits": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["cpu", "memory"],
-              "properties": {
-                "cpu": {"type": "string", "minLength": 1},
-                "memory": {"type": "string", "minLength": 1}
-              }
-            }
           }
         }
       }
