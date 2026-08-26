@@ -52,10 +52,10 @@
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/resolve-execution-backend",
-      "sha": "83084efecc597d3bedacfe5f8628f1890b9bcd90",
-      "release": "issue #495 hosted Apple backend checkpoint",
+      "sha": "5b3093056bd77d18bf094e1ba8d8d1613ccc472b",
+      "release": "issue #577 hosted Android backend checkpoint",
       "runtime": "composite",
-      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/83084efecc597d3bedacfe5f8628f1890b9bcd90/actions/resolve-execution-backend"
+      "source": "https://github.com/StreamScapeTV/ci-workflows/tree/5b3093056bd77d18bf094e1ba8d8d1613ccc472b/actions/resolve-execution-backend"
     },
     {
       "uses": "StreamScapeTV/ci-workflows/actions/validate-device",
