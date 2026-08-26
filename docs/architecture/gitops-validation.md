@@ -17,12 +17,13 @@ portable validation into a privileged path.
 
 ## Execution layers
 
-1. A protected planning job invokes the immutable private `validate-gitops`
-   action, validates the exact request against `contracts/gitops-validation.json`,
-   and resolves semantic `portable` through the central runner contract.
+1. A protected planning job invokes the current first-party `validate-gitops`
+   action on `@main`, validates the exact request against
+   `contracts/gitops-validation.json`, and resolves semantic `portable` through
+   the central runner contract.
 2. The execution job checks out only the exact admitted caller SHA through the
-   immutable exact-checkout foundation action with bounded history depth `1000`.
-   It does not clone the private central repository into `.ciw`.
+   shared exact-checkout action on `@main` with bounded history depth `1000`.
+   It does not clone the central repository into `.ciw`.
 3. A marker-bound workspace provides isolated HOME, cache, temporary, download,
    installation, render, log, and evidence roots.
 4. The named Python plan layer resolves exact contract paths plus bounded SOPS
@@ -33,29 +34,28 @@ portable validation into a privileged path.
    policy script without a shell, and verifies that the Git source and content
    digest are unchanged.
 6. Always-run cleanup removes the issue-owned root without following symlinks,
-   the shared workspace cleanup removes its registration, and an API query
-   proves zero Actions artifacts.
+   and shared workspace cleanup removes its registration. Exact source and Git
+   cleanliness are reverified after cleanup.
 
 Workflow YAML remains ordered orchestration. Algorithms and error handling live
 under `src/ci_workflows/gitops_*.py`; the composite action and `scripts/ci`
 adapter are thin entry points.
 
-## Immutable private central identity
+## Shared Central identity
 
-Private callers receive central implementation through exact full-SHA private
-action references rather than a caller-token checkout of
-`StreamScapeTV/ci-workflows`. `validate-gitops` is pinned to reviewed immutable
-central revision `8445e63dd9fa9468b60b6d0c61e543da9681b47b`; the common exact
-checkout, workspace, evidence, and cleanup actions reuse the immutable #116
-foundation checkpoint. These identities are registered in
-`contracts/action-tool-lock.json`.
+Private callers consume Central implementation through the current first-party
+`@main` channel rather than a caller-token checkout of
+`StreamScapeTV/ci-workflows`. `validate-gitops`, exact checkout, workspace,
+evidence, cleanup, and execution-backend resolution are parts of one shared
+library, not independently versioned components. There is no per-action SHA or
+checkpoint registry.
 
 Each action resolves its own scripts and typed libraries through
 `GITHUB_ACTION_PATH`. The reusable workflow therefore needs no `.ciw` clone,
-central PAT, secret inheritance, mutable helper reference, or caller-selected
-central source. This changes only central helper distribution: exact product
-source, semantic runner selection, public permissions, cleanup, and zero-artifact
-policy remain unchanged.
+central PAT, secret inheritance, or caller-selected Central source. Repository
+tags, when used, identify a whole `ci-workflows` snapshot; active development
+uses `@main`. Exact product source, semantic runner selection, public
+permissions, and cleanup remain unchanged by this distribution model.
 
 The exact-checkout foundation allows history depth only from 1 through 1000.
 GitOps changed-tree validation therefore requests the maximum bounded depth
@@ -127,12 +127,16 @@ another directory to bypass duplicate ownership.
   and executable generators.
 - Helm rejects mutable versions and unlocked or non-vendored dependencies.
 - The workflow exposes no secret, registry, cluster, deployment, decryption, or
-  publication input and grants read-only source plus bounded Actions-read
-  permission for zero-artifact verification.
+  publication input and grants read-only source permission.
 - General Linux `portable` capacity is the only runner profile. The retired
   emergency Mac exception is not restored.
 - Cleanup is registered-root-only, no-follow, fail-closed, and preserves both a
-  primary and cleanup failure. Zero routine artifacts is invariant.
+  primary and cleanup failure.
+
+Actions artifact count is not a global correctness or security invariant. Any
+artifact behavior must be justified by the specific functional workflow that
+needs it; GitOps source validation does not gain publication authority from the
+absence or presence of unrelated platform artifacts.
 
 ## Consumer progression
 
