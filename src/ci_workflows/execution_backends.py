@@ -8,6 +8,7 @@ from typing import Sequence
 _HOSTED_RUNS_ON = {
     "general-tiny": ("ubuntu-latest",),
     "general-small": ("ubuntu-latest",),
+    "mobile": ("ubuntu-latest",),
     "apple": ("macos-latest",),
 }
 
