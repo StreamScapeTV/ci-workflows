@@ -32,8 +32,16 @@ from .ci_broker import (
     _uuid,
 )
 
-_SUPPORTED_WORKFLOW_KEY = "validation.apple"
-_SUPPORTED_PROFILE = "host"
+# Transport admission is deliberately semantic and closed. Product-specific
+# configuration is reclaimed later by the trusted Central executor from the
+# private source checkout; it never enters the public dispatch event.
+_SUPPORTED_INTENTS = frozenset(
+    {
+        ("validation.apple", "host"),
+        ("validation.android", "host"),
+        ("validation.python", "host"),
+    }
+)
 
 
 def _required(environment: Mapping[str, str], name: str) -> str:
@@ -149,11 +157,7 @@ class RelayRequest:
         _require(value.get("requested_source_sha") in (None, ""), "requested_source_sha_unsupported", 422)
         workflow_key = _safe_workflow_key(value.get("workflow_key"))
         profile = _safe_profile(value.get("test_profile"))
-        _require(
-            workflow_key == _SUPPORTED_WORKFLOW_KEY and profile == _SUPPORTED_PROFILE,
-            "unsupported_ci_intent",
-            422,
-        )
+        _require((workflow_key, profile) in _SUPPORTED_INTENTS, "unsupported_ci_intent", 422)
         raw_inputs = value.get("inputs")
         _require(raw_inputs in (None, {}) or raw_inputs == {}, "unsupported_ci_inputs", 422)
         return cls(
