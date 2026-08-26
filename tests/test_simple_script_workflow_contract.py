@@ -15,7 +15,7 @@ VALIDATION = ROOT / "contracts/public-workflows/validation.json"
 RUNNER_PROFILES = ROOT / "contracts/runner-profiles.json"
 RUNNERS_DOC = ROOT / "RUNNERS.md"
 DOC = ROOT / "docs/workflows/simple-validation.md"
-EXECUTION_BACKEND_SHA = "83084efecc597d3bedacfe5f8628f1890b9bcd90"
+EXECUTION_BACKEND_SHA = "5b3093056bd77d18bf094e1ba8d8d1613ccc472b"
 
 
 class SimpleScriptWorkflowContractTests(unittest.TestCase):
