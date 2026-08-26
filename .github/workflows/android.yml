@@ -43,6 +43,10 @@ name: Android CI
         type: string
         required: false
         default: ""
+      upload_private_log:
+        type: boolean
+        required: false
+        default: false
     secrets:
       SOURCE_APP_ID:
         required: false
@@ -130,16 +134,17 @@ jobs:
             variable="${phase}_COMMAND"
             command="${!variable}"
             test -z "${command}" && continue
-            printf '\n===== %s =====\n' "${phase,,}" >> "${CI_LOG}"
+            phase_name="$(printf '%s' "${phase}" | tr '[:upper:]' '[:lower:]')"
+            printf '\n===== %s =====\n' "${phase_name}" >> "${CI_LOG}"
             if ! bash -lc "${command}" >> "${CI_LOG}" 2>&1; then
-              printf '%s failed; inspect the private Google Drive CI log.\n' "${phase,,}" >&2
+              printf '%s failed; inspect the private Google Drive CI log.\n' "${phase_name}" >&2
               exit 1
             fi
           done
 
       - name: Upload CI log to Google Drive
         id: drive
-        if: ${{ always() && inputs.ci_run_id != '' }}
+        if: ${{ always() && (inputs.ci_run_id != '' || inputs.upload_private_log) }}
         uses: StreamScapeTV/ci-workflows/actions/google-drive@38bfe084cf9bfdedcaca1808c72693f9e657e988
         env:
           GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
