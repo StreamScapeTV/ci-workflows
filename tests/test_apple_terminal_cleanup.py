@@ -15,9 +15,10 @@ class AppleTerminalCleanupTests(unittest.TestCase):
             ROOT / "scripts/ci/apple_checkout_cleanup.py"
         ).read_text(encoding="utf-8")
 
-    def test_public_workflow_uses_immutable_helpers_and_no_follow_source_cleanup(self) -> None:
+    def test_public_workflow_uses_shared_helpers_and_no_follow_source_cleanup(self) -> None:
         self.assertNotIn("path: .ciw", self.workflow)
         self.assertNotIn("./.ciw/actions/", self.workflow)
+        self.assertIn("StreamScapeTV/ci-workflows/actions/validate-apple@main", self.workflow)
         self.assertNotIn(
             "python3 .ciw/scripts/ci/apple_checkout_cleanup.py central",
             self.workflow,

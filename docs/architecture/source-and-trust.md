@@ -2,7 +2,7 @@
 
 `source.resolve` is the organization’s metadata-only admission boundary. It turns a bounded caller event and optional exact assertions into one typed exact source record. It does not check out, import, install, build, or execute product source.
 
-The public workflow is `.github/workflows/reusable-resolve-source.yml`. Its implementation is the immutable composite action `actions/resolve-source/action.yml`, backed by named typed functions in `src/ci_workflows/source.py`. Consumers use `actions/exact-checkout/action.yml` only after admission.
+The public workflow is `.github/workflows/reusable-resolve-source.yml`. Its implementation is the checked-in composite action `actions/resolve-source/action.yml`, backed by named typed functions in `src/ci_workflows/source.py`. Consumers use `actions/exact-checkout/action.yml` only after admission.
 
 ## State machine
 
@@ -67,21 +67,21 @@ A stale result fails with a stable instruction code. It must not be converted in
 
 ## Trusted helper separation
 
-The reusable workflow executes the resolver through a full-SHA reference to `actions/resolve-source`. That immutable action archive contains only the central helper, contract, and CLI. Product source is not present in its workspace and is not checked out during admission.
+The reusable workflow executes the resolver through `actions/resolve-source@main`. That first-party action supplies only the central helper, contract, and CLI through `GITHUB_ACTION_PATH`. Product source is not present in its workspace and is not checked out during admission.
 
-After admission, a separate job or step may invoke `actions/exact-checkout` with `source_repository` and `source_sha`. Privileged metadata workflows must not invoke that checkout for untrusted PR source at all.
+After admission, a separate job or step may invoke `actions/exact-checkout@main` with `source_repository` and `source_sha`. Privileged metadata workflows must not invoke that checkout for untrusted PR source at all.
 
 Downloaded workflow artifacts remain untrusted data. This contract has no artifact input and does not promote an artifact into trusted source. A future signed evidence transport requires a separate reviewed contract.
 
-## Immutable private reusable-helper distribution
+## Shared private reusable-helper distribution
 
 A reusable validator invoked from another private StreamScapeTV repository must not clone `StreamScapeTV/ci-workflows` with the caller-scoped `github.token` merely to reach central actions, scripts, or libraries. That token is scoped to the calling repository and a private central clone can fail before product validation begins.
 
-Reusable validators instead compose reviewed central composite actions through exact full-SHA references. The immutable private action archive supplies its central scripts and Python modules relative to `GITHUB_ACTION_PATH`; the workflow therefore does not need a `.ciw` checkout, a central-repository PAT, `secrets: inherit`, a mutable helper ref, or a caller-selected helper version. Every remotely composed central action identity is recorded in `contracts/action-tool-lock.json` before the final candidate is eligible to merge.
+Reusable validators compose reviewed first-party Central composite actions through the current shared-library channel `@main`. The action archive supplies its Central scripts and Python modules relative to `GITHUB_ACTION_PATH`; the workflow therefore does not need a `.ciw` checkout, a central-repository PAT, `secrets: inherit`, a caller-selected helper ref, or a per-action checkpoint/version propagation mechanism. Whole-repository SHAs and stable repository tags remain optional snapshots when a caller deliberately needs one; they are not independently assigned versions for individual Central functions or actions.
 
-This distribution rule does not weaken source authority. Product source remains separately admitted by `source.resolve`, checked out only through the exact-checkout contract, and reverified after cleanup where the validator requires it. Runner intent, public inputs and outputs, permissions, stable checks, cleanup, and zero-artifact policy remain owned by the reusable workflow and its checked-in contracts.
+This distribution rule does not weaken source authority. Product source remains separately admitted by `source.resolve`, checked out only through the exact-checkout contract, and reverified after cleanup where the validator requires it. Runner intent, public inputs and outputs, permissions, stable checks, cleanup, confidentiality, and feature-scoped artifact behavior remain owned by the reusable workflow and its checked-in contracts.
 
-New reusable validators should use this immutable private-action model by default. A different mechanism requires a reviewed product-neutral reason and must still avoid caller-token central clones, generic credential inputs, mutable helper selection, and a second compatibility transport.
+New reusable validators should use the shared `@main` first-party-action model by default. A different mechanism requires a reviewed product-neutral reason and must still avoid caller-token Central clones, generic credential inputs, caller-selected helper versions, and a second compatibility transport.
 
 ## Consumer patterns
 
@@ -91,7 +91,7 @@ Product commands, status/comment formats, registry publication, cluster selectio
 
 ## Thin caller example
 
-During the active-development/bootstrap phase, the public reusable workflow follows protected `@main` so reviewed central fixes propagate without a consumer repin. The separately composed private helper remains an immutable action reference.
+During active development, the public reusable workflow and first-party Central actions follow protected `@main` so reviewed Central fixes propagate without per-component repinning. Exact product source remains independently admitted and verified.
 
 ```yaml
 jobs:
@@ -108,7 +108,7 @@ jobs:
     needs: source
     runs-on: <centrally-selected-semantic-profile>
     steps:
-      - uses: StreamScapeTV/ci-workflows/actions/exact-checkout@<immutable-helper-sha>
+      - uses: StreamScapeTV/ci-workflows/actions/exact-checkout@main
         with:
           repository: ${{ needs.source.outputs.source_repository }}
           admitted_sha: ${{ needs.source.outputs.source_sha }}

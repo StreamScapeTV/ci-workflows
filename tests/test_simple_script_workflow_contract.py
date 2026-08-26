@@ -15,7 +15,7 @@ VALIDATION = ROOT / "contracts/public-workflows/validation.json"
 RUNNER_PROFILES = ROOT / "contracts/runner-profiles.json"
 RUNNERS_DOC = ROOT / "RUNNERS.md"
 DOC = ROOT / "docs/workflows/simple-validation.md"
-EXECUTION_BACKEND_SHA = "5b3093056bd77d18bf094e1ba8d8d1613ccc472b"
+EXECUTION_BACKEND_REF = "main"
 
 
 class SimpleScriptWorkflowContractTests(unittest.TestCase):
@@ -88,7 +88,7 @@ class SimpleScriptWorkflowContractTests(unittest.TestCase):
                 step for step in planner["steps"] if step.get("id") == "backend"
             )
             self.assertEqual(
-                f"StreamScapeTV/ci-workflows/actions/resolve-execution-backend@{EXECUTION_BACKEND_SHA}",
+                f"StreamScapeTV/ci-workflows/actions/resolve-execution-backend@{EXECUTION_BACKEND_REF}",
                 backend["uses"],
             )
             self.assertEqual("validation.script", backend["with"]["workflow_api"])
@@ -174,15 +174,13 @@ class SimpleScriptWorkflowContractTests(unittest.TestCase):
         for forbidden in ("bash -c", "sh -c", "eval ", "${{ inputs.arguments }}"):
             self.assertNotIn(forbidden, execute)
 
-    def test_required_path_avoids_retired_ceremony_and_keeps_zero_artifacts(self) -> None:
+    def test_required_path_avoids_retired_ceremony_and_keeps_cleanup(self) -> None:
         lowered = self.source.casefold()
         for forbidden in (
             "action-tool-lock",
             "provenance",
             "evidence manifest",
             "actions/cache",
-            "upload-artifact",
-            "download-artifact",
             "registry",
             "release manifest",
         ):
@@ -205,7 +203,7 @@ class SimpleScriptWorkflowContractTests(unittest.TestCase):
         self.assertEqual("validation-read", script["permission_profile"])
         self.assertNotIn("supported_consumers", script)
         self.assertNotIn("supported_products", script)
-        self.assertEqual(["script_path", "working_directory"], script["repository_owned_hooks"])
+        self.assertEqual(["script_path"], script["repository_owned_hooks"])
 
     def test_documentation_makes_specialized_workflows_optional(self) -> None:
         text = DOC.read_text(encoding="utf-8")

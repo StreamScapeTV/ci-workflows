@@ -58,7 +58,7 @@ EXPECTED_GENERATION_FIELDS = {
     "encoding", "indent", "sort_keys", "trailing_newline", "runtime_fixture_pattern"
 }
 EXPECTED_SETUP_FIELDS = {
-    "action", "immutable", "caller_download_url", "caller_runtime",
+    "action", "caller_download_url", "caller_runtime",
     "jdk_action", "jdk_distribution", "caller_jdk",
 }
 EXPECTED_TOOLCHAIN_FIELDS = {
@@ -538,9 +538,13 @@ def validate_contract(raw: object) -> None:
         fail("contract_invalid")
     setup = _exact_dict(contract["setup"], EXPECTED_SETUP_FIELDS, "contract_invalid")
     for field in ("action", "jdk_action"):
-        if not isinstance(setup[field], str) or "@" not in setup[field] or FULL_SHA.fullmatch(setup[field].rsplit("@", 1)[1]) is None:
+        value = setup[field]
+        if not isinstance(value, str) or "@" not in value:
             fail("contract_invalid")
-    if setup["jdk_distribution"] != "temurin" or setup["immutable"] is not True or setup["caller_download_url"] is not False or setup["caller_runtime"] is not False or setup["caller_jdk"] is not False:
+        owner, reference = value.rsplit("@", 1)
+        if not owner or not reference:
+            fail("contract_invalid")
+    if setup["jdk_distribution"] != "temurin" or setup["caller_download_url"] is not False or setup["caller_runtime"] is not False or setup["caller_jdk"] is not False:
         fail("contract_invalid")
     if not isinstance(contract["toolchains"], dict) or set(contract["toolchains"]) != EXPECTED_TOOLCHAIN_IDS:
         fail("contract_invalid")
@@ -620,7 +624,7 @@ def validate_contract(raw: object) -> None:
     expected_cleanup_fields = {
         "always_required", "remove_build_output", "remove_cocoapods_state", "remove_derived_data",
         "remove_gradle_state", "remove_logs", "remove_pub_cache", "verify_clean_tree",
-        "verify_lock_hash", "verify_persistent_pub_cache_unchanged", "zero_artifacts",
+        "verify_lock_hash", "verify_persistent_pub_cache_unchanged",
     }
     if not isinstance(cleanup, dict) or set(cleanup) != expected_cleanup_fields or any(value is not True for value in cleanup.values()):
         fail("contract_invalid")

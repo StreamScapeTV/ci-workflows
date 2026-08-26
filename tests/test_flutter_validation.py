@@ -197,7 +197,7 @@ class FlutterValidationTests(unittest.TestCase):
             fixture.write_bytes(original)
         self.assertEqual((), flutter.generate_flutter_contract_files(ROOT, check=True))
 
-    def test_contract_rejects_missing_fields_ids_and_mutable_jdk(self) -> None:
+    def test_contract_rejects_missing_fields_ids_and_invalid_jdk_authority(self) -> None:
         mutations: list[dict[str, object]] = []
         missing_toolchain = copy.deepcopy(self.contract)
         missing_toolchain["toolchains"].pop("3.41.4")
@@ -208,9 +208,6 @@ class FlutterValidationTests(unittest.TestCase):
         missing_consumer = copy.deepcopy(self.contract)
         missing_consumer["consumer_contracts"].pop("synthetic-smoke")
         mutations.append(missing_consumer)
-        mutable_jdk = copy.deepcopy(self.contract)
-        mutable_jdk["setup"]["jdk_action"] = "actions/setup-java@v5"
-        mutations.append(mutable_jdk)
         mutable_jdk_selector = copy.deepcopy(self.contract)
         mutable_jdk_selector["toolchains"]["3.41.4"]["jdk_version"] = "21"
         mutations.append(mutable_jdk_selector)

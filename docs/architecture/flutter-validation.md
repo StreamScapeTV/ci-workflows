@@ -24,12 +24,14 @@ The implementation is split into five typed layers:
    shared CIW registration files.
 
 The composite action is a thin environment adapter. The reusable workflow does
-not clone or check out central repository source. It invokes reviewed private
-central composite actions through exact full-SHA references. Exact admitted
-consumer source is checked out separately through the immutable
-`exact-checkout` helper and reverified before execution. The reusable workflow
-owns only orchestration around workspace preparation, immutable runtime setup,
-one semantic execution path, and terminal cleanup.
+not clone or check out central repository source. It consumes the current Central library through `@main` for repository-qualified first-party composite actions. Exact admitted
+consumer source is checked out separately through the
+`exact-checkout@main` helper and reverified before execution. The reusable workflow
+owns only orchestration around workspace preparation, reviewed runtime setup,
+one semantic execution path, and terminal cleanup. First-party helper identity is
+therefore not a separately versioned checkpoint; exact caller source and runtime
+identity are verified independently because they are functional correctness
+boundaries.
 
 ## Deterministic plan
 
@@ -84,17 +86,19 @@ Exact-head smoke proof is deliberately split across two direct pull-request
 workflows. `.github/workflows/flutter-validation-smoke.yml` owns portable
 source audit, focused tests, and mobile Android execution.
 `.github/workflows/flutter-apple-validation-smoke.yml` owns Apple simulator
-execution. Each workflow has one job named `plan` and one dynamically scheduled
-execution job, so both jobs consume the exact trusted planner output without
-reconstructing labels or exceeding the reviewed reusable-workflow depth.
+execution. Each dynamically scheduled execution job consumes the exact trusted
+planner output without reconstructing labels or exceeding the reviewed
+reusable-workflow depth.
 
 The smoke workflows create disposable product-neutral Flutter projects only
-after exact trusted workflow source is admitted and checked out and immutable
+after exact trusted workflow source is admitted and checked out and reviewed
 runtime setup is complete. The initial plain `flutter pub get` creates the
 disposable fixture lock; the validator then runs the contract-owned
 `flutter pub get --enforce-lockfile` command and verifies the lock does not
-change. Build products, dependency state, workspace state, and routine Actions
-artifacts are removed or required to remain zero.
+change. Build products, dependency state, and workspace state are removed by the
+normal cleanup path. There is no separate Actions-artifact inventory finalizer;
+privacy-sensitive output remains prohibited independently by the shared privacy
+boundary.
 
 ## State and evidence
 
@@ -115,5 +119,6 @@ runner. They cover exact pins, FVM parsing, agreement and mismatch, malformed
 and ranged values, symlink and traversal rejection, Flutter/Dart mismatch,
 lock mutation, stage order, checked-in gates, Android/iOS boundaries, Node
 composition, command failures, dirty source, residue, forbidden caller inputs,
-deterministic results, full-SHA action pins, semantic workflow jobs, independent
-trusted mobile/Apple selectors, and real mobile/Apple smoke definitions.
+deterministic results, ordinary setup-action references, first-party `@main`
+helper reuse, semantic workflow jobs, independent trusted mobile/Apple
+selectors, and real mobile/Apple smoke definitions.

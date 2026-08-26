@@ -23,18 +23,25 @@ class SourceTrustDocumentationTests(unittest.TestCase):
             source,
         )
 
-    def test_private_helper_distribution_remains_immutable(self) -> None:
+    def test_private_helper_distribution_follows_main_without_weakening_source_authority(self) -> None:
         source = GUIDE.read_text(encoding="utf-8")
         helper_section = source.split(
-            "## Immutable private reusable-helper distribution", 1
+            "## Shared private reusable-helper distribution", 1
         )[1].split("## Consumer patterns", 1)[0]
-        self.assertIn("exact full-SHA references", helper_section)
-        self.assertIn("immutable private action archive", helper_section)
-        self.assertNotIn("@main", helper_section)
+        self.assertIn("shared-library channel `@main`", helper_section)
+        self.assertIn("GITHUB_ACTION_PATH", helper_section)
+        self.assertNotIn("exact full-SHA references", helper_section)
+        self.assertNotIn("contracts/action-tool-lock.json", helper_section)
+        self.assertIn("does not need a `.ciw` checkout", helper_section)
+        self.assertIn("a central-repository PAT", helper_section)
+        self.assertIn("a caller-selected helper ref", helper_section)
+        self.assertIn("a per-action checkpoint/version propagation mechanism", helper_section)
         self.assertIn(
-            "uses: StreamScapeTV/ci-workflows/actions/exact-checkout@<immutable-helper-sha>",
+            "uses: StreamScapeTV/ci-workflows/actions/exact-checkout@main",
             source,
         )
+        self.assertIn("Product source remains separately admitted", helper_section)
+        self.assertIn("cleanup, confidentiality", helper_section)
 
 
 if __name__ == "__main__":

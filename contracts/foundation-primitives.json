@@ -492,8 +492,8 @@
     "Invoke cleanup-workspace under if: always(); never pass a caller-selected deletion path.",
     "Pass only a full SHA admitted by source.resolve into checkout-private-dependency.",
     "Caching is disabled unless an allowed mode, trust mode, exact source SHA, lock digest, platform, and profile are supplied.",
-    "Action pins remain authoritative in the merged #5 contracts/action-tool-lock.json; tool versions and downloadable asset digests are authoritative in contracts/tool-lock.json.",
-    "Routine Actions artifacts are zero; any exception must exist in contracts/artifact-exceptions.json.",
+    "First-party Central actions use repository-local paths or the active @main library channel; tool versions and downloadable asset digests remain functional authority in contracts/tool-lock.json.",
+    "Artifact handling is feature-scoped: private-source detailed output must not become public Actions artifacts, while public or non-private workflows may declare artifacts when functionality requires them.",
     "Product commands remain checked-in consumer scripts selected outside these primitives.",
     "#31 may converge package and command names but must preserve these public functions and side-effect boundaries or record a reviewed compatibility change."
   ]

@@ -24,9 +24,11 @@ load_contract = core.load_contract
 read_text = core.read_text
 render = core.render
 require = core.require
+validate_bootstrap_workflow = core.validate_bootstrap_workflow
 validate_caller = core.validate_caller
 validate_caller_fixtures = core.validate_caller_fixtures
 validate_compatibility_fixtures = core.validate_compatibility_fixtures
+validate_docs = core.validate_docs
 validate_release_schema = core.validate_release_schema
 
 
@@ -238,61 +240,6 @@ def validate_reference_policy(types: Mapping[str, Any]) -> None:
         ),
         "every trust class must document main plus optional whole-repository snapshot support",
     )
-
-
-def validate_bootstrap_workflow(
-    data: ContractData,
-    workflows: Mapping[str, Mapping[str, Any]],
-    profiles: Mapping[str, Mapping[str, Any]],
-) -> None:
-    """Keep the deprecated bootstrap publisher bounded to functional release authority."""
-
-    bootstrap = workflows.get("release.tag-image-chart-bootstrap")
-    require(bootstrap is not None, "existing bootstrap workflow is not represented in the public API")
-    require(bootstrap.get("status") == "deprecated-bootstrap-exception", "bootstrap workflow must remain explicitly deprecated")
-    require(bootstrap.get("trust_class") == "trusted-publication", "bootstrap workflow trust class changed")
-    profile = profiles.get(str(bootstrap.get("permission_profile")))
-    require(profile is not None, "bootstrap workflow permission profile is missing")
-    secrets = set(bootstrap.get("secrets", ()))
-    require(secrets == {"registry_username", "registry_token"}, "bootstrap workflow secret interface changed")
-    require(core.permission_map(profile.get("caller_permissions"), "bootstrap permissions") == {"contents": "read"}, "bootstrap workflow permission interface changed")
-    events = set(bootstrap.get("permitted_events", ()))
-    require(events == {"tag-push", "workflow_call", "workflow_dispatch-existing-tag"}, "bootstrap workflow event compatibility changed")
-    inputs = core._input_map(bootstrap)
-    require(inputs.get("release_mode", {}).get("default") == "tag-push", "bootstrap release_mode default changed")
-    for optional in ("release_version", "release_source_sha"):
-        require(inputs.get(optional, {}).get("required") is False, f"bootstrap {optional} must remain optional")
-    workflow = core.read_text(data.root / str(bootstrap["file"]))
-    require("workflow_call:" in workflow, "bootstrap workflow_call support is missing")
-    require("contents: read" in workflow, "bootstrap workflow contents permission changed")
-    require("actions: read" not in workflow, "bootstrap workflow no longer needs Actions artifact inventory permission")
-    require("secrets: inherit" not in workflow, "bootstrap workflow may not inherit secrets")
-
-
-def validate_docs(root: Path) -> None:
-    """Require documentation for main-library, privacy, and functional boundaries."""
-
-    architecture = core.read_text(root / "docs/architecture/public-api.md")
-    upgrades = core.read_text(root / "docs/consumers/versioning-and-upgrades.md")
-    for phrase in (
-        "consumer caller → public reusable workflow → named function",
-        "cannot elevate",
-        "Agent State",
-        "Flux",
-        "private-source",
-        "repository-owned",
-        "application identity",
-    ):
-        require(phrase in architecture, f"public API architecture is missing: {phrase}")
-    for phrase in (
-        "reviewable pull requests",
-        "whole-repository",
-        "@main",
-        "breaking",
-        "revocation",
-        "technology contract",
-    ):
-        require(phrase in upgrades, f"versioning guide is missing: {phrase}")
 
 
 def validate(root: Path) -> ContractData:

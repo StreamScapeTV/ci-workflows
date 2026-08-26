@@ -106,7 +106,8 @@ class FoundationContractTests(unittest.TestCase):
         self.assertIn("if: always()", catalog)
         self.assertIn("Callers never supply a deletion path", catalog)
         self.assertIn("Caching remains disabled by default", catalog)
-        self.assertIn("routine GitHub Actions artifacts remain zero", catalog)
+        self.assertIn("Artifact handling is feature-scoped", catalog)
+        self.assertIn("private-source detailed output must not become public Actions artifacts", catalog)
         self.assertIn("`ciw`", catalog)
 
     def test_documented_functions_exist_as_named_public_definitions(self) -> None:
@@ -134,12 +135,16 @@ class FoundationContractTests(unittest.TestCase):
         for token in (
             "if: always()",
             "source.resolve",
-            "zero",
+            "active @main library channel",
+            "feature-scoped",
+            "private-source",
             "disabled",
             "explicit repository-owner bootstrap authorization",
             "ciw",
         ):
             self.assertIn(token, checked_in)
+        self.assertNotIn("contracts/action-tool-lock.json", checked_in)
+        self.assertNotIn("Action pins remain authoritative", checked_in)
 
     def test_contracts_are_bounded_and_cache_artifact_defaults_are_zero(self) -> None:
         workspace = json.loads((ROOT / "contracts/workspace-paths.json").read_text())

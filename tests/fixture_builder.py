@@ -164,32 +164,6 @@ def create_repository(root: Path, *, config_overrides: Mapping[str, Any] | None 
             ],
         },
     )
-    write_json(
-        root / "contracts/action-tool-lock.json",
-        {
-            "schema_version": 1,
-            "third_party_actions": [
-                {
-                    "uses": "actions/checkout",
-                    "sha": CHECKOUT_SHA,
-                    "release": "v7.0.1",
-                    "runtime": "node24",
-                }
-            ],
-            "approved_internal_actions": [".github/actions", "actions"],
-            "python": {
-                "minimum": "3.11",
-                "packages": [
-                    {
-                        "name": "PyYAML",
-                        "version": "6.0.3",
-                        "sha256": "d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f",
-                    }
-                ],
-            },
-        },
-    )
-    write_text(root / "requirements/validation.lock", "PyYAML==6.0.3\n")
     write_text(root / "docs/validation.md", "validation.sample .github/workflows/reusable-sample.yml\n")
     write_text(root / ".github/workflows/reusable-sample.yml", valid_workflow())
     write_text(

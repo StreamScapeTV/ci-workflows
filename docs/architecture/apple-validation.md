@@ -22,8 +22,8 @@ exact `owner/repository` identity.
 
 ## Data flow
 
-1. The workflow invokes an immutable reviewed private Apple action identity for
-   planning and execution.
+1. The workflow invokes the reviewed first-party Apple action through the current
+   shared Central library channel `@main` for planning and execution.
 2. The `portable` planning job parses the checked-in contract, binds the caller
    repository/profile to one task, rejects forbidden inputs, and resolves the
    semantic `apple` runner mapping.
@@ -146,6 +146,8 @@ directly instead of nesting the public reusable workflow. This is deliberate:
 the repository permits public reusable depth one, so a nested smoke caller would
 create rejected depth two. The direct smoke uses the same plan/execute/cleanup
 modules and exact source. Existing Debug jobs continue to prove iOS, tvOS,
-macOS, residue, and zero-artifact behavior; the Release matrix adds independent
-iOS, tvOS, and macOS jobs against the same pull-request SHA and retains the same
-cleanup and zero-artifact gate.
+macOS, source integrity, cleanup/residue behavior, and private-output
+confidentiality; the Release matrix adds independent iOS, tvOS, and macOS jobs
+against the same pull-request SHA and retains those same cleanup and
+confidentiality boundaries. Public or non-private artifact behavior remains
+feature-scoped rather than a repository-wide zero-artifact invariant.

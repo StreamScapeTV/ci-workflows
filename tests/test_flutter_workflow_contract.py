@@ -13,7 +13,6 @@ if str(SRC) not in sys.path:
 
 from ci_workflows import flutter
 
-PRIVATE_HELPER_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 PRIVATE_HELPERS = (
     "exact-checkout",
     "prepare-workspace",
@@ -39,15 +38,17 @@ class FlutterWorkflowContractTests(unittest.TestCase):
             encoding="utf-8"
         )
 
-    def test_exact_pinned_setup_actions_match_contract(self) -> None:
+    def test_setup_actions_match_contract_without_global_pin_policy(self) -> None:
         setup = self.contract["setup"]
         self.assertIn(f"uses: {setup['action']}", self.reusable)
         self.assertIn(f"uses: {setup['jdk_action']}", self.reusable)
         self.assertIn(f"uses: {setup['jdk_action']}", self.mobile_smoke)
-        self.assertRegex(setup["action"], r"@[0-9a-f]{40}$")
-        self.assertRegex(setup["jdk_action"], r"@[0-9a-f]{40}$")
-        self.assertNotIn("actions/setup-java@v", self.reusable)
-        self.assertNotIn("actions/setup-java@v", self.mobile_smoke)
+        self.assertEqual("actions/setup-java@v5.6.0", setup["jdk_action"])
+        self.assertNotIn("immutable", setup)
+        for value in (setup["action"], setup["jdk_action"]):
+            owner, reference = value.rsplit("@", 1)
+            self.assertTrue(owner)
+            self.assertTrue(reference)
 
     def test_caller_has_no_jdk_gradle_pub_cache_or_runner_input(self) -> None:
         public_inputs = self.reusable.split("outputs:", 1)[0]
@@ -64,7 +65,7 @@ class FlutterWorkflowContractTests(unittest.TestCase):
         self.assertIn("java-version: ${{ needs.plan.outputs.jdk_version }}", self.reusable)
         self.assertIn("distribution: ${{ needs.plan.outputs.jdk_distribution }}", self.reusable)
 
-    def test_private_central_helpers_are_immutable_without_central_clone(self) -> None:
+    def test_private_central_helpers_follow_main_without_central_clone(self) -> None:
         self.assertNotIn("actions/checkout@", self.reusable)
         self.assertNotIn("repository: ${{ job.workflow_repository }}", self.reusable)
         self.assertNotIn("ref: ${{ job.workflow_sha }}", self.reusable)
@@ -74,31 +75,29 @@ class FlutterWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("private_dependency_token", self.reusable)
         for helper in PRIVATE_HELPERS:
             self.assertIn(
-                f"StreamScapeTV/ci-workflows/actions/{helper}@{PRIVATE_HELPER_SHA}",
+                f"StreamScapeTV/ci-workflows/actions/{helper}@main",
                 self.reusable,
             )
-        validator_pins = re.findall(
-            r"StreamScapeTV/ci-workflows/actions/validate-flutter@([0-9a-f]{40})",
+        self.assertIn(
+            "StreamScapeTV/ci-workflows/actions/validate-flutter@main",
             self.reusable,
         )
-        self.assertTrue(validator_pins)
-        self.assertEqual(1, len(set(validator_pins)))
         self.assertEqual(
             3,
             self.reusable.count(
-                f"uses: StreamScapeTV/ci-workflows/actions/exact-checkout@{PRIVATE_HELPER_SHA}"
+                "uses: StreamScapeTV/ci-workflows/actions/exact-checkout@main"
             ),
         )
         self.assertEqual(
             3,
             self.reusable.count(
-                f"uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@{PRIVATE_HELPER_SHA}"
+                "uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@main"
             ),
         )
         self.assertEqual(
             3,
             self.reusable.count(
-                f"uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@{PRIVATE_HELPER_SHA}"
+                "uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@main"
             ),
         )
         self.assertIn("admitted_sha: ${{ inputs.admitted_sha }}", self.reusable)
@@ -109,7 +108,7 @@ class FlutterWorkflowContractTests(unittest.TestCase):
             ),
         )
 
-    def test_plan_exports_immutable_flutter_dart_gradle_jdk_tuple(self) -> None:
+    def test_plan_exports_exact_flutter_dart_gradle_jdk_tuple(self) -> None:
         for output in (
             "flutter_version",
             "dart_version",
@@ -143,16 +142,15 @@ class FlutterWorkflowContractTests(unittest.TestCase):
                 "runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}",
                 job_block(self.reusable, job),
             )
-        for job in ("source_audit", "focused_tests", "plan", "android", "zero_artifacts"):
+        for job in ("source_audit", "focused_tests", "plan", "android"):
             self.assertIn(
                 "runs-on: [ubuntu-latest]",
                 job_block(self.mobile_smoke, job),
             )
-        for job in ("plan", "zero_artifacts"):
-            self.assertIn(
-                "runs-on: [ubuntu-latest]",
-                job_block(self.apple_smoke, job),
-            )
+        self.assertIn(
+            "runs-on: [ubuntu-latest]",
+            job_block(self.apple_smoke, "plan"),
+        )
         self.assertIn("runs-on: [macos-latest]", job_block(self.apple_smoke, "ios"))
         for source, job in ((self.mobile_smoke, "android"), (self.apple_smoke, "ios")):
             block = job_block(source, job)
@@ -172,32 +170,13 @@ class FlutterWorkflowContractTests(unittest.TestCase):
             '== ["macOS", "ARM64"]',
             self.apple_smoke,
         )
-        for source, result_name in (
-            (self.mobile_smoke, "ANDROID_RESULT"),
-            (self.apple_smoke, "IOS_RESULT"),
-        ):
-            terminal = job_block(source, "zero_artifacts")
-            self.assertIn(OWNER_GATE, terminal)
-            self.assertIn(REPOSITORY_GATE, terminal)
-            self.assertNotIn("REPOSITORY_PRIVATE", terminal)
-            self.assertNotIn("github.event.repository.private", terminal)
-            self.assertIn(f'test "${{{result_name}}}" = success', terminal)
 
-    def test_smoke_zero_artifact_checks_do_not_survive_workflow_cancellation(self) -> None:
-        def job_block(source: str) -> str:
-            match = re.search(
-                r"(?ms)^  zero_artifacts:\n(.*?)(?=^  [a-z_]+:\n|\Z)",
-                source,
-            )
-            self.assertIsNotNone(match)
-            return match.group(0)
-
+    def test_smokes_do_not_add_actions_artifact_api_finalizers(self) -> None:
         for source in (self.mobile_smoke, self.apple_smoke):
-            block = job_block(source)
-            self.assertIn(OWNER_GATE, block)
-            self.assertIn(REPOSITORY_GATE, block)
-            self.assertIn("always() && !cancelled()", block)
-            self.assertNotIn("if: always()", block)
+            self.assertNotIn("zero_artifacts:", source)
+            self.assertNotIn("actions: read", source)
+            self.assertNotIn("/artifacts", source)
+            self.assertNotIn("total_count", source)
 
     def test_pub_cache_is_only_registered_workflow_state(self) -> None:
         expected = "{0}/tmp/flutter-validation/pub-cache"
@@ -281,7 +260,7 @@ class FlutterWorkflowContractTests(unittest.TestCase):
             )
 
     def test_smoke_verifies_jdk_before_flutter_project_generation(self) -> None:
-        android = self.mobile_smoke.split("  android:", 1)[1].split("  zero_artifacts:", 1)[0]
+        android = self.mobile_smoke.split("  android:", 1)[1]
         self.assertLess(android.index("uses: actions/setup-java@"), android.index("phase: verify-toolchain"))
         self.assertLess(android.index("phase: verify-toolchain"), android.index("flutter create --no-pub"))
         self.assertIn("java-version: ${{ needs.plan.outputs.jdk_version }}", android)
@@ -367,10 +346,9 @@ class FlutterWorkflowContractTests(unittest.TestCase):
         ):
             self.assertRegex(self.action, rf"(?m)^  {re.escape(output)}:\n")
 
-    def test_no_artifact_upload_signing_store_or_deployment_path(self) -> None:
+    def test_no_signing_store_or_deployment_path(self) -> None:
         combined = "\n".join((self.reusable, self.mobile_smoke, self.apple_smoke)).lower()
         for forbidden in (
-            "upload-artifact",
             "secrets: inherit",
             "packages: write",
             "id-token: write",
