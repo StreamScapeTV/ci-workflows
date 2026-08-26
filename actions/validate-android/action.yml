@@ -6,6 +6,10 @@ inputs:
     description: "Bounded internal phase: plan, execute, cleanup, or residue"
     required: false
     default: execute
+  execution_backend:
+    description: "Bounded Central execution backend: organization or github-hosted"
+    required: false
+    default: organization
   admitted_sha:
     description: Exact admitted caller source SHA
     required: true
@@ -101,6 +105,7 @@ runs:
       shell: bash
       env:
         PYTHONDONTWRITEBYTECODE: "1"
+        INPUT_EXECUTION_BACKEND: ${{ inputs.execution_backend }}
         INPUT_ADMITTED_SHA: ${{ inputs.admitted_sha }}
         INPUT_VALIDATION_SCOPE: ${{ inputs.validation_scope }}
         INPUT_WORKING_DIRECTORY: ${{ inputs.working_directory }}
