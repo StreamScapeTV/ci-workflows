@@ -16,6 +16,10 @@ SOURCE_WORKFLOW = (
     "StreamScapeTV/ci-workflows/.github/workflows/reusable-resolve-source.yml@main"
 )
 SOURCE_SHA = "${{ needs.source.outputs.source_sha }}"
+BRANCH_CONCURRENCY_GROUP = (
+    "${{ github.event.pull_request.head.repo.full_name || github.repository }}:"
+    "${{ github.head_ref || github.ref_name }}"
+)
 
 VALIDATION_FAMILIES = {
     "apple.yml": {
@@ -147,7 +151,7 @@ class ConsumerCallerSkeletonTests(unittest.TestCase):
         self.assertIsInstance(document, dict)
         return source, document
 
-    def test_validation_templates_keep_product_triggers_paths_and_ref_concurrency(self) -> None:
+    def test_validation_templates_keep_product_triggers_paths_and_shared_branch_concurrency(self) -> None:
         for filename, spec in VALIDATION_FAMILIES.items():
             with self.subTest(filename=filename):
                 source, document = self._load(filename)
@@ -158,11 +162,20 @@ class ConsumerCallerSkeletonTests(unittest.TestCase):
                 self.assertEqual(spec["paths"], triggers["push"]["paths"])
                 self.assertEqual(
                     {
-                        "group": "${{ github.workflow }}-${{ github.ref }}",
+                        "group": BRANCH_CONCURRENCY_GROUP,
                         "cancel-in-progress": "true",
                     },
                     document["concurrency"],
                 )
+                group = document["concurrency"]["group"]
+                self.assertNotIn("github.workflow", group)
+                for required in (
+                    "github.event.pull_request.head.repo.full_name",
+                    "github.repository",
+                    "github.head_ref",
+                    "github.ref_name",
+                ):
+                    self.assertIn(required, group)
                 self.assertIn("choose product-owned paths OR paths-ignore", source)
 
     def test_validation_templates_compose_source_admission_with_supported_main_api(self) -> None:
@@ -327,7 +340,9 @@ class ConsumerCallerSkeletonTests(unittest.TestCase):
             "`@main`",
             "`@v1`",
             "not the normal adoption ceremony",
-            "`${{ github.workflow }}-${{ github.ref }}`",
+            "source-repository + logical-branch concurrency",
+            BRANCH_CONCURRENCY_GROUP,
+            "`cancel-in-progress: true`",
             "`execution_backend: organization | github-hosted`",
             "same\n`TODO_EXECUTION_BACKEND`",
             "`organization` is the backwards-compatible default",

@@ -27,7 +27,7 @@ Product repositories own:
 
 - `pull_request` / `push` events and protected branches;
 - `paths` or `paths-ignore`;
-- stable ref-scoped concurrency;
+- stable source-repository + logical-branch concurrency;
 - minimum caller permissions;
 - product paths, scripts, schemes, Gradle plans and checked-in contracts.
 
@@ -36,9 +36,14 @@ the admitted `source_sha` to the technology workflow. The examples intentionally
 run push validation only on `TODO_PROTECTED_BRANCH`; feature branches use the
 pull-request path unless that repository has a separately reviewed source model.
 
-The examples use `${{ github.workflow }}-${{ github.ref }}` concurrency with
-`cancel-in-progress: true`. The admitted SHA is evidence identity, not
-concurrency identity.
+The validation examples use
+`${{ github.event.pull_request.head.repo.full_name || github.repository }}:${{ github.head_ref || github.ref_name }}`
+with `cancel-in-progress: true`. A pull request therefore groups by its actual
+head repository and head branch; an ordinary branch push falls back to the
+current repository and ref name. The group intentionally has no workflow-name
+prefix, so a newer validation workflow for the same logical product branch
+cancels the obsolete run even when the technology workflow differs. The
+admitted SHA is evidence identity, not concurrency identity.
 
 ## Execution backend
 

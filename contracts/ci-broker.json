@@ -13,7 +13,7 @@
     "routes": ["/healthz", "/hooks/agent-state"],
     "agent_state_event": "ci_runs INSERT",
     "dispatch_inputs": ["active_key", "ci_run_id"],
-    "active_identity_fields": ["repository", "ref", "is_tag", "workflow_key", "profile"],
+    "active_identity_fields": ["repository", "ref", "is_tag"],
     "active_key": "sha256-canonical-active-identity",
     "requested_sha_forbidden": true,
     "private_identity_in_public_dispatch": false,
