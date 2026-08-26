@@ -17,16 +17,20 @@ class BrokerChartSchemaTests(unittest.TestCase):
         cls.values = yaml.safe_load(VALUES.read_text(encoding="utf-8"))
         cls.schema = json.loads(VALUES_SCHEMA.read_text(encoding="utf-8"))
 
-    def test_default_top_level_values_are_all_declared_and_required(self) -> None:
+    def test_default_top_level_values_are_declared_and_required(self) -> None:
         expected = set(self.values)
-        self.assertEqual(set(self.schema["properties"]), expected)
+        self.assertTrue(expected.issubset(set(self.schema["properties"])))
         self.assertEqual(set(self.schema["required"]), expected)
         self.assertFalse(self.schema["additionalProperties"])
 
-    def test_withdrawn_diagnostics_surface_cannot_be_configured(self) -> None:
+    def test_withdrawn_diagnostics_surface_is_only_a_false_noop_compatibility_key(self) -> None:
         self.assertNotIn("diagnostics", self.values)
-        self.assertNotIn("diagnostics", self.schema["properties"])
         self.assertNotIn("diagnostics", self.schema["required"])
+        diagnostics = self.schema["properties"]["diagnostics"]
+        self.assertFalse(diagnostics["additionalProperties"])
+        self.assertEqual(diagnostics["required"], ["enabled"])
+        self.assertEqual(diagnostics["properties"]["enabled"]["const"], False)
+        self.assertIn("permanently withdrawn", diagnostics["description"])
 
 
 if __name__ == "__main__":
