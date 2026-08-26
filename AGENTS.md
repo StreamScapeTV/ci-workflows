@@ -48,7 +48,9 @@ Agent State CI stays small:
 
 `request_ci_run -> Agent State row -> ci-broker -> central-ci-dispatch.yml -> technology workflow -> agent-state start -> commands -> google-drive -> agent-state finish`
 
-Do not add `.github/central-ci.json`, source-SHA evidence, profile manifests, a private technology executor, or R2/Cloudflare storage.
+The same relay also accepts `workflow_key=source.snapshot`. Central checks out the requested repository/ref, archives exactly the tracked Git tree to `source.zip`, writes `manifest.json`, and uses the same Google Drive action under the fixed repositories root. The second exact-name manifest upload must preserve the same Drive file identity; no separate snapshot framework belongs here.
+
+Do not add `.github/central-ci.json`, source-SHA evidence to ordinary validation rows, profile manifests, a private technology executor, or R2/Cloudflare storage.
 
 ## Validation
 
@@ -56,10 +58,11 @@ Self-CI is deliberately small:
 
 1. parse workflow/action YAML;
 2. run focused Agent State/Google Drive/broker tests;
-3. prove the technology workflows with real product consumers.
+3. prove the technology workflows with real product consumers;
+4. prove `source.snapshot` by raw-downloading and opening the Drive ZIP through the ordinary Google Drive connector.
 
 Do not rebuild a contract-test framework around the workflows.
 
 ## Simplicity check
 
-Before keeping or adding a workflow, action, source file, contract, adapter, test, or verification step, ask whether a real product command, Agent State call, Google Drive upload, broker, or runner-image build actually needs it. If not, delete it or do not add it.
+Before keeping or adding a workflow, action, source file, contract, adapter, test, or verification step, ask whether a real product command, Agent State call, Google Drive upload, broker, source snapshot, or runner-image build actually needs it. If not, delete it or do not add it.
