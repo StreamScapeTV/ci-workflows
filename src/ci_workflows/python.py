@@ -7,6 +7,7 @@ from typing import Mapping
 from .foundation_types import FoundationError
 from .policy import verify_repository_policy
 from .python_contract import CONTRACT_PATH, bounded_path, load_python_contract, request_from_environment, resolve_python_version, resolve_validation_plan, runtime_reference, safe_relative, source_trust_from_environment, validate_dependency_lock, validate_script_entrypoint
+from .python_docker_execution import execute_docker_plan
 from .python_execution import cleanup_podman, container_script, execute_podman_plan, result_from_plan, run_command, verify_exact_source
 from .python_host_execution import execute_host_plan, result_from_host_plan
 from .python_types import PythonValidationError, PythonValidationPlan, PythonValidationRequest, PythonValidationResult
@@ -46,7 +47,10 @@ def validate(*, contract_root: Path, source_root: Path | None, state_root: Path 
         if plan.isolation == "copied-host-source":
             stage_count, host_python_version = execute_host_plan(exact_source, registered_state, plan, environment)
         elif plan.isolation in {"podman-vfs", "podman-vfs-postgres"}:
-            stage_count = execute_podman_plan(exact_source, registered_state, plan, contract, environment)
+            if environment.get("INPUT_EXECUTION_BACKEND") == "github-hosted":
+                stage_count = execute_docker_plan(exact_source, registered_state, plan, contract, environment)
+            else:
+                stage_count = execute_podman_plan(exact_source, registered_state, plan, contract, environment)
         else:
             raise PythonValidationError("isolation_unavailable")
     except BaseException as error:
