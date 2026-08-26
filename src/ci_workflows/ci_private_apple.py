@@ -14,8 +14,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence, TextIO
 
 from .central_profile import CentralProfileResolution, resolve_profile
-from .ci_lifecycle import AgentStateCiClient, WorkflowIdentity
-from .ci_relay import RelayRequest
+from .ci_lifecycle import AgentStateCiClient, RelayRequest, WorkflowIdentity
 from .ciw_apple import execute_apple_validate
 from .ciw_types import CIWContext
 from .dependencies import DependencyResult, checkout_private_dependency
