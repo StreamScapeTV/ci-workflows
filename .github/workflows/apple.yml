@@ -76,7 +76,7 @@ jobs:
 
       - name: Mark Agent State run as running
         if: ${{ inputs.ci_run_id != '' }}
-        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@62a783692dec6b4455adfb3435c8981176295acb
         env:
           AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
           AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
@@ -127,7 +127,7 @@ jobs:
       - name: Upload CI log to R2
         id: r2
         if: ${{ always() && inputs.ci_run_id != '' }}
-        uses: StreamScapeTV/ci-workflows/actions/r2-upload@main
+        uses: StreamScapeTV/ci-workflows/actions/r2-upload@62a783692dec6b4455adfb3435c8981176295acb
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
@@ -139,7 +139,7 @@ jobs:
 
       - name: Finish Agent State run
         if: ${{ always() && inputs.ci_run_id != '' }}
-        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@62a783692dec6b4455adfb3435c8981176295acb
         env:
           AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
           AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
