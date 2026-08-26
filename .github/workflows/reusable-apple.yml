@@ -223,9 +223,21 @@ jobs:
           fetch_depth: "1"
           token: ${{ steps.source_token.outputs.token }}
 
+      - id: release_config
+        name: Detect checked-in private release configuration for legacy dependency source
+        if: inputs.validation_scope == 'protected-full' && needs.plan.outputs.private_dependency_used == 'true'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if test -e source/.github/central-ci.json || test -L source/.github/central-ci.json; then
+            echo "present=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "present=false" >> "${GITHUB_OUTPUT}"
+          fi
+
       - id: release_plan
         name: Resolve one product-owned private release asset
-        if: inputs.validation_scope == 'protected-full'
+        if: inputs.validation_scope == 'protected-full' && (needs.plan.outputs.private_dependency_used != 'true' || steps.release_config.outputs.present == 'true')
         uses: StreamScapeTV/ci-workflows/actions/materialize-private-release-asset@3fa645e1aa7ab8ae8c681afeb7c73627617b09c8 # issue #495 corrected release-asset checkpoint
         with:
           phase: "plan"
