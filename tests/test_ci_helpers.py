@@ -70,9 +70,21 @@ class CiHelperTests(unittest.TestCase):
         self.assertIn("GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID", dispatch)
         self.assertIn("file_name: source.zip", dispatch)
         self.assertEqual(dispatch.count("file_name: manifest.json"), 2)
-        self.assertIn("manifest_file_id", dispatch)
-        self.assertIn("source_zip_file_id", dispatch)
+        for key in (
+            '"repository_name"',
+            '"archive_format": "zip"',
+            '"archive_format_version": 1',
+            '"resolved_source_sha"',
+            '"tree_sha"',
+            '"source_zip_sha256"',
+            '"source_zip_size_bytes"',
+            '"manifest_file_id"',
+            '"source_zip_file_id"',
+            '"folder_id"',
+        ):
+            self.assertIn(key, dispatch)
         self.assertIn('test "${CREATED_ID}" = "${UPDATED_ID}"', dispatch)
+        self.assertIn("Clean snapshot workspace", dispatch)
 
 
 if __name__ == "__main__":
