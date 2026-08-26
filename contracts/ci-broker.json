@@ -1,34 +1,29 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "central_repository": "StreamScapeTV/ci-workflows",
   "central_workflow": ".github/workflows/central-ci-dispatch.yml",
   "central_ref": "main",
   "supported_capabilities": [
-    "apple-host-test"
+    "apple-host-test",
+    "android-hosted",
+    "python-hosted"
   ],
   "relay": {
     "role": "authenticated-fire-and-forget-transport",
-    "routes": [
-      "/healthz",
-      "/hooks/agent-state"
-    ],
+    "routes": ["/healthz", "/hooks/agent-state"],
     "agent_state_event": "ci_runs INSERT",
-    "dispatch_inputs": [
-      "active_key",
-      "ci_run_id"
-    ],
-    "active_identity_fields": [
-      "repository",
-      "ref",
-      "is_tag",
-      "workflow_key",
-      "profile"
-    ],
+    "dispatch_inputs": ["active_key", "ci_run_id"],
+    "active_identity_fields": ["repository", "ref", "is_tag", "workflow_key", "profile"],
     "active_key": "sha256-canonical-active-identity",
     "requested_sha_forbidden": true,
     "private_identity_in_public_dispatch": false,
     "replayed_accepted_request_recoverable": true,
-    "run_discovery": false
+    "run_discovery": false,
+    "supported_semantic_intents": [
+      ["validation.apple", "host"],
+      ["validation.android", "host"],
+      ["validation.python", "host"]
+    ]
   },
   "agent_state": {
     "schema": "agent_api",
@@ -37,24 +32,11 @@
     "retention_hours": 24,
     "source_repository_field": "repository",
     "execution_repository_field": "external_repository",
-    "relay_functions": [
-      "claim_ci_run",
-      "transition_ci_run"
-    ],
-    "workflow_functions": [
-      "claim_ci_run",
-      "register_ci_run",
-      "transition_ci_run"
-    ],
-    "discovery_functions": [
-      "get_ci_run",
-      "list_ci_runs"
-    ],
+    "relay_functions": ["claim_ci_run", "transition_ci_run"],
+    "workflow_functions": ["claim_ci_run", "register_ci_run", "transition_ci_run"],
+    "discovery_functions": ["get_ci_run", "list_ci_runs"],
     "raw_logs_forbidden": true,
-    "private_log_receipt_fields": [
-      "diagnostic_key",
-      "diagnostic_status"
-    ]
+    "private_log_receipt_fields": ["diagnostic_key", "diagnostic_status"]
   },
   "central_execution": {
     "request_lookup": "claim-ci-run-by-opaque-uuid",
@@ -63,10 +45,21 @@
     "observed_sha": "evidence-only",
     "private_config_path": ".github/central-ci.json",
     "profile_function": "ci_workflows.central_profile.resolve_profile",
-    "apple_implementation": "ci_workflows.ciw_apple.execute_apple_validate",
+    "executor_planning_output": "linux-or-macos-only",
+    "implementations": {
+      "validation.apple": "ci_workflows.ciw_apple.execute_apple_validate",
+      "validation.android": "ci_workflows.ciw_android.execute_android_validate",
+      "validation.python": "ci_workflows.ciw_python.execute_python_validate"
+    },
     "public_dispatch_private_fields": false,
     "source_and_dependency_credentials": "fixed-source-app-secrets",
-    "hosted_apple_runner": "macos-latest"
+    "hosted_runners": {
+      "linux": "ubuntu-latest",
+      "macos": "macos-latest"
+    },
+    "caller_selected_runner": false,
+    "caller_selected_workflow_path": false,
+    "caller_selected_secret_name": false
   },
   "private_logs": {
     "store": "cloudflare-r2",
@@ -95,7 +88,8 @@
       "R2_ACCOUNT_ID",
       "R2_BUCKET",
       "R2_ACCESS_KEY_ID",
-      "R2_SECRET_ACCESS_KEY"
+      "R2_SECRET_ACCESS_KEY",
+      "MAVEN_PACKAGE_READ_TOKEN"
     ]
   },
   "forbidden": [
@@ -107,6 +101,7 @@
     "broker-log-storage",
     "broker-github-run-discovery",
     "broker-actions-callback",
+    "broker-diagnostics-http-reader",
     "requested-sha-branch-authority",
     "private-repository-in-public-dispatch-input",
     "private-ref-in-public-dispatch-input",
@@ -114,6 +109,7 @@
     "cloudflare-d1-diagnostic-store",
     "caller-selected-secret-name",
     "caller-selected-runner",
+    "caller-selected-workflow-path",
     "raw-agent-state-table-query",
     "raw-log-storage-in-agent-state",
     "github-actions-artifact-private-log",
