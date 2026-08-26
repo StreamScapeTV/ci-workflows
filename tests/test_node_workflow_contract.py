@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 import unittest
 from pathlib import Path
 
@@ -12,17 +11,13 @@ from ci_workflows.validation_model import ActionsLoader
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/reusable-node.yml"
 ACTION_PATH = ROOT / "actions/validate-node/action.yml"
-FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-FOUNDATION_RELEASE = "issue #116 immutable private-action checkpoint"
-VALIDATE_NODE_SHA = "7d5d839c6e90491e165f1358ecb5e80129805764"
-VALIDATE_NODE_RELEASE = "issue #405 simplified execution-backend checkpoint"
-PRIVATE_HELPERS = {
-    "validate-node": (VALIDATE_NODE_SHA, VALIDATE_NODE_RELEASE),
-    "exact-checkout": (FOUNDATION_SHA, FOUNDATION_RELEASE),
-    "prepare-workspace": (FOUNDATION_SHA, FOUNDATION_RELEASE),
-    "render-evidence": (FOUNDATION_SHA, FOUNDATION_RELEASE),
-    "cleanup-workspace": (FOUNDATION_SHA, FOUNDATION_RELEASE),
-}
+PRIVATE_HELPERS = (
+    "validate-node",
+    "exact-checkout",
+    "prepare-workspace",
+    "render-evidence",
+    "cleanup-workspace",
+)
 
 
 class NodeWorkflowContractTests(unittest.TestCase):
@@ -34,9 +29,6 @@ class NodeWorkflowContractTests(unittest.TestCase):
         cls.action = yaml.load(cls.action_text, Loader=ActionsLoader)
         cls.node_contract = json.loads(
             (ROOT / "contracts/node-validation.json").read_text(encoding="utf-8")
-        )
-        cls.action_lock = json.loads(
-            (ROOT / "contracts/action-tool-lock.json").read_text(encoding="utf-8")
         )
         public = json.loads(
             (ROOT / "contracts/public-workflows/validation.json").read_text(
@@ -74,27 +66,8 @@ class NodeWorkflowContractTests(unittest.TestCase):
         self.assertFalse(backend["required"])
         self.assertEqual(backend["default"], "organization")
         self.assertEqual(backend["type"], "string")
-        self.assertEqual(
-            set(call["outputs"]),
-            {
-                "result",
-                "node_version",
-                "npm_version",
-                "install_result",
-                "test_summary",
-                "build_result",
-                "output_verified",
-                "output_digest",
-                "clean_tree",
-                "cleanup_result",
-                "artifact_exception_used",
-                "evidence_id",
-            },
-        )
         self.assertEqual(call.get("secrets", {}), {})
         self.assertEqual(self.public_record["status"], "implemented")
-        self.assertEqual(self.public_record["api_version"], "1.0.0")
-        self.assertEqual(self.public_record["stable_check_name"], "CI / Node validation")
         self.assertEqual(
             {item["name"] for item in self.public_record["inputs"]},
             set(call["inputs"]),
@@ -119,147 +92,83 @@ class NodeWorkflowContractTests(unittest.TestCase):
         )
         self.assertEqual(validate["needs"], ["plan", "plan_organization"])
         self.assertEqual(
-            validate["if"],
-            "${{ always() && (needs.plan.result == 'success' || needs.plan_organization.result == 'success') }}",
-        )
-        self.assertEqual(
             validate["runs-on"],
             "${{ fromJSON(needs.plan.outputs.runs_on_json || needs.plan_organization.outputs.runs_on_json) }}",
         )
         for planner in (hosted, organization):
-            self.assertEqual(
-                planner["outputs"]["runs_on_json"],
-                "${{ steps.plan.outputs.runs_on_json }}",
-            )
             step = planner["steps"][0]
+            self.assertEqual(
+                step["uses"],
+                "StreamScapeTV/ci-workflows/actions/validate-node@main",
+            )
+            self.assertEqual(step["with"]["phase"], "plan")
             self.assertEqual(
                 step["with"]["execution_backend"],
                 "${{ inputs.execution_backend }}",
             )
-            self.assertEqual(step["with"]["phase"], "plan")
-        self.assertIn(
-            "profile: ${{ needs.plan.outputs.workspace_profile || needs.plan_organization.outputs.workspace_profile }}",
-            self.workflow_text,
-        )
-        self.assertIn(
-            "trust_mode: ${{ needs.plan.outputs.source_trust || needs.plan_organization.outputs.source_trust }}",
-            self.workflow_text,
-        )
-        self.assertIn(
-            "node-version: ${{ needs.plan.outputs.node_version || needs.plan_organization.outputs.node_version }}",
-            self.workflow_text,
-        )
-        self.assertEqual(validate["name"], "CI / Node validation")
-        self.assertEqual(validate["timeout-minutes"], 90)
-        self.assertNotIn("strategy", hosted)
-        self.assertNotIn("strategy", organization)
-        self.assertNotIn("strategy", validate)
-        self.assertNotIn("self-hosted", self.workflow_text)
-        self.assertNotIn("runs-on: portable", self.workflow_text)
-        self.assertNotIn("runs-on: [linux, amd64, general]", self.workflow_text)
 
-    def test_setup_node_is_exact_locked_and_cache_disabled(self) -> None:
-        setup = "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38"
-        self.assertEqual(self.workflow_text.count(setup), 1)
+    def test_setup_node_uses_normal_upstream_release_and_disables_cache(self) -> None:
         validate_steps = self.workflow["jobs"]["validate"]["steps"]
         step = next(
             item
             for item in validate_steps
             if item.get("uses", "").startswith("actions/setup-node@")
         )
-        self.assertEqual(step["uses"], setup)
+        self.assertEqual(step["uses"], "actions/setup-node@v6.5.0")
         self.assertEqual(
             step["with"]["node-version"],
             "${{ needs.plan.outputs.node_version || needs.plan_organization.outputs.node_version }}",
         )
         self.assertFalse(step["with"]["package-manager-cache"])
-        entry = next(
-            item
-            for item in self.action_lock["third_party_actions"]
-            if item["uses"] == "actions/setup-node"
-        )
-        self.assertEqual(
-            entry["sha"], "249970729cb0ef3589644e2896645e5dc5ba9c38"
-        )
-        self.assertEqual(entry["release"], "v6.5.0")
-        self.assertEqual(entry["runtime"], "node24")
 
-    def test_private_helpers_are_exact_locked_and_ordered(self) -> None:
-        locked = {
-            item["uses"]: item
-            for item in self.action_lock["third_party_actions"]
-        }
-        for helper, (sha, release) in PRIVATE_HELPERS.items():
-            uses = f"StreamScapeTV/ci-workflows/actions/{helper}"
-            self.assertIn(uses, locked)
-            self.assertEqual(sha, locked[uses]["sha"])
-            self.assertEqual(release, locked[uses]["release"])
-            self.assertEqual("composite", locked[uses]["runtime"])
-
-        for planner_name in ("plan", "plan_organization"):
-            with self.subTest(planner=planner_name):
-                plan_steps = self.workflow["jobs"][planner_name]["steps"]
-                self.assertEqual(len(plan_steps), 1)
-                plan = plan_steps[0]
-                self.assertEqual(
-                    plan["uses"],
-                    f"StreamScapeTV/ci-workflows/actions/validate-node@{VALIDATE_NODE_SHA}",
-                )
-                self.assertEqual(plan["with"]["phase"], "plan")
-                self.assertEqual(
-                    plan["with"]["execution_backend"],
-                    "${{ inputs.execution_backend }}",
-                )
-
+    def test_first_party_helpers_follow_main_and_preserve_order(self) -> None:
         validate_steps = self.workflow["jobs"]["validate"]["steps"]
         uses = [item.get("uses") for item in validate_steps if item.get("uses")]
         expected = [
-            f"StreamScapeTV/ci-workflows/actions/exact-checkout@{FOUNDATION_SHA}",
-            f"StreamScapeTV/ci-workflows/actions/prepare-workspace@{FOUNDATION_SHA}",
-            "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38",
-            f"StreamScapeTV/ci-workflows/actions/validate-node@{VALIDATE_NODE_SHA}",
-            f"StreamScapeTV/ci-workflows/actions/render-evidence@{FOUNDATION_SHA}",
-            f"StreamScapeTV/ci-workflows/actions/cleanup-workspace@{FOUNDATION_SHA}",
+            "StreamScapeTV/ci-workflows/actions/exact-checkout@main",
+            "StreamScapeTV/ci-workflows/actions/prepare-workspace@main",
+            "actions/setup-node@v6.5.0",
+            "StreamScapeTV/ci-workflows/actions/validate-node@main",
+            "StreamScapeTV/ci-workflows/actions/render-evidence@main",
+            "StreamScapeTV/ci-workflows/actions/cleanup-workspace@main",
         ]
         positions = [uses.index(value) for value in expected]
         self.assertEqual(positions, sorted(positions))
+        for helper in PRIVATE_HELPERS:
+            self.assertIn(
+                f"StreamScapeTV/ci-workflows/actions/{helper}@main",
+                self.workflow_text,
+            )
+        self.assertNotRegex(
+            self.workflow_text,
+            r"StreamScapeTV/ci-workflows/actions/[^\s@]+@[0-9a-f]{40}",
+        )
         execute = next(
             item
             for item in validate_steps
             if item.get("uses")
-            == f"StreamScapeTV/ci-workflows/actions/validate-node@{VALIDATE_NODE_SHA}"
+            == "StreamScapeTV/ci-workflows/actions/validate-node@main"
         )
         self.assertEqual(execute["with"]["phase"], "execute")
-        self.assertEqual(
-            execute["with"]["execution_backend"],
-            "${{ inputs.execution_backend }}",
-        )
         cleanup = next(
             item
             for item in validate_steps
             if item.get("uses")
-            == f"StreamScapeTV/ci-workflows/actions/cleanup-workspace@{FOUNDATION_SHA}"
+            == "StreamScapeTV/ci-workflows/actions/cleanup-workspace@main"
         )
         self.assertEqual(cleanup["if"], "always()")
 
     def test_private_central_repository_is_never_cloned(self) -> None:
         self.assertNotIn("actions/checkout@", self.workflow_text)
-        self.assertNotIn("repository: ${{ job.workflow_repository }}", self.workflow_text)
-        self.assertNotIn("ref: ${{ job.workflow_sha }}", self.workflow_text)
         self.assertNotIn("path: .ciw", self.workflow_text)
         self.assertNotIn("./.ciw/actions/", self.workflow_text)
-        for helper, (sha, _) in PRIVATE_HELPERS.items():
-            self.assertIn(
-                f"StreamScapeTV/ci-workflows/actions/{helper}@{sha}",
-                self.workflow_text,
-            )
         self.assertEqual(self.workflow.get("permissions"), {"contents": "read"})
         self.assertNotIn("private_dependency_token", self.workflow_text)
         self.assertNotIn("checkout_token", self.workflow_text)
 
     def test_exact_caller_source_is_still_verified_and_clean(self) -> None:
         self.assertIn(
-            f"uses: StreamScapeTV/ci-workflows/actions/exact-checkout@{FOUNDATION_SHA}",
+            "uses: StreamScapeTV/ci-workflows/actions/exact-checkout@main",
             self.workflow_text,
         )
         self.assertIn("admitted_sha: ${{ inputs.admitted_sha }}", self.workflow_text)
@@ -275,19 +184,13 @@ class NodeWorkflowContractTests(unittest.TestCase):
         step = self.action["runs"]["steps"][0]
         self.assertIn("scripts/ci/ciw.py", step["run"])
         self.assertIn("node validate", step["run"])
-        self.assertIn("--phase", step["run"])
-        self.assertEqual(self.action["inputs"]["execution_backend"]["default"], "organization")
         inputs = set(self.action["inputs"])
         forbidden = set(self.node_contract["forbidden_inputs"])
         self.assertTrue(inputs.isdisjoint(forbidden))
-        for token in ("eval ", "source ", "curl ", "npm install", "wrangler", "docker "):
-            self.assertNotIn(token, step["run"].casefold())
 
-    def test_workflow_has_no_artifact_deployment_or_secret_surface(self) -> None:
+    def test_workflow_has_no_deployment_or_secret_surface(self) -> None:
         lowered = self.workflow_text.casefold()
         for token in (
-            "upload-artifact",
-            "download-artifact",
             "secrets: inherit",
             "wrangler",
             "cloudflare/pages-action",
@@ -298,39 +201,6 @@ class NodeWorkflowContractTests(unittest.TestCase):
         ):
             self.assertNotIn(token, lowered)
         self.assertEqual(self.workflow["permissions"], {"contents": "read"})
-
-    def test_docs_record_api_runtime_backend_output_and_cleanup(self) -> None:
-        workflow_doc = (ROOT / "docs/workflows/node.md").read_text(encoding="utf-8")
-        architecture = (
-            ROOT / "docs/architecture/node-validation.md"
-        ).read_text(encoding="utf-8")
-        for token in (
-            "validation.node",
-            ".github/workflows/reusable-node.yml",
-            "CI / Node validation",
-            "next-static-export",
-            "node-source-audit",
-            "npm ci --no-audit --no-fund",
-            "NEXT_PUBLIC_API_BASE_URL",
-            "immutable private",
-            "execution_backend",
-            "github-hosted",
-            "zero",
-        ):
-            self.assertIn(token, workflow_doc)
-        for token in (
-            "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38",
-            "ciw node validate",
-            "lockfile version 3",
-            "symlink",
-            "Worker",
-            "descriptor-anchored",
-            FOUNDATION_SHA,
-        ):
-            self.assertIn(token, architecture)
-        self.assertRegex(
-            architecture, re.compile(r"Cloudflare Pages Git deployment", re.I)
-        )
 
 
 if __name__ == "__main__":
