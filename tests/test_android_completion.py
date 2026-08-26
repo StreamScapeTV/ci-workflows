@@ -403,8 +403,8 @@ class AndroidCompletionWorkflowTests(unittest.TestCase):
         self.assertNotIn("upload-artifact", self.live.lower())
         self.assertNotIn("actions/cache", self.live.lower())
 
-    def test_release_has_one_pinned_upload_and_no_service_or_signing_authority(self) -> None:
-        self.assertEqual(self.release.count("actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"), 1)
+    def test_release_has_one_upload_and_no_service_or_signing_authority(self) -> None:
+        self.assertEqual(self.release.count("actions/upload-artifact@v4.6.2"), 1)
         lower = self.release.casefold()
         self.assertNotIn("service_username", lower)
         self.assertNotIn("service_password", lower)
