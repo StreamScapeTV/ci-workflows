@@ -140,3 +140,183 @@ jobs:
       release_command: ${{ fromJSON(needs.request.outputs.inputs_json).release_command || '' }}
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
+
+  source_snapshot:
+    needs: request
+    if: ${{ needs.request.outputs.workflow_key == 'source.snapshot' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out Central helpers
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Mark Agent State run as running
+        uses: ./actions/agent-state
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: start
+          ci_run_id: ${{ inputs.ci_run_id }}
+
+      - name: Prepare source token
+        id: source_token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.SOURCE_APP_ID }}
+          private-key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          owner: StreamScapeTV
+
+      - name: Check out requested source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ needs.request.outputs.repository }}
+          ref: ${{ needs.request.outputs.ref }}
+          token: ${{ steps.source_token.outputs.token }}
+          path: source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Create exact tracked-source snapshot
+        id: snapshot
+        shell: bash
+        env:
+          REQUESTED_REPOSITORY: ${{ needs.request.outputs.repository }}
+          REQUESTED_REF: ${{ needs.request.outputs.ref }}
+          REQUESTED_IS_TAG: ${{ needs.request.outputs.is_tag }}
+        run: |
+          set -Eeuo pipefail
+          source_sha="$(git -C source rev-parse HEAD)"
+          tree_sha="$(git -C source rev-parse 'HEAD^{tree}')"
+          archive="${RUNNER_TEMP}/source.zip"
+          manifest="${RUNNER_TEMP}/manifest.json"
+          git -C source archive --format=zip --output="${archive}" HEAD
+          archive_sha256="$(shasum -a 256 "${archive}" | awk '{print $1}')"
+          archive_size="$(wc -c < "${archive}" | tr -d '[:space:]')"
+          python3 - "${manifest}" "${REQUESTED_REPOSITORY}" "${REQUESTED_REF}" "${REQUESTED_IS_TAG}" "${source_sha}" "${tree_sha}" "${archive_sha256}" "${archive_size}" <<'PY'
+          from pathlib import Path
+          import json, sys
+          path, repository, ref, is_tag, source_sha, tree_sha, digest, size = sys.argv[1:]
+          value = {
+              "repository": repository,
+              "requested_ref": ref,
+              "is_tag": is_tag == "true",
+              "resolved_source_sha": source_sha,
+              "tree_sha": tree_sha,
+              "source_zip_sha256": digest,
+              "source_zip_size_bytes": int(size),
+          }
+          Path(path).write_text(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+          PY
+          {
+            printf 'source_sha=%s\n' "${source_sha}"
+            printf 'tree_sha=%s\n' "${tree_sha}"
+            printf 'archive_sha256=%s\n' "${archive_sha256}"
+            printf 'archive_size=%s\n' "${archive_size}"
+            printf 'archive=%s\n' "${archive}"
+            printf 'manifest=%s\n' "${manifest}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Upload source.zip
+        id: source_upload
+        uses: ./actions/google-drive
+        env:
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
+        with:
+          repository: ${{ needs.request.outputs.repository }}
+          ref: ${{ needs.request.outputs.ref }}
+          file_path: ${{ steps.snapshot.outputs.archive }}
+          file_name: source.zip
+          mime_type: application/zip
+
+      - name: Write first manifest with source Drive identity
+        shell: bash
+        env:
+          MANIFEST: ${{ steps.snapshot.outputs.manifest }}
+          SOURCE_FILE_ID: ${{ steps.source_upload.outputs.file_id }}
+          FOLDER_ID: ${{ steps.source_upload.outputs.folder_id }}
+        run: |
+          set -Eeuo pipefail
+          python3 - "${MANIFEST}" "${SOURCE_FILE_ID}" "${FOLDER_ID}" <<'PY'
+          from pathlib import Path
+          import json, sys
+          path, source_file_id, folder_id = sys.argv[1:]
+          value = json.loads(Path(path).read_text(encoding="utf-8"))
+          value["source_zip_file_id"] = source_file_id
+          value["folder_id"] = folder_id
+          Path(path).write_text(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+          PY
+
+      - name: Create manifest.json
+        id: manifest_create
+        uses: ./actions/google-drive
+        env:
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
+        with:
+          repository: ${{ needs.request.outputs.repository }}
+          ref: ${{ needs.request.outputs.ref }}
+          file_path: ${{ steps.snapshot.outputs.manifest }}
+          file_name: manifest.json
+          mime_type: application/json
+
+      - name: Add stable manifest Drive identity
+        shell: bash
+        env:
+          MANIFEST: ${{ steps.snapshot.outputs.manifest }}
+          MANIFEST_FILE_ID: ${{ steps.manifest_create.outputs.file_id }}
+        run: |
+          set -Eeuo pipefail
+          python3 - "${MANIFEST}" "${MANIFEST_FILE_ID}" <<'PY'
+          from pathlib import Path
+          import json, sys
+          path, manifest_file_id = sys.argv[1:]
+          value = json.loads(Path(path).read_text(encoding="utf-8"))
+          value["manifest_file_id"] = manifest_file_id
+          Path(path).write_text(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+          PY
+
+      - name: Update manifest.json in place
+        id: manifest_update
+        uses: ./actions/google-drive
+        env:
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
+        with:
+          repository: ${{ needs.request.outputs.repository }}
+          ref: ${{ needs.request.outputs.ref }}
+          file_path: ${{ steps.snapshot.outputs.manifest }}
+          file_name: manifest.json
+          mime_type: application/json
+
+      - name: Verify stable manifest identity
+        shell: bash
+        env:
+          CREATED_ID: ${{ steps.manifest_create.outputs.file_id }}
+          UPDATED_ID: ${{ steps.manifest_update.outputs.file_id }}
+          CREATED_FOLDER: ${{ steps.manifest_create.outputs.folder_id }}
+          UPDATED_FOLDER: ${{ steps.manifest_update.outputs.folder_id }}
+        run: |
+          set -Eeuo pipefail
+          test "${CREATED_ID}" = "${UPDATED_ID}"
+          test "${CREATED_FOLDER}" = "${UPDATED_FOLDER}"
+
+      - name: Finish Agent State run
+        if: ${{ always() }}
+        uses: ./actions/agent-state
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: finish
+          ci_run_id: ${{ inputs.ci_run_id }}
+          status: ${{ job.status == 'success' && 'succeeded' || job.status == 'cancelled' && 'cancelled' || 'failed' }}
