@@ -201,24 +201,32 @@ destination, and:
 The validator never archives, exports, notarizes, uploads to TestFlight/App Store,
 imports a keychain, reaches Kubernetes, or deploys a product.
 
-## Immutable helper reuse
+## Central helper reuse
 
-The reusable workflow invokes `actions/validate-apple` through the issue #495
-external-source identity checkpoint
-`33da58aed7f0423d33cea69ebd7eb829b283ec0d`.
-That checkpoint preserves the previously reviewed hosted simulator-confidence
-and bounded compiler-diagnostics behavior while adding only explicit external
-source repository identity to the existing typed Apple request. The corresponding
-action-lock release label is `issue #495 external-source identity checkpoint`.
+Central is one workflow/action library rather than a collection of independently
+versioned helper components. The reusable workflow follows the active library
+branch for first-party helpers:
+
+- `StreamScapeTV/ci-workflows/actions/validate-apple@main`;
+- `StreamScapeTV/ci-workflows/actions/resolve-execution-backend@main`;
+- `StreamScapeTV/ci-workflows/actions/github-app-repository-token@main`;
+- `StreamScapeTV/ci-workflows/actions/materialize-private-release-asset@main`;
+- `StreamScapeTV/ci-workflows/actions/exact-checkout@main`;
+- `StreamScapeTV/ci-workflows/actions/prepare-workspace@main`;
+- `StreamScapeTV/ci-workflows/actions/checkout-private-dependency@main`;
+- `StreamScapeTV/ci-workflows/actions/render-evidence@main`;
+- `StreamScapeTV/ci-workflows/actions/cleanup-workspace@main`.
+
+Repository tags may identify a whole Central library release when a consumer
+intentionally chooses one. There is no per-action checkpoint registry or global
+action-lock row that callers must coordinate.
 
 When Central must access a private source or private dependency repository, the
-same Apple execution job invokes `actions/github-app-repository-token` through
-the issue #495 bounded repository-token checkpoint
-`56f4859ae09944df6eaaafa7c808e5a1081e61af`. That helper accepts only one full
-`owner/name` repository, reads the App id/private key from fixed environment
-variables, requests only `contents: read` for that repository, masks the issued
-token before exporting it as a step output, and exposes no caller-selected secret
-name or permission surface.
+Apple execution job uses `github-app-repository-token@main`. That helper accepts
+only one full `owner/name` repository, reads the App id/private key from fixed
+environment variables, requests only `contents: read` for that repository,
+masks the issued token before exporting it as a step output, and exposes no
+caller-selected secret name or permission surface.
 
 Result-bundle fallback remains fail-closed and caller-independent: Central accepts
 only the exact stage-local `.xcresult` path already constructed under its owned
@@ -227,9 +235,10 @@ most one compiler diagnostic, strips paths to safe basenames, redacts URLs and
 secret-shaped values, and prefixes every emitted payload line so GitHub
 workflow-command-shaped text remains inert. Missing, corrupt, oversized,
 symlinked, or out-of-state bundles fall back to the existing bounded sanitized
-stdout/stderr diagnostic. No result bundle, DerivedData tree, build log, or
-other routine diagnostic artifact is uploaded, and emission happens before the
-existing terminal cleanup/residue/source-clean boundary removes run-owned state.
+stdout/stderr diagnostic. Private result bundles, DerivedData, and raw build logs
+are not exposed as public Actions artifacts; bounded redacted diagnostic text is
+emitted before terminal cleanup/residue/source-clean processing removes run-owned
+state.
 
 Legacy and protected-full requests still dispatch through the existing typed
 `ciw apple validate` implementation; only the explicit simulator-confidence
@@ -237,16 +246,10 @@ scope enters the strict packet adapter and existing lower-level simulator
 ownership functions. Physical-device authority remains outside this workflow in
 `validation.device`.
 
-Exact source checkout, workspace preparation, optional private dependency
-checkout, evidence rendering, and registered-state cleanup continue to use their
-reviewed immutable foundation helpers.
-
 The action archive supplies its Python modules relative to `GITHUB_ACTION_PATH`;
-the reusable workflow does not clone a second central checkout or use a caller-
-selected helper version. The helper identity is recorded in
-`contracts/action-tool-lock.json`. Product callers consume the reusable workflow
-through the active library channel such as `@main`; they do not configure these
-internal helper checkpoints themselves.
+the reusable workflow does not clone a second Central checkout or accept a
+caller-selected helper version. Product callers consume the reusable workflow
+through the active library channel such as `@main`.
 
 ## Private dependency boundary
 
@@ -279,8 +282,10 @@ path.
 
 ## Artifacts and cleanup
 
-Routine Apple validation uploads no GitHub Actions artifact and uses no GitHub
-Actions cache. Structured summaries and evidence stay bounded/redacted.
+Private source, result bundles, raw build logs, credentials, and dependency state
+must not be exposed through public Actions artifacts. Structured summaries and
+evidence stay bounded/redacted. GitHub Actions cache remains disabled for this
+workflow.
 
 Apple-specific state is marker-bound and removed with lexical, `lstat`-based
 no-follow cleanup. Routine protected-full cleanup never enters CoreSimulator
@@ -294,7 +299,7 @@ fail. Explicit runtime modes retain exact-owned-simulator residue guarantees.
 `.github/workflows/apple-validation-smoke.yml` is the public Central repository's
 exact-head contract caller. Because `ci-workflows` is public while organization
 self-hosted runner groups remain private-repository capacity, its planning and
-zero-artifact control jobs use canonical GitHub-hosted `[ubuntu-latest]`.
+control jobs use canonical GitHub-hosted `[ubuntu-latest]`.
 They prove exact source, Apple plan/contract behavior, and that the ordinary
 semantic Apple executor selector remains exactly `["macOS","ARM64"]`.
 Simulator-confidence planning is separately contract-tested to emit fixed
