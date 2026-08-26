@@ -8,19 +8,33 @@ from __future__ import annotations
 
 import secrets
 import shutil
+import sys
 import time
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .foundation_types import stable_identifier
 from .python_contract import require
-from .python_execution import (
-    _raise_podman_execution_failure as _raise_container_execution_failure,
-    container_script,
-    run_command,
-    write_environment_file,
-)
+from .python_execution import container_script, run_command, write_environment_file
 from .python_types import PythonValidationError, PythonValidationPlan
+
+_DEPENDENCY_RESTORE_EXIT = 81
+_SCRIPT_INVOCATION_EXIT = 82
+
+
+def _report_failure(stage: str, code: str) -> None:
+    sys.stderr.write(f"python validation stage failed: {stage}:{code}\n")
+
+
+def _raise_container_execution_failure(returncode: int) -> None:
+    if returncode == _DEPENDENCY_RESTORE_EXIT:
+        code, stage = "dependency_restore_failed", "dependency-restoration"
+    elif returncode == _SCRIPT_INVOCATION_EXIT:
+        code, stage = "command_failed", "script-invocation"
+    else:
+        code, stage = "isolation_unavailable", "runtime-container-setup"
+    _report_failure(stage, code)
+    raise PythonValidationError(code)
 
 
 def _docker_command() -> list[str]:
@@ -311,10 +325,7 @@ def execute_docker_plan(
             allow_failure=True,
         )
         if completed.returncode != 0:
-            _raise_container_execution_failure(
-                completed.returncode,
-                (completed.stdout or "") + (completed.stderr or ""),
-            )
+            _raise_container_execution_failure(completed.returncode)
     except BaseException as error:
         original_error = error
     try:
