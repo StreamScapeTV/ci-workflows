@@ -54,6 +54,7 @@ class BrokerTests(unittest.TestCase):
             "validation.node",
             "validation.flutter",
             "validation.gitops",
+            "source.snapshot",
         ):
             request = Request.from_claim(
                 {
