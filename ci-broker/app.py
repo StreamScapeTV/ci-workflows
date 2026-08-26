@@ -33,6 +33,7 @@ SUPPORTED_WORKFLOWS = frozenset(
         "validation.node",
         "validation.flutter",
         "validation.gitops",
+        "source.snapshot",
     }
 )
 _REPOSITORY = re.compile(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}\Z")
