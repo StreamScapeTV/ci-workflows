@@ -6,11 +6,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 COPY --chown=65532:65532 src/ci_workflows/ /opt/ci-broker/src/ci_workflows/
 COPY --chown=65532:65532 scripts/ci/ci_broker.py /opt/ci-broker/scripts/ci/ci_broker.py
+COPY tests/test_ci_broker_http_integration.py /tmp/ci-broker-http-integration.py
 
 RUN set -eux; \
     python3 --version; \
     command -v openssl >/dev/null; \
-    python3 /opt/ci-broker/scripts/ci/ci_broker.py self-check
+    python3 /opt/ci-broker/scripts/ci/ci_broker.py self-check; \
+    python3 /tmp/ci-broker-http-integration.py; \
+    rm -f /tmp/ci-broker-http-integration.py
 
 USER 65532:65532
 EXPOSE 8080
