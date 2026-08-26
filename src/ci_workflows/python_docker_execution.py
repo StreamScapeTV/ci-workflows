@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import secrets
 import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -54,6 +55,30 @@ def _resource_token(plan: PythonValidationPlan, environment: Mapping[str, str]) 
     )
 
 
+def _known_absence(completed: subprocess.CompletedProcess[str]) -> bool:
+    if completed.returncode == 0:
+        return False
+    output = f"{completed.stdout or ''}\n{completed.stderr or ''}".casefold()
+    return "no such" in output or "not found" in output
+
+
+def _verify_absent(
+    command: Sequence[str],
+    arguments: Sequence[str],
+    *,
+    cwd: Path,
+    environment: Mapping[str, str],
+) -> bool:
+    completed = run_command(
+        [*command, *arguments],
+        cwd=cwd,
+        environment=environment,
+        timeout_seconds=10,
+        allow_failure=True,
+    )
+    return _known_absence(completed)
+
+
 def _cleanup_docker(
     command: Sequence[str],
     *,
@@ -64,16 +89,14 @@ def _cleanup_docker(
     cwd: Path,
     environment: Mapping[str, str],
 ) -> None:
-    failed = False
     for container in containers:
-        completed = run_command(
+        run_command(
             [*command, "rm", "-f", container],
             cwd=cwd,
             environment=environment,
             timeout_seconds=30,
             allow_failure=True,
         )
-        failed = failed or completed.returncode not in {0, 1}
     if network:
         run_command(
             [*command, "network", "rm", network],
@@ -99,39 +122,37 @@ def _cleanup_docker(
             allow_failure=True,
         )
 
-    for container in containers:
-        failed = failed or run_command(
-            [*command, "container", "inspect", container],
+    absent = all(
+        _verify_absent(
+            command,
+            ["container", "inspect", container],
             cwd=cwd,
             environment=environment,
-            timeout_seconds=10,
-            allow_failure=True,
-        ).returncode == 0
+        )
+        for container in containers
+    )
     if network:
-        failed = failed or run_command(
-            [*command, "network", "inspect", network],
+        absent = absent and _verify_absent(
+            command,
+            ["network", "inspect", network],
             cwd=cwd,
             environment=environment,
-            timeout_seconds=10,
-            allow_failure=True,
-        ).returncode == 0
+        )
     if volume:
-        failed = failed or run_command(
-            [*command, "volume", "inspect", volume],
+        absent = absent and _verify_absent(
+            command,
+            ["volume", "inspect", volume],
             cwd=cwd,
             environment=environment,
-            timeout_seconds=10,
-            allow_failure=True,
-        ).returncode == 0
+        )
     for image in images:
-        failed = failed or run_command(
-            [*command, "image", "inspect", image],
+        absent = absent and _verify_absent(
+            command,
+            ["image", "inspect", image],
             cwd=cwd,
             environment=environment,
-            timeout_seconds=10,
-            allow_failure=True,
-        ).returncode == 0
-    require(not failed, "cleanup_failed")
+        )
+    require(absent, "cleanup_failed")
 
 
 def _start_postgres(
@@ -225,6 +246,17 @@ def _start_postgres(
     )
 
 
+def _emit_validation_output(completed: subprocess.CompletedProcess[str]) -> None:
+    if completed.stdout:
+        sys.stdout.write(completed.stdout)
+        if not completed.stdout.endswith("\n"):
+            sys.stdout.write("\n")
+    if completed.stderr:
+        sys.stderr.write(completed.stderr)
+        if not completed.stderr.endswith("\n"):
+            sys.stderr.write("\n")
+
+
 def execute_docker_plan(
     source_root: Path,
     state_root: Path,
@@ -258,27 +290,27 @@ def execute_docker_plan(
         failure_stage="runtime-container-setup",
     )
 
-    images: list[str] = []
-    for image in (plan.runtime_reference, plan.postgres_runtime_reference):
-        if image:
-            run_command(
-                [*docker, "pull", "--platform", "linux/amd64", image],
-                cwd=source_root,
-                environment=execution_environment,
-                timeout_seconds=180,
-                code="toolchain_mismatch",
-                failure_stage="runtime-container-setup",
-            )
-            if image not in images:
-                images.append(image)
-
     token = _resource_token(plan, environment)
     validation_container = f"{token}-validation"
     postgres_container = f"{token}-postgres"
     network = f"{token}-network" if plan.postgres_runtime_reference else None
     volume = f"{token}-pgdata" if plan.postgres_runtime_reference else None
+    images: list[str] = []
     original_error: BaseException | None = None
     try:
+        for image in (plan.runtime_reference, plan.postgres_runtime_reference):
+            if image:
+                run_command(
+                    [*docker, "pull", "--platform", "linux/amd64", image],
+                    cwd=source_root,
+                    environment=execution_environment,
+                    timeout_seconds=180,
+                    code="toolchain_mismatch",
+                    failure_stage="runtime-container-setup",
+                )
+                if image not in images:
+                    images.append(image)
+
         validation_environment = {
             "CI": "true",
             "PYTHONDONTWRITEBYTECODE": "1",
@@ -324,6 +356,7 @@ def execute_docker_plan(
             timeout_seconds=plan.timeout_minutes * 60,
             allow_failure=True,
         )
+        _emit_validation_output(completed)
         if completed.returncode != 0:
             _raise_container_execution_failure(completed.returncode)
     except BaseException as error:
