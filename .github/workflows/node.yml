@@ -43,6 +43,23 @@ name: Node CI
         type: string
         required: false
         default: ""
+    secrets:
+      SOURCE_APP_ID:
+        required: false
+      SOURCE_APP_PRIVATE_KEY:
+        required: false
+      AGENT_STATE_SUPABASE_URL:
+        required: false
+      AGENT_STATE_SUPABASE_SECRET_KEY:
+        required: false
+      R2_ACCOUNT_ID:
+        required: false
+      R2_BUCKET:
+        required: false
+      R2_ACCESS_KEY_ID:
+        required: false
+      R2_SECRET_ACCESS_KEY:
+        required: false
 
 permissions:
   contents: read
@@ -52,13 +69,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
-      CI_LOG: ${{ runner.temp }}/central-ci.log
       CI_TEST_PROFILE: ${{ inputs.test_profile }}
     steps:
       - name: Initialize CI log
         shell: bash
         run: |
-          : > "${{ env.CI_LOG }}"
+          log="${RUNNER_TEMP}/central-ci.log"
+          : > "${log}"
+          printf 'CI_LOG=%s\n' "${log}" >> "${GITHUB_ENV}"
 
       - name: Mark Agent State run as running
         if: ${{ inputs.ci_run_id != '' }}
@@ -112,8 +130,8 @@ jobs:
             variable="${phase}_COMMAND"
             command="${!variable}"
             test -z "${command}" && continue
-            printf '\n===== %s =====\n' "${phase,,}" | tee -a "${{ env.CI_LOG }}"
-            bash -lc "${command}" 2>&1 | tee -a "${{ env.CI_LOG }}"
+            printf '\n===== %s =====\n' "${phase,,}" | tee -a "${CI_LOG}"
+            bash -lc "${command}" 2>&1 | tee -a "${CI_LOG}"
           done
 
       - name: Upload CI log to R2
@@ -127,7 +145,7 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         with:
           ci_run_id: ${{ inputs.ci_run_id }}
-          log_path: ${{ env.CI_LOG }}
+          log_path: ${{ runner.temp }}/central-ci.log
 
       - name: Finish Agent State run
         if: ${{ always() && inputs.ci_run_id != '' }}
