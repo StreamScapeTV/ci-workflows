@@ -63,12 +63,14 @@ class DeviceLockWorkflowAdmissionTests(unittest.TestCase):
         self.assertIn("stat -c '%a'", provision)
         self.assertIn('= "700"', provision)
 
-    def test_focused_tests_use_locked_validation_runtime_and_clean_it(self) -> None:
+    def test_focused_tests_use_repository_validation_dependencies_and_clean_them(self) -> None:
         contract = self.workflow["jobs"]["contract_smoke"]
         focused = next(step for step in contract["steps"] if step.get("id") == "focused")
         run = focused["run"]
-        self.assertIn("bootstrap_validation_runtime.py", run)
-        self.assertIn("contracts/action-tool-lock.json", run)
+        self.assertIn("-r .ciw/requirements/validation.txt", run)
+        self.assertIn("python3 -m pip install", run)
+        self.assertNotIn("bootstrap_validation_runtime.py", run)
+        self.assertNotIn("contracts/action-tool-lock.json", run)
         self.assertIn("HOME", run)
         self.assertNotIn("RUNNER_TEMP", run)
         self.assertIn("trap 'rm -rf -- \"${validation_root}\"' EXIT", run)
