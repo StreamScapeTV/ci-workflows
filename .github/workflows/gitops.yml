@@ -1,0 +1,131 @@
+name: GitOps CI
+
+"on":
+  workflow_call:
+    inputs:
+      repository:
+        type: string
+        required: false
+        default: ""
+      ref:
+        type: string
+        required: false
+        default: ""
+      working_directory:
+        type: string
+        required: false
+        default: "."
+      test_profile:
+        type: string
+        required: false
+        default: ""
+      prepare_command:
+        type: string
+        required: false
+        default: ""
+      build_command:
+        type: string
+        required: false
+        default: ""
+      test_command:
+        type: string
+        required: false
+        default: ""
+      release_command:
+        type: string
+        required: false
+        default: ""
+      ci_run_id:
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      CI_LOG: ${{ runner.temp }}/central-ci.log
+      CI_TEST_PROFILE: ${{ inputs.test_profile }}
+    steps:
+      - name: Initialize CI log
+        shell: bash
+        run: |
+          : > "${{ env.CI_LOG }}"
+
+      - name: Mark Agent State run as running
+        if: ${{ inputs.ci_run_id != '' }}
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: start
+          ci_run_id: ${{ inputs.ci_run_id }}
+
+      - name: Prepare source token
+        id: source
+        if: ${{ inputs.repository != '' }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.SOURCE_APP_ID }}
+          private-key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          owner: StreamScapeTV
+
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.repository || github.repository }}
+          ref: ${{ inputs.ref || github.sha }}
+          token: ${{ steps.source.outputs.token || github.token }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Run product commands
+        id: commands
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          PREPARE_COMMAND: ${{ inputs.prepare_command }}
+          BUILD_COMMAND: ${{ inputs.build_command }}
+          TEST_COMMAND: ${{ inputs.test_command }}
+          RELEASE_COMMAND: ${{ inputs.release_command }}
+          CI_GITHUB_TOKEN: ${{ steps.source.outputs.token || github.token }}
+          GH_TOKEN: ${{ steps.source.outputs.token || github.token }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${PREPARE_COMMAND}${BUILD_COMMAND}${TEST_COMMAND}${RELEASE_COMMAND}"
+          for phase in PREPARE BUILD TEST RELEASE; do
+            variable="${phase}_COMMAND"
+            command="${!variable}"
+            test -z "${command}" && continue
+            printf '\n===== %s =====\n' "${phase,,}" | tee -a "${{ env.CI_LOG }}"
+            bash -lc "${command}" 2>&1 | tee -a "${{ env.CI_LOG }}"
+          done
+
+      - name: Upload CI log to R2
+        id: r2
+        if: ${{ always() && inputs.ci_run_id != '' }}
+        uses: StreamScapeTV/ci-workflows/actions/r2-upload@main
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        with:
+          ci_run_id: ${{ inputs.ci_run_id }}
+          log_path: ${{ env.CI_LOG }}
+
+      - name: Finish Agent State run
+        if: ${{ always() && inputs.ci_run_id != '' }}
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: finish
+          ci_run_id: ${{ inputs.ci_run_id }}
+          status: ${{ steps.commands.outcome == 'success' && steps.r2.outcome == 'success' && 'succeeded' || 'failed' }}

@@ -1,0 +1,65 @@
+name: Runner images
+
+"on":
+  push:
+    paths:
+      - runner-images/**
+      - .github/workflows/runner-images.yml
+  workflow_dispatch:
+    inputs:
+      publish:
+        type: boolean
+        default: false
+      version:
+        type: string
+        required: false
+        default: "dev"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [general, mobile, buildah, service, docker, flux-control]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare image inputs
+        shell: bash
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: |
+          set -Eeuo pipefail
+          test ! -e "runner-images/${IMAGE}/.ciw-build-inputs"
+          if test -f "runner-images/${IMAGE}/prepare_inputs.py"; then
+            python3 "runner-images/${IMAGE}/prepare_inputs.py"
+          fi
+
+      - name: Build and smoke image
+        shell: bash
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: |
+          set -Eeuo pipefail
+          local="ci-runner-${IMAGE}:${GITHUB_SHA}"
+          docker build -t "${local}" "runner-images/${IMAGE}"
+          docker run --rm "${local}" /usr/local/bin/runner-image-smoke
+
+      - name: Publish image
+        if: ${{ inputs.publish == true }}
+        shell: bash
+        env:
+          IMAGE: ${{ matrix.image }}
+          VERSION: ${{ inputs.version }}
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          remote="ghcr.io/streamscapetv/github-actions-runner-${IMAGE}:${VERSION}"
+          printf '%s' "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker tag "ci-runner-${IMAGE}:${GITHUB_SHA}" "${remote}"
+          docker push "${remote}"

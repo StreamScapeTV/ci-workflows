@@ -1,0 +1,65 @@
+name: Broker release
+
+"on":
+  push:
+    tags: ["ci-broker-*"]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      REGISTRY: git.faruqi.dev
+      IMAGE: git.faruqi.dev/mimranfaruqi/ci-workflows/ci-broker
+      CHART_REGISTRY: oci://git.faruqi.dev/mimranfaruqi/ci-workflows/helm-charts
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'push' && github.sha || format('refs/tags/{0}', inputs.release_tag) }}
+          persist-credentials: false
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        env:
+          TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}
+        run: |
+          set -Eeuo pipefail
+          case "${TAG}" in ci-broker-*) version="${TAG#ci-broker-}" ;; *) exit 2 ;; esac
+          test -n "${version}"
+          printf 'version=%s\n' "${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build and smoke broker image
+        run: |
+          docker build -t "ci-broker:${{ steps.version.outputs.version }}" ci-broker
+          python3 ci-broker/smoke_test.py
+
+      - name: Publish broker image
+        env:
+          REGISTRY_USER: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.FORGEJO_REGISTRY_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          printf '%s' "${REGISTRY_PASSWORD}" | docker login "${REGISTRY}" -u "${REGISTRY_USER}" --password-stdin
+          docker tag "ci-broker:${{ steps.version.outputs.version }}" "${IMAGE}:${{ steps.version.outputs.version }}"
+          docker push "${IMAGE}:${{ steps.version.outputs.version }}"
+
+      - name: Package and publish Helm chart
+        env:
+          REGISTRY_USER: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.FORGEJO_REGISTRY_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          version="${{ steps.version.outputs.version }}"
+          helm lint ci-broker/chart --set "image.tag=${version}"
+          helm package ci-broker/chart --version "${version}" --app-version "${version}" --destination "${RUNNER_TEMP}"
+          printf '%s' "${REGISTRY_PASSWORD}" | helm registry login "${REGISTRY}" --username "${REGISTRY_USER}" --password-stdin
+          helm push "${RUNNER_TEMP}/ci-broker-${version}.tgz" "${CHART_REGISTRY}"

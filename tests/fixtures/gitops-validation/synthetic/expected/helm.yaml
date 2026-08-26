@@ -1,8 +1,0 @@
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: synthetic-helm
-data:
-  image: "example.invalid/synthetic:sha-0000000000000000000000000000000000000000"
-  message: "source-only"

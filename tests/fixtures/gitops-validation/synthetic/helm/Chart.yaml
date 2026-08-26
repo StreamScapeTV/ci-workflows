@@ -1,8 +1,0 @@
-apiVersion: v2
-name: gitops-smoke
-version: 0.1.0
-type: application
-dependencies:
-  - name: fixture-lib
-    version: 0.1.0
-    repository: file://charts/fixture-lib

@@ -1,0 +1,41 @@
+name: Upload CI log to R2
+
+description: Gzip one local CI log and upload it once to the deterministic R2 key.
+
+inputs:
+  ci_run_id:
+    description: Agent State CI run UUID
+    required: true
+  log_path:
+    description: Local log file to gzip and upload
+    required: true
+
+outputs:
+  object_key:
+    value: ${{ steps.upload.outputs.object_key }}
+
+runs:
+  using: composite
+  steps:
+    - id: upload
+      shell: bash
+      env:
+        CI_RUN_ID: ${{ inputs.ci_run_id }}
+        LOG_PATH: ${{ inputs.log_path }}
+      run: |
+        set -Eeuo pipefail
+        : "${R2_ACCOUNT_ID:?R2_ACCOUNT_ID is required}"
+        : "${R2_BUCKET:?R2_BUCKET is required}"
+        : "${R2_ACCESS_KEY_ID:?R2_ACCESS_KEY_ID is required}"
+        : "${R2_SECRET_ACCESS_KEY:?R2_SECRET_ACCESS_KEY is required}"
+        test -f "${LOG_PATH}"
+        key="ci-runs/${CI_RUN_ID}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.log.gz"
+        archive="${RUNNER_TEMP}/central-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.log.gz"
+        gzip -c "${LOG_PATH}" > "${archive}"
+        curl --fail --silent --show-error \
+          --aws-sigv4 "aws:amz:auto:s3" \
+          --user "${R2_ACCESS_KEY_ID}:${R2_SECRET_ACCESS_KEY}" \
+          --upload-file "${archive}" \
+          "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${R2_BUCKET}/${key}"
+        rm -f "${archive}"
+        printf 'object_key=%s\n' "${key}" >> "${GITHUB_OUTPUT}"

@@ -1,6 +1,0 @@
-dependencies:
-- name: fixture-lib
-  version: 0.1.0
-  repository: file://charts/fixture-lib
-digest: sha256:946984e43b107d1f4a4030ac44cc46af57a99eccb21ec8fce91515f88f2798e7
-generated: '2026-08-10T00:00:00Z'

@@ -1,9 +1,0 @@
-apiVersion: v2
-name: agent-state
-description: Synthetic Agent State release chart shape
-type: application
-version: 0.0.0
-appVersion: "0.0.0"
-annotations:
-  artifacthub.io/license: MIT
-  agent-state.io/source-sha: unreleased
