@@ -83,14 +83,13 @@ jobs:
     runs-on: [ubuntu-latest]
     timeout-minutes: 10
     outputs:
-      runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
+      runs_on_json: ${{ steps.backend.outputs.runs_on_json }}
     steps:
       - id: plan
-        name: Resolve bounded hosted Android execution
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@4c9f8ab5f9d73d79e841f16f1f1acb72b6baed3a # issue #577 hosted mobile checkpoint
+        name: Validate technology-level Android request
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@91e5ba5af11ec717f829000edad062c664fb86f7 # issue #534 prefix-isolated protected-full checkpoint
         with:
           phase: plan
-          execution_backend: ${{ inputs.execution_backend }}
           admitted_sha: ${{ inputs.admitted_sha }}
           validation_scope: ${{ inputs.validation_scope }}
           working_directory: ${{ inputs.working_directory }}
@@ -100,6 +99,14 @@ jobs:
           private_dependency_sha: ${{ inputs.private_dependency_sha }}
           private_dependency_subdirectory: ${{ inputs.private_dependency_subdirectory }}
           private_dependency_id: ${{ inputs.private_dependency_id }}
+      - id: backend
+        name: Resolve bounded hosted Android capacity
+        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@83084efecc597d3bedacfe5f8628f1890b9bcd90 # issue #495 hosted Apple backend checkpoint
+        with:
+          workflow_api: validation.android
+          source_trust: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && 'trusted-pr' || github.event_name == 'pull_request' && 'untrusted-fork' || 'trusted-exact' }}
+          execution_backend: ${{ inputs.execution_backend }}
+          runner_profile: mobile
 
   plan_organization:
     name: Resolve organization Android validation plan
@@ -107,14 +114,13 @@ jobs:
     runs-on: [linux, amd64, mobile]
     timeout-minutes: 10
     outputs:
-      runs_on_json: ${{ steps.plan.outputs.runs_on_json }}
+      runs_on_json: ${{ steps.backend.outputs.runs_on_json }}
     steps:
       - id: plan
-        name: Resolve bounded organization Android execution
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@4c9f8ab5f9d73d79e841f16f1f1acb72b6baed3a # issue #577 hosted mobile checkpoint
+        name: Validate technology-level Android request
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@91e5ba5af11ec717f829000edad062c664fb86f7 # issue #534 prefix-isolated protected-full checkpoint
         with:
           phase: plan
-          execution_backend: ${{ inputs.execution_backend }}
           admitted_sha: ${{ inputs.admitted_sha }}
           validation_scope: ${{ inputs.validation_scope }}
           working_directory: ${{ inputs.working_directory }}
@@ -124,6 +130,14 @@ jobs:
           private_dependency_sha: ${{ inputs.private_dependency_sha }}
           private_dependency_subdirectory: ${{ inputs.private_dependency_subdirectory }}
           private_dependency_id: ${{ inputs.private_dependency_id }}
+      - id: backend
+        name: Preserve bounded organization Android capacity
+        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@83084efecc597d3bedacfe5f8628f1890b9bcd90 # issue #495 hosted Apple backend checkpoint
+        with:
+          workflow_api: validation.android
+          source_trust: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && 'trusted-pr' || github.event_name == 'pull_request' && 'untrusted-fork' || 'trusted-exact' }}
+          execution_backend: ${{ inputs.execution_backend }}
+          runner_profile: mobile
 
   validate:
     name: CI / Android validation
@@ -138,10 +152,9 @@ jobs:
     steps:
       - id: plan
         name: Validate technology-level Android request
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@4c9f8ab5f9d73d79e841f16f1f1acb72b6baed3a # issue #577 hosted mobile checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@91e5ba5af11ec717f829000edad062c664fb86f7 # issue #534 prefix-isolated protected-full checkpoint
         with:
           phase: plan
-          execution_backend: ${{ inputs.execution_backend }}
           admitted_sha: ${{ inputs.admitted_sha }}
           validation_scope: ${{ inputs.validation_scope }}
           working_directory: ${{ inputs.working_directory }}
@@ -155,10 +168,9 @@ jobs:
       - id: prebuild_plan
         name: Validate optional private dependency prebuild plan
         if: ${{ inputs.validation_scope != 'gradle' && inputs.dependency_prebuild_plan_json != '' && steps.plan.outputs.private_dependency_used == 'true' }}
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@4c9f8ab5f9d73d79e841f16f1f1acb72b6baed3a # issue #577 hosted mobile checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@91e5ba5af11ec717f829000edad062c664fb86f7 # issue #534 prefix-isolated protected-full checkpoint
         with:
           phase: plan
-          execution_backend: ${{ inputs.execution_backend }}
           admitted_sha: ${{ inputs.admitted_sha }}
           validation_scope: protected-full
           working_directory: ${{ inputs.working_directory }}
