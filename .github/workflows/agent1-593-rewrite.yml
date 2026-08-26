@@ -1,0 +1,24 @@
+name: Agent 1 issue 593 policy audit
+
+on:
+  push:
+    branches:
+      - agent1/issue-593-policy-simplification
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Audit stale component policy surfaces
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact issue branch head
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Audit policy residue
+        run: python3 scripts/ci/agent1_593_rewrite.py
