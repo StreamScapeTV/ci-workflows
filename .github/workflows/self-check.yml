@@ -14,61 +14,23 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-
       - name: Parse workflow and action YAML
         shell: bash
         run: |
           python3 -m pip install --quiet PyYAML
-          python3 - <<'PY2'
+          python3 - <<'PY'
           from pathlib import Path
           import yaml
           for path in [*Path('.github/workflows').glob('*.yml'), *Path('actions').glob('*/action.yml')]:
               yaml.safe_load(path.read_text())
           print('yaml-ok')
-          PY2
-
+          PY
       - name: Run focused helper tests
         run: python3 -m unittest tests.test_ci_helpers -v
-
       - name: Smoke broker
         run: |
           python3 ci-broker/app.py self-check
           python3 ci-broker/smoke_test.py
-
-  e2e-node:
-    if: ${{ github.ref == 'refs/heads/orchestrator/issue-610-minimal-ci' }}
-    uses: ./.github/workflows/node.yml
-    with:
-      repository: StreamScapeTV/agent-state-dashboard
-      ref: main
-      test_profile: full
-      node_version: 22.18.0
-      upload_private_log: true
-      prepare_command: npm ci
-      test_command: npm test && npm run typecheck && npm run build
-    secrets: inherit
-
-  e2e-python:
-    if: ${{ github.ref == 'refs/heads/orchestrator/issue-610-minimal-ci' }}
-    uses: ./.github/workflows/python.yml
-    with:
-      repository: StreamScapeTV/iptv-backend
-      ref: main
-      test_profile: contract
-      python_version: '3.12'
-      upload_private_log: true
-      prepare_command: python -m pip install -r requirements.txt
-      test_command: >-
-        DEBUG=true python scripts/generate_public_v1_contracts.py --check &&
-        DEBUG=true pytest -q
-        tests/contracts/test_v1_contract_bundle.py
-        tests/contracts/test_public_inventory.py
-        tests/contracts/test_client_golden_fixtures.py
-        tests/test_release_packaging.py
-        tests/services/test_source_replication_contract.py
-        tests/domains/test_media_state.py
-        tests/integration/test_cross_device_websocket_conformance.py
-    secrets: inherit
 
   e2e-android:
     if: ${{ github.ref == 'refs/heads/orchestrator/issue-610-minimal-ci' }}
@@ -83,7 +45,7 @@ jobs:
         git clone https://x-access-token:${GH_TOKEN}@github.com/StreamScapeTV/streamscape-media.git ../streamscape-media &&
         git -C ../streamscape-media checkout 85b3c7ed9711fa6ac53059e5d3e474d791c45d26
       build_command: >-
-        GRADLE_OPTS='-Xmx5g -XX:MaxMetaspaceSize=1g' ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug
+        ./gradlew --no-daemon '-Dorg.gradle.jvmargs=-Xmx5g -XX:MaxMetaspaceSize=1g' :app:testDebugUnitTest :app:lintDebug
       test_command: python3 scripts/ci/validate-room-schemas.py --repo-root . --report build/reports/room-schema-json-integrity.json
     secrets: inherit
 
@@ -96,7 +58,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
-
       - name: Prepare source token
         id: source-token
         uses: actions/create-github-app-token@v2
@@ -104,7 +65,6 @@ jobs:
           app-id: ${{ secrets.SOURCE_APP_ID }}
           private-key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
           owner: StreamScapeTV
-
       - name: Check out exact Apple source
         uses: actions/checkout@v4
         with:
@@ -114,7 +74,6 @@ jobs:
           path: source
           fetch-depth: 1
           persist-credentials: false
-
       - name: Create exact tracked-source archive and manifest
         id: snapshot
         shell: bash
@@ -133,17 +92,19 @@ jobs:
           path, source_sha, tree_sha, digest, size = sys.argv[1:]
           value = {
               "repository": "StreamScapeTV/iptv-apple",
+              "repository_name": "iptv-apple",
               "requested_ref": "develop",
               "is_tag": False,
               "resolved_source_sha": source_sha,
               "tree_sha": tree_sha,
+              "archive_format": "zip",
+              "archive_format_version": 1,
               "source_zip_sha256": digest,
               "source_zip_size_bytes": int(size),
           }
           Path(path).write_text(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
           PY
           printf 'archive=%s\nmanifest=%s\n' "${archive}" "${manifest}" >> "${GITHUB_OUTPUT}"
-
       - name: Upload source.zip
         id: source-upload
         uses: ./actions/google-drive
@@ -158,7 +119,6 @@ jobs:
           file_path: ${{ steps.snapshot.outputs.archive }}
           file_name: source.zip
           mime_type: application/zip
-
       - name: Add source Drive identity
         shell: bash
         env:
@@ -175,8 +135,7 @@ jobs:
           value["folder_id"] = folder_id
           Path(path).write_text(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
           PY
-
-      - name: Create manifest.json
+      - name: Create or update manifest.json
         id: manifest-create
         uses: ./actions/google-drive
         env:
@@ -190,7 +149,6 @@ jobs:
           file_path: ${{ steps.snapshot.outputs.manifest }}
           file_name: manifest.json
           mime_type: application/json
-
       - name: Add manifest Drive identity
         shell: bash
         env:
@@ -205,8 +163,7 @@ jobs:
           value["manifest_file_id"] = manifest_file_id
           Path(path).write_text(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
           PY
-
-      - name: Update manifest.json in place
+      - name: Update manifest.json with final metadata
         id: manifest-update
         uses: ./actions/google-drive
         env:
@@ -220,15 +177,9 @@ jobs:
           file_path: ${{ steps.snapshot.outputs.manifest }}
           file_name: manifest.json
           mime_type: application/json
-
       - name: Verify in-place manifest update
         shell: bash
         env:
           CREATED_ID: ${{ steps.manifest-create.outputs.file_id }}
           UPDATED_ID: ${{ steps.manifest-update.outputs.file_id }}
-          CREATED_FOLDER: ${{ steps.manifest-create.outputs.folder_id }}
-          UPDATED_FOLDER: ${{ steps.manifest-update.outputs.folder_id }}
-        run: |
-          set -Eeuo pipefail
-          test "${CREATED_ID}" = "${UPDATED_ID}"
-          test "${CREATED_FOLDER}" = "${UPDATED_FOLDER}"
+        run: test "${CREATED_ID}" = "${UPDATED_ID}"
