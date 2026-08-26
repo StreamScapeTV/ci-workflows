@@ -1,6 +1,6 @@
 version: 1
 source_root: src/ci_workflows
-generated_from_sha: 88a120347166907044388e7a2424bcb4ad455e15
+generated_from_sha: fa9b921594954c23a1c4ea433376a6f39ca6e564
 inventory_complete: true
 new_module_creation_locked: false
 summary:
