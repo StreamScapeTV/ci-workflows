@@ -32,10 +32,10 @@ class SourceTrustDocumentationTests(unittest.TestCase):
         self.assertIn("GITHUB_ACTION_PATH", helper_section)
         self.assertNotIn("exact full-SHA references", helper_section)
         self.assertNotIn("contracts/action-tool-lock.json", helper_section)
-        self.assertIn(
-            "no `.ciw` checkout, a central-repository PAT, `secrets: inherit`, a caller-selected helper ref, or a per-action checkpoint/version propagation mechanism",
-            helper_section,
-        )
+        self.assertIn("does not need a `.ciw` checkout", helper_section)
+        self.assertIn("a central-repository PAT", helper_section)
+        self.assertIn("a caller-selected helper ref", helper_section)
+        self.assertIn("a per-action checkpoint/version propagation mechanism", helper_section)
         self.assertIn(
             "uses: StreamScapeTV/ci-workflows/actions/exact-checkout@main",
             source,
