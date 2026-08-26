@@ -23,6 +23,7 @@ class ExecutionBackendTests(unittest.TestCase):
             {
                 "general-tiny": ["ubuntu-latest"],
                 "general-small": ["ubuntu-latest"],
+                "mobile": ["ubuntu-latest"],
                 "apple": ["macos-latest"],
             },
         )
@@ -39,15 +40,17 @@ class ExecutionBackendTests(unittest.TestCase):
         cases = {
             "general-tiny": ("ubuntu-latest",),
             "general-small": ("ubuntu-latest",),
+            "mobile": ("ubuntu-latest",),
             "apple": ("macos-latest",),
         }
         for profile, expected in cases.items():
             with self.subTest(profile=profile):
-                organization = (
-                    ("macOS", "ARM64")
-                    if profile == "apple"
-                    else ("linux", "amd64", "general", "small")
-                )
+                if profile == "apple":
+                    organization = ("macOS", "ARM64")
+                elif profile == "mobile":
+                    organization = ("linux", "amd64", "mobile")
+                else:
+                    organization = ("linux", "amd64", "general", "small")
                 resolved = resolve_execution_backend(
                     execution_backend="github-hosted",
                     execution_profile=profile,
@@ -61,7 +64,6 @@ class ExecutionBackendTests(unittest.TestCase):
 
     def test_hosted_rejects_unproven_specialized_profiles_instead_of_falling_back(self) -> None:
         selectors = {
-            "mobile": ("linux", "amd64", "mobile"),
             "service-small": ("linux", "amd64", "service", "small"),
             "buildah-medium": ("linux", "amd64", "buildah", "medium"),
             "buildah-high": ("linux", "amd64", "buildah", "high"),
@@ -97,6 +99,7 @@ class ExecutionBackendTests(unittest.TestCase):
             "reusable-python.yml",
             "reusable-gitops-validation.yml",
             "reusable-script.yml",
+            "reusable-android.yml",
         ):
             with self.subTest(filename=filename):
                 workflow = yaml.load(
@@ -147,10 +150,12 @@ class ExecutionBackendTests(unittest.TestCase):
                 )
 
     def test_new_portable_families_have_backend_aware_planners(self) -> None:
-        for filename in (
-            "reusable-gitops-validation.yml",
-            "reusable-script.yml",
-        ):
+        expected_organization = {
+            "reusable-gitops-validation.yml": ["linux", "amd64", "general", "small"],
+            "reusable-script.yml": ["linux", "amd64", "general", "small"],
+            "reusable-android.yml": ["linux", "amd64", "mobile"],
+        }
+        for filename, organization_selector in expected_organization.items():
             with self.subTest(filename=filename):
                 workflow = yaml.load(
                     (ROOT / ".github/workflows" / filename).read_text(encoding="utf-8"),
@@ -160,7 +165,7 @@ class ExecutionBackendTests(unittest.TestCase):
                 organization = workflow["jobs"]["plan_organization"]
                 self.assertEqual(hosted["runs-on"], ["ubuntu-latest"])
                 self.assertEqual(hosted["if"], "${{ inputs.execution_backend == 'github-hosted' }}")
-                self.assertEqual(organization["runs-on"], ["linux", "amd64", "general", "small"])
+                self.assertEqual(organization["runs-on"], organization_selector)
                 self.assertEqual(
                     organization["if"],
                     "${{ inputs.execution_backend != 'github-hosted' }}",
@@ -187,6 +192,7 @@ class ExecutionBackendTests(unittest.TestCase):
             "reusable-python.yml",
             "reusable-gitops-validation.yml",
             "reusable-script.yml",
+            "reusable-android.yml",
         ):
             with self.subTest(filename=filename):
                 workflow = yaml.load(
