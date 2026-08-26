@@ -84,6 +84,10 @@ jobs:
         shell: bash
         run: test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
 
+      - name: Temporary issue 593 policy audit
+        shell: bash
+        run: "${VERIFIED_PYTHON} scripts/ci/agent1_593_rewrite.py"
+
       - name: Prepare repository-declared validation dependencies
         shell: bash
         run: |
