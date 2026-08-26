@@ -20,7 +20,7 @@ class AndroidDependencyPrebuildContractTests(unittest.TestCase):
         cls.workflow = yaml.load(cls.source, Loader=ActionsLoader)
         cls.job = cls.workflow["jobs"]["validate"]
         cls.steps = cls.job["steps"]
-        cls.by_id = {step["id"]: step for step in cls.steps}
+        cls.by_id = {step["id"]: step for step in cls.steps if "id" in step}
 
     def test_prebuild_is_optional_private_dependency_data(self) -> None:
         inputs = self.workflow["on"]["workflow_call"]["inputs"]
@@ -80,7 +80,15 @@ class AndroidDependencyPrebuildContractTests(unittest.TestCase):
         self.assertIn("steps.workspace_cleanup.outcome == 'success'", cleanup_result)
 
     def test_prebuild_does_not_expand_runner_or_cache_authority(self) -> None:
-        self.assertEqual(self.job["runs-on"], ["linux", "amd64", "mobile"])
+        self.assertEqual(
+            self.job["runs-on"],
+            "${{ fromJSON(needs.plan.outputs.runs_on_json || needs.plan_organization.outputs.runs_on_json) }}",
+        )
+        self.assertEqual(self.workflow["jobs"]["plan"]["runs-on"], ["ubuntu-latest"])
+        self.assertEqual(
+            self.workflow["jobs"]["plan_organization"]["runs-on"],
+            ["linux", "amd64", "mobile"],
+        )
         lowered = self.source.casefold()
         for forbidden in (
             "actions/cache",
