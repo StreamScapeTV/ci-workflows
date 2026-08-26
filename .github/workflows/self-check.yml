@@ -34,3 +34,59 @@ jobs:
         run: |
           python3 ci-broker/app.py self-check
           python3 ci-broker/smoke_test.py
+
+  e2e-apple:
+    if: ${{ github.ref == 'refs/heads/orchestrator/issue-610-minimal-ci' }}
+    uses: ./.github/workflows/apple.yml
+    with:
+      repository: StreamScapeTV/iptv-apple
+      ref: develop
+      test_profile: full
+      prepare_command: ./scripts/bootstrap-streamscape-media-binary.sh
+      build_command: >-
+        xcodebuild build-for-testing -workspace streamscapetv.xcworkspace -scheme streamscapetv -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO &&
+        xcodebuild build-for-testing -workspace streamscapetv.xcworkspace -scheme streamscapetv -destination 'generic/platform=tvOS Simulator' CODE_SIGNING_ALLOWED=NO &&
+        xcodebuild build-for-testing -workspace streamscapetv.xcworkspace -scheme streamscapetv -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO
+      test_command: >-
+        xcodebuild test -workspace streamscapetv.xcworkspace -scheme streamscapetv -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO -only-testing:streamscapetvTests/SelectedBackendStateSyncRoutingIntegrationTests
+    secrets: inherit
+
+  e2e-android:
+    if: ${{ github.ref == 'refs/heads/orchestrator/issue-610-minimal-ci' }}
+    uses: ./.github/workflows/android.yml
+    with:
+      repository: StreamScapeTV/iptv-android
+      ref: develop
+      test_profile: full
+      java_version: '25'
+      prepare_command: >-
+        git clone https://x-access-token:${GH_TOKEN}@github.com/StreamScapeTV/streamscape-media.git ../streamscape-media &&
+        git -C ../streamscape-media checkout 85b3c7ed9711fa6ac53059e5d3e474d791c45d26
+      build_command: ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:kspDebugKotlin :app:assembleDebug
+      test_command: python3 scripts/ci/validate-room-schemas.py --repo-root . --report build/reports/room-schema-json-integrity.json
+    secrets: inherit
+
+  e2e-python:
+    if: ${{ github.ref == 'refs/heads/orchestrator/issue-610-minimal-ci' }}
+    uses: ./.github/workflows/python.yml
+    with:
+      repository: StreamScapeTV/iptv-backend
+      ref: main
+      test_profile: full
+      python_version: '3.12'
+      prepare_command: python -m pip install -r requirements.txt
+      test_command: ./scripts/run_release_gates.sh
+    secrets: inherit
+
+  e2e-node:
+    if: ${{ github.ref == 'refs/heads/orchestrator/issue-610-minimal-ci' }}
+    uses: ./.github/workflows/node.yml
+    with:
+      repository: StreamScapeTV/agent-state-dashboard
+      ref: main
+      test_profile: full
+      node_version: '22'
+      prepare_command: npm ci
+      test_command: npm test && npm run typecheck
+      build_command: npm run build && helm lint charts/agent-state-dashboard && helm template agent-state-dashboard charts/agent-state-dashboard >/dev/null
+    secrets: inherit
