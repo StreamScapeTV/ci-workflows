@@ -24,7 +24,7 @@ class AppleLegacyPrivateDependencyRoutingTests(unittest.TestCase):
     def test_legacy_dependency_without_config_skips_release_planning(self) -> None:
         detector = self.step("release_config")
         self.assertEqual(
-            "${{ inputs.validation_scope == 'protected-full' && needs.plan.outputs.private_dependency_used == 'true' }}",
+            "inputs.validation_scope == 'protected-full' && needs.plan.outputs.private_dependency_used == 'true'",
             detector["if"],
         )
         script = str(detector["run"])
@@ -52,7 +52,7 @@ class AppleLegacyPrivateDependencyRoutingTests(unittest.TestCase):
     def test_legacy_dependency_path_and_mixed_mode_guard_are_preserved(self) -> None:
         dependency = self.step("dependency")
         self.assertEqual(
-            "${{ needs.plan.outputs.private_dependency_used == 'true' }}",
+            "needs.plan.outputs.private_dependency_used == 'true'",
             dependency["if"],
         )
         self.assertEqual(
@@ -73,7 +73,7 @@ class AppleLegacyPrivateDependencyRoutingTests(unittest.TestCase):
     def test_release_materialization_remains_driven_by_strict_plan_output(self) -> None:
         release = self.step("release_asset")
         self.assertEqual(
-            "${{ steps.release_plan.outputs.used == 'true' }}",
+            "steps.release_plan.outputs.used == 'true'",
             release["if"],
         )
         cleanup = self.step("release_cleanup")
