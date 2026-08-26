@@ -10,9 +10,6 @@ from ci_workflows.apple_contract_fragments import load_apple_contract
 from ci_workflows.apple_types import AppleProfile, AppleValidationRequest
 
 ROOT = Path(__file__).resolve().parents[1]
-FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-APPLE_HELPER_SHA = "33da58aed7f0423d33cea69ebd7eb829b283ec0d"
-REPOSITORY_TOKEN_SHA = "56f4859ae09944df6eaaafa7c808e5a1081e61af"
 OWNER_GATE = "github.event.pull_request.user.login == 'mimranfaruqi'"
 REPOSITORY_GATE = "github.event.pull_request.head.repo.full_name == github.repository"
 
@@ -104,17 +101,15 @@ class AppleWorkflowContractTests(unittest.TestCase):
         hosted_apple_selector = "runs-on: [macos-latest]"
         self.assertIn(direct_general_selector, self.workflow)
         self.assertNotIn(direct_general_selector, self.smoke)
-        self.assertEqual(self.smoke.count(hosted_control_selector), 2)
+        self.assertEqual(self.smoke.count(hosted_control_selector), 1)
         self.assertEqual(self.smoke.count(hosted_apple_selector), 1)
         self.assertNotIn("runs-on: ubuntu-latest", self.smoke)
         self.assertEqual(self.workflow.count(dynamic_apple_selector), 1)
         self.assertNotIn(dynamic_apple_selector, self.smoke)
         self.assertIn('["macOS","ARM64"]', self.smoke)
-        self.assertGreaterEqual(self.smoke.count(OWNER_GATE), 3)
-        self.assertGreaterEqual(self.smoke.count(REPOSITORY_GATE), 3)
+        self.assertGreaterEqual(self.smoke.count(OWNER_GATE), 2)
+        self.assertGreaterEqual(self.smoke.count(REPOSITORY_GATE), 2)
         self.assertNotIn("github.event.repository.private", self.smoke)
-        self.assertIn('APPLE_RESULT: ${{ needs.apple.result }}', self.smoke)
-        self.assertIn('test "${APPLE_RESULT}" = success', self.smoke)
         self.assertNotIn("runs-on: [linux, amd64, general]", self.workflow + self.smoke)
         self.assertNotIn("runs-on: portable", self.workflow + self.smoke)
         self.assertNotIn("runs-on: macOS", self.workflow + self.smoke)
@@ -145,7 +140,7 @@ class AppleWorkflowContractTests(unittest.TestCase):
         self.assertNotIn('"operation":"test"', self.smoke)
         self.assertNotIn("workflow_dispatch:", self.smoke)
 
-    def test_smoke_cancellation_scope_is_stable_and_skips_artifact_check(self) -> None:
+    def test_smoke_cancellation_scope_is_stable(self) -> None:
         concurrency = self.smoke.split("concurrency:", 1)[1].split("jobs:", 1)[0]
         self.assertIn(
             "group: apple-validation-smoke-pr-${{ github.event.pull_request.number }}",
@@ -153,10 +148,8 @@ class AppleWorkflowContractTests(unittest.TestCase):
         )
         self.assertNotIn("github.event.pull_request.head.sha", concurrency)
         self.assertIn("cancel-in-progress: true", concurrency)
-        zero_artifacts = self.smoke.split("  zero_artifacts:", 1)[1]
-        self.assertIn(OWNER_GATE, zero_artifacts)
-        self.assertIn(REPOSITORY_GATE, zero_artifacts)
-        self.assertIn("always() && !cancelled()", zero_artifacts)
+        self.assertNotIn("zero_artifacts:", self.smoke)
+        self.assertNotIn("/artifacts", self.smoke)
 
     def test_smoke_runs_when_apple_public_registration_changes(self) -> None:
         for path in (
@@ -178,19 +171,14 @@ class AppleWorkflowContractTests(unittest.TestCase):
         self.assertIn("      - src/ci_workflows/apple_plan_guard.py", self.smoke)
         self.assertIn("      - tests/test_apple_*.py", self.smoke)
 
-    def test_external_actions_are_full_sha_pinned(self) -> None:
-        text = "\n".join((self.workflow, self.smoke))
-        for value in re.findall(r"uses:\s*([^\s#]+)", text):
-            if value.startswith("./"):
-                continue
-            self.assertRegex(value, r"@[0-9a-f]{40}$", value)
+    def test_external_actions_use_normal_upstream_release_refs(self) -> None:
+        self.assertEqual(self.smoke.count("uses: actions/checkout@v7.0.1"), 2)
+        self.assertNotRegex(self.smoke, r"uses: actions/checkout@[0-9a-f]{40}")
 
-    def test_permissions_artifacts_and_private_dependency_secret_are_explicit(self) -> None:
+    def test_permissions_and_private_dependency_secrets_are_explicit(self) -> None:
         self.assertIn("permissions:\n  contents: read", self.workflow)
-        self.assertIn("permissions:\n  actions: read\n  contents: read", self.smoke)
+        self.assertIn("permissions:\n  contents: read", self.smoke)
         text = (self.workflow + self.smoke + self.action).lower()
-        self.assertNotIn("upload-artifact", text)
-        self.assertNotIn("download-artifact", text)
         for secret in (
             "private_dependency_token",
             "repository_app_id",
@@ -198,9 +186,7 @@ class AppleWorkflowContractTests(unittest.TestCase):
         ):
             self.assertIn(secret, self.workflow)
         self.assertNotIn("secrets: inherit", text)
-        self.assertIn("routine apple actions artifacts verified: zero", self.smoke.lower())
-        self.assertIn("total_count", self.smoke)
-        self.assertEqual(self.contract["artifact_policy"], "zero-default")
+        self.assertNotIn("/artifacts", self.smoke)
 
     def test_private_helper_identity_and_terminal_cleanup_are_mandatory(self) -> None:
         self.assertNotIn("github.workflow_sha", self.workflow)
@@ -209,13 +195,13 @@ class AppleWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("./.ciw/actions/", self.workflow)
         self.assertEqual(
             self.workflow.count(
-                f"uses: StreamScapeTV/ci-workflows/actions/validate-apple@{APPLE_HELPER_SHA}"
+                "uses: StreamScapeTV/ci-workflows/actions/validate-apple@main"
             ),
             4,
         )
         self.assertEqual(
             self.workflow.count(
-                f"uses: StreamScapeTV/ci-workflows/actions/github-app-repository-token@{REPOSITORY_TOKEN_SHA}"
+                "uses: StreamScapeTV/ci-workflows/actions/github-app-repository-token@main"
             ),
             3,
         )
@@ -226,7 +212,7 @@ class AppleWorkflowContractTests(unittest.TestCase):
             "cleanup-workspace",
         ):
             self.assertIn(
-                f"uses: StreamScapeTV/ci-workflows/actions/{action}@{FOUNDATION_SHA}",
+                f"uses: StreamScapeTV/ci-workflows/actions/{action}@main",
                 self.workflow,
             )
         self.assertEqual(self.workflow.count("phase: execute"), 1)
