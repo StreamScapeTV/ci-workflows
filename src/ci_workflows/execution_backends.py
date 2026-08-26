@@ -9,6 +9,7 @@ _HOSTED_RUNS_ON = {
     "general-tiny": ("ubuntu-latest",),
     "general-small": ("ubuntu-latest",),
     "mobile": ("ubuntu-latest",),
+    "service-small": ("ubuntu-latest",),
     "apple": ("macos-latest",),
 }
 

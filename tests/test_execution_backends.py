@@ -24,6 +24,7 @@ class ExecutionBackendTests(unittest.TestCase):
                 "general-tiny": ["ubuntu-latest"],
                 "general-small": ["ubuntu-latest"],
                 "mobile": ["ubuntu-latest"],
+                "service-small": ["ubuntu-latest"],
                 "apple": ["macos-latest"],
             },
         )
@@ -41,6 +42,7 @@ class ExecutionBackendTests(unittest.TestCase):
             "general-tiny": ("ubuntu-latest",),
             "general-small": ("ubuntu-latest",),
             "mobile": ("ubuntu-latest",),
+            "service-small": ("ubuntu-latest",),
             "apple": ("macos-latest",),
         }
         for profile, expected in cases.items():
@@ -49,6 +51,8 @@ class ExecutionBackendTests(unittest.TestCase):
                     organization = ("macOS", "ARM64")
                 elif profile == "mobile":
                     organization = ("linux", "amd64", "mobile")
+                elif profile == "service-small":
+                    organization = ("linux", "amd64", "service", "small")
                 else:
                     organization = ("linux", "amd64", "general", "small")
                 resolved = resolve_execution_backend(
@@ -64,7 +68,6 @@ class ExecutionBackendTests(unittest.TestCase):
 
     def test_hosted_rejects_unproven_specialized_profiles_instead_of_falling_back(self) -> None:
         selectors = {
-            "service-small": ("linux", "amd64", "service", "small"),
             "buildah-medium": ("linux", "amd64", "buildah", "medium"),
             "buildah-high": ("linux", "amd64", "buildah", "high"),
             "flux-control": ("linux", "amd64", "flux-control"),
