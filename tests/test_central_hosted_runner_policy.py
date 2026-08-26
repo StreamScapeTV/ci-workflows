@@ -150,9 +150,12 @@ class CentralHostedRunnerPolicyTests(unittest.TestCase):
             (WORKFLOWS / "central-ci-dispatch.yml").read_text(encoding="utf-8"),
             Loader=ActionsLoader,
         )
-        self.assertEqual(set(dispatch["jobs"]), {"private"})
+        self.assertEqual(set(dispatch["jobs"]), {"plan", "private", "private_linux"})
+        self.assertEqual(dispatch["jobs"]["plan"]["runs-on"], HOSTED_LINUX)
         self.assertEqual(dispatch["jobs"]["private"]["runs-on"], HOSTED_APPLE)
+        self.assertEqual(dispatch["jobs"]["private_linux"]["runs-on"], HOSTED_LINUX)
         self.assertNotIn("uses", dispatch["jobs"]["private"])
+        self.assertNotIn("uses", dispatch["jobs"]["private_linux"])
         for retired in ("apple-test.yml", "apple-certification-smoke.yml"):
             self.assertFalse((WORKFLOWS / retired).exists())
 
