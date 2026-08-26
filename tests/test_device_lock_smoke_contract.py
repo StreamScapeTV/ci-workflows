@@ -19,7 +19,7 @@ class DeviceLockSmokeContractTests(unittest.TestCase):
     def test_smoke_is_pr_only_nonprivileged_and_source_exact(self) -> None:
         triggers = set(self.workflow["on"])
         self.assertEqual({"pull_request"}, triggers)
-        self.assertEqual({"actions": "read", "contents": "read"}, self.workflow["permissions"])
+        self.assertEqual({"contents": "read"}, self.workflow["permissions"])
         self.assertIn("github.event.pull_request.head.sha", self.source)
         self.assertIn("persist-credentials: false", self.source)
         self.assertNotIn("pull_request_target", self.source)
@@ -87,23 +87,18 @@ class DeviceLockSmokeContractTests(unittest.TestCase):
             self.assertIn(name, terminal["env"])
             self.assertIn(f'${{{name}}}', terminal["run"])
 
-    def test_zero_artifact_finalizer_is_hosted_independent_and_non_cancelled(self) -> None:
-        finalizer = self.workflow["jobs"]["zero_artifacts"]
-        self.assertEqual(["ubuntu-latest"], finalizer["runs-on"])
-        self.assertNotIn("runs-on: [linux, amd64, general, small]", self.source)
-        condition = finalizer["if"]
+    def test_smoke_has_one_owner_gated_hosted_job(self) -> None:
+        self.assertEqual({"contract_smoke"}, set(self.workflow["jobs"]))
+        contract = self.workflow["jobs"]["contract_smoke"]
+        self.assertEqual(["ubuntu-latest"], contract["runs-on"])
+        condition = contract["if"]
         self.assertIn("github.event.pull_request.user.login == 'mimranfaruqi'", condition)
         self.assertIn(
             "github.event.pull_request.head.repo.full_name == github.repository",
             condition,
         )
-        self.assertIn("always() && !cancelled()", condition)
-        run = finalizer["steps"][0]["run"]
-        self.assertIn("/artifacts", run)
-        self.assertIn("total_count", run)
-        self.assertIn('test "${CONTRACT_RESULT}" = success', run)
-        self.assertNotIn("upload-artifact", self.source)
-        self.assertNotIn("download-artifact", self.source)
+        self.assertNotIn("/artifacts", self.source)
+        self.assertNotIn("total_count", self.source)
 
     def test_smoke_never_claims_physical_device_execution(self) -> None:
         lowered = self.source.casefold()
