@@ -8,9 +8,7 @@
     "bootstrap_mutable_reference": "main",
     "bootstrap_mutable_allowed_trust_classes": ["source-admission", "read-only-validation", "physical-device-validation", "trusted-publication"],
     "privileged_mutable_references_forbidden": false,
-    "consumer_updates": "reviewable-pull-request",
-    "rollback_reference_required": true,
-    "delete_referenced_release_forbidden": true
+    "consumer_updates": "reviewable-pull-request"
   },
   "compatibility_policy": {
     "compatible": ["add workflow", "add optional input without behavior change", "add output", "widen documented technology capability without privilege change", "documentation clarification"],
@@ -19,7 +17,6 @@
     "acknowledgement_required_fields": ["id", "api_name", "kind", "reason", "migration_issue", "effective_version"]
   },
   "defaults": {
-    "artifact_policy": "zero-default-named-exception-only",
     "evidence_policy": "redacted-structured-summary",
     "cleanup_policy": "always-residue-checked",
     "concurrency_policy": "caller-owned",
