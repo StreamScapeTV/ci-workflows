@@ -56,13 +56,13 @@ name: Flutter CI
         required: false
       AGENT_STATE_SUPABASE_SECRET_KEY:
         required: false
-      R2_ACCOUNT_ID:
+      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID:
         required: false
-      R2_BUCKET:
+      GOOGLE_DRIVE_CLIENT_ID:
         required: false
-      R2_ACCESS_KEY_ID:
+      GOOGLE_DRIVE_CLIENT_SECRET:
         required: false
-      R2_SECRET_ACCESS_KEY:
+      GOOGLE_DRIVE_REFRESH_TOKEN:
         required: false
 
 permissions:
@@ -84,7 +84,7 @@ jobs:
 
       - name: Mark Agent State run as running
         if: ${{ inputs.ci_run_id != '' }}
-        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@62a783692dec6b4455adfb3435c8981176295acb
         env:
           AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
           AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
@@ -140,30 +140,37 @@ jobs:
             variable="${phase}_COMMAND"
             command="${!variable}"
             test -z "${command}" && continue
-            printf '\n===== %s =====\n' "${phase,,}" | tee -a "${CI_LOG}"
-            bash -lc "${command}" 2>&1 | tee -a "${CI_LOG}"
+            printf '\n===== %s =====\n' "${phase,,}" >> "${CI_LOG}"
+            if ! bash -lc "${command}" >> "${CI_LOG}" 2>&1; then
+              printf '%s failed; inspect the private Google Drive CI log.\n' "${phase,,}" >&2
+              exit 1
+            fi
           done
 
-      - name: Upload CI log to R2
-        id: r2
+      - name: Upload CI log to Google Drive
+        id: drive
         if: ${{ always() && inputs.ci_run_id != '' }}
-        uses: StreamScapeTV/ci-workflows/actions/r2-upload@main
+        uses: StreamScapeTV/ci-workflows/actions/google-drive@38bfe084cf9bfdedcaca1808c72693f9e657e988
         env:
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
         with:
-          ci_run_id: ${{ inputs.ci_run_id }}
-          log_path: ${{ runner.temp }}/central-ci.log
+          repository: ${{ inputs.repository || github.repository }}
+          ref: ${{ inputs.ref || github.ref_name }}
+          file_path: ${{ runner.temp }}/central-ci.log
+          file_name: ${{ github.run_id }}-${{ github.run_attempt }}.log.gz
+          gzip: 'true'
+          mime_type: application/gzip
 
       - name: Finish Agent State run
         if: ${{ always() && inputs.ci_run_id != '' }}
-        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@62a783692dec6b4455adfb3435c8981176295acb
         env:
           AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
           AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
         with:
           phase: finish
           ci_run_id: ${{ inputs.ci_run_id }}
-          status: ${{ steps.commands.outcome == 'success' && steps.r2.outcome == 'success' && 'succeeded' || 'failed' }}
+          status: ${{ steps.commands.outcome == 'success' && steps.drive.outcome == 'success' && 'succeeded' || 'failed' }}
