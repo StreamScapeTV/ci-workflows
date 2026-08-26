@@ -193,7 +193,7 @@ jobs:
           archive="${RUNNER_TEMP}/source.zip"
           manifest="${RUNNER_TEMP}/manifest.json"
           git -C source archive --format=zip --output="${archive}" HEAD
-          archive_sha256="$(shasum -a 256 "${archive}" | awk '{print $1}')"
+          archive_sha256="$(sha256sum "${archive}" | awk '{print $1}')"
           archive_size="$(wc -c < "${archive}" | tr -d '[:space:]')"
           python3 - "${manifest}" "${REQUESTED_REPOSITORY}" "${REQUESTED_REF}" "${REQUESTED_IS_TAG}" "${source_sha}" "${tree_sha}" "${archive_sha256}" "${archive_size}" <<'PY'
           from pathlib import Path
@@ -201,10 +201,13 @@ jobs:
           path, repository, ref, is_tag, source_sha, tree_sha, digest, size = sys.argv[1:]
           value = {
               "repository": repository,
+              "repository_name": repository.rsplit("/", 1)[-1],
               "requested_ref": ref,
               "is_tag": is_tag == "true",
               "resolved_source_sha": source_sha,
               "tree_sha": tree_sha,
+              "archive_format": "zip",
+              "archive_format_version": 1,
               "source_zip_sha256": digest,
               "source_zip_size_bytes": int(size),
           }
@@ -309,6 +312,13 @@ jobs:
           set -Eeuo pipefail
           test "${CREATED_ID}" = "${UPDATED_ID}"
           test "${CREATED_FOLDER}" = "${UPDATED_FOLDER}"
+
+      - name: Clean snapshot workspace
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          rm -rf source
+          rm -f "${RUNNER_TEMP}/source.zip" "${RUNNER_TEMP}/manifest.json"
 
       - name: Finish Agent State run
         if: ${{ always() }}
