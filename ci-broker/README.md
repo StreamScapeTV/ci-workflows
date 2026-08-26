@@ -12,7 +12,10 @@ For an Agent State `ci_runs` INSERT, the service authenticates the webhook,
 claims the opaque request through the fixed Agent State RPC, validates the
 closed reviewed `(workflow, host)` intent, and fire-and-forgets the fixed
 Central `workflow_dispatch`. The public dispatch contains only `ci_run_id` and
-the SHA-256 `active_key`.
+the SHA-256 `active_key`. That key hashes only the source repository, logical
+source ref, and current branch/tag distinction; workflow/profile remain bounded
+intent validation but do not partition branch concurrency. Private source/ref
+text never leaves the relay in the public dispatch.
 
 The broker does **not** resolve or check out source, read `.github/central-ci.json`,
 admit dependencies, choose product commands, run builds/tests, discover GitHub
