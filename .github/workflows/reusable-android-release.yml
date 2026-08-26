@@ -75,7 +75,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve bounded unsigned Android release plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-android-release@68a6450d6576e0744969cd170cc581856a44312a # issue #443 inherited package credential checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android-release@main
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -100,7 +100,7 @@ jobs:
     steps:
       - id: checkout
         name: Check out exact admitted Android source once
-        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@main
         with:
           repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -109,7 +109,7 @@ jobs:
 
       - id: workspace
         name: Prepare one isolated Gradle workspace
-        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@main
         with:
           profile: gradle
           cache_mode: disabled
@@ -118,7 +118,7 @@ jobs:
       - id: dependency
         name: Check out exact private dependency at most once
         if: needs.plan.outputs.private_dependency_used == 'true'
-        uses: StreamScapeTV/ci-workflows/actions/checkout-private-dependency@70e08d4ddf8930046632a7135950e924b82e22bf # issue #104 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/checkout-private-dependency@main
         with:
           repository: ${{ needs.plan.outputs.private_dependency_repository }}
           admitted_sha: ${{ needs.plan.outputs.private_dependency_sha }}
@@ -129,7 +129,7 @@ jobs:
 
       - id: execute
         name: Execute one unsigned release plan in the shared Gradle workspace
-        uses: StreamScapeTV/ci-workflows/actions/validate-android-release@68a6450d6576e0744969cd170cc581856a44312a # issue #443 inherited package credential checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android-release@main
         env:
           CIW_MAVEN_PACKAGE_READ_TOKEN: ${{ secrets.maven_package_read_token }}
         with:
@@ -178,7 +178,7 @@ jobs:
       - id: upload
         name: Upload bounded unsigned Android release evidence
         if: steps.execute.outcome == 'success'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: ${{ steps.execute.outputs.artifact_name }}
           path: ${{ steps.upload_paths.outputs.paths }}
@@ -189,7 +189,7 @@ jobs:
       - id: android_cleanup
         name: Remove unsigned-release copied source state once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-android-release@68a6450d6576e0744969cd170cc581856a44312a # issue #443 inherited package credential checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android-release@main
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -198,7 +198,7 @@ jobs:
       - id: residue
         name: Verify zero unsigned-release copied-source residue
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-android-release@68a6450d6576e0744969cd170cc581856a44312a # issue #443 inherited package credential checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android-release@main
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -207,7 +207,7 @@ jobs:
       - id: workspace_cleanup
         name: Remove and verify the registered Gradle workspace
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@main
 
       - id: clean
         name: Verify admitted Android source remained exact and clean

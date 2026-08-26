@@ -115,7 +115,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve contract-owned Node command and execution plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-node@7d5d839c6e90491e165f1358ecb5e80129805764 # issue #405 simplified execution-backend checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-node@main
         with:
           phase: plan
           execution_backend: ${{ inputs.execution_backend }}
@@ -147,7 +147,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve contract-owned Node command and execution plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-node@7d5d839c6e90491e165f1358ecb5e80129805764 # issue #405 simplified execution-backend checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-node@main
         with:
           phase: plan
           execution_backend: ${{ inputs.execution_backend }}
@@ -185,7 +185,7 @@ jobs:
       evidence_id: ${{ steps.node.outputs.evidence_id }}
     steps:
       - name: Check out exact admitted caller source
-        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@main
         with:
           repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -194,22 +194,22 @@ jobs:
 
       - id: workspace
         name: Prepare isolated marker-bound Node state
-        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@main
         with:
           profile: ${{ needs.plan.outputs.workspace_profile || needs.plan_organization.outputs.workspace_profile }}
           cache_mode: disabled
           source_sha: ${{ inputs.admitted_sha }}
           trust_mode: ${{ needs.plan.outputs.source_trust || needs.plan_organization.outputs.source_trust }}
 
-      - name: Set up exact contract-selected Node runtime
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - name: Set up contract-selected Node runtime
+        uses: actions/setup-node@v6.5.0
         with:
           node-version: ${{ needs.plan.outputs.node_version || needs.plan_organization.outputs.node_version }}
           package-manager-cache: false
 
       - id: node
         name: Execute bounded Node validation
-        uses: StreamScapeTV/ci-workflows/actions/validate-node@7d5d839c6e90491e165f1358ecb5e80129805764 # issue #405 simplified execution-backend checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-node@main
         with:
           phase: execute
           execution_backend: ${{ inputs.execution_backend }}
@@ -228,10 +228,10 @@ jobs:
 
       - name: Render deterministic redacted Node evidence
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/render-evidence@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/render-evidence@main
         with:
           source_sha: ${{ inputs.admitted_sha }}
-          workflow_release: validation-node-1.0.0
+          workflow_release: main
           runner_profile: portable
           toolchain_json: >-
             {"node":"${{ needs.plan.outputs.node_version || needs.plan_organization.outputs.node_version }}","npm":"${{ steps.node.outputs.npm_version || 'unknown' }}"}
@@ -243,7 +243,7 @@ jobs:
       - id: cleanup
         name: Remove and verify all registered Node state
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@main
 
       - name: Verify exact source remained clean after cleanup
         if: always()

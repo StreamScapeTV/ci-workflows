@@ -145,13 +145,20 @@ def load_contract(root: Path) -> ContractData:
 def _validate_policy(types: Mapping[str, Any]) -> None:
     reference = types.get("reference_policy")
     require(isinstance(reference, dict), "reference_policy must be an object")
-    require(reference.get("bootstrap_mutable_reference") == "main", "bootstrap mutable reference must be main")
-    allowed = unique_strings(reference.get("bootstrap_mutable_allowed_trust_classes"), "bootstrap_mutable_allowed_trust_classes", allow_empty=False)
-    require(set(allowed) == {"source-admission", "read-only-validation"}, "mutable bootstrap trust classes changed")
-    require(reference.get("privileged_mutable_references_forbidden") is True, "privileged mutable references must fail closed")
+    require(reference.get("bootstrap_mutable_reference") == "main", "normal shared-library reference must be main")
+    trust_classes = types.get("trust_classes")
+    require(isinstance(trust_classes, dict), "trust class catalog is missing")
+    allowed = unique_strings(
+        reference.get("bootstrap_mutable_allowed_trust_classes"),
+        "bootstrap_mutable_allowed_trust_classes",
+        allow_empty=False,
+    )
+    require(set(allowed) == set(trust_classes), "main must be available to every supported trust class")
+    require(reference.get("privileged_mutable_references_forbidden") is False, "main must remain available to privileged APIs")
+    require(reference.get("immutable_references") == ["full-sha", "immutable-semver-tag"], "whole-repository SHA and SemVer snapshot references must remain supported")
     require(reference.get("consumer_updates") == "reviewable-pull-request", "consumer updates must be reviewable")
-    require(reference.get("rollback_reference_required") is True, "rollback reference must be required")
-    require(reference.get("delete_referenced_release_forbidden") is True, "referenced releases must not be deleted")
+    require("rollback_reference_required" not in reference, "rollback-reference ceremony is not part of the public API policy")
+    require("delete_referenced_release_forbidden" not in reference, "release-retention ceremony is not part of the public API policy")
     compatibility = types.get("compatibility_policy")
     require(isinstance(compatibility, dict), "compatibility_policy must be an object")
     for name in ("compatible", "conditional", "breaking"):
@@ -160,7 +167,7 @@ def _validate_policy(types: Mapping[str, Any]) -> None:
     require(set(required_ack) == {"id", "api_name", "kind", "reason", "migration_issue", "effective_version"}, "breaking acknowledgement fields changed")
     defaults = types.get("defaults")
     require(isinstance(defaults, dict), "public API defaults are missing")
-    require(defaults.get("artifact_policy") == "zero-default-named-exception-only", "artifact policy changed")
+    require("artifact_policy" not in defaults, "ordinary public APIs must not inherit a global artifact policy")
     require(defaults.get("cleanup_policy") == "always-residue-checked", "cleanup policy changed")
 
 
@@ -274,14 +281,14 @@ def validate_workflows(data: ContractData, profiles: Mapping[str, Mapping[str, A
         matrix = row.get("matrix_max_jobs")
         require(isinstance(timeout, int) and 1 <= timeout <= 240, f"{api} timeout is invalid")
         require(isinstance(matrix, int) and 1 <= matrix <= 16, f"{api} matrix maximum is invalid")
-        artifact_policy = row.get("artifact_policy", "zero-default")
-        require(artifact_policy in {"zero-default", "bounded-evidence"}, f"{api} artifact policy is invalid")
-        if artifact_policy == "bounded-evidence":
+        artifact_policy = row.get("artifact_policy")
+        if artifact_policy is None:
+            require("artifact_retention_max_days" not in row, f"{api} artifact retention requires an explicit bounded artifact policy")
+        else:
+            require(artifact_policy == "bounded-evidence", f"{api} artifact policy is invalid")
             retention_max = row.get("artifact_retention_max_days")
             require(type(retention_max) is int and 1 <= retention_max <= 7, f"{api} artifact retention maximum is invalid")
             require("artifact_manifest_json" in outputs, f"{api} bounded artifact policy requires artifact_manifest_json output")
-        else:
-            require("artifact_retention_max_days" not in row, f"{api} zero-artifact policy may not declare artifact retention")
         depth = row.get("max_reusable_workflow_depth", 1)
         require(isinstance(depth, int) and 1 <= depth <= MAX_PUBLIC_DEPTH, f"{api} call depth is invalid")
         components = unique_strings(row.get("implementation_components"), f"{api}.implementation_components", allow_empty=False)
@@ -312,7 +319,7 @@ def validate_bootstrap_workflow(data: ContractData, workflows: Mapping[str, Mapp
     require(profile is not None, "bootstrap workflow permission profile is missing")
     secrets = set(bootstrap.get("secrets", ()))
     require(secrets == {"registry_username", "registry_token"}, "bootstrap workflow secret interface changed")
-    require(permission_map(profile.get("caller_permissions"), "bootstrap permissions") == {"actions": "read", "contents": "read"}, "bootstrap workflow permission interface changed")
+    require(permission_map(profile.get("caller_permissions"), "bootstrap permissions") == {"contents": "read"}, "bootstrap workflow permission interface changed")
     events = set(bootstrap.get("permitted_events", ()))
     require(events == {"tag-push", "workflow_call", "workflow_dispatch-existing-tag"}, "bootstrap workflow event compatibility changed")
     inputs = _input_map(bootstrap)
@@ -321,7 +328,8 @@ def validate_bootstrap_workflow(data: ContractData, workflows: Mapping[str, Mapp
         require(inputs.get(optional, {}).get("required") is False, f"bootstrap {optional} must remain optional")
     workflow = read_text(data.root / str(bootstrap["file"]))
     require("workflow_call:" in workflow, "bootstrap workflow_call support is missing")
-    require("actions: read" in workflow and "contents: read" in workflow, "bootstrap workflow permissions changed")
+    require("contents: read" in workflow, "bootstrap workflow contents permission changed")
+    require("actions: read" not in workflow, "bootstrap workflow no longer needs Actions artifact inventory permission")
     require("secrets: inherit" not in workflow, "bootstrap workflow may not inherit secrets")
 
 
@@ -479,16 +487,14 @@ def validate_docs(root: Path) -> None:
         "cannot elevate",
         "Agent State",
         "Flux",
-        "zero routine Actions artifacts",
+        "private-source",
         "repository-owned",
         "application identity",
     ):
         require(phrase in architecture, f"public API architecture is missing: {phrase}")
     for phrase in (
         "reviewable pull requests",
-        "immutable full commit SHA",
-        "immutable SemVer tag",
-        "known-good rollback",
+        "whole-repository",
         "@main",
         "breaking",
         "revocation",

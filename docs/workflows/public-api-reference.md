@@ -137,7 +137,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 ### `validation.gitops`
 
 - Events: `pull_request`, `push`, `workflow_dispatch`, `workflow_call`
-- Inputs: `execution_backend` (default `organization`), `admitted_sha` (required), `validation_profile` (required), `consumer_contract` (required), `change_base_sha` (default ``), `policy_script_profile` (default ``), `artifact_exception_id`
+- Inputs: `execution_backend` (default `organization`), `admitted_sha` (required), `validation_profile` (required), `consumer_contract` (required), `change_base_sha` (default ``), `policy_script_profile` (default ``), `artifact_exception_id` (default ``)
 - Secrets: none
 - Outputs: `result`, `test_summary`, `render_digest`, `cleanup_result`, `evidence_id`
 - Repository-owned hooks: `policy_script_profile`
@@ -172,7 +172,7 @@ Generated from `contracts/public-workflows.json` and its checked-in fragments. A
 - Inputs: `execution_backend` (default `organization`), `admitted_sha` (required), `validation_profile` (required), `working_directory` (default `.`), `script_path` (required)
 - Secrets: none
 - Outputs: `result`
-- Repository-owned hooks: `script_path`, `working_directory`
+- Repository-owned hooks: `script_path`
 
 ### `validation.static-web`
 

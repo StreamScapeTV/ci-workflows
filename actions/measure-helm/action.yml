@@ -43,9 +43,7 @@ runs:
         mkdir -p -- "${runtime_root}"
         cleanup_runtime() { rm -rf -- "${runtime_root}"; }
         trap cleanup_runtime EXIT
-        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/bootstrap_validation_runtime.py" \
-          --lock "${GITHUB_ACTION_PATH}/../../contracts/action-tool-lock.json" \
-          --target "${runtime_root}"
+        python3 -m pip install --disable-pip-version-check --no-cache-dir --target "${runtime_root}" -r "${GITHUB_ACTION_PATH}/../../requirements/validation.txt
         export PYTHONPATH="${runtime_root}:${GITHUB_ACTION_PATH}/../../src"
         case "${CIW_MEASUREMENT_PHASE}" in
           start|stop) ;;

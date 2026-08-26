@@ -31,7 +31,7 @@ on:
         default: ""
         type: string
       artifact_exception_id:
-        description: Reserved zero-artifact field; non-empty values are rejected
+        description: Reserved compatibility input; non-empty values are rejected
         required: false
         default: ""
         type: string
@@ -53,7 +53,6 @@ on:
         value: ${{ jobs.validate.outputs.evidence_id }}
 
 permissions:
-  actions: read
   contents: read
 
 jobs:
@@ -71,7 +70,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve contract-owned GitOps plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-gitops@1e703ba47bc0e8f01b72bc805c2375aa38df609e # issue #571 active composition classifier checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-gitops@main
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -83,7 +82,7 @@ jobs:
 
       - id: backend
         name: Resolve bounded hosted execution backend
-        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@5b3093056bd77d18bf094e1ba8d8d1613ccc472b # issue #577 hosted Android backend checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@main
         with:
           workflow_api: validation.gitops
           source_trust: ${{ steps.plan.outputs.source_trust }}
@@ -104,7 +103,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve contract-owned GitOps plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-gitops@1e703ba47bc0e8f01b72bc805c2375aa38df609e # issue #571 active composition classifier checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-gitops@main
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -116,7 +115,7 @@ jobs:
 
       - id: backend
         name: Resolve bounded organization execution backend
-        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@5b3093056bd77d18bf094e1ba8d8d1613ccc472b # issue #577 hosted Android backend checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@main
         with:
           workflow_api: validation.gitops
           source_trust: ${{ steps.plan.outputs.source_trust }}
@@ -137,7 +136,7 @@ jobs:
       evidence_id: ${{ steps.execute.outputs.evidence_id }}
     steps:
       - name: Check out exact admitted caller source with bounded GitOps history
-        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@main
         with:
           repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -146,7 +145,7 @@ jobs:
 
       - id: workspace
         name: Prepare isolated marker-bound GitOps state
-        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@main
         with:
           profile: ${{ needs.plan.outputs.workspace_profile || needs.plan_organization.outputs.workspace_profile }}
           cache_mode: disabled
@@ -154,8 +153,8 @@ jobs:
           trust_mode: ${{ needs.plan.outputs.source_trust || needs.plan_organization.outputs.source_trust }}
 
       - id: execute
-        name: Execute pinned source-only GitOps validation
-        uses: StreamScapeTV/ci-workflows/actions/validate-gitops@1e703ba47bc0e8f01b72bc805c2375aa38df609e # issue #571 active composition classifier checkpoint
+        name: Execute source-only GitOps validation
+        uses: StreamScapeTV/ci-workflows/actions/validate-gitops@main
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -167,10 +166,10 @@ jobs:
 
       - name: Render deterministic redacted GitOps evidence
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/render-evidence@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/render-evidence@main
         with:
           source_sha: ${{ inputs.admitted_sha }}
-          workflow_release: validation-gitops-1.0.0
+          workflow_release: main
           runner_profile: portable
           toolchain_json: ${{ steps.execute.outputs.tool_versions_json || '{}' }}
           command_profile: ${{ inputs.validation_profile }}
@@ -181,7 +180,7 @@ jobs:
       - id: gitops_cleanup
         name: Remove exact GitOps downloads, tools, caches, logs, and results
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-gitops@1e703ba47bc0e8f01b72bc805c2375aa38df609e # issue #571 active composition classifier checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-gitops@main
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -193,7 +192,7 @@ jobs:
 
       - name: Verify zero GitOps issue-owned residue
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/validate-gitops@1e703ba47bc0e8f01b72bc805c2375aa38df609e # issue #571 active composition classifier checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-gitops@main
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -206,7 +205,7 @@ jobs:
       - id: workspace_cleanup
         name: Remove and verify all registered workspace state
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@main
 
       - name: Verify exact source remained clean after cleanup
         if: always()
@@ -218,30 +217,3 @@ jobs:
             test "$(git rev-parse HEAD)" = "${{ inputs.admitted_sha }}"
             test -z "$(git status --porcelain --untracked-files=all)"
           )
-
-      - name: Confirm zero Actions artifacts
-        if: always()
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -Eeuo pipefail
-          python3 - <<'PY'
-          import json
-          import os
-          import urllib.request
-
-          request = urllib.request.Request(
-              f"{os.environ['GITHUB_API_URL']}/repos/{os.environ['GITHUB_REPOSITORY']}"
-              f"/actions/runs/{os.environ['GITHUB_RUN_ID']}/artifacts?per_page=100",
-              headers={
-                  "Accept": "application/vnd.github+json",
-                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
-                  "X-GitHub-Api-Version": "2022-11-28",
-              },
-          )
-          with urllib.request.urlopen(request, timeout=30) as response:
-              payload = json.load(response)
-          if int(payload.get("total_count", 0)) != 0 or payload.get("artifacts") != []:
-              raise SystemExit("GitOps validation retained an Actions artifact")
-          PY

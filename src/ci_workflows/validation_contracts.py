@@ -19,7 +19,6 @@ from .validation_model import (
     _REMOTE_WORKFLOW_RE,
     _SEMVER_RE,
     _SHA_RE,
-    ActionLock,
     Finding,
     HarnessConfig,
     ParsedDocument,
@@ -188,49 +187,6 @@ def _function_index(
             ):
                 result[f"{module}.{node.name}"] = (_relative(root, path), node.lineno)
     return result
-
-
-def _validate_tool_lock(
-    root: Path,
-    lock: ActionLock,
-    config: HarnessConfig,
-    findings: list[Finding],
-) -> None:
-    requirement_path = root / "requirements/validation.lock"
-    relative_path = "requirements/validation.lock"
-    try:
-        lines = {
-            line.strip()
-            for line in requirement_path.read_text(encoding="utf-8").splitlines()
-            if line.strip() and not line.lstrip().startswith("#")
-        }
-    except OSError:
-        _finding(
-            findings,
-            config,
-            "missing-tool-lock",
-            relative_path,
-            "validation dependency lock is missing",
-        )
-        return
-    for name, entry in lock.python_packages.items():
-        expected = f"{name}=={entry['version']}"
-        if expected not in lines:
-            _finding(
-                findings,
-                config,
-                "tool-lock-drift",
-                relative_path,
-                f"expected exact dependency line {expected!r}",
-            )
-        if not re.fullmatch(r"[0-9a-f]{64}", entry.get("sha256", "")):
-            _finding(
-                findings,
-                config,
-                "tool-lock-drift",
-                "contracts/action-tool-lock.json",
-                f"{name} must include a verified SHA-256 source digest",
-            )
 
 
 def _validate_fixture_coverage(

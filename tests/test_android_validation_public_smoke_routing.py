@@ -60,15 +60,15 @@ class AndroidValidationPublicSmokeRoutingTests(unittest.TestCase):
         self.assertNotIn("Resolve dependency graph", contracts_text)
         self.assertNotIn("Prepare one isolated Gradle workspace", contracts_text)
 
-    def test_trusted_terminal_requires_executor_success_and_zero_artifacts(self) -> None:
+    def test_trusted_terminal_requires_contract_and_executor_success(self) -> None:
         terminal = self.workflow["jobs"]["terminal"]
         self.assertEqual(["contracts", "android"], terminal["needs"])
         run = terminal["steps"][0]["run"]
         self.assertIn('test "${CONTRACTS_RESULT}" = success', run)
         self.assertIn('test "${ANDROID_RESULT}" = success', run)
         self.assertNotIn("REPOSITORY_PRIVATE", terminal["steps"][0]["env"])
-        self.assertIn("/artifacts", run)
-        self.assertIn("total_count", run)
+        self.assertNotIn("/artifacts", run)
+        self.assertNotIn("total_count", run)
         self.assertNotIn("upload-artifact", self.source)
         self.assertNotIn("download-artifact", self.source)
 

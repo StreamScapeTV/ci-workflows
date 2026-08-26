@@ -44,7 +44,7 @@ The normal post-execution sync remains `continue-on-error`, so cache-promotion f
 
 The sync emits only selected file count and total bytes. A concurrent writer returns `gradle_seed_writer_busy`; a writer-side promotion rejection returns `gradle_seed_promotion_rejected`; other non-success HTTP responses become `gradle_seed_upload_rejected`. No dependency paths, payload content, credentials, or arbitrary server body is emitted.
 
-Central owns the cache-maintenance warm/promotion and the normal post-execution sync because it owns the registered Gradle workspace lifecycle. Flux owns the persistent read-only seed and single-writer generation merge. Android product repositories provide only bounded validation/private-dependency data and do not receive cache paths, endpoints, OIDC permissions, shared writable Gradle state, or runner selectors.
+Central owns the cache-maintenance warm/promotion and the normal post-execution sync because it owns the registered Gradle workspace lifecycle. Flux owns the persistent read-only seed and single-writer generation merge. Android product repositories provide only bounded validation/private-dependency data and do not receive cache paths, endpoints, shared writable Gradle state, or runner selectors.
 
 Workspace preparation still uses Central `cache_mode: disabled`: this means there is no GitHub Actions cache and no shared writable Gradle home. The runner-owned read-only dependency seed is separate infrastructure.
 
@@ -58,30 +58,26 @@ Cache maintenance reports only bounded warm wall time and `gradle_dependency_cac
 
 Failed or timed-out reviewed Android operations emit a sanitized bounded diagnostic tail before preserving the stable error code. The dependency-warm primitive does the same for explicit maintenance failures.
 
-## Central helper checkpoints
+## Central helper references
 
-The reusable workflow uses reviewed immutable Central helper checkpoints:
+Central is one workflow/action library. First-party helper calls follow the active library branch instead of maintaining separate per-action checkpoint SHAs:
 
-- `StreamScapeTV/ci-workflows/actions/validate-android@91e5ba5af11ec717f829000edad062c664fb86f7` — `issue #534 prefix-isolated protected-full checkpoint`.
-- `StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies@13de46c51efcf65df798dfec82a620c484350dfa` — `issue #346 dependency warm checkpoint`.
-- `StreamScapeTV/ci-workflows/actions/upload-gradle-seed@fa67b6a1580ff2eb7386a9e58de09896b9990696` — `issue #346 bounded Gradle cache sync diagnostics checkpoint`.
-- `StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`.
-- `StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`.
-- `StreamScapeTV/ci-workflows/actions/render-evidence@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`.
-- `StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #116 immutable private-action checkpoint`.
-- `StreamScapeTV/ci-workflows/actions/checkout-private-dependency@70e08d4ddf8930046632a7135950e924b82e22bf` — `issue #104 immutable private-action checkpoint`.
+- `StreamScapeTV/ci-workflows/actions/validate-android@main`
+- `StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies@main`
+- `StreamScapeTV/ci-workflows/actions/upload-gradle-seed@main`
+- `StreamScapeTV/ci-workflows/actions/exact-checkout@main`
+- `StreamScapeTV/ci-workflows/actions/prepare-workspace@main`
+- `StreamScapeTV/ci-workflows/actions/render-evidence@main`
+- `StreamScapeTV/ci-workflows/actions/cleanup-workspace@main`
+- `StreamScapeTV/ci-workflows/actions/checkout-private-dependency@main`
 
-The live-service and unsigned-release reusable workflows remain on their corresponding #443 helper checkpoints because #534 changes only the generic protected-full task-graph composition path. Their fixed package-credential boundary is unchanged.
-
-The checked-in action lock must record the same helper identities before the candidate is merge-state.
+Live-service and unsigned-release follow the same whole-library `@main` model. Repository tags may identify a whole Central release when a consumer intentionally chooses a released library snapshot; there is no per-action lock or release registry.
 
 ## Private dependency and cleanup
 
 When a private dependency is requested, it is checked out once at the exact planned revision. Its checkout token is confined to that step and is not forwarded to Gradle or cache sync.
 
 Explicit cache maintenance creates/removes only its disposable warm source copy. Normal validation may create a dependency-prebuild copy and the authoritative Android copy; each has bounded cleanup/residue checks. Registered workspace cleanup finally removes the private writable Gradle home, dependency checkout, temporary files, and evidence. The runner-owned read-only dependency seed is outside job cleanup and persists for later jobs.
-
-Routine Android validation retains zero GitHub Actions artifacts and does not use `actions/cache`.
 
 ## Repository-owned smoke
 

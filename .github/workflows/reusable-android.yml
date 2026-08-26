@@ -87,7 +87,7 @@ jobs:
     steps:
       - id: plan
         name: Validate technology-level Android request
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@91e5ba5af11ec717f829000edad062c664fb86f7 # issue #534 prefix-isolated protected-full checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@main
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -101,7 +101,7 @@ jobs:
           private_dependency_id: ${{ inputs.private_dependency_id }}
       - id: backend
         name: Resolve bounded hosted Android capacity
-        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@5b3093056bd77d18bf094e1ba8d8d1613ccc472b # issue #577 hosted Android backend checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@main
         with:
           workflow_api: validation.android
           source_trust: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && 'trusted-pr' || github.event_name == 'pull_request' && 'untrusted-fork' || 'trusted-exact' }}
@@ -118,7 +118,7 @@ jobs:
     steps:
       - id: plan
         name: Validate technology-level Android request
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@91e5ba5af11ec717f829000edad062c664fb86f7 # issue #534 prefix-isolated protected-full checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@main
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -132,7 +132,7 @@ jobs:
           private_dependency_id: ${{ inputs.private_dependency_id }}
       - id: backend
         name: Preserve bounded organization Android capacity
-        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@5b3093056bd77d18bf094e1ba8d8d1613ccc472b # issue #577 hosted Android backend checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@main
         with:
           workflow_api: validation.android
           source_trust: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && 'trusted-pr' || github.event_name == 'pull_request' && 'untrusted-fork' || 'trusted-exact' }}
@@ -152,7 +152,7 @@ jobs:
     steps:
       - id: plan
         name: Validate technology-level Android request
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@91e5ba5af11ec717f829000edad062c664fb86f7 # issue #534 prefix-isolated protected-full checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@main
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -168,7 +168,7 @@ jobs:
       - id: prebuild_plan
         name: Validate optional private dependency prebuild plan
         if: ${{ inputs.validation_scope != 'gradle' && inputs.dependency_prebuild_plan_json != '' && steps.plan.outputs.private_dependency_used == 'true' }}
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@91e5ba5af11ec717f829000edad062c664fb86f7 # issue #534 prefix-isolated protected-full checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@main
         with:
           phase: plan
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -183,14 +183,14 @@ jobs:
 
       - name: Set up exact hosted JDK 25
         if: ${{ inputs.execution_backend == 'github-hosted' }}
-        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        uses: actions/setup-java@v5.6.0
         with:
           distribution: temurin
           java-version: "25"
 
       - id: checkout
         name: Check out exact admitted caller source once
-        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@main
         with:
           repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -199,7 +199,7 @@ jobs:
 
       - id: workspace
         name: Prepare one isolated marker-bound Gradle state
-        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@main
         with:
           profile: gradle
           cache_mode: disabled
@@ -208,7 +208,7 @@ jobs:
       - id: dependency
         name: Check out exact private dependency at most once
         if: steps.plan.outputs.private_dependency_used == 'true'
-        uses: StreamScapeTV/ci-workflows/actions/checkout-private-dependency@70e08d4ddf8930046632a7135950e924b82e22bf # issue #104 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/checkout-private-dependency@main
         with:
           repository: ${{ steps.plan.outputs.private_dependency_repository }}
           admitted_sha: ${{ steps.plan.outputs.private_dependency_sha }}
@@ -220,7 +220,7 @@ jobs:
       - id: dependency_warm
         name: Resolve Gradle dependency graph for cache maintenance
         if: ${{ inputs.validation_scope == 'gradle' && inputs.dependency_prebuild_plan_json == '' && steps.plan.outputs.private_dependency_used == 'true' && steps.dependency.outcome == 'success' }}
-        uses: StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies@13de46c51efcf65df798dfec82a620c484350dfa # issue #346 dependency warm checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies@main
         with:
           admitted_sha: ${{ inputs.admitted_sha }}
           working_directory: ${{ inputs.working_directory }}
@@ -231,14 +231,14 @@ jobs:
         name: Publish cache-maintenance Gradle dependency delta
         if: ${{ steps.dependency_warm.outcome == 'success' }}
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/upload-gradle-seed@fa67b6a1580ff2eb7386a9e58de09896b9990696 # issue #346 bounded Gradle cache sync diagnostics checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/upload-gradle-seed@main
         with:
           source_sha: ${{ inputs.admitted_sha }}
 
       - id: prebuild_execute
         name: Process-isolate optional private dependency Gradle prebuild
         if: ${{ inputs.validation_scope != 'gradle' && inputs.dependency_prebuild_plan_json != '' && steps.prebuild_plan.outcome == 'success' && steps.dependency.outcome == 'success' }}
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@91e5ba5af11ec717f829000edad062c664fb86f7 # issue #534 prefix-isolated protected-full checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@main
         with:
           phase: execute
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -261,7 +261,7 @@ jobs:
       - id: prebuild_cleanup
         name: Remove optional dependency-prebuild copied source state
         if: ${{ always() && inputs.validation_scope != 'gradle' && inputs.dependency_prebuild_plan_json != '' && steps.workspace.outcome == 'success' }}
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@91e5ba5af11ec717f829000edad062c664fb86f7 # issue #534 prefix-isolated protected-full checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@main
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -270,7 +270,7 @@ jobs:
       - id: prebuild_residue
         name: Verify zero optional dependency-prebuild residue
         if: ${{ always() && inputs.validation_scope != 'gradle' && inputs.dependency_prebuild_plan_json != '' && steps.workspace.outcome == 'success' }}
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@91e5ba5af11ec717f829000edad062c664fb86f7 # issue #534 prefix-isolated protected-full checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@main
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -279,7 +279,7 @@ jobs:
       - id: execute
         name: Execute one primitive-backed Android validation plan
         if: ${{ success() && (inputs.validation_scope != 'gradle' || steps.plan.outputs.private_dependency_used != 'true') && (inputs.dependency_prebuild_plan_json == '' || (steps.prebuild_plan.outcome == 'success' && steps.prebuild_execute.outcome == 'success' && steps.prebuild_cleanup.outcome == 'success' && steps.prebuild_residue.outcome == 'success')) }}
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@91e5ba5af11ec717f829000edad062c664fb86f7 # issue #534 prefix-isolated protected-full checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@main
         env:
           CIW_MAVEN_PACKAGE_READ_TOKEN: ${{ secrets.maven_package_read_token }}
         with:
@@ -304,10 +304,10 @@ jobs:
       - id: evidence
         name: Render bounded Android validation evidence
         if: ${{ steps.execute.outcome == 'success' }}
-        uses: StreamScapeTV/ci-workflows/actions/render-evidence@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/render-evidence@main
         with:
           source_sha: ${{ inputs.admitted_sha }}
-          workflow_release: validation-android-v2
+          workflow_release: main
           runner_profile: mobile
           toolchain_json: '{}'
           command_profile: ${{ inputs.validation_scope }}
@@ -316,7 +316,7 @@ jobs:
       - id: android_cleanup
         name: Remove Android-specific copied source state once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@91e5ba5af11ec717f829000edad062c664fb86f7 # issue #534 prefix-isolated protected-full checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@main
         with:
           phase: cleanup
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -325,7 +325,7 @@ jobs:
       - id: residue
         name: Verify zero Android-specific residue once
         if: always() && steps.workspace.outcome == 'success'
-        uses: StreamScapeTV/ci-workflows/actions/validate-android@91e5ba5af11ec717f829000edad062c664fb86f7 # issue #534 prefix-isolated protected-full checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@main
         with:
           phase: residue
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -335,14 +335,14 @@ jobs:
         name: Sync newly resolved Gradle dependencies to the internal cache
         if: ${{ steps.execute.outcome == 'success' && steps.android_cleanup.outcome == 'success' && steps.residue.outcome == 'success' }}
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/upload-gradle-seed@fa67b6a1580ff2eb7386a9e58de09896b9990696 # issue #346 bounded Gradle cache sync diagnostics checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/upload-gradle-seed@main
         with:
           source_sha: ${{ inputs.admitted_sha }}
 
       - id: workspace_cleanup
         name: Remove and verify the one registered Android workspace
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@main
 
       - id: clean
         name: Verify exact admitted source remained clean

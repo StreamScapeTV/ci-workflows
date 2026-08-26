@@ -66,7 +66,7 @@ class PublicApiContractTests(unittest.TestCase):
 
     def test_registry_is_terminal_complete_and_deterministic(self) -> None:
         self.assertEqual(19, len(self.data.workflows))
-        self.assertEqual(7, len(self.profiles))
+        self.assertEqual(6, len(self.profiles))
         self.assertEqual(4, len(self.data.types["trust_classes"]))
         self.assertEqual("4.0.0", self.data.index["contract_version"])
         self.assertEqual(SUPPORTED_APIS, set(self.workflows))
@@ -166,17 +166,13 @@ class PublicApiContractTests(unittest.TestCase):
         )
 
     def test_main_is_initial_channel_and_fixed_references_remain_supported(self) -> None:
-        allowed = set(
-            self.data.types["reference_policy"][
-                "bootstrap_mutable_allowed_trust_classes"
-            ]
-        )
+        reference_policy = self.data.types["reference_policy"]
+        allowed = set(reference_policy["bootstrap_mutable_allowed_trust_classes"])
         self.assertEqual(allowed, set(self.data.types["trust_classes"]))
-        self.assertFalse(
-            self.data.types["reference_policy"][
-                "privileged_mutable_references_forbidden"
-            ]
-        )
+        self.assertFalse(reference_policy["privileged_mutable_references_forbidden"])
+        self.assertNotIn("rollback_reference_required", reference_policy)
+        self.assertNotIn("delete_referenced_release_forbidden", reference_policy)
+        self.assertNotIn("artifact_policy", self.data.types["defaults"])
         for api, row in self.workflows.items():
             inputs = {
                 item["name"]: self._example_input(item["name"])

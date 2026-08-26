@@ -1,12 +1,13 @@
 version: 1
 source_root: src/ci_workflows
-generated_from_sha: 88a120347166907044388e7a2424bcb4ad455e15
+generated_from_sha: fa9b921594954c23a1c4ea433376a6f39ca6e564
 inventory_complete: true
 new_module_creation_locked: false
 summary:
-  python_files_discovered: 161
+  python_files_discovered: 160
   status: complete-human-reviewed-ast-verified
-  note: 'Protected-main inventory was reconciled by #595 after the redundant Apple-private executor was consolidated into the generic private CI owner.'
+  note: 'Protected-main inventory reconciled for #593 after retiring the global action/tool policy and custom validator runtime; private-source confidentiality remains independently
+    enforced.'
 rules:
 - Read this inventory before creating or substantially modifying Python implementation.
 - Reuse or refactor an existing owner before creating a parallel module/function/class.
@@ -250,7 +251,7 @@ multi_file_domains:
   reason: Admission/evidence/GitHub/private-source/dependency/token logic is fragmented; exact checkout is the second credential boundary.
   intended_target: source.py + source_checkout.py
 - domain: validation
-  current_file_count: 8
+  current_file_count: 7
   files:
   - src/ci_workflows/validation_contracts.py
   - src/ci_workflows/validation_expression_contexts.py
@@ -259,10 +260,9 @@ multi_file_domains:
   - src/ci_workflows/validation_helpers.py
   - src/ci_workflows/validation_model.py
   - src/ci_workflows/validation_policy.py
-  - src/ci_workflows/validation_runtime.py
   assessment: consolidation-required
-  reason: Contracts/graph/helpers/model/policy/expressions are fragmented; locked runtime is the second boundary.
-  intended_target: validation_harness.py + validation_runtime.py
+  reason: 'The custom digest-locked runtime is retired by #593; remaining validation policy/model/helper modules are existing consolidation debt rather than a dependency-bootstrap boundary.'
+  intended_target: validation_harness.py
 - domain: runners
   current_file_count: 3
   files:
@@ -8155,9 +8155,6 @@ domains:
       - name: _function_index
         signature: '_function_index(root: Path, python_sources: Sequence[Path]) -> dict[str, tuple[str, int]]'
         purpose: Implements _function_index for Public API, fixture, and dependency-lock compatibility validation.
-      - name: _validate_tool_lock
-        signature: '_validate_tool_lock(root: Path, lock: ActionLock, config: HarnessConfig, findings: list[Finding]) -> None'
-        purpose: Implements _validate_tool_lock for Public API, fixture, and dependency-lock compatibility validation.
       - name: _validate_fixture_coverage
         signature: '_validate_fixture_coverage(root: Path, config: HarnessConfig, findings: list[Finding]) -> None'
         purpose: Implements _validate_fixture_coverage for Public API, fixture, and dependency-lock compatibility validation.
@@ -8237,9 +8234,6 @@ domains:
       status: keep
       classes: []
       functions:
-      - name: _workflow_action_policy
-        signature: '_workflow_action_policy(lock: ActionLock) -> ActionLock'
-        purpose: Keep the checked-in lock intact while validating the simple Helm carve-out.
       - name: validate_repository
         signature: 'validate_repository(root: Path, *, include_public_api_validator: bool=True) -> ValidationResult'
         purpose: Validate the complete repository and return deterministic evidence.
@@ -8295,9 +8289,8 @@ domains:
         signature: '_uses_entries(document: ParsedDocument) -> Iterator[tuple[str, str | None, int]]'
         purpose: Implements _uses_entries for Shared semantic and source-shape helpers for workflow validation.
       - name: _validate_action_reference
-        signature: '_validate_action_reference(uses: str, comment: str | None, relative_path: str, line_number: int, config: HarnessConfig, lock: ActionLock, findings: list[Finding])
-          -> None'
-        purpose: Implements _validate_action_reference for Shared semantic and source-shape helpers for workflow validation.
+        signature: '_validate_action_reference(uses: str, relative_path: str, line_number: int, config: HarnessConfig, findings: list[Finding]) -> None'
+        purpose: Validate only the functional shape of one ``uses`` reference.
       - name: _validate_checkout_step
         signature: '_validate_checkout_step(step: Mapping[str, Any], document: ParsedDocument, config: HarnessConfig, findings: list[Finding]) -> None'
         purpose: Implements _validate_checkout_step for Shared semantic and source-shape helpers for workflow validation.
@@ -8346,9 +8339,6 @@ domains:
         - name: excepts
           signature: 'excepts(self, relative_path: str, rule: str) -> bool'
           purpose: Implements HarnessConfig.excepts behavior for Canonical static validation harness for StreamScapeTV GitHub Actions.
-      - name: ActionLock
-        purpose: Defines ActionLock for Canonical static validation harness for StreamScapeTV GitHub Actions.
-        methods: []
       - name: ValidationResult
         purpose: Defines ValidationResult for Canonical static validation harness for StreamScapeTV GitHub Actions.
         methods:
@@ -8377,9 +8367,6 @@ domains:
       - name: load_harness_config
         signature: 'load_harness_config(root: Path) -> HarnessConfig'
         purpose: Implements load_harness_config for Canonical static validation harness for StreamScapeTV GitHub Actions.
-      - name: load_action_lock
-        signature: 'load_action_lock(root: Path) -> ActionLock'
-        purpose: Implements load_action_lock for Canonical static validation harness for StreamScapeTV GitHub Actions.
       - name: load_public_contract
         signature: 'load_public_contract(root: Path) -> PublicContract'
         purpose: Implements load_public_contract for Canonical static validation harness for StreamScapeTV GitHub Actions.
@@ -8399,11 +8386,11 @@ domains:
         signature: '_validate_runner(runner: Any, relative_path: str, config: HarnessConfig, findings: list[Finding]) -> None'
         purpose: Accept an exact capability array or the trusted planner output only.
       - name: _validate_workflow
-        signature: '_validate_workflow(document: ParsedDocument, root: Path, config: HarnessConfig, lock: ActionLock, public_contract: PublicContract, functions: Mapping[str, tuple[str,
-          int]], docs_text: str, findings: list[Finding], duplicated_runs: dict[str, list[str]]) -> None'
+        signature: '_validate_workflow(document: ParsedDocument, root: Path, config: HarnessConfig, public_contract: PublicContract, functions: Mapping[str, tuple[str, int]], docs_text:
+          str, findings: list[Finding], duplicated_runs: dict[str, list[str]]) -> None'
         purpose: Implements _validate_workflow for Workflow, action, readability, source, trust, and cleanup policy checks.
       - name: _validate_action
-        signature: '_validate_action(document: ParsedDocument, config: HarnessConfig, lock: ActionLock, findings: list[Finding], duplicated_runs: dict[str, list[str]]) -> None'
+        signature: '_validate_action(document: ParsedDocument, config: HarnessConfig, findings: list[Finding], duplicated_runs: dict[str, list[str]]) -> None'
         purpose: Implements _validate_action for Workflow, action, readability, source, trust, and cleanup policy checks.
       - name: _validate_global_duplicate_blocks
         signature: '_validate_global_duplicate_blocks(duplicated_runs: Mapping[str, list[str]], config: HarnessConfig, findings: list[Finding]) -> None'
@@ -8412,78 +8399,6 @@ domains:
       - validation_contracts
       - validation_helpers
       - validation_model
-    - path: src/ci_workflows/validation_runtime.py
-      responsibility: Install the exact locked validation parser without pip or build tooling.
-      status: keep
-      classes:
-      - name: ValidationRuntimeError
-        purpose: Raised when the locked parser runtime cannot be installed safely.
-        methods: []
-      - name: LockedArtifact
-        purpose: Defines LockedArtifact for Install the exact locked validation parser without pip or build tooling.
-        methods: []
-      functions:
-      - name: _normalize_machine
-        signature: '_normalize_machine(machine: str) -> str'
-        purpose: Implements _normalize_machine for Install the exact locked validation parser without pip or build tooling.
-      - name: detect_runtime
-        signature: 'detect_runtime(*, implementation: str | None=None, system: str | None=None, machine: str | None=None, version: tuple[int, ...] | None=None) -> str'
-        purpose: Return the exact locked artifact key for a supported host.
-      - name: _read_lock
-        signature: '_read_lock(path: Path) -> Mapping[str, Any]'
-        purpose: Implements _read_lock for Install the exact locked validation parser without pip or build tooling.
-      - name: _pyyaml_package
-        signature: '_pyyaml_package(lock_path: Path) -> Mapping[str, Any]'
-        purpose: Implements _pyyaml_package for Install the exact locked validation parser without pip or build tooling.
-      - name: _validate_artifact
-        signature: '_validate_artifact(artifact: LockedArtifact) -> None'
-        purpose: Implements _validate_artifact for Install the exact locked validation parser without pip or build tooling.
-      - name: select_artifact
-        signature: 'select_artifact(lock_path: Path, runtime: str | None=None) -> LockedArtifact'
-        purpose: Select and validate the immutable PyYAML artifact for ``runtime``.
-      - name: select_wheel
-        signature: 'select_wheel(lock_path: Path, runtime: str | None=None) -> WheelArtifact'
-        purpose: Select the retained Linux wheel and reject non-wheel runtimes.
-      - name: _download
-        signature: '_download(url: str) -> bytes'
-        purpose: Implements _download for Install the exact locked validation parser without pip or build tooling.
-      - name: _safe_member_path
-        signature: '_safe_member_path(name: str, *, archive: str, directory: bool=False) -> PurePosixPath'
-        purpose: Implements _safe_member_path for Install the exact locked validation parser without pip or build tooling.
-      - name: _bounded_members
-        signature: '_bounded_members(members: Sequence[Any], *, archive: str, size: Callable[[Any], int]) -> None'
-        purpose: Implements _bounded_members for Install the exact locked validation parser without pip or build tooling.
-      - name: _reject_file_directory_collisions
-        signature: '_reject_file_directory_collisions(destinations: Mapping[PurePosixPath, str], *, archive: str) -> None'
-        purpose: Implements _reject_file_directory_collisions for Install the exact locked validation parser without pip or build tooling.
-      - name: _install_wheel
-        signature: '_install_wheel(payload: bytes, target: Path) -> None'
-        purpose: Implements _install_wheel for Install the exact locked validation parser without pip or build tooling.
-      - name: _classify_tar_member
-        signature: '_classify_tar_member(member: tarfile.TarInfo) -> str'
-        purpose: Implements _classify_tar_member for Install the exact locked validation parser without pip or build tooling.
-      - name: _metadata_value
-        signature: '_metadata_value(payload: bytes, field: str) -> str'
-        purpose: Implements _metadata_value for Install the exact locked validation parser without pip or build tooling.
-      - name: _read_bounded_tar_members
-        signature: '_read_bounded_tar_members(archive: tarfile.TarFile) -> list[tarfile.TarInfo]'
-        purpose: Implements _read_bounded_tar_members for Install the exact locked validation parser without pip or build tooling.
-      - name: _install_source
-        signature: '_install_source(payload: bytes, target: Path, artifact: LockedArtifact) -> None'
-        purpose: Implements _install_source for Install the exact locked validation parser without pip or build tooling.
-      - name: install_locked_artifact
-        signature: 'install_locked_artifact(lock_path: Path, target: Path, *, runtime: str | None=None, downloader: Callable[[str], bytes]=_download) -> LockedArtifact'
-        purpose: Download, verify, and safely install the locked parser artifact.
-      - name: install_locked_wheel
-        signature: 'install_locked_wheel(lock_path: Path, target: Path, *, runtime: str | None=None, downloader: Callable[[str], bytes]=_download) -> WheelArtifact'
-        purpose: Install the retained Linux wheel for compatibility callers.
-      - name: build_parser
-        signature: build_parser() -> argparse.ArgumentParser
-        purpose: Implements build_parser for Install the exact locked validation parser without pip or build tooling.
-      - name: main
-        signature: 'main(argv: Sequence[str] | None=None) -> int'
-        purpose: Implements main for Install the exact locked validation parser without pip or build tooling.
-      internal_dependencies: []
   web:
     target_module: src/ci_workflows/web.py
     responsibility: Static-web build/output verification and deployment primitives.

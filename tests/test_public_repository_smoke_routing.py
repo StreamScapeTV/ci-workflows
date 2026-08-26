@@ -34,16 +34,16 @@ class PublicRepositorySmokeRoutingTests(unittest.TestCase):
         self.assertIn("host_capacity: mobile", source)
         self.assertIn("host_capacity: apple", source)
         self.assertIn("synthetic_mode: \"true\"", source)
-        self.assertEqual(4, source.count("runs-on: [ubuntu-latest]"))
+        self.assertEqual(3, source.count("runs-on: [ubuntu-latest]"))
 
-    def test_device_lock_remains_synthetic_and_zero_artifact(self) -> None:
+    def test_device_lock_remains_synthetic_with_one_hosted_job(self) -> None:
         source = (
             ROOT / ".github/workflows/device-lock-contract-smoke.yml"
         ).read_text(encoding="utf-8")
         self.assertIn("Validate synthetic cross-run fencing contract", source)
         self.assertIn("issue-136-synthetic-owner-authorization", source)
-        self.assertIn("Verify device lock smoke artifacts remain zero", source)
-        self.assertEqual(2, source.count("runs-on: [ubuntu-latest]"))
+        self.assertEqual(1, source.count("runs-on: [ubuntu-latest]"))
+        self.assertNotIn("/artifacts", source)
 
     def test_retired_helm_contract_smoke_is_not_a_github_entrypoint(self) -> None:
         self.assertFalse((ROOT / ".github/workflows/helm-validation-smoke.yml").exists())

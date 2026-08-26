@@ -86,7 +86,7 @@ jobs:
 
       - id: backend
         name: Resolve bounded hosted execution backend
-        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@5b3093056bd77d18bf094e1ba8d8d1613ccc472b # issue #577 hosted Android backend checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@main
         with:
           workflow_api: validation.script
           source_trust: ${{ steps.plan.outputs.source_trust }}
@@ -143,7 +143,7 @@ jobs:
 
       - id: backend
         name: Resolve bounded organization execution backend
-        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@5b3093056bd77d18bf094e1ba8d8d1613ccc472b # issue #577 hosted Android backend checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@main
         with:
           workflow_api: validation.script
           source_trust: ${{ steps.plan.outputs.source_trust }}
@@ -160,7 +160,7 @@ jobs:
       result: ${{ steps.execute.outcome == 'success' && steps.clean.outcome == 'success' && 'success' || 'failure' }}
     steps:
       - name: Check out exact admitted caller source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ inputs.admitted_sha }}

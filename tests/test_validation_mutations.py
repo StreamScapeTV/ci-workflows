@@ -109,7 +109,7 @@ jobs:
         }:
             self.assertIn(rule, rules)
 
-    def test_composite_action_reference_and_duplication_failures(self) -> None:
+    def test_composite_action_shape_dependency_and_duplication_failures(self) -> None:
         write_text(
             self.root / "actions/invalid/action.yml",
             """name: ''
@@ -157,18 +157,19 @@ runs:
       uses: ./actions/a
 """,
         )
-        payload = json.loads((self.root / "contracts/action-tool-lock.json").read_text())
-        payload["third_party_actions"][0]["runtime"] = "node18"
-        write_json(self.root / "contracts/action-tool-lock.json", payload)
         workflow = self.root / ".github/workflows/reusable-sample.yml"
-        text = workflow.read_text()
+        text = workflow.read_text(encoding="utf-8")
         duplicate_block = "\n".join(f"          echo shared-{index}" for index in range(8))
-        workflow.write_text(text + f"""
+        workflow.write_text(
+            text
+            + f"""
       - name: Shared implementation
         shell: bash
         run: |
 {duplicate_block}
-""")
+""",
+            encoding="utf-8",
+        )
         write_text(
             self.root / ".github/workflows/duplicate.yml",
             f"""name: Duplicate implementation
@@ -192,25 +193,25 @@ jobs:
             "opaque-action-name",
             "invalid-internal-action",
             "opaque-step-name",
-            "unapproved-internal-action",
             "missing-action-dependency",
             "invalid-action-reference",
             "composite-action-cycle",
             "duplicated-inline-run",
             "duplicated-implementation",
-            "invalid-action-runtime",
         }:
             self.assertIn(rule, rules)
+        self.assertNotIn("unapproved-internal-action", rules)
+        self.assertNotIn("invalid-action-runtime", rules)
 
     def test_public_api_remote_reference_and_caller_failures(self) -> None:
         sample = self.root / ".github/workflows/reusable-sample.yml"
-        sample.write_text(sample.read_text() + "\nconcurrency:\n  group: sample\n")
+        sample.write_text(sample.read_text(encoding="utf-8") + "\nconcurrency:\n  group: sample\n", encoding="utf-8")
         write_text(
             self.root / ".github/workflows/reusable-unrecorded.yml",
             valid_workflow(),
         )
         fragment_path = self.root / "contracts/public-workflows/validation.json"
-        fragment = json.loads(fragment_path.read_text())
+        fragment = json.loads(fragment_path.read_text(encoding="utf-8"))
         fragment["workflows"][0]["permission_profile"] = "missing-profile"
         write_json(fragment_path, fragment)
         caller = self.root / "tests/fixtures/harness/callers/ordinary-validation.yml"
@@ -256,7 +257,7 @@ jobs:
 
     def test_publication_and_malformed_fixture_failures(self) -> None:
         path = self.root / ".github/workflows/reusable-sample.yml"
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         text = text.replace("on:\n  workflow_call:", "on:\n  pull_request:\n  workflow_call:")
         text += """
       - name: Publish image
@@ -265,10 +266,10 @@ jobs:
           docker push example.invalid/app:1.0.0
           skopeo inspect docker://example.invalid/app:1.0.0
 """
-        path.write_text(text)
+        path.write_text(text, encoding="utf-8")
         write_text(self.root / ".github/workflows/broken.yaml", "name: [unterminated\n")
         config_path = self.root / "contracts/validation-harness.json"
-        config = json.loads(config_path.read_text())
+        config = json.loads(config_path.read_text(encoding="utf-8"))
         config["required_service_scenarios"] = {"github": ["positive"]}
         write_json(config_path, config)
         write_text(self.root / "tests/fixtures/harness/service-scenarios.json", "not-json\n")
@@ -277,9 +278,11 @@ jobs:
         self.assertIn("invalid-actions-yaml", rules)
         self.assertIn("missing-service-fixture", rules)
 
-    def test_missing_tool_lock_is_rejected(self) -> None:
-        (self.root / "requirements/validation.lock").unlink()
-        self.assertIn("missing-tool-lock", self.rules())
+    def test_global_tool_lock_is_not_a_validation_input(self) -> None:
+        self.assertFalse((self.root / "contracts/action-tool-lock.json").exists())
+        self.assertFalse((self.root / "requirements/validation.lock").exists())
+        self.assertNotIn("missing-tool-lock", self.rules())
+        self.assertNotIn("tool-lock-drift", self.rules())
 
 
 if __name__ == "__main__":

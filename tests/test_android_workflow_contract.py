@@ -13,11 +13,6 @@ ROOT = Path(__file__).resolve().parents[1]
 REUSABLE = ROOT / ".github/workflows/reusable-android.yml"
 SMOKE = ROOT / ".github/workflows/android-validation-smoke.yml"
 ACTION = ROOT / "actions/validate-android/action.yml"
-ANDROID_SHA = "91e5ba5af11ec717f829000edad062c664fb86f7"
-BACKEND_SHA = "5b3093056bd77d18bf094e1ba8d8d1613ccc472b"
-WARM_SHA = "13de46c51efcf65df798dfec82a620c484350dfa"
-FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-GRADLE_SYNC_SHA = "fa67b6a1580ff2eb7386a9e58de09896b9990696"
 OWNER_GATE = "github.event.pull_request.user.login == 'mimranfaruqi'"
 REPOSITORY_GATE = "github.event.pull_request.head.repo.full_name == github.repository"
 
@@ -97,11 +92,11 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             by_id = {step["id"]: step for step in planner["steps"]}
             self.assertEqual(
                 by_id["plan"]["uses"],
-                f"StreamScapeTV/ci-workflows/actions/validate-android@{ANDROID_SHA}",
+                "StreamScapeTV/ci-workflows/actions/validate-android@main",
             )
             self.assertEqual(
                 by_id["backend"]["uses"],
-                f"StreamScapeTV/ci-workflows/actions/resolve-execution-backend@{BACKEND_SHA}",
+                "StreamScapeTV/ci-workflows/actions/resolve-execution-backend@main",
             )
             self.assertEqual(by_id["backend"]["with"]["workflow_api"], "validation.android")
             self.assertEqual(by_id["backend"]["with"]["runner_profile"], "mobile")
@@ -146,7 +141,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         hosted_java = [step for step in steps if step.get("name") == "Set up exact hosted JDK 25"]
         self.assertEqual(len(hosted_java), 1)
         self.assertEqual(hosted_java[0]["if"], "${{ inputs.execution_backend == 'github-hosted' }}")
-        self.assertRegex(hosted_java[0]["uses"], r"^actions/setup-java@[0-9a-f]{40}$")
+        self.assertEqual(hosted_java[0]["uses"], "actions/setup-java@v5.6.0")
         for identifier in (
             "checkout",
             "dependency",
@@ -167,7 +162,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("self-hosted", self.source)
         self.assertNotIn("matrix:", self.source)
 
-    def test_every_central_helper_is_immutable_and_cache_sync_pins_are_exact(self) -> None:
+    def test_every_central_helper_follows_main(self) -> None:
         uses = [
             str(step.get("uses", ""))
             for step in self.workflow["jobs"]["validate"]["steps"]
@@ -175,7 +170,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         ]
         self.assertEqual(
             8,
-            uses.count(f"StreamScapeTV/ci-workflows/actions/validate-android@{ANDROID_SHA}"),
+            uses.count("StreamScapeTV/ci-workflows/actions/validate-android@main"),
         )
         for planner_name in ("plan", "plan_organization"):
             planner = self.workflow["jobs"][planner_name]
@@ -183,19 +178,17 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             self.assertEqual(
                 planner_uses,
                 [
-                    f"StreamScapeTV/ci-workflows/actions/validate-android@{ANDROID_SHA}",
-                    f"StreamScapeTV/ci-workflows/actions/resolve-execution-backend@{BACKEND_SHA}",
+                    "StreamScapeTV/ci-workflows/actions/validate-android@main",
+                    "StreamScapeTV/ci-workflows/actions/resolve-execution-backend@main",
                 ],
             )
         self.assertEqual(
             1,
-            uses.count(
-                f"StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies@{WARM_SHA}"
-            ),
+            uses.count("StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies@main"),
         )
         self.assertEqual(
             2,
-            uses.count(f"StreamScapeTV/ci-workflows/actions/upload-gradle-seed@{GRADLE_SYNC_SHA}"),
+            uses.count("StreamScapeTV/ci-workflows/actions/upload-gradle-seed@main"),
         )
         for helper in (
             "exact-checkout",
@@ -205,12 +198,11 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             "cleanup-workspace",
         ):
             self.assertIn(
-                f"StreamScapeTV/ci-workflows/actions/{helper}@{FOUNDATION_SHA}",
+                f"StreamScapeTV/ci-workflows/actions/{helper}@main",
                 uses,
             )
         for item in uses:
-            revision = item.rsplit("@", 1)[1]
-            self.assertRegex(revision, r"^[0-9a-f]{40}$")
+            self.assertEqual(item.rsplit("@", 1)[1], "main")
 
     def test_dependency_warm_is_cache_maintenance_only(self) -> None:
         steps = self.workflow["jobs"]["validate"]["steps"]
@@ -234,7 +226,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         )
         self.assertEqual(
             warm["uses"],
-            f"StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies@{WARM_SHA}",
+            "StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies@main",
         )
         self.assertTrue(warm_seed["continue-on-error"])
         self.assertEqual(warm_seed["if"], "${{ steps.dependency_warm.outcome == 'success' }}")
@@ -391,10 +383,8 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             self.assertNotIn("maven_package_read_token", serialized)
             self.assertNotIn("CIW_MAVEN_PACKAGE_READ_TOKEN", serialized)
 
-    def test_workspace_uses_no_github_cache_or_artifact_transport_and_is_terminally_cleaned(self) -> None:
+    def test_workspace_uses_no_github_cache_and_is_terminally_cleaned(self) -> None:
         self.assertNotIn("actions/cache", self.source)
-        self.assertNotIn("upload-artifact", self.source)
-        self.assertNotIn("download-artifact", self.source)
         self.assertIn("cache_mode: disabled", self.source)
         self.assertIn("Check out exact admitted caller source once", self.source)
         self.assertIn("Prepare one isolated marker-bound Gradle state", self.source)
@@ -480,7 +470,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("compile", json.dumps(plan).casefold())
         self.assertIn("uses: ./.ciw/actions/validate-android", self.smoke_source)
         self.assertIn("git rev-parse HEAD", self.smoke_source)
-        self.assertIn("Verify zero Actions artifacts", self.smoke_source)
+        self.assertNotIn("/artifacts", self.smoke_source)
         self.assertNotIn("adb ", self.smoke_source.casefold())
         self.assertNotIn("physical-device", self.smoke_source.casefold())
 

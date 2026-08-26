@@ -38,7 +38,7 @@ on:
         required: true
         type: string
       artifact_exception_id:
-        description: Reserved zero-artifact exception id; must remain empty
+        description: Reserved compatibility input; empty by default
         required: false
         type: string
     outputs:
@@ -49,7 +49,7 @@ on:
         description: Bounded machine-readable validation summary
         value: ${{ jobs.validate.outputs.test_summary }}
       artifact_exception_used:
-        description: False for the zero-artifact Python API
+        description: Compatibility output from the Python adapter
         value: ${{ jobs.validate.outputs.artifact_exception_used }}
 
 permissions:
@@ -70,7 +70,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve bounded runtime and execution plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-python@3d3689fda11b03a188789f03d6d64cab50f1873a # issue #473 product-neutral Python checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-python@main
         with:
           phase: plan
           execution_backend: ${{ inputs.execution_backend }}
@@ -97,7 +97,7 @@ jobs:
     steps:
       - id: plan
         name: Resolve bounded runtime and execution plan
-        uses: StreamScapeTV/ci-workflows/actions/validate-python@3d3689fda11b03a188789f03d6d64cab50f1873a # issue #473 product-neutral Python checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-python@main
         with:
           phase: plan
           execution_backend: ${{ inputs.execution_backend }}
@@ -127,7 +127,7 @@ jobs:
       artifact_exception_used: ${{ steps.python.outputs.artifact_exception_used }}
     steps:
       - name: Check out exact admitted caller source
-        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/exact-checkout@main
         with:
           repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
           admitted_sha: ${{ inputs.admitted_sha }}
@@ -136,7 +136,7 @@ jobs:
 
       - id: workspace
         name: Prepare isolated marker-bound Python state
-        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@main
         with:
           profile: ${{ needs.plan.outputs.workspace_profile || needs.plan_organization.outputs.workspace_profile }}
           cache_mode: disabled
@@ -145,7 +145,7 @@ jobs:
 
       - id: python
         name: Execute consumer-owned Python validation script
-        uses: StreamScapeTV/ci-workflows/actions/validate-python@3d3689fda11b03a188789f03d6d64cab50f1873a # issue #473 product-neutral Python checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/validate-python@main
         with:
           phase: execute
           execution_backend: ${{ inputs.execution_backend }}
@@ -161,7 +161,7 @@ jobs:
       - id: cleanup
         name: Remove and verify all registered Python state
         if: always()
-        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@70e08d4ddf8930046632a7135950e924b82e22bf # issue #116 immutable private-action checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@main
 
       - id: clean
         name: Verify exact source remained clean after cleanup

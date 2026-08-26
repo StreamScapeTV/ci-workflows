@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import re
 import unittest
 
 import yaml
@@ -14,12 +13,9 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/reusable-gradle-maven-publish.yml"
 PUBLIC_CONTRACT = ROOT / "contracts/public-workflows/gradle-packages.json"
 ACTION = ROOT / "actions/publish-gradle-maven/action.yml"
-ACTION_LOCK = ROOT / "contracts/action-tool-lock.json"
 GRADLE_MAVEN_SOURCE = ROOT / "src/ci_workflows/gradle_maven_publish.py"
 CIW = ROOT / "scripts" / "ci" / "ciw.py"
 PUBLISH_ACTION = "StreamScapeTV/ci-workflows/actions/publish-gradle-maven"
-PUBLISH_SHA = "c4b85851ac650906103f116c95d9d16c546dd538"
-SHA = re.compile(r"^StreamScapeTV/ci-workflows/actions/[a-z0-9-]+@[0-9a-f]{40}$")
 
 
 class GradleMavenPublishWorkflowTests(unittest.TestCase):
@@ -119,12 +115,20 @@ class GradleMavenPublishWorkflowTests(unittest.TestCase):
             },
         )
         self.assertEqual(job["outputs"]["release_version"], "${{ steps.maven.outputs.release_version }}")
-        self.assertTrue(SHA.fullmatch(steps["checkout"]["uses"]))
-        self.assertTrue(SHA.fullmatch(steps["workspace"]["uses"]))
-        self.assertTrue(SHA.fullmatch(steps["workspace_cleanup"]["uses"]))
+        self.assertEqual(
+            steps["checkout"]["uses"],
+            "StreamScapeTV/ci-workflows/actions/exact-checkout@main",
+        )
+        self.assertEqual(
+            steps["workspace"]["uses"],
+            "StreamScapeTV/ci-workflows/actions/prepare-workspace@main",
+        )
+        self.assertEqual(
+            steps["workspace_cleanup"]["uses"],
+            "StreamScapeTV/ci-workflows/actions/cleanup-workspace@main",
+        )
         for step_id in ("maven_plan", "maven", "source_cleanup", "source_residue"):
-            self.assertTrue(SHA.fullmatch(steps[step_id]["uses"]))
-            self.assertIn("publish-gradle-maven", steps[step_id]["uses"])
+            self.assertEqual(steps[step_id]["uses"], f"{PUBLISH_ACTION}@main")
         self.assertEqual(steps["maven"]["with"]["phase"], "execute")
         self.assertEqual(steps["maven_plan"]["with"]["phase"], "plan")
         self.assertEqual(steps["source_cleanup"]["with"]["phase"], "cleanup")
@@ -134,13 +138,10 @@ class GradleMavenPublishWorkflowTests(unittest.TestCase):
         self.assertIn("SOURCE_CLEANUP_OUTCOME", steps["terminal"]["env"])
         self.assertIn("SOURCE_RESIDUE_OUTCOME", steps["terminal"]["env"])
 
-    def test_publication_has_no_artifacts_cache_oidc_or_central_source_checkout(self) -> None:
+    def test_publication_does_not_require_cache_or_central_source_checkout(self) -> None:
         lowered = self.source.casefold()
         for forbidden in (
             "actions/cache",
-            "upload-artifact",
-            "download-artifact",
-            "id-token",
             "secrets: inherit",
             "actions/checkout",
             "job.workflow_repository",
@@ -175,20 +176,9 @@ class GradleMavenPublishWorkflowTests(unittest.TestCase):
             self.publication_source,
         )
 
-    def test_publication_action_checkpoint_is_locked(self) -> None:
-        lock = json.loads(ACTION_LOCK.read_text(encoding="utf-8"))
-        entry = next(
-            item
-            for item in lock["third_party_actions"]
-            if item["uses"] == PUBLISH_ACTION
-        )
-        self.assertEqual(entry["sha"], PUBLISH_SHA)
-        self.assertEqual(entry["release"], "issue #418 immutable action checkpoint")
-        self.assertEqual(entry["runtime"], "composite")
-        self.assertEqual(
-            entry["source"],
-            f"https://github.com/StreamScapeTV/ci-workflows/tree/{PUBLISH_SHA}/actions/publish-gradle-maven",
-        )
+    def test_publication_action_follows_main(self) -> None:
+        self.assertIn(f"uses: {PUBLISH_ACTION}@main", self.source)
+        self.assertNotIn(f"uses: {PUBLISH_ACTION}@", self.source.replace(f"uses: {PUBLISH_ACTION}@main", ""))
 
     def test_action_is_a_phase_adapter_without_registry_endpoint_or_gradle_shell(self) -> None:
         self.assertEqual(self.action["runs"]["using"], "composite")

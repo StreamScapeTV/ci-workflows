@@ -4,7 +4,7 @@ Public API: `validation.python` `2.0.0`
 Workflow: `.github/workflows/reusable-python.yml`  
 Stable check: `CI / Python validation`
 
-`validation.python` is a product-neutral Python validation capability. Central owns exact source handling, bounded Python/runtime setup, optional dependency restoration, optional isolated PostgreSQL lifecycle, semantic runner/backend resolution, clean-tree enforcement, zero routine artifacts, and terminal cleanup. The consumer owns its validation intent in one checked-in executable repository-relative script.
+`validation.python` is a product-neutral Python validation capability. Central owns exact source handling, bounded Python/runtime setup, optional dependency restoration, optional isolated PostgreSQL lifecycle, semantic runner/backend resolution, clean-tree enforcement, and terminal cleanup. The consumer owns its validation intent in one checked-in executable repository-relative script.
 
 Central does **not** register repositories, products, command profiles, test lists, application environment, or release-gate argv. Callers cannot provide arbitrary inline shell, command arrays, environment maps, runner labels, container engines, secret names, database URLs, or runtime images.
 
@@ -28,7 +28,7 @@ The planner emits the Central-owned `runs_on_json`; repository visibility never 
 | `version_file` | no | Optional repository-relative Python version file used to verify runtime intent. |
 | `dependency_file` | no | Optional repository-relative exact requirements file for profiles that allow restore. |
 | `script_path` | yes | Repository-relative checked-in executable validation script owned by the consumer. |
-| `artifact_exception_id` | no | Reserved; must remain empty. Routine Actions artifacts are zero. |
+| `artifact_exception_id` | no | Reserved compatibility field; callers leave it empty. |
 
 No command-profile selector, inline argument/environment payload, caller-selected runner or engine, database endpoint, or secret-name field is part of this API.
 
@@ -36,9 +36,9 @@ No command-profile selector, inline argument/environment payload, caller-selecte
 
 - `result`: `success` only after bounded validation and terminal cleanup/clean-source checks.
 - `test_summary`: compact generic JSON containing only validation profile, script contract, status, and stage count.
-- `artifact_exception_used`: always `false` for this zero-routine-artifact API.
+- `artifact_exception_used`: compatibility output that remains `false` for this validation path.
 
-Product output, command text, database credentials/URL, host paths, and container identities are never public outputs.
+Product output, command text, database credentials/URL, host paths, and container identities are never public outputs. Private command output and service credentials remain confined to the validation executor and bounded redacted diagnostics.
 
 ## Consumer-owned script contract
 
@@ -68,21 +68,21 @@ The runtime contract ID is `host-cpython-3.12`. Central isolates `HOME`, `TMPDIR
 
 ### `podman`
 
-Requires `trusted-exact` source and organization `buildah-high` capacity. The caller selects an exact reviewed Python version, which maps to one digest-pinned `linux/amd64` Python image. Central rejects Docker/DinD and Docker sockets, uses Podman VFS private graph storage, mounts source read-only, copies it into disposable work state, and invokes only the consumer-owned script.
+Requires `trusted-exact` source and organization `buildah-high` capacity. The caller selects an exact reviewed Python version, which maps to a reviewed `linux/amd64` Python image. Central rejects Docker/DinD and Docker sockets, uses Podman VFS private graph storage, mounts source read-only, copies it into disposable work state, and invokes only the consumer-owned script.
 
 ### `podman-postgres`
 
-Requires `trusted-exact` source and organization `buildah-medium` capacity. It adds the exact digest-pinned PostgreSQL 16.11 image, one isolated network, one isolated volume, generated per-run credentials, and bounded readiness.
+Requires `trusted-exact` source and organization `buildah-medium` capacity. It adds the reviewed PostgreSQL 16.11 image, one isolated network, one isolated volume, generated per-run credentials, and bounded readiness.
 
 The consumer gets exactly one stable generic connection handoff: `CIW_POSTGRES_URL`. The URL uses the `postgresql` scheme and never appears as an input, output, evidence field, or remote fallback. Product-specific database environment variable names are not supported.
 
 ## Code distribution and runtime authority
 
-Planner and executor invoke `StreamScapeTV/ci-workflows/actions/validate-python` at immutable checkpoint `3d3689fda11b03a188789f03d6d64cab50f1873a`, recorded in `contracts/action-tool-lock.json` as `issue #473 product-neutral Python checkpoint`.
+Planner and executor invoke `StreamScapeTV/ci-workflows/actions/validate-python@main`. Central is one workflow/action library, so internal first-party helpers follow the active library branch rather than maintaining separate action checkpoint SHAs. Repository tags may identify a whole Central library release when a consumer intentionally chooses a released snapshot.
 
-That checkpoint distributes reviewed Central code. Host runtime authority still comes from `host-cpython-3.12` plus the selected runner's pre-provisioned interpreter; container/PostgreSQL authority comes from exact digest-pinned identities in `contracts/python-validation.json`.
+Host runtime authority still comes from `host-cpython-3.12` plus the selected runner's pre-provisioned interpreter; container/PostgreSQL authority comes from the reviewed identities in `contracts/python-validation.json`.
 
-Exact checkout, marker-bound workspace preparation, and cleanup remain on the reviewed foundation checkpoint. The workflow exposes no Central clone, caller credential, `secrets: inherit`, mutable helper ref, or runtime installer.
+Exact checkout, marker-bound workspace preparation, and cleanup use the same Central library channel. The workflow exposes no Central clone, caller credential, `secrets: inherit`, or runtime installer.
 
 ## Execution sequence
 
@@ -90,7 +90,7 @@ Exact checkout, marker-bound workspace preparation, and cleanup remain on the re
 2. Central resolves the existing semantic organization runner or the bounded hosted backend where supported.
 3. The validation job checks out only the exact admitted source and creates marker-bound state with cache disabled.
 4. `ciw python validate --phase execute` revalidates exact/clean source, script executable identity, Python version intent, optional dependency lock, and repository policy.
-5. Host execution copies source and uses runner-provided CPython 3.12; Podman execution uses exact reviewed images and disposable VFS state.
+5. Host execution uses runner-provided CPython 3.12; Podman execution uses reviewed images and disposable VFS state.
 6. If requested, dependencies restore from the consumer-owned exact requirements file.
 7. `podman-postgres` creates ephemeral PostgreSQL and injects only `CIW_POSTGRES_URL` into the validation container.
 8. Central invokes exactly the checked-in consumer-owned executable script with no caller-supplied argv/environment payload.
@@ -128,4 +128,4 @@ A portable public consumer may add `execution_backend: github-hosted`; it still 
 
 Expected rejection uses stable `PythonValidationError.code` values. Script failures project to `command_failed`; dependency/runtime/source/PostgreSQL failures retain their bounded generic codes. Product exception text is not promoted to public outputs.
 
-Podman cleanup removes validation/service containers, network, volume, pulled images, storage state, and temporary environment files. Marker-bound workspace cleanup then removes remaining registered paths. The original admitted source must remain exact and clean. Routine Actions artifacts remain zero.
+Podman cleanup removes validation/service containers, network, volume, pulled images, storage state, and temporary environment files. Marker-bound workspace cleanup then removes remaining registered paths. The original admitted source must remain exact and clean. Private command output, service URLs, credentials, and run-owned state remain non-public and are removed at the terminal boundary.

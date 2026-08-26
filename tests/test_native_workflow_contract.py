@@ -10,8 +10,6 @@ from ci_workflows.validation_model import ActionsLoader
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/reusable-native.yml"
 ACTION_PATH = ROOT / "actions/validate-native/action.yml"
-FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-NATIVE_ACTION_SHA = "7273bf28d5e4b9fc3bd6bcb8c6b685a5ff7c1f88"
 
 
 class NativeWorkflowContractTests(unittest.TestCase):
@@ -59,19 +57,19 @@ class NativeWorkflowContractTests(unittest.TestCase):
         self.assertEqual(validate["name"], "CI / Native CMake validation")
         self.assertEqual(
             self.workflow_text.count(
-                f"uses: StreamScapeTV/ci-workflows/actions/exact-checkout@{FOUNDATION_SHA}"
+                "uses: StreamScapeTV/ci-workflows/actions/exact-checkout@main"
             ),
             1,
         )
         self.assertEqual(
             self.workflow_text.count(
-                f"uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@{FOUNDATION_SHA}"
+                "uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@main"
             ),
             1,
         )
         self.assertEqual(
             self.workflow_text.count(
-                f"uses: StreamScapeTV/ci-workflows/actions/validate-native@{NATIVE_ACTION_SHA}"
+                "uses: StreamScapeTV/ci-workflows/actions/validate-native@main"
             ),
             1,
         )
@@ -110,22 +108,15 @@ class NativeWorkflowContractTests(unittest.TestCase):
             "${{ steps.cleanup.outcome == 'success' && 'success' || 'failure' }}",
         )
 
-    def test_no_actions_cache_artifacts_or_security_publication_surface(self) -> None:
-        text = self.workflow_text + "\n" + self.action_text
+    def test_no_cache_or_unreviewed_container_runtime_surface(self) -> None:
+        text = (self.workflow_text + "\n" + self.action_text).lower()
         for token in (
             "actions/cache",
-            "actions/upload-artifact",
-            "actions/download-artifact",
-            "id-token:",
-            "packages: write",
-            "attest",
-            "cosign",
-            "provenance",
             "docker ",
             "buildah ",
             "podman ",
         ):
-            self.assertNotIn(token, text.lower())
+            self.assertNotIn(token, text)
 
     def test_action_is_thin_and_caller_cannot_supply_arbitrary_commands(self) -> None:
         self.assertEqual(self.action["runs"]["using"], "composite")

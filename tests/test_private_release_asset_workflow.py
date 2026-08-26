@@ -7,11 +7,10 @@ from ci_workflows.validation_model import load_actions_yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/reusable-apple.yml"
-CHECKPOINT = "3fa645e1aa7ab8ae8c681afeb7c73627617b09c8"
 
 
 class PrivateReleaseAssetWorkflowTests(unittest.TestCase):
-    def test_release_asset_uses_one_immutable_internal_checkpoint_without_public_api_growth(self) -> None:
+    def test_release_asset_uses_current_internal_helper_without_public_api_growth(self) -> None:
         document = load_actions_yaml(WORKFLOW, ROOT).data
         call = document["on"]["workflow_call"]
         inputs = set(call["inputs"])
@@ -23,8 +22,7 @@ class PrivateReleaseAssetWorkflowTests(unittest.TestCase):
         )
 
         text = WORKFLOW.read_text(encoding="utf-8")
-        pin = f"actions/materialize-private-release-asset@{CHECKPOINT}"
-        self.assertEqual(text.count(pin), 4)
+        self.assertEqual(text.count("actions/materialize-private-release-asset@main"), 4)
         self.assertIn("config_workflow_key: validation.apple", text)
         self.assertIn("PRIVATE_RELEASE_ASSET_TOKEN:", text)
         self.assertIn("steps.release_token.outputs.token || secrets.private_dependency_token", text)

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 import unittest
 from pathlib import Path
 
@@ -25,7 +24,7 @@ class SourceWorkflowContractTests(unittest.TestCase):
             )
         )["workflows"][0]
 
-    def test_reusable_workflow_is_short_metadata_only_and_exactly_stages_helpers(self) -> None:
+    def test_reusable_workflow_is_short_metadata_only_and_stages_current_helpers(self) -> None:
         self.assertIn("\n  workflow_call:\n", self.workflow)
         for forbidden in (
             "\n  pull_request:\n",
@@ -39,17 +38,14 @@ class SourceWorkflowContractTests(unittest.TestCase):
             "persist-credentials: true",
         ):
             self.assertNotIn(forbidden, self.workflow)
-        self.assertRegex(
+        self.assertIn(
+            "uses: StreamScapeTV/ci-workflows/actions/resolve-source@main",
             self.workflow,
-            r"uses: StreamScapeTV/ci-workflows/actions/resolve-source@[0-9a-f]{40}",
         )
         self.assertEqual(
             2,
-            len(
-                re.findall(
-                    r"uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@[0-9a-f]{40}",
-                    self.workflow,
-                )
+            self.workflow.count(
+                "uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@main"
             ),
         )
         self.assertIn("runs-on: [ubuntu-latest]", self.workflow)

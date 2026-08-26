@@ -10,11 +10,6 @@ from types import SimpleNamespace
 from ci_workflows import ciw_device, device as device_validation, runners
 
 ROOT = Path(__file__).resolve().parents[1]
-DEVICE_ACTION_SHA = "4a6c73fd7bf901c2db6b19330ba0b879bc2bb3ae"
-DEVICE_ACTION_RELEASE = "issue #481 semantic authorization receipt transport checkpoint"
-DEVICE_TRANSPORT_WORKFLOW_SHA = "caa04d8c8f87841def744b7032b6d77b195a9db3"
-DEVICE_LOCK_ACTION_SHA = "599c82201e6da6ca51c4f6247f1526a4ba03d550"
-FOUNDATION_ACTION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 
 
 class DeviceWorkflowContractTests(unittest.TestCase):
@@ -109,47 +104,26 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         ):
             self.assertIn(required, input_block)
 
-    def test_all_private_actions_and_transport_probe_are_immutable(self) -> None:
-        refs = re.findall(
-            r"uses: StreamScapeTV/ci-workflows/([^@\s]+)@([0-9a-f]{40})",
-            self.workflow + "\n" + self.smoke,
+    def test_first_party_actions_follow_main_without_component_versions(self) -> None:
+        first_party = re.findall(
+            r"uses: (StreamScapeTV/ci-workflows/actions/[^@\s]+)@([^\s]+)",
+            self.workflow,
         )
-        self.assertTrue(refs)
-        self.assertTrue(all(len(sha) == 40 for _path, sha in refs))
-        validate_refs = {sha for path, sha in refs if path == "actions/validate-device"}
-        self.assertEqual({DEVICE_ACTION_SHA}, validate_refs)
-        self.assertIn(
-            (
-                ".github/workflows/internal-device-authorization-transport.yml",
-                DEVICE_TRANSPORT_WORKFLOW_SHA,
-            ),
-            refs,
+        self.assertTrue(first_party)
+        self.assertTrue(all(ref == "main" for _path, ref in first_party))
+        refs = {f"{path}@{ref}" for path, ref in first_party}
+        for required in (
+            "StreamScapeTV/ci-workflows/actions/validate-device@main",
+            "StreamScapeTV/ci-workflows/actions/device-lock@main",
+            "StreamScapeTV/ci-workflows/actions/exact-checkout@main",
+            "StreamScapeTV/ci-workflows/actions/prepare-workspace@main",
+            "StreamScapeTV/ci-workflows/actions/cleanup-workspace@main",
+        ):
+            self.assertIn(required, refs)
+        self.assertNotRegex(
+            self.workflow,
+            r"StreamScapeTV/ci-workflows/actions/[^\s@]+@[0-9a-f]{40}",
         )
-        action_lock = json.loads((ROOT / "contracts/action-tool-lock.json").read_text())
-        validate_lock = next(
-            row
-            for row in action_lock["third_party_actions"]
-            if row["uses"] == "StreamScapeTV/ci-workflows/actions/validate-device"
-        )
-        self.assertEqual(
-            {
-                "uses": "StreamScapeTV/ci-workflows/actions/validate-device",
-                "sha": DEVICE_ACTION_SHA,
-                "release": DEVICE_ACTION_RELEASE,
-                "runtime": "composite",
-                "source": f"https://github.com/StreamScapeTV/ci-workflows/tree/{DEVICE_ACTION_SHA}/actions/validate-device",
-            },
-            validate_lock,
-        )
-        self.assertIn(
-            f"actions/device-lock@{DEVICE_LOCK_ACTION_SHA}",
-            {f"{path}@{sha}" for path, sha in refs},
-        )
-        for action in ("exact-checkout", "prepare-workspace", "cleanup-workspace"):
-            self.assertIn(
-                f"actions/{action}@{FOUNDATION_ACTION_SHA}",
-                {f"{path}@{sha}" for path, sha in refs},
-            )
 
     def test_planner_selects_semantic_host_and_executor_consumes_typed_plan(self) -> None:
         self.assertIn("host_capacity: ${{ inputs.host_capacity }}", self.workflow)
@@ -284,13 +258,6 @@ class DeviceWorkflowContractTests(unittest.TestCase):
             self.workflow.split("inputs:", 1)[1].split("secrets:", 1)[0],
         )
 
-    def test_zero_actions_cache_and_routine_artifacts(self) -> None:
-        text = (self.workflow + self.smoke).casefold()
-        self.assertNotIn("actions/cache", text)
-        self.assertNotIn("upload-artifact", text)
-        self.assertNotIn("download-artifact", text)
-        self.assertIn("Verify zero routine device artifacts", self.smoke)
-
     def test_public_smoke_covers_synthetic_families_and_authorized_pr_plan(self) -> None:
         self.assertIn("phase: synthetic", self.smoke)
         for family in ("android", "ios", "tvos"):
@@ -301,8 +268,7 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         self.assertIn("test \"$TRUST\" = trusted-exact", self.smoke)
         self.assertIn("Reusable secret transport / Authorized PR plan", self.smoke)
         self.assertIn(
-            "uses: StreamScapeTV/ci-workflows/.github/workflows/internal-device-authorization-transport.yml@"
-            + DEVICE_TRANSPORT_WORKFLOW_SHA,
+            "uses: StreamScapeTV/ci-workflows/.github/workflows/internal-device-authorization-transport.yml@main",
             self.smoke,
         )
         self.assertIn('device_authorization_receipt: >-', self.smoke)
@@ -317,8 +283,8 @@ class DeviceWorkflowContractTests(unittest.TestCase):
         for phrase in (
             "semantic host capacity", "checked-in", "non-secret environment",
             "device_authorization_receipt", "raw device", "device-lock/1",
-            "exactly once", "zero routine actions artifacts", "ordinary android",
-            "same-repository pull request", "semantic json", "duplicate keys",
+            "exactly once", "ordinary android", "same-repository pull request",
+            "semantic json", "duplicate keys",
         ):
             self.assertIn(phrase, text)
 

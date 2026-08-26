@@ -27,15 +27,6 @@
       "notes": "Exact-source validation permits fixed package/read and repository App credentials only when an API explicitly projects them into bounded source or dependency access; routine planning and evidence remain credential-free."
     },
     {
-      "id": "validation-artifact-read",
-      "trust_class": "read-only-validation",
-      "caller_permissions": {"actions": "read", "contents": "read"},
-      "workflow_permissions": {"actions": "read", "contents": "read"},
-      "forbidden_permissions": ["actions:write", "checks:write", "contents:write", "deployments:write", "id-token:write", "issues:write", "packages:write", "pull-requests:write", "statuses:write"],
-      "named_secrets_allowed": [],
-      "notes": "Source-only validation that reads its own run artifact inventory to fail closed on retained artifacts; no named secret or write permission."
-    },
-    {
       "id": "device-validation",
       "trust_class": "physical-device-validation",
       "caller_permissions": {"contents": "read"},
@@ -65,11 +56,11 @@
     {
       "id": "bootstrap-tag-publication",
       "trust_class": "trusted-publication",
-      "caller_permissions": {"actions": "read", "contents": "read"},
-      "workflow_permissions": {"actions": "read", "contents": "read"},
+      "caller_permissions": {"contents": "read"},
+      "workflow_permissions": {"contents": "read"},
       "forbidden_permissions": ["actions:write", "checks:write", "contents:write", "deployments:write", "id-token:write", "issues:write", "pull-requests:write", "statuses:write"],
       "named_secrets_allowed": ["registry_username", "registry_token"],
-      "notes": "Compatibility profile for the already-published exact-tag image/chart bootstrap workflow; #474 separately owns removal of its historical recovery exception."
+      "notes": "Compatibility profile for the deprecated exact-tag image/chart publisher; exact source, registry credentials, remote publication read-back, and cleanup are functional release boundaries."
     }
   ]
 }

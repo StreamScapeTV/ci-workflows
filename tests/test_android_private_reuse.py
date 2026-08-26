@@ -10,8 +10,6 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/reusable-android.yml"
 PUBLIC_PATH = ROOT / "contracts/public-workflows/validation.json"
-ANDROID_SHA = "91e5ba5af11ec717f829000edad062c664fb86f7"
-FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 
 
 class AndroidPrivateReuseRegressionTests(unittest.TestCase):
@@ -21,7 +19,7 @@ class AndroidPrivateReuseRegressionTests(unittest.TestCase):
         cls.workflow = yaml.load(cls.source, Loader=ActionsLoader)
         cls.public = json.loads(PUBLIC_PATH.read_text(encoding="utf-8"))
 
-    def test_private_consumer_uses_only_immutable_central_helpers(self) -> None:
+    def test_private_consumer_uses_current_central_helpers(self) -> None:
         self.assertNotIn("actions/checkout@", self.source)
         self.assertNotIn("job.workflow_repository", self.source)
         self.assertNotIn("job.workflow_sha", self.source)
@@ -33,10 +31,7 @@ class AndroidPrivateReuseRegressionTests(unittest.TestCase):
             for step in self.workflow["jobs"]["validate"]["steps"]
             if str(step.get("uses", "")).startswith("StreamScapeTV/ci-workflows/actions/")
         }
-        self.assertEqual(
-            helpers["StreamScapeTV/ci-workflows/actions/validate-android"],
-            ANDROID_SHA,
-        )
+        self.assertEqual(helpers["StreamScapeTV/ci-workflows/actions/validate-android"], "main")
         for helper in (
             "exact-checkout",
             "prepare-workspace",
@@ -44,10 +39,7 @@ class AndroidPrivateReuseRegressionTests(unittest.TestCase):
             "render-evidence",
             "cleanup-workspace",
         ):
-            self.assertEqual(
-                helpers[f"StreamScapeTV/ci-workflows/actions/{helper}"],
-                FOUNDATION_SHA,
-            )
+            self.assertEqual(helpers[f"StreamScapeTV/ci-workflows/actions/{helper}"], "main")
 
     def test_private_dependency_token_reaches_only_checkout_boundary(self) -> None:
         steps = self.workflow["jobs"]["validate"]["steps"]

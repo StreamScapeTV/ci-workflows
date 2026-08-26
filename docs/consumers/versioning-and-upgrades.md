@@ -1,29 +1,28 @@
 # Consumer versioning and upgrades
 
-Consumer repositories use thin callers and adopt shared technology contracts through explicit, reviewable pull requests. Ordinary compatibility is defined by public API name/version, trust, permissions, technology inputs/outputs, and behavior—not by membership in a centralized repository or product list.
+Consumer repositories use thin callers and adopt shared technology contracts through explicit, reviewable pull requests. Ordinary compatibility is defined by public API name/version, trust, permissions, technology inputs/outputs, and behavior—not by membership in a centralized repository or product list and not by a per-component checkpoint registry.
 
 ## Reference policy
 
-During the initial migration, every public workflow family may be called through protected `StreamScapeTV/ci-workflows@main`. Two fixed forms remain supported from the beginning:
+`StreamScapeTV/ci-workflows@main` is the normal active-development reference for the shared Central library. A caller may also use a full repository commit SHA or a repository SemVer tag when it functionally needs a fixed **whole-repository** snapshot. Those references identify the repository as a whole: functions, first-party actions, and reusable workflows do not receive independent versions or checkpoint identities.
 
-- an immutable full commit SHA;
-- an immutable SemVer tag such as `v1.2.3`.
+Repository tags therefore describe one complete Central snapshot. There is no action/tool lock, function release registry, helper-release comment contract, or requirement to propagate a new component SHA when an internal implementation changes.
 
-A caller may stay on `@main`, pin a known-good full SHA, or move to a tagged version. A migration pull request records the selected reference and a known-good rollback SHA or tag. Exact caller source, release tags, device commands, and Flux policy are validated independently by the called workflow.
+Exact caller source, release tags, device commands, and other product-owned identities are validated independently when they are functional inputs to the called workflow.
 
 ## Upgrade pull request
 
-A consumer update records:
+A consumer update records only what is relevant to the technology contract:
 
-1. the current and proposed shared reference;
-2. the public API names and versions used;
-3. any stable check-name, input, output, permission, secret, runner-intent, or technology-contract change;
-4. exact same-source parity evidence where replacing local implementation;
-5. the known-good rollback reference;
-6. required organization/repository Actions access changes;
-7. cleanup of replaced local implementation only after the central call is proven.
+1. the public API names and versions used;
+2. any stable check-name, input, output, permission, secret, runner-intent, or behavior change;
+3. exact same-source parity evidence where replacing local implementation;
+4. required organization/repository Actions access changes;
+5. cleanup of replaced local implementation only after the central call is proven.
 
-The consumer retains ownership of repository identity, triggers, path filters, concurrency, environments, product/project names, relative source/build/chart/output paths, schemes, tasks, scripts, and release manifests. Adding a new application repository that already satisfies a technology contract does not require editing `contracts/consumers.json`, `contracts/products.json`, or another central application allowlist.
+Changing an ordinary caller from one Central snapshot to another does not require publishing or recording per-action/function versions. A caller following `@main` follows the current protected library channel by design.
+
+The consumer retains ownership of repository identity, triggers, path filters, concurrency, environments, product/project names, relative source/build/chart/output paths, schemes, tasks, scripts, and release manifests. Adding a new application repository that already satisfies a technology contract does not require editing a central application allowlist.
 
 ## Compatibility classes
 
@@ -39,37 +38,22 @@ Examples include tightening validation inside documented bounds, changing a name
 
 Examples include removing or renaming a workflow/input/output/secret/check, adding a required input or secret, changing default behavior, expanding permissions, changing trust/reference policy, narrowing a documented technology capability, or increasing reusable-workflow depth.
 
-A breaking change fails compatibility validation until `contracts/public-workflow-types.json` contains an explicit acknowledgement with an ID, API name, change kind, reason, migration issue, and effective version. An acknowledgement records migration authority; it does not eliminate caller-side review or rollback planning.
+A breaking change fails compatibility validation until `contracts/public-workflow-types.json` contains an explicit acknowledgement with an ID, API name, change kind, reason, migration issue, and effective version. An acknowledgement records migration authority; it does not create a per-component release ceremony.
 
-A `migration-pending` record is a deliberate transition state. It means the reviewed next API version is published in the contract, while the existing reusable YAML still has the older interface. Callers remain on the old implemented interface until the wiring issue updates the YAML/CLI and flips the new version to `implemented`.
+## Whole-repository releases
 
-## Release manifest
+When `ci-workflows` publishes a stable repository tag, that tag identifies the complete repository snapshot. Any release manifest retained for repository-level release tooling describes the shared repository/API state; it must not become a per-function, per-action, or per-workflow version registry or restore the retired action/tool lock.
 
-Each stable `ci-workflows` tag has a machine-readable release manifest conforming to `contracts/release-manifest.schema.json`. The manifest binds shared release identity rather than application identity:
+Functional product release identities remain separate. For example, an exact product Git tag, published image version, chart version, package digest, or remote read-back may be mandatory because it proves what was actually released. Those checks do not version Central helper components independently.
 
-- shared tag and exact repository commit;
-- workflow API versions, files, and digests;
-- function-library version and digest;
-- schema digests;
-- action/tool locks;
-- runner-profile version/digest.
+## Recovery and revocation
 
-The release manifest does not enumerate consumers or products. Application adoption is visible in each caller repository and may be navigated through organization tooling, but it is not part of the central compatibility contract.
+A bad `main` change is corrected by a reviewed follow-up commit on protected `main`; published history is not rewritten. A full repository SHA or repository tag may be selected as a temporary fixed snapshot when operationally useful, but maintaining a mandatory known-good rollback reference for every Central component is not part of the public API policy.
 
-## Rollback
-
-A caller following `@main` records a known-good full SHA or tag before migration. During a central incident, rollback changes the thin caller reference to that fixed reference. Product state, database state, Flux desired state, credentials, and published immutable outputs are not silently rolled back by a workflow-reference change.
-
-Existing immutable tags are never moved. A bad `main` commit is corrected by a reviewed follow-up commit rather than history rewriting.
+Access revocation, repository rename/transfer, or Actions-policy changes can make an otherwise compatible reference unusable. The caller fails closed and opens a bounded compatibility issue rather than copying Central implementation into the product repository as an emergency fallback.
 
 ## Private repository access
 
-`ci-workflows` must be accessible to private callers that use it. Actions policies must permit the selected central reference and pinned third-party actions. Public workflow source/logs contain no credential, private endpoint, production data, or cluster secret.
+`ci-workflows` must be accessible to private callers that use it. Actions policy must permit the selected Central reference. Third-party actions use the ordinary upstream reference required by their syntax/functionality; there is no organization-wide immutable third-party pin registry.
 
-When a technology operation needs a private dependency, the bounded workflow accepts only the reviewed named credential/path/repository inputs defined for that capability. Broad token inheritance remains forbidden; private dependency access does not create a general consumer allowlist.
-
-## Revocation, rename, and recovery
-
-Access revocation, repository rename/transfer, or Actions-policy changes can make an otherwise compatible reference unusable. The caller fails closed, selects its known-good rollback when needed, and opens a bounded compatibility issue. It does not copy central implementation into the product repository as an emergency fallback.
-
-When a shared reference is bad, stop new migrations, identify affected callers from GitHub usage/navigation evidence, apply fixed-reference rollbacks where required, merge a reviewed correction to protected `main`, publish a corrected immutable tag when appropriate, and resume after parity and compatibility checks pass. Generic organization maintenance and discovery may help locate callers, but those inventories never become API admission policy.
+When a technology operation needs a private dependency, the bounded workflow accepts only the reviewed named credential/path/repository inputs defined for that capability. Broad token inheritance remains forbidden. Private source, private configuration, credentials, and private CI logs/output stay protected regardless of whether the Central caller uses `@main` or a whole-repository snapshot.

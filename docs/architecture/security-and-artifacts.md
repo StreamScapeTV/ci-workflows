@@ -1,30 +1,25 @@
-# Security and artifact baseline
+# Privacy and functional CI boundaries
 
-## Trust classes
+## Mandatory privacy boundary
 
-`contracts/public-workflow-types.json` is the machine authority for public workflow trust classes. The security baseline mirrors its current privilege and caller-source execution boundaries:
+Central CI must prevent outsiders from reading private repository source, credentials, private configuration, dependency identities intentionally kept opaque by the private-CI architecture, or private command output. Private-source detailed logs stay out of public GitHub logs/summaries and Actions artifacts and use the bounded private R2 path owned by #495. Credentials are passed only through explicit named secret/environment boundaries and are cleaned with their run-owned state. `secrets: inherit` remains forbidden.
 
-| Trust class | Privileged | Executes caller source | Security boundary |
-|---|---|---|---|
-| `source-admission` | no | no | Resolves and verifies source identity without executing caller source or receiving product privilege. |
-| `read-only-validation` | no | yes | Executes admitted caller source only under validation permissions with no publication, device, Flux, or maintenance authority. |
-| `physical-device-validation` | yes | yes | Executes exact trusted caller source only after the separate guarded device authorization, fencing, runner, evidence, restoration, and cleanup boundaries admit it. |
-| `trusted-publication` | yes | yes | Executes exact approved release source with explicitly named publication credentials; publication remains separate from deployment. |
+Privileged jobs must not execute untrusted fork or metadata-event source with private credentials or private checkout authority. Checkout credentials are not persisted after checkout. These rules are retained because violating them can expose private source or credentials.
 
-Permissions, runners, secrets, source admission, evidence, and cleanup are reviewed independently for each class. A privileged class is not an escalation of ordinary read-only validation: its event, source, credential, target, runner, and mutation authority remain separately bounded by the public workflow contract and domain policy.
+## Ordinary action and dependency references
 
-## Source and credentials
+There is no repository-wide action SHA allowlist, release-comment registry, runtime-generation registry, or first-party checkpoint carrier. Ordinary development may use normal GitHub action/reusable-workflow references such as a maintained release tag or `@main` where that channel is the intended compatibility surface. A specific workflow may require an immutable identity only when the identity is part of that workflow's functional release or source contract.
 
-Use exact immutable source identities and `persist-credentials: false`. Privileged events never execute pull-request, fork, issue-comment, or caller-controlled source. Secrets are explicit and named; `secrets: inherit` is forbidden.
+The validation harness dependency is declared conventionally in `requirements/validation.txt` and installed into run-local state. It is not a supply-chain policy registry and carries no artifact digest ceremony.
 
-This repository stores no Agent State endpoint or credential and exposes no Agent State transport. The retained public catalogue exposes no Flux-authorized or organization-maintenance workflow class; those retired facades cannot be used to widen a retained public API's source or credential boundary.
+## Artifacts
 
-## Artifact policy
+Public and otherwise non-private workflows may retain Actions artifacts when the feature actually needs them. There is no global zero-artifact registry. Private-source Central runs remain different: their detailed private output must never become a public Actions artifact and continues to use private R2 storage/read-back.
 
-Routine workflows retain zero Actions artifacts. The exception registry is `contracts/artifact-policy.json`. An exception requires an identifier, owner, purpose, exact paths, redaction/privacy rules, maximum retention, permitted workflows and trust modes, and removal criteria.
+## Release correctness
 
-Generated logs, reports, image archives, packaged charts, APK/AAB files, result bundles, caches, credentials, and temporary state are removed unless a registered exception requires retention.
+Exact Git tags, immutable product versions, and remote read-back remain required where they are the functional release identity or where read-back proves that publication actually succeeded. Those checks are release correctness, not a global action-pinning program.
 
 ## Cleanup
 
-Cleanup runs on every terminal path, removes registered state, and fails when required residue remains. Cleanup never follows untrusted symlinks or deletes outside normalized registered roots.
+Cleanup remains mandatory for credentials, private checkout/authentication state, private logs, and other run-owned state whose residue could expose private data or interfere with later executions. Other temporary state is cleaned when required for deterministic functional execution.

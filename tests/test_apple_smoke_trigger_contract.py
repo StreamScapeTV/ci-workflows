@@ -52,17 +52,20 @@ class AppleSmokeTriggerContractTests(unittest.TestCase):
 
     def test_public_repository_apple_self_ci_is_github_hosted_and_owner_gated(self) -> None:
         source = WORKFLOW.read_text(encoding="utf-8")
-        self.assertEqual(source.count(HOSTED_CONTROL_SELECTOR), 2)
+        self.assertEqual(source.count(HOSTED_CONTROL_SELECTOR), 1)
         self.assertEqual(source.count(HOSTED_APPLE_SELECTOR), 1)
         self.assertNotIn("runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json) }}", source)
         self.assertNotIn("runs-on: [linux, amd64, general, small]", source)
-        self.assertGreaterEqual(source.count(OWNER_GATE), 3)
-        self.assertGreaterEqual(source.count(REPOSITORY_GATE), 3)
+        self.assertGreaterEqual(source.count(OWNER_GATE), 2)
+        self.assertGreaterEqual(source.count(REPOSITORY_GATE), 2)
         self.assertNotIn("github.event.repository.private", source)
         self.assertNotIn("REPOSITORY_PRIVATE", source)
-        self.assertIn('test "${APPLE_RESULT}" = success', source)
+        self.assertIn("Project terminal protected-full smoke status", source)
+        self.assertIn('test "${EXECUTE_OUTCOME}" = success', source)
+        self.assertIn('test "${CENTRAL_CLEANUP_OUTCOME}" = success', source)
         self.assertIn('["macOS","ARM64"]', source)
         self.assertIn("Real protected-full Apple smoke", source)
+        self.assertNotIn("/artifacts", source)
 
     def test_profile_specific_and_legacy_apple_entrypoints_are_retired(self) -> None:
         self.assertFalse((ROOT / ".github/workflows/apple-certification-smoke.yml").exists())

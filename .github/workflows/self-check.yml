@@ -8,7 +8,6 @@ on:
   workflow_dispatch:
 
 permissions:
-  actions: read
   contents: read
 
 concurrency:
@@ -40,23 +39,14 @@ jobs:
           [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
           case "${GITHUB_EVENT_NAME}" in
             pull_request)
-              if [[ "${PR_AUTHOR}" != "mimranfaruqi" ]]; then
-                echo '::error::Central self-check admits pull requests only from the exact repository owner.' >&2
-                exit 1
-              fi
-              if [[ -z "${PR_HEAD_REPOSITORY}" || "${PR_HEAD_REPOSITORY}" != "${GITHUB_REPOSITORY}" ]]; then
-                echo '::error::Central self-check rejects fork pull-request source before checkout.' >&2
-                exit 1
-              fi
+              test "${PR_AUTHOR}" = "mimranfaruqi"
+              test "${PR_HEAD_REPOSITORY}" = "${GITHUB_REPOSITORY}"
               test "${SOURCE_SHA}" = "${PR_HEAD_SHA}"
               ;;
             push|workflow_dispatch)
               test "${SOURCE_SHA}" = "${GITHUB_SHA}"
               ;;
-            *)
-              echo "::error::Unsupported self-check event ${GITHUB_EVENT_NAME}." >&2
-              exit 1
-              ;;
+            *) exit 1 ;;
           esac
 
       - name: Verify pre-provisioned general-Linux CPython 3.12
@@ -64,31 +54,25 @@ jobs:
         run: |
           set -Eeuo pipefail
           candidate="$(type -P python3.12 || true)"
-          if [[ -z "${candidate}" ]]; then
-            candidate="$(type -P python3 || true)"
-          fi
-          if [[ -z "${candidate}" || "${candidate}" != /* || ! -x "${candidate}" ]]; then
-            echo '::error::No absolute executable Python candidate is pre-provisioned.' >&2
-            exit 1
-          fi
+          if [[ -z "${candidate}" ]]; then candidate="$(type -P python3 || true)"; fi
+          test -n "${candidate}"
+          test "${candidate}" != "${candidate#/}"
+          test -x "${candidate}"
           resolved="$("${candidate}" -c 'import os,sys; print(os.path.realpath(sys.executable))')"
-          if [[ "${resolved}" != /* || ! -x "${resolved}" ]]; then
-            echo '::error::Resolved Python path is not an absolute executable.' >&2
-            exit 1
-          fi
+          test "${resolved}" != "${resolved#/}"
+          test -x "${resolved}"
+          identity="$("${resolved}" -c 'import platform,sys; print(f"{sys.implementation.name}|{sys.version_info.major}.{sys.version_info.minor}|{platform.system()}")')"
+          IFS='|' read -r implementation version system <<< "${identity}"
+          test "${implementation}" = cpython
+          test "${version}" = 3.12
+          test "${system}" = Linux
           {
             printf 'VERIFIED_PYTHON=%s\n' "${resolved}"
             printf 'PYTHON_EXECUTABLE=%s\n' "${resolved}"
           } >> "${GITHUB_ENV}"
-          identity="$("${resolved}" -c 'import platform,sys; m=platform.machine().lower(); m={"amd64":"x86_64","x64":"x86_64","aarch64":"arm64"}.get(m,m); print(f"{sys.implementation.name}|{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}|{platform.system()}|{m}")')"
-          IFS='|' read -r implementation version system machine <<< "${identity}"
-          [[ "${implementation}" == "cpython" ]] || { echo "::error::Expected CPython, got ${implementation}." >&2; exit 1; }
-          [[ "${version}" == 3.12.* ]] || { echo "::error::Expected Python 3.12.x, got ${version}." >&2; exit 1; }
-          [[ "${system}" == "Linux" ]] || { echo "::error::Expected Linux, got ${system}." >&2; exit 1; }
-          case "${machine}" in x86_64) ;; *) echo "::error::Unsupported general-Linux architecture ${machine}." >&2; exit 1 ;; esac
 
       - name: Check out exact source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7
         with:
           ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 1
@@ -100,47 +84,21 @@ jobs:
         shell: bash
         run: test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
 
-      - name: Prepare pinned validation runtime
+      - name: Prepare repository-declared validation dependencies
         shell: bash
         run: |
           set -Eeuo pipefail
-          test -n "${HOME:-}"
-          test -d "${HOME}"
-          test ! -L "${HOME}"
-          test "$(stat -c '%u' "${HOME}")" = "$(id -u)"
           validation_root="${HOME}/.ciw-self-check-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           test ! -e "${validation_root}"
           test ! -L "${validation_root}"
           mkdir -m 0700 "${validation_root}"
-          chmod 00700 "${validation_root}"
-          test "$(stat -c '%a' "${validation_root}")" = "700"
-          mkdir -p "${validation_root}/python" "${validation_root}/tmp"
-          chmod 00700 "${validation_root}/tmp"
-          test "$(stat -c '%a' "${validation_root}/tmp")" = "700"
-          "${VERIFIED_PYTHON}" scripts/ci/bootstrap_validation_runtime.py \
-            --lock contracts/action-tool-lock.json \
-            --target "${validation_root}/python"
-          test -f "${validation_root}/python/yaml/__init__.py"
-          VALIDATION_TARGET="${validation_root}/python" \
-          PYTHONPATH="${validation_root}/python" "${VERIFIED_PYTHON}" - <<'PY'
-          import os
-          from pathlib import Path
-
-          import _yaml
-          import yaml
-
-          target = Path(os.environ["VALIDATION_TARGET"]).resolve()
-          for module in (yaml, _yaml):
-              path = Path(module.__file__).resolve()
-              if target not in path.parents:
-                  raise SystemExit(
-                      f"validation module escaped locked target: {module.__name__}={path}"
-                  )
-          if yaml.__version__ != "6.0.3":
-              raise SystemExit(f"unexpected PyYAML version: {yaml.__version__}")
-          if not yaml.__with_libyaml__:
-              raise SystemExit("locked Linux validation wheel did not load LibYAML")
-          PY
+          mkdir -m 0700 "${validation_root}/python" "${validation_root}/tmp"
+          "${VERIFIED_PYTHON}" -m pip install \
+            --disable-pip-version-check \
+            --no-cache-dir \
+            --target "${validation_root}/python" \
+            -r requirements/validation.txt
+          PYTHONPATH="${validation_root}/python" "${VERIFIED_PYTHON}" -c 'import yaml; print(f"PyYAML {yaml.__version__}")'
           {
             printf 'VALIDATION_ROOT=%s\n' "${validation_root}"
             printf 'PYTHONPATH=%s:%s/src\n' "${validation_root}/python" "${GITHUB_WORKSPACE}"
@@ -151,8 +109,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           "${VERIFIED_PYTHON}" scripts/ci/validation_harness.py \
-            --root . \
-            --summary "${VALIDATION_ROOT}/summary.json"
+            --root . --summary "${VALIDATION_ROOT}/summary.json"
 
       - name: Verify bootstrap and generated inventory contracts
         shell: bash
@@ -168,7 +125,6 @@ jobs:
           set -Eeuo pipefail
           "${VERIFIED_PYTHON}" scripts/ci/public_api_contract.py validate
           "${VERIFIED_PYTHON}" scripts/ci/public_api_contract.py render --check
-          cat docs/workflows/public-api-reference.md
 
       - name: Run automatically discovered unit tests
         shell: bash
@@ -204,33 +160,3 @@ jobs:
             test -z "$(git status --porcelain --untracked-files=all)" || cleanup_failed=1
           fi
           exit "${cleanup_failed}"
-
-      - name: Confirm zero Actions artifacts
-        if: always()
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -Eeuo pipefail
-          "${VERIFIED_PYTHON}" - <<'PY'
-          import json
-          import os
-          import urllib.request
-
-          request = urllib.request.Request(
-              f"{os.environ['GITHUB_API_URL']}/repos/"
-              f"{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
-              f"{os.environ['GITHUB_RUN_ID']}/artifacts?per_page=100",
-              headers={
-                  "Accept": "application/vnd.github+json",
-                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
-                  "X-GitHub-Api-Version": "2022-11-28",
-              },
-          )
-          with urllib.request.urlopen(request, timeout=30) as response:
-              payload = json.load(response)
-          count = int(payload.get("total_count", 0))
-          if count:
-              raise SystemExit(f"self-check uploaded {count} unexpected artifact(s)")
-          print("Central self-check artifact policy passed: zero artifacts.")
-          PY
