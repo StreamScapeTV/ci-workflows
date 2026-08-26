@@ -65,7 +65,7 @@ jobs:
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
           test ! -e source
 
-  private_macos:
+  private:
     name: Execute private validation / macOS
     needs: [plan]
     if: ${{ needs.plan.outputs.executor_family == 'macos' }}
