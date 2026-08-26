@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import json
-import unittest
 from pathlib import Path
+import unittest
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-VALUES = ROOT / "charts/ci-broker/values.yaml"
-VALUES_SCHEMA = ROOT / "charts/ci-broker/values.schema.json"
+CHART = ROOT / "ci-broker/chart"
+VALUES = CHART / "values.yaml"
+VALUES_SCHEMA = CHART / "values.schema.json"
 
 
 class BrokerChartSchemaTests(unittest.TestCase):
@@ -23,7 +24,7 @@ class BrokerChartSchemaTests(unittest.TestCase):
         self.assertEqual(set(self.schema["required"]), expected)
         self.assertFalse(self.schema["additionalProperties"])
 
-    def test_withdrawn_diagnostics_surface_is_only_a_false_noop_compatibility_key(self) -> None:
+    def test_withdrawn_diagnostics_is_false_only_upgrade_compatibility(self) -> None:
         self.assertNotIn("diagnostics", self.values)
         self.assertNotIn("diagnostics", self.schema["required"])
         diagnostics = self.schema["properties"]["diagnostics"]
