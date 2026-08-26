@@ -11,7 +11,7 @@ permissions:
 jobs:
   migrate:
     name: Apply issue 593 component-reference migration
-    runs-on: ubuntu-latest
+    runs-on: [linux, amd64, general, small]
     timeout-minutes: 10
     steps:
       - name: Check out exact branch head
