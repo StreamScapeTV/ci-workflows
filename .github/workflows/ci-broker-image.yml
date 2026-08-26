@@ -144,14 +144,16 @@ jobs:
             --file broker/Containerfile \
             .
 
-      - name: Smoke exact local broker image
+      - name: Smoke exact local broker image over HTTP
         shell: bash
         run: |
           set -Eeuo pipefail
           local_ref="localhost/${IMAGE_NAME}:${SOURCE_SHA}"
           container="ci-broker-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           buildah from --authfile "${BROKER_REGISTRY_AUTH}" --name "${container}" "${local_ref}" >/dev/null
+          buildah copy "${container}" tests/test_ci_broker_http_integration.py /tmp/ci-broker-http-integration.py >/dev/null
           buildah run "${container}" -- python3 /opt/ci-broker/scripts/ci/ci_broker.py self-check
+          buildah run "${container}" -- python3 /tmp/ci-broker-http-integration.py
           buildah rm "${container}" >/dev/null
 
       - name: Authenticate to fixed private Forgejo registry
@@ -258,16 +260,20 @@ jobs:
           printf 'HELM_CACHE_HOME=%s\n' "${root}/cache" >> "${GITHUB_ENV}"
           printf 'HELM_DATA_HOME=%s\n' "${root}/data" >> "${GITHUB_ENV}"
 
-      - name: Lint render and deterministically package matching broker chart
+      - name: Lint deployed values render and deterministically package matching broker chart
         shell: bash
         run: |
           set -Eeuo pipefail
           chart="charts/ci-broker"
+          deployed_values="tests/fixtures/ci-broker/flux-values.yaml"
+          test -f "${deployed_values}"
           helm lint --strict "${chart}"
-          rendered="$(helm template ci-broker "${chart}" --set-string image.tag="${VERSION}")"
+          helm lint --strict "${chart}" --values "${deployed_values}" --set-string image.tag="${VERSION}"
+          rendered="$(helm template ci-broker "${chart}" --values "${deployed_values}" --set-string image.tag="${VERSION}")"
           test -n "${rendered}"
           printf '%s\n' "${rendered}" | grep -F "image: \"${REGISTRY}/${REGISTRY_NAMESPACE}/${IMAGE_NAME}:${VERSION}\"" >/dev/null
           printf '%s\n' "${rendered}" | grep -F 'replicas: 1' >/dev/null
+          ! printf '%s\n' "${rendered}" | grep -F 'ci-broker-diagnostics' >/dev/null
           helm package "${chart}" \
             --destination "${BROKER_HELM_ROOT}/package" \
             --version "${VERSION}" \
