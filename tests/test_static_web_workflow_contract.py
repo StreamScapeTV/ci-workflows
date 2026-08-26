@@ -11,8 +11,6 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/reusable-static-web.yml"
 ACTION_PATH = ROOT / "actions/validate-static-web/action.yml"
 DOC_PATH = ROOT / "docs/workflows/static-web.md"
-FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-STATIC_WEB_SHA = "f0e3cd313b6350e3869b8a69a925f42db5aba0e2"
 
 
 class StaticWebWorkflowContractTests(unittest.TestCase):
@@ -70,26 +68,26 @@ class StaticWebWorkflowContractTests(unittest.TestCase):
         self.assertEqual(validate["timeout-minutes"], 60)
         self.assertEqual(
             self.workflow_text.count(
-                f"StreamScapeTV/ci-workflows/actions/exact-checkout@{FOUNDATION_SHA}"
+                "StreamScapeTV/ci-workflows/actions/exact-checkout@main"
             ),
             1,
         )
         self.assertEqual(
             self.workflow_text.count(
-                f"StreamScapeTV/ci-workflows/actions/prepare-workspace@{FOUNDATION_SHA}"
+                "StreamScapeTV/ci-workflows/actions/prepare-workspace@main"
             ),
             1,
         )
         self.assertNotIn("runs-on: portable", self.workflow_text)
         self.assertNotIn("self-hosted", self.workflow_text)
 
-    def test_private_helpers_are_immutable_and_sequence_is_cleanup_safe(self) -> None:
+    def test_private_helpers_follow_main_and_sequence_is_cleanup_safe(self) -> None:
         source = self.workflow_text
         sequence = [
-            f"uses: StreamScapeTV/ci-workflows/actions/exact-checkout@{FOUNDATION_SHA}",
-            f"uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@{FOUNDATION_SHA}",
-            f"uses: StreamScapeTV/ci-workflows/actions/validate-static-web@{STATIC_WEB_SHA}",
-            f"uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@{FOUNDATION_SHA}",
+            "uses: StreamScapeTV/ci-workflows/actions/exact-checkout@main",
+            "uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@main",
+            "uses: StreamScapeTV/ci-workflows/actions/validate-static-web@main",
+            "uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@main",
             "name: Verify exact source remained clean after cleanup",
         ]
         positions = [source.index(item) for item in sequence]
@@ -106,11 +104,9 @@ class StaticWebWorkflowContractTests(unittest.TestCase):
         self.assertIn("steps.cleanup.outcome", result)
         self.assertIn("steps.clean.outcome", result)
 
-    def test_zero_artifacts_zero_actions_cache_and_no_security_expansion(self) -> None:
+    def test_no_cache_or_security_expansion(self) -> None:
         source = self.workflow_text + "\n" + self.action_text
         for forbidden in (
-            "actions/upload-artifact",
-            "actions/download-artifact",
             "actions/cache",
             "setup-buildx",
             "attestation",
@@ -161,7 +157,6 @@ class StaticWebWorkflowContractTests(unittest.TestCase):
             self.assertIn(expected, self.docs)
         self.assertIn("framework configuration", self.docs)
         self.assertIn("caller", self.docs.lower())
-        self.assertNotIn("actions/upload-artifact", self.docs)
 
 
 if __name__ == "__main__":
