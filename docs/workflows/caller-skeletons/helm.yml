@@ -21,7 +21,7 @@ name: TODO Helm render validation
       - .github/workflows/TODO_CALLER_WORKFLOW.yml
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: "${{ github.event.pull_request.head.repo.full_name || github.repository }}:${{ github.head_ref || github.ref_name }}"
   cancel-in-progress: true
 
 jobs:
