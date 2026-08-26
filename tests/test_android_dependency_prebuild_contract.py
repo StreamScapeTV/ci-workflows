@@ -10,7 +10,6 @@ from ci_workflows.validation_model import ActionsLoader
 
 ROOT = Path(__file__).resolve().parents[1]
 REUSABLE = ROOT / ".github/workflows/reusable-android.yml"
-ANDROID_SHA = "91e5ba5af11ec717f829000edad062c664fb86f7"
 
 
 class AndroidDependencyPrebuildContractTests(unittest.TestCase):
@@ -30,8 +29,8 @@ class AndroidDependencyPrebuildContractTests(unittest.TestCase):
         self.assertEqual(prebuild["type"], "string")
         self.assertNotIn("cache", prebuild["description"].casefold())
 
-    def test_prebuild_reuses_exact_grouped_android_checkpoint(self) -> None:
-        expected = f"StreamScapeTV/ci-workflows/actions/validate-android@{ANDROID_SHA}"
+    def test_prebuild_reuses_current_grouped_android_helper(self) -> None:
+        expected = "StreamScapeTV/ci-workflows/actions/validate-android@main"
         for identifier in (
             "prebuild_plan",
             "prebuild_execute",
