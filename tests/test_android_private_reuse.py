@@ -51,7 +51,7 @@ class AndroidPrivateReuseRegressionTests(unittest.TestCase):
 
     def test_private_dependency_token_reaches_only_checkout_boundary(self) -> None:
         steps = self.workflow["jobs"]["validate"]["steps"]
-        dependency = next(step for step in steps if step["id"] == "dependency")
+        dependency = next(step for step in steps if step.get("id") == "dependency")
         self.assertEqual(
             dependency["with"]["token"],
             "${{ secrets.private_dependency_token }}",

@@ -39,6 +39,7 @@ class AndroidPublicApiTests(unittest.TestCase):
         self.assertEqual(
             inputs,
             {
+                "execution_backend",
                 "admitted_sha",
                 "validation_scope",
                 "working_directory",
@@ -51,6 +52,9 @@ class AndroidPublicApiTests(unittest.TestCase):
                 "private_dependency_id",
             },
         )
+        backend = next(item for item in self.android["inputs"] if item["name"] == "execution_backend")
+        self.assertFalse(backend["required"])
+        self.assertEqual(backend["default"], "organization")
         for forbidden in (
             "validation_profile",
             "task_profile",
@@ -103,6 +107,7 @@ class AndroidPublicApiTests(unittest.TestCase):
             set(self.android["implementation_components"]),
             {
                 "ci_workflows.ciw_android.execute_android_validate",
+                "ci_workflows.execution_backends.resolve_execution_backend",
                 "ci_workflows.language_primitives.run_gradle_tasks",
                 "ci_workflows.language_primitives.android_targeted_test",
                 "actions/validate-android",

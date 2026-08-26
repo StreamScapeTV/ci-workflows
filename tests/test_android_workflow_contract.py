@@ -14,6 +14,7 @@ REUSABLE = ROOT / ".github/workflows/reusable-android.yml"
 SMOKE = ROOT / ".github/workflows/android-validation-smoke.yml"
 ACTION = ROOT / "actions/validate-android/action.yml"
 ANDROID_SHA = "91e5ba5af11ec717f829000edad062c664fb86f7"
+BACKEND_SHA = "83084efecc597d3bedacfe5f8628f1890b9bcd90"
 WARM_SHA = "13de46c51efcf65df798dfec82a620c484350dfa"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 GRADLE_SYNC_SHA = "fa67b6a1580ff2eb7386a9e58de09896b9990696"
@@ -21,6 +22,7 @@ OWNER_GATE = "github.event.pull_request.user.login == 'mimranfaruqi'"
 REPOSITORY_GATE = "github.event.pull_request.head.repo.full_name == github.repository"
 
 PUBLIC_INPUTS = {
+    "execution_backend",
     "admitted_sha",
     "validation_scope",
     "working_directory",
@@ -52,6 +54,9 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             {"private_dependency_token", "maven_package_read_token"},
         )
         self.assertEqual(set(call["outputs"]), {"result", "test_summary", "cleanup_result"})
+        self.assertFalse(call["inputs"]["execution_backend"]["required"])
+        self.assertEqual(call["inputs"]["execution_backend"]["default"], "organization")
+        self.assertEqual(call["inputs"]["execution_backend"]["type"], "string")
         self.assertTrue(call["inputs"]["validation_plan_json"]["required"])
         self.assertFalse(call["inputs"]["dependency_prebuild_plan_json"]["required"])
         self.assertEqual(call["inputs"]["dependency_prebuild_plan_json"]["default"], "")
@@ -80,15 +85,43 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             self.assertNotIn(forbidden, call["inputs"])
 
     def test_protected_full_is_one_heavy_mobile_executor_and_one_workspace_boundary(self) -> None:
-        self.assertEqual(set(self.workflow["jobs"]), {"validate"})
+        self.assertEqual(set(self.workflow["jobs"]), {"plan", "plan_organization", "validate"})
+        hosted = self.workflow["jobs"]["plan"]
+        organization = self.workflow["jobs"]["plan_organization"]
+        self.assertEqual(hosted["runs-on"], ["ubuntu-latest"])
+        self.assertEqual(hosted["if"], "${{ inputs.execution_backend == 'github-hosted' }}")
+        self.assertEqual(organization["runs-on"], ["linux", "amd64", "mobile"])
+        self.assertEqual(organization["if"], "${{ inputs.execution_backend != 'github-hosted' }}")
+        for planner in (hosted, organization):
+            self.assertEqual(planner["outputs"]["runs_on_json"], "${{ steps.backend.outputs.runs_on_json }}")
+            by_id = {step["id"]: step for step in planner["steps"]}
+            self.assertEqual(
+                by_id["plan"]["uses"],
+                f"StreamScapeTV/ci-workflows/actions/validate-android@{ANDROID_SHA}",
+            )
+            self.assertEqual(
+                by_id["backend"]["uses"],
+                f"StreamScapeTV/ci-workflows/actions/resolve-execution-backend@{BACKEND_SHA}",
+            )
+            self.assertEqual(by_id["backend"]["with"]["workflow_api"], "validation.android")
+            self.assertEqual(by_id["backend"]["with"]["runner_profile"], "mobile")
+            self.assertEqual(by_id["backend"]["with"]["execution_backend"], "${{ inputs.execution_backend }}")
         job = self.workflow["jobs"]["validate"]
         self.assertEqual(job["name"], "CI / Android validation")
-        self.assertEqual(job["runs-on"], ["linux", "amd64", "mobile"])
+        self.assertEqual(job["needs"], ["plan", "plan_organization"])
+        self.assertEqual(
+            job["if"],
+            "${{ always() && (needs.plan.result == 'success' || needs.plan_organization.result == 'success') }}",
+        )
+        self.assertEqual(
+            job["runs-on"],
+            "${{ fromJSON(needs.plan.outputs.runs_on_json || needs.plan_organization.outputs.runs_on_json) }}",
+        )
         self.assertEqual(job["timeout-minutes"], 120)
         self.assertNotIn("strategy", job)
         steps = job["steps"]
         self.assertEqual(
-            [step["id"] for step in steps],
+            [step["id"] for step in steps if "id" in step],
             [
                 "plan",
                 "prebuild_plan",
@@ -110,6 +143,10 @@ class AndroidWorkflowContractTests(unittest.TestCase):
                 "terminal",
             ],
         )
+        hosted_java = [step for step in steps if step.get("name") == "Set up exact hosted JDK 25"]
+        self.assertEqual(len(hosted_java), 1)
+        self.assertEqual(hosted_java[0]["if"], "${{ inputs.execution_backend == 'github-hosted' }}")
+        self.assertRegex(hosted_java[0]["uses"], r"^actions/setup-java@[0-9a-f]{40}$")
         for identifier in (
             "checkout",
             "dependency",
@@ -126,9 +163,8 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             "gradle_seed",
             "workspace_cleanup",
         ):
-            self.assertEqual(sum(step["id"] == identifier for step in steps), 1)
+            self.assertEqual(sum(step.get("id") == identifier for step in steps), 1)
         self.assertNotIn("self-hosted", self.source)
-        self.assertNotIn("fromJSON(needs.", self.source)
         self.assertNotIn("matrix:", self.source)
 
     def test_every_central_helper_is_immutable_and_cache_sync_pins_are_exact(self) -> None:
@@ -141,6 +177,16 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             8,
             uses.count(f"StreamScapeTV/ci-workflows/actions/validate-android@{ANDROID_SHA}"),
         )
+        for planner_name in ("plan", "plan_organization"):
+            planner = self.workflow["jobs"][planner_name]
+            planner_uses = [step["uses"] for step in planner["steps"] if "uses" in step]
+            self.assertEqual(
+                planner_uses,
+                [
+                    f"StreamScapeTV/ci-workflows/actions/validate-android@{ANDROID_SHA}",
+                    f"StreamScapeTV/ci-workflows/actions/resolve-execution-backend@{BACKEND_SHA}",
+                ],
+            )
         self.assertEqual(
             1,
             uses.count(
@@ -168,7 +214,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
 
     def test_dependency_warm_is_cache_maintenance_only(self) -> None:
         steps = self.workflow["jobs"]["validate"]["steps"]
-        by_id = {step["id"]: step for step in steps}
+        by_id = {step["id"]: step for step in steps if "id" in step}
         warm = by_id["dependency_warm"]
         warm_seed = by_id["dependency_warm_seed"]
         prebuild_plan = by_id["prebuild_plan"]
@@ -207,7 +253,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
 
     def test_normal_product_scopes_have_zero_dependency_warm_prerequisite(self) -> None:
         steps = self.workflow["jobs"]["validate"]["steps"]
-        by_id = {step["id"]: step for step in steps}
+        by_id = {step["id"]: step for step in steps if "id" in step}
         warm_if = by_id["dependency_warm"]["if"]
         for scope in ("protected-full", "compile", "unit", "lint", "assemble", "targeted-unit", "script"):
             self.assertNotIn(f"validation_scope == '{scope}'", warm_if)
@@ -225,7 +271,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
 
     def test_optional_dependency_prebuild_reuses_grouped_android_primitive(self) -> None:
         steps = self.workflow["jobs"]["validate"]["steps"]
-        by_id = {step["id"]: step for step in steps}
+        by_id = {step["id"]: step for step in steps if "id" in step}
         prebuild_plan = by_id["prebuild_plan"]
         prebuild_execute = by_id["prebuild_execute"]
         prebuild_cleanup = by_id["prebuild_cleanup"]
@@ -268,22 +314,22 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("ACTIONS_ID_TOKEN_REQUEST", self.source)
         self.assertNotIn("authorization", self.source.casefold())
         steps = job["steps"]
-        warm_index = next(index for index, step in enumerate(steps) if step["id"] == "dependency_warm")
-        warm_sync_index = next(index for index, step in enumerate(steps) if step["id"] == "dependency_warm_seed")
-        final_sync_index = next(index for index, step in enumerate(steps) if step["id"] == "gradle_seed")
-        residue_index = next(index for index, step in enumerate(steps) if step["id"] == "residue")
-        cleanup_index = next(index for index, step in enumerate(steps) if step["id"] == "workspace_cleanup")
+        warm_index = next(index for index, step in enumerate(steps) if step.get("id") == "dependency_warm")
+        warm_sync_index = next(index for index, step in enumerate(steps) if step.get("id") == "dependency_warm_seed")
+        final_sync_index = next(index for index, step in enumerate(steps) if step.get("id") == "gradle_seed")
+        residue_index = next(index for index, step in enumerate(steps) if step.get("id") == "residue")
+        cleanup_index = next(index for index, step in enumerate(steps) if step.get("id") == "workspace_cleanup")
         self.assertLess(warm_index, warm_sync_index)
         self.assertLess(warm_sync_index, final_sync_index)
         self.assertLess(residue_index, final_sync_index)
         self.assertLess(final_sync_index, cleanup_index)
         for identifier in ("dependency_warm_seed", "gradle_seed"):
-            sync = next(step for step in steps if step["id"] == identifier)
+            sync = next(step for step in steps if step.get("id") == identifier)
             self.assertTrue(sync["continue-on-error"])
             self.assertEqual(sync["with"]["source_sha"], "${{ inputs.admitted_sha }}")
         cleanup = steps[cleanup_index]
         self.assertEqual(cleanup["if"], "always()")
-        terminal = next(step for step in steps if step["id"] == "terminal")
+        terminal = next(step for step in steps if step.get("id") == "terminal")
         self.assertEqual(
             terminal["env"]["WARM_SEED_OUTCOME"],
             "${{ steps.dependency_warm_seed.outcome }}",
@@ -295,7 +341,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         terminal = next(
             step
             for step in self.workflow["jobs"]["validate"]["steps"]
-            if step["id"] == "terminal"
+            if step.get("id") == "terminal"
         )
         self.assertEqual(
             terminal["env"]["ANDROID_TEST_SUMMARY"],
@@ -323,7 +369,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
 
     def test_private_token_is_confined_to_the_single_dependency_checkout(self) -> None:
         steps = self.workflow["jobs"]["validate"]["steps"]
-        dependency = next(step for step in steps if step["id"] == "dependency")
+        dependency = next(step for step in steps if step.get("id") == "dependency")
         self.assertEqual(dependency["with"]["token"], "${{ secrets.private_dependency_token }}")
         for step in steps:
             if step is dependency:
@@ -332,7 +378,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
 
     def test_package_read_token_is_confined_to_the_primary_product_execution(self) -> None:
         steps = self.workflow["jobs"]["validate"]["steps"]
-        execute = next(step for step in steps if step["id"] == "execute")
+        execute = next(step for step in steps if step.get("id") == "execute")
         self.assertEqual(
             execute["env"]["CIW_MAVEN_PACKAGE_READ_TOKEN"],
             "${{ secrets.maven_package_read_token }}",
@@ -392,6 +438,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertIn("android validate", self.action_source)
         self.assertIn("--source-root source", self.action_source)
         self.assertIn("validation_plan_json", self.action["inputs"])
+        self.assertNotIn("execution_backend", self.action["inputs"])
         for forbidden in (
             "gradle_tasks_json",
             "targeted_test_selector",

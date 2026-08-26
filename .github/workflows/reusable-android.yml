@@ -3,6 +3,11 @@ name: Reusable Android validation
 on:
   workflow_call:
     inputs:
+      execution_backend:
+        description: organization or github-hosted
+        required: false
+        default: organization
+        type: string
       admitted_sha:
         description: Exact lowercase source SHA admitted by source.resolve
         required: true
@@ -72,9 +77,73 @@ permissions:
   contents: read
 
 jobs:
+  plan:
+    name: Resolve hosted Android validation plan
+    if: ${{ inputs.execution_backend == 'github-hosted' }}
+    runs-on: [ubuntu-latest]
+    timeout-minutes: 10
+    outputs:
+      runs_on_json: ${{ steps.backend.outputs.runs_on_json }}
+    steps:
+      - id: plan
+        name: Validate technology-level Android request
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@91e5ba5af11ec717f829000edad062c664fb86f7 # issue #534 prefix-isolated protected-full checkpoint
+        with:
+          phase: plan
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_scope: ${{ inputs.validation_scope }}
+          working_directory: ${{ inputs.working_directory }}
+          gradle_wrapper_path: ${{ inputs.gradle_wrapper_path }}
+          validation_plan_json: ${{ inputs.validation_plan_json }}
+          private_dependency_repository: ${{ inputs.private_dependency_repository }}
+          private_dependency_sha: ${{ inputs.private_dependency_sha }}
+          private_dependency_subdirectory: ${{ inputs.private_dependency_subdirectory }}
+          private_dependency_id: ${{ inputs.private_dependency_id }}
+      - id: backend
+        name: Resolve bounded hosted Android capacity
+        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@83084efecc597d3bedacfe5f8628f1890b9bcd90 # issue #495 hosted Apple backend checkpoint
+        with:
+          workflow_api: validation.android
+          source_trust: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && 'trusted-pr' || github.event_name == 'pull_request' && 'untrusted-fork' || 'trusted-exact' }}
+          execution_backend: ${{ inputs.execution_backend }}
+          runner_profile: mobile
+
+  plan_organization:
+    name: Resolve organization Android validation plan
+    if: ${{ inputs.execution_backend != 'github-hosted' }}
+    runs-on: [linux, amd64, mobile]
+    timeout-minutes: 10
+    outputs:
+      runs_on_json: ${{ steps.backend.outputs.runs_on_json }}
+    steps:
+      - id: plan
+        name: Validate technology-level Android request
+        uses: StreamScapeTV/ci-workflows/actions/validate-android@91e5ba5af11ec717f829000edad062c664fb86f7 # issue #534 prefix-isolated protected-full checkpoint
+        with:
+          phase: plan
+          admitted_sha: ${{ inputs.admitted_sha }}
+          validation_scope: ${{ inputs.validation_scope }}
+          working_directory: ${{ inputs.working_directory }}
+          gradle_wrapper_path: ${{ inputs.gradle_wrapper_path }}
+          validation_plan_json: ${{ inputs.validation_plan_json }}
+          private_dependency_repository: ${{ inputs.private_dependency_repository }}
+          private_dependency_sha: ${{ inputs.private_dependency_sha }}
+          private_dependency_subdirectory: ${{ inputs.private_dependency_subdirectory }}
+          private_dependency_id: ${{ inputs.private_dependency_id }}
+      - id: backend
+        name: Preserve bounded organization Android capacity
+        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@83084efecc597d3bedacfe5f8628f1890b9bcd90 # issue #495 hosted Apple backend checkpoint
+        with:
+          workflow_api: validation.android
+          source_trust: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && 'trusted-pr' || github.event_name == 'pull_request' && 'untrusted-fork' || 'trusted-exact' }}
+          execution_backend: ${{ inputs.execution_backend }}
+          runner_profile: mobile
+
   validate:
     name: CI / Android validation
-    runs-on: [linux, amd64, mobile]
+    needs: [plan, plan_organization]
+    if: ${{ always() && (needs.plan.result == 'success' || needs.plan_organization.result == 'success') }}
+    runs-on: ${{ fromJSON(needs.plan.outputs.runs_on_json || needs.plan_organization.outputs.runs_on_json) }}
     timeout-minutes: 120
     outputs:
       result: ${{ steps.terminal.outputs.result }}
@@ -111,6 +180,13 @@ jobs:
           private_dependency_sha: ${{ inputs.private_dependency_sha }}
           private_dependency_subdirectory: ${{ inputs.private_dependency_subdirectory }}
           private_dependency_id: ${{ inputs.private_dependency_id }}
+
+      - name: Set up exact hosted JDK 25
+        if: ${{ inputs.execution_backend == 'github-hosted' }}
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        with:
+          distribution: temurin
+          java-version: "25"
 
       - id: checkout
         name: Check out exact admitted caller source once
