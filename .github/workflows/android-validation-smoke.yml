@@ -14,7 +14,6 @@ on:
       - src/ci_workflows/gradle_dependency_warm.py
       - src/ci_workflows/language_primitives.py
       - src/ci_workflows/runtime_primitives.py
-      - contracts/action-tool-lock.json
       - contracts/ciw-commands.json
       - contracts/public-workflows.json
       - contracts/public-workflows/validation.json

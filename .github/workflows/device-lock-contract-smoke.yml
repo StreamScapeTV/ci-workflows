@@ -96,9 +96,7 @@ jobs:
           mkdir -p "${validation_root}/python" "${validation_root}/tmp"
           chmod 0700 "${validation_root}/tmp"
           test "$(stat -c '%a' "${validation_root}/tmp")" = "700"
-          PYTHONDONTWRITEBYTECODE=1 python3 .ciw/scripts/ci/bootstrap_validation_runtime.py \
-            --lock .ciw/contracts/action-tool-lock.json \
-            --target "${validation_root}/python"
+          PYTHONDONTWRITEBYTECODE=1 python3 -m pip install --disable-pip-version-check --no-cache-dir --target "${validation_root}/python" -r .ciw/requirements/validation.txt
           test -f "${validation_root}/python/yaml/__init__.py"
           TMPDIR="${validation_root}/tmp" \
             PYTHONDONTWRITEBYTECODE=1 \

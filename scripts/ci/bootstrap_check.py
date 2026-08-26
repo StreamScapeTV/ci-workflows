@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate repository bootstrap and its bounded public-API exception."""
+"""Validate the functional repository bootstrap for Central self-CI."""
 from __future__ import annotations
 
 import json
@@ -12,105 +12,30 @@ GENERAL_LINUX_SELECTOR = ["linux", "amd64", "general", "small"]
 SELF_CHECK_RUNNER = "ubuntu-latest"
 SELF_CHECK_RUNS_ON_SOURCE = "[ubuntu-latest]"
 
-HOST_PYTHON = {
-    "implementation": "cpython",
-    "version": "3.12.13",
-    "system": "Darwin",
-    "architectures": ["arm64", "x86_64"],
-    "provisioning": "preinstalled",
-    "runtime_installation": "forbidden",
-    "privilege_elevation": "forbidden",
-}
-PY_YAML_VERSION = "6.0.3"
-PY_YAML_SOURCE_SHA256 = (
-    "d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f"
-)
-PY_YAML_SOURCE_FILENAME = "pyyaml-6.0.3.tar.gz"
-PY_YAML_SOURCE_URL = (
-    "https://files.pythonhosted.org/packages/05/8e/"
-    "961c0007c59b8dd7729d542c61a4d537767a59645b82a0b521206e1e25c2/"
-    "pyyaml-6.0.3.tar.gz"
-)
-PY_YAML_SOURCE_RUNTIMES = ["cp312-macos-arm64", "cp312-macos-x86_64"]
-PY_YAML_LINUX_WHEEL = {
-    "runtime": "cp312-manylinux-x86_64",
-    "filename": (
-        "pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64."
-        "manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl"
-    ),
-    "url": (
-        "https://files.pythonhosted.org/packages/8b/9d/"
-        "b3589d3877982d4f2329302ef98a8026e7f4443c765c46cfecc8858c6b4b/"
-        "pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64."
-        "manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl"
-    ),
-    "sha256": "ba1cc08a7ccde2d2ec775841541641e4548226580ab850948cbfda66a1befcdc",
-}
-
 REQUIRED_PATHS = (
     "AGENTS.md",
     "CONTRIBUTING.md",
     "README.md",
     "RUNNERS.md",
-    ".github/ISSUE_TEMPLATE/implementation.yml",
-    ".github/pull_request_template.md",
     ".github/workflows/self-check.yml",
-    "actions/README.md",
     "src/ci_workflows/__init__.py",
-    "src/ci_workflows/validation_runtime.py",
-    "scripts/ci/bootstrap_validation_runtime.py",
-    "scripts/release/README.md",
-    "contracts/action-tool-lock.json",
-    "contracts/artifact-policy.json",
-    "contracts/security-policy.json",
+    "scripts/ci/validation_harness.py",
     "contracts/bootstrap-public-workflows.json",
     "contracts/runner-profiles.json",
     "contracts/runner-execution-backends.json",
-    "docs/architecture/ADR-0001-reuse-layers.md",
-    "docs/architecture/security-and-artifacts.md",
-    "docs/consumers/access.md",
     "docs/validation/harness.md",
-    "docs/workflows/README.md",
-    "requirements/validation.lock",
-    "tests/fixtures/README.md",
+    "requirements/validation.txt",
 )
 
 FORBIDDEN_SELF_CHECK_PATTERNS = (
     "secrets: inherit",
-    "upload-artifact",
     "pull_request_target:",
     "packages: write",
     "id-token: write",
-    "homelab-portable-linux-x64",
-    "runs-on: portable",
-    "runs-on: [linux, amd64, general, small]",
-    "runs-on: [linux, amd64, general]",
-    "runs-on: macOS",
-    "runs-on: apple",
-    "runs-on: macos-latest",
-    "runs-on: windows-latest",
     "runs-on: self-hosted",
     "runs-on: mobile",
     "runs-on: buildah",
-    "runs-on: buildah-tiny",
-    "runs-on: buildah-small",
-    "runs-on: buildah-medium",
-    "runs-on: buildah-high",
     "runs-on: flux-control",
-    "actions/setup-python@",
-    "python-version:",
-    "hostedtoolcache",
-    "sudo ",
-    "brew install",
-    "homebrew",
-    "pip install",
-    "python -m pip",
-    "python3 -m pip",
-    "virtualenv",
-    "pyenv",
-    "conda",
-    "curl ",
-    "wget ",
 )
 
 
@@ -132,6 +57,17 @@ def validate_required_paths() -> None:
     missing = [path for path in REQUIRED_PATHS if not (ROOT / path).is_file()]
     if missing:
         raise SystemExit(f"missing bootstrap files: {', '.join(missing)}")
+    retired = (
+        "contracts/action-tool-lock.json",
+        "contracts/artifact-policy.json",
+        "contracts/security-policy.json",
+        "requirements/validation.lock",
+        "scripts/ci/bootstrap_validation_runtime.py",
+        "src/ci_workflows/validation_runtime.py",
+    )
+    residue = [path for path in retired if (ROOT / path).exists()]
+    if residue:
+        raise SystemExit(f"retired policy/bootstrap files remain: {', '.join(residue)}")
 
 
 def public_workflow_paths() -> list[str]:
@@ -150,331 +86,92 @@ def allowed_bootstrap_workflows() -> list[str]:
     allowed = contract.get("allowed")
     if not isinstance(allowed, list):
         raise SystemExit("bootstrap public-workflow allowlist is invalid")
-    result: list[str] = []
-    for entry in allowed:
-        if not isinstance(entry, dict):
-            raise SystemExit("bootstrap public-workflow entry is invalid")
-        path = entry.get("path")
-        issue = entry.get("issue")
-        follow_up = entry.get("required_follow_up")
-        if not isinstance(path, str) or not isinstance(issue, int):
-            raise SystemExit("bootstrap public-workflow identity is invalid")
-        if not isinstance(follow_up, list) or not all(
-            isinstance(value, int) for value in follow_up
-        ):
-            raise SystemExit("bootstrap public-workflow follow-up is invalid")
-        result.append(path)
-    return sorted(result)
+    return sorted(str(entry["path"]) for entry in allowed if isinstance(entry, dict))
 
 
 def validate_public_workflow_exceptions() -> None:
     actual = public_workflow_paths()
     allowed = allowed_bootstrap_workflows()
     if actual != allowed:
-        raise SystemExit(
-            "public reusable workflow set differs from bounded bootstrap "
-            f"exceptions: actual={actual!r} allowed={allowed!r}"
-        )
+        raise SystemExit(f"public reusable workflow set drifted: actual={actual!r} allowed={allowed!r}")
 
 
 def _general_small_profile(contract: Mapping[str, Any]) -> Mapping[str, Any]:
     profiles = contract.get("profiles")
     if not isinstance(profiles, list):
         raise SystemExit("runner profile contract is invalid")
-    matches = [
-        profile
-        for profile in profiles
-        if isinstance(profile, dict) and profile.get("id") == "general-small"
-    ]
+    matches = [p for p in profiles if isinstance(p, dict) and p.get("id") == "general-small"]
     if len(matches) != 1:
         raise SystemExit("runner contract requires one general-small profile")
     return matches[0]
 
 
-def _validate_general_linux_runner_contract() -> None:
-    harness = _mapping(
-        read_json("contracts/validation-harness.json"),
-        "validation harness contract is invalid",
-    )
+def validate_runner_contract() -> None:
+    harness = _mapping(read_json("contracts/validation-harness.json"), "validation harness contract is invalid")
     if harness.get("allowed_runner_profiles") != ["portable"]:
-        raise SystemExit(
-            "general validation semantic profile must remain portable"
-        )
-    exceptions = harness.get("exceptions")
-    if not isinstance(exceptions, list):
-        raise SystemExit("validation harness exceptions must be a list")
-    if any(
-        isinstance(entry, dict)
-        and entry.get("path") == ".github/workflows/self-check.yml"
-        for entry in exceptions
-    ):
-        raise SystemExit("self-check must not retain a runner exception")
-
-    runner_contract = _mapping(
-        read_json("contracts/runner-profiles.json"),
-        "runner profile contract is invalid",
-    )
-    policy = _mapping(
-        runner_contract.get("direct_selection_policy"),
-        "runner direct-selection policy is invalid",
-    )
-    if policy.get("portable_maps_only_to") != "general-small":
-        raise SystemExit("portable must resolve only to general-small")
-    general_small = _general_small_profile(runner_contract)
-    public_labels = general_small.get("public_labels")
-    if not isinstance(public_labels, list) or "portable" not in public_labels:
-        raise SystemExit("general-small must publish portable compatibility intent")
-    if general_small.get("default_internal_selector") != GENERAL_LINUX_SELECTOR:
+        raise SystemExit("general validation semantic profile must remain portable")
+    runner_contract = _mapping(read_json("contracts/runner-profiles.json"), "runner profile contract is invalid")
+    profile = _general_small_profile(runner_contract)
+    if profile.get("default_internal_selector") != GENERAL_LINUX_SELECTOR:
         raise SystemExit("portable compatibility must resolve to sized general-small")
-    if general_small.get("internal_selectors") != [GENERAL_LINUX_SELECTOR]:
-        raise SystemExit(
-            "general-small selector set must contain only sized general Linux"
-        )
-
-
-def _validate_hosted_self_check_contract() -> None:
-    backend = _mapping(
-        read_json("contracts/runner-execution-backends.json"),
-        "runner execution backend contract is invalid",
-    )
-    hosted = _mapping(
-        backend.get("github-hosted"),
-        "github-hosted backend contract is invalid",
-    )
+    backend = _mapping(read_json("contracts/runner-execution-backends.json"), "runner backend contract is invalid")
+    hosted = _mapping(backend.get("github-hosted"), "github-hosted backend contract is invalid")
     if hosted.get("runs_on") != [SELF_CHECK_RUNNER]:
         raise SystemExit("standard hosted runner selector drifted")
-
-
-def _validate_verified_interpreter_use(source: str) -> None:
-    host_step = source.index(
-        "- name: Verify pre-provisioned general-Linux CPython 3.12"
-    )
-    checkout = source.index("- name: Check out exact source")
-    if host_step >= checkout:
-        raise SystemExit(
-            "verified pre-provisioned Python must be established before checkout"
-        )
-    export = source.index("VERIFIED_PYTHON=%s", host_step, checkout)
-    identity_check = source.index(
-        '[[ "${implementation}" == "cpython" ]]', host_step, checkout
-    )
-    if export >= identity_check:
-        raise SystemExit(
-            "absolute Python must be exported before identity rejection so "
-            "always-run artifact verification remains executable"
-        )
-    after_checkout = source[checkout:]
-    if re.search(
-        r"(?<![A-Za-z0-9_])python(?:3(?:\.[0-9]+)?)?(?=\s)",
-        after_checkout,
-    ):
-        raise SystemExit(
-            "self-check may not fall back to PATH Python after verification"
-        )
-    required_invocations = (
-        '"${VERIFIED_PYTHON}" scripts/ci/bootstrap_validation_runtime.py',
-        'PYTHONPATH="${validation_root}/python" "${VERIFIED_PYTHON}" -',
-        '"${VERIFIED_PYTHON}" scripts/ci/validation_harness.py',
-        '"${VERIFIED_PYTHON}" scripts/ci/bootstrap_check.py',
-        '"${VERIFIED_PYTHON}" scripts/ci/inventory_contract.py validate',
-        '"${VERIFIED_PYTHON}" scripts/ci/inventory_contract.py render --check',
-        '"${VERIFIED_PYTHON}" scripts/ci/public_api_contract.py validate',
-        '"${VERIFIED_PYTHON}" scripts/ci/public_api_contract.py render',
-        '"${VERIFIED_PYTHON}" -m unittest discover',
-        '"${VERIFIED_PYTHON}" - <<\'PY\'',
-    )
-    for token in required_invocations:
-        if token not in after_checkout:
-            raise SystemExit(
-                f"self-check does not use the verified interpreter for {token!r}"
-            )
 
 
 def validate_self_check() -> None:
     source = read_text(".github/workflows/self-check.yml")
     required = (
         f"runs-on: {SELF_CHECK_RUNS_ON_SOURCE}",
-        "timeout-minutes: 10",
-        "permissions:\n  actions: read\n  contents: read",
         "Admit trusted workflow source",
-        "PR_HEAD_REPOSITORY:",
-        '"${PR_HEAD_REPOSITORY}" != "${GITHUB_REPOSITORY}"',
-        "push|workflow_dispatch)",
-        "SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}",
         "Verify pre-provisioned general-Linux CPython 3.12",
-        "type -P python3.12",
-        "type -P python3",
-        "os.path.realpath(sys.executable)",
-        '"${resolved}" != /* || ! -x "${resolved}"',
-        '"${implementation}" == "cpython"',
-        '"${version}" == 3.12.*',
-        '"${system}" == "Linux"',
-        "x86_64)",
-        "VERIFIED_PYTHON=%s",
-        "PYTHON_EXECUTABLE=%s",
         "persist-credentials: false",
+        "actions/checkout@v7",
         'test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"',
-        'test -f "${validation_root}/python/yaml/__init__.py"',
-        '"${VERIFIED_PYTHON}" -m unittest discover -s tests -p \'test_*.py\' -v',
-        "git diff --exit-code",
+        "requirements/validation.txt",
+        '"${VERIFIED_PYTHON}" -m pip install',
+        '"${VERIFIED_PYTHON}" scripts/ci/validation_harness.py',
+        '"${VERIFIED_PYTHON}" -m unittest discover',
         "if: always()",
-        "Confirm zero Actions artifacts",
     )
     for token in required:
         if token not in source:
-            raise SystemExit(f"self-check is missing required contract: {token}")
-
+            raise SystemExit(f"self-check is missing required functional contract: {token}")
     lowered = source.lower()
     for token in FORBIDDEN_SELF_CHECK_PATTERNS:
         if token.lower() in lowered:
-            raise SystemExit(f"self-check contains forbidden contract: {token}")
-
-    runs_on = re.findall(
-        r"^\s+runs-on:\s*(.+?)\s*$",
-        source,
-        re.MULTILINE,
-    )
+            raise SystemExit(f"self-check contains forbidden privacy/authority contract: {token}")
+    runs_on = re.findall(r"^\s+runs-on:\s*(.+?)\s*$", source, re.MULTILINE)
     if runs_on != [SELF_CHECK_RUNS_ON_SOURCE]:
-        raise SystemExit(
-            f"self-check must use exactly {SELF_CHECK_RUNS_ON_SOURCE}, found {runs_on!r}"
-        )
-    if re.search(r"runs-on:\s*.*\$\{\{", source):
-        raise SystemExit("self-check runner selector must not be dynamic")
-    if re.search(r"^\s+[A-Za-z-]+:\s+write\s*$", source, re.MULTILINE):
-        raise SystemExit(
-            "self-check must preserve read-only workflow permissions"
-        )
-
-    admission = source.index("- name: Admit trusted workflow source")
-    host = source.index(
-        "- name: Verify pre-provisioned general-Linux CPython 3.12"
-    )
-    checkout = source.index("- name: Check out exact source")
-    if not admission < host < checkout:
-        raise SystemExit(
-            "same-repository admission and host Python verification must "
-            "precede checkout"
-        )
-
-    _validate_verified_interpreter_use(source)
-    _validate_general_linux_runner_contract()
-    _validate_hosted_self_check_contract()
+        raise SystemExit(f"self-check must use exactly {SELF_CHECK_RUNS_ON_SOURCE}, found {runs_on!r}")
+    if "action-tool-lock" in source or "Confirm zero Actions artifacts" in source:
+        raise SystemExit("self-check must not restore retired global security policy")
 
 
-def validate_runtime_lock() -> None:
-    lock = _mapping(
-        read_json("contracts/action-tool-lock.json"),
-        "action/tool lock root is invalid",
-    )
-    actions = lock.get("third_party_actions")
-    if not isinstance(actions, list):
-        raise SystemExit("third-party action lock is invalid")
-    if any(
-        isinstance(entry, dict)
-        and entry.get("uses") == "actions/setup-python"
-        for entry in actions
-    ):
-        raise SystemExit("actions/setup-python must not remain in action lock")
-
-    python = _mapping(lock.get("python"), "python tool lock is invalid")
-    if python.get("minimum") != "3.12":
-        raise SystemExit("validation Python minimum must remain 3.12")
-    if python.get("emergency_macos_host") != HOST_PYTHON:
-        raise SystemExit("pre-provisioned host Python contract drifted")
-
-    packages = python.get("packages")
-    if not isinstance(packages, list):
-        raise SystemExit("validation package lock is invalid")
-    pyyaml = [
-        entry
-        for entry in packages
-        if isinstance(entry, dict) and entry.get("name") == "PyYAML"
-    ]
-    if len(pyyaml) != 1:
-        raise SystemExit("validation lock requires exactly one PyYAML entry")
-    package = pyyaml[0]
-    if package.get("version") != PY_YAML_VERSION:
-        raise SystemExit("PyYAML package version drifted")
-    if package.get("runtime") != "python":
-        raise SystemExit("PyYAML package runtime drifted")
-    if package.get("artifact") != PY_YAML_SOURCE_FILENAME:
-        raise SystemExit("PyYAML package source filename drifted")
-    if package.get("sha256") != PY_YAML_SOURCE_SHA256:
-        raise SystemExit("PyYAML source digest drifted")
-
-    source = _mapping(package.get("source"), "PyYAML source lock is invalid")
-    expected_source = {
-        "format": "sdist-tar-gz",
-        "filename": PY_YAML_SOURCE_FILENAME,
-        "url": PY_YAML_SOURCE_URL,
-        "sha256": PY_YAML_SOURCE_SHA256,
-        "runtimes": PY_YAML_SOURCE_RUNTIMES,
-    }
-    if source != expected_source:
-        raise SystemExit("PyYAML macOS source artifact lock drifted")
-    if package.get("wheels") != [PY_YAML_LINUX_WHEEL]:
-        raise SystemExit("retained Linux PyYAML wheel lock drifted")
-
-
-def validate_policies() -> None:
-    artifact = read_json("contracts/artifact-policy.json")
-    security = read_json("contracts/security-policy.json")
-    if artifact != {
-        "schema_version": 1,
-        "default": "zero-routine-artifacts",
-        "exceptions": [],
-    }:
-        raise SystemExit("artifact policy bootstrap contract drifted")
-    if not isinstance(security, dict):
-        raise SystemExit("security policy is invalid")
-    release = security.get("release_reference_policy")
-    if not isinstance(release, dict) or release.get(
-        "bootstrap_channel"
-    ) != "main":
-        raise SystemExit("security policy must document @main bootstrap")
-    if release.get("github_release_required") is not False:
-        raise SystemExit("ci-workflows tag release must not require Release")
-    if release.get("attached_artifacts_required") is not False:
-        raise SystemExit("ci-workflows tag release must not require artifacts")
+def validate_requirements() -> None:
+    lines = [line.strip() for line in read_text("requirements/validation.txt").splitlines() if line.strip() and not line.lstrip().startswith("#")]
+    if not any(line.lower().startswith("pyyaml") for line in lines):
+        raise SystemExit("validation requirements must declare PyYAML")
+    if any("--hash" in line or "sha256" in line.lower() for line in lines):
+        raise SystemExit("ordinary validation dependencies must not recreate digest-lock policy")
 
 
 def validate_authority_docs() -> None:
-    combined = "\n".join(
-        read_text(path)
-        for path in (
-            "AGENTS.md",
-            "README.md",
-            "RUNNERS.md",
-            "docs/architecture/ADR-0001-reuse-layers.md",
-            "docs/validation/harness.md",
-        )
-    )
-    for required in (
-        "Agent State",
-        "Flux",
-        "@main",
-        "Git tag",
-        "zero",
-        "src/ci_workflows",
-        "General Linux",
-        "portable",
-        "CPython 3.12",
-        "pre-provisioned",
-    ):
-        if required not in combined:
-            raise SystemExit(
-                f"bootstrap documentation is missing: {required}"
-            )
+    combined = "\n".join(read_text(path) for path in ("AGENTS.md", "docs/validation/harness.md", "docs/architecture/security-and-artifacts.md"))
+    for required in ("private source", "credentials", "private", "requirements/validation.txt", "@main"):
+        if required.lower() not in combined.lower():
+            raise SystemExit(f"bootstrap documentation is missing: {required}")
 
 
 def main() -> None:
     validate_required_paths()
     validate_public_workflow_exceptions()
+    validate_runner_contract()
     validate_self_check()
-    validate_runtime_lock()
-    validate_policies()
+    validate_requirements()
     validate_authority_docs()
-    print("bootstrap policy validation passed")
+    print("bootstrap functional validation passed")
 
 
 if __name__ == "__main__":

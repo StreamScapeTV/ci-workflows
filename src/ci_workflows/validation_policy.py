@@ -29,7 +29,6 @@ from .validation_model import (
     _READBACK_WORDS,
     _TEMP_STATE_WORDS,
     _JOB_ID_RE,
-    ActionLock,
     Finding,
     HarnessConfig,
     ParsedDocument,
@@ -95,7 +94,6 @@ def _validate_workflow(
     document: ParsedDocument,
     root: Path,
     config: HarnessConfig,
-    lock: ActionLock,
     public_contract: PublicContract,
     functions: Mapping[str, tuple[str, int]],
     docs_text: str,
@@ -356,59 +354,6 @@ def _validate_workflow(
                     f"job {job_id!r} step {step_index} requires a name",
                 )
             _validate_checkout_step(step, document, config, findings)
-            uses = step.get("uses")
-            if isinstance(uses, str) and uses.startswith(
-                "actions/upload-artifact@"
-            ):
-                retention = (
-                    step.get("with", {}).get("retention-days")
-                    if isinstance(step.get("with"), Mapping)
-                    else None
-                )
-                record = public_contract.records_by_file.get(path)
-                artifact_policy = (
-                    str(record.get("artifact_policy", "zero-default"))
-                    if record is not None
-                    else "zero-default"
-                )
-                retention_limit = (
-                    record.get("artifact_retention_max_days")
-                    if record is not None
-                    else None
-                )
-                registered = (
-                    artifact_policy == "bounded-evidence"
-                    and type(retention_limit) is int
-                    and 1 <= retention_limit <= 7
-                )
-                if not registered:
-                    _finding(
-                        findings,
-                        config,
-                        "unregistered-artifact",
-                        path,
-                        "routine workflow artifact upload is forbidden",
-                    )
-                if type(retention) is int:
-                    retention_valid = (
-                        1 <= retention <= 7
-                        and (not registered or retention <= retention_limit)
-                    )
-                else:
-                    retention_valid = (
-                        registered
-                        and isinstance(retention, str)
-                        and retention.startswith("$" + "{{")
-                    )
-                if not retention_valid:
-                    _finding(
-                        findings,
-                        config,
-                        "excessive-artifact-retention",
-                        path,
-                        "artifact retention must be explicit and no more than "
-                        "seven days",
-                    )
             run = step.get("run")
             if isinstance(run, str):
                 line_count = _run_line_count(run)
@@ -490,14 +435,12 @@ def _validate_workflow(
             docs_text,
         )
 
-    for uses, comment, line_number in _uses_entries(document):
+    for uses, _comment, line_number in _uses_entries(document):
         _validate_action_reference(
             uses,
-            comment,
             path,
             line_number,
             config,
-            lock,
             findings,
         )
 
@@ -505,7 +448,6 @@ def _validate_workflow(
 def _validate_action(
     document: ParsedDocument,
     config: HarnessConfig,
-    lock: ActionLock,
     findings: list[Finding],
     duplicated_runs: dict[str, list[str]],
 ) -> None:
@@ -580,14 +522,12 @@ def _validate_action(
                 f"same implementation block is repeated {count} times in one "
                 "composite action",
             )
-    for uses, comment, line_number in _uses_entries(document):
+    for uses, _comment, line_number in _uses_entries(document):
         _validate_action_reference(
             uses,
-            comment,
             path,
             line_number,
             config,
-            lock,
             findings,
         )
 

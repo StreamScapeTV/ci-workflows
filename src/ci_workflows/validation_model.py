@@ -17,7 +17,7 @@ try:
     import yaml
 except ImportError as error:  # pragma: no cover - exercised by the CI bootstrap
     raise RuntimeError(
-        "PyYAML is required; install the exact version in requirements/validation.lock"
+        "PyYAML is required; install requirements/validation.txt"
     ) from error
 
 
@@ -199,13 +199,6 @@ class HarnessConfig:
 
 
 @dataclasses.dataclass(frozen=True)
-class ActionLock:
-    actions: Mapping[str, Mapping[str, str]]
-    approved_internal_prefixes: tuple[str, ...]
-    python_packages: Mapping[str, Mapping[str, str]]
-
-
-@dataclasses.dataclass(frozen=True)
 class ValidationResult:
     inventory: RepositoryInventory
     findings: tuple[Finding, ...]
@@ -382,33 +375,6 @@ def load_harness_config(root: Path) -> HarnessConfig:
         allowed_runner_selectors=frozenset(
             _collect_runner_selectors_from_contracts(root)
         ),
-    )
-
-
-def load_action_lock(root: Path) -> ActionLock:
-    payload = _read_json(root / "contracts/action-tool-lock.json")
-    actions = {
-        str(entry["uses"]): {
-            "sha": str(entry["sha"]),
-            "release": str(entry["release"]),
-            "runtime": str(entry["runtime"]),
-        }
-        for entry in payload.get("third_party_actions", [])
-    }
-    packages = {
-        str(entry["name"]): {
-            key: str(value)
-            for key, value in entry.items()
-            if key != "name"
-        }
-        for entry in payload.get("python", {}).get("packages", [])
-    }
-    return ActionLock(
-        actions=actions,
-        approved_internal_prefixes=tuple(
-            payload.get("approved_internal_actions", [])
-        ),
-        python_packages=packages,
     )
 
 

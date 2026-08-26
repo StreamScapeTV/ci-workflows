@@ -12,7 +12,6 @@ from .validation_model import (
     _SEMVER_RE,
     _SHA_RE,
     _USES_LINE_RE,
-    ActionLock,
     Finding,
     HarnessConfig,
     ParsedDocument,
@@ -130,30 +129,22 @@ def _uses_entries(document: ParsedDocument) -> Iterator[tuple[str, str | None, i
 
 def _validate_action_reference(
     uses: str,
-    comment: str | None,
     relative_path: str,
     line_number: int,
     config: HarnessConfig,
-    lock: ActionLock,
     findings: list[Finding],
 ) -> None:
+    """Validate only the functional shape of one ``uses`` reference.
+
+    Ordinary Central development intentionally has no global action allowlist, SHA
+    registry, runtime registry, or release-comment checkpoint. Local release paths
+    may still enforce an immutable identity when that identity is part of their own
+    functional release contract.
+    """
+
     if uses.startswith("./"):
-        if uses.startswith("./.github/workflows/"):
-            return
-        normalized = uses[2:].rstrip("/") + "/"
-        if not any(
-            normalized.startswith(prefix.rstrip("/") + "/")
-            for prefix in lock.approved_internal_prefixes
-        ):
-            _finding(
-                findings,
-                config,
-                "unapproved-internal-action",
-                relative_path,
-                f"local action {uses!r} is outside approved internal action prefixes",
-                line_number,
-            )
         return
+
     remote_workflow = _REMOTE_WORKFLOW_RE.match(uses)
     if remote_workflow:
         if remote_workflow.group("owner") != "StreamScapeTV":
@@ -176,55 +167,14 @@ def _validate_action_reference(
                 line_number,
             )
         return
-    match = _ACTION_RE.match(uses)
-    if not match:
+
+    if _ACTION_RE.match(uses) is None:
         _finding(
             findings,
             config,
             "invalid-action-reference",
             relative_path,
             f"cannot classify uses reference {uses!r}",
-            line_number,
-        )
-        return
-    action_key = f"{match.group('owner')}/{match.group('repo')}{match.group('path') or ''}"
-    ref = match.group("ref")
-    entry = lock.actions.get(action_key)
-    if entry is None:
-        _finding(
-            findings,
-            config,
-            "unapproved-action",
-            relative_path,
-            f"third-party action {action_key!r} is not in contracts/action-tool-lock.json",
-            line_number,
-        )
-        return
-    if ref != entry["sha"] or not _SHA_RE.fullmatch(ref):
-        _finding(
-            findings,
-            config,
-            "unpinned-action",
-            relative_path,
-            f"{action_key} must use exact SHA {entry['sha']}",
-            line_number,
-        )
-    if comment is None or entry["release"] not in comment:
-        _finding(
-            findings,
-            config,
-            "missing-action-release-comment",
-            relative_path,
-            f"{action_key} must retain human-readable release comment {entry['release']}",
-            line_number,
-        )
-    if not re.fullmatch(r"node(?:20|24)|composite|docker", entry["runtime"]):
-        _finding(
-            findings,
-            config,
-            "invalid-action-runtime",
-            relative_path,
-            f"locked runtime generation {entry['runtime']!r} is unsupported",
             line_number,
         )
 

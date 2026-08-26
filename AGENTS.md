@@ -71,7 +71,7 @@ Public visibility permits outside forks and pull requests; it does not grant out
 
 - Semantic runner intent remains authoritative. Ordinary Python, policy, source-admission, and GitOps validation use the `portable` capability; consumers do not select concrete runner labels or hosts.
 - The Central self-check runs on trusted same-repository branch pushes. A retained pull-request self-check is admitted at the job boundary only for exact owner `mimranfaruqi` with a same-repository head, so an outside or prior-contributor PR cannot allocate its GitHub-hosted runner.
-- After job admission, the Central self-check verifies an absolute pre-provisioned CPython 3.12 Linux runtime before checkout. It installs or elevates no host runtime, applies the repository's digest-locked validation dependency bootstrap, and uses the verified absolute interpreter for every later Python command.
+- After job admission, the Central self-check verifies an absolute pre-provisioned CPython 3.12 Linux runtime before checkout. It installs or elevates no host runtime, installs repository-declared validation dependencies into run-local state, and uses the verified absolute interpreter for every later Python command.
 - General Linux validation grants no signing, provisioning, simulator, physical-device, notarization, store, registry, Kubernetes, production, or Agent State credential or authority.
 - Do not restore the retired emergency macOS exception or copy it into another workflow. Apple-specific work continues to use separately reviewed `apple` capacity. The #495 private-source host path is the explicit reviewed GitHub-hosted `macos-latest` exception and has no physical-device authority.
 
@@ -82,7 +82,7 @@ Public visibility permits outside forks and pull requests; it does not grant out
 - Untrusted public pull requests must not allocate GitHub-hosted, organization, Apple, device, image-build, registry, Flux, or other trusted Central runner capacity. Repository source checks inside an already-started job are defense in depth, not runner admission.
 - Privileged modes require exact admitted source, exact checkout assertions, detached credential-free state where applicable, and `persist-credentials: false`.
 - Central workflows select semantic runner profiles and internal implementations. Consumers do not select concrete runner labels, hosts, Docker versus Buildah, storage drivers, devices, clusters, namespaces, or service accounts.
-- Routine workflows retain zero GitHub Actions artifacts. Private-source detailed logs are never Actions artifacts; they use the fixed private R2 path described above. Any other artifact exception must be named, bounded, justified, redacted, registered in contract, and tested.
+- Public and otherwise non-private workflows may use Actions artifacts when the feature functionally requires them. Private-source detailed logs are never Actions artifacts; they use the fixed private R2 path described above, and private source/configuration/command output must not be exposed publicly.
 - Cleanup runs under `if: always()` and fails closed when credentials, authentication files, containers, images, charts, caches, generated output, device or simulator state, result bundles, private log files, source checkouts, or temporary workspace state remain.
 
 ## Publication and release safety
@@ -97,4 +97,4 @@ Public visibility permits outside forks and pull requests; it does not grant out
 ## Product validation contract
 
 - Same-repository branch push is the normal pre-PR validation path. The canonical Central self-check may also validate an exact completed owner pull-request candidate against its current base when that PR path is retained.
-- Workflow and action parsing, action and tool pins, permissions, trust classes, source admission, runner profiles, call graphs, readability, public API compatibility, documentation, inventory, fixtures, discovered tests, cleanup, and artifact policy must remain green.
+- Workflow and action parsing, functional dependency declarations, permissions, trust classes, source admission, runner profiles, call graphs, readability, public API compatibility, documentation, inventory, fixtures, discovered tests, and required cleanup must remain green. Ordinary development has no global action SHA/checkpoint registry.

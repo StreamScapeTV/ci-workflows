@@ -11,14 +11,12 @@ from .validation_contracts import (
     _function_index,
     _validate_caller_fixture,
     _validate_fixture_coverage,
-    _validate_tool_lock,
 )
 from .validation_expression_contexts import _validate_workflow_expression_contexts
 from .validation_graph import _validate_call_graphs
 from .validation_helpers import _finding
 from .validation_model import (
     ActionsLoader,
-    ActionLock,
     Finding,
     HarnessConfig,
     HarnessFailure,
@@ -28,7 +26,6 @@ from .validation_model import (
     ValidationResult,
     _relative,
     discover_repository,
-    load_action_lock,
     load_actions_yaml,
     load_harness_config,
     load_public_contract,
@@ -39,30 +36,6 @@ from .validation_policy import (
     _validate_workflow,
 )
 
-_HELM_SIMPLE_SHA = "7b17879f21fbf029708d6a404a9dd12d75503a52"
-_HELM_SIMPLE_RELEASE = "issue #18 simplified Helm runtime checkpoint"
-_HELM_SIMPLE_ACTIONS = (
-    "StreamScapeTV/ci-workflows/actions/validate-helm",
-    "StreamScapeTV/ci-workflows/actions/publish-helm",
-)
-
-
-def _workflow_action_policy(lock: ActionLock) -> ActionLock:
-    """Keep the checked-in lock intact while validating the simple Helm carve-out."""
-
-    actions = dict(lock.actions)
-    for action in _HELM_SIMPLE_ACTIONS:
-        actions[action] = {
-            "sha": _HELM_SIMPLE_SHA,
-            "release": _HELM_SIMPLE_RELEASE,
-            "runtime": "composite",
-        }
-    return ActionLock(
-        actions=actions,
-        approved_internal_prefixes=lock.approved_internal_prefixes,
-        python_packages=lock.python_packages,
-    )
-
 
 def validate_repository(
     root: Path, *, include_public_api_validator: bool = True
@@ -72,15 +45,8 @@ def validate_repository(
     root = root.resolve()
     inventory = discover_repository(root)
     config = load_harness_config(root)
-    lock = load_action_lock(root)
     public_contract = load_public_contract(root)
     findings: list[Finding] = []
-    # The checked-in lock remains validated exactly as stored. Helm issue #18
-    # intentionally removes only its two simple reusable helpers from that
-    # runtime bootstrap authority; workflow validation still requires their
-    # exact reviewed SHA and human-readable checkpoint comment.
-    _validate_tool_lock(root, lock, config, findings)
-    workflow_lock = _workflow_action_policy(lock)
     _validate_fixture_coverage(root, config, findings)
     functions = _function_index(root, inventory.python_sources)
     docs_text = "\n".join(
@@ -109,7 +75,6 @@ def validate_repository(
             document,
             root,
             config,
-            workflow_lock,
             public_contract,
             functions,
             docs_text,
@@ -133,7 +98,7 @@ def validate_repository(
             )
             continue
         action_documents[relative_path] = document
-        _validate_action(document, config, workflow_lock, findings, duplicated_runs)
+        _validate_action(document, config, findings, duplicated_runs)
     _validate_call_graphs(
         root,
         workflow_documents,
@@ -223,7 +188,6 @@ def render_summary(result: ValidationResult) -> str:
 
 __all__ = (
     "ActionsLoader",
-    "ActionLock",
     "Finding",
     "HarnessConfig",
     "HarnessFailure",
