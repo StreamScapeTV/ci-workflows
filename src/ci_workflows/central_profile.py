@@ -5,7 +5,7 @@ import argparse
 import json
 import os
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import stat
 import sys
 from typing import Mapping, Sequence
@@ -24,7 +24,12 @@ from .ci_broker import (
 from .private_release_asset import PrivateReleaseAssetError, PrivateReleaseAssetSpec, optional_spec
 
 CONFIG_RELATIVE_PATH = ".github/central-ci.json"
-_SUPPORTED_PROJECTIONS = {("validation.apple", "apple-host-test")}
+_LEGACY_APPLE_PROJECTION = ("validation.apple", "apple-host-test")
+_GENERIC_CAPABILITIES = {
+    "validation.android": "android-hosted",
+    "validation.python": "python-hosted",
+}
+_PYTHON_PROFILES = {"audit", "host", "podman", "podman-postgres"}
 
 
 class CentralProfileError(RuntimeError):
@@ -119,7 +124,7 @@ def _read_config(source_root: Path) -> Mapping[str, object]:
 def _strip_release_assets(
     value: Mapping[str, object],
 ) -> tuple[dict[str, object], dict[str, PrivateReleaseAssetSpec]]:
-    """Project the additive active-only release asset while preserving the legacy config parser."""
+    """Project the additive active-only release asset while preserving v1 Apple parsing."""
     sanitized = dict(value)
     raw_profiles = value.get("profiles")
     if not isinstance(raw_profiles, dict):
@@ -145,6 +150,79 @@ def _strip_release_assets(
     return sanitized, release_assets
 
 
+def _relative_path(value: object, code: str, *, allow_empty: bool = False) -> str:
+    _require(isinstance(value, str), code)
+    text = value.strip()
+    if allow_empty and not text:
+        return ""
+    _require(bool(text) and len(text.encode("utf-8")) <= 1024, code)
+    _require("\\" not in text and "\x00" not in text and "\r" not in text and "\n" not in text, code)
+    if text == ".":
+        return text
+    path = PurePosixPath(text)
+    _require(not path.is_absolute() and ".." not in path.parts and all(part not in {"", "."} for part in path.parts), code)
+    return path.as_posix()
+
+
+def _json_plan(value: object, code: str, *, allow_empty: bool = False) -> str:
+    if allow_empty and value in (None, ""):
+        return ""
+    if isinstance(value, str):
+        _require(bool(value) and len(value.encode("utf-8")) <= MAX_CONFIG_BYTES, code)
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            raise CentralProfileError(code) from None
+    else:
+        parsed = value
+    _require(isinstance(parsed, (dict, list)), code)
+    rendered = json.dumps(parsed, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    _require(len(rendered.encode("utf-8")) <= MAX_CONFIG_BYTES, code)
+    return rendered
+
+
+def _generic_inputs(workflow_key: str, value: object) -> dict[str, str]:
+    _require(isinstance(value, dict), "private_ci_profile_inputs_invalid")
+    raw = dict(value)
+    if workflow_key == "validation.android":
+        allowed = {
+            "working_directory",
+            "gradle_wrapper_path",
+            "validation_plan_json",
+            "dependency_prebuild_plan_json",
+        }
+        _require(set(raw).issubset(allowed) and "validation_plan_json" in raw, "private_ci_profile_inputs_invalid")
+        return {
+            "working_directory": _relative_path(raw.get("working_directory", "."), "invalid_working_directory"),
+            "gradle_wrapper_path": _relative_path(raw.get("gradle_wrapper_path", "gradlew"), "invalid_gradle_wrapper_path"),
+            "validation_plan_json": _json_plan(raw.get("validation_plan_json"), "invalid_validation_plan"),
+            "dependency_prebuild_plan_json": _json_plan(raw.get("dependency_prebuild_plan_json"), "invalid_dependency_prebuild_plan", allow_empty=True),
+        }
+    if workflow_key == "validation.python":
+        allowed = {
+            "validation_profile",
+            "python_version",
+            "version_file",
+            "dependency_file",
+            "working_directory",
+            "script_path",
+        }
+        required = {"validation_profile", "python_version", "script_path"}
+        _require(required.issubset(raw) and set(raw).issubset(allowed), "private_ci_profile_inputs_invalid")
+        validation_profile = raw.get("validation_profile")
+        _require(isinstance(validation_profile, str) and validation_profile in _PYTHON_PROFILES, "invalid_python_validation_profile")
+        return {
+            "validation_profile": validation_profile,
+            "python_version": _safe_product_scalar(raw.get("python_version"), "invalid_python_version"),
+            "version_file": _relative_path(raw.get("version_file", ""), "invalid_version_file", allow_empty=True),
+            "dependency_file": _relative_path(raw.get("dependency_file", ""), "invalid_dependency_file", allow_empty=True),
+            "working_directory": _relative_path(raw.get("working_directory", "."), "invalid_working_directory"),
+            "script_path": _relative_path(raw.get("script_path"), "invalid_script_path"),
+            "artifact_exception_id": "",
+        }
+    raise CentralProfileError("central_profile_unsupported")
+
+
 @dataclass(frozen=True, slots=True)
 class CentralProfileResolution:
     project_key: str
@@ -155,6 +233,8 @@ class CentralProfileResolution:
     admitted_sha: str
     validation_scope: str
     validation_plan_json: str
+    executor_family: str = "macos"
+    canonical_inputs_json: str = "{}"
     private_dependency_repository: str = ""
     private_dependency_sha: str = ""
     private_dependency_subdirectory: str = "."
@@ -178,6 +258,8 @@ class CentralProfileResolution:
             "admitted_sha": self.admitted_sha,
             "validation_scope": self.validation_scope,
             "validation_plan_json": self.validation_plan_json,
+            "executor_family": self.executor_family,
+            "canonical_inputs_json": self.canonical_inputs_json,
             "private_dependency_repository": self.private_dependency_repository,
             "private_dependency_sha": self.private_dependency_sha,
             "private_dependency_subdirectory": self.private_dependency_subdirectory,
@@ -191,6 +273,11 @@ class CentralProfileResolution:
             "private_release_asset_destination": self.private_release_asset_destination,
             "private_release_asset_id": self.private_release_asset_id,
         }
+
+    def canonical_inputs(self) -> dict[str, str]:
+        value = json.loads(self.canonical_inputs_json)
+        _require(isinstance(value, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in value.items()), "invalid_canonical_inputs")
+        return value
 
     def release_asset(self) -> PrivateReleaseAssetSpec | None:
         if not self.private_release_asset_repository:
@@ -209,21 +296,22 @@ class CentralProfileResolution:
         )
 
 
-def resolve_profile(*, source_root: object, project_key: object, workflow_key: object, test_profile: object, source_repository: object, admitted_sha: object) -> CentralProfileResolution:
-    checked_project = _safe_project(project_key)
-    checked_workflow = _safe_workflow_key(workflow_key)
-    checked_profile = _safe_profile(test_profile)
-    checked_repository = _safe_repository(source_repository)
-    checked_sha = _safe_sha(admitted_sha)
-    value = _read_config(_source_root(source_root))
-
+def _resolve_v1_apple(
+    value: Mapping[str, object],
+    *,
+    checked_project: str,
+    checked_workflow: str,
+    checked_profile: str,
+    checked_repository: str,
+    checked_sha: str,
+) -> CentralProfileResolution:
     from .ci_broker_dependencies import BrokerProductConfig
 
     sanitized, release_assets = _strip_release_assets(value)
     config = BrokerProductConfig.parse(sanitized)
     _require(config.project_key == checked_project, "project_config_mismatch")
     profile = config.profile(checked_profile, checked_workflow)
-    _require((profile.workflow_key, profile.capability) in _SUPPORTED_PROJECTIONS, "central_profile_unsupported")
+    _require((profile.workflow_key, profile.capability) == _LEGACY_APPLE_PROJECTION, "central_profile_unsupported")
     dependency = profile.private_dependency
     release = release_assets.get(profile.name)
     return CentralProfileResolution(
@@ -235,6 +323,8 @@ def resolve_profile(*, source_root: object, project_key: object, workflow_key: o
         admitted_sha=checked_sha,
         validation_scope="protected-full",
         validation_plan_json=apple_host_validation_plan(profile.workspace, profile.scheme, profile.test_target),
+        executor_family="macos",
+        canonical_inputs_json="{}",
         private_dependency_repository=(dependency.repository if dependency else ""),
         private_dependency_sha=(dependency.sha if dependency else ""),
         private_dependency_subdirectory=(dependency.subdirectory if dependency else "."),
@@ -248,6 +338,94 @@ def resolve_profile(*, source_root: object, project_key: object, workflow_key: o
         private_release_asset_destination=(release.destination if release else ""),
         private_release_asset_id=(release.dependency_id if release else ""),
     )
+
+
+def _resolve_v2_generic(
+    value: Mapping[str, object],
+    *,
+    checked_project: str,
+    checked_workflow: str,
+    checked_profile: str,
+    checked_repository: str,
+    checked_sha: str,
+) -> CentralProfileResolution:
+    _require(set(value).issubset({"schema_version", "project_key", "profiles"}), "private_ci_config_unsupported")
+    _require(_safe_project(value.get("project_key")) == checked_project, "project_config_mismatch")
+    raw_profiles = value.get("profiles")
+    _require(isinstance(raw_profiles, dict) and 1 <= len(raw_profiles) <= 16, "private_ci_profiles_invalid")
+    raw_profile = raw_profiles.get(checked_profile)
+    _require(isinstance(raw_profile, dict), "private_ci_profile_missing")
+    _require(set(raw_profile).issubset({"workflow_key", "capability", "inputs", "private_dependency"}), "private_ci_profile_invalid")
+    workflow_key = _safe_workflow_key(raw_profile.get("workflow_key"))
+    _require(workflow_key == checked_workflow, "workflow_profile_mismatch")
+    expected_capability = _GENERIC_CAPABILITIES.get(workflow_key)
+    capability = raw_profile.get("capability")
+    _require(isinstance(capability, str) and capability == expected_capability, "central_profile_unsupported")
+    inputs = _generic_inputs(workflow_key, raw_profile.get("inputs"))
+
+    dependency_repository = ""
+    dependency_sha = ""
+    dependency_subdirectory = "."
+    dependency_id = ""
+    raw_dependency = raw_profile.get("private_dependency")
+    if raw_dependency is not None:
+        _require(isinstance(raw_dependency, dict), "private_ci_dependency_invalid")
+        from .ci_broker_dependencies import BrokerPrivateDependency
+
+        try:
+            dependency = BrokerPrivateDependency.parse(raw_dependency)
+        except BrokerError as error:
+            raise CentralProfileError(error.code) from None
+        dependency_repository = dependency.repository
+        dependency_sha = dependency.sha
+        dependency_subdirectory = dependency.subdirectory
+        dependency_id = dependency.dependency_id
+
+    return CentralProfileResolution(
+        project_key=checked_project,
+        test_profile=checked_profile,
+        workflow_key=workflow_key,
+        capability=capability,
+        source_repository=checked_repository,
+        admitted_sha=checked_sha,
+        validation_scope="protected-full",
+        validation_plan_json=inputs.get("validation_plan_json", ""),
+        executor_family="linux",
+        canonical_inputs_json=json.dumps(inputs, sort_keys=True, separators=(",", ":"), ensure_ascii=True),
+        private_dependency_repository=dependency_repository,
+        private_dependency_sha=dependency_sha,
+        private_dependency_subdirectory=dependency_subdirectory,
+        private_dependency_id=dependency_id,
+    )
+
+
+def resolve_profile(*, source_root: object, project_key: object, workflow_key: object, test_profile: object, source_repository: object, admitted_sha: object) -> CentralProfileResolution:
+    checked_project = _safe_project(project_key)
+    checked_workflow = _safe_workflow_key(workflow_key)
+    checked_profile = _safe_profile(test_profile)
+    checked_repository = _safe_repository(source_repository)
+    checked_sha = _safe_sha(admitted_sha)
+    value = _read_config(_source_root(source_root))
+    version = value.get("schema_version")
+    if version == 1:
+        return _resolve_v1_apple(
+            value,
+            checked_project=checked_project,
+            checked_workflow=checked_workflow,
+            checked_profile=checked_profile,
+            checked_repository=checked_repository,
+            checked_sha=checked_sha,
+        )
+    if version == 2:
+        return _resolve_v2_generic(
+            value,
+            checked_project=checked_project,
+            checked_workflow=checked_workflow,
+            checked_profile=checked_profile,
+            checked_repository=checked_repository,
+            checked_sha=checked_sha,
+        )
+    raise CentralProfileError("private_ci_config_version")
 
 
 def _required(environment: Mapping[str, str], name: str) -> str:
