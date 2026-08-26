@@ -15,7 +15,7 @@ workflows:
 
 actions:
   agent_state: actions/agent-state/action.yml
-  r2_upload: actions/r2-upload/action.yml
+  google_drive: actions/google-drive/action.yml
 
 services:
   ci_broker: ci-broker/
