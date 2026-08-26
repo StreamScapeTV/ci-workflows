@@ -101,7 +101,7 @@ jobs:
           private_dependency_id: ${{ inputs.private_dependency_id }}
       - id: backend
         name: Resolve bounded hosted Android capacity
-        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@83084efecc597d3bedacfe5f8628f1890b9bcd90 # issue #495 hosted Apple backend checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@5b3093056bd77d18bf094e1ba8d8d1613ccc472b # issue #577 hosted Android backend checkpoint
         with:
           workflow_api: validation.android
           source_trust: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && 'trusted-pr' || github.event_name == 'pull_request' && 'untrusted-fork' || 'trusted-exact' }}
@@ -132,7 +132,7 @@ jobs:
           private_dependency_id: ${{ inputs.private_dependency_id }}
       - id: backend
         name: Preserve bounded organization Android capacity
-        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@83084efecc597d3bedacfe5f8628f1890b9bcd90 # issue #495 hosted Apple backend checkpoint
+        uses: StreamScapeTV/ci-workflows/actions/resolve-execution-backend@5b3093056bd77d18bf094e1ba8d8d1613ccc472b # issue #577 hosted Android backend checkpoint
         with:
           workflow_api: validation.android
           source_trust: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && 'trusted-pr' || github.event_name == 'pull_request' && 'untrusted-fork' || 'trusted-exact' }}

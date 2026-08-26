@@ -13,7 +13,8 @@ SOURCE_SHA = "0b55b5f4bc2623815e47759d186e4955b6444075"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 BACKEND_SHA = "7d5d839c6e90491e165f1358ecb5e80129805764"
 PYTHON_SHA = "3d3689fda11b03a188789f03d6d64cab50f1873a"
-EXECUTION_BACKEND_SHA = "83084efecc597d3bedacfe5f8628f1890b9bcd90"
+EXECUTION_BACKEND_SHA = "5b3093056bd77d18bf094e1ba8d8d1613ccc472b"
+LEGACY_EXECUTION_BACKEND_SHA = "83084efecc597d3bedacfe5f8628f1890b9bcd90"
 FLUTTER_SHA = "d2e1c7a7601e1caeeb976311fb13cf41fef94d4a"
 ANDROID_SHA = "91e5ba5af11ec717f829000edad062c664fb86f7"
 GRADLE_WARM_SHA = "13de46c51efcf65df798dfec82a620c484350dfa"
@@ -27,7 +28,7 @@ FOUNDATION = "issue #116 immutable private-action checkpoint"
 ISSUE_350 = "issue #350 PR-merge snapshot race checkpoint"
 ISSUE_405 = "issue #405 simplified execution-backend checkpoint"
 ISSUE_473_PYTHON = "issue #473 product-neutral Python checkpoint"
-ISSUE_495_BACKEND = "issue #495 hosted Apple backend checkpoint"
+ISSUE_577_BACKEND = "issue #577 hosted Android backend checkpoint"
 ISSUE_104 = "issue #104 immutable private-action checkpoint"
 ISSUE_534_PREFIX = "issue #534 prefix-isolated protected-full checkpoint"
 ISSUE_346_WARM = "issue #346 dependency warm checkpoint"
@@ -37,6 +38,8 @@ ISSUE_495_APPLE = "issue #495 external-source identity checkpoint"
 ISSUE_495_REPOSITORY_TOKEN = "issue #495 bounded repository token primitive"
 ISSUE_495_RELEASE_ASSET = "issue #495 corrected release-asset checkpoint"
 ISSUE_27 = "issue #27 Finance composition publication checkpoint"
+
+RESOLVE_EXECUTION_BACKEND = "StreamScapeTV/ci-workflows/actions/resolve-execution-backend"
 
 PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
     ".github/workflows/reusable-node.yml": {
@@ -48,7 +51,7 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
     },
     ".github/workflows/reusable-android.yml": {
         "StreamScapeTV/ci-workflows/actions/validate-android": (ANDROID_SHA, ISSUE_534_PREFIX),
-        "StreamScapeTV/ci-workflows/actions/resolve-execution-backend": (EXECUTION_BACKEND_SHA, ISSUE_495_BACKEND),
+        RESOLVE_EXECUTION_BACKEND: (EXECUTION_BACKEND_SHA, ISSUE_577_BACKEND),
         "StreamScapeTV/ci-workflows/actions/warm-gradle-dependencies": (GRADLE_WARM_SHA, ISSUE_346_WARM),
         "StreamScapeTV/ci-workflows/actions/upload-gradle-seed": (GRADLE_SEED_SHA, ISSUE_346_CACHE),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
@@ -71,7 +74,7 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
     },
     ".github/workflows/reusable-apple.yml": {
         "StreamScapeTV/ci-workflows/actions/validate-apple": (APPLE_SHA, ISSUE_495_APPLE),
-        "StreamScapeTV/ci-workflows/actions/resolve-execution-backend": (EXECUTION_BACKEND_SHA, ISSUE_495_BACKEND),
+        RESOLVE_EXECUTION_BACKEND: (EXECUTION_BACKEND_SHA, ISSUE_577_BACKEND),
         "StreamScapeTV/ci-workflows/actions/github-app-repository-token": (REPOSITORY_TOKEN_SHA, ISSUE_495_REPOSITORY_TOKEN),
         "StreamScapeTV/ci-workflows/actions/materialize-private-release-asset": (RELEASE_ASSET_SHA, ISSUE_495_RELEASE_ASSET),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
@@ -82,7 +85,7 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
     },
     ".github/workflows/reusable-gitops-validation.yml": {
         "StreamScapeTV/ci-workflows/actions/validate-gitops": (GITOPS_SHA, ISSUE_571_GITOPS),
-        "StreamScapeTV/ci-workflows/actions/resolve-execution-backend": (EXECUTION_BACKEND_SHA, ISSUE_495_BACKEND),
+        RESOLVE_EXECUTION_BACKEND: (EXECUTION_BACKEND_SHA, ISSUE_577_BACKEND),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/render-evidence": (FOUNDATION_SHA, FOUNDATION),
@@ -106,7 +109,7 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
         action_lock = json.loads((ROOT / "contracts/action-tool-lock.json").read_text(encoding="utf-8"))
         return {item["uses"]: item for item in action_lock["third_party_actions"]}
 
-    def test_supported_private_reusables_use_only_locked_immutable_central_actions(self) -> None:
+    def test_supported_private_reusables_use_only_reviewed_immutable_central_actions(self) -> None:
         locked = self.locked_actions()
         for relative, expected in PRIVATE_WORKFLOWS.items():
             with self.subTest(workflow=relative):
@@ -129,9 +132,19 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
                 for helper, (sha, release) in expected.items():
                     self.assertEqual(sha, remote_helpers[helper])
                     self.assertIn(helper, locked)
-                    self.assertEqual(sha, locked[helper]["sha"])
                     self.assertEqual("composite", locked[helper]["runtime"])
+                    self.assertEqual(sha, locked[helper]["sha"])
                     self.assertEqual(release, locked[helper]["release"])
+
+    def test_current_execution_backend_lock_is_android_hosted_capable_checkpoint(self) -> None:
+        locked = self.locked_actions()[RESOLVE_EXECUTION_BACKEND]
+        self.assertEqual(EXECUTION_BACKEND_SHA, locked["sha"])
+        self.assertEqual(ISSUE_577_BACKEND, locked["release"])
+        self.assertEqual("composite", locked["runtime"])
+        self.assertEqual(
+            f"https://github.com/StreamScapeTV/ci-workflows/tree/{EXECUTION_BACKEND_SHA}/actions/resolve-execution-backend",
+            locked["source"],
+        )
 
     def test_retired_oci_and_helm_public_reusables_are_absent(self) -> None:
         for relative in (
@@ -149,8 +162,10 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
         exception = next(item for item in policy["tracked_secret_exceptions"] if item["id"] == "streamscape_media_playback_lab_redaction_sentinels_v1")
         self.assertIn({"path": "apple/Tests/StreamscapePlaybackLabSupportTests/PlaybackLabLifecycleEvidenceTests.swift", "git_blob_sha1": "5df889bbf613ee7f4dabd07ca931aa81fb4f71a3"}, exception["paths"])
         self.assertEqual(10, source.count(f"actions/validate-android@{ANDROID_SHA}"))
+        self.assertEqual(2, source.count(f"actions/resolve-execution-backend@{EXECUTION_BACKEND_SHA}"))
         self.assertEqual(1, source.count(f"actions/warm-gradle-dependencies@{GRADLE_WARM_SHA}"))
         self.assertNotIn("actions/validate-android@275ee86f0f5de3d8f3330b92c84d7c0188fb10f8", source)
+        self.assertNotIn(f"actions/resolve-execution-backend@{LEGACY_EXECUTION_BACKEND_SHA}", source)
 
     def test_apple_private_action_checkpoint_contains_media_contract_in_current_tree(self) -> None:
         source, _ = self.load(".github/workflows/reusable-apple.yml")
@@ -158,6 +173,7 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
         self.assertTrue(fragment.is_file())
         self.assertEqual(4, source.count(f"actions/validate-apple@{APPLE_SHA}"))
         self.assertEqual(1, source.count(f"actions/resolve-execution-backend@{EXECUTION_BACKEND_SHA}"))
+        self.assertNotIn(f"actions/resolve-execution-backend@{LEGACY_EXECUTION_BACKEND_SHA}", source)
         self.assertEqual(3, source.count(f"actions/github-app-repository-token@{REPOSITORY_TOKEN_SHA}"))
         self.assertEqual(4, source.count(f"actions/materialize-private-release-asset@{RELEASE_ASSET_SHA}"))
         self.assertNotIn("actions/validate-apple@293dee450e3464032d67f702b768f493abf65d7b", source)

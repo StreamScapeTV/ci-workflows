@@ -9,7 +9,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 GITOPS_SHA = "1e703ba47bc0e8f01b72bc805c2375aa38df609e"
-EXECUTION_BACKEND_SHA = "83084efecc597d3bedacfe5f8628f1890b9bcd90"
+EXECUTION_BACKEND_SHA = "5b3093056bd77d18bf094e1ba8d8d1613ccc472b"
 
 
 class GitOpsWorkflowContractTests(unittest.TestCase):
