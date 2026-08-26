@@ -1,13 +1,12 @@
 version: 1
 source_root: src/ci_workflows
-generated_from_sha: 54756ade2a502ae83157b975513ed60838c407e2
+generated_from_sha: 88a120347166907044388e7a2424bcb4ad455e15
 inventory_complete: true
 new_module_creation_locked: false
 summary:
-  python_files_discovered: 162
+  python_files_discovered: 161
   status: complete-human-reviewed-ast-verified
-  note: 'The original issue estimate and #589 bootstrap count were stale; protected main contains exactly 162 Python implementation files after #576 removed seven superseded broker/relay
-    modules.'
+  note: 'Protected-main inventory was reconciled by #595 after the redundant Apple-private executor was consolidated into the generic private CI owner.'
 rules:
 - Read this inventory before creating or substantially modifying Python implementation.
 - Reuse or refactor an existing owner before creating a parallel module/function/class.
@@ -273,15 +272,6 @@ multi_file_domains:
   assessment: consolidation-required
   reason: Selection/backend mapping/image policy span three modules; runner-image policy remains the second boundary.
   intended_target: runners.py + runner_images.py
-- domain: private_ci
-  current_file_count: 3
-  files:
-  - src/ci_workflows/central_profile.py
-  - src/ci_workflows/ci_private.py
-  - src/ci_workflows/ci_private_apple.py
-  assessment: consolidation-required
-  reason: Generic private CI still depends on Apple-private internals; preserve profile parsing as the second boundary.
-  intended_target: ci_private.py + central_profile.py
 - domain: public_api
   current_file_count: 3
   files:
@@ -9117,180 +9107,140 @@ domains:
       functions:
       - name: _require
         signature: '_require(condition: bool, code: str) -> None'
-        purpose: Implements _require for Product-neutral opaque private Central CI execution.
+        purpose: Implements _require for private CI execution.
       - name: _required
         signature: '_required(environment: Mapping[str, str], name: str) -> str'
-        purpose: Implements _required for Product-neutral opaque private Central CI execution.
-      - name: _family_for_request
-        signature: '_family_for_request(request: RelayRequest) -> str'
-        purpose: Implements _family_for_request for Product-neutral opaque private Central CI execution.
-      - name: plan_private_ci
-        signature: 'plan_private_ci(environment: Mapping[str, str]=os.environ) -> str'
-        purpose: Privately reclaim one request and expose only its coarse hosted runner family.
-      - name: _runner_os
-        signature: '_runner_os(environment: Mapping[str, str]) -> str'
-        purpose: Implements _runner_os for Product-neutral opaque private Central CI execution.
-      - name: _verify_family
-        signature: '_verify_family(resolution: CentralProfileResolution, environment: Mapping[str, str]) -> None'
-        purpose: Implements _verify_family for Product-neutral opaque private Central CI execution.
+        purpose: Implements _required for private CI execution.
+      - name: _positive_int
+        signature: '_positive_int(environment: Mapping[str, str], name: str, maximum: int) -> int'
+        purpose: Implements _positive_int for private CI execution.
+      - name: _runner_temp
+        signature: '_runner_temp(environment: Mapping[str, str]) -> Path'
+        purpose: Implements _runner_temp for private CI execution.
+      - name: _workspace
+        signature: '_workspace(environment: Mapping[str, str]) -> Path'
+        purpose: Implements _workspace for private CI execution.
+      - name: _state_root
+        signature: '_state_root(environment: Mapping[str, str], ci_run_id: str) -> Path'
+        purpose: Implements _state_root for private CI execution.
+      - name: _state_path
+        signature: '_state_path(environment: Mapping[str, str], ci_run_id: str) -> Path'
+        purpose: Implements _state_path for private CI execution.
+      - name: _log_path
+        signature: '_log_path(environment: Mapping[str, str], ci_run_id: str) -> Path'
+        purpose: Implements _log_path for private CI execution.
+      - name: _write_state
+        signature: '_write_state(environment: Mapping[str, str], ci_run_id: str, value: Mapping[str, object]) -> None'
+        purpose: Implements _write_state for private CI execution.
+      - name: _read_state
+        signature: '_read_state(environment: Mapping[str, str], ci_run_id: str) -> dict[str, Any] | None'
+        purpose: Implements _read_state for private CI execution.
+      - name: _ensure_log
+        signature: '_ensure_log(environment: Mapping[str, str], ci_run_id: str) -> Path'
+        purpose: Implements _ensure_log for private CI execution.
+      - name: _append
+        signature: '_append(log: TextIO, message: str) -> None'
+        purpose: Implements _append for private CI execution.
+      - name: _stable_code
+        signature: '_stable_code(error: BaseException) -> str'
+        purpose: Implements _stable_code for private CI execution.
+      - name: _remove_path
+        signature: '_remove_path(path: Path) -> None'
+        purpose: Implements _remove_path for private CI execution.
+      - name: _append_state_logs
+        signature: '_append_state_logs(root: Path, log: TextIO) -> None'
+        purpose: Implements _append_state_logs for private CI execution.
+      - name: _claim_request
+        signature: '_claim_request(client: AgentStateCiClient, ci_run_id: str) -> RelayRequest'
+        purpose: Implements _claim_request for private CI execution.
+      - name: _start_lifecycle
+        signature: '_start_lifecycle(client: AgentStateCiClient, request: RelayRequest, environment: Mapping[str, str]) -> None'
+        purpose: Implements _start_lifecycle for private CI execution.
+      - name: _source_token_client
+        signature: '_source_token_client(environment: Mapping[str, str]) -> GitHubAppRepositoryTokenClient'
+        purpose: Implements _source_token_client for private CI execution.
+      - name: _resolve_source_sha
+        signature: '_resolve_source_sha(request: RelayRequest, token: str) -> str'
+        purpose: Implements _resolve_source_sha for private CI execution.
+      - name: _checkout_source
+        signature: '_checkout_source(*, repository: str, source_sha: str, token: str, workspace: Path, log: TextIO) -> Path'
+        purpose: Implements _checkout_source for private CI execution.
+      - name: _dependency_receipts
+        signature: '_dependency_receipts(*, resolution: CentralProfileResolution, token_client: GitHubAppRepositoryTokenClient, workspace_state_root: Path, contract_root: Path, log:
+          TextIO) -> DependencyResult | None'
+        purpose: Implements _dependency_receipts for private CI execution.
+      - name: _execution_environment
+        signature: '_execution_environment(*, request: RelayRequest, source_sha: str, resolution: CentralProfileResolution, dependency: DependencyResult | None, base: Mapping[str, str],
+          workspace_environment: Mapping[str, str]) -> dict[str, str]'
+        purpose: Implements _execution_environment for private CI execution.
       - name: _product_base_environment
         signature: '_product_base_environment(base: Mapping[str, str]) -> dict[str, str]'
         purpose: Remove opaque transport/action inputs before entering product validators.
       - name: _canonical_environment
         signature: '_canonical_environment(*, request: RelayRequest, source_sha: str, resolution: CentralProfileResolution, dependency: DependencyResult | None, base: Mapping[str, str],
           workspace_environment: Mapping[str, str]) -> dict[str, str]'
-        purpose: Implements _canonical_environment for Product-neutral opaque private Central CI execution.
+        purpose: Implements _canonical_environment for private CI execution.
+      - name: _runner_os
+        signature: '_runner_os(environment: Mapping[str, str]) -> str'
+        purpose: Implements _runner_os for private CI execution.
       - name: _workspace_state
         signature: '_workspace_state(*, request: RelayRequest, source_sha: str, environment: Mapping[str, str], profile: str)'
-        purpose: Implements _workspace_state for Product-neutral opaque private Central CI execution.
+        purpose: Implements _workspace_state for private CI execution.
+      - name: _family_for_request
+        signature: '_family_for_request(request: RelayRequest) -> str'
+        purpose: Implements _family_for_request for private CI execution.
+      - name: _verify_family
+        signature: '_verify_family(resolution: CentralProfileResolution, environment: Mapping[str, str]) -> None'
+        purpose: Implements _verify_family for private CI execution.
+      - name: plan_private_ci
+        signature: 'plan_private_ci(environment: Mapping[str, str]=os.environ) -> str'
+        purpose: Privately reclaim one request and expose only its coarse hosted family.
+      - name: _execute_apple
+        signature: '_execute_apple(*, request: RelayRequest, source_sha: str, resolution: CentralProfileResolution, token_client: GitHubAppRepositoryTokenClient, environment: Mapping[str,
+          str], log: TextIO) -> tuple[bool, bool]'
+        purpose: Implements _execute_apple for private CI execution.
       - name: _execute_android
-        signature: '_execute_android(*, request: RelayRequest, source_sha: str, resolution: CentralProfileResolution, token_client, environment: Mapping[str, str], log: TextIO) -> tuple[bool,
-          bool]'
-        purpose: Implements _execute_android for Product-neutral opaque private Central CI execution.
+        signature: '_execute_android(*, request: RelayRequest, source_sha: str, resolution: CentralProfileResolution, token_client: GitHubAppRepositoryTokenClient, environment: Mapping[str,
+          str], log: TextIO) -> tuple[bool, bool]'
+        purpose: Implements _execute_android for private CI execution.
       - name: _execute_python
         signature: '_execute_python(*, request: RelayRequest, source_sha: str, resolution: CentralProfileResolution, environment: Mapping[str, str], log: TextIO) -> tuple[bool, bool]'
-        purpose: Implements _execute_python for Product-neutral opaque private Central CI execution.
+        purpose: Implements _execute_python for private CI execution.
       - name: _execute_family
-        signature: '_execute_family(*, request: RelayRequest, source_sha: str, resolution: CentralProfileResolution, token_client, environment: Mapping[str, str], log: TextIO) -> tuple[bool,
-          bool]'
-        purpose: Implements _execute_family for Product-neutral opaque private Central CI execution.
-      - name: execute_private_ci
-        signature: 'execute_private_ci(environment: Mapping[str, str]=os.environ) -> bool'
-        purpose: Implements execute_private_ci for Product-neutral opaque private Central CI execution.
-      - name: recover_private_ci
-        signature: 'recover_private_ci(environment: Mapping[str, str]=os.environ) -> None'
-        purpose: Implements recover_private_ci for Product-neutral opaque private Central CI execution.
-      - name: parser
-        signature: parser() -> argparse.ArgumentParser
-        purpose: Implements parser for Product-neutral opaque private Central CI execution.
-      - name: main
-        signature: 'main(argv: Sequence[str] | None=None, environment: Mapping[str, str]=os.environ) -> int'
-        purpose: Implements main for Product-neutral opaque private Central CI execution.
-      internal_dependencies:
-      - central_profile
-      - ci_lifecycle
-      - ci_private_apple
-      - ciw_android
-      - ciw_python
-      - ciw_types
-      - dependencies
-      - private_release_asset
-      - r2_diagnostics
-      - workspace
-    - path: src/ci_workflows/ci_private_apple.py
-      responsibility: Opaque private Apple CI execution with R2 as the detailed log authority.
-      status: consolidate
-      classes:
-      - name: PrivateAppleCiError
-        purpose: Stable public-safe failure for the opaque private executor.
-        methods: []
-      functions:
-      - name: _require
-        signature: '_require(condition: bool, code: str) -> None'
-        purpose: Implements _require for Opaque private Apple CI execution with R2 as the detailed log authority.
-      - name: _required
-        signature: '_required(environment: Mapping[str, str], name: str) -> str'
-        purpose: Implements _required for Opaque private Apple CI execution with R2 as the detailed log authority.
-      - name: _positive_int
-        signature: '_positive_int(environment: Mapping[str, str], name: str, maximum: int) -> int'
-        purpose: Implements _positive_int for Opaque private Apple CI execution with R2 as the detailed log authority.
-      - name: _runner_temp
-        signature: '_runner_temp(environment: Mapping[str, str]) -> Path'
-        purpose: Implements _runner_temp for Opaque private Apple CI execution with R2 as the detailed log authority.
-      - name: _workspace
-        signature: '_workspace(environment: Mapping[str, str]) -> Path'
-        purpose: Implements _workspace for Opaque private Apple CI execution with R2 as the detailed log authority.
-      - name: _state_root
-        signature: '_state_root(environment: Mapping[str, str], ci_run_id: str) -> Path'
-        purpose: Implements _state_root for Opaque private Apple CI execution with R2 as the detailed log authority.
-      - name: _state_path
-        signature: '_state_path(environment: Mapping[str, str], ci_run_id: str) -> Path'
-        purpose: Implements _state_path for Opaque private Apple CI execution with R2 as the detailed log authority.
-      - name: _log_path
-        signature: '_log_path(environment: Mapping[str, str], ci_run_id: str) -> Path'
-        purpose: Implements _log_path for Opaque private Apple CI execution with R2 as the detailed log authority.
-      - name: _write_state
-        signature: '_write_state(environment: Mapping[str, str], ci_run_id: str, value: Mapping[str, object]) -> None'
-        purpose: Implements _write_state for Opaque private Apple CI execution with R2 as the detailed log authority.
-      - name: _read_state
-        signature: '_read_state(environment: Mapping[str, str], ci_run_id: str) -> dict[str, Any] | None'
-        purpose: Implements _read_state for Opaque private Apple CI execution with R2 as the detailed log authority.
-      - name: _ensure_log
-        signature: '_ensure_log(environment: Mapping[str, str], ci_run_id: str) -> Path'
-        purpose: Implements _ensure_log for Opaque private Apple CI execution with R2 as the detailed log authority.
-      - name: _append
-        signature: '_append(log: TextIO, message: str) -> None'
-        purpose: Implements _append for Opaque private Apple CI execution with R2 as the detailed log authority.
-      - name: _stable_code
-        signature: '_stable_code(error: BaseException) -> str'
-        purpose: Implements _stable_code for Opaque private Apple CI execution with R2 as the detailed log authority.
-      - name: _git_environment
-        signature: '_git_environment(token: str, environment: Mapping[str, str]) -> dict[str, str]'
-        purpose: Implements _git_environment for Opaque private Apple CI execution with R2 as the detailed log authority.
-      - name: _remove_no_follow
-        signature: '_remove_no_follow(path: Path) -> None'
-        purpose: Implements _remove_no_follow for Opaque private Apple CI execution with R2 as the detailed log authority.
-      - name: _run_private
-        signature: '_run_private(argv: Sequence[str], *, cwd: Path, environment: Mapping[str, str], log: TextIO, timeout: int) -> None'
-        purpose: Implements _run_private for Opaque private Apple CI execution with R2 as the detailed log authority.
-      - name: _resolve_source_sha
-        signature: '_resolve_source_sha(request: RelayRequest, token: str) -> str'
-        purpose: Implements _resolve_source_sha for Opaque private Apple CI execution with R2 as the detailed log authority.
-      - name: _checkout_source
-        signature: '_checkout_source(*, repository: str, source_sha: str, token: str, workspace: Path, environment: Mapping[str, str], log: TextIO) -> Path'
-        purpose: Implements _checkout_source for Opaque private Apple CI execution with R2 as the detailed log authority.
-      - name: _append_state_logs
-        signature: '_append_state_logs(root: Path, log: TextIO) -> None'
-        purpose: Implements _append_state_logs for Opaque private Apple CI execution with R2 as the detailed log authority.
-      - name: _dependency_receipts
-        signature: '_dependency_receipts(*, resolution: CentralProfileResolution, token_client: GitHubAppRepositoryTokenClient, workspace_state_root: Path, contract_root: Path, log:
-          TextIO) -> DependencyResult | None'
-        purpose: Implements _dependency_receipts for Opaque private Apple CI execution with R2 as the detailed log authority.
-      - name: _execution_environment
-        signature: '_execution_environment(*, request: RelayRequest, source_sha: str, resolution: CentralProfileResolution, dependency: DependencyResult | None, base: Mapping[str, str],
-          workspace_environment: Mapping[str, str]) -> dict[str, str]'
-        purpose: Implements _execution_environment for Opaque private Apple CI execution with R2 as the detailed log authority.
-      - name: _execute_validation
-        signature: '_execute_validation(*, request: RelayRequest, source_sha: str, resolution: CentralProfileResolution, token_client: GitHubAppRepositoryTokenClient, environment: Mapping[str,
+        signature: '_execute_family(*, request: RelayRequest, source_sha: str, resolution: CentralProfileResolution, token_client: GitHubAppRepositoryTokenClient, environment: Mapping[str,
           str], log: TextIO) -> tuple[bool, bool]'
-        purpose: Implements _execute_validation for Opaque private Apple CI execution with R2 as the detailed log authority.
-      - name: _r2_upload
-        signature: '_r2_upload(*, ci_run_id: str, log_path: Path, environment: Mapping[str, str]) -> R2DiagnosticResult'
-        purpose: Implements _r2_upload for Opaque private Apple CI execution with R2 as the detailed log authority.
+        purpose: Implements _execute_family for private CI execution.
+      - name: _upload_private_log
+        signature: '_upload_private_log(*, ci_run_id: str, log_path: Path, environment: Mapping[str, str]) -> R2DiagnosticResult'
+        purpose: Implements _upload_private_log for private CI execution.
       - name: _receipt
         signature: '_receipt(result: R2DiagnosticResult) -> str'
-        purpose: Implements _receipt for Opaque private Apple CI execution with R2 as the detailed log authority.
-      - name: _claim_request
-        signature: '_claim_request(client: AgentStateCiClient, ci_run_id: str) -> RelayRequest'
-        purpose: Implements _claim_request for Opaque private Apple CI execution with R2 as the detailed log authority.
-      - name: _start_lifecycle
-        signature: '_start_lifecycle(client: AgentStateCiClient, request: RelayRequest, environment: Mapping[str, str]) -> None'
-        purpose: Implements _start_lifecycle for Opaque private Apple CI execution with R2 as the detailed log authority.
-      - name: _source_token_client
-        signature: '_source_token_client(environment: Mapping[str, str]) -> GitHubAppRepositoryTokenClient'
-        purpose: Implements _source_token_client for Opaque private Apple CI execution with R2 as the detailed log authority.
-      - name: execute_private_apple
-        signature: 'execute_private_apple(environment: Mapping[str, str]=os.environ) -> bool'
-        purpose: Implements execute_private_apple for Opaque private Apple CI execution with R2 as the detailed log authority.
-      - name: recover_private_apple
-        signature: 'recover_private_apple(environment: Mapping[str, str]=os.environ) -> None'
-        purpose: Implements recover_private_apple for Opaque private Apple CI execution with R2 as the detailed log authority.
+        purpose: Implements _receipt for private CI execution.
+      - name: execute_private_ci
+        signature: 'execute_private_ci(environment: Mapping[str, str]=os.environ) -> bool'
+        purpose: Implements execute_private_ci for private CI execution.
+      - name: recover_private_ci
+        signature: 'recover_private_ci(environment: Mapping[str, str]=os.environ) -> None'
+        purpose: Implements recover_private_ci for private CI execution.
       - name: parser
         signature: parser() -> argparse.ArgumentParser
-        purpose: Implements parser for Opaque private Apple CI execution with R2 as the detailed log authority.
+        purpose: Implements parser for private CI execution.
       - name: main
         signature: 'main(argv: Sequence[str] | None=None, environment: Mapping[str, str]=os.environ) -> int'
-        purpose: Implements main for Opaque private Apple CI execution with R2 as the detailed log authority.
+        purpose: Implements main for private CI execution.
       internal_dependencies:
       - central_profile
       - ci_lifecycle
+      - ciw_android
       - ciw_apple
+      - ciw_python
       - ciw_types
       - dependencies
       - github_app_token
       - private_release_asset
       - r2_diagnostics
       - source_admission
+      - source_checkout
       - source_github
       - workspace
   agent_state:
