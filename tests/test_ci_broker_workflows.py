@@ -57,7 +57,7 @@ class BrokerWorkflowTests(unittest.TestCase):
 
     def test_dispatch_uses_private_planner_then_one_fixed_hosted_family(self) -> None:
         jobs = self.document.data["jobs"]
-        self.assertEqual(set(jobs), {"plan", "private_macos", "private_linux"})
+        self.assertEqual(set(jobs), {"plan", "private", "private_linux"})
         planner = jobs["plan"]
         self.assertEqual(planner["runs-on"], ["ubuntu-latest"])
         self.assertEqual(set(planner["outputs"]), {"executor_family"})
@@ -69,7 +69,7 @@ class BrokerWorkflowTests(unittest.TestCase):
             {"AGENT_STATE_SUPABASE_URL", "AGENT_STATE_SUPABASE_SECRET_KEY"},
         )
 
-        macos = jobs["private_macos"]
+        macos = jobs["private"]
         linux = jobs["private_linux"]
         self.assertEqual(macos["runs-on"], ["macos-latest"])
         self.assertEqual(linux["runs-on"], ["ubuntu-latest"])
