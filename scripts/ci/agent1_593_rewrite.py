@@ -60,6 +60,8 @@ def main() -> None:
             ):
                 print(f"{path.relative_to(ROOT).as_posix()}::{node.name}")
 
+    print("AUDIT_COMPLETE")
+
 
 if __name__ == "__main__":
     main()
