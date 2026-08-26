@@ -97,7 +97,7 @@ jobs:
       tag_commit_sha: ${{ steps.release.outputs.tag_commit_sha }}
     steps:
       - name: Check out exact Central reusable-workflow source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha }}
@@ -158,7 +158,7 @@ jobs:
       cleanup_result: ${{ steps.cleanup.outcome == 'success' && 'success' || 'failure' }}
     steps:
       - name: Check out exact Central reusable-workflow source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha }}
