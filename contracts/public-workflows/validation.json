@@ -280,7 +280,7 @@
         {"name": "request_id", "required": true}
       ],
       "secrets": ["device_authorization_receipt"],
-      "outputs": ["result", "device_evidence_id", "artifact_exception_used", "request_id"],
+      "outputs": ["result", "test_summary", "cleanup_result", "evidence_id", "artifact_exception_used"],
       "stable_check_name": "CI / Physical device validation",
       "timeout_minutes": 240,
       "matrix_max_jobs": 1,
@@ -294,7 +294,7 @@
       "api_version": "1.0.0",
       "status": "implemented",
       "trust_class": "read-only-validation",
-      "permission_profile": "validation-artifact-read",
+      "permission_profile": "validation-read",
       "semantic_runner_profile": "portable",
       "permitted_events": ["pull_request", "push", "workflow_dispatch", "workflow_call"],
       "inputs": [
@@ -304,7 +304,7 @@
         {"name": "consumer_contract", "required": true},
         {"name": "change_base_sha", "required": false, "default": ""},
         {"name": "policy_script_profile", "required": false, "default": ""},
-        {"name": "artifact_exception_id", "required": false}
+        {"name": "artifact_exception_id", "required": false, "default": ""}
       ],
       "secrets": [],
       "outputs": ["result", "test_summary", "render_digest", "cleanup_result", "evidence_id"],
@@ -312,7 +312,7 @@
       "timeout_minutes": 120,
       "matrix_max_jobs": 1,
       "repository_owned_hooks": ["policy_script_profile"],
-      "implementation_components": ["ci_workflows.gitops.validate", "actions/validate-gitops"]
+      "implementation_components": ["ci_workflows.gitops_composition.execute_validation", "ci_workflows.ciw_gitops.execute_gitops_validate", "ci_workflows.execution_backends.resolve_execution_backend", "actions/validate-gitops"]
     },
     {
       "file": ".github/workflows/reusable-script.yml",
@@ -321,22 +321,20 @@
       "status": "implemented",
       "trust_class": "read-only-validation",
       "permission_profile": "validation-read",
-      "semantic_runner_profile": "contract:script",
+      "semantic_runner_profile": "general-small",
       "permitted_events": ["pull_request", "push", "workflow_dispatch", "workflow_call"],
       "inputs": [
-        {"name": "execution_backend", "required": false, "default": "organization"},
         {"name": "admitted_sha", "required": true},
-        {"name": "validation_profile", "required": true},
         {"name": "working_directory", "required": false, "default": "."},
-        {"name": "script_path", "required": true}
+        {"name": "validation_plan_json", "required": true}
       ],
       "secrets": [],
-      "outputs": ["result"],
+      "outputs": ["result", "test_summary", "cleanup_result"],
       "stable_check_name": "CI / Script validation",
-      "timeout_minutes": 120,
+      "timeout_minutes": 60,
       "matrix_max_jobs": 1,
-      "repository_owned_hooks": ["script_path", "working_directory"],
-      "implementation_components": ["reusable-script.yml"]
+      "repository_owned_hooks": ["validation_plan_json"],
+      "implementation_components": ["ci_workflows.ciw_script.execute_script_validate", "actions/validate-script"]
     }
   ]
 }
