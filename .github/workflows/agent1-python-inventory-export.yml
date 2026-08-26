@@ -1,0 +1,81 @@
+name: Agent 1 Python inventory materializer
+
+on:
+  push:
+    branches:
+      - agent1/issue-590-python-inventory-current
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    if: github.actor == 'openai-chatgpt-codex-connector[bot]' || github.actor == 'mimranfaruqi' || github.actor == 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact branch head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Prepare locked validation runtime
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python_root="${RUNNER_TEMP}/issue-590-python"
+          rm -rf "${python_root}"
+          mkdir -p "${python_root}"
+          python3.12 scripts/ci/bootstrap_validation_runtime.py \
+            --lock contracts/action-tool-lock.json \
+            --target "${python_root}"
+          printf 'PYTHONPATH=%s:%s/tests:%s/src\n' "${python_root}" "${GITHUB_WORKSPACE}" "${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
+
+      - name: Materialize reviewed current-main inventory
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3.12 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          import yaml
+          import test_python_inventory_current as target
+
+          original_groups = target._groups
+
+          def fixed_groups(helper):
+              groups = dict(helper.DOMAIN_GROUPS)
+              groups["runners"] = groups.pop("runner")
+
+              class ReviewedHelper:
+                  DOMAIN_GROUPS = groups
+
+              return original_groups(ReviewedHelper)
+
+          target._groups = fixed_groups
+          payload = target._build()
+          rendered = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True, width=180)
+          output = Path("PYTHON_INVENTORY.yml")
+          output.write_text(rendered, encoding="utf-8")
+          print(f"inventory_sha256={hashlib.sha256(rendered.encode()).hexdigest()}")
+          print(f"inventory_bytes={len(rendered.encode())}")
+          print(f"inventory_files={payload['summary']['python_files_discovered']}")
+          PY
+
+      - name: Commit inventory to the same issue branch
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          git add -- PYTHON_INVENTORY.yml
+          if git diff --cached --quiet; then
+            echo 'Inventory already materialized.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m '[skip ci] #590 materialize reviewed Python inventory'
+          git push origin HEAD:agent1/issue-590-python-inventory-current
