@@ -12,26 +12,29 @@ WORKFLOWS = (
     ROOT / ".github/workflows/reusable-android.yml",
     ROOT / ".github/workflows/reusable-flutter.yml",
 )
-IMMUTABLE_PRIVATE_ACTION = re.compile(
-    r"uses:\s+StreamScapeTV/ci-workflows/actions/[A-Za-z0-9._/-]+@[0-9a-f]{40}\b"
+CURRENT_PRIVATE_ACTION = re.compile(
+    r"uses:\s+StreamScapeTV/ci-workflows/actions/[A-Za-z0-9._/-]+@main\b"
 )
 
 
 class NodeArchitectureDocumentationTests(unittest.TestCase):
-    def test_implemented_validators_use_immutable_private_actions_not_central_clone(self) -> None:
+    def test_implemented_validators_use_current_private_actions_not_central_clone(self) -> None:
         for workflow in WORKFLOWS:
             with self.subTest(workflow=workflow.name):
                 source = workflow.read_text(encoding="utf-8")
                 self.assertNotIn("job.workflow_repository", source)
                 self.assertNotIn("job.workflow_sha", source)
-                self.assertRegex(source, IMMUTABLE_PRIVATE_ACTION)
+                self.assertRegex(source, CURRENT_PRIVATE_ACTION)
 
     def test_node_guide_describes_current_shared_private_reuse_model(self) -> None:
         source = GUIDE.read_text(encoding="utf-8")
         self.assertIn(
-            "Node, Python, Android, and Flutter now share this reviewed immutable private-action distribution model.",
+            "Node, Python, Android, and Flutter consume the current shared Central library through first-party actions on the active `@main` channel.",
             source,
         )
+        self.assertIn("These helpers are not independently versioned components", source)
+        self.assertNotIn("contracts/action-tool-lock.json", source)
+        self.assertNotIn("reviewed immutable private-action distribution model", source)
         self.assertNotIn(
             "Android/Flutter/Python reusable workflows that still use an exact `job.workflow_repository` / `job.workflow_sha` checkout",
             source,
