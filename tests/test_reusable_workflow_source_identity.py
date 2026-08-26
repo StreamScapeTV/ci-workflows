@@ -29,7 +29,6 @@ ISSUE_350 = "issue #350 PR-merge snapshot race checkpoint"
 ISSUE_405 = "issue #405 simplified execution-backend checkpoint"
 ISSUE_473_PYTHON = "issue #473 product-neutral Python checkpoint"
 ISSUE_577_BACKEND = "issue #577 hosted Android backend checkpoint"
-ISSUE_495_BACKEND = "issue #495 hosted Apple backend checkpoint"
 ISSUE_104 = "issue #104 immutable private-action checkpoint"
 ISSUE_534_PREFIX = "issue #534 prefix-isolated protected-full checkpoint"
 ISSUE_346_WARM = "issue #346 dependency warm checkpoint"
@@ -75,7 +74,7 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
     },
     ".github/workflows/reusable-apple.yml": {
         "StreamScapeTV/ci-workflows/actions/validate-apple": (APPLE_SHA, ISSUE_495_APPLE),
-        RESOLVE_EXECUTION_BACKEND: (LEGACY_EXECUTION_BACKEND_SHA, ISSUE_495_BACKEND),
+        RESOLVE_EXECUTION_BACKEND: (EXECUTION_BACKEND_SHA, ISSUE_577_BACKEND),
         "StreamScapeTV/ci-workflows/actions/github-app-repository-token": (REPOSITORY_TOKEN_SHA, ISSUE_495_REPOSITORY_TOKEN),
         "StreamScapeTV/ci-workflows/actions/materialize-private-release-asset": (RELEASE_ASSET_SHA, ISSUE_495_RELEASE_ASSET),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
@@ -86,7 +85,7 @@ PRIVATE_WORKFLOWS: dict[str, dict[str, tuple[str, str]]] = {
     },
     ".github/workflows/reusable-gitops-validation.yml": {
         "StreamScapeTV/ci-workflows/actions/validate-gitops": (GITOPS_SHA, ISSUE_571_GITOPS),
-        RESOLVE_EXECUTION_BACKEND: (LEGACY_EXECUTION_BACKEND_SHA, ISSUE_495_BACKEND),
+        RESOLVE_EXECUTION_BACKEND: (EXECUTION_BACKEND_SHA, ISSUE_577_BACKEND),
         "StreamScapeTV/ci-workflows/actions/exact-checkout": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/prepare-workspace": (FOUNDATION_SHA, FOUNDATION),
         "StreamScapeTV/ci-workflows/actions/render-evidence": (FOUNDATION_SHA, FOUNDATION),
@@ -134,9 +133,6 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
                     self.assertEqual(sha, remote_helpers[helper])
                     self.assertIn(helper, locked)
                     self.assertEqual("composite", locked[helper]["runtime"])
-                    if helper == RESOLVE_EXECUTION_BACKEND and sha == LEGACY_EXECUTION_BACKEND_SHA:
-                        self.assertEqual(ISSUE_495_BACKEND, release)
-                        continue
                     self.assertEqual(sha, locked[helper]["sha"])
                     self.assertEqual(release, locked[helper]["release"])
 
@@ -176,7 +172,8 @@ class ReusableWorkflowSourceIdentityTests(unittest.TestCase):
         fragment = ROOT / "contracts/apple-validation-media-tvos-simulator-confidence.json"
         self.assertTrue(fragment.is_file())
         self.assertEqual(4, source.count(f"actions/validate-apple@{APPLE_SHA}"))
-        self.assertEqual(1, source.count(f"actions/resolve-execution-backend@{LEGACY_EXECUTION_BACKEND_SHA}"))
+        self.assertEqual(1, source.count(f"actions/resolve-execution-backend@{EXECUTION_BACKEND_SHA}"))
+        self.assertNotIn(f"actions/resolve-execution-backend@{LEGACY_EXECUTION_BACKEND_SHA}", source)
         self.assertEqual(3, source.count(f"actions/github-app-repository-token@{REPOSITORY_TOKEN_SHA}"))
         self.assertEqual(4, source.count(f"actions/materialize-private-release-asset@{RELEASE_ASSET_SHA}"))
         self.assertNotIn("actions/validate-apple@293dee450e3464032d67f702b768f493abf65d7b", source)
