@@ -26,9 +26,11 @@ from .private_release_asset import PrivateReleaseAssetError, PrivateReleaseAsset
 CONFIG_RELATIVE_PATH = ".github/central-ci.json"
 _LEGACY_APPLE_PROJECTION = ("validation.apple", "apple-host-test")
 _GENERIC_CAPABILITIES = {
+    "validation.apple": "apple-hosted",
     "validation.android": "android-hosted",
     "validation.python": "python-hosted",
 }
+_APPLE_HOSTED_PROFILES = {"source-audit", "swift-package"}
 _PYTHON_PROFILES = {"audit", "host", "podman", "podman-postgres"}
 
 
@@ -184,6 +186,18 @@ def _json_plan(value: object, code: str, *, allow_empty: bool = False) -> str:
 def _generic_inputs(workflow_key: str, value: object) -> dict[str, str]:
     _require(isinstance(value, dict), "private_ci_profile_inputs_invalid")
     raw = dict(value)
+    if workflow_key == "validation.apple":
+        allowed = {"command_profile", "validation_profile"}
+        _require(set(raw) == allowed, "private_ci_profile_inputs_invalid")
+        validation_profile = raw.get("validation_profile")
+        _require(
+            isinstance(validation_profile, str) and validation_profile in _APPLE_HOSTED_PROFILES,
+            "invalid_apple_validation_profile",
+        )
+        return {
+            "command_profile": _safe_product_scalar(raw.get("command_profile"), "invalid_apple_command_profile"),
+            "validation_profile": validation_profile,
+        }
     if workflow_key == "validation.android":
         allowed = {
             "working_directory",
@@ -221,6 +235,35 @@ def _generic_inputs(workflow_key: str, value: object) -> dict[str, str]:
             "artifact_exception_id": "",
         }
     raise CentralProfileError("central_profile_unsupported")
+
+
+def _select_v2_profile(
+    raw_profiles: Mapping[str, object],
+    *,
+    checked_profile: str,
+    checked_workflow: str,
+) -> dict[str, object]:
+    raw_profile = raw_profiles.get(checked_profile)
+    _require(isinstance(raw_profile, dict), "private_ci_profile_missing")
+    if "workflows" not in raw_profile:
+        return dict(raw_profile)
+    _require(set(raw_profile) == {"workflows"}, "private_ci_profile_invalid")
+    raw_workflows = raw_profile.get("workflows")
+    _require(
+        isinstance(raw_workflows, dict)
+        and 1 <= len(raw_workflows) <= len(_GENERIC_CAPABILITIES)
+        and set(raw_workflows).issubset(_GENERIC_CAPABILITIES),
+        "private_ci_profile_invalid",
+    )
+    selected = raw_workflows.get(checked_workflow)
+    _require(isinstance(selected, dict), "private_ci_profile_missing")
+    _require(
+        set(selected).issubset({"capability", "inputs", "private_dependency"}),
+        "private_ci_profile_invalid",
+    )
+    result = dict(selected)
+    result["workflow_key"] = checked_workflow
+    return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -353,8 +396,11 @@ def _resolve_v2_generic(
     _require(_safe_project(value.get("project_key")) == checked_project, "project_config_mismatch")
     raw_profiles = value.get("profiles")
     _require(isinstance(raw_profiles, dict) and 1 <= len(raw_profiles) <= 16, "private_ci_profiles_invalid")
-    raw_profile = raw_profiles.get(checked_profile)
-    _require(isinstance(raw_profile, dict), "private_ci_profile_missing")
+    raw_profile = _select_v2_profile(
+        raw_profiles,
+        checked_profile=checked_profile,
+        checked_workflow=checked_workflow,
+    )
     _require(set(raw_profile).issubset({"workflow_key", "capability", "inputs", "private_dependency"}), "private_ci_profile_invalid")
     workflow_key = _safe_workflow_key(raw_profile.get("workflow_key"))
     _require(workflow_key == checked_workflow, "workflow_profile_mismatch")
@@ -369,6 +415,7 @@ def _resolve_v2_generic(
     dependency_id = ""
     raw_dependency = raw_profile.get("private_dependency")
     if raw_dependency is not None:
+        _require(workflow_key != "validation.apple", "apple_private_dependency_unsupported")
         _require(isinstance(raw_dependency, dict), "private_ci_dependency_invalid")
         from .ci_broker_dependencies import BrokerPrivateDependency
 
@@ -381,6 +428,7 @@ def _resolve_v2_generic(
         dependency_subdirectory = dependency.subdirectory
         dependency_id = dependency.dependency_id
 
+    apple = workflow_key == "validation.apple"
     return CentralProfileResolution(
         project_key=checked_project,
         test_profile=checked_profile,
@@ -388,9 +436,9 @@ def _resolve_v2_generic(
         capability=capability,
         source_repository=checked_repository,
         admitted_sha=checked_sha,
-        validation_scope="protected-full",
+        validation_scope="legacy" if apple else "protected-full",
         validation_plan_json=inputs.get("validation_plan_json", ""),
-        executor_family="linux",
+        executor_family="macos" if apple else "linux",
         canonical_inputs_json=json.dumps(inputs, sort_keys=True, separators=(",", ":"), ensure_ascii=True),
         private_dependency_repository=dependency_repository,
         private_dependency_sha=dependency_sha,
