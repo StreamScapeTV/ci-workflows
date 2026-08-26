@@ -1,0 +1,224 @@
+name: Upload file to Google Drive
+
+description: Upload one file under a fixed Drive root at <repository>/<ref>/<file-name>, updating the exact file in place.
+
+inputs:
+  repository:
+    description: Full GitHub repository name (owner/name)
+    required: true
+  ref:
+    description: Exact requested Git ref name
+    required: true
+  file_path:
+    description: Local file to upload
+    required: true
+  file_name:
+    description: Exact Google Drive filename
+    required: true
+  gzip:
+    description: Gzip the local file before upload
+    required: false
+    default: "false"
+  mime_type:
+    description: MIME type of the uploaded bytes
+    required: false
+    default: application/octet-stream
+
+outputs:
+  file_id:
+    value: ${{ steps.upload.outputs.file_id }}
+  folder_id:
+    value: ${{ steps.upload.outputs.folder_id }}
+
+runs:
+  using: composite
+  steps:
+    - id: upload
+      shell: bash
+      env:
+        DRIVE_REPOSITORY: ${{ inputs.repository }}
+        DRIVE_REF: ${{ inputs.ref }}
+        DRIVE_FILE_PATH: ${{ inputs.file_path }}
+        DRIVE_FILE_NAME: ${{ inputs.file_name }}
+        DRIVE_GZIP: ${{ inputs.gzip }}
+        DRIVE_MIME_TYPE: ${{ inputs.mime_type }}
+      run: |
+        set -Eeuo pipefail
+        : "${GOOGLE_DRIVE_CLIENT_ID:?GOOGLE_DRIVE_CLIENT_ID is required}"
+        : "${GOOGLE_DRIVE_CLIENT_SECRET:?GOOGLE_DRIVE_CLIENT_SECRET is required}"
+        : "${GOOGLE_DRIVE_REFRESH_TOKEN:?GOOGLE_DRIVE_REFRESH_TOKEN is required}"
+        : "${GOOGLE_DRIVE_ROOT_FOLDER_ID:?GOOGLE_DRIVE_ROOT_FOLDER_ID is required}"
+        : "${DRIVE_REPOSITORY:?repository is required}"
+        : "${DRIVE_REF:?ref is required}"
+        : "${DRIVE_FILE_PATH:?file_path is required}"
+        : "${DRIVE_FILE_NAME:?file_name is required}"
+        test -f "${DRIVE_FILE_PATH}"
+        case "${DRIVE_GZIP}" in
+          true|false) ;;
+          *) echo "gzip must be true or false" >&2; exit 2 ;;
+        esac
+        case "${DRIVE_REPOSITORY}" in
+          */*) ;;
+          *) echo "repository must be owner/name" >&2; exit 2 ;;
+        esac
+        test "${DRIVE_REF#refs/heads/}" = "${DRIVE_REF}" || { echo "ref must be the requested logical ref name" >&2; exit 2; }
+        test "${DRIVE_REF#refs/tags/}" = "${DRIVE_REF}" || { echo "ref must be the requested logical ref name" >&2; exit 2; }
+
+        repository_name="${DRIVE_REPOSITORY##*/}"
+        upload_path="${DRIVE_FILE_PATH}"
+        temp_archive=""
+        headers_file="${RUNNER_TEMP}/drive-upload-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.headers"
+        cleanup() {
+          rm -f "${headers_file}"
+          test -z "${temp_archive}" || rm -f "${temp_archive}"
+        }
+        trap cleanup EXIT
+
+        if test "${DRIVE_GZIP}" = "true"; then
+          temp_archive="${RUNNER_TEMP}/drive-upload-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.gz"
+          gzip -c "${DRIVE_FILE_PATH}" > "${temp_archive}"
+          upload_path="${temp_archive}"
+        fi
+
+        access_token="$(
+          curl --fail --silent --show-error \
+            --request POST \
+            --data-urlencode "client_id=${GOOGLE_DRIVE_CLIENT_ID}" \
+            --data-urlencode "client_secret=${GOOGLE_DRIVE_CLIENT_SECRET}" \
+            --data-urlencode "refresh_token=${GOOGLE_DRIVE_REFRESH_TOKEN}" \
+            --data-urlencode "grant_type=refresh_token" \
+            https://oauth2.googleapis.com/token \
+          | python3 -c 'import json,sys; value=json.load(sys.stdin); token=value.get("access_token", ""); assert token; print(token)'
+        )"
+        echo "::add-mask::${access_token}"
+
+        drive_list_url() {
+          python3 - "$1" "$2" "$3" <<'PY'
+        import sys
+        import urllib.parse
+
+        parent, name, kind = sys.argv[1:4]
+        def literal(value: str) -> str:
+            return value.replace("\\", "\\\\").replace("'", "\\'")
+
+        clauses = [
+            f"'{literal(parent)}' in parents",
+            f"name = '{literal(name)}'",
+            "trashed = false",
+        ]
+        if kind == "folder":
+            clauses.append("mimeType = 'application/vnd.google-apps.folder'")
+        else:
+            clauses.append("mimeType != 'application/vnd.google-apps.folder'")
+        query = urllib.parse.urlencode(
+            {
+                "q": " and ".join(clauses),
+                "spaces": "drive",
+                "fields": "files(id,name,mimeType)",
+                "pageSize": "100",
+            }
+        )
+        print("https://www.googleapis.com/drive/v3/files?" + query)
+        PY
+        }
+
+        unique_id() {
+          python3 -c '
+        import json, sys
+        files = json.load(sys.stdin).get("files", [])
+        if len(files) > 1:
+            raise SystemExit("duplicate Google Drive entries for one exact parent/name")
+        print(files[0]["id"] if files else "")
+        '
+        }
+
+        ensure_folder() {
+          parent="$1"
+          name="$2"
+          response="$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer ${access_token}" \
+            "$(drive_list_url "${parent}" "${name}" folder)")"
+          folder_id="$(printf '%s' "${response}" | unique_id)"
+          if test -z "${folder_id}"; then
+            metadata="$(python3 - "${parent}" "${name}" <<'PY'
+        import json, sys
+        parent, name = sys.argv[1:3]
+        print(json.dumps({"name": name, "mimeType": "application/vnd.google-apps.folder", "parents": [parent]}))
+        PY
+        )"
+            response="$(curl --fail --silent --show-error \
+              --request POST \
+              --header "Authorization: Bearer ${access_token}" \
+              --header "Content-Type: application/json; charset=UTF-8" \
+              --data "${metadata}" \
+              'https://www.googleapis.com/drive/v3/files?fields=id')"
+            folder_id="$(printf '%s' "${response}" | python3 -c 'import json,sys; value=json.load(sys.stdin); print(value["id"])')"
+          fi
+          printf '%s' "${folder_id}"
+        }
+
+        repository_folder_id="$(ensure_folder "${GOOGLE_DRIVE_ROOT_FOLDER_ID}" "${repository_name}")"
+        ref_folder_id="$(ensure_folder "${repository_folder_id}" "${DRIVE_REF}")"
+
+        existing_response="$(curl --fail --silent --show-error \
+          --header "Authorization: Bearer ${access_token}" \
+          "$(drive_list_url "${ref_folder_id}" "${DRIVE_FILE_NAME}" file)")"
+        existing_id="$(printf '%s' "${existing_response}" | unique_id)"
+        byte_size="$(python3 -c 'import os,sys; print(os.path.getsize(sys.argv[1]))' "${upload_path}")"
+
+        if test -n "${existing_id}"; then
+          metadata="$(python3 - "${DRIVE_FILE_NAME}" <<'PY'
+        import json, sys
+        print(json.dumps({"name": sys.argv[1]}))
+        PY
+        )"
+          curl --fail --silent --show-error \
+            --request PATCH \
+            --dump-header "${headers_file}" \
+            --output /dev/null \
+            --header "Authorization: Bearer ${access_token}" \
+            --header "Content-Type: application/json; charset=UTF-8" \
+            --header "X-Upload-Content-Type: ${DRIVE_MIME_TYPE}" \
+            --header "X-Upload-Content-Length: ${byte_size}" \
+            --data "${metadata}" \
+            "https://www.googleapis.com/upload/drive/v3/files/${existing_id}?uploadType=resumable&fields=id,name,size"
+        else
+          metadata="$(python3 - "${DRIVE_FILE_NAME}" "${ref_folder_id}" <<'PY'
+        import json, sys
+        name, parent = sys.argv[1:3]
+        print(json.dumps({"name": name, "parents": [parent]}))
+        PY
+        )"
+          curl --fail --silent --show-error \
+            --request POST \
+            --dump-header "${headers_file}" \
+            --output /dev/null \
+            --header "Authorization: Bearer ${access_token}" \
+            --header "Content-Type: application/json; charset=UTF-8" \
+            --header "X-Upload-Content-Type: ${DRIVE_MIME_TYPE}" \
+            --header "X-Upload-Content-Length: ${byte_size}" \
+            --data "${metadata}" \
+            'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name,size'
+        fi
+
+        session_url="$(python3 - "${headers_file}" <<'PY'
+        from pathlib import Path
+        import sys
+        for line in Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.lower().startswith("location:"):
+                print(line.split(":", 1)[1].strip())
+                break
+        else:
+            raise SystemExit("Google Drive resumable upload returned no Location header")
+        PY
+        )"
+        upload_response="$(curl --fail --silent --show-error \
+          --request PUT \
+          --header "Authorization: Bearer ${access_token}" \
+          --header "Content-Type: ${DRIVE_MIME_TYPE}" \
+          --header "Content-Length: ${byte_size}" \
+          --data-binary "@${upload_path}" \
+          "${session_url}")"
+        file_id="$(printf '%s' "${upload_response}" | python3 -c 'import json,sys; value=json.load(sys.stdin); print(value["id"])')"
+        printf 'file_id=%s\n' "${file_id}" >> "${GITHUB_OUTPUT}"
+        printf 'folder_id=%s\n' "${ref_folder_id}" >> "${GITHUB_OUTPUT}"
