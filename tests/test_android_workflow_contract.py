@@ -14,7 +14,7 @@ REUSABLE = ROOT / ".github/workflows/reusable-android.yml"
 SMOKE = ROOT / ".github/workflows/android-validation-smoke.yml"
 ACTION = ROOT / "actions/validate-android/action.yml"
 ANDROID_SHA = "91e5ba5af11ec717f829000edad062c664fb86f7"
-HOSTED_ANDROID_SHA = "4c9f8ab5f9d73d79e841f16f1f1acb72b6baed3a"
+BACKEND_SHA = "83084efecc597d3bedacfe5f8628f1890b9bcd90"
 WARM_SHA = "13de46c51efcf65df798dfec82a620c484350dfa"
 FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
 GRADLE_SYNC_SHA = "fa67b6a1580ff2eb7386a9e58de09896b9990696"
@@ -92,6 +92,20 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertEqual(hosted["if"], "${{ inputs.execution_backend == 'github-hosted' }}")
         self.assertEqual(organization["runs-on"], ["linux", "amd64", "mobile"])
         self.assertEqual(organization["if"], "${{ inputs.execution_backend != 'github-hosted' }}")
+        for planner in (hosted, organization):
+            self.assertEqual(planner["outputs"]["runs_on_json"], "${{ steps.backend.outputs.runs_on_json }}")
+            by_id = {step["id"]: step for step in planner["steps"]}
+            self.assertEqual(
+                by_id["plan"]["uses"],
+                f"StreamScapeTV/ci-workflows/actions/validate-android@{ANDROID_SHA}",
+            )
+            self.assertEqual(
+                by_id["backend"]["uses"],
+                f"StreamScapeTV/ci-workflows/actions/resolve-execution-backend@{BACKEND_SHA}",
+            )
+            self.assertEqual(by_id["backend"]["with"]["workflow_api"], "validation.android")
+            self.assertEqual(by_id["backend"]["with"]["runner_profile"], "mobile")
+            self.assertEqual(by_id["backend"]["with"]["execution_backend"], "${{ inputs.execution_backend }}")
         job = self.workflow["jobs"]["validate"]
         self.assertEqual(job["name"], "CI / Android validation")
         self.assertEqual(job["needs"], ["plan", "plan_organization"])
@@ -160,18 +174,18 @@ class AndroidWorkflowContractTests(unittest.TestCase):
             if str(step.get("uses", "")).startswith("StreamScapeTV/ci-workflows/actions/")
         ]
         self.assertEqual(
-            6,
+            8,
             uses.count(f"StreamScapeTV/ci-workflows/actions/validate-android@{ANDROID_SHA}"),
         )
-        self.assertEqual(
-            2,
-            uses.count(f"StreamScapeTV/ci-workflows/actions/validate-android@{HOSTED_ANDROID_SHA}"),
-        )
-        for planner in ("plan", "plan_organization"):
-            planner_uses = self.workflow["jobs"][planner]["steps"][0]["uses"]
+        for planner_name in ("plan", "plan_organization"):
+            planner = self.workflow["jobs"][planner_name]
+            planner_uses = [step["uses"] for step in planner["steps"] if "uses" in step]
             self.assertEqual(
                 planner_uses,
-                f"StreamScapeTV/ci-workflows/actions/validate-android@{HOSTED_ANDROID_SHA}",
+                [
+                    f"StreamScapeTV/ci-workflows/actions/validate-android@{ANDROID_SHA}",
+                    f"StreamScapeTV/ci-workflows/actions/resolve-execution-backend@{BACKEND_SHA}",
+                ],
             )
         self.assertEqual(
             1,
@@ -424,11 +438,7 @@ class AndroidWorkflowContractTests(unittest.TestCase):
         self.assertIn("android validate", self.action_source)
         self.assertIn("--source-root source", self.action_source)
         self.assertIn("validation_plan_json", self.action["inputs"])
-        self.assertIn("execution_backend", self.action["inputs"])
-        self.assertEqual(self.action["inputs"]["execution_backend"]["default"], "organization")
-        self.assertIn("scripts/ci/execution_backend.py", self.action_source)
-        self.assertIn("--workflow-api validation.android", self.action_source)
-        self.assertIn("--profile mobile", self.action_source)
+        self.assertNotIn("execution_backend", self.action["inputs"])
         for forbidden in (
             "gradle_tasks_json",
             "targeted_test_selector",
