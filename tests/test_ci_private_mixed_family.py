@@ -43,6 +43,8 @@ class MixedFamilyPrivateExecutorTests(unittest.TestCase):
             "RUNNER_OS": "macOS",
             "GITHUB_REPOSITORY": "StreamScapeTV/ci-workflows",
             "DO_NOT_COPY": "preserved base variable",
+            "INPUT_CI_RUN_ID": "11111111-2222-4333-8444-555555555555",
+            "INPUT_PHASE": "execute",
         }
         log = io.StringIO()
 
@@ -65,6 +67,8 @@ class MixedFamilyPrivateExecutorTests(unittest.TestCase):
         self.assertEqual(forwarded["INPUT_COMMAND_PROFILE"], "streamscape-media-apple")
         self.assertEqual(forwarded["INPUT_VALIDATION_PROFILE"], "swift-package")
         self.assertEqual(forwarded["DO_NOT_COPY"], "preserved base variable")
+        self.assertNotIn("INPUT_CI_RUN_ID", forwarded)
+        self.assertNotIn("INPUT_PHASE", forwarded)
         self.assertNotIn("INPUT_EXECUTION_BACKEND", forwarded)
         self.assertNotIn("INPUT_COMMAND", forwarded)
         self.assertNotIn("INPUT_RUNNER", forwarded)
