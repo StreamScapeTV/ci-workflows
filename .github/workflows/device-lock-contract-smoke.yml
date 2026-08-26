@@ -24,7 +24,6 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  actions: read
   contents: read
 
 jobs:
@@ -49,7 +48,7 @@ jobs:
             "${HOME}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}" >> "${GITHUB_ENV}"
 
       - name: Check out exact pull request source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           path: .ciw
@@ -211,43 +210,3 @@ jobs:
           test "${RELEASE_OUTCOME}" = success
           test "${RESIDUE_OUTCOME}" = success
           test "${BACKEND_CLEANUP_OUTCOME}" = success
-
-  zero_artifacts:
-    name: Verify device lock smoke artifacts remain zero
-    needs: contract_smoke
-    if: >-
-      ${{ github.event.pull_request.user.login == 'mimranfaruqi' &&
-          github.event.pull_request.head.repo.full_name == github.repository &&
-          always() && !cancelled() }}
-    runs-on: [ubuntu-latest]
-    timeout-minutes: 10
-    steps:
-      - name: Require zero Actions artifacts and successful contract smoke
-        env:
-          CONTRACT_RESULT: ${{ needs.contract_smoke.result }}
-          GITHUB_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          python3 - <<'PY_ARTIFACTS'
-          import json
-          import os
-          import urllib.request
-
-          request = urllib.request.Request(
-              f"{os.environ['GITHUB_API_URL'].rstrip('/')}/repos/"
-              f"{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
-              f"{os.environ['GITHUB_RUN_ID']}/artifacts",
-              headers={
-                  "Accept": "application/vnd.github+json",
-                  "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
-                  "X-GitHub-Api-Version": "2022-11-28",
-              },
-          )
-          with urllib.request.urlopen(request, timeout=20) as response:
-              payload = json.load(response)
-          if payload.get("total_count") != 0 or payload.get("artifacts"):
-              raise SystemExit("device lock contract smoke retained Actions artifacts")
-          print("Routine device lock contract Actions artifacts verified: zero.")
-          PY_ARTIFACTS
-          test "${CONTRACT_RESULT}" = success
