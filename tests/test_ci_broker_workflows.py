@@ -17,6 +17,7 @@ CONTRACT = ROOT / "contracts/ci-broker.json"
 LOG_CONTRACT = ROOT / "contracts/ci-diagnostics.json"
 PRIVATE_ACTION = ROOT / "actions/private-ci/action.yml"
 PRIVATE_EXECUTOR = ROOT / "src/ci_workflows/ci_private.py"
+CIW_SCRIPT = ROOT / "scripts/ci/ciw.py"
 
 
 class BrokerWorkflowTests(unittest.TestCase):
@@ -32,6 +33,7 @@ class BrokerWorkflowTests(unittest.TestCase):
         cls.broker_app = (BROKER / "app.py").read_text(encoding="utf-8")
         cls.private_action = yaml.safe_load(PRIVATE_ACTION.read_text(encoding="utf-8"))
         cls.private_executor = PRIVATE_EXECUTOR.read_text(encoding="utf-8")
+        cls.ciw_script = CIW_SCRIPT.read_text(encoding="utf-8")
 
     def test_public_dispatch_surface_remains_exactly_opaque(self) -> None:
         events = self.document.data["on"]
@@ -63,14 +65,23 @@ class BrokerWorkflowTests(unittest.TestCase):
         for private_field in ("repository:", "ref:", "project_key:", "workflow_key:", "profile:"):
             self.assertNotIn(private_field, text)
 
-    def test_private_executor_reclaims_then_delegates_existing_family_functions(self) -> None:
+    def test_private_executor_is_one_generic_family_transaction(self) -> None:
         self.assertIn("_claim_request", self.private_executor)
         self.assertIn("resolve_profile(", self.private_executor)
+        self.assertIn("exact_checkout(", self.private_executor)
+        self.assertIn("execute_apple_validate(", self.private_executor)
         self.assertIn("execute_android_validate(", self.private_executor)
         self.assertIn("execute_python_validate(", self.private_executor)
-        self.assertIn("_r2_upload", self.private_executor)
+        self.assertIn("upload_private_diagnostic(", self.private_executor)
         self.assertIn("client.finish(", self.private_executor)
+        self.assertNotIn("ci_private_apple", self.private_executor)
         self.assertNotIn("shell_command", self.private_executor)
+
+    def test_retired_private_apple_compatibility_surface_cannot_reappear(self) -> None:
+        self.assertFalse((ROOT / "src/ci_workflows/ci_private_apple.py").exists())
+        self.assertFalse((ROOT / "actions/private-apple-ci/action.yml").exists())
+        self.assertNotIn("ci_private_apple", self.ciw_script)
+        self.assertNotIn('"private-apple"', self.ciw_script)
 
     def test_contract_defines_closed_multi_family_semantics_and_fixed_hosted_runners(self) -> None:
         self.assertEqual(self.contract["schema_version"], 4)
