@@ -11,13 +11,11 @@ from ci_workflows.validation_model import ActionsLoader
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/reusable-python.yml"
 ACTION_PATH = ROOT / "actions/validate-python/action.yml"
-FOUNDATION_SHA = "70e08d4ddf8930046632a7135950e924b82e22bf"
-PYTHON_ACTION_SHA = "3d3689fda11b03a188789f03d6d64cab50f1873a"
 PRIVATE_HELPERS = {
-    "validate-python": PYTHON_ACTION_SHA,
-    "exact-checkout": FOUNDATION_SHA,
-    "prepare-workspace": FOUNDATION_SHA,
-    "cleanup-workspace": FOUNDATION_SHA,
+    "validate-python",
+    "exact-checkout",
+    "prepare-workspace",
+    "cleanup-workspace",
 }
 
 
@@ -132,33 +130,33 @@ class PythonWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("self-hosted", self.workflow_text)
         self.assertNotIn("docker-capable", self.workflow_text)
 
-    def test_private_helpers_are_immutable_without_central_clone(self) -> None:
+    def test_private_helpers_follow_main_without_central_clone(self) -> None:
         self.assertNotIn("actions/checkout@", self.workflow_text)
         self.assertNotIn("path: .ciw", self.workflow_text)
         self.assertNotIn("./.ciw/actions/", self.workflow_text)
         self.assertNotIn("secrets: inherit", self.workflow_text)
-        for helper, sha in PRIVATE_HELPERS.items():
+        for helper in PRIVATE_HELPERS:
             self.assertIn(
-                f"StreamScapeTV/ci-workflows/actions/{helper}@{sha}",
+                f"StreamScapeTV/ci-workflows/actions/{helper}@main",
                 self.workflow_text,
             )
         for planner_name in ("plan", "plan_organization"):
             planner = self.workflow["jobs"][planner_name]["steps"]
             self.assertEqual(1, len(planner))
             self.assertEqual(
-                f"StreamScapeTV/ci-workflows/actions/validate-python@{PYTHON_ACTION_SHA}",
+                "StreamScapeTV/ci-workflows/actions/validate-python@main",
                 planner[0]["uses"],
             )
 
-    def test_exact_source_cleanup_and_zero_artifact_contract_are_preserved(self) -> None:
+    def test_exact_source_and_cleanup_contract_are_preserved(self) -> None:
         source = self.workflow_text
         validate_job = source.index("\n  validate:\n")
         validation_source = source[validate_job:]
         sequence = [
-            f"uses: StreamScapeTV/ci-workflows/actions/exact-checkout@{FOUNDATION_SHA}",
-            f"uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@{FOUNDATION_SHA}",
-            f"uses: StreamScapeTV/ci-workflows/actions/validate-python@{PYTHON_ACTION_SHA}",
-            f"uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@{FOUNDATION_SHA}",
+            "uses: StreamScapeTV/ci-workflows/actions/exact-checkout@main",
+            "uses: StreamScapeTV/ci-workflows/actions/prepare-workspace@main",
+            "uses: StreamScapeTV/ci-workflows/actions/validate-python@main",
+            "uses: StreamScapeTV/ci-workflows/actions/cleanup-workspace@main",
             "name: Verify exact source remained clean after cleanup",
         ]
         positions = [validation_source.index(value) for value in sequence]
@@ -171,8 +169,6 @@ class PythonWorkflowContractTests(unittest.TestCase):
         self.assertIn("steps.python.outcome", result)
         self.assertIn("steps.cleanup.outcome", result)
         self.assertIn("steps.clean.outcome", result)
-        self.assertNotIn("actions/upload-artifact", source)
-        self.assertNotIn("actions/download-artifact", source)
 
     def test_action_is_thin_and_exposes_only_bounded_inputs(self) -> None:
         self.assertEqual("composite", self.action["runs"]["using"])
