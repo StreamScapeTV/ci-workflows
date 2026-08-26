@@ -24,8 +24,8 @@ cross-backend dependency. An explicit `github-hosted` call uses a small
 `ubuntu-latest` planner; the default/explicit `organization` call uses the
 existing `general-small` organization planner. Those planners are mutually
 exclusive and the validation job consumes only the successful planner's
-Central-owned selector. Product source behavior, tools, cleanup, evidence, and
-zero-artifact semantics are identical after selection.
+Central-owned selector. Product source behavior, tools, cleanup, and evidence
+are identical after selection.
 
 ## Profiles
 
@@ -49,24 +49,27 @@ profile's exact policy identifier, and the reserved empty artifact-exception
 field. Roots, values, schemas, tasks, scripts, tool identities, and assertions
 are checked-in contract data.
 
-## Immutable private helper reuse
+## Shared Central helper reuse
 
 Private same-organization consumers do not clone `StreamScapeTV/ci-workflows`
-with their caller-scoped token. The reusable planner and execution job invoke
-`validate-gitops` through immutable central revision
-`8445e63dd9fa9468b60b6d0c61e543da9681b47b`; exact checkout, workspace
-preparation, evidence rendering, and cleanup reuse the immutable foundation
-actions established by #116. Backend resolution uses the reviewed immutable
-Central execution-backend helper and accepts no caller runner selector.
+with their caller-scoped token. The reusable planner and execution job consume
+the current shared Central library through first-party actions on `@main`,
+including `validate-gitops`, exact checkout, workspace preparation, evidence
+rendering, cleanup, and execution-backend resolution. These helpers are not
+independently versioned components and there is no per-action checkpoint
+registry.
 
-The private action archives resolve their central scripts and Python modules
-relative to `GITHUB_ACTION_PATH`, so there is no `.ciw` checkout, central PAT,
-`secrets: inherit`, mutable helper ref, or caller-selected central version.
-Caller source remains independently admitted and is checked out with the exact
-checkout primitive. GitOps uses the contract maximum `fetch_depth: 1000`, which
-preserves bounded changed-tree history while complying with the source-admission
-contract's allowed 1–1000 range. The previous value `0` was outside that
-foundation contract and is not retained.
+Each action resolves its central scripts and Python modules relative to
+`GITHUB_ACTION_PATH`, so there is no `.ciw` checkout, central PAT,
+`secrets: inherit`, or caller-selected central version. Caller source remains
+independently admitted and is checked out with the exact checkout primitive.
+GitOps uses the contract maximum `fetch_depth: 1000`, which preserves bounded
+changed-tree history while complying with the source-admission contract's
+allowed 1–1000 range. The previous value `0` was outside that foundation
+contract and is not retained.
+
+Repository tags, when used, identify one whole `ci-workflows` release snapshot;
+normal active-development first-party consumption follows `@main`.
 
 ## Exact tools
 
@@ -136,4 +139,8 @@ render, and result lives under one marker-bound registered root. Cleanup uses
 checks zero residue. A primary validation failure and a cleanup failure are
 both retained as a bounded combined error. Source SHA, Git cleanliness, and a
 deterministic source tree digest are reverified after policy and render work.
-Routine execution retains **zero routine artifacts**.
+
+GitHub Actions artifact count is not a global validation invariant. Any artifact
+behavior belongs to the specific functional workflow contract that needs it;
+GitOps source validation itself does not add publication or deployment
+authority.
