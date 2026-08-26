@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "store": "cloudflare-r2",
   "object_prefix": "ci-diagnostics",
   "content_type": "application/gzip",
@@ -44,30 +44,19 @@
     "terminal_order": "upload-readback-verify-r2-before-terminal-transition"
   },
   "retrieval": {
-    "mode": "receipt-capability",
-    "capability_encoding": "base64url-utf8-exact-r2-receipt-without-padding",
-    "route": "/diagnostics/<capability>",
-    "service_authority": "r2-read-only",
-    "service_credentials": [
-      "R2_ACCOUNT_ID",
-      "R2_BUCKET",
-      "R2_READ_ACCESS_KEY_ID",
-      "R2_READ_SECRET_ACCESS_KEY"
-    ],
+    "mode": "lowercase-cloudflare-mcp-direct-r2",
     "requires_exact_agent_state_receipt": true,
     "requires_capability_object_key": true,
     "object_capability_bits": 128,
     "object_capability_minted_by": "r2-write-path-domain-separated-hmac",
-    "receipt_is_bearer_capability": true,
-    "agent_state_lookup": false,
+    "agent_state_lookup_by_reader": false,
     "thin_relay_authority": false,
+    "public_http_reader": false,
     "github_actions_log_copy": false,
     "github_actions_artifact": false,
     "compressed_sha256_verified_before_decompression": true,
     "max_raw_bytes": 52428800,
-    "max_compressed_bytes": 20971520,
-    "response_content_type": "text/plain; charset=utf-8",
-    "cache_control": "private, no-store"
+    "max_compressed_bytes": 20971520
   },
   "retention": {
     "agent_state_hours": 24,
