@@ -20,8 +20,55 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  private:
-    name: Execute private validation
+  plan:
+    name: Resolve private hosted executor family
+    runs-on: [ubuntu-latest]
+    timeout-minutes: 10
+    outputs:
+      executor_family: ${{ steps.private.outputs.executor_family }}
+    steps:
+      - name: Check out exact public Central source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact public Central source
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+
+      - id: private
+        name: Resolve opaque request to coarse hosted family
+        uses: ./actions/private-ci
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: plan
+          ci_run_id: ${{ inputs.ci_run_id }}
+
+      - name: Verify public Central checkout remained clean
+        if: ${{ always() }}
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          test ! -e source
+
+  private_macos:
+    name: Execute private validation / macOS
+    needs: [plan]
+    if: ${{ needs.plan.outputs.executor_family == 'macos' }}
     runs-on: [macos-latest]
     timeout-minutes: 120
     steps:
@@ -43,7 +90,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
 
       - name: Execute opaque private CI and export detailed log to R2
-        uses: ./actions/private-apple-ci
+        uses: ./actions/private-ci
         env:
           AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
           AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
@@ -59,7 +106,78 @@ jobs:
 
       - name: Recover interrupted private CI lifecycle
         if: ${{ always() }}
-        uses: ./actions/private-apple-ci
+        uses: ./actions/private-ci
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        with:
+          phase: recover
+          ci_run_id: ${{ inputs.ci_run_id }}
+
+      - name: Verify public Central checkout remained clean
+        if: ${{ always() }}
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          test ! -e source
+
+  private_linux:
+    name: Execute private validation / Linux
+    needs: [plan]
+    if: ${{ needs.plan.outputs.executor_family == 'linux' }}
+    runs-on: [ubuntu-latest]
+    timeout-minutes: 120
+    steps:
+      - name: Check out exact public Central source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+          set-safe-directory: false
+
+      - name: Verify exact public Central source
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+
+      - name: Set up reviewed hosted Android JDK
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Execute opaque private CI and export detailed log to R2
+        uses: ./actions/private-ci
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+          SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
+          SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          CIW_MAVEN_PACKAGE_READ_TOKEN: ${{ secrets.MAVEN_PACKAGE_READ_TOKEN }}
+        with:
+          phase: execute
+          ci_run_id: ${{ inputs.ci_run_id }}
+
+      - name: Recover interrupted private CI lifecycle
+        if: ${{ always() }}
+        uses: ./actions/private-ci
         env:
           AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
           AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
