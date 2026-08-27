@@ -84,7 +84,7 @@ jobs:
 
       - name: Mark Agent State run as running
         if: ${{ inputs.ci_run_id != '' }}
-        uses: StreamScapeTV/ci-workflows/actions/agent-state@62a783692dec6b4455adfb3435c8981176295acb
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
         env:
           AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
           AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
@@ -145,7 +145,7 @@ jobs:
       - name: Upload CI log to Google Drive
         id: drive
         if: ${{ always() && (inputs.ci_run_id != '' || inputs.upload_private_log) }}
-        uses: StreamScapeTV/ci-workflows/actions/google-drive@38bfe084cf9bfdedcaca1808c72693f9e657e988
+        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
         env:
           GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
           GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
@@ -161,7 +161,7 @@ jobs:
 
       - name: Finish Agent State run
         if: ${{ always() && inputs.ci_run_id != '' }}
-        uses: StreamScapeTV/ci-workflows/actions/agent-state@62a783692dec6b4455adfb3435c8981176295acb
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
         env:
           AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
           AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
