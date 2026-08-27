@@ -28,6 +28,7 @@ Only repeated mechanics that are awkward to duplicate in every pipeline belong i
 
 - `actions/agent-state` — Agent State claim/start/finish RPC calls.
 - `actions/google-drive` — upload one private file under a fixed Drive root at `<repository>/<ref>/<file-name>`; exact filenames are updated in place so the same helper serves run logs and source snapshots.
+- `actions/private-git` — establish the fixed Central-owned Tailscale connection to the owner private Git/Forgejo service using the owner-configured OAuth environment, hard-coded `tag:github-ci`, and fixed TCP/443 reachability check. It exposes no product-facing network/tag/host inputs. Workflows invoke it only when the selected job/profile actually needs private Git/Forgejo access.
 
 Do not add technology wrapper actions for checkout, planning, runner selection, command execution, evidence, or one Python/shell function. Use standard upstream actions and normal workflow steps.
 
@@ -47,6 +48,8 @@ Agent State CI stays small:
 
 `request_ci_run -> Agent State row -> ci-broker -> central-ci-dispatch.yml -> technology workflow -> agent-state start -> fixed profile -> literal secret scrub -> google-drive -> agent-state finish`
 
+Concurrency belongs to the **outer trigger/dispatch workflow**, not inside reusable technology workflows. The Agent State path uses one stable branch/tag `active_key` and `cancel-in-progress: true`, so a newer accepted run supersedes older work for the same repository/ref. A direct private-repository caller must define equivalent outer concurrency for its own branch/ref. Do not add branch-wide concurrency inside `apple.yml`, `android.yml`, or another reusable technology workflow, because sibling profiles intentionally launched inside one outer run must be allowed to coexist. Temporary proof workflows that can start expensive sibling jobs follow the same rule: one issue/run-scoped outer concurrency group with `cancel-in-progress: true`, never per-sibling cancellation.
+
 The same relay also accepts `workflow_key=source.snapshot`. Central checks out the requested repository/ref, archives exactly the tracked Git tree to `source.zip`, writes `manifest.json`, and uses the same Google Drive action under the fixed repositories root. The second exact-name manifest upload must preserve the same Drive file identity; no separate snapshot framework belongs here.
 
 Do not add `.github/central-ci.json`, source-SHA evidence to ordinary validation rows, profile manifests, a private technology executor, or R2/Cloudflare storage.
@@ -56,7 +59,7 @@ Do not add `.github/central-ci.json`, source-SHA evidence to ordinary validation
 Self-CI is deliberately small:
 
 1. parse workflow/action YAML;
-2. run focused Agent State/Google Drive/broker tests;
+2. run focused Agent State/Google Drive/private-Git/broker tests;
 3. self-review the complete affected workflow/runtime/release path, then prove materially changed technology workflows with real product consumers;
 4. prove `source.snapshot` by raw-downloading and opening the Drive ZIP through the ordinary Google Drive connector.
 
@@ -64,7 +67,7 @@ Do not rebuild a contract-test framework around the workflows.
 
 ## Simplicity check
 
-Before keeping or adding a workflow, action, source file, contract, adapter, test, or verification step, ask whether a real product command, Agent State call, Google Drive upload, broker, source snapshot, or runner-image build actually needs it. If not, delete it or do not add it.
+Before keeping or adding a workflow, action, source file, contract, adapter, test, or verification step, ask whether a real product command, Agent State call, Google Drive upload, private Git/Forgejo access, broker, source snapshot, or runner-image build actually needs it. If not, delete it or do not add it.
 
 ## Merge self-review
 

@@ -12,7 +12,7 @@ class CiHelperTests(unittest.TestCase):
             set(inventory["workflows"]),
             {"apple", "android", "python", "node", "flutter", "central_dispatch", "self_check", "broker_release", "runner_images"},
         )
-        self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive"})
+        self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive", "private_git"})
         self.assertFalse((ROOT / "PYTHON_INVENTORY.yml").exists())
         self.assertFalse((ROOT / "contracts").exists())
 
@@ -23,9 +23,9 @@ class CiHelperTests(unittest.TestCase):
         for name in ("apple.yml", "android.yml", "python.yml", "node.yml", "flutter.yml"):
             self.assertIn(name, names)
 
-    def test_only_two_custom_actions_exist(self) -> None:
+    def test_only_three_custom_actions_exist(self) -> None:
         actions = {p.name for p in (ROOT / "actions").iterdir() if p.is_dir()}
-        self.assertEqual(actions, {"agent-state", "google-drive"})
+        self.assertEqual(actions, {"agent-state", "google-drive", "private-git"})
 
     def test_agent_state_action_has_only_claim_start_finish_lifecycle(self) -> None:
         text = (ROOT / "actions/agent-state/action.yml").read_text()
@@ -48,6 +48,18 @@ class CiHelperTests(unittest.TestCase):
         self.assertNotIn("cloudflarestorage.com", text)
         self.assertNotIn("R2_", text)
 
+    def test_private_git_action_is_one_fixed_tailscale_boundary(self) -> None:
+        text = (ROOT / "actions/private-git/action.yml").read_text()
+        self.assertIn("tailscale/github-action@v4", text)
+        self.assertIn("tags: tag:github-ci", text)
+        self.assertIn('("git.faruqi.dev", 443)', text)
+        self.assertIn("TS_OAUTH_CLIENT_ID", text)
+        self.assertIn("TS_OAUTH_SECRET", text)
+        self.assertNotIn("inputs:", text)
+        android = (ROOT / ".github/workflows/android.yml").read_text()
+        self.assertIn("actions/private-git@", android)
+        self.assertNotIn("tailscale/github-action@v4", android)
+
     def test_agent_state_workflows_use_private_drive_logs_without_public_command_tee(self) -> None:
         for name in ("apple", "android", "python", "node", "flutter"):
             text = (ROOT / ".github/workflows" / f"{name}.yml").read_text()
@@ -63,6 +75,17 @@ class CiHelperTests(unittest.TestCase):
         text = (ROOT / ".github/workflows/central-ci-dispatch.yml").read_text()
         self.assertNotIn("refs/tags/{0}", text)
         self.assertGreaterEqual(text.count("ref: ${{ needs.request.outputs.ref }}"), 6)
+
+    def test_central_dispatch_is_newest_run_wins_per_active_branch_key(self) -> None:
+        text = (ROOT / ".github/workflows/central-ci-dispatch.yml").read_text()
+        self.assertIn("group: central-ci-${{ inputs.active_key }}", text)
+        self.assertIn("cancel-in-progress: true", text)
+        broker = (ROOT / "ci-broker/app.py").read_text()
+        active_key = broker[broker.index("def active_key"): broker.index("def dispatch_inputs")]
+        self.assertIn('{"repository": self.repository, "ref": self.ref, "is_tag": self.is_tag}', active_key)
+        self.assertNotIn("ci_run_id", active_key)
+        self.assertNotIn("test_profile", active_key)
+        self.assertNotIn("workflow_key", active_key)
 
     def test_fixed_profiles_replace_arbitrary_command_transport(self) -> None:
         forbidden = ("prepare_command", "build_command", "test_command", "release_command", "bash -lc")

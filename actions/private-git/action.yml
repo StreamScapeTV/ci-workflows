@@ -1,0 +1,37 @@
+name: Connect private Git service
+description: Establish the fixed Central-owned Tailscale path to the private Git/Forgejo service
+
+runs:
+  using: composite
+  steps:
+    - name: Require fixed Central Tailscale credentials
+      shell: bash
+      run: |
+        set -Eeuo pipefail
+        test -n "${TS_OAUTH_CLIENT_ID:-}" || {
+          echo "Missing fixed Central Tailscale OAuth client ID" >&2
+          exit 1
+        }
+        test -n "${TS_OAUTH_SECRET:-}" || {
+          echo "Missing fixed Central Tailscale OAuth secret" >&2
+          exit 1
+        }
+
+    - name: Connect to private Git service
+      uses: tailscale/github-action@v4
+      with:
+        oauth-client-id: ${{ env.TS_OAUTH_CLIENT_ID }}
+        oauth-secret: ${{ env.TS_OAUTH_SECRET }}
+        tags: tag:github-ci
+
+    - name: Verify private Git service reachability
+      shell: bash
+      run: |
+        set -Eeuo pipefail
+        python3 - <<'PY'
+        import socket
+
+        with socket.create_connection(("git.faruqi.dev", 443), timeout=15):
+            pass
+        print("private Git service tcp/443 reachable")
+        PY
