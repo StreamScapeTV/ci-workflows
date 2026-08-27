@@ -11,34 +11,9 @@ name: Node CI
         type: string
         required: false
         default: ""
-      working_directory:
-        type: string
-        required: false
-        default: "."
       test_profile:
         type: string
-        required: false
-        default: ""
-      node_version:
-        type: string
-        required: false
-        default: "22"
-      prepare_command:
-        type: string
-        required: false
-        default: ""
-      build_command:
-        type: string
-        required: false
-        default: ""
-      test_command:
-        type: string
-        required: false
-        default: ""
-      release_command:
-        type: string
-        required: false
-        default: ""
+        required: true
       ci_run_id:
         type: string
         required: false
@@ -72,8 +47,6 @@ jobs:
   ci:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
-    env:
-      CI_TEST_PROFILE: ${{ inputs.test_profile }}
     steps:
       - name: Initialize CI log
         shell: bash
@@ -110,41 +83,75 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Set up Node
+      - name: Set up Node 22.18.0
         uses: actions/setup-node@v6
         with:
-          node-version: ${{ inputs.node_version }}
+          node-version: "22.18.0"
           cache: ""
 
-      - name: Run product commands
+      - name: Run fixed Node profile
         id: commands
         shell: bash
-        working-directory: ${{ inputs.working_directory }}
         env:
-          PREPARE_COMMAND: ${{ inputs.prepare_command }}
-          BUILD_COMMAND: ${{ inputs.build_command }}
-          TEST_COMMAND: ${{ inputs.test_command }}
-          RELEASE_COMMAND: ${{ inputs.release_command }}
-          CI_GITHUB_TOKEN: ${{ steps.source.outputs.token || github.token }}
-          GH_TOKEN: ${{ steps.source.outputs.token || github.token }}
+          TEST_PROFILE: ${{ inputs.test_profile }}
         run: |
           set -Eeuo pipefail
-          test -n "${PREPARE_COMMAND}${BUILD_COMMAND}${TEST_COMMAND}${RELEASE_COMMAND}"
-          for phase in PREPARE BUILD TEST RELEASE; do
-            variable="${phase}_COMMAND"
-            command="${!variable}"
-            test -z "${command}" && continue
-            phase_name="$(printf '%s' "${phase}" | tr '[:upper:]' '[:lower:]')"
-            printf '\n===== %s =====\n' "${phase_name}" >> "${CI_LOG}"
-            if ! bash -lc "${command}" >> "${CI_LOG}" 2>&1; then
-              printf '%s failed; inspect the private Google Drive CI log.\n' "${phase_name}" >&2
-              exit 1
+          run_logged() {
+            local label="$1"
+            shift
+            printf '\n===== %s =====\n' "$label" >> "$CI_LOG"
+            if ! "$@" >> "$CI_LOG" 2>&1; then
+              printf '%s failed; inspect the private Google Drive CI log.\n' "$label" >&2
+              return 1
             fi
-          done
+          }
+
+          case "$TEST_PROFILE" in
+            frontend-full)
+              run_logged npm-ci npm ci
+              run_logged test npm test
+              run_logged typecheck npm run typecheck
+              run_logged build npm run build
+              ;;
+            *) echo "Unsupported Node test_profile: $TEST_PROFILE" >&2; exit 2 ;;
+          esac
+
+      - name: Scrub configured CI secrets from private log
+        id: scrub
+        if: ${{ always() }}
+        shell: bash
+        env:
+          CI_SECRET_SOURCE_TOKEN: ${{ steps.source.outputs.token }}
+          CI_SECRET_GITHUB_TOKEN: ${{ github.token }}
+          CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          CI_SECRET_AGENT_STATE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          CI_SECRET_AGENT_STATE_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+          CI_SECRET_DRIVE_FOLDER: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+          CI_SECRET_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          CI_SECRET_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          CI_SECRET_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY_REDACT'
+          import os
+          from pathlib import Path
+
+          path = Path(os.environ["CI_LOG"])
+          data = path.read_bytes()
+          for name, value in os.environ.items():
+              if not name.startswith("CI_SECRET_") or not value:
+                  continue
+              raw = value.encode()
+              data = data.replace(raw, b"[REDACTED]")
+              escaped = value.replace("\n", "\\n").encode()
+              if escaped != raw:
+                  data = data.replace(escaped, b"[REDACTED]")
+          path.write_bytes(data)
+          PY_REDACT
 
       - name: Upload CI log to Google Drive
         id: drive
-        if: ${{ always() && (inputs.ci_run_id != '' || inputs.upload_private_log) }}
+        if: ${{ always() && steps.scrub.outcome == 'success' && (inputs.ci_run_id != '' || inputs.upload_private_log) }}
         uses: StreamScapeTV/ci-workflows/actions/google-drive@main
         env:
           GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
@@ -168,4 +175,4 @@ jobs:
         with:
           phase: finish
           ci_run_id: ${{ inputs.ci_run_id }}
-          status: ${{ steps.commands.outcome == 'success' && steps.drive.outcome == 'success' && 'succeeded' || 'failed' }}
+          status: ${{ steps.commands.outcome == 'success' && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && 'succeeded' || 'failed' }}

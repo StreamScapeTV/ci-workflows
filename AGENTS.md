@@ -18,8 +18,8 @@ Keep this repository small and conventional.
 - Workflow YAML is the source of truth for `workflow_call` inputs, secrets, outputs, permissions, jobs, and behavior.
 - Do not mirror workflow YAML into contracts, generated API references, validation manifests, compatibility registries, or extra inventories.
 - `INVENTORY.yaml` is the only repository inventory. It contains paths only, not duplicated workflow APIs.
-- Product repositories remain thin callers and own their prepare/build/test/release commands.
-- A technology workflow is checkout/setup -> direct product commands -> optional Agent State/Google Drive helpers.
+- Product repositories remain thin callers. Central technology workflows own their fixed executable profile behavior; callers may supply only the bounded semantic selectors/parameters declared by that workflow.
+- A technology workflow is checkout/setup -> fixed reviewed profile -> literal secret scrub -> optional Agent State/Google Drive helpers. Never add arbitrary command/script/env-map inputs as a compatibility escape hatch.
 - Prefer deletion over compatibility machinery.
 
 ## Shared actions
@@ -40,13 +40,12 @@ The callable technology workflows are:
 - `.github/workflows/python.yml`
 - `.github/workflows/node.yml`
 - `.github/workflows/flutter.yml`
-- `.github/workflows/gitops.yml`
 
-They run caller-owned `prepare_command`, `build_command`, `test_command`, and `release_command` values directly. Empty stages are skipped; at least one command is required.
+They expose bounded technology profiles and fixed executable behavior. The broker/Agent State path never forwards shell commands. GitOps validation is retired unless a future real consumer justifies a new reviewed issue.
 
 Agent State CI stays small:
 
-`request_ci_run -> Agent State row -> ci-broker -> central-ci-dispatch.yml -> technology workflow -> agent-state start -> commands -> google-drive -> agent-state finish`
+`request_ci_run -> Agent State row -> ci-broker -> central-ci-dispatch.yml -> technology workflow -> agent-state start -> fixed profile -> literal secret scrub -> google-drive -> agent-state finish`
 
 The same relay also accepts `workflow_key=source.snapshot`. Central checks out the requested repository/ref, archives exactly the tracked Git tree to `source.zip`, writes `manifest.json`, and uses the same Google Drive action under the fixed repositories root. The second exact-name manifest upload must preserve the same Drive file identity; no separate snapshot framework belongs here.
 
@@ -58,7 +57,7 @@ Self-CI is deliberately small:
 
 1. parse workflow/action YAML;
 2. run focused Agent State/Google Drive/broker tests;
-3. prove the technology workflows with real product consumers;
+3. self-review the complete affected workflow/runtime/release path, then prove materially changed technology workflows with real product consumers;
 4. prove `source.snapshot` by raw-downloading and opening the Drive ZIP through the ordinary Google Drive connector.
 
 Do not rebuild a contract-test framework around the workflows.
@@ -66,3 +65,7 @@ Do not rebuild a contract-test framework around the workflows.
 ## Simplicity check
 
 Before keeping or adding a workflow, action, source file, contract, adapter, test, or verification step, ask whether a real product command, Agent State call, Google Drive upload, broker, source snapshot, or runner-image build actually needs it. If not, delete it or do not add it.
+
+## Merge self-review
+
+Before opening a PR, review the complete affected workflow/runtime/release path from caller input through source checkout, fixed profile execution, private-log scrubbing/upload, Agent State terminalization, and any release boundary touched by the change. Fix small regressions directly on the issue branch; do not create a permanent mirrored contract/test bureaucracy.

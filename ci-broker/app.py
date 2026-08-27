@@ -32,7 +32,6 @@ SUPPORTED_WORKFLOWS = frozenset(
         "validation.python",
         "validation.node",
         "validation.flutter",
-        "validation.gitops",
         "source.snapshot",
     }
 )
@@ -383,13 +382,13 @@ def self_check() -> dict[str, object]:
             "is_tag": False,
             "workflow_key": "validation.apple",
             "test_profile": "anything",
-            "inputs": {"test_command": "./test.sh"},
+            "inputs": {},
         }
     )
     inputs = request.dispatch_inputs()
     require(set(inputs) == {"active_key", "ci_run_id"}, "self_check_failed", 500)
     rendered = json.dumps(inputs)
-    require("ExampleOrg/private-app" not in rendered and "./test.sh" not in rendered, "self_check_failed", 500)
+    require("ExampleOrg/private-app" not in rendered and "test_command" not in rendered, "self_check_failed", 500)
     return {"ok": True, "mode": "thin-relay", "routes": ["/healthz", "/hooks/agent-state"]}
 
 

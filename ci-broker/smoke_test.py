@@ -29,7 +29,7 @@ class State:
                 "is_tag": False,
                 "workflow_key": "validation.apple",
                 "test_profile": "host",
-                "inputs": {"test_command": "./test.sh"},
+                "inputs": {},
             },
         }
 
@@ -46,14 +46,13 @@ class GitHub:
 
 
 class BrokerTests(unittest.TestCase):
-    def test_supported_rows_accept_nonempty_inputs(self) -> None:
+    def test_supported_rows_are_accepted(self) -> None:
         for key in (
             "validation.apple",
             "validation.android",
             "validation.python",
             "validation.node",
             "validation.flutter",
-            "validation.gitops",
             "source.snapshot",
         ):
             request = Request.from_claim(
@@ -66,7 +65,7 @@ class BrokerTests(unittest.TestCase):
                     "is_tag": False,
                     "workflow_key": key,
                     "test_profile": "anything",
-                    "inputs": {"test_command": "./test.sh"},
+                    "inputs": {},
                 }
             )
             self.assertEqual(set(request.dispatch_inputs()), {"active_key", "ci_run_id"})
@@ -92,9 +91,9 @@ class BrokerTests(unittest.TestCase):
         self.assertEqual(set(github.inputs), {"active_key", "ci_run_id"})
         rendered = json.dumps(github.inputs)
         self.assertNotIn("ExampleOrg/private-app", rendered)
-        self.assertNotIn("./test.sh", rendered)
+        self.assertNotIn("test_command", rendered)
 
-    def test_unsupported_workflow_is_rejected(self) -> None:
+    def test_retired_gitops_workflow_is_rejected(self) -> None:
         with self.assertRaisesRegex(BrokerError, "unsupported_ci_intent"):
             Request.from_claim(
                 {
@@ -104,7 +103,7 @@ class BrokerTests(unittest.TestCase):
                     "repository": "ExampleOrg/private-app",
                     "ref": "develop",
                     "is_tag": False,
-                    "workflow_key": "validation.unknown",
+                    "workflow_key": "validation.gitops",
                     "inputs": {},
                 }
             )

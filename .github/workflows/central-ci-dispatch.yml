@@ -47,12 +47,7 @@ jobs:
     with:
       repository: ${{ needs.request.outputs.repository }}
       ref: ${{ needs.request.outputs.ref }}
-      working_directory: ${{ fromJSON(needs.request.outputs.inputs_json).working_directory || '.' }}
       test_profile: ${{ needs.request.outputs.test_profile }}
-      prepare_command: ${{ fromJSON(needs.request.outputs.inputs_json).prepare_command || '' }}
-      build_command: ${{ fromJSON(needs.request.outputs.inputs_json).build_command || '' }}
-      test_command: ${{ fromJSON(needs.request.outputs.inputs_json).test_command || '' }}
-      release_command: ${{ fromJSON(needs.request.outputs.inputs_json).release_command || '' }}
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
 
@@ -63,13 +58,10 @@ jobs:
     with:
       repository: ${{ needs.request.outputs.repository }}
       ref: ${{ needs.request.outputs.ref }}
-      working_directory: ${{ fromJSON(needs.request.outputs.inputs_json).working_directory || '.' }}
       test_profile: ${{ needs.request.outputs.test_profile }}
-      java_version: ${{ fromJSON(needs.request.outputs.inputs_json).java_version || '25' }}
-      prepare_command: ${{ fromJSON(needs.request.outputs.inputs_json).prepare_command || '' }}
-      build_command: ${{ fromJSON(needs.request.outputs.inputs_json).build_command || '' }}
-      test_command: ${{ fromJSON(needs.request.outputs.inputs_json).test_command || '' }}
-      release_command: ${{ fromJSON(needs.request.outputs.inputs_json).release_command || '' }}
+      project_directory: ${{ fromJSON(needs.request.outputs.inputs_json).project_directory || '.' }}
+      test_filter: ${{ fromJSON(needs.request.outputs.inputs_json).test_filter || '' }}
+      room_schema: ${{ fromJSON(needs.request.outputs.inputs_json).room_schema || false }}
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
 
@@ -80,13 +72,7 @@ jobs:
     with:
       repository: ${{ needs.request.outputs.repository }}
       ref: ${{ needs.request.outputs.ref }}
-      working_directory: ${{ fromJSON(needs.request.outputs.inputs_json).working_directory || '.' }}
       test_profile: ${{ needs.request.outputs.test_profile }}
-      python_version: ${{ fromJSON(needs.request.outputs.inputs_json).python_version || '3.12' }}
-      prepare_command: ${{ fromJSON(needs.request.outputs.inputs_json).prepare_command || '' }}
-      build_command: ${{ fromJSON(needs.request.outputs.inputs_json).build_command || '' }}
-      test_command: ${{ fromJSON(needs.request.outputs.inputs_json).test_command || '' }}
-      release_command: ${{ fromJSON(needs.request.outputs.inputs_json).release_command || '' }}
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
 
@@ -97,13 +83,7 @@ jobs:
     with:
       repository: ${{ needs.request.outputs.repository }}
       ref: ${{ needs.request.outputs.ref }}
-      working_directory: ${{ fromJSON(needs.request.outputs.inputs_json).working_directory || '.' }}
       test_profile: ${{ needs.request.outputs.test_profile }}
-      node_version: ${{ fromJSON(needs.request.outputs.inputs_json).node_version || '22' }}
-      prepare_command: ${{ fromJSON(needs.request.outputs.inputs_json).prepare_command || '' }}
-      build_command: ${{ fromJSON(needs.request.outputs.inputs_json).build_command || '' }}
-      test_command: ${{ fromJSON(needs.request.outputs.inputs_json).test_command || '' }}
-      release_command: ${{ fromJSON(needs.request.outputs.inputs_json).release_command || '' }}
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
 
@@ -114,30 +94,8 @@ jobs:
     with:
       repository: ${{ needs.request.outputs.repository }}
       ref: ${{ needs.request.outputs.ref }}
-      working_directory: ${{ fromJSON(needs.request.outputs.inputs_json).working_directory || '.' }}
       test_profile: ${{ needs.request.outputs.test_profile }}
-      java_version: ${{ fromJSON(needs.request.outputs.inputs_json).java_version || '25' }}
       flutter_version: ${{ fromJSON(needs.request.outputs.inputs_json).flutter_version || '3.44.6' }}
-      prepare_command: ${{ fromJSON(needs.request.outputs.inputs_json).prepare_command || '' }}
-      build_command: ${{ fromJSON(needs.request.outputs.inputs_json).build_command || '' }}
-      test_command: ${{ fromJSON(needs.request.outputs.inputs_json).test_command || '' }}
-      release_command: ${{ fromJSON(needs.request.outputs.inputs_json).release_command || '' }}
-      ci_run_id: ${{ inputs.ci_run_id }}
-    secrets: inherit
-
-  gitops:
-    needs: request
-    if: ${{ needs.request.outputs.workflow_key == 'validation.gitops' }}
-    uses: ./.github/workflows/gitops.yml
-    with:
-      repository: ${{ needs.request.outputs.repository }}
-      ref: ${{ needs.request.outputs.ref }}
-      working_directory: ${{ fromJSON(needs.request.outputs.inputs_json).working_directory || '.' }}
-      test_profile: ${{ needs.request.outputs.test_profile }}
-      prepare_command: ${{ fromJSON(needs.request.outputs.inputs_json).prepare_command || '' }}
-      build_command: ${{ fromJSON(needs.request.outputs.inputs_json).build_command || '' }}
-      test_command: ${{ fromJSON(needs.request.outputs.inputs_json).test_command || '' }}
-      release_command: ${{ fromJSON(needs.request.outputs.inputs_json).release_command || '' }}
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
 
