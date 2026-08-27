@@ -31,6 +31,9 @@ class CiHelperTests(unittest.TestCase):
         text = (ROOT / "actions/agent-state/action.yml").read_text()
         self.assertIn("claim_ci_run", text)
         self.assertIn("transition_ci_run", text)
+        self.assertIn("external_repository:$repository", text)
+        self.assertIn("external_run_url:$run_url", text)
+        self.assertIn("https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}", text)
         self.assertNotIn("observed_source_sha", text)
         self.assertNotIn("diagnostic_", text)
 
