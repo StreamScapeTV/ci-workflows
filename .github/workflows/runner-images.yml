@@ -2,18 +2,7 @@ name: Runner images
 
 "on":
   push:
-    paths:
-      - runner-images/**
-      - .github/workflows/runner-images.yml
-  workflow_dispatch:
-    inputs:
-      publish:
-        type: boolean
-        default: false
-      version:
-        type: string
-        required: false
-        default: "dev"
+    tags: ["runner-images-*"]
 
 permissions:
   contents: read
@@ -28,6 +17,17 @@ jobs:
         image: [general, mobile, buildah, service, docker, flux-control]
     steps:
       - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -Eeuo pipefail
+          case "${TAG}" in runner-images-*) version="${TAG#runner-images-}" ;; *) exit 2 ;; esac
+          test -n "${version}"
+          printf 'version=%s\n' "${version}" >> "${GITHUB_OUTPUT}"
 
       - name: Prepare image inputs
         shell: bash
@@ -53,11 +53,10 @@ jobs:
           fi
 
       - name: Publish image
-        if: ${{ inputs.publish == true }}
         shell: bash
         env:
           IMAGE: ${{ matrix.image }}
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ steps.version.outputs.version }}
           GHCR_TOKEN: ${{ github.token }}
         run: |
           set -Eeuo pipefail
