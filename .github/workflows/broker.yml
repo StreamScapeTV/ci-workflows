@@ -12,58 +12,103 @@ name: Broker release
 permissions:
   contents: read
 
+env:
+  REGISTRY: git.faruqi.dev
+  IMAGE: git.faruqi.dev/mimranfaruqi/ci-workflows/ci-broker
+  CHART_REGISTRY: oci://git.faruqi.dev/mimranfaruqi/ci-workflows/helm-charts
+
 jobs:
-  release:
+  resolve:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    env:
-      REGISTRY: git.faruqi.dev
-      IMAGE: git.faruqi.dev/mimranfaruqi/ci-workflows/ci-broker
-      CHART_REGISTRY: oci://git.faruqi.dev/mimranfaruqi/ci-workflows/helm-charts
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      source_sha: ${{ steps.release.outputs.source_sha }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'push' && github.sha || format('refs/tags/{0}', inputs.release_tag) }}
           persist-credentials: false
 
-      - name: Resolve version
-        id: version
+      - name: Resolve exact broker release
+        id: release
         shell: bash
         env:
           TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}
         run: |
           set -Eeuo pipefail
           case "${TAG}" in ci-broker-*) version="${TAG#ci-broker-}" ;; *) exit 2 ;; esac
+          source_sha="$(git rev-parse HEAD)"
           test -n "${version}"
+          [[ "${source_sha}" =~ ^[0-9a-f]{40}$ ]]
           printf 'version=%s\n' "${version}" >> "${GITHUB_OUTPUT}"
+          printf 'source_sha=%s\n' "${source_sha}" >> "${GITHUB_OUTPUT}"
 
-      - name: Build and smoke broker image
-        run: |
-          docker build -f ci-broker/Containerfile -t "ci-broker:${{ steps.version.outputs.version }}" ci-broker
-          python3 ci-broker/smoke_test.py
+  image:
+    needs: resolve
+    runs-on: [linux, amd64, buildah, small]
+    timeout-minutes: 45
+    env:
+      VERSION: ${{ needs.resolve.outputs.version }}
+      SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
+      REGISTRY_USER: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+      REGISTRY_TOKEN: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          persist-credentials: false
 
-      - name: Publish broker image
-        env:
-          REGISTRY_USER: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
-          REGISTRY_TOKEN: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
+      - name: Build smoke and publish broker image
+        shell: bash
         run: |
           set -Eeuo pipefail
           test -n "${REGISTRY_USER}"
           test -n "${REGISTRY_TOKEN}"
-          printf '%s' "${REGISTRY_TOKEN}" | docker login "${REGISTRY}" -u "${REGISTRY_USER}" --password-stdin
-          docker tag "ci-broker:${{ steps.version.outputs.version }}" "${IMAGE}:${{ steps.version.outputs.version }}"
-          docker push "${IMAGE}:${{ steps.version.outputs.version }}"
+          local_ref="localhost/ci-broker:${SOURCE_SHA}"
+          remote_ref="${IMAGE}:${VERSION}"
+          buildah bud --layers=false --isolation chroot --file ci-broker/Containerfile --tag "${local_ref}" ci-broker
+          container="ci-broker-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          buildah from --name "${container}" "${local_ref}" >/dev/null
+          buildah copy "${container}" ci-broker/smoke_test.py /opt/ci-broker/smoke_test.py >/dev/null
+          buildah run "${container}" -- python3 /opt/ci-broker/app.py self-check
+          buildah run "${container}" -- python3 /opt/ci-broker/smoke_test.py
+          buildah rm "${container}" >/dev/null
+          printf '%s' "${REGISTRY_TOKEN}" | buildah login --username "${REGISTRY_USER}" --password-stdin "${REGISTRY}" >/dev/null
+          buildah push "${local_ref}" "docker://${remote_ref}"
+
+      - name: Logout from private registry
+        if: always()
+        shell: bash
+        run: buildah logout "${REGISTRY}" >/dev/null 2>&1 || true
+
+  chart:
+    needs: [resolve, image]
+    runs-on: [linux, amd64, general, small]
+    timeout-minutes: 30
+    env:
+      VERSION: ${{ needs.resolve.outputs.version }}
+      SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
+      REGISTRY_USER: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+      REGISTRY_TOKEN: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          persist-credentials: false
 
       - name: Package and publish Helm chart
-        env:
-          REGISTRY_USER: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
-          REGISTRY_TOKEN: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
+        shell: bash
         run: |
           set -Eeuo pipefail
           test -n "${REGISTRY_USER}"
           test -n "${REGISTRY_TOKEN}"
-          version="${{ steps.version.outputs.version }}"
-          helm lint ci-broker/chart --set "image.tag=${version}"
-          helm package ci-broker/chart --version "${version}" --app-version "${version}" --destination "${RUNNER_TEMP}"
-          printf '%s' "${REGISTRY_TOKEN}" | helm registry login "${REGISTRY}" --username "${REGISTRY_USER}" --password-stdin
-          helm push "${RUNNER_TEMP}/ci-broker-${version}.tgz" "${CHART_REGISTRY}"
+          helm lint ci-broker/chart --set "image.tag=${VERSION}"
+          helm package ci-broker/chart --version "${VERSION}" --app-version "${VERSION}" --destination "${RUNNER_TEMP}"
+          printf '%s' "${REGISTRY_TOKEN}" | helm registry login "${REGISTRY}" --username "${REGISTRY_USER}" --password-stdin >/dev/null
+          helm push "${RUNNER_TEMP}/ci-broker-${VERSION}.tgz" "${CHART_REGISTRY}"
+
+      - name: Logout from private registry
+        if: always()
+        shell: bash
+        run: helm registry logout "${REGISTRY}" >/dev/null 2>&1 || true
