@@ -59,28 +59,52 @@ jobs:
           ref: ${{ needs.resolve.outputs.source_sha }}
           persist-credentials: false
 
+      - name: Prepare isolated Buildah auth state
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          authfile="${RUNNER_TEMP}/ci-broker-registry-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+          test ! -e "${authfile}"
+          umask 077
+          printf '{}\n' > "${authfile}"
+          chmod 0600 "${authfile}"
+          printf 'BROKER_REGISTRY_AUTH=%s\n' "${authfile}" >> "${GITHUB_ENV}"
+
       - name: Build smoke and publish broker image
         shell: bash
         run: |
           set -Eeuo pipefail
           test -n "${REGISTRY_USER}"
           test -n "${REGISTRY_TOKEN}"
+          test -f "${BROKER_REGISTRY_AUTH}"
           local_ref="localhost/ci-broker:${SOURCE_SHA}"
           remote_ref="${IMAGE}:${VERSION}"
-          buildah bud --layers=false --isolation chroot --file ci-broker/Containerfile --tag "${local_ref}" ci-broker
+          buildah bud --authfile "${BROKER_REGISTRY_AUTH}" --layers=false --isolation chroot --file ci-broker/Containerfile --tag "${local_ref}" ci-broker
           container="ci-broker-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          buildah from --name "${container}" "${local_ref}" >/dev/null
+          buildah from --authfile "${BROKER_REGISTRY_AUTH}" --name "${container}" "${local_ref}" >/dev/null
           buildah copy "${container}" ci-broker/smoke_test.py /opt/ci-broker/smoke_test.py >/dev/null
           buildah run "${container}" -- python3 /opt/ci-broker/app.py self-check
           buildah run "${container}" -- python3 /opt/ci-broker/smoke_test.py
           buildah rm "${container}" >/dev/null
-          printf '%s' "${REGISTRY_TOKEN}" | buildah login --username "${REGISTRY_USER}" --password-stdin "${REGISTRY}" >/dev/null
-          buildah push "${local_ref}" "docker://${remote_ref}"
+          printf '%s' "${REGISTRY_TOKEN}" | buildah login --authfile "${BROKER_REGISTRY_AUTH}" --username "${REGISTRY_USER}" --password-stdin "${REGISTRY}" >/dev/null
+          buildah push --authfile "${BROKER_REGISTRY_AUTH}" "${local_ref}" "docker://${remote_ref}"
 
-      - name: Logout from private registry
+      - name: Remove private registry and image state
         if: always()
         shell: bash
-        run: buildah logout "${REGISTRY}" >/dev/null 2>&1 || true
+        run: |
+          set +e
+          container="ci-broker-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          local_ref="localhost/ci-broker:${SOURCE_SHA}"
+          buildah rm "${container}" >/dev/null 2>&1 || true
+          if test -n "${BROKER_REGISTRY_AUTH:-}"; then
+            buildah logout --authfile "${BROKER_REGISTRY_AUTH}" "${REGISTRY}" >/dev/null 2>&1 || true
+          fi
+          buildah rmi "${local_ref}" >/dev/null 2>&1 || true
+          if test -n "${BROKER_REGISTRY_AUTH:-}"; then
+            rm -f -- "${BROKER_REGISTRY_AUTH}"
+            test ! -e "${BROKER_REGISTRY_AUTH}"
+          fi
 
   chart:
     needs: [resolve, image]
