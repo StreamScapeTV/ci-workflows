@@ -1,7 +1,9 @@
 name: Issue 577 Android Tailscale proof
 
 "on":
-  workflow_dispatch:
+  push:
+    branches:
+      - orchestrator/issue-577-tailscale-android
 
 permissions:
   contents: read
@@ -19,7 +21,6 @@ jobs:
     secrets: inherit
 
   release:
-    needs: full
     uses: ./.github/workflows/android.yml
     with:
       repository: StreamScapeTV/iptv-android
