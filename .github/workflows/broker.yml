@@ -54,6 +54,12 @@ jobs:
       REGISTRY_USER: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
       REGISTRY_TOKEN: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
     steps:
+      - name: Connect to private Git service
+        uses: StreamScapeTV/ci-workflows/actions/private-git@orchestrator/issue-577-tailscale-android
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.resolve.outputs.source_sha }}
@@ -108,7 +114,7 @@ jobs:
 
   chart:
     needs: [resolve, image]
-    runs-on: [linux, amd64, general, small]
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       VERSION: ${{ needs.resolve.outputs.version }}
@@ -116,6 +122,12 @@ jobs:
       REGISTRY_USER: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
       REGISTRY_TOKEN: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
     steps:
+      - name: Connect to private Git service
+        uses: StreamScapeTV/ci-workflows/actions/private-git@orchestrator/issue-577-tailscale-android
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.resolve.outputs.source_sha }}
