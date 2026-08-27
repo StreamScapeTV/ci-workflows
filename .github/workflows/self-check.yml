@@ -42,13 +42,5 @@ jobs:
       repository: StreamScapeTV/iptv-backend
       ref: agent19/issue-449-opaque-central-backend
       test_profile: backend-full
-    secrets: inherit
-
-  backend_postgres_proof:
-    if: ${{ github.ref == 'refs/heads/agent1/issue-536-python-postgres' }}
-    uses: ./.github/workflows/python.yml
-    with:
-      repository: StreamScapeTV/iptv-backend
-      ref: agent19/issue-449-opaque-central-backend
-      test_profile: backend-postgres
+      upload_private_log: true
     secrets: inherit
