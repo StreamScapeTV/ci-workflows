@@ -53,10 +53,6 @@ name: Android CI
         required: false
       CIW_MAVEN_PACKAGE_READ_TOKEN:
         required: false
-      TS_OAUTH_CLIENT_ID:
-        required: false
-      TS_OAUTH_SECRET:
-        required: false
 
 permissions:
   contents: read
@@ -83,49 +79,12 @@ jobs:
           phase: start
           ci_run_id: ${{ inputs.ci_run_id }}
 
-      - name: Require fixed Tailscale credentials
+      - name: Connect to private Git service
         if: ${{ inputs.test_profile != 'smoke' }}
-        shell: bash
+        uses: StreamScapeTV/ci-workflows/actions/private-git@orchestrator/issue-577-tailscale-android
         env:
           TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
-        run: |
-          set -Eeuo pipefail
-          test -n "${TS_OAUTH_CLIENT_ID}" || {
-            echo "Missing fixed Central Tailscale OAuth client ID" >&2
-            exit 1
-          }
-          test -n "${TS_OAUTH_SECRET}" || {
-            echo "Missing fixed Central Tailscale OAuth secret" >&2
-            exit 1
-          }
-
-      - name: Connect to private Git service
-        if: ${{ inputs.test_profile != 'smoke' }}
-        uses: tailscale/github-action@v4
-        with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:github-ci
-          log-mode: quiet
-
-      - name: Verify private Git service reachability
-        if: ${{ inputs.test_profile != 'smoke' }}
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          printf '\n===== forgejo-connectivity =====\n' >> "${CI_LOG}"
-          if ! python3 - <<'PY_CONNECT' >> "${CI_LOG}" 2>&1
-          import socket
-
-          with socket.create_connection(("git.faruqi.dev", 443), timeout=15):
-              pass
-          print("git.faruqi.dev tcp/443 reachable")
-          PY_CONNECT
-          then
-            echo "Private Git service is unreachable; inspect the private Google Drive CI log." >&2
-            exit 1
-          fi
 
       - name: Prepare source token
         id: source
