@@ -81,9 +81,11 @@ class CiHelperTests(unittest.TestCase):
         self.assertIn("group: central-ci-${{ inputs.active_key }}", text)
         self.assertIn("cancel-in-progress: true", text)
         broker = (ROOT / "ci-broker/app.py").read_text()
-        self.assertIn('{"repository": self.repository, "ref": self.ref, "is_tag": self.is_tag}', broker)
-        self.assertNotIn('"ci_run_id": self.ci_run_id', broker)
-        self.assertNotIn('"test_profile":', broker[broker.index("def active_key"): broker.index("def dispatch_inputs")])
+        active_key = broker[broker.index("def active_key"): broker.index("def dispatch_inputs")]
+        self.assertIn('{"repository": self.repository, "ref": self.ref, "is_tag": self.is_tag}', active_key)
+        self.assertNotIn("ci_run_id", active_key)
+        self.assertNotIn("test_profile", active_key)
+        self.assertNotIn("workflow_key", active_key)
 
     def test_fixed_profiles_replace_arbitrary_command_transport(self) -> None:
         forbidden = ("prepare_command", "build_command", "test_command", "release_command", "bash -lc")
