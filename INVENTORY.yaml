@@ -15,6 +15,7 @@ workflows:
 actions:
   agent_state: actions/agent-state/action.yml
   google_drive: actions/google-drive/action.yml
+  private_git: actions/private-git/action.yml
 
 services:
   ci_broker: ci-broker/
