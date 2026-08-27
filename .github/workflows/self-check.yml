@@ -34,3 +34,21 @@ jobs:
         run: |
           docker build -f ci-broker/Containerfile -t ci-broker:self-check ci-broker
           python3 ci-broker/smoke_test.py
+
+  backend_full_exact_head_proof:
+    uses: ./.github/workflows/python.yml
+    with:
+      repository: StreamScapeTV/iptv-backend
+      ref: 4f4ab780dd8e40cd1edba3ba345f34ac4a67aabe
+      test_profile: backend-full
+      upload_private_log: true
+    secrets: inherit
+
+  backend_postgres_exact_head_proof:
+    uses: ./.github/workflows/python.yml
+    with:
+      repository: StreamScapeTV/iptv-backend
+      ref: 4f4ab780dd8e40cd1edba3ba345f34ac4a67aabe
+      test_profile: backend-postgres
+      upload_private_log: true
+    secrets: inherit
