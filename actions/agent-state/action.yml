@@ -69,9 +69,11 @@ runs:
             ;;
           start)
             patch="$(jq -cn \
+              --arg repository "${GITHUB_REPOSITORY}" \
               --argjson run_id "${GITHUB_RUN_ID}" \
               --argjson attempt "${GITHUB_RUN_ATTEMPT}" \
-              '{status:"running",external_run_id:$run_id,external_run_attempt:$attempt}')"
+              --arg run_url "https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+              '{status:"running",external_repository:$repository,external_run_id:$run_id,external_run_attempt:$attempt,external_run_url:$run_url}')"
             response="$(rpc transition_ci_run "$(jq -cn --arg id "${CI_RUN_ID}" --argjson patch "${patch}" '{p_ci_run_id:$id,p_patch:$patch}')")"
             test "$(jq -r '.ok' <<<"${response}")" = true
             ;;
