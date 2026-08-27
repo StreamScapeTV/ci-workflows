@@ -1,9 +1,7 @@
 name: Issue 577 Android Tailscale proof
 
 "on":
-  push:
-    branches:
-      - orchestrator/issue-577-tailscale-android
+  workflow_dispatch:
 
 permissions:
   contents: read
