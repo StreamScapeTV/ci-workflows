@@ -105,6 +105,46 @@ jobs:
             fi
           }
 
+          run_backend_postgres() {
+            printf '\n===== backend-postgres =====\n' >> "$CI_LOG"
+            if ! (
+              set -Eeuo pipefail
+              local container="ciw-postgres-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+              cleanup_postgres() {
+                docker rm -f "$container" >/dev/null 2>&1 || true
+              }
+              trap cleanup_postgres EXIT
+
+              docker run --detach --rm \
+                --name "$container" \
+                --env POSTGRES_USER=ciw \
+                --env POSTGRES_DB=ciw \
+                --env POSTGRES_HOST_AUTH_METHOD=trust \
+                --publish 127.0.0.1:55432:5432 \
+                postgres:17-alpine >/dev/null
+
+              ready=false
+              for _ in $(seq 1 60); do
+                if docker exec "$container" pg_isready -U ciw -d ciw >/dev/null 2>&1; then
+                  ready=true
+                  break
+                fi
+                sleep 1
+              done
+              test "$ready" = true
+              test -x scripts/run_backend_postgres_validation.sh
+              export CIW_POSTGRES_URL="postgresql://ciw@127.0.0.1:55432/ciw"
+              ./scripts/run_backend_postgres_validation.sh
+
+              docker rm -f "$container" >/dev/null
+              trap - EXIT
+              ! docker inspect "$container" >/dev/null 2>&1
+            ) >> "$CI_LOG" 2>&1; then
+              printf 'backend-postgres failed; inspect the private Google Drive CI log.\n' >&2
+              return 1
+            fi
+          }
+
           if [[ -f requirements.txt ]]; then
             run_logged dependencies python -m pip install --disable-pip-version-check -r requirements.txt
           fi
@@ -114,6 +154,13 @@ jobs:
             release-gates)
               test -f scripts/run_release_gates.sh
               run_logged release-gates bash scripts/run_release_gates.sh
+              ;;
+            backend-full)
+              test -x scripts/run_backend_validation.sh
+              run_logged backend-full ./scripts/run_backend_validation.sh
+              ;;
+            backend-postgres)
+              run_backend_postgres
               ;;
             *) echo "Unsupported Python test_profile: $TEST_PROFILE" >&2; exit 2 ;;
           esac
