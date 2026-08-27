@@ -114,6 +114,8 @@ jobs:
               run_logged build npm run build
               ;;
             static-web)
+              export NEXT_PUBLIC_API_URL=https://api.streamscapetv.com
+              export NEXT_TELEMETRY_DISABLED=1
               run_logged npm-ci npm ci
               run_logged check npm run check
               run_logged repository-clean git diff --exit-code
