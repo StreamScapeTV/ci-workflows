@@ -15,7 +15,6 @@ ENV DEBIAN_FRONTEND=noninteractive \
     BUILDAH_ISOLATION=chroot \
     STORAGE_DRIVER=vfs \
     XDG_RUNTIME_DIR=/home/runner/.local/run \
-    REGISTRY_AUTH_FILE=/home/runner/.config/containers/auth.json \
     CI=true
 
 RUN apt-get update \

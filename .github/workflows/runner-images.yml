@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [general, mobile, buildah, service, docker, flux-control]
+        image: [general, mobile, buildah, service, docker]
     steps:
       - uses: actions/checkout@v4
 

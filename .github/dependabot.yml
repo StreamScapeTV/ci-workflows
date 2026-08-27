@@ -1,8 +1,8 @@
 version: 2
 updates:
   # Keep each runner image in its own update lane. Dependabot's Docker updater
-  # only proposes the first tagged FROM update; image-owned lock/tests remain
-  # authoritative for the complete multi-stage/toolchain review.
+  # only proposes the first tagged FROM update; each Dockerfile and smoke script
+  # remain authoritative for its complete runtime/toolchain review.
   - package-ecosystem: "docker"
     directory: "/runner-images/mobile"
     schedule:
@@ -20,11 +20,6 @@ updates:
 
   - package-ecosystem: "docker"
     directory: "/runner-images/docker"
-    schedule:
-      interval: "weekly"
-
-  - package-ecosystem: "docker"
-    directory: "/runner-images/flux-control"
     schedule:
       interval: "weekly"
 

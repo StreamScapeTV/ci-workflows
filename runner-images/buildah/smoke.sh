@@ -7,7 +7,9 @@ test -x /home/runner/run.sh
 test "${BUILDAH_ISOLATION}" = chroot
 test "${STORAGE_DRIVER}" = vfs
 test "${XDG_RUNTIME_DIR}" = /home/runner/.local/run
-test "${REGISTRY_AUTH_FILE}" = /home/runner/.config/containers/auth.json
+test -z "${REGISTRY_AUTH_FILE:-}"
+test ! -e /home/runner/.config/containers/auth.json
+test ! -e "${XDG_RUNTIME_DIR}/containers/auth.json"
 
 buildah --version | grep -F '1.33.7'
 skopeo --version | grep -F '1.13.3'
