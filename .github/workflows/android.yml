@@ -81,7 +81,7 @@ jobs:
 
       - name: Connect to private Git service
         if: ${{ inputs.test_profile != 'smoke' }}
-        uses: StreamScapeTV/ci-workflows/actions/private-git@orchestrator/issue-577-tailscale-android
+        uses: StreamScapeTV/ci-workflows/actions/private-git@main
         env:
           TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
