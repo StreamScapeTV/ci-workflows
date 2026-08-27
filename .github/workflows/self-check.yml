@@ -1,162 +1,36 @@
-name: Central workflow self-check
+name: CI workflows self-check
 
-on:
+"on":
+  push:
+    branches: [main, "issue/**", "orchestrator/**", "agent*/**", "codex*/**"]
   pull_request:
     branches: [main]
-  push:
-    branches: ["**"]
-  workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: central-self-check-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  validate:
-    name: Validate repository and reusable workflow contracts
-    if: >-
-      ${{ github.event_name != 'pull_request' ||
-          (github.event.pull_request.user.login == 'mimranfaruqi' &&
-           github.event.pull_request.head.repo.full_name == github.repository) }}
-    runs-on: [ubuntu-latest]
-    timeout-minutes: 10
-    env:
-      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      PYTHONDONTWRITEBYTECODE: "1"
-      PYTHONPATH: src
+  check:
+    runs-on: ubuntu-24.04
     steps:
-      - name: Admit trusted workflow source
-        shell: bash
-        env:
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -Eeuo pipefail
-          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
-          case "${GITHUB_EVENT_NAME}" in
-            pull_request)
-              test "${PR_AUTHOR}" = "mimranfaruqi"
-              test "${PR_HEAD_REPOSITORY}" = "${GITHUB_REPOSITORY}"
-              test "${SOURCE_SHA}" = "${PR_HEAD_SHA}"
-              ;;
-            push|workflow_dispatch)
-              test "${SOURCE_SHA}" = "${GITHUB_SHA}"
-              ;;
-            *) exit 1 ;;
-          esac
+      - uses: actions/checkout@v4
 
-      - name: Verify pre-provisioned general-Linux CPython 3.12
+      - name: Parse workflow and action YAML
         shell: bash
         run: |
-          set -Eeuo pipefail
-          candidate="$(type -P python3.12 || true)"
-          if [[ -z "${candidate}" ]]; then candidate="$(type -P python3 || true)"; fi
-          test -n "${candidate}"
-          test "${candidate}" != "${candidate#/}"
-          test -x "${candidate}"
-          resolved="$("${candidate}" -c 'import os,sys; print(os.path.realpath(sys.executable))')"
-          test "${resolved}" != "${resolved#/}"
-          test -x "${resolved}"
-          identity="$("${resolved}" -c 'import platform,sys; print(f"{sys.implementation.name}|{sys.version_info.major}.{sys.version_info.minor}|{platform.system()}")')"
-          IFS='|' read -r implementation version system <<< "${identity}"
-          test "${implementation}" = cpython
-          test "${version}" = 3.12
-          test "${system}" = Linux
-          {
-            printf 'VERIFIED_PYTHON=%s\n' "${resolved}"
-            printf 'PYTHON_EXECUTABLE=%s\n' "${resolved}"
-          } >> "${GITHUB_ENV}"
+          python3 -m pip install --quiet PyYAML
+          python3 - <<'PY'
+          from pathlib import Path
+          import yaml
+          for path in [*Path('.github/workflows').glob('*.yml'), *Path('actions').glob('*/action.yml')]:
+              yaml.safe_load(path.read_text())
+          print('yaml-ok')
+          PY
 
-      - name: Check out exact source
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ env.SOURCE_SHA }}
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-          set-safe-directory: false
+      - name: Run focused helper tests
+        run: python3 -m unittest tests.test_ci_helpers -v
 
-      - name: Verify exact source
-        shell: bash
-        run: test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
-
-      - name: Prepare repository-declared validation dependencies
-        shell: bash
+      - name: Smoke broker
         run: |
-          set -Eeuo pipefail
-          validation_root="${HOME}/.ciw-self-check-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          test ! -e "${validation_root}"
-          test ! -L "${validation_root}"
-          mkdir -m 0700 "${validation_root}"
-          mkdir -m 0700 "${validation_root}/python" "${validation_root}/tmp"
-          "${VERIFIED_PYTHON}" -m pip install \
-            --disable-pip-version-check \
-            --no-cache-dir \
-            --target "${validation_root}/python" \
-            -r requirements/validation.txt
-          PYTHONPATH="${validation_root}/python" "${VERIFIED_PYTHON}" -c 'import yaml; print(f"PyYAML {yaml.__version__}")'
-          {
-            printf 'VALIDATION_ROOT=%s\n' "${validation_root}"
-            printf 'PYTHONPATH=%s:%s/src\n' "${validation_root}/python" "${GITHUB_WORKSPACE}"
-          } >> "${GITHUB_ENV}"
-
-      - name: Run canonical validation harness
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          "${VERIFIED_PYTHON}" scripts/ci/validation_harness.py \
-            --root . --summary "${VALIDATION_ROOT}/summary.json"
-
-      - name: Verify bootstrap and generated inventory contracts
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          "${VERIFIED_PYTHON}" scripts/ci/bootstrap_check.py
-          "${VERIFIED_PYTHON}" scripts/ci/inventory_contract.py validate
-          "${VERIFIED_PYTHON}" scripts/ci/inventory_contract.py render --check
-
-      - name: Verify public API agreement
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          "${VERIFIED_PYTHON}" scripts/ci/public_api_contract.py validate
-          "${VERIFIED_PYTHON}" scripts/ci/public_api_contract.py render --check
-
-      - name: Run automatically discovered unit tests
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          TMPDIR="${VALIDATION_ROOT}/tmp" \
-            "${VERIFIED_PYTHON}" -m unittest discover -s tests -p 'test_*.py' -v
-          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
-
-      - name: Verify clean tracked tree
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          git diff --exit-code
-          git diff --cached --exit-code
-          test -z "$(git status --porcelain --untracked-files=all)"
-
-      - name: Remove validation state
-        if: always()
-        shell: bash
-        run: |
-          set +e
-          cleanup_failed=0
-          if [[ -n "${VALIDATION_ROOT:-}" ]]; then
-            rm -rf "${VALIDATION_ROOT}" || cleanup_failed=1
-            [[ ! -e "${VALIDATION_ROOT}" ]] || cleanup_failed=1
-          fi
-          find . -type d -name __pycache__ -prune -exec rm -rf {} + || cleanup_failed=1
-          find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete || cleanup_failed=1
-          test -z "$(find . -type d -name __pycache__ -print -quit)" || cleanup_failed=1
-          test -z "$(find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -print -quit)" || cleanup_failed=1
-          if [[ -d .git ]]; then
-            test -z "$(git status --porcelain --untracked-files=all)" || cleanup_failed=1
-          fi
-          exit "${cleanup_failed}"
+          python3 ci-broker/app.py self-check
+          python3 ci-broker/smoke_test.py

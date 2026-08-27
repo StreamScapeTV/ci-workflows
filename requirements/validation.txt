@@ -1,2 +1,0 @@
-# Runtime dependency for the Central YAML validation harness.
-PyYAML>=6,<7

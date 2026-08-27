@@ -1,0 +1,84 @@
+name: Agent State CI
+
+description: Small shared Agent State helper for Central CI claim/start/finish calls.
+
+inputs:
+  phase:
+    description: claim, start, or finish
+    required: true
+  ci_run_id:
+    description: Agent State CI run UUID
+    required: true
+  status:
+    description: Terminal status for finish
+    required: false
+    default: ""
+
+outputs:
+  repository:
+    value: ${{ steps.call.outputs.repository }}
+  ref:
+    value: ${{ steps.call.outputs.ref }}
+  is_tag:
+    value: ${{ steps.call.outputs.is_tag }}
+  workflow_key:
+    value: ${{ steps.call.outputs.workflow_key }}
+  test_profile:
+    value: ${{ steps.call.outputs.test_profile }}
+  inputs_json:
+    value: ${{ steps.call.outputs.inputs_json }}
+
+runs:
+  using: composite
+  steps:
+    - id: call
+      shell: bash
+      env:
+        PHASE: ${{ inputs.phase }}
+        CI_RUN_ID: ${{ inputs.ci_run_id }}
+        TERMINAL_STATUS: ${{ inputs.status }}
+      run: |
+        set -Eeuo pipefail
+        : "${AGENT_STATE_SUPABASE_URL:?AGENT_STATE_SUPABASE_URL is required}"
+        : "${AGENT_STATE_SUPABASE_SECRET_KEY:?AGENT_STATE_SUPABASE_SECRET_KEY is required}"
+        headers=(
+          -H "apikey: ${AGENT_STATE_SUPABASE_SECRET_KEY}"
+          -H "Content-Type: application/json"
+          -H "Content-Profile: agent_api"
+          -H "Accept-Profile: agent_api"
+        )
+        rpc() {
+          curl --fail --silent --show-error \
+            "${headers[@]}" \
+            --data "$2" \
+            "${AGENT_STATE_SUPABASE_URL%/}/rest/v1/rpc/$1"
+        }
+        case "${PHASE}" in
+          claim)
+            response="$(rpc claim_ci_run "$(jq -cn --arg id "${CI_RUN_ID}" '{p_ci_run_id:$id}')")"
+            test "$(jq -r '.ok' <<<"${response}")" = true
+            run="$(jq -c '.run' <<<"${response}")"
+            {
+              printf 'repository=%s\n' "$(jq -r '.repository' <<<"${run}")"
+              printf 'ref=%s\n' "$(jq -r '.ref' <<<"${run}")"
+              printf 'is_tag=%s\n' "$(jq -r '.is_tag' <<<"${run}")"
+              printf 'workflow_key=%s\n' "$(jq -r '.workflow_key' <<<"${run}")"
+              printf 'test_profile=%s\n' "$(jq -r '.test_profile' <<<"${run}")"
+              printf 'inputs_json=%s\n' "$(jq -c '.inputs // {}' <<<"${run}")"
+            } >> "${GITHUB_OUTPUT}"
+            ;;
+          start)
+            patch="$(jq -cn \
+              --argjson run_id "${GITHUB_RUN_ID}" \
+              --argjson attempt "${GITHUB_RUN_ATTEMPT}" \
+              '{status:"running",external_run_id:$run_id,external_run_attempt:$attempt}')"
+            response="$(rpc transition_ci_run "$(jq -cn --arg id "${CI_RUN_ID}" --argjson patch "${patch}" '{p_ci_run_id:$id,p_patch:$patch}')")"
+            test "$(jq -r '.ok' <<<"${response}")" = true
+            ;;
+          finish)
+            case "${TERMINAL_STATUS}" in succeeded|failed|cancelled|timed_out) ;; *) exit 2 ;; esac
+            response="$(rpc transition_ci_run "$(jq -cn --arg id "${CI_RUN_ID}" --arg status "${TERMINAL_STATUS}" '{p_ci_run_id:$id,p_patch:{status:$status}}')")"
+            test "$(jq -r '.ok' <<<"${response}")" = true
+            ;;
+          *) exit 2 ;;
+        esac

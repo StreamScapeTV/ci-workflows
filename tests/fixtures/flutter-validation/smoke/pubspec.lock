@@ -1,5 +1,0 @@
-# Synthetic lock contract. The smoke workflow regenerates a temporary app before real execution.
-packages: {}
-sdks:
-  dart: ">=3.11.0 <4.0.0"
-  flutter: ">=3.41.4"

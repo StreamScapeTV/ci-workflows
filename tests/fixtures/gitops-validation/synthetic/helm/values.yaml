@@ -1,7 +1,0 @@
-replicaCount: 1
-image:
-  repository: example.invalid/synthetic
-  tag: sha-0000000000000000000000000000000000000000
-message: source-only
-fixture-lib:
-  enabled: true

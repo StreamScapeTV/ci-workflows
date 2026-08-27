@@ -1,16 +1,14 @@
 name: Central CI dispatch
 
-on:
+"on":
   workflow_dispatch:
     inputs:
       active_key:
-        description: Opaque deterministic active CI identity supplied by the thin relay
-        required: true
         type: string
+        required: true
       ci_run_id:
-        description: Opaque Agent State CI run UUID
-        required: true
         type: string
+        required: true
 
 permissions:
   contents: read
@@ -20,182 +18,315 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  plan:
-    name: Resolve private hosted executor family
-    runs-on: [ubuntu-latest]
-    timeout-minutes: 10
+  request:
+    runs-on: ubuntu-24.04
     outputs:
-      executor_family: ${{ steps.private.outputs.executor_family }}
+      repository: ${{ steps.claim.outputs.repository }}
+      ref: ${{ steps.claim.outputs.ref }}
+      is_tag: ${{ steps.claim.outputs.is_tag }}
+      workflow_key: ${{ steps.claim.outputs.workflow_key }}
+      test_profile: ${{ steps.claim.outputs.test_profile }}
+      inputs_json: ${{ steps.claim.outputs.inputs_json }}
     steps:
-      - name: Check out exact public Central source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
-          fetch-depth: 1
-          clean: true
           persist-credentials: false
-          set-safe-directory: false
-
-      - name: Verify exact public Central source
-        shell: bash
-        env:
-          EXPECTED_SHA: ${{ github.sha }}
-        run: |
-          set -Eeuo pipefail
-          test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
-
-      - id: private
-        name: Resolve opaque request to coarse hosted family
-        uses: ./actions/private-ci
+      - id: claim
+        uses: ./actions/agent-state
         env:
           AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
           AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
         with:
-          phase: plan
+          phase: claim
           ci_run_id: ${{ inputs.ci_run_id }}
 
-      - name: Verify public Central checkout remained clean
-        if: ${{ always() }}
-        shell: bash
-        env:
-          EXPECTED_SHA: ${{ github.sha }}
-        run: |
-          set -Eeuo pipefail
-          test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
-          test -z "$(git status --porcelain=v1 --untracked-files=all)"
-          test ! -e source
+  apple:
+    needs: request
+    if: ${{ needs.request.outputs.workflow_key == 'validation.apple' }}
+    uses: ./.github/workflows/apple.yml
+    with:
+      repository: ${{ needs.request.outputs.repository }}
+      ref: ${{ needs.request.outputs.ref }}
+      working_directory: ${{ fromJSON(needs.request.outputs.inputs_json).working_directory || '.' }}
+      test_profile: ${{ needs.request.outputs.test_profile }}
+      prepare_command: ${{ fromJSON(needs.request.outputs.inputs_json).prepare_command || '' }}
+      build_command: ${{ fromJSON(needs.request.outputs.inputs_json).build_command || '' }}
+      test_command: ${{ fromJSON(needs.request.outputs.inputs_json).test_command || '' }}
+      release_command: ${{ fromJSON(needs.request.outputs.inputs_json).release_command || '' }}
+      ci_run_id: ${{ inputs.ci_run_id }}
+    secrets: inherit
 
-  private:
-    name: Execute private validation / macOS
-    needs: [plan]
-    if: ${{ needs.plan.outputs.executor_family == 'macos' }}
-    runs-on: [macos-latest]
-    timeout-minutes: 120
+  android:
+    needs: request
+    if: ${{ needs.request.outputs.workflow_key == 'validation.android' }}
+    uses: ./.github/workflows/android.yml
+    with:
+      repository: ${{ needs.request.outputs.repository }}
+      ref: ${{ needs.request.outputs.ref }}
+      working_directory: ${{ fromJSON(needs.request.outputs.inputs_json).working_directory || '.' }}
+      test_profile: ${{ needs.request.outputs.test_profile }}
+      java_version: ${{ fromJSON(needs.request.outputs.inputs_json).java_version || '25' }}
+      prepare_command: ${{ fromJSON(needs.request.outputs.inputs_json).prepare_command || '' }}
+      build_command: ${{ fromJSON(needs.request.outputs.inputs_json).build_command || '' }}
+      test_command: ${{ fromJSON(needs.request.outputs.inputs_json).test_command || '' }}
+      release_command: ${{ fromJSON(needs.request.outputs.inputs_json).release_command || '' }}
+      ci_run_id: ${{ inputs.ci_run_id }}
+    secrets: inherit
+
+  python:
+    needs: request
+    if: ${{ needs.request.outputs.workflow_key == 'validation.python' }}
+    uses: ./.github/workflows/python.yml
+    with:
+      repository: ${{ needs.request.outputs.repository }}
+      ref: ${{ needs.request.outputs.ref }}
+      working_directory: ${{ fromJSON(needs.request.outputs.inputs_json).working_directory || '.' }}
+      test_profile: ${{ needs.request.outputs.test_profile }}
+      python_version: ${{ fromJSON(needs.request.outputs.inputs_json).python_version || '3.12' }}
+      prepare_command: ${{ fromJSON(needs.request.outputs.inputs_json).prepare_command || '' }}
+      build_command: ${{ fromJSON(needs.request.outputs.inputs_json).build_command || '' }}
+      test_command: ${{ fromJSON(needs.request.outputs.inputs_json).test_command || '' }}
+      release_command: ${{ fromJSON(needs.request.outputs.inputs_json).release_command || '' }}
+      ci_run_id: ${{ inputs.ci_run_id }}
+    secrets: inherit
+
+  node:
+    needs: request
+    if: ${{ needs.request.outputs.workflow_key == 'validation.node' }}
+    uses: ./.github/workflows/node.yml
+    with:
+      repository: ${{ needs.request.outputs.repository }}
+      ref: ${{ needs.request.outputs.ref }}
+      working_directory: ${{ fromJSON(needs.request.outputs.inputs_json).working_directory || '.' }}
+      test_profile: ${{ needs.request.outputs.test_profile }}
+      node_version: ${{ fromJSON(needs.request.outputs.inputs_json).node_version || '22' }}
+      prepare_command: ${{ fromJSON(needs.request.outputs.inputs_json).prepare_command || '' }}
+      build_command: ${{ fromJSON(needs.request.outputs.inputs_json).build_command || '' }}
+      test_command: ${{ fromJSON(needs.request.outputs.inputs_json).test_command || '' }}
+      release_command: ${{ fromJSON(needs.request.outputs.inputs_json).release_command || '' }}
+      ci_run_id: ${{ inputs.ci_run_id }}
+    secrets: inherit
+
+  flutter:
+    needs: request
+    if: ${{ needs.request.outputs.workflow_key == 'validation.flutter' }}
+    uses: ./.github/workflows/flutter.yml
+    with:
+      repository: ${{ needs.request.outputs.repository }}
+      ref: ${{ needs.request.outputs.ref }}
+      working_directory: ${{ fromJSON(needs.request.outputs.inputs_json).working_directory || '.' }}
+      test_profile: ${{ needs.request.outputs.test_profile }}
+      java_version: ${{ fromJSON(needs.request.outputs.inputs_json).java_version || '25' }}
+      flutter_version: ${{ fromJSON(needs.request.outputs.inputs_json).flutter_version || '3.44.6' }}
+      prepare_command: ${{ fromJSON(needs.request.outputs.inputs_json).prepare_command || '' }}
+      build_command: ${{ fromJSON(needs.request.outputs.inputs_json).build_command || '' }}
+      test_command: ${{ fromJSON(needs.request.outputs.inputs_json).test_command || '' }}
+      release_command: ${{ fromJSON(needs.request.outputs.inputs_json).release_command || '' }}
+      ci_run_id: ${{ inputs.ci_run_id }}
+    secrets: inherit
+
+  gitops:
+    needs: request
+    if: ${{ needs.request.outputs.workflow_key == 'validation.gitops' }}
+    uses: ./.github/workflows/gitops.yml
+    with:
+      repository: ${{ needs.request.outputs.repository }}
+      ref: ${{ needs.request.outputs.ref }}
+      working_directory: ${{ fromJSON(needs.request.outputs.inputs_json).working_directory || '.' }}
+      test_profile: ${{ needs.request.outputs.test_profile }}
+      prepare_command: ${{ fromJSON(needs.request.outputs.inputs_json).prepare_command || '' }}
+      build_command: ${{ fromJSON(needs.request.outputs.inputs_json).build_command || '' }}
+      test_command: ${{ fromJSON(needs.request.outputs.inputs_json).test_command || '' }}
+      release_command: ${{ fromJSON(needs.request.outputs.inputs_json).release_command || '' }}
+      ci_run_id: ${{ inputs.ci_run_id }}
+    secrets: inherit
+
+  source_snapshot:
+    needs: request
+    if: ${{ needs.request.outputs.workflow_key == 'source.snapshot' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-      - name: Check out exact public Central source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out Central helpers
+        uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
-          fetch-depth: 1
-          clean: true
           persist-credentials: false
-          set-safe-directory: false
 
-      - name: Verify exact public Central source
-        shell: bash
-        env:
-          EXPECTED_SHA: ${{ github.sha }}
-        run: |
-          set -Eeuo pipefail
-          test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
-
-      - name: Execute opaque private CI and export detailed log to R2
-        uses: ./actions/private-ci
+      - name: Mark Agent State run as running
+        uses: ./actions/agent-state
         env:
           AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
           AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
-          SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
-          SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         with:
-          phase: execute
+          phase: start
           ci_run_id: ${{ inputs.ci_run_id }}
 
-      - name: Recover interrupted private CI lifecycle
-        if: ${{ always() }}
-        uses: ./actions/private-ci
-        env:
-          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      - name: Prepare source token
+        id: source_token
+        uses: actions/create-github-app-token@v2
         with:
-          phase: recover
-          ci_run_id: ${{ inputs.ci_run_id }}
+          app-id: ${{ secrets.SOURCE_APP_ID }}
+          private-key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          owner: StreamScapeTV
 
-      - name: Verify public Central checkout remained clean
-        if: ${{ always() }}
-        shell: bash
-        env:
-          EXPECTED_SHA: ${{ github.sha }}
-        run: |
-          set -Eeuo pipefail
-          test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
-          test -z "$(git status --porcelain=v1 --untracked-files=all)"
-          test ! -e source
-
-  private_linux:
-    name: Execute private validation / Linux
-    needs: [plan]
-    if: ${{ needs.plan.outputs.executor_family == 'linux' }}
-    runs-on: [ubuntu-latest]
-    timeout-minutes: 120
-    steps:
-      - name: Check out exact public Central source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out requested source
+        uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          repository: ${{ needs.request.outputs.repository }}
+          ref: ${{ needs.request.outputs.ref }}
+          token: ${{ steps.source_token.outputs.token }}
+          path: source
           fetch-depth: 1
-          clean: true
           persist-credentials: false
-          set-safe-directory: false
 
-      - name: Verify exact public Central source
+      - name: Create exact tracked-source snapshot
+        id: snapshot
         shell: bash
         env:
-          EXPECTED_SHA: ${{ github.sha }}
+          REQUESTED_REPOSITORY: ${{ needs.request.outputs.repository }}
+          REQUESTED_REF: ${{ needs.request.outputs.ref }}
+          REQUESTED_IS_TAG: ${{ needs.request.outputs.is_tag }}
         run: |
           set -Eeuo pipefail
-          test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+          source_sha="$(git -C source rev-parse HEAD)"
+          tree_sha="$(git -C source rev-parse 'HEAD^{tree}')"
+          archive="${RUNNER_TEMP}/source.zip"
+          manifest="${RUNNER_TEMP}/manifest.json"
+          git -C source archive --format=zip --output="${archive}" HEAD
+          archive_sha256="$(sha256sum "${archive}" | awk '{print $1}')"
+          archive_size="$(wc -c < "${archive}" | tr -d '[:space:]')"
+          python3 - "${manifest}" "${REQUESTED_REPOSITORY}" "${REQUESTED_REF}" "${REQUESTED_IS_TAG}" "${source_sha}" "${tree_sha}" "${archive_sha256}" "${archive_size}" <<'PY'
+          from pathlib import Path
+          import json, sys
+          path, repository, ref, is_tag, source_sha, tree_sha, digest, size = sys.argv[1:]
+          value = {
+              "repository": repository,
+              "repository_name": repository.rsplit("/", 1)[-1],
+              "requested_ref": ref,
+              "is_tag": is_tag == "true",
+              "resolved_source_sha": source_sha,
+              "tree_sha": tree_sha,
+              "archive_format": "zip",
+              "archive_format_version": 1,
+              "source_zip_sha256": digest,
+              "source_zip_size_bytes": int(size),
+          }
+          Path(path).write_text(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+          PY
+          {
+            printf 'source_sha=%s\n' "${source_sha}"
+            printf 'tree_sha=%s\n' "${tree_sha}"
+            printf 'archive_sha256=%s\n' "${archive_sha256}"
+            printf 'archive_size=%s\n' "${archive_size}"
+            printf 'archive=%s\n' "${archive}"
+            printf 'manifest=%s\n' "${manifest}"
+          } >> "${GITHUB_OUTPUT}"
 
-      - name: Set up reviewed hosted Android JDK
-        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+      - name: Upload source.zip
+        id: source_upload
+        uses: ./actions/google-drive
+        env:
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
         with:
-          distribution: temurin
-          java-version: "25"
+          repository: ${{ needs.request.outputs.repository }}
+          ref: ${{ needs.request.outputs.ref }}
+          file_path: ${{ steps.snapshot.outputs.archive }}
+          file_name: source.zip
+          mime_type: application/zip
 
-      - name: Execute opaque private CI and export detailed log to R2
-        uses: ./actions/private-ci
+      - name: Write first manifest with source Drive identity
+        shell: bash
+        env:
+          MANIFEST: ${{ steps.snapshot.outputs.manifest }}
+          SOURCE_FILE_ID: ${{ steps.source_upload.outputs.file_id }}
+          FOLDER_ID: ${{ steps.source_upload.outputs.folder_id }}
+        run: |
+          set -Eeuo pipefail
+          python3 - "${MANIFEST}" "${SOURCE_FILE_ID}" "${FOLDER_ID}" <<'PY'
+          from pathlib import Path
+          import json, sys
+          path, source_file_id, folder_id = sys.argv[1:]
+          value = json.loads(Path(path).read_text(encoding="utf-8"))
+          value["source_zip_file_id"] = source_file_id
+          value["folder_id"] = folder_id
+          Path(path).write_text(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+          PY
+
+      - name: Create manifest.json
+        id: manifest_create
+        uses: ./actions/google-drive
+        env:
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
+        with:
+          repository: ${{ needs.request.outputs.repository }}
+          ref: ${{ needs.request.outputs.ref }}
+          file_path: ${{ steps.snapshot.outputs.manifest }}
+          file_name: manifest.json
+          mime_type: application/json
+
+      - name: Add stable manifest Drive identity
+        shell: bash
+        env:
+          MANIFEST: ${{ steps.snapshot.outputs.manifest }}
+          MANIFEST_FILE_ID: ${{ steps.manifest_create.outputs.file_id }}
+        run: |
+          set -Eeuo pipefail
+          python3 - "${MANIFEST}" "${MANIFEST_FILE_ID}" <<'PY'
+          from pathlib import Path
+          import json, sys
+          path, manifest_file_id = sys.argv[1:]
+          value = json.loads(Path(path).read_text(encoding="utf-8"))
+          value["manifest_file_id"] = manifest_file_id
+          Path(path).write_text(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+          PY
+
+      - name: Update manifest.json in place
+        id: manifest_update
+        uses: ./actions/google-drive
+        env:
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
+        with:
+          repository: ${{ needs.request.outputs.repository }}
+          ref: ${{ needs.request.outputs.ref }}
+          file_path: ${{ steps.snapshot.outputs.manifest }}
+          file_name: manifest.json
+          mime_type: application/json
+
+      - name: Verify stable manifest identity
+        shell: bash
+        env:
+          CREATED_ID: ${{ steps.manifest_create.outputs.file_id }}
+          UPDATED_ID: ${{ steps.manifest_update.outputs.file_id }}
+          CREATED_FOLDER: ${{ steps.manifest_create.outputs.folder_id }}
+          UPDATED_FOLDER: ${{ steps.manifest_update.outputs.folder_id }}
+        run: |
+          set -Eeuo pipefail
+          test "${CREATED_ID}" = "${UPDATED_ID}"
+          test "${CREATED_FOLDER}" = "${UPDATED_FOLDER}"
+
+      - name: Clean snapshot workspace
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          rm -rf source
+          rm -f "${RUNNER_TEMP}/source.zip" "${RUNNER_TEMP}/manifest.json"
+
+      - name: Finish Agent State run
+        if: ${{ always() }}
+        uses: ./actions/agent-state
         env:
           AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
           AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
-          SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
-          SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          CIW_MAVEN_PACKAGE_READ_TOKEN: ${{ secrets.MAVEN_PACKAGE_READ_TOKEN }}
         with:
-          phase: execute
+          phase: finish
           ci_run_id: ${{ inputs.ci_run_id }}
-
-      - name: Recover interrupted private CI lifecycle
-        if: ${{ always() }}
-        uses: ./actions/private-ci
-        env:
-          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        with:
-          phase: recover
-          ci_run_id: ${{ inputs.ci_run_id }}
-
-      - name: Verify public Central checkout remained clean
-        if: ${{ always() }}
-        shell: bash
-        env:
-          EXPECTED_SHA: ${{ github.sha }}
-        run: |
-          set -Eeuo pipefail
-          test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
-          test -z "$(git status --porcelain=v1 --untracked-files=all)"
-          test ! -e source
+          status: ${{ job.status == 'success' && 'succeeded' || job.status == 'cancelled' && 'cancelled' || 'failed' }}

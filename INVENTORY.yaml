@@ -1,0 +1,22 @@
+version: 1
+repository: StreamScapeTV/ci-workflows
+
+workflows:
+  apple: .github/workflows/apple.yml
+  android: .github/workflows/android.yml
+  python: .github/workflows/python.yml
+  node: .github/workflows/node.yml
+  flutter: .github/workflows/flutter.yml
+  gitops: .github/workflows/gitops.yml
+  central_dispatch: .github/workflows/central-ci-dispatch.yml
+  self_check: .github/workflows/self-check.yml
+  broker_release: .github/workflows/broker.yml
+  runner_images: .github/workflows/runner-images.yml
+
+actions:
+  agent_state: actions/agent-state/action.yml
+  google_drive: actions/google-drive/action.yml
+
+services:
+  ci_broker: ci-broker/
+  runner_images: runner-images/

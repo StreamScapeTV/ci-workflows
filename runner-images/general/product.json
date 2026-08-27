@@ -1,8 +1,0 @@
-{
-  "schema_version": 1,
-  "product_id": "runner-general",
-  "image_repository": "git.faruqi.dev/mimranfaruqi/github-actions-runner-general",
-  "platform": "linux/amd64",
-  "dockerfile": "runner-images/general/Dockerfile",
-  "smoke": "runner-images/general/smoke.sh"
-}
