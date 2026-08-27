@@ -42,4 +42,5 @@ jobs:
       repository: StreamScapeTV/iptv-backend
       ref: refs/pull/450/merge
       test_profile: backend-full
+      upload_private_log: true
     secrets: inherit
