@@ -113,6 +113,11 @@ jobs:
               run_logged typecheck npm run typecheck
               run_logged build npm run build
               ;;
+            static-web)
+              run_logged npm-ci npm ci
+              run_logged check npm run check
+              run_logged repository-clean git diff --exit-code
+              ;;
             *) echo "Unsupported Node test_profile: $TEST_PROFILE" >&2; exit 2 ;;
           esac
 
