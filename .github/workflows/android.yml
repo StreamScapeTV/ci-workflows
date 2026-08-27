@@ -64,7 +64,7 @@ permissions:
 jobs:
   ci:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 60
     steps:
       - name: Initialize CI log
         shell: bash
@@ -182,27 +182,20 @@ jobs:
           }
 
           run_gradle() {
-            run_logged "gradle-${TEST_PROFILE}" ./gradlew --no-daemon "$@"
+            local started="${SECONDS}"
+            if ! run_logged "gradle-${TEST_PROFILE}" ./gradlew --no-daemon "$@"; then
+              return 1
+            fi
+            local elapsed=$((SECONDS - started))
+            {
+              printf '\n===== gradle-wall-time =====\n'
+              printf 'profile=%s\n' "${TEST_PROFILE}"
+              printf 'seconds=%s\n' "${elapsed}"
+            } >> "${CI_LOG}"
+            printf 'Android %s Gradle wall time: %ss\n' "${TEST_PROFILE}" "${elapsed}"
           }
 
-          run_release_policy=false
           policy_root="${repository_root}/scripts/ci"
-          if [[ -e "${policy_root}/verify-lint-policy.sh" ||
-                -e "${policy_root}/verify-gradle-property-policy.sh" ||
-                -e "${policy_root}/verify-release-policy.sh" ||
-                -e "${policy_root}/verify-release-size.py" ]]; then
-            test "${PROJECT_DIRECTORY}" = "." || {
-              echo "Release policy convention is supported only at the repository root" >&2
-              exit 2
-            }
-            test -x "${policy_root}/verify-lint-policy.sh"
-            test -x "${policy_root}/verify-gradle-property-policy.sh"
-            test -x "${policy_root}/verify-release-policy.sh"
-            test -f "${policy_root}/verify-release-size.py"
-            test -f "${policy_root}/release-size-budgets.json"
-            test -f "${policy_root}/release-size-baseline.json"
-            run_release_policy=true
-          fi
 
           case "${TEST_PROFILE}" in
             smoke)
@@ -231,6 +224,24 @@ jobs:
               run_gradle compileDebugKotlin testDebugUnitTest lintDebug assembleDebug
               ;;
             release)
+              run_release_policy=false
+              if [[ -e "${policy_root}/verify-lint-policy.sh" ||
+                    -e "${policy_root}/verify-gradle-property-policy.sh" ||
+                    -e "${policy_root}/verify-release-policy.sh" ||
+                    -e "${policy_root}/verify-release-size.py" ]]; then
+                test "${PROJECT_DIRECTORY}" = "." || {
+                  echo "Release policy convention is supported only at the repository root" >&2
+                  exit 2
+                }
+                test -x "${policy_root}/verify-lint-policy.sh"
+                test -x "${policy_root}/verify-gradle-property-policy.sh"
+                test -x "${policy_root}/verify-release-policy.sh"
+                test -f "${policy_root}/verify-release-size.py"
+                test -f "${policy_root}/release-size-budgets.json"
+                test -f "${policy_root}/release-size-baseline.json"
+                run_release_policy=true
+              fi
+
               if [[ "${run_release_policy}" == true ]]; then
                 run_logged release-lint-policy bash "${policy_root}/verify-lint-policy.sh"
                 run_logged release-gradle-property-policy bash "${policy_root}/verify-gradle-property-policy.sh"
