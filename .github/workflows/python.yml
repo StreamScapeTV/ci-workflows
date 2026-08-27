@@ -113,7 +113,7 @@ jobs:
               cleanup_postgres() {
                 docker rm -f "$container" >/dev/null 2>&1 || true
               }
-              trap cleanup_postgres EXIT HUP INT TERM
+              trap cleanup_postgres EXIT
 
               docker run --detach --rm \
                 --name "$container" \
@@ -137,7 +137,7 @@ jobs:
               ./scripts/run_backend_postgres_validation.sh
 
               docker rm -f "$container" >/dev/null
-              trap - EXIT HUP INT TERM
+              trap - EXIT
               ! docker inspect "$container" >/dev/null 2>&1
             ) >> "$CI_LOG" 2>&1; then
               printf 'backend-postgres failed; inspect the private Google Drive CI log.\n' >&2
