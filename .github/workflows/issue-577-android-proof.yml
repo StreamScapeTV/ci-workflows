@@ -1,0 +1,33 @@
+name: Issue 577 Android Tailscale proof
+
+"on":
+  push:
+    branches:
+      - orchestrator/issue-577-tailscale-android
+
+permissions:
+  contents: read
+
+jobs:
+  full:
+    uses: ./.github/workflows/android.yml
+    with:
+      repository: StreamScapeTV/iptv-android
+      ref: 7d8aed24cef77d883624e134c2cb000f6d0f17d9
+      test_profile: full
+      project_directory: .
+      room_schema: true
+      upload_private_log: true
+    secrets: inherit
+
+  release:
+    needs: full
+    uses: ./.github/workflows/android.yml
+    with:
+      repository: StreamScapeTV/iptv-android
+      ref: 7d8aed24cef77d883624e134c2cb000f6d0f17d9
+      test_profile: release
+      project_directory: .
+      room_schema: false
+      upload_private_log: true
+    secrets: inherit
