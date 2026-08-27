@@ -68,7 +68,7 @@ RUN set -eux; \
     test -e /out/usr/lib/x86_64-linux-gnu/libgcc_s.so.1; \
     rm -rf /tmp/runner
 
-FROM docker.io/library/eclipse-temurin:25-jdk-noble@sha256:3eb81ed94d8c1a34422f19f8188548bdf02cae69c91d0328afdbb7abed90f617 AS java-runtime
+FROM docker.io/library/eclipse-temurin:25-jdk-noble@sha256:534968c051301957beae735e7ba1db54d99ddecf08746d3b9d4f318cc132dbc3 AS java-runtime
 
 FROM docker.io/library/node:24.19.0-trixie-slim@sha256:0711b541c1c33a8a530ac4f0d391baa9a15b3d804695b1b24a47daa5fb60e74d AS node-runtime
 RUN set -eux; \
