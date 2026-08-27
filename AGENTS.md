@@ -28,6 +28,7 @@ Only repeated mechanics that are awkward to duplicate in every pipeline belong i
 
 - `actions/agent-state` — Agent State claim/start/finish RPC calls.
 - `actions/google-drive` — upload one private file under a fixed Drive root at `<repository>/<ref>/<file-name>`; exact filenames are updated in place so the same helper serves run logs and source snapshots.
+- `actions/private-git` — establish the fixed Central-owned Tailscale connection to the owner private Git/Forgejo service using the owner-configured OAuth environment, hard-coded `tag:github-ci`, and fixed TCP/443 reachability check. It exposes no product-facing network/tag/host inputs. Workflows invoke it only when the selected job/profile actually needs private Git/Forgejo access.
 
 Do not add technology wrapper actions for checkout, planning, runner selection, command execution, evidence, or one Python/shell function. Use standard upstream actions and normal workflow steps.
 
@@ -56,7 +57,7 @@ Do not add `.github/central-ci.json`, source-SHA evidence to ordinary validation
 Self-CI is deliberately small:
 
 1. parse workflow/action YAML;
-2. run focused Agent State/Google Drive/broker tests;
+2. run focused Agent State/Google Drive/private-Git/broker tests;
 3. self-review the complete affected workflow/runtime/release path, then prove materially changed technology workflows with real product consumers;
 4. prove `source.snapshot` by raw-downloading and opening the Drive ZIP through the ordinary Google Drive connector.
 
@@ -64,7 +65,7 @@ Do not rebuild a contract-test framework around the workflows.
 
 ## Simplicity check
 
-Before keeping or adding a workflow, action, source file, contract, adapter, test, or verification step, ask whether a real product command, Agent State call, Google Drive upload, broker, source snapshot, or runner-image build actually needs it. If not, delete it or do not add it.
+Before keeping or adding a workflow, action, source file, contract, adapter, test, or verification step, ask whether a real product command, Agent State call, Google Drive upload, private Git/Forgejo access, broker, source snapshot, or runner-image build actually needs it. If not, delete it or do not add it.
 
 ## Merge self-review
 
