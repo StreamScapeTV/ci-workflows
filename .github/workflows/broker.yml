@@ -45,21 +45,25 @@ jobs:
       - name: Publish broker image
         env:
           REGISTRY_USER: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
-          REGISTRY_PASSWORD: ${{ secrets.FORGEJO_REGISTRY_PASSWORD }}
+          REGISTRY_TOKEN: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
         run: |
           set -Eeuo pipefail
-          printf '%s' "${REGISTRY_PASSWORD}" | docker login "${REGISTRY}" -u "${REGISTRY_USER}" --password-stdin
+          test -n "${REGISTRY_USER}"
+          test -n "${REGISTRY_TOKEN}"
+          printf '%s' "${REGISTRY_TOKEN}" | docker login "${REGISTRY}" -u "${REGISTRY_USER}" --password-stdin
           docker tag "ci-broker:${{ steps.version.outputs.version }}" "${IMAGE}:${{ steps.version.outputs.version }}"
           docker push "${IMAGE}:${{ steps.version.outputs.version }}"
 
       - name: Package and publish Helm chart
         env:
           REGISTRY_USER: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
-          REGISTRY_PASSWORD: ${{ secrets.FORGEJO_REGISTRY_PASSWORD }}
+          REGISTRY_TOKEN: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
         run: |
           set -Eeuo pipefail
+          test -n "${REGISTRY_USER}"
+          test -n "${REGISTRY_TOKEN}"
           version="${{ steps.version.outputs.version }}"
           helm lint ci-broker/chart --set "image.tag=${version}"
           helm package ci-broker/chart --version "${version}" --app-version "${version}" --destination "${RUNNER_TEMP}"
-          printf '%s' "${REGISTRY_PASSWORD}" | helm registry login "${REGISTRY}" --username "${REGISTRY_USER}" --password-stdin
+          printf '%s' "${REGISTRY_TOKEN}" | helm registry login "${REGISTRY}" --username "${REGISTRY_USER}" --password-stdin
           helm push "${RUNNER_TEMP}/ci-broker-${version}.tgz" "${CHART_REGISTRY}"
