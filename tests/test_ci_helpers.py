@@ -10,7 +10,7 @@ class CiHelperTests(unittest.TestCase):
         inventory = yaml.safe_load((ROOT / "INVENTORY.yaml").read_text())
         self.assertEqual(
             set(inventory["workflows"]),
-            {"apple", "android", "python", "node", "flutter", "gitops", "central_dispatch", "self_check", "broker_release", "runner_images"},
+            {"apple", "android", "python", "node", "flutter", "central_dispatch", "self_check", "broker_release", "runner_images"},
         )
         self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive"})
         self.assertFalse((ROOT / "PYTHON_INVENTORY.yml").exists())
@@ -18,9 +18,9 @@ class CiHelperTests(unittest.TestCase):
 
     def test_workflows_use_no_reusable_prefix(self) -> None:
         names = {p.name for p in (ROOT / ".github/workflows").glob("*.yml")}
-        self.assertEqual(len(names), 10)
+        self.assertEqual(len(names), 9)
         self.assertFalse(any(name.startswith("reusable-") for name in names))
-        for name in ("apple.yml", "android.yml", "python.yml", "node.yml", "flutter.yml", "gitops.yml"):
+        for name in ("apple.yml", "android.yml", "python.yml", "node.yml", "flutter.yml"):
             self.assertIn(name, names)
 
     def test_only_two_custom_actions_exist(self) -> None:
@@ -49,7 +49,7 @@ class CiHelperTests(unittest.TestCase):
         self.assertNotIn("R2_", text)
 
     def test_agent_state_workflows_use_private_drive_logs_without_public_command_tee(self) -> None:
-        for name in ("apple", "android", "python", "node", "flutter", "gitops"):
+        for name in ("apple", "android", "python", "node", "flutter"):
             text = (ROOT / ".github/workflows" / f"{name}.yml").read_text()
             self.assertIn("GOOGLE_DRIVE_CI_LOGS_FOLDER_ID", text)
             self.assertIn("actions/google-drive@", text)
@@ -62,7 +62,31 @@ class CiHelperTests(unittest.TestCase):
     def test_central_dispatch_passes_the_human_ref_directly(self) -> None:
         text = (ROOT / ".github/workflows/central-ci-dispatch.yml").read_text()
         self.assertNotIn("refs/tags/{0}", text)
-        self.assertGreaterEqual(text.count("ref: ${{ needs.request.outputs.ref }}"), 7)
+        self.assertGreaterEqual(text.count("ref: ${{ needs.request.outputs.ref }}"), 6)
+
+    def test_fixed_profiles_replace_arbitrary_command_transport(self) -> None:
+        forbidden = ("prepare_command", "build_command", "test_command", "release_command", "bash -lc")
+        for name in ("apple", "android", "python", "node", "flutter"):
+            text = (ROOT / ".github/workflows" / f"{name}.yml").read_text()
+            for value in forbidden:
+                self.assertNotIn(value, text)
+            self.assertIn("Scrub configured CI secrets from private log", text)
+            self.assertIn("steps.scrub.outcome == 'success'", text)
+        dispatch = (ROOT / ".github/workflows/central-ci-dispatch.yml").read_text()
+        for value in forbidden[:-1]:
+            self.assertNotIn(value, dispatch)
+
+    def test_android_owner_profiles_and_gitops_retirement_are_explicit(self) -> None:
+        android = (ROOT / ".github/workflows/android.yml").read_text()
+        for profile in ("smoke)", "compile)", "unit)", "targeted-unit)", "lint)", "assemble)", "full)", "release)"):
+            self.assertIn(profile, android)
+        self.assertIn("CIW_MAVEN_PACKAGE_READ_TOKEN", android)
+        self.assertIn("compileDebugKotlin testDebugUnitTest lintDebug assembleDebug", android)
+        self.assertFalse((ROOT / ".github/workflows/gitops.yml").exists())
+        broker = (ROOT / "ci-broker/app.py").read_text()
+        dispatch = (ROOT / ".github/workflows/central-ci-dispatch.yml").read_text()
+        self.assertNotIn('"validation.gitops"', broker)
+        self.assertNotIn("workflow_key == 'validation.gitops'", dispatch)
 
     def test_source_snapshot_reuses_drive_helper_and_updates_manifest_in_place(self) -> None:
         broker = (ROOT / "ci-broker/app.py").read_text()
