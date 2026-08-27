@@ -34,13 +34,3 @@ jobs:
         run: |
           docker build -f ci-broker/Containerfile -t ci-broker:self-check ci-broker
           python3 ci-broker/smoke_test.py
-
-  backend_full_merge_ref_proof:
-    if: ${{ github.ref == 'refs/heads/agent1/issue-536-python-postgres' }}
-    uses: ./.github/workflows/python.yml
-    with:
-      repository: StreamScapeTV/iptv-backend
-      ref: refs/pull/450/merge
-      test_profile: backend-full
-      upload_private_log: true
-    secrets: inherit
