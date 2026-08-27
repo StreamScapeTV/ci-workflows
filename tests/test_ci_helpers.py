@@ -76,6 +76,15 @@ class CiHelperTests(unittest.TestCase):
         self.assertNotIn("refs/tags/{0}", text)
         self.assertGreaterEqual(text.count("ref: ${{ needs.request.outputs.ref }}"), 6)
 
+    def test_central_dispatch_is_newest_run_wins_per_active_branch_key(self) -> None:
+        text = (ROOT / ".github/workflows/central-ci-dispatch.yml").read_text()
+        self.assertIn("group: central-ci-${{ inputs.active_key }}", text)
+        self.assertIn("cancel-in-progress: true", text)
+        broker = (ROOT / "ci-broker/app.py").read_text()
+        self.assertIn('{"repository": self.repository, "ref": self.ref, "is_tag": self.is_tag}', broker)
+        self.assertNotIn('"ci_run_id": self.ci_run_id', broker)
+        self.assertNotIn('"test_profile":', broker[broker.index("def active_key"): broker.index("def dispatch_inputs")])
+
     def test_fixed_profiles_replace_arbitrary_command_transport(self) -> None:
         forbidden = ("prepare_command", "build_command", "test_command", "release_command", "bash -lc")
         for name in ("apple", "android", "python", "node", "flutter"):
