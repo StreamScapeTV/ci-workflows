@@ -1,0 +1,41 @@
+name: Public native image and Helm release compatibility entrypoint
+
+"on":
+  workflow_call:
+    inputs:
+      image_name:
+        required: true
+        type: string
+      chart_name:
+        required: true
+        type: string
+      chart_path:
+        required: true
+        type: string
+      dockerfile_path:
+        required: false
+        default: Dockerfile
+        type: string
+      build_context:
+        required: false
+        default: .
+        type: string
+      publish_latest_image:
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  release:
+    uses: StreamScapeTV/ci-workflows/.github/workflows/reusable-public-native-image-chart.yml@b777940a39a4cdec0b0ce82d6c7485af31e0b592
+    with:
+      image_name: ${{ inputs.image_name }}
+      chart_name: ${{ inputs.chart_name }}
+      chart_path: ${{ inputs.chart_path }}
+      dockerfile_path: ${{ inputs.dockerfile_path }}
+      build_context: ${{ inputs.build_context }}
+      publish_latest_image: ${{ inputs.publish_latest_image }}
