@@ -48,6 +48,8 @@ Agent State CI stays small:
 
 `request_ci_run -> Agent State row -> ci-broker -> central-ci-dispatch.yml -> technology workflow -> agent-state start -> fixed profile -> literal secret scrub -> google-drive -> agent-state finish`
 
+Concurrency belongs to the **outer trigger/dispatch workflow**, not inside reusable technology workflows. The Agent State path uses one stable branch/tag `active_key` and `cancel-in-progress: true`, so a newer accepted run supersedes older work for the same repository/ref. A direct private-repository caller must define equivalent outer concurrency for its own branch/ref. Do not add branch-wide concurrency inside `apple.yml`, `android.yml`, or another reusable technology workflow, because sibling profiles intentionally launched inside one outer run must be allowed to coexist.
+
 The same relay also accepts `workflow_key=source.snapshot`. Central checks out the requested repository/ref, archives exactly the tracked Git tree to `source.zip`, writes `manifest.json`, and uses the same Google Drive action under the fixed repositories root. The second exact-name manifest upload must preserve the same Drive file identity; no separate snapshot framework belongs here.
 
 Do not add `.github/central-ci.json`, source-SHA evidence to ordinary validation rows, profile manifests, a private technology executor, or R2/Cloudflare storage.
