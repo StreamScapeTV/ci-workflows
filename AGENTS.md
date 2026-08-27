@@ -10,6 +10,12 @@
 
 Read this file, the shared organization rules, and `INVENTORY.yaml` before changing CI.
 
+## Working copy and scope guardrails
+
+- Before any source work in an agent environment, hydrate the **complete exact current working ref** through Central `source.snapshot`. If the issue branch does not exist yet, create it from the authoritative base through GitHub first; then request/refresh `source.snapshot` for that exact branch/ref, download `repositories/<repo>/<ref>/source.zip` plus `manifest.json` from Google Drive, verify the manifest source SHA against the authoritative GitHub ref and verify the archive digest, and unpack that full archive as the working tree. If a fresh environment is needed after the branch advances, snapshot and redownload that exact branch again. Do not reconstruct the working branch piecemeal from GitHub file fetches.
+- Google Drive is read-optimized transport only. GitHub remains branch/commit/PR authority and Agent State remains current ownership/coordination authority.
+- Keep implementation and validation proportional to the exact issue. Before broadening into a repository-wide refactor, a large new test matrix, generated/framework machinery, or work likely to create or touch hundreds of files, stop and ask the owner first. Do not add broad testing or architecture merely because it is possible.
+
 ## Architecture
 
 Keep this repository small and conventional.
