@@ -39,7 +39,7 @@ jobs:
 
       - name: Build and smoke broker image
         run: |
-          docker build -t "ci-broker:${{ steps.version.outputs.version }}" ci-broker
+          docker build -f ci-broker/Containerfile -t "ci-broker:${{ steps.version.outputs.version }}" ci-broker
           python3 ci-broker/smoke_test.py
 
       - name: Publish broker image
