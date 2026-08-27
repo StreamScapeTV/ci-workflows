@@ -30,7 +30,7 @@ jobs:
       - name: Run focused helper tests
         run: python3 -m unittest tests.test_ci_helpers -v
 
-      - name: Smoke broker
+      - name: Build and smoke broker
         run: |
-          python3 ci-broker/app.py self-check
+          docker build -f ci-broker/Containerfile -t ci-broker:self-check ci-broker
           python3 ci-broker/smoke_test.py
