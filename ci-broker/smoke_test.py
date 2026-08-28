@@ -125,6 +125,53 @@ class BrokerTests(unittest.TestCase):
         self.assertNotIn("ExampleOrg/private-app", rendered)
         self.assertNotIn("test_command", rendered)
 
+    def test_public_release_row_is_bounded_to_stable_tag_profile_and_inputs(self) -> None:
+        inputs = {
+            "image_name": "agent-state-dashboard",
+            "chart_name": "agent-state-dashboard",
+            "chart_path": "charts/agent-state-dashboard",
+            "dockerfile_path": "Dockerfile",
+            "build_context": ".",
+            "publish_latest_image": False,
+        }
+        request = Request.from_claim(
+            {
+                "ci_run_id": RUN_ID,
+                "origin": "agent_request",
+                "status": "accepted",
+                "repository": "StreamScapeTV/agent-state-dashboard",
+                "ref": "1.11.0",
+                "is_tag": True,
+                "workflow_key": "release.public-native-image-chart",
+                "test_profile": "public-native-image-chart",
+                "inputs": inputs,
+            }
+        )
+        self.assertEqual(request.inputs, inputs)
+        self.assertEqual(set(request.dispatch_inputs()), {"active_key", "ci_run_id"})
+
+        for patch in (
+            {"is_tag": False},
+            {"ref": "release/1.11.0"},
+            {"test_profile": "anything"},
+            {"inputs": {**inputs, "publish_latest_image": True}},
+            {"inputs": {**inputs, "command": "echo nope"}},
+        ):
+            row = {
+                "ci_run_id": RUN_ID,
+                "origin": "agent_request",
+                "status": "accepted",
+                "repository": "StreamScapeTV/agent-state-dashboard",
+                "ref": "1.11.0",
+                "is_tag": True,
+                "workflow_key": "release.public-native-image-chart",
+                "test_profile": "public-native-image-chart",
+                "inputs": inputs,
+            }
+            row.update(patch)
+            with self.assertRaises(BrokerError):
+                Request.from_claim(row)
+
     def test_retired_gitops_workflow_is_rejected(self) -> None:
         with self.assertRaisesRegex(BrokerError, "unsupported_ci_intent"):
             self.request(workflow_key="validation.gitops")
