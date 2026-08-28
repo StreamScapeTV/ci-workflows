@@ -297,6 +297,7 @@ jobs:
           fi
 
       - name: Save IPTV Android develop dependency cache
+        id: gradle_dependency_cache_save
         if: >-
           ${{
             steps.android_develop_cache_scope.outputs.enabled == 'true'
@@ -373,4 +374,4 @@ jobs:
         with:
           phase: finish
           ci_run_id: ${{ inputs.ci_run_id }}
-          status: ${{ steps.commands.outcome == 'success' && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && 'succeeded' || 'failed' }}
+          status: ${{ steps.commands.outcome == 'success' && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && (steps.gradle_dependency_cache_save.outcome == 'success' || steps.gradle_dependency_cache_save.outcome == 'skipped') && 'succeeded' || 'failed' }}
