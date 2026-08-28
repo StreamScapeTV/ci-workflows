@@ -120,6 +120,7 @@ class CiHelperTests(unittest.TestCase):
         self.assertEqual(restore["if"], "${{ steps.android_develop_cache_scope.outputs.enabled == 'true' }}")
         self.assertEqual(restore["uses"], "actions/cache/restore@v4")
         self.assertEqual(save["uses"], "actions/cache/save@v4")
+        self.assertEqual(save["id"], "gradle_dependency_cache_save")
         self.assertEqual(restore["with"]["path"], expected_paths)
         self.assertEqual(save["with"]["path"], expected_paths)
         self.assertIn("iptv-android-develop-gradle-deps-v1-", restore["with"]["key"])
@@ -134,6 +135,9 @@ class CiHelperTests(unittest.TestCase):
         self.assertIn("steps.android_develop_cache_scope.outputs.enabled == 'true'", save["if"])
         self.assertIn("steps.commands.outcome == 'success'", save["if"])
         self.assertIn("inputs.test_profile == 'full' || inputs.test_profile == 'release'", save["if"])
+        finish = by_name["Finish Agent State run"]
+        self.assertIn("steps.gradle_dependency_cache_save.outcome == 'success'", finish["with"]["status"])
+        self.assertIn("steps.gradle_dependency_cache_save.outcome == 'skipped'", finish["with"]["status"])
 
     def test_android_owner_profiles_and_gitops_retirement_are_explicit(self) -> None:
         android = (ROOT / ".github/workflows/android.yml").read_text()
