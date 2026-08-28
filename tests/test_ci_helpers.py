@@ -124,6 +124,7 @@ class CiHelperTests(unittest.TestCase):
         self.assertIn("inputs.ref == '' || inputs.ref == github.ref_name", save["if"])
         self.assertIn("github.ref_name == 'develop' || github.ref_name == 'main'", save["if"])
         self.assertIn("steps.commands.outcome == 'success'", save["if"])
+        self.assertIn("inputs.test_profile == 'full' || inputs.test_profile == 'release'", save["if"])
 
     def test_android_owner_profiles_and_gitops_retirement_are_explicit(self) -> None:
         android = (ROOT / ".github/workflows/android.yml").read_text()
