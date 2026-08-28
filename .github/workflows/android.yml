@@ -110,24 +110,38 @@ jobs:
           distribution: temurin
           java-version: "25"
 
-      - name: Restore shared Gradle dependency cache
+      - name: Resolve IPTV Android develop dependency cache scope
+        id: android_develop_cache_scope
+        shell: bash
+        env:
+          SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
+          REQUESTED_REF: ${{ inputs.ref }}
+          CURRENT_REF_NAME: ${{ github.ref_name }}
+          CURRENT_REF_TYPE: ${{ github.ref_type }}
+        run: |
+          set -Eeuo pipefail
+          source_ref="${REQUESTED_REF}"
+          if test -z "${source_ref}" && test "${CURRENT_REF_TYPE}" = branch; then
+            source_ref="${CURRENT_REF_NAME}"
+          fi
+          source_ref="${source_ref#refs/heads/}"
+          enabled=false
+          if test "${SOURCE_REPOSITORY}" = StreamScapeTV/iptv-android && test "${source_ref}" = develop; then
+            enabled=true
+          fi
+          printf 'enabled=%s\n' "${enabled}" >> "${GITHUB_OUTPUT}"
+
+      - name: Restore IPTV Android develop dependency cache
         id: gradle_dependency_cache
+        if: ${{ steps.android_develop_cache_scope.outputs.enabled == 'true' }}
         uses: actions/cache/restore@v4
         with:
           path: |
             ~/.gradle/wrapper
             ~/.gradle/caches/modules-2
           key: >-
-            gradle-deps-v1-${{ inputs.repository || github.repository }}-${{ runner.os }}-${{ runner.arch }}-${{
-              inputs.project_directory == 'android'
-              && hashFiles(
-                'android/gradle/wrapper/gradle-wrapper.properties',
-                'android/gradle/**/*.toml',
-                'android/settings.gradle*',
-                'android/build.gradle*',
-                'android/**/build.gradle*'
-              )
-              || hashFiles(
+            iptv-android-develop-gradle-deps-v1-${{ runner.os }}-${{ runner.arch }}-${{
+              hashFiles(
                 'gradle/wrapper/gradle-wrapper.properties',
                 'gradle/**/*.toml',
                 'settings.gradle*',
@@ -282,22 +296,13 @@ jobs:
             fi
           fi
 
-      - name: Save shared Gradle dependency cache
+      - name: Save IPTV Android develop dependency cache
         if: >-
           ${{
-            steps.commands.outcome == 'success'
+            steps.android_develop_cache_scope.outputs.enabled == 'true'
+            && steps.commands.outcome == 'success'
             && (inputs.test_profile == 'full' || inputs.test_profile == 'release')
             && steps.gradle_dependency_cache.outputs.cache-hit != 'true'
-            && (
-              (inputs.ci_run_id != '' && (inputs.ref == 'develop' || inputs.ref == 'main'))
-              || (
-                inputs.ci_run_id == ''
-                && (inputs.repository == '' || inputs.repository == github.repository)
-                && (inputs.ref == '' || inputs.ref == github.ref_name)
-                && github.ref_type == 'branch'
-                && (github.ref_name == 'develop' || github.ref_name == 'main')
-              )
-            )
           }}
         uses: actions/cache/save@v4
         with:
