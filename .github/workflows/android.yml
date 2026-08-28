@@ -286,6 +286,7 @@ jobs:
         if: >-
           ${{
             steps.commands.outcome == 'success'
+            && (inputs.test_profile == 'full' || inputs.test_profile == 'release')
             && steps.gradle_dependency_cache.outputs.cache-hit != 'true'
             && (
               (inputs.ci_run_id != '' && (inputs.ref == 'develop' || inputs.ref == 'main'))
