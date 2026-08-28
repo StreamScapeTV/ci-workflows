@@ -99,6 +99,32 @@ class CiHelperTests(unittest.TestCase):
         for value in forbidden[:-1]:
             self.assertNotIn(value, dispatch)
 
+    def test_android_dependency_cache_is_project_scoped_and_feature_restore_only(self) -> None:
+        workflow = yaml.safe_load((ROOT / ".github/workflows/android.yml").read_text())
+        steps = workflow["jobs"]["ci"]["steps"]
+        by_name = {step.get("name"): step for step in steps if step.get("name")}
+
+        restore = by_name["Restore shared Gradle dependency cache"]
+        save = by_name["Save shared Gradle dependency cache"]
+        expected_paths = "~/.gradle/wrapper\n~/.gradle/caches/modules-2\n"
+        self.assertEqual(restore["uses"], "actions/cache/restore@v4")
+        self.assertEqual(save["uses"], "actions/cache/save@v4")
+        self.assertEqual(restore["with"]["path"], expected_paths)
+        self.assertEqual(save["with"]["path"], expected_paths)
+        self.assertIn("gradle-deps-v1-${{ inputs.repository || github.repository }}", restore["with"]["key"])
+        self.assertIn("${{ runner.os }}-${{ runner.arch }}", restore["with"]["key"])
+        self.assertIn("gradle/wrapper/gradle-wrapper.properties", restore["with"]["key"])
+        self.assertIn("gradle/**/*.toml", restore["with"]["key"])
+        self.assertIn("**/build.gradle*", restore["with"]["key"])
+        self.assertNotIn("github.ref", restore["with"]["key"])
+        self.assertNotIn("inputs.ref", restore["with"]["key"])
+        self.assertEqual(save["with"]["key"], "${{ steps.gradle_dependency_cache.outputs.cache-primary-key }}")
+        self.assertIn("inputs.ref == 'develop' || inputs.ref == 'main'", save["if"])
+        self.assertIn("inputs.repository == '' || inputs.repository == github.repository", save["if"])
+        self.assertIn("inputs.ref == '' || inputs.ref == github.ref_name", save["if"])
+        self.assertIn("github.ref_name == 'develop' || github.ref_name == 'main'", save["if"])
+        self.assertIn("steps.commands.outcome == 'success'", save["if"])
+
     def test_android_owner_profiles_and_gitops_retirement_are_explicit(self) -> None:
         android = (ROOT / ".github/workflows/android.yml").read_text()
         for profile in ("smoke)", "compile)", "unit)", "targeted-unit)", "lint)", "assemble)", "full)", "release)"):
