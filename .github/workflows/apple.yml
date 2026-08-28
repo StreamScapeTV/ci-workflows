@@ -11,6 +11,10 @@ name: Apple CI
         type: string
         required: false
         default: ""
+      source_is_tag:
+        type: boolean
+        required: false
+        default: false
       test_profile:
         type: string
         required: true
@@ -83,6 +87,93 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Prepare Apple develop dependency cache
+        id: apple_develop_cache
+        shell: bash
+        env:
+          REQUEST_REPOSITORY: ${{ inputs.repository }}
+          REQUEST_REF: ${{ inputs.ref }}
+          REQUEST_IS_TAG: ${{ inputs.source_is_tag }}
+          CALLER_REPOSITORY: ${{ github.repository }}
+          CALLER_REF: ${{ github.ref }}
+          CALLER_REF_TYPE: ${{ github.ref_type }}
+          CALLER_EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -Eeuo pipefail
+          source_repository="${REQUEST_REPOSITORY:-${CALLER_REPOSITORY}}"
+          source_ref="${REQUEST_REF:-${CALLER_REF}}"
+          source_is_tag="${REQUEST_IS_TAG}"
+          case "${source_ref}" in
+            refs/heads/*) source_ref="${source_ref#refs/heads/}" ;;
+            refs/tags/*) source_is_tag=true ;;
+          esac
+          case "${CALLER_REF_TYPE}" in
+            tag) source_is_tag=true ;;
+          esac
+          source_is_pr=false
+          case "${CALLER_EVENT_NAME}" in
+            pull_request|pull_request_target) source_is_pr=true ;;
+          esac
+
+          enabled=false
+          if test "${source_repository}" = "StreamScapeTV/iptv-apple" \
+            && test "${source_ref}" = "develop" \
+            && test "${source_is_tag}" != "true" \
+            && test "${source_is_pr}" != "true"; then
+            enabled=true
+          fi
+
+          swiftpm_clones_dir="${RUNNER_TEMP}/streamscapetv-swiftpm-clones"
+          mkdir -p "${swiftpm_clones_dir}"
+          {
+            printf 'enabled=%s\n' "${enabled}"
+            printf 'swiftpm_clones_dir=%s\n' "${swiftpm_clones_dir}"
+          } >> "${GITHUB_OUTPUT}"
+          printf 'SWIFTPM_CLONES_DIR=%s\n' "${swiftpm_clones_dir}" >> "${GITHUB_ENV}"
+
+          if test "${enabled}" = "true"; then
+            test -f scripts/bootstrap-streamscape-media-binary.sh
+            test -f streamscapetv.xcodeproj/project.pbxproj
+            dependency_fingerprint="$(
+              {
+                /usr/bin/shasum -a 256 scripts/bootstrap-streamscape-media-binary.sh
+                /usr/bin/shasum -a 256 streamscapetv.xcodeproj/project.pbxproj
+              } | /usr/bin/shasum -a 256 | awk '{print $1}'
+            )"
+            xcode_fingerprint="$(xcodebuild -version | /usr/bin/shasum -a 256 | awk '{print $1}')"
+            architecture="$(uname -m)"
+            cache_key="iptv-apple-develop-deps-v1-${architecture}-${xcode_fingerprint}-${dependency_fingerprint}"
+            {
+              printf 'key=%s\n' "${cache_key}"
+              printf 'restore_started_at=%s\n' "$(date +%s)"
+            } >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Restore Apple develop dependency cache
+        id: apple_develop_cache_restore
+        if: ${{ steps.apple_develop_cache.outputs.enabled == 'true' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            Vendor/StreamscapeMediaApple
+            ${{ steps.apple_develop_cache.outputs.swiftpm_clones_dir }}
+          key: ${{ steps.apple_develop_cache.outputs.key }}
+
+      - name: Record Apple develop cache restore
+        if: ${{ steps.apple_develop_cache.outputs.enabled == 'true' }}
+        shell: bash
+        env:
+          CACHE_HIT: ${{ steps.apple_develop_cache_restore.outputs.cache-hit }}
+          RESTORE_STARTED_AT: ${{ steps.apple_develop_cache.outputs.restore_started_at }}
+        run: |
+          set -Eeuo pipefail
+          restore_seconds="$(( $(date +%s) - RESTORE_STARTED_AT ))"
+          {
+            printf '\n===== apple-develop-cache =====\n'
+            printf 'cache_hit=%s\n' "${CACHE_HIT:-false}"
+            printf 'restore_seconds=%s\n' "${restore_seconds}"
+          } >> "${CI_LOG}"
+
       - name: Run fixed Apple profile
         id: commands
         shell: bash
@@ -95,11 +186,14 @@ jobs:
           run_logged() {
             local label="$1"
             shift
+            local started_at="${SECONDS}"
             printf '\n===== %s =====\n' "$label" >> "$CI_LOG"
             if ! "$@" >> "$CI_LOG" 2>&1; then
+              printf 'duration_seconds=%s\n' "$((SECONDS - started_at))" >> "$CI_LOG"
               printf '%s failed; inspect the private Google Drive CI log.\n' "$label" >&2
               return 1
             fi
+            printf 'duration_seconds=%s\n' "$((SECONDS - started_at))" >> "$CI_LOG"
           }
 
           case "$TEST_PROFILE" in
@@ -109,21 +203,25 @@ jobs:
               run_logged ios-build xcodebuild build-for-testing \
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
+                -clonedSourcePackagesDirPath "${SWIFTPM_CLONES_DIR}" \
                 -destination 'generic/platform=iOS Simulator' \
                 CODE_SIGNING_ALLOWED=NO
               run_logged tvos-build xcodebuild build-for-testing \
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
+                -clonedSourcePackagesDirPath "${SWIFTPM_CLONES_DIR}" \
                 -destination 'generic/platform=tvOS Simulator' \
                 CODE_SIGNING_ALLOWED=NO
               run_logged macos-build xcodebuild build-for-testing \
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
+                -clonedSourcePackagesDirPath "${SWIFTPM_CLONES_DIR}" \
                 -destination 'platform=macOS' \
                 CODE_SIGNING_ALLOWED=NO
               run_logged macos-test xcodebuild test \
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
+                -clonedSourcePackagesDirPath "${SWIFTPM_CLONES_DIR}" \
                 -destination 'platform=macOS' \
                 CODE_SIGNING_ALLOWED=NO \
                 -only-testing:streamscapetvTests/SelectedBackendStateSyncRoutingIntegrationTests
@@ -135,18 +233,21 @@ jobs:
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
                 -configuration Release \
+                -clonedSourcePackagesDirPath "${SWIFTPM_CLONES_DIR}" \
                 -destination 'generic/platform=iOS Simulator' \
                 CODE_SIGNING_ALLOWED=NO
               run_logged tvos-release-build xcodebuild build \
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
                 -configuration Release \
+                -clonedSourcePackagesDirPath "${SWIFTPM_CLONES_DIR}" \
                 -destination 'generic/platform=tvOS Simulator' \
                 CODE_SIGNING_ALLOWED=NO
               run_logged macos-release-build xcodebuild build \
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
                 -configuration Release \
+                -clonedSourcePackagesDirPath "${SWIFTPM_CLONES_DIR}" \
                 -destination 'platform=macOS' \
                 CODE_SIGNING_ALLOWED=NO
               ;;
@@ -158,6 +259,40 @@ jobs:
               exit 2
               ;;
           esac
+
+      - name: Record Apple develop cache contents
+        id: apple_develop_cache_contents
+        if: ${{ steps.apple_develop_cache.outputs.enabled == 'true' && steps.commands.outcome == 'success' }}
+        shell: bash
+        env:
+          CACHE_HIT: ${{ steps.apple_develop_cache_restore.outputs.cache-hit }}
+        run: |
+          set -Eeuo pipefail
+          size_bytes() {
+            local path="$1"
+            if test -e "${path}"; then
+              /usr/bin/du -sk "${path}" | awk '{print $1 * 1024}'
+            else
+              printf '0\n'
+            fi
+          }
+          media_bytes="$(size_bytes Vendor/StreamscapeMediaApple)"
+          swiftpm_bytes="$(size_bytes "${SWIFTPM_CLONES_DIR}")"
+          {
+            printf 'media_bytes=%s\n' "${media_bytes}"
+            printf 'swiftpm_clone_bytes=%s\n' "${swiftpm_bytes}"
+            printf 'total_cache_bytes=%s\n' "$((media_bytes + swiftpm_bytes))"
+          } >> "${CI_LOG}"
+
+      - name: Save Apple develop dependency cache
+        id: apple_develop_cache_save
+        if: ${{ steps.apple_develop_cache.outputs.enabled == 'true' && steps.commands.outcome == 'success' && steps.apple_develop_cache_restore.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            Vendor/StreamscapeMediaApple
+            ${{ steps.apple_develop_cache.outputs.swiftpm_clones_dir }}
+          key: ${{ steps.apple_develop_cache.outputs.key }}
 
       - name: Scrub configured CI secrets from private log
         id: scrub
@@ -218,4 +353,4 @@ jobs:
         with:
           phase: finish
           ci_run_id: ${{ inputs.ci_run_id }}
-          status: ${{ steps.commands.outcome == 'success' && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && 'succeeded' || 'failed' }}
+          status: ${{ steps.commands.outcome == 'success' && (steps.apple_develop_cache_save.outcome == 'success' || steps.apple_develop_cache_save.outcome == 'skipped') && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && 'succeeded' || 'failed' }}

@@ -47,6 +47,7 @@ jobs:
     with:
       repository: ${{ needs.request.outputs.repository }}
       ref: ${{ needs.request.outputs.ref }}
+      source_is_tag: ${{ needs.request.outputs.is_tag == 'true' }}
       test_profile: ${{ needs.request.outputs.test_profile }}
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
