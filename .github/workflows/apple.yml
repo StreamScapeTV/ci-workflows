@@ -128,6 +128,28 @@ jobs:
                 CODE_SIGNING_ALLOWED=NO \
                 -only-testing:streamscapetvTests/SelectedBackendStateSyncRoutingIntegrationTests
               ;;
+            release-build)
+              test -f scripts/bootstrap-streamscape-media-binary.sh
+              run_logged prepare-media bash scripts/bootstrap-streamscape-media-binary.sh
+              run_logged ios-release-build xcodebuild build \
+                -workspace streamscapetv.xcworkspace \
+                -scheme streamscapetv \
+                -configuration Release \
+                -destination 'generic/platform=iOS Simulator' \
+                CODE_SIGNING_ALLOWED=NO
+              run_logged tvos-release-build xcodebuild build \
+                -workspace streamscapetv.xcworkspace \
+                -scheme streamscapetv \
+                -configuration Release \
+                -destination 'generic/platform=tvOS Simulator' \
+                CODE_SIGNING_ALLOWED=NO
+              run_logged macos-release-build xcodebuild build \
+                -workspace streamscapetv.xcworkspace \
+                -scheme streamscapetv \
+                -configuration Release \
+                -destination 'platform=macOS' \
+                CODE_SIGNING_ALLOWED=NO
+              ;;
             swift-package)
               run_logged swift-package swift test
               ;;

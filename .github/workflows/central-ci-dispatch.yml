@@ -99,6 +99,25 @@ jobs:
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
 
+  public_native_image_chart:
+    needs: request
+    if: ${{ needs.request.outputs.workflow_key == 'release.public-native-image-chart' }}
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/public-native-image-chart.yml
+    with:
+      repository: ${{ needs.request.outputs.repository }}
+      ref: ${{ needs.request.outputs.ref }}
+      image_name: ${{ fromJSON(needs.request.outputs.inputs_json).image_name }}
+      chart_name: ${{ fromJSON(needs.request.outputs.inputs_json).chart_name }}
+      chart_path: ${{ fromJSON(needs.request.outputs.inputs_json).chart_path }}
+      dockerfile_path: ${{ fromJSON(needs.request.outputs.inputs_json).dockerfile_path }}
+      build_context: ${{ fromJSON(needs.request.outputs.inputs_json).build_context }}
+      publish_latest_image: ${{ fromJSON(needs.request.outputs.inputs_json).publish_latest_image }}
+      ci_run_id: ${{ inputs.ci_run_id }}
+    secrets: inherit
+
   source_snapshot:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'source.snapshot' }}

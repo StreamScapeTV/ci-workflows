@@ -33,10 +33,23 @@ SUPPORTED_WORKFLOWS = frozenset(
         "validation.node",
         "validation.flutter",
         "source.snapshot",
+        "release.public-native-image-chart",
     }
 )
 _REPOSITORY = re.compile(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}\Z")
 _WORKFLOW = re.compile(r"[a-z0-9][a-z0-9._-]{0,127}\Z")
+_RELEASE_SLUG = re.compile(r"[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?\Z")
+_RELEASE_TAG = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
+_RELEASE_WORKFLOW = "release.public-native-image-chart"
+_RELEASE_PROFILE = "public-native-image-chart"
+_RELEASE_INPUT_KEYS = frozenset({
+    "image_name",
+    "chart_name",
+    "chart_path",
+    "dockerfile_path",
+    "build_context",
+    "publish_latest_image",
+})
 
 
 class BrokerError(RuntimeError):
@@ -107,6 +120,31 @@ def workflow(value: object) -> str:
 def is_tag(value: object) -> bool:
     require(isinstance(value, bool), "invalid_is_tag", 422)
     return value
+
+
+def release_path(value: object) -> str:
+    require(isinstance(value, str) and bool(value), "invalid_release_input", 422)
+    require("\\" not in value and not value.startswith("/"), "invalid_release_input", 422)
+    parts = value.split("/")
+    require(all(part not in {"", ".."} for part in parts), "invalid_release_input", 422)
+    return value
+
+
+def release_inputs(value: Mapping[str, object]) -> dict[str, object]:
+    require(set(value) == _RELEASE_INPUT_KEYS, "invalid_release_inputs", 422)
+    image_name = value.get("image_name")
+    chart_name = value.get("chart_name")
+    require(isinstance(image_name, str) and _RELEASE_SLUG.fullmatch(image_name) is not None, "invalid_release_input", 422)
+    require(isinstance(chart_name, str) and _RELEASE_SLUG.fullmatch(chart_name) is not None, "invalid_release_input", 422)
+    require(value.get("publish_latest_image") is False, "invalid_release_input", 422)
+    return {
+        "image_name": image_name,
+        "chart_name": chart_name,
+        "chart_path": release_path(value.get("chart_path")),
+        "dockerfile_path": release_path(value.get("dockerfile_path")),
+        "build_context": release_path(value.get("build_context")),
+        "publish_latest_image": False,
+    }
 
 
 def header(headers: Mapping[str, str], name: str) -> str:
@@ -278,13 +316,21 @@ class Request:
         require(value.get("status") == "accepted", "invalid_ci_status", 409)
         raw_inputs = value.get("inputs")
         require(raw_inputs is None or isinstance(raw_inputs, dict), "invalid_ci_inputs", 422)
+        selected_workflow = workflow(value.get("workflow_key"))
+        selected_ref = human_ref(value.get("ref"))
+        selected_is_tag = is_tag(value.get("is_tag"))
+        selected_inputs: Mapping[str, object] = raw_inputs or {}
+        if selected_workflow == _RELEASE_WORKFLOW:
+            require(value.get("test_profile") == _RELEASE_PROFILE, "unsupported_ci_profile", 422)
+            require(selected_is_tag and _RELEASE_TAG.fullmatch(selected_ref) is not None, "invalid_release_tag", 422)
+            selected_inputs = release_inputs(selected_inputs)
         return cls(
             ci_uuid(value.get("ci_run_id")),
             repository(value.get("repository")),
-            human_ref(value.get("ref")),
-            is_tag(value.get("is_tag")),
-            workflow(value.get("workflow_key")),
-            raw_inputs or {},
+            selected_ref,
+            selected_is_tag,
+            selected_workflow,
+            selected_inputs,
         )
 
     @property
@@ -387,6 +433,27 @@ def self_check() -> dict[str, object]:
     )
     inputs = request.dispatch_inputs()
     require(set(inputs) == {"active_key", "ci_run_id"}, "self_check_failed", 500)
+    release_request = Request.from_claim(
+        {
+            "ci_run_id": "00000000-0000-4000-8000-000000000020",
+            "origin": "agent_request",
+            "status": "accepted",
+            "repository": "StreamScapeTV/agent-state-dashboard",
+            "ref": "1.11.0",
+            "is_tag": True,
+            "workflow_key": _RELEASE_WORKFLOW,
+            "test_profile": _RELEASE_PROFILE,
+            "inputs": {
+                "image_name": "agent-state-dashboard",
+                "chart_name": "agent-state-dashboard",
+                "chart_path": "charts/agent-state-dashboard",
+                "dockerfile_path": "Dockerfile",
+                "build_context": ".",
+                "publish_latest_image": False,
+            },
+        }
+    )
+    require(set(release_request.dispatch_inputs()) == {"active_key", "ci_run_id"}, "self_check_failed", 500)
     rendered = json.dumps(inputs)
     require("ExampleOrg/private-app" not in rendered and "test_command" not in rendered, "self_check_failed", 500)
     return {"ok": True, "mode": "thin-relay", "routes": ["/healthz", "/hooks/agent-state"]}

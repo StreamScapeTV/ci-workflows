@@ -10,7 +10,7 @@ class CiHelperTests(unittest.TestCase):
         inventory = yaml.safe_load((ROOT / "INVENTORY.yaml").read_text())
         self.assertEqual(
             set(inventory["workflows"]),
-            {"apple", "android", "python", "node", "flutter", "central_dispatch", "self_check", "broker_release", "runner_images"},
+            {"apple", "android", "python", "node", "flutter", "public_native_image_chart", "central_dispatch", "self_check", "broker_release", "runner_images"},
         )
         self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive", "private_git"})
         self.assertFalse((ROOT / "PYTHON_INVENTORY.yml").exists())
@@ -18,7 +18,7 @@ class CiHelperTests(unittest.TestCase):
 
     def test_workflows_use_no_reusable_prefix(self) -> None:
         names = {p.name for p in (ROOT / ".github/workflows").glob("*.yml")}
-        self.assertEqual(len(names), 9)
+        self.assertEqual(len(names), 10)
         self.assertFalse(any(name.startswith("reusable-") for name in names))
         for name in ("apple.yml", "android.yml", "python.yml", "node.yml", "flutter.yml"):
             self.assertIn(name, names)
@@ -146,6 +146,29 @@ class CiHelperTests(unittest.TestCase):
         dispatch = (ROOT / ".github/workflows/central-ci-dispatch.yml").read_text()
         self.assertNotIn('"validation.gitops"', broker)
         self.assertNotIn("workflow_key == 'validation.gitops'", dispatch)
+
+    def test_public_release_is_bounded_agent_state_routing(self) -> None:
+        broker = (ROOT / "ci-broker/app.py").read_text()
+        dispatch = (ROOT / ".github/workflows/central-ci-dispatch.yml").read_text()
+        release = (ROOT / ".github/workflows/public-native-image-chart.yml").read_text()
+        self.assertIn('"release.public-native-image-chart"', broker)
+        self.assertIn('_RELEASE_PROFILE = "public-native-image-chart"', broker)
+        self.assertIn("workflow_key == 'release.public-native-image-chart'", dispatch)
+        self.assertIn('uses: ./.github/workflows/public-native-image-chart.yml', dispatch)
+        self.assertIn('repository: ${{ needs.request.outputs.repository }}', dispatch)
+        self.assertIn('ref: ${{ needs.request.outputs.ref }}', dispatch)
+        self.assertIn('packages: write', dispatch)
+        self.assertIn('PUBLISHER_SHA: b777940a39a4cdec0b0ce82d6c7485af31e0b592', release)
+        self.assertIn('repository: ${{ inputs.repository }}', release)
+        self.assertIn('ref: ${{ inputs.ref }}', release)
+        self.assertIn('test "${{ inputs.publish_latest_image }}" = false', release)
+        self.assertIn('ghcr.io/streamscapetv/', release)
+        self.assertIn('oci://ghcr.io/streamscapetv/helm-charts', release)
+        self.assertIn('phase: start', release)
+        self.assertIn('phase: finish', release)
+        self.assertIn('actions/google-drive@main', release)
+        self.assertNotIn('kubectl', release)
+        self.assertNotIn('helm upgrade', release)
 
     def test_source_snapshot_reuses_drive_helper_and_updates_manifest_in_place(self) -> None:
         broker = (ROOT / "ci-broker/app.py").read_text()

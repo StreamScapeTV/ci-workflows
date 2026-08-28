@@ -7,6 +7,7 @@ workflows:
   python: .github/workflows/python.yml
   node: .github/workflows/node.yml
   flutter: .github/workflows/flutter.yml
+  public_native_image_chart: .github/workflows/public-native-image-chart.yml
   central_dispatch: .github/workflows/central-ci-dispatch.yml
   self_check: .github/workflows/self-check.yml
   broker_release: .github/workflows/broker.yml
