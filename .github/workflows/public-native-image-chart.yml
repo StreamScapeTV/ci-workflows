@@ -1,0 +1,366 @@
+name: Public native image and Helm release
+
+"on":
+  workflow_call:
+    inputs:
+      repository:
+        type: string
+        required: true
+      ref:
+        type: string
+        required: true
+      image_name:
+        type: string
+        required: true
+      chart_name:
+        type: string
+        required: true
+      chart_path:
+        type: string
+        required: true
+      dockerfile_path:
+        type: string
+        required: false
+        default: Dockerfile
+      build_context:
+        type: string
+        required: false
+        default: "."
+      publish_latest_image:
+        type: boolean
+        required: false
+        default: false
+      ci_run_id:
+        type: string
+        required: true
+    secrets:
+      SOURCE_APP_ID:
+        required: true
+      SOURCE_APP_PRIVATE_KEY:
+        required: true
+      AGENT_STATE_SUPABASE_URL:
+        required: true
+      AGENT_STATE_SUPABASE_SECRET_KEY:
+        required: true
+      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID:
+        required: true
+      GOOGLE_DRIVE_CLIENT_ID:
+        required: true
+      GOOGLE_DRIVE_CLIENT_SECRET:
+        required: true
+      GOOGLE_DRIVE_REFRESH_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  REGISTRY_NAMESPACE: streamscapetv
+  CHART_NAMESPACE: streamscapetv/helm-charts
+  PUBLISHER_SHA: b777940a39a4cdec0b0ce82d6c7485af31e0b592
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Initialize private release log
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          log="${RUNNER_TEMP}/central-release.log"
+          : > "${log}"
+          chmod 0600 "${log}"
+          printf 'CI_LOG=%s\n' "${log}" >> "${GITHUB_ENV}"
+
+      - name: Mark Agent State run as running
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: start
+          ci_run_id: ${{ inputs.ci_run_id }}
+
+      - name: Check out reviewed publisher implementation
+        uses: actions/checkout@v4
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ env.PUBLISHER_SHA }}
+          path: .ciw
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify reviewed publisher implementation
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C .ciw rev-parse HEAD)" = "${PUBLISHER_SHA}"
+          test -z "$(git -C .ciw status --porcelain=v1 --untracked-files=all)"
+
+      - name: Prepare source token
+        id: source_token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.SOURCE_APP_ID }}
+          private-key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          owner: StreamScapeTV
+
+      - name: Check out exact tagged product source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          token: ${{ steps.source_token.outputs.token }}
+          path: source
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - id: authority
+        name: Verify exact stable tag authority
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.ref }}
+        run: |
+          set -Eeuo pipefail
+          [[ "${RELEASE_TAG}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          git -C source show-ref --verify --quiet "refs/tags/${RELEASE_TAG}"
+          source_sha="$(git -C source rev-parse HEAD)"
+          tag_sha="$(git -C source rev-parse "refs/tags/${RELEASE_TAG}^{commit}")"
+          test "${source_sha}" = "${tag_sha}"
+          test -z "$(git -C source status --porcelain=v1 --untracked-files=all)"
+          {
+            printf 'version=%s\n' "${RELEASE_TAG}"
+            printf 'source_sha=%s\n' "${source_sha}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Initialize isolated publication state
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          state_root="${RUNNER_TEMP}/public-native-image-chart"
+          test ! -e "${state_root}"
+          mkdir -m 0700 "${state_root}" "${state_root}/packages"
+          printf '{}\n' > "${state_root}/auth.json"
+          chmod 0600 "${state_root}/auth.json"
+          {
+            printf 'REGISTRY_AUTH_FILE=%s\n' "${state_root}/auth.json"
+            printf 'HELM_REGISTRY_CONFIG=%s\n' "${state_root}/helm-registry.json"
+            printf 'PACKAGE_ROOT=%s\n' "${state_root}/packages"
+          } >> "${GITHUB_ENV}"
+
+      - name: Validate bounded release inputs and hosted tools
+        id: validate
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.authority.outputs.source_sha }}
+          IMAGE_NAME: ${{ inputs.image_name }}
+          CHART_NAME: ${{ inputs.chart_name }}
+          CHART_PATH: ${{ inputs.chart_path }}
+          DOCKERFILE_PATH: ${{ inputs.dockerfile_path }}
+          BUILD_CONTEXT: ${{ inputs.build_context }}
+        run: |
+          set -Eeuo pipefail
+          test "${{ inputs.publish_latest_image }}" = false
+          test "${RUNNER_ENVIRONMENT:-}" = "github-hosted"
+          test "${RUNNER_OS:-}" = "Linux"
+          test "$(uname -m)" = "x86_64"
+          buildah --version >> "${CI_LOG}" 2>&1
+          skopeo --version >> "${CI_LOG}" 2>&1
+          helm version --short >> "${CI_LOG}" 2>&1
+          python3 .ciw/scripts/ci/native_image_chart_validate.py >> "${CI_LOG}" 2>&1
+
+      - id: prepare
+        name: Build image and package chart
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}/.ciw/src
+          VERSION: ${{ steps.authority.outputs.version }}
+          SOURCE_SHA: ${{ steps.authority.outputs.source_sha }}
+          IMAGE_NAME: ${{ inputs.image_name }}
+          CHART_NAME: ${{ inputs.chart_name }}
+          CHART_PATH: ${{ inputs.chart_path }}
+          DOCKERFILE_PATH: ${{ inputs.dockerfile_path }}
+          BUILD_CONTEXT: ${{ inputs.build_context }}
+        run: |
+          set -Eeuo pipefail
+          python3 .ciw/scripts/ci/native_image_chart_prepare.py >> "${CI_LOG}" 2>&1
+
+      - name: Authenticate and require unused immutable version
+        id: authenticate
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}/.ciw/src
+          CIW_REGISTRY_USERNAME: ${{ github.actor }}
+          CIW_REGISTRY_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.authority.outputs.version }}
+          IMAGE_NAME: ${{ inputs.image_name }}
+          CHART_NAME: ${{ inputs.chart_name }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY' >> "${CI_LOG}" 2>&1
+          import os
+          from pathlib import Path
+          from ci_workflows.packaging_primitives import registry_authenticate
+          env = dict(os.environ)
+          registry_authenticate("ghcr.io", environment=env, tool="buildah", cwd=Path("source"))
+          registry_authenticate("ghcr.io", environment=env, tool="helm", cwd=Path("source"))
+          PY
+          image_reference="${REGISTRY}/${REGISTRY_NAMESPACE}/${IMAGE_NAME}:${VERSION}"
+          chart_reference="${REGISTRY}/${CHART_NAMESPACE}/${CHART_NAME}:${VERSION}"
+          ! skopeo inspect --authfile "${REGISTRY_AUTH_FILE}" "docker://${image_reference}" >> "${CI_LOG}" 2>&1
+          ! skopeo inspect --authfile "${REGISTRY_AUTH_FILE}" "docker://${chart_reference}" >> "${CI_LOG}" 2>&1
+
+      - name: Revalidate exact tag before publication
+        id: revalidate
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.authority.outputs.version }}
+          SOURCE_SHA: ${{ steps.authority.outputs.source_sha }}
+        run: |
+          set -Eeuo pipefail
+          git -C source fetch --force --tags origin >> "${CI_LOG}" 2>&1
+          test "$(git -C source rev-parse HEAD)" = "${SOURCE_SHA}"
+          test "$(git -C source rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" = "${SOURCE_SHA}"
+          test -z "$(git -C source status --porcelain=v1 --untracked-files=all)"
+
+      - name: Publish immutable image and chart
+        id: publish
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}/.ciw/src
+          VERSION: ${{ steps.authority.outputs.version }}
+          IMAGE_NAME: ${{ inputs.image_name }}
+          CHART_NAME: ${{ inputs.chart_name }}
+          IMAGE_REFERENCE: ghcr.io/streamscapetv/${{ inputs.image_name }}:${{ steps.authority.outputs.version }}
+          PACKAGE_PATH: ${{ steps.prepare.outputs.package_path }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY' >> "${CI_LOG}" 2>&1
+          import os
+          from pathlib import Path
+          from ci_workflows.packaging_primitives import helm_push, push_image
+          env = dict(os.environ)
+          source = Path("source")
+          push_image(os.environ["IMAGE_REFERENCE"], environment=env, tool="buildah", cwd=source)
+          helm_push(Path(os.environ["PACKAGE_PATH"]), "oci://ghcr.io/streamscapetv/helm-charts", environment=env)
+          PY
+
+      - id: readback
+        name: Drop credentials and anonymously verify publication
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}/.ciw/src
+          VERSION: ${{ steps.authority.outputs.version }}
+          IMAGE_NAME: ${{ inputs.image_name }}
+          CHART_NAME: ${{ inputs.chart_name }}
+          IMAGE_REFERENCE: ghcr.io/streamscapetv/${{ inputs.image_name }}:${{ steps.authority.outputs.version }}
+          LATEST_IMAGE_REFERENCE: ghcr.io/streamscapetv/${{ inputs.image_name }}:latest
+          PUBLISH_LATEST_IMAGE: "false"
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY' >> "${CI_LOG}" 2>&1
+          import os
+          from pathlib import Path
+          from ci_workflows.packaging_primitives import registry_logout
+          env = dict(os.environ)
+          registry_logout("ghcr.io", environment=env, tool="helm", cwd=Path("source"))
+          registry_logout("ghcr.io", environment=env, tool="buildah", cwd=Path("source"))
+          PY
+          python3 .ciw/scripts/ci/public_native_image_chart_readback.py >> "${CI_LOG}" 2>&1
+
+      - name: Clean publication state
+        id: cleanup
+        if: always()
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}/.ciw/src
+          VERSION: ${{ steps.authority.outputs.version }}
+          IMAGE_REFERENCE: ghcr.io/streamscapetv/${{ inputs.image_name }}:${{ steps.authority.outputs.version }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY' >> "${CI_LOG}" 2>&1 || true
+          import os
+          from pathlib import Path
+          from ci_workflows.packaging_primitives import cleanup_packaging_state, registry_logout
+          env = dict(os.environ)
+          for tool in ("helm", "buildah"):
+              try:
+                  registry_logout("ghcr.io", environment=env, tool=tool, cwd=Path("source") if Path("source").is_dir() else Path.cwd())
+              except Exception:
+                  pass
+          cleanup_packaging_state((Path(os.environ["RUNNER_TEMP"]) / "public-native-image-chart",))
+          PY
+          buildah rmi "${IMAGE_REFERENCE}" >/dev/null 2>&1 || true
+          test ! -e "${RUNNER_TEMP}/public-native-image-chart"
+          if test -d source/.git && test -n "${{ steps.authority.outputs.source_sha }}"; then
+            test "$(git -C source rev-parse HEAD)" = "${{ steps.authority.outputs.source_sha }}"
+            test -z "$(git -C source status --porcelain=v1 --untracked-files=all)"
+          fi
+          if test -d .ciw/.git; then
+            test "$(git -C .ciw rev-parse HEAD)" = "${PUBLISHER_SHA}"
+            test -z "$(git -C .ciw status --porcelain=v1 --untracked-files=all)"
+          fi
+
+      - name: Scrub private release log
+        id: scrub
+        if: always()
+        shell: bash
+        env:
+          CI_SECRET_SOURCE_TOKEN: ${{ steps.source_token.outputs.token }}
+          CI_SECRET_GITHUB_TOKEN: ${{ github.token }}
+          CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          CI_SECRET_AGENT_STATE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          CI_SECRET_AGENT_STATE_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+          CI_SECRET_DRIVE_FOLDER: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+          CI_SECRET_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          CI_SECRET_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          CI_SECRET_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          path = Path(os.environ["CI_LOG"])
+          data = path.read_bytes()
+          for name, value in os.environ.items():
+              if not name.startswith("CI_SECRET_") or not value:
+                  continue
+              raw = value.encode()
+              data = data.replace(raw, b"[REDACTED]")
+              escaped = value.replace("\n", "\\n").encode()
+              if escaped != raw:
+                  data = data.replace(escaped, b"[REDACTED]")
+          path.write_bytes(data)
+          PY
+
+      - name: Upload private release log to Google Drive
+        id: drive
+        if: ${{ always() && steps.scrub.outcome == 'success' }}
+        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
+        env:
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          file_path: ${{ runner.temp }}/central-release.log
+          file_name: ${{ github.run_id }}-${{ github.run_attempt }}.log.gz
+          gzip: "true"
+          mime_type: application/gzip
+
+      - name: Finish Agent State run
+        if: always()
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: finish
+          ci_run_id: ${{ inputs.ci_run_id }}
+          status: ${{ steps.validate.outcome == 'success' && steps.prepare.outcome == 'success' && steps.authenticate.outcome == 'success' && steps.revalidate.outcome == 'success' && steps.publish.outcome == 'success' && steps.readback.outcome == 'success' && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && steps.cleanup.outcome == 'success' && 'succeeded' || 'failed' }}
