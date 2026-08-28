@@ -110,6 +110,32 @@ jobs:
           distribution: temurin
           java-version: "25"
 
+      - name: Restore shared Gradle dependency cache
+        id: gradle_dependency_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.gradle/wrapper
+            ~/.gradle/caches/modules-2
+          key: >-
+            gradle-deps-v1-${{ inputs.repository || github.repository }}-${{ runner.os }}-${{ runner.arch }}-${{
+              inputs.project_directory == 'android'
+              && hashFiles(
+                'android/gradle/wrapper/gradle-wrapper.properties',
+                'android/gradle/**/*.toml',
+                'android/settings.gradle*',
+                'android/build.gradle*',
+                'android/**/build.gradle*'
+              )
+              || hashFiles(
+                'gradle/wrapper/gradle-wrapper.properties',
+                'gradle/**/*.toml',
+                'settings.gradle*',
+                'build.gradle*',
+                '**/build.gradle*'
+              )
+            }}
+
       - name: Run fixed Android profile
         id: commands
         shell: bash
@@ -255,6 +281,29 @@ jobs:
               exit 1
             fi
           fi
+
+      - name: Save shared Gradle dependency cache
+        if: >-
+          ${{
+            steps.commands.outcome == 'success'
+            && steps.gradle_dependency_cache.outputs.cache-hit != 'true'
+            && (
+              (inputs.ci_run_id != '' && (inputs.ref == 'develop' || inputs.ref == 'main'))
+              || (
+                inputs.ci_run_id == ''
+                && (inputs.repository == '' || inputs.repository == github.repository)
+                && (inputs.ref == '' || inputs.ref == github.ref_name)
+                && github.ref_type == 'branch'
+                && (github.ref_name == 'develop' || github.ref_name == 'main')
+              )
+            )
+          }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.gradle/wrapper
+            ~/.gradle/caches/modules-2
+          key: ${{ steps.gradle_dependency_cache.outputs.cache-primary-key }}
 
       - name: Scrub configured CI secrets from private log
         id: scrub
