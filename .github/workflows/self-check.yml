@@ -9,10 +9,6 @@ name: CI workflows self-check
 permissions:
   contents: read
 
-concurrency:
-  group: issue-536-backend-proof-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   check:
     runs-on: ubuntu-24.04
@@ -38,12 +34,3 @@ jobs:
         run: |
           docker build -f ci-broker/Containerfile -t ci-broker:self-check ci-broker
           python3 ci-broker/smoke_test.py
-
-  backend_full_exact_head_proof:
-    uses: ./.github/workflows/python.yml
-    with:
-      repository: StreamScapeTV/iptv-backend
-      ref: 78f6a8a4d5309453c582a7e5d7200984c9b7319b
-      test_profile: backend-full
-      upload_private_log: true
-    secrets: inherit
