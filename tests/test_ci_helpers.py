@@ -10,9 +10,10 @@ class CiHelperTests(unittest.TestCase):
         inventory = yaml.safe_load((ROOT / "INVENTORY.yaml").read_text())
         self.assertEqual(
             set(inventory["workflows"]),
-            {"apple", "android", "python", "node", "flutter", "public_native_image_chart", "central_dispatch", "self_check", "runner_images"},
+            {"apple", "android", "python", "node", "flutter", "public_native_image_chart", "oci_reproducibility", "central_dispatch", "self_check", "runner_images"},
         )
         self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive", "private_git"})
+        self.assertEqual(set(inventory["scripts"]), {"oci_reproducibility"})
         self.assertEqual(set(inventory["services"]), {"runner_images"})
         self.assertFalse((ROOT / "ci-broker").exists())
         self.assertFalse((ROOT / "PYTHON_INVENTORY.yml").exists())
@@ -20,7 +21,7 @@ class CiHelperTests(unittest.TestCase):
 
     def test_workflows_use_no_reusable_prefix(self) -> None:
         names = {p.name for p in (ROOT / ".github/workflows").glob("*.yml")}
-        self.assertEqual(len(names), 9)
+        self.assertEqual(len(names), 10)
         self.assertNotIn("broker.yml", names)
         self.assertFalse(any(name.startswith("reusable-") for name in names))
         for name in ("apple.yml", "android.yml", "python.yml", "node.yml", "flutter.yml"):
@@ -173,6 +174,7 @@ class CiHelperTests(unittest.TestCase):
             "node",
             "flutter",
             "public_native_image_chart",
+            "oci_reproducibility",
             "source_snapshot",
         )
         self.assertNotIn("concurrency", workflow)
@@ -192,6 +194,28 @@ class CiHelperTests(unittest.TestCase):
             settlement["steps"][-1]["with"]["phase"],
             "cancel-if-active",
         )
+
+    def test_central_dispatch_routes_only_bounded_oci_reproducibility_inputs(self) -> None:
+        workflow = yaml.safe_load((ROOT / ".github/workflows/central-ci-dispatch.yml").read_text())
+        job = workflow["jobs"]["oci_reproducibility"]
+        self.assertEqual(job["if"], "${{ needs.request.outputs.workflow_key == 'oci.reproducibility' }}")
+        self.assertEqual(job["uses"], "./.github/workflows/oci-reproducibility.yml")
+        self.assertEqual(
+            set(job["with"]),
+            {"repository", "ref", "dockerfile_path", "build_context", "ci_run_id"},
+        )
+        self.assertEqual(job["with"]["repository"], "${{ needs.request.outputs.repository }}")
+        self.assertEqual(job["with"]["ref"], "${{ needs.request.outputs.ref }}")
+        self.assertEqual(
+            job["with"]["dockerfile_path"],
+            "${{ fromJSON(needs.request.outputs.inputs_json).dockerfile_path }}",
+        )
+        self.assertEqual(
+            job["with"]["build_context"],
+            "${{ fromJSON(needs.request.outputs.inputs_json).build_context }}",
+        )
+        self.assertEqual(job["with"]["ci_run_id"], "${{ inputs.ci_run_id }}")
+        self.assertTrue(job["secrets"] == "inherit")
 
     def test_fixed_profiles_replace_arbitrary_command_transport(self) -> None:
         forbidden = ("prepare_command", "build_command", "test_command", "release_command", "bash -lc")
@@ -311,6 +335,8 @@ class CiHelperTests(unittest.TestCase):
         self.assertLess(names.index("Resolve observed source SHA"), names.index("Record observed source SHA"))
         self.assertLess(names.index("Record observed source SHA"), names.index("Create exact tracked-source snapshot"))
         self.assertEqual(finish["if"], "${{ always() }}")
+
+
 
 
 if __name__ == "__main__":
