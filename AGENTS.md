@@ -7,6 +7,7 @@
 - Protected integration branch: `main`
 - Shared organization policy: `StreamScapeTV/organization-rules@main/AGENTS.md`
 - Local path inventory: `INVENTORY.yaml`
+- Google Drive repository folder ID: `1--JcV6RK8jdIIP3ONWw420QDVpNTQ7L8`
 
 Read the shared organization entry point and the authorities it routes. It owns
 generic working-copy, Agent State, Google Drive, branch/PR, cross-project,
