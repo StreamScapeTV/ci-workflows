@@ -99,6 +99,46 @@ class CiHelperTests(unittest.TestCase):
         for value in forbidden[:-1]:
             self.assertNotIn(value, dispatch)
 
+    def test_android_dependency_cache_is_iptv_android_develop_only(self) -> None:
+        workflow = yaml.safe_load((ROOT / ".github/workflows/android.yml").read_text())
+        steps = workflow["jobs"]["ci"]["steps"]
+        by_name = {step.get("name"): step for step in steps if step.get("name")}
+
+        scope = by_name["Resolve IPTV Android develop dependency cache scope"]
+        restore = by_name["Restore IPTV Android develop dependency cache"]
+        save = by_name["Save IPTV Android develop dependency cache"]
+        expected_paths = "~/.gradle/wrapper\n~/.gradle/caches/modules-2\n"
+
+        self.assertIn("StreamScapeTV/iptv-android", scope["run"])
+        self.assertIn('test "${source_ref}" = develop', scope["run"])
+        self.assertIn('source_ref="${source_ref#refs/heads/}"', scope["run"])
+        self.assertIn("inputs.repository || github.repository", scope["env"]["SOURCE_REPOSITORY"])
+        self.assertIn("inputs.ref", scope["env"]["REQUESTED_REF"])
+        self.assertIn("github.ref_type", scope["env"]["CURRENT_REF_TYPE"])
+        self.assertIn("github.ref_name", scope["env"]["CURRENT_REF_NAME"])
+
+        self.assertEqual(restore["if"], "${{ steps.android_develop_cache_scope.outputs.enabled == 'true' }}")
+        self.assertEqual(restore["uses"], "actions/cache/restore@v4")
+        self.assertEqual(save["uses"], "actions/cache/save@v4")
+        self.assertEqual(save["id"], "gradle_dependency_cache_save")
+        self.assertEqual(restore["with"]["path"], expected_paths)
+        self.assertEqual(save["with"]["path"], expected_paths)
+        self.assertIn("iptv-android-develop-gradle-deps-v1-", restore["with"]["key"])
+        self.assertIn("${{ runner.os }}-${{ runner.arch }}", restore["with"]["key"])
+        self.assertIn("gradle/wrapper/gradle-wrapper.properties", restore["with"]["key"])
+        self.assertIn("gradle/**/*.toml", restore["with"]["key"])
+        self.assertIn("**/build.gradle*", restore["with"]["key"])
+        self.assertNotIn("inputs.ref", restore["with"]["key"])
+        self.assertNotIn("github.ref", restore["with"]["key"])
+        self.assertNotIn("inputs.repository", restore["with"]["key"])
+        self.assertEqual(save["with"]["key"], "${{ steps.gradle_dependency_cache.outputs.cache-primary-key }}")
+        self.assertIn("steps.android_develop_cache_scope.outputs.enabled == 'true'", save["if"])
+        self.assertIn("steps.commands.outcome == 'success'", save["if"])
+        self.assertIn("inputs.test_profile == 'full' || inputs.test_profile == 'release'", save["if"])
+        finish = by_name["Finish Agent State run"]
+        self.assertIn("steps.gradle_dependency_cache_save.outcome == 'success'", finish["with"]["status"])
+        self.assertIn("steps.gradle_dependency_cache_save.outcome == 'skipped'", finish["with"]["status"])
+
     def test_android_owner_profiles_and_gitops_retirement_are_explicit(self) -> None:
         android = (ROOT / ".github/workflows/android.yml").read_text()
         for profile in ("smoke)", "compile)", "unit)", "targeted-unit)", "lint)", "assemble)", "full)", "release)"):
