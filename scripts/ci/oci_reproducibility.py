@@ -150,7 +150,12 @@ def inspect_layout(path: Path) -> dict[str, dict[str, Any]]:
         if config["media_type"] != CONFIG_MEDIA_TYPE:
             raise ReproducibilityError(f"config {platform} is not OCI image config")
         config_bytes = _blob(layout, config, f"config {platform}")
-        _json(config_bytes, f"config {platform}")
+        config_payload = _json(config_bytes, f"config {platform}")
+        expected_architecture = "amd64" if platform == "linux/amd64" else "arm64"
+        if config_payload.get("os") != "linux":
+            raise ReproducibilityError(f"config {platform} has wrong operating system")
+        if config_payload.get("architecture") != expected_architecture:
+            raise ReproducibilityError(f"config {platform} has wrong architecture")
         platforms[platform] = {
             "manifest_digest": descriptor["digest"],
             "config_digest": config["digest"],
