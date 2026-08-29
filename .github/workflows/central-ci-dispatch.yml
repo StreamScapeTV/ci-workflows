@@ -133,6 +133,21 @@ jobs:
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
 
+  oci_reproducibility:
+    needs: request
+    if: ${{ needs.request.outputs.workflow_key == 'oci.reproducibility' }}
+    concurrency:
+      group: central-ci-${{ inputs.active_key }}
+      cancel-in-progress: true
+    uses: ./.github/workflows/oci-reproducibility.yml
+    with:
+      repository: ${{ needs.request.outputs.repository }}
+      ref: ${{ needs.request.outputs.ref }}
+      dockerfile_path: ${{ fromJSON(needs.request.outputs.inputs_json).dockerfile_path }}
+      build_context: ${{ fromJSON(needs.request.outputs.inputs_json).build_context }}
+      ci_run_id: ${{ inputs.ci_run_id }}
+    secrets: inherit
+
   source_snapshot:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'source.snapshot' }}
@@ -379,6 +394,7 @@ jobs:
       - node
       - flutter
       - public_native_image_chart
+      - oci_reproducibility
       - source_snapshot
     if: >-
       ${{
@@ -391,6 +407,7 @@ jobs:
           needs.node.result == 'cancelled' ||
           needs.flutter.result == 'cancelled' ||
           needs.public_native_image_chart.result == 'cancelled' ||
+          needs.oci_reproducibility.result == 'cancelled' ||
           needs.source_snapshot.result == 'cancelled'
         )
       }}
