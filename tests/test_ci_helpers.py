@@ -67,11 +67,19 @@ class CiHelperTests(unittest.TestCase):
         self.assertNotIn("tailscale/github-action@v4", android)
 
     def test_agent_state_workflows_use_private_drive_logs_without_public_command_tee(self) -> None:
+        plain_text_logs = {"android", "node", "flutter"}
         for name in ("apple", "android", "python", "node", "flutter"):
             text = (ROOT / ".github/workflows" / f"{name}.yml").read_text()
             self.assertIn("GOOGLE_DRIVE_CI_LOGS_FOLDER_ID", text)
             self.assertIn("actions/google-drive@", text)
-            self.assertIn("${{ github.run_id }}-${{ github.run_attempt }}.log.gz", text)
+            if name in plain_text_logs:
+                self.assertIn("${{ github.run_id }}-${{ github.run_attempt }}.txt", text)
+                self.assertIn("mime_type: text/plain", text)
+                self.assertNotIn("gzip: 'true'", text)
+            else:
+                self.assertIn("${{ github.run_id }}-${{ github.run_attempt }}.log.gz", text)
+                self.assertIn("mime_type: application/gzip", text)
+                self.assertIn("gzip: 'true'", text)
             self.assertIn("inspect the private Google Drive CI log", text)
             self.assertNotIn("R2_", text)
             self.assertNotIn("r2-upload", text)
