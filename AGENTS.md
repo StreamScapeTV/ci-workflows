@@ -7,7 +7,7 @@
 - Protected branch: `main`
 - Shared organization rules: `StreamScapeTV/organization-rules@main/AGENTS.md`
 - Repository inventory: `INVENTORY.yaml`
-- Google Drive repository folder ID: `1NpjvoUNXdlvjVunjleuGrOxQaCtqf_-C`
+- Google Drive repository folder ID: `1--JcV6RK8jdIIP3ONWw420QDVpNTQ7L8`
 
 Read this file, the shared organization rules, and `INVENTORY.yaml` before changing CI.
 
