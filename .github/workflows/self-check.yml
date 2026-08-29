@@ -9,6 +9,10 @@ name: CI workflows self-check
 permissions:
   contents: read
 
+concurrency:
+  group: issue-536-backend-proof-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check:
     runs-on: ubuntu-24.04
@@ -36,3 +40,12 @@ jobs:
           tests.test_apple_workflow
           tests.test_node_flutter_observed_source
           -v
+
+  backend_full_exact_head_proof:
+    uses: ./.github/workflows/python.yml
+    with:
+      repository: StreamScapeTV/iptv-backend
+      ref: 1cf2b3259bc679b416c68332c4e5905ceaf47a40
+      test_profile: backend-full
+      upload_private_log: true
+    secrets: inherit
