@@ -171,10 +171,10 @@ class CiHelperTests(unittest.TestCase):
         self.assertNotIn("refs/tags/{0}", text)
         self.assertGreaterEqual(text.count("ref: ${{ needs.request.outputs.ref }}"), 6)
 
-    def test_central_dispatch_is_newest_run_wins_per_active_branch_key(self) -> None:
+    def test_central_dispatch_preserves_newest_run_wins_with_snapshot_isolation(self) -> None:
         workflow = yaml.safe_load((ROOT / ".github/workflows/central-ci-dispatch.yml").read_text())
         jobs = workflow["jobs"]
-        selected_jobs = (
+        execution_jobs = (
             "apple",
             "android",
             "python",
@@ -182,20 +182,24 @@ class CiHelperTests(unittest.TestCase):
             "flutter",
             "public_native_image_chart",
             "oci_reproducibility",
-            "source_snapshot",
         )
         self.assertNotIn("concurrency", workflow)
         self.assertNotIn("concurrency", jobs["request"])
-        for name in selected_jobs:
+        for name in execution_jobs:
             self.assertEqual(jobs[name]["concurrency"]["group"], "central-ci-${{ inputs.active_key }}")
             self.assertTrue(jobs[name]["concurrency"]["cancel-in-progress"])
 
+        snapshot = jobs["source_snapshot"]["concurrency"]
+        self.assertEqual(snapshot["group"], "central-ci-snapshot-${{ inputs.active_key }}")
+        self.assertTrue(snapshot["cancel-in-progress"])
+        self.assertNotEqual(snapshot["group"], jobs["apple"]["concurrency"]["group"])
+
         settlement = jobs["settle_cancelled"]
         self.assertNotIn("concurrency", settlement)
-        self.assertEqual(set(settlement["needs"]), {"request", *selected_jobs})
+        self.assertEqual(set(settlement["needs"]), {"request", *execution_jobs, "source_snapshot"})
         self.assertIn("always()", settlement["if"])
         self.assertIn("needs.request.result != 'success'", settlement["if"])
-        for name in selected_jobs:
+        for name in (*execution_jobs, "source_snapshot"):
             self.assertIn(f"needs.{name}.result == 'cancelled'", settlement["if"])
         self.assertEqual(
             settlement["steps"][-1]["with"]["phase"],

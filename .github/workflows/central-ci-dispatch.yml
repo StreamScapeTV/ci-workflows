@@ -152,7 +152,7 @@ jobs:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'source.snapshot' }}
     concurrency:
-      group: central-ci-${{ inputs.active_key }}
+      group: central-ci-snapshot-${{ inputs.active_key }}
       cancel-in-progress: true
     runs-on: ubuntu-24.04
     timeout-minutes: 30
