@@ -41,11 +41,11 @@ jobs:
           tests.test_node_flutter_observed_source
           -v
 
-  backend_full_exact_head_proof:
+  backend_postgres_exact_head_proof:
     uses: ./.github/workflows/python.yml
     with:
       repository: StreamScapeTV/iptv-backend
       ref: 1cf2b3259bc679b416c68332c4e5905ceaf47a40
-      test_profile: backend-full
+      test_profile: backend-postgres
       upload_private_log: true
     secrets: inherit
