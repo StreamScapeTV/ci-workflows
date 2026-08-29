@@ -47,9 +47,9 @@ class AppleWorkflowTests(unittest.TestCase):
         )
         script = command_step["run"]
 
-        self.assertIn("run_logged ios-build xcodebuild build \", script)
-        self.assertIn("run_logged tvos-build xcodebuild build \", script)
-        self.assertIn("run_logged macos-test xcodebuild test \", script)
+        self.assertIn("run_logged ios-build xcodebuild build", script)
+        self.assertIn("run_logged tvos-build xcodebuild build", script)
+        self.assertIn("run_logged macos-test xcodebuild test", script)
         self.assertNotIn("build-for-testing", script)
         self.assertNotIn("macos-build", script)
         self.assertIn(
