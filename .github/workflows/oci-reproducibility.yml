@@ -1,0 +1,408 @@
+name: OCI reproducibility proof
+
+"on":
+  workflow_call:
+    inputs:
+      repository:
+        type: string
+        required: true
+      ref:
+        type: string
+        required: true
+      dockerfile_path:
+        type: string
+        required: false
+        default: Dockerfile
+      build_context:
+        type: string
+        required: false
+        default: "."
+      ci_run_id:
+        type: string
+        required: true
+    secrets:
+      SOURCE_APP_ID:
+        required: true
+      SOURCE_APP_PRIVATE_KEY:
+        required: true
+      AGENT_STATE_SUPABASE_URL:
+        required: true
+      AGENT_STATE_SUPABASE_SECRET_KEY:
+        required: true
+      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID:
+        required: true
+      GOOGLE_DRIVE_CLIENT_ID:
+        required: true
+      GOOGLE_DRIVE_CLIENT_SECRET:
+        required: true
+      GOOGLE_DRIVE_REFRESH_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  QEMU_IMAGE: docker.io/tonistiigi/binfmt:qemu-v8.1.5
+
+jobs:
+  prove:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Initialize private reproducibility log
+        id: initialize
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          log="${RUNNER_TEMP}/central-oci-reproducibility.log"
+          proof_root="${RUNNER_TEMP}/oci-reproducibility-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          test ! -e "${proof_root}"
+          : > "${log}"
+          chmod 0600 "${log}"
+          mkdir -m 0700 "${proof_root}"
+          {
+            printf 'CI_LOG=%s\n' "${log}"
+            printf 'PROOF_ROOT=%s\n' "${proof_root}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Mark Agent State run as running
+        id: agent_start
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: start
+          ci_run_id: ${{ inputs.ci_run_id }}
+
+      - name: Check out exact workflow implementation
+        id: implementation_checkout
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ciw
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify exact workflow implementation
+        id: implementation_identity
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C .ciw rev-parse HEAD)" = "${{ job.workflow_sha }}"
+          test -z "$(git -C .ciw status --porcelain=v1 --untracked-files=all)"
+
+      - name: Prepare source token
+        id: source_token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.SOURCE_APP_ID }}
+          private-key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          owner: StreamScapeTV
+
+      - name: Check out exact requested source
+        id: source_checkout
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          token: ${{ steps.source_token.outputs.token }}
+          path: source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Resolve exact source and bounded build paths
+        id: source_identity
+        shell: bash
+        env:
+          DOCKERFILE_PATH: ${{ inputs.dockerfile_path }}
+          BUILD_CONTEXT: ${{ inputs.build_context }}
+        run: |
+          set -Eeuo pipefail
+          source_sha="$(git -C source rev-parse HEAD)"
+          source_epoch="$(git -C source show -s --format=%ct HEAD)"
+          [[ "${source_sha}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${source_epoch}" =~ ^[0-9]+$ ]]
+          test -z "$(git -C source status --porcelain=v1 --untracked-files=all)"
+          python3 - "${PWD}/source" "${DOCKERFILE_PATH}" "${BUILD_CONTEXT}" <<'PY'
+          from pathlib import Path, PurePosixPath
+          import sys
+
+          root = Path(sys.argv[1]).resolve()
+          values = (("dockerfile_path", sys.argv[2], "file"), ("build_context", sys.argv[3], "directory"))
+          for name, raw, kind in values:
+              if not raw or len(raw) > 240 or "\\" in raw or "\x00" in raw:
+                  raise SystemExit(f"invalid {name}")
+              relative = PurePosixPath(raw)
+              if relative.is_absolute() or ".." in relative.parts:
+                  raise SystemExit(f"invalid {name}")
+              target = root.joinpath(*relative.parts).resolve()
+              try:
+                  target.relative_to(root)
+              except ValueError as exc:
+                  raise SystemExit(f"{name} escapes source checkout") from exc
+              if kind == "file" and not target.is_file():
+                  raise SystemExit(f"{name} is not a file")
+              if kind == "directory" and not target.is_dir():
+                  raise SystemExit(f"{name} is not a directory")
+          PY
+          {
+            printf 'source_sha=%s\n' "${source_sha}"
+            printf 'source_epoch=%s\n' "${source_epoch}"
+          } >> "${GITHUB_OUTPUT}"
+          {
+            printf 'SOURCE_SHA=%s\n' "${source_sha}"
+            printf 'SOURCE_EPOCH=%s\n' "${source_epoch}"
+          } >> "${GITHUB_ENV}"
+          printf 'Resolved exact source SHA %s for OCI reproducibility proof.\n' "${source_sha}" >> "${CI_LOG}"
+
+      - name: Record exact requested source SHA
+        id: observe_source
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: observe-source
+          ci_run_id: ${{ inputs.ci_run_id }}
+          observed_source_sha: ${{ steps.source_identity.outputs.source_sha }}
+
+      - name: Set up fixed arm64 emulation
+        id: qemu
+        uses: docker/setup-qemu-action@v4
+        with:
+          image: ${{ env.QEMU_IMAGE }}
+          platforms: arm64
+          reset: true
+          cache-image: false
+
+      - name: Verify fixed hosted build toolchain
+        id: toolchain
+        shell: bash
+        env:
+          CI_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          set -Eeuo pipefail
+          test "${CI_RUNNER_ENVIRONMENT}" = github-hosted
+          test "${RUNNER_OS}" = Linux
+          test "$(uname -m)" = x86_64
+          qemu_image_id="$(docker image inspect --format '{{.Id}}' "${QEMU_IMAGE}")"
+          test -n "${qemu_image_id}"
+          printf 'QEMU_IMAGE_ID=%s\n' "${qemu_image_id}" >> "${GITHUB_ENV}"
+          buildah --version >> "${CI_LOG}" 2>&1
+          docker --version >> "${CI_LOG}" 2>&1
+          buildah build --help | grep -F -- '--timestamp' >> "${CI_LOG}"
+          printf 'Fixed platforms: linux/amd64, linux/arm64/v8\n' >> "${CI_LOG}"
+
+      - name: Build two isolated dual-platform OCI layouts
+        id: build
+        shell: bash
+        env:
+          DOCKERFILE_PATH: ${{ inputs.dockerfile_path }}
+          BUILD_CONTEXT: ${{ inputs.build_context }}
+        run: |
+          set -Eeuo pipefail
+          for build_id in a b; do
+            state_root="${PROOF_ROOT}/state-${build_id}"
+            layout_root="${PROOF_ROOT}/layout-${build_id}"
+            manifest_name="localhost/ciw-oci-repro-${build_id}:${SOURCE_SHA}"
+            test ! -e "${state_root}"
+            test ! -e "${layout_root}"
+            mkdir -m 0700 "${state_root}" "${layout_root}"
+            mkdir -m 0700 "${state_root}/graphroot" "${state_root}/runroot"
+            buildah_cmd=(
+              buildah
+              --root "${state_root}/graphroot"
+              --runroot "${state_root}/runroot"
+              --storage-driver vfs
+            )
+            printf '\n===== clean-build-%s =====\n' "${build_id}" >> "${CI_LOG}"
+            for platform in linux/amd64 linux/arm64/v8; do
+              platform_id="${platform//\//-}"
+              platform_root="${state_root}/${platform_id}"
+              mkdir -m 0700 \
+                "${platform_root}/tmp" \
+                "${platform_root}/xdg-cache" \
+                "${platform_root}/home"
+              printf '{}\n' > "${platform_root}/auth.json"
+              chmod 0600 "${platform_root}/auth.json"
+              printf 'build=%s platform=%s graphroot=%s runroot=%s tmp=%s\n' \
+                "${build_id}" "${platform}" "${state_root}/graphroot" "${state_root}/runroot" "${platform_root}/tmp" \
+                >> "${CI_LOG}"
+              if ! (
+                export TMPDIR="${platform_root}/tmp"
+                export XDG_CACHE_HOME="${platform_root}/xdg-cache"
+                export HOME="${platform_root}/home"
+                export REGISTRY_AUTH_FILE="${platform_root}/auth.json"
+                export BUILDAH_FORMAT=oci
+                cd source
+                "${buildah_cmd[@]}" build \
+                  --layers=false \
+                  --pull=always \
+                  --platform "${platform}" \
+                  --manifest "${manifest_name}" \
+                  --timestamp "${SOURCE_EPOCH}" \
+                  --label "org.opencontainers.image.revision=${SOURCE_SHA}" \
+                  --file "${DOCKERFILE_PATH}" \
+                  "${BUILD_CONTEXT}" \
+                  >> "${CI_LOG}" 2>&1
+              ); then
+                printf 'Clean OCI build failed; inspect the private Google Drive CI log.\n' >&2
+                exit 1
+              fi
+            done
+            manifest_tmp="${state_root}/manifest-tmp"
+            manifest_home="${state_root}/manifest-home"
+            mkdir -m 0700 "${manifest_tmp}" "${manifest_home}"
+            printf '{}\n' > "${state_root}/manifest-auth.json"
+            chmod 0600 "${state_root}/manifest-auth.json"
+            if ! (
+              export TMPDIR="${manifest_tmp}"
+              export HOME="${manifest_home}"
+              export REGISTRY_AUTH_FILE="${state_root}/manifest-auth.json"
+              "${buildah_cmd[@]}" manifest push --all --format oci \
+                "${manifest_name}" "oci:${layout_root}:proof" \
+                >> "${CI_LOG}" 2>&1
+            ); then
+              printf 'Local OCI layout export failed; inspect the private Google Drive CI log.\n' >&2
+              exit 1
+            fi
+            "${buildah_cmd[@]}" rm --all >> "${CI_LOG}" 2>&1 || true
+            "${buildah_cmd[@]}" rmi --all --force >> "${CI_LOG}" 2>&1 || true
+            rm -rf "${state_root}"
+            test ! -e "${state_root}"
+            test -f "${layout_root}/index.json"
+            test -f "${layout_root}/oci-layout"
+          done
+
+      - name: Compare raw dual-platform OCI config identity
+        id: compare
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          evidence="${PROOF_ROOT}/comparison.json"
+          if ! python3 .ciw/scripts/ci/oci_reproducibility.py compare \
+            --left-layout "${PROOF_ROOT}/layout-a" \
+            --right-layout "${PROOF_ROOT}/layout-b" \
+            --output "${evidence}" \
+            >> "${CI_LOG}" 2>&1; then
+            printf 'OCI reproducibility comparison failed; inspect the private Google Drive CI log.\n' >&2
+            exit 1
+          fi
+          test -s "${evidence}"
+          printf 'Two clean builds have identical raw dual-platform OCI config identity.\n' >> "${CI_LOG}"
+
+      - name: Clean all run-owned OCI state
+        id: cleanup
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          proof_root="${PROOF_ROOT:-${RUNNER_TEMP}/oci-reproducibility-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}}"
+          log="${CI_LOG:-${RUNNER_TEMP}/central-oci-reproducibility.log}"
+          touch "${log}"
+          chmod 0600 "${log}"
+          for build_id in a b; do
+            state_root="${proof_root}/state-${build_id}"
+            if test -d "${state_root}/graphroot" || test -d "${state_root}/runroot"; then
+              buildah \
+                --root "${state_root}/graphroot" \
+                --runroot "${state_root}/runroot" \
+                --storage-driver vfs \
+                rm --all >> "${log}" 2>&1 || true
+              buildah \
+                --root "${state_root}/graphroot" \
+                --runroot "${state_root}/runroot" \
+                --storage-driver vfs \
+                rmi --all --force >> "${log}" 2>&1 || true
+            fi
+          done
+          rm -rf "${proof_root}"
+          test ! -e "${proof_root}"
+          if test -n "${QEMU_IMAGE_ID:-}"; then
+            docker image rm --force "${QEMU_IMAGE_ID}" >> "${log}" 2>&1 || true
+            if docker image inspect "${QEMU_IMAGE_ID}" >/dev/null 2>&1; then
+              printf 'QEMU image residue remains after cleanup.\n' >> "${log}"
+              exit 1
+            fi
+          fi
+          printf 'Verified zero run-owned Buildah graph/run/cache/temp/layout/image residue.\n' >> "${log}"
+
+      - name: Scrub configured CI secrets from private log
+        id: scrub
+        if: always()
+        shell: bash
+        env:
+          CI_SECRET_SOURCE_TOKEN: ${{ steps.source_token.outputs.token }}
+          CI_SECRET_GITHUB_TOKEN: ${{ github.token }}
+          CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          CI_SECRET_AGENT_STATE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          CI_SECRET_AGENT_STATE_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+          CI_SECRET_DRIVE_FOLDER: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+          CI_SECRET_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          CI_SECRET_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          CI_SECRET_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          path = Path(os.environ.get("CI_LOG", Path(os.environ["RUNNER_TEMP"]) / "central-oci-reproducibility.log"))
+          data = path.read_bytes()
+          for name, value in os.environ.items():
+              if not name.startswith("CI_SECRET_") or not value:
+                  continue
+              raw = value.encode()
+              data = data.replace(raw, b"[REDACTED]")
+              escaped = value.replace("\n", "\\n").encode()
+              if escaped != raw:
+                  data = data.replace(escaped, b"[REDACTED]")
+          path.write_bytes(data)
+          PY
+
+      - name: Upload private reproducibility log to Google Drive
+        id: drive
+        if: ${{ always() && steps.scrub.outcome == 'success' }}
+        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
+        env:
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          file_path: ${{ runner.temp }}/central-oci-reproducibility.log
+          file_name: ${{ github.run_id }}-${{ github.run_attempt }}.txt
+          mime_type: text/plain
+
+      - name: Finish Agent State run
+        if: always()
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: finish
+          ci_run_id: ${{ inputs.ci_run_id }}
+          status: >-
+            ${{
+              steps.initialize.outcome == 'success'
+              && steps.agent_start.outcome == 'success'
+              && steps.implementation_checkout.outcome == 'success'
+              && steps.implementation_identity.outcome == 'success'
+              && steps.source_token.outcome == 'success'
+              && steps.source_checkout.outcome == 'success'
+              && steps.source_identity.outcome == 'success'
+              && steps.observe_source.outcome == 'success'
+              && steps.qemu.outcome == 'success'
+              && steps.toolchain.outcome == 'success'
+              && steps.build.outcome == 'success'
+              && steps.compare.outcome == 'success'
+              && steps.cleanup.outcome == 'success'
+              && steps.scrub.outcome == 'success'
+              && steps.drive.outcome == 'success'
+              && 'succeeded' || 'failed'
+            }}
