@@ -131,6 +131,9 @@ class CiHelperTests(unittest.TestCase):
         self.assertIn('phase: start', release)
         self.assertIn('phase: finish', release)
         self.assertIn('actions/google-drive@main', release)
+        self.assertIn('SOURCE_TOKEN: ${{ steps.source_token.outputs.token }}', release)
+        self.assertIn('http.https://github.com/.extraheader="AUTHORIZATION: basic ${auth_header}"', release)
+        self.assertNotIn('persist-credentials: true', release)
         self.assertNotIn('kubectl', release)
         self.assertNotIn('helm upgrade', release)
 
