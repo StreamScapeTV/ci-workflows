@@ -293,6 +293,14 @@ jobs:
           test -s "${evidence}"
           printf 'Two clean builds have identical raw dual-platform OCI config identity.\n' >> "${CI_LOG}"
 
+      - name: Reverify exact requested source after both builds
+        id: source_reverify
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C source rev-parse HEAD)" = "${SOURCE_SHA}"
+          test -z "$(git -C source status --porcelain=v1 --untracked-files=all)"
+
       - name: Clean all run-owned OCI state
         id: cleanup
         if: always()
@@ -306,6 +314,11 @@ jobs:
           for build_id in a b; do
             state_root="${proof_root}/state-${build_id}"
             if test -d "${state_root}/graphroot" || test -d "${state_root}/runroot"; then
+              buildah \
+                --root "${state_root}/graphroot" \
+                --runroot "${state_root}/runroot" \
+                --storage-driver vfs \
+                unmount --all >> "${log}" 2>&1 || true
               buildah \
                 --root "${state_root}/graphroot" \
                 --runroot "${state_root}/runroot" \
@@ -401,6 +414,7 @@ jobs:
               && steps.toolchain.outcome == 'success'
               && steps.build.outcome == 'success'
               && steps.compare.outcome == 'success'
+              && steps.source_reverify.outcome == 'success'
               && steps.cleanup.outcome == 'success'
               && steps.scrub.outcome == 'success'
               && steps.drive.outcome == 'success'
