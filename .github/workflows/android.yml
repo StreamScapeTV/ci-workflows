@@ -129,7 +129,9 @@ jobs:
           if test "${SOURCE_REPOSITORY}" = StreamScapeTV/iptv-android && test "${source_ref}" = develop; then
             enabled=true
           fi
+          source_sha="$(git rev-parse HEAD)"
           printf 'enabled=%s\n' "${enabled}" >> "${GITHUB_OUTPUT}"
+          printf 'source_sha=%s\n' "${source_sha}" >> "${GITHUB_OUTPUT}"
 
       - name: Restore IPTV Android develop dependency cache
         id: gradle_dependency_cache
@@ -149,6 +151,85 @@ jobs:
                 '**/build.gradle*'
               )
             }}
+
+      - name: Resolve IPTV Android branch cache reader scope
+        id: android_branch_cache_scope
+        shell: bash
+        env:
+          SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
+          REQUESTED_REF: ${{ inputs.ref }}
+        run: |
+          set -Eeuo pipefail
+          source_ref="${REQUESTED_REF}"
+          normalized_ref="${source_ref#refs/heads/}"
+          checkout_branch="$(git symbolic-ref --quiet --short HEAD || true)"
+          enabled=false
+
+          if test "${SOURCE_REPOSITORY}" = StreamScapeTV/iptv-android; then
+            if [[ "${source_ref}" == refs/pull/* ]]; then
+              enabled=true
+            elif test -n "${checkout_branch}" \
+              && test "${checkout_branch}" != develop \
+              && test "${checkout_branch}" != main \
+              && test "${normalized_ref}" != develop \
+              && test "${normalized_ref}" != main; then
+              enabled=true
+            fi
+          fi
+
+          printf 'enabled=%s\n' "${enabled}" >> "${GITHUB_OUTPUT}"
+
+      - name: Restore IPTV Android branch dependency cache
+        id: gradle_branch_dependency_cache
+        if: ${{ steps.android_branch_cache_scope.outputs.enabled == 'true' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.gradle/wrapper
+            ~/.gradle/caches/modules-2
+          key: >-
+            iptv-android-develop-gradle-deps-v1-${{ runner.os }}-${{ runner.arch }}-${{
+              hashFiles(
+                'gradle/wrapper/gradle-wrapper.properties',
+                'gradle/**/*.toml',
+                'settings.gradle*',
+                'build.gradle*',
+                '**/build.gradle*'
+              )
+            }}
+          restore-keys: |
+            iptv-android-develop-gradle-deps-v1-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Restore IPTV Android Gradle build cache
+        id: gradle_build_cache
+        if: >-
+          ${{
+            steps.android_develop_cache_scope.outputs.enabled == 'true'
+            || steps.android_branch_cache_scope.outputs.enabled == 'true'
+          }}
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.gradle/caches/build-cache-1
+          key: >-
+            iptv-android-develop-gradle-build-v1-${{ runner.os }}-${{ runner.arch }}-${{
+              hashFiles(
+                'gradle/wrapper/gradle-wrapper.properties',
+                'gradle/**/*.toml',
+                'settings.gradle*',
+                'build.gradle*',
+                '**/build.gradle*'
+              )
+            }}-${{ steps.android_develop_cache_scope.outputs.source_sha }}
+          restore-keys: |
+            iptv-android-develop-gradle-build-v1-${{ runner.os }}-${{ runner.arch }}-${{
+              hashFiles(
+                'gradle/wrapper/gradle-wrapper.properties',
+                'gradle/**/*.toml',
+                'settings.gradle*',
+                'build.gradle*',
+                '**/build.gradle*'
+              )
+            }}-
 
       - name: Run fixed Android profile
         id: commands
@@ -309,6 +390,43 @@ jobs:
             fi
           fi
 
+      - name: Record IPTV Android cache measurements
+        id: android_cache_measurements
+        if: >-
+          ${{
+            steps.android_develop_cache_scope.outputs.enabled == 'true'
+            || steps.android_branch_cache_scope.outputs.enabled == 'true'
+          }}
+        shell: bash
+        env:
+          DEVELOP_DEPENDENCY_HIT: ${{ steps.gradle_dependency_cache.outputs.cache-hit }}
+          BRANCH_DEPENDENCY_HIT: ${{ steps.gradle_branch_dependency_cache.outputs.cache-hit }}
+          BUILD_CACHE_HIT: ${{ steps.gradle_build_cache.outputs.cache-hit }}
+        run: |
+          set -Eeuo pipefail
+          measure_bytes() {
+            local label="$1"
+            local path="$2"
+            local bytes=0
+            if test -e "${path}"; then
+              bytes="$(du -sb "${path}" | awk '{print $1}')"
+            fi
+            printf '%s_bytes=%s\n' "${label}" "${bytes}" >> "${CI_LOG}"
+          }
+
+          {
+            printf '\n===== android-cache =====\n'
+            printf 'source_sha=%s\n' "${{ steps.android_develop_cache_scope.outputs.source_sha }}"
+            printf 'develop_writer=%s\n' "${{ steps.android_develop_cache_scope.outputs.enabled }}"
+            printf 'branch_reader=%s\n' "${{ steps.android_branch_cache_scope.outputs.enabled }}"
+            printf 'develop_dependency_hit=%s\n' "${DEVELOP_DEPENDENCY_HIT}"
+            printf 'branch_dependency_hit=%s\n' "${BRANCH_DEPENDENCY_HIT}"
+            printf 'build_cache_hit=%s\n' "${BUILD_CACHE_HIT}"
+          } >> "${CI_LOG}"
+          measure_bytes gradle_wrapper "${HOME}/.gradle/wrapper"
+          measure_bytes gradle_modules "${HOME}/.gradle/caches/modules-2"
+          measure_bytes gradle_build_cache "${HOME}/.gradle/caches/build-cache-1"
+
       - name: Save IPTV Android develop dependency cache
         id: gradle_dependency_cache_save
         if: >-
@@ -324,6 +442,20 @@ jobs:
             ~/.gradle/wrapper
             ~/.gradle/caches/modules-2
           key: ${{ steps.gradle_dependency_cache.outputs.cache-primary-key }}
+
+      - name: Save IPTV Android Gradle build cache
+        id: gradle_build_cache_save
+        if: >-
+          ${{
+            steps.android_develop_cache_scope.outputs.enabled == 'true'
+            && steps.commands.outcome == 'success'
+            && (inputs.test_profile == 'full' || inputs.test_profile == 'release')
+            && steps.gradle_build_cache.outputs.cache-hit != 'true'
+          }}
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.gradle/caches/build-cache-1
+          key: ${{ steps.gradle_build_cache.outputs.cache-primary-key }}
 
       - name: Scrub configured CI secrets from private log
         id: scrub
@@ -386,4 +518,4 @@ jobs:
         with:
           phase: finish
           ci_run_id: ${{ inputs.ci_run_id }}
-          status: ${{ steps.commands.outcome == 'success' && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && (steps.gradle_dependency_cache_save.outcome == 'success' || steps.gradle_dependency_cache_save.outcome == 'skipped') && 'succeeded' || 'failed' }}
+          status: ${{ steps.commands.outcome == 'success' && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && (steps.android_cache_measurements.outcome == 'success' || steps.android_cache_measurements.outcome == 'skipped') && (steps.gradle_dependency_cache_save.outcome == 'success' || steps.gradle_dependency_cache_save.outcome == 'skipped') && (steps.gradle_build_cache_save.outcome == 'success' || steps.gradle_build_cache_save.outcome == 'skipped') && 'succeeded' || 'failed' }}
