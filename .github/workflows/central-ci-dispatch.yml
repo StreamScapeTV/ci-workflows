@@ -13,10 +13,6 @@ name: Central CI dispatch
 permissions:
   contents: read
 
-concurrency:
-  group: central-ci-${{ inputs.active_key }}
-  cancel-in-progress: true
-
 jobs:
   request:
     runs-on: ubuntu-24.04
@@ -43,6 +39,9 @@ jobs:
   apple:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'validation.apple' }}
+    concurrency:
+      group: central-ci-${{ inputs.active_key }}
+      cancel-in-progress: true
     uses: ./.github/workflows/apple.yml
     with:
       repository: ${{ needs.request.outputs.repository }}
@@ -55,6 +54,9 @@ jobs:
   android:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'validation.android' }}
+    concurrency:
+      group: central-ci-${{ inputs.active_key }}
+      cancel-in-progress: true
     uses: ./.github/workflows/android.yml
     with:
       repository: ${{ needs.request.outputs.repository }}
@@ -69,6 +71,9 @@ jobs:
   python:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'validation.python' }}
+    concurrency:
+      group: central-ci-${{ inputs.active_key }}
+      cancel-in-progress: true
     uses: ./.github/workflows/python.yml
     with:
       repository: ${{ needs.request.outputs.repository }}
@@ -80,6 +85,9 @@ jobs:
   node:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'validation.node' }}
+    concurrency:
+      group: central-ci-${{ inputs.active_key }}
+      cancel-in-progress: true
     uses: ./.github/workflows/node.yml
     with:
       repository: ${{ needs.request.outputs.repository }}
@@ -91,6 +99,9 @@ jobs:
   flutter:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'validation.flutter' }}
+    concurrency:
+      group: central-ci-${{ inputs.active_key }}
+      cancel-in-progress: true
     uses: ./.github/workflows/flutter.yml
     with:
       repository: ${{ needs.request.outputs.repository }}
@@ -103,6 +114,9 @@ jobs:
   public_native_image_chart:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'release.public-native-image-chart' }}
+    concurrency:
+      group: central-ci-${{ inputs.active_key }}
+      cancel-in-progress: true
     permissions:
       contents: read
       packages: write
@@ -122,6 +136,9 @@ jobs:
   source_snapshot:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'source.snapshot' }}
+    concurrency:
+      group: central-ci-${{ inputs.active_key }}
+      cancel-in-progress: true
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -352,3 +369,43 @@ jobs:
           phase: finish
           ci_run_id: ${{ inputs.ci_run_id }}
           status: ${{ job.status == 'success' && 'succeeded' || job.status == 'cancelled' && 'cancelled' || 'failed' }}
+
+  settle_cancelled:
+    needs:
+      - request
+      - apple
+      - android
+      - python
+      - node
+      - flutter
+      - public_native_image_chart
+      - source_snapshot
+    if: >-
+      ${{
+        always() &&
+        (
+          needs.request.result != 'success' ||
+          needs.apple.result == 'cancelled' ||
+          needs.android.result == 'cancelled' ||
+          needs.python.result == 'cancelled' ||
+          needs.node.result == 'cancelled' ||
+          needs.flutter.result == 'cancelled' ||
+          needs.public_native_image_chart.result == 'cancelled' ||
+          needs.source_snapshot.result == 'cancelled'
+        )
+      }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out Central helpers
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Settle cancelled Agent State run
+        uses: ./actions/agent-state
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: cancel-if-active
+          ci_run_id: ${{ inputs.ci_run_id }}

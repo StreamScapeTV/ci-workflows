@@ -41,8 +41,13 @@ class CiHelperTests(unittest.TestCase):
         self.assertIn("https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}", text)
         self.assertIn("observed_source_sha", action["inputs"])
         self.assertIn("observe-source", action["inputs"]["phase"]["description"])
+        self.assertIn("cancel-if-active", action["inputs"]["phase"]["description"])
         self.assertIn('[[ "${OBSERVED_SOURCE_SHA}" =~ ^[0-9A-Fa-f]{40}$ ]] || exit 2', text)
         self.assertIn("p_patch:{observed_source_sha:$sha}", text)
+        self.assertIn('p_patch:{status:"cancelled"}', text)
+        self.assertIn("already_terminal", text)
+        self.assertIn("succeeded|failed|cancelled|timed_out) exit 0", text)
+        self.assertIn("Agent State cancellation settlement failed", text)
         self.assertNotIn("diagnostic_", text)
 
     def test_google_drive_action_is_parent_scoped_resumable_and_in_place(self) -> None:
@@ -159,9 +164,34 @@ class CiHelperTests(unittest.TestCase):
         self.assertGreaterEqual(text.count("ref: ${{ needs.request.outputs.ref }}"), 6)
 
     def test_central_dispatch_is_newest_run_wins_per_active_branch_key(self) -> None:
-        text = (ROOT / ".github/workflows/central-ci-dispatch.yml").read_text()
-        self.assertIn("group: central-ci-${{ inputs.active_key }}", text)
-        self.assertIn("cancel-in-progress: true", text)
+        workflow = yaml.safe_load((ROOT / ".github/workflows/central-ci-dispatch.yml").read_text())
+        jobs = workflow["jobs"]
+        selected_jobs = (
+            "apple",
+            "android",
+            "python",
+            "node",
+            "flutter",
+            "public_native_image_chart",
+            "source_snapshot",
+        )
+        self.assertNotIn("concurrency", workflow)
+        self.assertNotIn("concurrency", jobs["request"])
+        for name in selected_jobs:
+            self.assertEqual(jobs[name]["concurrency"]["group"], "central-ci-${{ inputs.active_key }}")
+            self.assertTrue(jobs[name]["concurrency"]["cancel-in-progress"])
+
+        settlement = jobs["settle_cancelled"]
+        self.assertNotIn("concurrency", settlement)
+        self.assertEqual(set(settlement["needs"]), {"request", *selected_jobs})
+        self.assertIn("always()", settlement["if"])
+        self.assertIn("needs.request.result != 'success'", settlement["if"])
+        for name in selected_jobs:
+            self.assertIn(f"needs.{name}.result == 'cancelled'", settlement["if"])
+        self.assertEqual(
+            settlement["steps"][-1]["with"]["phase"],
+            "cancel-if-active",
+        )
 
     def test_fixed_profiles_replace_arbitrary_command_transport(self) -> None:
         forbidden = ("prepare_command", "build_command", "test_command", "release_command", "bash -lc")
