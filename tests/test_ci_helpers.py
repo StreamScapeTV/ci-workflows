@@ -59,6 +59,31 @@ class CiHelperTests(unittest.TestCase):
         self.assertNotIn("cloudflarestorage.com", text)
         self.assertNotIn("R2_", text)
 
+    def test_google_drive_resumable_upload_retries_only_bounded_transient_failures(self) -> None:
+        text = (ROOT / "actions/google-drive/action.yml").read_text()
+        self.assertIn("max_media_upload_attempts=4", text)
+        self.assertIn("408|429|5??", text)
+        self.assertIn("retryable_media_failure", text)
+        self.assertIn("failed after bounded recovery attempts", text)
+        self.assertIn('sleep "${media_attempt}"', text)
+
+    def test_google_drive_resumable_upload_fails_permanent_http_errors(self) -> None:
+        text = (ROOT / "actions/google-drive/action.yml").read_text()
+        self.assertIn("Google Drive resumable media upload failed with HTTP ${media_http_code}", text)
+        self.assertIn("Google Drive resumable upload status query failed with HTTP ${session_http_code}", text)
+        self.assertNotIn("--retry-all-errors", text)
+
+    def test_google_drive_resumable_upload_reconciles_ambiguous_completion(self) -> None:
+        text = (ROOT / "actions/google-drive/action.yml").read_text()
+        self.assertIn('echo "::add-mask::${session_url}"', text)
+        self.assertIn('Content-Range: bytes */${byte_size}', text)
+        self.assertIn("reconcile_session", text)
+        self.assertIn('if test "$1" -ne 0; then', text)
+        self.assertIn("308)", text)
+        self.assertIn("received_offset", text)
+        self.assertIn("Range header", text)
+        self.assertIn('Content-Range: bytes ${offset}-$((byte_size - 1))/${byte_size}', text)
+
     def test_private_git_action_is_one_fixed_tailscale_boundary(self) -> None:
         text = (ROOT / "actions/private-git/action.yml").read_text()
         self.assertIn("tailscale/github-action@v4", text)
