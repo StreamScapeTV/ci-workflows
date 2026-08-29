@@ -157,6 +157,28 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Resolve durable Drive repository folder
+        id: drive_repository
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          folder_id="$(python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path("source/AGENTS.md")
+          if not path.is_file():
+              print("")
+              raise SystemExit(0)
+          match = re.search(
+              r"(?m)^- Google Drive repository folder ID: `([^`]+)`\s*$",
+              path.read_text(encoding="utf-8"),
+          )
+          print(match.group(1) if match else "")
+          PY
+          )"
+          printf 'folder_id=%s\n' "${folder_id}" >> "${GITHUB_OUTPUT}"
+
       - name: Create exact tracked-source snapshot
         id: snapshot
         shell: bash
@@ -211,6 +233,7 @@ jobs:
         with:
           repository: ${{ needs.request.outputs.repository }}
           ref: ${{ needs.request.outputs.ref }}
+          repository_folder_id: ${{ steps.drive_repository.outputs.folder_id }}
           file_path: ${{ steps.snapshot.outputs.archive }}
           file_name: source.zip
           mime_type: application/zip
@@ -244,6 +267,7 @@ jobs:
         with:
           repository: ${{ needs.request.outputs.repository }}
           ref: ${{ needs.request.outputs.ref }}
+          repository_folder_id: ${{ steps.drive_repository.outputs.folder_id }}
           file_path: ${{ steps.snapshot.outputs.manifest }}
           file_name: manifest.json
           mime_type: application/json
@@ -275,6 +299,7 @@ jobs:
         with:
           repository: ${{ needs.request.outputs.repository }}
           ref: ${{ needs.request.outputs.ref }}
+          repository_folder_id: ${{ steps.drive_repository.outputs.folder_id }}
           file_path: ${{ steps.snapshot.outputs.manifest }}
           file_name: manifest.json
           mime_type: application/json
