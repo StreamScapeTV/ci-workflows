@@ -220,9 +220,14 @@ jobs:
         env:
           RELEASE_TAG: ${{ steps.authority.outputs.version }}
           SOURCE_SHA: ${{ steps.authority.outputs.source_sha }}
+          SOURCE_TOKEN: ${{ steps.source_token.outputs.token }}
         run: |
           set -Eeuo pipefail
-          git -C source fetch --force --tags origin >> "${CI_LOG}" 2>&1
+          auth_header="$(printf 'x-access-token:%s' "${SOURCE_TOKEN}" | base64 -w0)"
+          git -C source \
+            -c http.https://github.com/.extraheader="AUTHORIZATION: basic ${auth_header}" \
+            fetch --force --tags origin >> "${CI_LOG}" 2>&1
+          unset auth_header
           test "$(git -C source rev-parse HEAD)" = "${SOURCE_SHA}"
           test "$(git -C source rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" = "${SOURCE_SHA}"
           test -z "$(git -C source status --porcelain=v1 --untracked-files=all)"
