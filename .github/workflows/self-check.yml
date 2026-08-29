@@ -28,4 +28,4 @@ jobs:
           PY
 
       - name: Run focused helper tests
-        run: python3 -m unittest tests.test_ci_helpers -v
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
