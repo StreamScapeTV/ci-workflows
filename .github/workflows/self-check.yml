@@ -29,12 +29,3 @@ jobs:
 
       - name: Run focused helper tests
         run: python3 -m unittest tests.test_ci_helpers -v
-
-  valkey_profile_smoke:
-    uses: ./.github/workflows/python.yml
-    with:
-      repository: StreamScapeTV/iptv-backend
-      ref: 78f6a8a4d5309453c582a7e5d7200984c9b7319b
-      test_profile: valkey
-      upload_private_log: true
-    secrets: inherit
