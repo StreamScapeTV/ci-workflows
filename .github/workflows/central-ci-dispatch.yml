@@ -157,6 +157,24 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Resolve observed source SHA
+        id: source_identity
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          source_sha="$(git -C source rev-parse HEAD)"
+          printf 'source_sha=%s\n' "${source_sha}" >> "${GITHUB_OUTPUT}"
+
+      - name: Record observed source SHA
+        uses: ./actions/agent-state
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: observe-source
+          ci_run_id: ${{ inputs.ci_run_id }}
+          observed_source_sha: ${{ steps.source_identity.outputs.source_sha }}
+
       - name: Resolve durable Drive repository folder
         id: drive_repository
         shell: bash
@@ -186,9 +204,10 @@ jobs:
           REQUESTED_REPOSITORY: ${{ needs.request.outputs.repository }}
           REQUESTED_REF: ${{ needs.request.outputs.ref }}
           REQUESTED_IS_TAG: ${{ needs.request.outputs.is_tag }}
+          OBSERVED_SOURCE_SHA: ${{ steps.source_identity.outputs.source_sha }}
         run: |
           set -Eeuo pipefail
-          source_sha="$(git -C source rev-parse HEAD)"
+          source_sha="${OBSERVED_SOURCE_SHA}"
           tree_sha="$(git -C source rev-parse 'HEAD^{tree}')"
           archive="${RUNNER_TEMP}/source.zip"
           manifest="${RUNNER_TEMP}/manifest.json"
