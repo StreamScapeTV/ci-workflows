@@ -32,4 +32,5 @@ jobs:
           python3 -m unittest
           tests.test_ci_helpers
           tests.test_android_search_performance_profile
+          tests.test_oci_reproducibility
           -v
