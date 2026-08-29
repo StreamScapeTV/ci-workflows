@@ -195,6 +195,7 @@ jobs:
           }
 
           policy_root="${repository_root}/scripts/ci"
+          performance_test_class='com.streamscapetv.app.foundation.performance.testing.PerformanceBudgetTest'
 
           case "${TEST_PROFILE}" in
             smoke)
@@ -220,7 +221,19 @@ jobs:
               run_gradle assembleDebug
               ;;
             full)
-              run_gradle compileDebugKotlin testDebugUnitTest lintDebug assembleDebug
+              correctness_init_script="${RUNNER_TEMP}/android-full-correctness.init.gradle"
+              printf '%s\n' \
+                'allprojects {' \
+                '  tasks.withType(org.gradle.api.tasks.testing.Test).configureEach {' \
+                '    filter {' \
+                "      excludeTestsMatching \"${performance_test_class}\"" \
+                '    }' \
+                '  }' \
+                '}' > "${correctness_init_script}"
+              run_gradle --init-script "${correctness_init_script}" compileDebugKotlin testDebugUnitTest lintDebug assembleDebug
+              ;;
+            search-performance)
+              run_gradle testDebugUnitTest --tests "${performance_test_class}"
               ;;
             release)
               run_release_policy=false

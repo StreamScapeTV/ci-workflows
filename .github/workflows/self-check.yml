@@ -28,4 +28,9 @@ jobs:
           PY
 
       - name: Run focused helper tests
-        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+        run: >-
+          python3 -m unittest
+          tests.test_ci_helpers
+          tests.test_android_search_performance_profile
+          tests.test_apple_workflow
+          -v

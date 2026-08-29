@@ -73,8 +73,10 @@ runs:
         upload_path="${DRIVE_FILE_PATH}"
         temp_archive=""
         headers_file="${RUNNER_TEMP}/drive-upload-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.headers"
+        media_headers_file="${RUNNER_TEMP}/drive-upload-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.media.headers"
+        media_response_file="${RUNNER_TEMP}/drive-upload-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.media.json"
         cleanup() {
-          rm -f "${headers_file}"
+          rm -f "${headers_file}" "${media_headers_file}" "${media_response_file}"
           test -z "${temp_archive}" || rm -f "${temp_archive}"
         }
         trap cleanup EXIT
@@ -242,13 +244,140 @@ runs:
             raise SystemExit("Google Drive resumable upload returned no Location header")
         PY
         )"
-        upload_response="$(curl --fail --silent --show-error \
-          --request PUT \
-          --header "Authorization: Bearer ${access_token}" \
-          --header "Content-Type: ${DRIVE_MIME_TYPE}" \
-          --header "Content-Length: ${byte_size}" \
-          --data-binary "@${upload_path}" \
-          "${session_url}")"
-        file_id="$(printf '%s' "${upload_response}" | python3 -c 'import json,sys; value=json.load(sys.stdin); print(value["id"])')"
+        echo "::add-mask::${session_url}"
+
+        retryable_media_failure() {
+          if test "$1" -ne 0; then
+            return 0
+          fi
+          case "$2" in
+            408|429|5??) return 0 ;;
+            *) return 1 ;;
+          esac
+        }
+
+        response_file_id() {
+          python3 -c 'import json,sys; value=json.load(open(sys.argv[1], encoding="utf-8")); file_id=value.get("id", ""); file_id or sys.exit("Google Drive upload completion returned no file id"); print(file_id)' "$1"
+        }
+
+        received_offset() {
+          python3 - "$1" "$2" <<'PY'
+        from pathlib import Path
+        import re, sys
+        total = int(sys.argv[2])
+        matches = [int(m.group(1)) for line in Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace").splitlines() if (m := re.match(r"(?i)^range:\s*bytes=0-(\d+)\s*$", line))]
+        if not matches:
+            print(0)
+        elif matches[-1] >= total:
+            raise SystemExit("Google Drive resumable upload returned an invalid Range header")
+        else:
+            print(matches[-1] + 1)
+        PY
+        }
+
+        run_media_put() {
+          offset="$1"
+          remaining=$((byte_size - offset))
+          test "${remaining}" -ge 0 || { echo "Google Drive resumable upload returned an invalid completed offset" >&2; exit 1; }
+          if test "${remaining}" -eq 0 && test "${byte_size}" -ne 0; then
+            echo "Google Drive resumable upload returned an invalid completed offset" >&2
+            exit 1
+          fi
+          set --
+          if test "${offset}" -gt 0; then
+            set -- --header "Content-Range: bytes ${offset}-$((byte_size - 1))/${byte_size}"
+          fi
+          : > "${media_headers_file}"
+          : > "${media_response_file}"
+          set +e
+          media_http_code="$(
+            tail -c "+$((offset + 1))" "${upload_path}" |
+              curl --silent --show-error \
+                --request PUT \
+                --dump-header "${media_headers_file}" \
+                --output "${media_response_file}" \
+                --write-out '%{http_code}' \
+                --header "Authorization: Bearer ${access_token}" \
+                --header "Content-Type: ${DRIVE_MIME_TYPE}" \
+                --header "Content-Length: ${remaining}" \
+                "$@" \
+                --data-binary @- \
+                "${session_url}"
+          )"
+          media_curl_status=$?
+          set -e
+          media_http_code="${media_http_code:-000}"
+        }
+
+        reconcile_session() {
+          session_try=1
+          while test "${session_try}" -le 3; do
+            : > "${media_headers_file}"
+            : > "${media_response_file}"
+            set +e
+            session_http_code="$(curl --silent --show-error \
+              --request PUT \
+              --dump-header "${media_headers_file}" \
+              --output "${media_response_file}" \
+              --write-out '%{http_code}' \
+              --header "Authorization: Bearer ${access_token}" \
+              --header 'Content-Length: 0' \
+              --header "Content-Range: bytes */${byte_size}" \
+              "${session_url}")"
+            session_curl_status=$?
+            set -e
+            session_http_code="${session_http_code:-000}"
+            if test "${session_curl_status}" -eq 0; then
+              case "${session_http_code}" in
+                200|201) file_id="$(response_file_id "${media_response_file}")"; return 0 ;;
+                308) offset="$(received_offset "${media_headers_file}" "${byte_size}")"; return 0 ;;
+              esac
+            fi
+            if retryable_media_failure "${session_curl_status}" "${session_http_code}" && test "${session_try}" -lt 3; then
+              sleep "${session_try}"
+              session_try=$((session_try + 1))
+              continue
+            fi
+            if test "${session_curl_status}" -ne 0; then
+              echo "Google Drive resumable upload status query failed after bounded retries" >&2
+            else
+              echo "Google Drive resumable upload status query failed with HTTP ${session_http_code}" >&2
+            fi
+            exit 1
+          done
+        }
+
+        max_media_upload_attempts=4
+        media_attempt=1
+        offset=0
+        file_id=""
+        while test "${media_attempt}" -le "${max_media_upload_attempts}"; do
+          run_media_put "${offset}"
+          if test "${media_curl_status}" -eq 0; then
+            case "${media_http_code}" in
+              200|201) file_id="$(response_file_id "${media_response_file}")"; break ;;
+              308) offset="$(received_offset "${media_headers_file}" "${byte_size}")" ;;
+              *)
+                if ! retryable_media_failure "${media_curl_status}" "${media_http_code}"; then
+                  echo "Google Drive resumable media upload failed with HTTP ${media_http_code}" >&2
+                  exit 1
+                fi
+                reconcile_session
+                ;;
+            esac
+          else
+            reconcile_session
+          fi
+          test -z "${file_id}" || break
+          if test "${media_attempt}" -ge "${max_media_upload_attempts}"; then
+            echo "Google Drive resumable media upload failed after bounded recovery attempts" >&2
+            exit 1
+          fi
+          echo "Google Drive resumable media upload interrupted; retrying after session reconciliation" >&2
+          sleep "${media_attempt}"
+          media_attempt=$((media_attempt + 1))
+        done
+
+        test -n "${file_id}" || { echo "Google Drive resumable media upload completed without a file id" >&2; exit 1; }
         printf 'file_id=%s\n' "${file_id}" >> "${GITHUB_OUTPUT}"
         printf 'folder_id=%s\n' "${ref_folder_id}" >> "${GITHUB_OUTPUT}"

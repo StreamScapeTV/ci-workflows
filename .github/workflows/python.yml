@@ -83,6 +83,26 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Resolve observed source SHA
+        id: source_identity
+        if: ${{ inputs.ci_run_id != '' }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          source_sha="$(git rev-parse HEAD)"
+          printf 'source_sha=%s\n' "${source_sha}" >> "${GITHUB_OUTPUT}"
+
+      - name: Record observed source SHA
+        if: ${{ inputs.ci_run_id != '' }}
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: observe-source
+          ci_run_id: ${{ inputs.ci_run_id }}
+          observed_source_sha: ${{ steps.source_identity.outputs.source_sha }}
+
       - name: Set up Python 3.12
         uses: actions/setup-python@v6
         with:
@@ -164,9 +184,8 @@ jobs:
           repository: ${{ inputs.repository || github.repository }}
           ref: ${{ inputs.ref || github.ref_name }}
           file_path: ${{ runner.temp }}/central-ci.log
-          file_name: ${{ github.run_id }}-${{ github.run_attempt }}.log.gz
-          gzip: 'true'
-          mime_type: application/gzip
+          file_name: ${{ github.run_id }}-${{ github.run_attempt }}.txt
+          mime_type: text/plain
 
       - name: Finish Agent State run
         if: ${{ always() && inputs.ci_run_id != '' }}
