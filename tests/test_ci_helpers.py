@@ -44,6 +44,9 @@ class CiHelperTests(unittest.TestCase):
         text = (ROOT / "actions/google-drive/action.yml").read_text()
         self.assertIn("https://oauth2.googleapis.com/token", text)
         self.assertIn("GOOGLE_DRIVE_ROOT_FOLDER_ID", text)
+        self.assertIn("repository_folder_id:", text)
+        self.assertIn("DRIVE_REPOSITORY_FOLDER_ID", text)
+        self.assertIn("configured repository folder is not directly below the configured root", text)
         self.assertIn("in parents", text)
         self.assertIn("uploadType=resumable", text)
         self.assertIn("--request PATCH", text)
@@ -153,9 +156,14 @@ class CiHelperTests(unittest.TestCase):
 
     def test_source_snapshot_reuses_drive_helper_and_updates_manifest_in_place(self) -> None:
         dispatch = (ROOT / ".github/workflows/central-ci-dispatch.yml").read_text()
+        agents = (ROOT / "AGENTS.md").read_text()
         self.assertIn("workflow_key == 'source.snapshot'", dispatch)
         self.assertIn("git -C source archive --format=zip", dispatch)
         self.assertIn("GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID", dispatch)
+        self.assertIn("Resolve durable Drive repository folder", dispatch)
+        self.assertIn("Google Drive repository folder ID", dispatch)
+        self.assertEqual(dispatch.count("repository_folder_id: ${{ steps.drive_repository.outputs.folder_id }}"), 3)
+        self.assertIn("Google Drive repository folder ID: `1NpjvoUNXdlvjVunjleuGrOxQaCtqf_-C`", agents)
         self.assertIn("file_name: source.zip", dispatch)
         self.assertEqual(dispatch.count("file_name: manifest.json"), 2)
         for key in (
