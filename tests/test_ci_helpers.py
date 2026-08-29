@@ -112,6 +112,13 @@ class CiHelperTests(unittest.TestCase):
                 self.assertIn("${{ github.run_id }}-${{ github.run_attempt }}.txt", text)
                 self.assertIn("mime_type: text/plain", text)
                 self.assertNotIn("gzip: 'true'", text)
+            elif name == "apple":
+                self.assertIn(
+                    "${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.lane }}.log.gz",
+                    text,
+                )
+                self.assertIn("mime_type: application/gzip", text)
+                self.assertIn("gzip: 'true'", text)
             else:
                 self.assertIn("${{ github.run_id }}-${{ github.run_attempt }}.log.gz", text)
                 self.assertIn("mime_type: application/gzip", text)
