@@ -168,7 +168,7 @@ class CiHelperTests(unittest.TestCase):
         self.assertIn("Resolve durable Drive repository folder", dispatch)
         self.assertIn("Google Drive repository folder ID", dispatch)
         self.assertEqual(dispatch.count("repository_folder_id: ${{ steps.drive_repository.outputs.folder_id }}"), 3)
-        self.assertIn("Google Drive repository folder ID: `1NpjvoUNXdlvjVunjleuGrOxQaCtqf_-C`", agents)
+        self.assertIn("Google Drive repository folder ID: `1--JcV6RK8jdIIP3ONWw420QDVpNTQ7L8`", agents)
         self.assertIn("file_name: source.zip", dispatch)
         self.assertEqual(dispatch.count("file_name: manifest.json"), 2)
         for key in (
