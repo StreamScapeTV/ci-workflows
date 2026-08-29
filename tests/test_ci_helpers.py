@@ -30,14 +30,19 @@ class CiHelperTests(unittest.TestCase):
         actions = {p.name for p in (ROOT / "actions").iterdir() if p.is_dir()}
         self.assertEqual(actions, {"agent-state", "google-drive", "private-git"})
 
-    def test_agent_state_action_has_only_claim_start_finish_lifecycle(self) -> None:
-        text = (ROOT / "actions/agent-state/action.yml").read_text()
+    def test_agent_state_action_has_claim_start_observe_finish_lifecycle(self) -> None:
+        path = ROOT / "actions/agent-state/action.yml"
+        action = yaml.safe_load(path.read_text())
+        text = path.read_text()
         self.assertIn("claim_ci_run", text)
         self.assertIn("transition_ci_run", text)
         self.assertIn("external_repository:$repository", text)
         self.assertIn("external_run_url:$run_url", text)
         self.assertIn("https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}", text)
-        self.assertNotIn("observed_source_sha", text)
+        self.assertIn("observed_source_sha", action["inputs"])
+        self.assertIn("observe-source", action["inputs"]["phase"]["description"])
+        self.assertIn('[[ "${OBSERVED_SOURCE_SHA}" =~ ^[0-9A-Fa-f]{40}$ ]] || exit 2', text)
+        self.assertIn("p_patch:{observed_source_sha:$sha}", text)
         self.assertNotIn("diagnostic_", text)
 
     def test_google_drive_action_is_parent_scoped_resumable_and_in_place(self) -> None:
@@ -194,6 +199,25 @@ class CiHelperTests(unittest.TestCase):
             self.assertIn(key, dispatch)
         self.assertIn('test "${CREATED_ID}" = "${UPDATED_ID}"', dispatch)
         self.assertIn("Clean snapshot workspace", dispatch)
+
+        workflow = yaml.safe_load(dispatch)
+        steps = workflow["jobs"]["source_snapshot"]["steps"]
+        by_name = {step.get("name"): step for step in steps if step.get("name")}
+        names = [step.get("name") for step in steps]
+        identity = by_name["Resolve observed source SHA"]
+        record = by_name["Record observed source SHA"]
+        snapshot = by_name["Create exact tracked-source snapshot"]
+        finish = by_name["Finish Agent State run"]
+        self.assertIn('source_sha="$(git -C source rev-parse HEAD)"', identity["run"])
+        self.assertEqual(record["with"]["phase"], "observe-source")
+        self.assertEqual(record["with"]["observed_source_sha"], "${{ steps.source_identity.outputs.source_sha }}")
+        self.assertNotIn("github.sha", record["with"]["observed_source_sha"])
+        self.assertEqual(snapshot["env"]["OBSERVED_SOURCE_SHA"], "${{ steps.source_identity.outputs.source_sha }}")
+        self.assertIn('source_sha="${OBSERVED_SOURCE_SHA}"', snapshot["run"])
+        self.assertLess(names.index("Check out requested source"), names.index("Resolve observed source SHA"))
+        self.assertLess(names.index("Resolve observed source SHA"), names.index("Record observed source SHA"))
+        self.assertLess(names.index("Record observed source SHA"), names.index("Create exact tracked-source snapshot"))
+        self.assertEqual(finish["if"], "${{ always() }}")
 
 
 if __name__ == "__main__":
