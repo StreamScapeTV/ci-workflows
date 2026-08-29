@@ -176,9 +176,8 @@ jobs:
           repository: ${{ inputs.repository || github.repository }}
           ref: ${{ inputs.ref || github.ref_name }}
           file_path: ${{ runner.temp }}/central-ci.log
-          file_name: ${{ github.run_id }}-${{ github.run_attempt }}.log.gz
-          gzip: 'true'
-          mime_type: application/gzip
+          file_name: ${{ github.run_id }}-${{ github.run_attempt }}.txt
+          mime_type: text/plain
 
       - name: Finish Agent State run
         if: ${{ always() && inputs.ci_run_id != '' }}
