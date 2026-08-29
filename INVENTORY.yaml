@@ -10,7 +10,6 @@ workflows:
   public_native_image_chart: .github/workflows/public-native-image-chart.yml
   central_dispatch: .github/workflows/central-ci-dispatch.yml
   self_check: .github/workflows/self-check.yml
-  broker_release: .github/workflows/broker.yml
   runner_images: .github/workflows/runner-images.yml
 
 actions:
@@ -19,5 +18,4 @@ actions:
   private_git: actions/private-git/action.yml
 
 services:
-  ci_broker: ci-broker/
   runner_images: runner-images/
