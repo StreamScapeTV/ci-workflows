@@ -1,4 +1,4 @@
-name: Public native image and Helm release
+name: Private native image and Helm release
 
 "on":
   workflow_call:
@@ -50,15 +50,22 @@ name: Public native image and Helm release
         required: true
       GOOGLE_DRIVE_REFRESH_TOKEN:
         required: true
+      TS_OAUTH_CLIENT_ID:
+        required: true
+      TS_OAUTH_SECRET:
+        required: true
+      FORGEJO_REGISTRY_USERNAME:
+        required: true
+      FORGEJO_REGISTRY_TOKEN:
+        required: true
 
 permissions:
   contents: read
-  packages: write
 
 env:
-  REGISTRY: ghcr.io
-  REGISTRY_NAMESPACE: streamscapetv
-  CHART_NAMESPACE: streamscapetv/helm-charts
+  REGISTRY: git.faruqi.dev
+  REGISTRY_NAMESPACE: mimranfaruqi
+  CHART_NAMESPACE: mimranfaruqi/helm-charts
   PUBLISHER_SHA: b777940a39a4cdec0b0ce82d6c7485af31e0b592
 
 jobs:
@@ -137,11 +144,18 @@ jobs:
             printf 'source_sha=%s\n' "${source_sha}"
           } >> "${GITHUB_OUTPUT}"
 
+      - name: Connect to private registry service
+        id: private_git
+        uses: StreamScapeTV/ci-workflows/actions/private-git@main
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+
       - name: Initialize isolated publication state
         shell: bash
         run: |
           set -Eeuo pipefail
-          state_root="${RUNNER_TEMP}/public-native-image-chart"
+          state_root="${RUNNER_TEMP}/private-native-image-chart"
           test ! -e "${state_root}"
           mkdir -m 0700 "${state_root}" "${state_root}/packages"
           printf '{}\n' > "${state_root}/auth.json"
@@ -162,10 +176,11 @@ jobs:
           CHART_PATH: ${{ inputs.chart_path }}
           DOCKERFILE_PATH: ${{ inputs.dockerfile_path }}
           BUILD_CONTEXT: ${{ inputs.build_context }}
+          CI_RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: |
           set -Eeuo pipefail
           test "${{ inputs.publish_latest_image }}" = false
-          test "${RUNNER_ENVIRONMENT:-}" = "github-hosted"
+          test "${CI_RUNNER_ENVIRONMENT}" = "github-hosted"
           test "${RUNNER_OS:-}" = "Linux"
           test "$(uname -m)" = "x86_64"
           buildah --version >> "${CI_LOG}" 2>&1
@@ -185,6 +200,8 @@ jobs:
           CHART_PATH: ${{ inputs.chart_path }}
           DOCKERFILE_PATH: ${{ inputs.dockerfile_path }}
           BUILD_CONTEXT: ${{ inputs.build_context }}
+          REGISTRY: localhost
+          REGISTRY_NAMESPACE: ciw-private
         run: |
           set -Eeuo pipefail
           python3 .ciw/scripts/ci/native_image_chart_prepare.py >> "${CI_LOG}" 2>&1
@@ -194,8 +211,8 @@ jobs:
         shell: bash
         env:
           PYTHONPATH: ${{ github.workspace }}/.ciw/src
-          CIW_REGISTRY_USERNAME: ${{ github.actor }}
-          CIW_REGISTRY_TOKEN: ${{ github.token }}
+          CIW_REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+          CIW_REGISTRY_TOKEN: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
           VERSION: ${{ steps.authority.outputs.version }}
           IMAGE_NAME: ${{ inputs.image_name }}
           CHART_NAME: ${{ inputs.chart_name }}
@@ -206,13 +223,32 @@ jobs:
           from pathlib import Path
           from ci_workflows.packaging_primitives import registry_authenticate
           env = dict(os.environ)
-          registry_authenticate("ghcr.io", environment=env, tool="buildah", cwd=Path("source"))
-          registry_authenticate("ghcr.io", environment=env, tool="helm", cwd=Path("source"))
+          registry = os.environ["REGISTRY"]
+          registry_authenticate(registry, environment=env, tool="buildah", cwd=Path("source"))
+          registry_authenticate(registry, environment=env, tool="helm", cwd=Path("source"))
           PY
           image_reference="${REGISTRY}/${REGISTRY_NAMESPACE}/${IMAGE_NAME}:${VERSION}"
           chart_reference="${REGISTRY}/${CHART_NAMESPACE}/${CHART_NAME}:${VERSION}"
-          ! skopeo inspect --authfile "${REGISTRY_AUTH_FILE}" "docker://${image_reference}" >> "${CI_LOG}" 2>&1
-          ! skopeo inspect --authfile "${REGISTRY_AUTH_FILE}" "docker://${chart_reference}" >> "${CI_LOG}" 2>&1
+          require_unused() {
+            local reference="$1"
+            local error_file
+            error_file="$(mktemp "${RUNNER_TEMP}/private-registry-inspect.XXXXXX")"
+            if skopeo inspect --authfile "${REGISTRY_AUTH_FILE}" "docker://${reference}" >> "${CI_LOG}" 2>"${error_file}"; then
+              printf 'Immutable publication already exists.\n' >> "${CI_LOG}"
+              rm -f "${error_file}"
+              return 1
+            fi
+            cat "${error_file}" >> "${CI_LOG}"
+            if grep -Eqi 'manifest unknown|name unknown|not found|status code: 404|statuscode: 404' "${error_file}"; then
+              rm -f "${error_file}"
+              return 0
+            fi
+            rm -f "${error_file}"
+            printf 'Private registry inspection failed for a reason other than an unused immutable version.\n' >> "${CI_LOG}"
+            return 1
+          }
+          require_unused "${image_reference}"
+          require_unused "${chart_reference}"
 
       - name: Revalidate exact tag before publication
         id: revalidate
@@ -236,46 +272,49 @@ jobs:
         id: publish
         shell: bash
         env:
-          PYTHONPATH: ${{ github.workspace }}/.ciw/src
           VERSION: ${{ steps.authority.outputs.version }}
           IMAGE_NAME: ${{ inputs.image_name }}
-          CHART_NAME: ${{ inputs.chart_name }}
-          IMAGE_REFERENCE: ghcr.io/streamscapetv/${{ inputs.image_name }}:${{ steps.authority.outputs.version }}
+          LOCAL_IMAGE_REFERENCE: ${{ steps.prepare.outputs.image_reference }}
+          REMOTE_IMAGE_REFERENCE: ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ inputs.image_name }}:${{ steps.authority.outputs.version }}
           PACKAGE_PATH: ${{ steps.prepare.outputs.package_path }}
         run: |
           set -Eeuo pipefail
-          python3 - <<'PY' >> "${CI_LOG}" 2>&1
-          import os
-          from pathlib import Path
-          from ci_workflows.packaging_primitives import helm_push, push_image
-          env = dict(os.environ)
-          source = Path("source")
-          push_image(os.environ["IMAGE_REFERENCE"], environment=env, tool="buildah", cwd=source)
-          helm_push(Path(os.environ["PACKAGE_PATH"]), "oci://ghcr.io/streamscapetv/helm-charts", environment=env)
-          PY
+          test -n "${LOCAL_IMAGE_REFERENCE}"
+          test -n "${REMOTE_IMAGE_REFERENCE}"
+          test -f "${PACKAGE_PATH}"
+          buildah inspect "${LOCAL_IMAGE_REFERENCE}" >> "${CI_LOG}" 2>&1
+          buildah push --authfile "${REGISTRY_AUTH_FILE}" "${LOCAL_IMAGE_REFERENCE}" "docker://${REMOTE_IMAGE_REFERENCE}" >> "${CI_LOG}" 2>&1
+          helm push "${PACKAGE_PATH}" "oci://${REGISTRY}/${CHART_NAMESPACE}" >> "${CI_LOG}" 2>&1
 
       - id: readback
-        name: Drop credentials and anonymously verify publication
+        name: Authenticated private registry read-back
         shell: bash
         env:
-          PYTHONPATH: ${{ github.workspace }}/.ciw/src
           VERSION: ${{ steps.authority.outputs.version }}
           IMAGE_NAME: ${{ inputs.image_name }}
           CHART_NAME: ${{ inputs.chart_name }}
-          IMAGE_REFERENCE: ghcr.io/streamscapetv/${{ inputs.image_name }}:${{ steps.authority.outputs.version }}
-          LATEST_IMAGE_REFERENCE: ghcr.io/streamscapetv/${{ inputs.image_name }}:latest
-          PUBLISH_LATEST_IMAGE: "false"
+          REMOTE_IMAGE_REFERENCE: ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ inputs.image_name }}:${{ steps.authority.outputs.version }}
+          CHART_PACKAGE_SHA256: ${{ steps.prepare.outputs.chart_package_sha256 }}
         run: |
           set -Eeuo pipefail
-          python3 - <<'PY' >> "${CI_LOG}" 2>&1
-          import os
+          readback_root="${RUNNER_TEMP}/private-native-image-chart/readback"
+          mkdir -m 0700 "${readback_root}"
+          skopeo inspect --authfile "${REGISTRY_AUTH_FILE}" "docker://${REMOTE_IMAGE_REFERENCE}" > "${readback_root}/image.json"
+          python3 - "${readback_root}/image.json" <<'PY'
+          import json, sys
           from pathlib import Path
-          from ci_workflows.packaging_primitives import registry_logout
-          env = dict(os.environ)
-          registry_logout("ghcr.io", environment=env, tool="helm", cwd=Path("source"))
-          registry_logout("ghcr.io", environment=env, tool="buildah", cwd=Path("source"))
+          value = json.loads(Path(sys.argv[1]).read_text())
+          digest = value.get("Digest", "")
+          if not isinstance(digest, str) or not digest.startswith("sha256:"):
+              raise SystemExit("private image read-back returned no digest")
           PY
-          python3 .ciw/scripts/ci/public_native_image_chart_readback.py >> "${CI_LOG}" 2>&1
+          helm pull "oci://${REGISTRY}/${CHART_NAMESPACE}/${CHART_NAME}" \
+            --version "${VERSION}" \
+            --destination "${readback_root}" >> "${CI_LOG}" 2>&1
+          chart_archive="${readback_root}/${CHART_NAME}-${VERSION}.tgz"
+          test -f "${chart_archive}"
+          test "$(sha256sum "${chart_archive}" | awk '{print $1}')" = "${CHART_PACKAGE_SHA256}"
+          printf 'Authenticated private image/chart read-back verified.\n' >> "${CI_LOG}"
 
       - name: Clean publication state
         id: cleanup
@@ -283,8 +322,9 @@ jobs:
         shell: bash
         env:
           PYTHONPATH: ${{ github.workspace }}/.ciw/src
-          VERSION: ${{ steps.authority.outputs.version }}
-          IMAGE_REFERENCE: ghcr.io/streamscapetv/${{ inputs.image_name }}:${{ steps.authority.outputs.version }}
+          LOCAL_IMAGE_REFERENCE: ${{ steps.prepare.outputs.image_reference }}
+          CIW_REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+          CIW_REGISTRY_TOKEN: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
         run: |
           set -Eeuo pipefail
           python3 - <<'PY' >> "${CI_LOG}" 2>&1 || true
@@ -292,15 +332,19 @@ jobs:
           from pathlib import Path
           from ci_workflows.packaging_primitives import cleanup_packaging_state, registry_logout
           env = dict(os.environ)
+          registry = os.environ["REGISTRY"]
+          source = Path("source") if Path("source").is_dir() else Path.cwd()
           for tool in ("helm", "buildah"):
               try:
-                  registry_logout("ghcr.io", environment=env, tool=tool, cwd=Path("source") if Path("source").is_dir() else Path.cwd())
+                  registry_logout(registry, environment=env, tool=tool, cwd=source)
               except Exception:
                   pass
-          cleanup_packaging_state((Path(os.environ["RUNNER_TEMP"]) / "public-native-image-chart",))
+          cleanup_packaging_state((Path(os.environ["RUNNER_TEMP"]) / "private-native-image-chart",))
           PY
-          buildah rmi "${IMAGE_REFERENCE}" >/dev/null 2>&1 || true
-          test ! -e "${RUNNER_TEMP}/public-native-image-chart"
+          if test -n "${LOCAL_IMAGE_REFERENCE:-}"; then
+            buildah rmi "${LOCAL_IMAGE_REFERENCE}" >/dev/null 2>&1 || true
+          fi
+          test ! -e "${RUNNER_TEMP}/private-native-image-chart"
           if test -d source/.git && test -n "${{ steps.authority.outputs.source_sha }}"; then
             test "$(git -C source rev-parse HEAD)" = "${{ steps.authority.outputs.source_sha }}"
             test -z "$(git -C source status --porcelain=v1 --untracked-files=all)"
@@ -324,6 +368,10 @@ jobs:
           CI_SECRET_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
           CI_SECRET_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
           CI_SECRET_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          CI_SECRET_TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          CI_SECRET_TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          CI_SECRET_REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+          CI_SECRET_REGISTRY_TOKEN: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
         run: |
           set -Eeuo pipefail
           python3 - <<'PY'
@@ -368,4 +416,4 @@ jobs:
         with:
           phase: finish
           ci_run_id: ${{ inputs.ci_run_id }}
-          status: ${{ steps.validate.outcome == 'success' && steps.prepare.outcome == 'success' && steps.authenticate.outcome == 'success' && steps.revalidate.outcome == 'success' && steps.publish.outcome == 'success' && steps.readback.outcome == 'success' && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && steps.cleanup.outcome == 'success' && 'succeeded' || 'failed' }}
+          status: ${{ steps.private_git.outcome == 'success' && steps.validate.outcome == 'success' && steps.prepare.outcome == 'success' && steps.authenticate.outcome == 'success' && steps.revalidate.outcome == 'success' && steps.publish.outcome == 'success' && steps.readback.outcome == 'success' && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && steps.cleanup.outcome == 'success' && 'succeeded' || 'failed' }}
