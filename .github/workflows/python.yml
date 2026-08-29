@@ -111,6 +111,37 @@ jobs:
           case "$TEST_PROFILE" in
             compile) run_logged compile python -m compileall -q . ;;
             unit) run_logged unit python -m pytest ;;
+            valkey)
+              valkey_container="ciw-valkey-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+              cleanup_valkey() {
+                docker rm -f "$valkey_container" >/dev/null 2>&1 || true
+              }
+              trap cleanup_valkey EXIT
+              docker run --detach --rm \
+                --name "$valkey_container" \
+                --publish 127.0.0.1:16379:6379 \
+                valkey/valkey:8-alpine >> "$CI_LOG" 2>&1
+              valkey_ready=false
+              for _ in {1..30}; do
+                if docker exec "$valkey_container" valkey-cli ping 2>/dev/null | grep -qx PONG; then
+                  valkey_ready=true
+                  break
+                fi
+                sleep 1
+              done
+              if [[ "$valkey_ready" != true ]]; then
+                echo "Valkey test service did not become ready." >&2
+                exit 1
+              fi
+              export CIW_VALKEY_URL="redis://127.0.0.1:16379/0"
+              run_logged valkey python -m pytest
+              cleanup_valkey
+              trap - EXIT
+              if docker ps -a --filter "name=^/${valkey_container}$" --format '{{.Names}}' | grep -q .; then
+                echo "Valkey test service cleanup failed." >&2
+                exit 1
+              fi
+              ;;
             release-gates)
               test -f scripts/run_release_gates.sh
               run_logged release-gates bash scripts/run_release_gates.sh
