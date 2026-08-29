@@ -144,6 +144,16 @@ jobs:
             printf 'source_sha=%s\n' "${source_sha}"
           } >> "${GITHUB_OUTPUT}"
 
+      - name: Record exact tagged product source SHA
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: observe-source
+          ci_run_id: ${{ inputs.ci_run_id }}
+          observed_source_sha: ${{ steps.authority.outputs.source_sha }}
+
       - name: Connect to private registry service
         id: private_git
         uses: StreamScapeTV/ci-workflows/actions/private-git@main
@@ -403,9 +413,9 @@ jobs:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
           file_path: ${{ runner.temp }}/central-release.log
-          file_name: ${{ github.run_id }}-${{ github.run_attempt }}.log.gz
-          gzip: "true"
-          mime_type: application/gzip
+          file_name: ${{ github.run_id }}-${{ github.run_attempt }}.txt
+          gzip: "false"
+          mime_type: text/plain
 
       - name: Finish Agent State run
         if: always()
