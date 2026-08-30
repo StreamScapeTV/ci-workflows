@@ -80,7 +80,11 @@ jobs:
           ci_run_id: ${{ inputs.ci_run_id }}
 
       - name: Connect to private Git service
-        if: ${{ inputs.test_profile != 'smoke' }}
+        if: >-
+          ${{ inputs.test_profile != 'smoke'
+              && inputs.test_profile != 'build'
+              && inputs.test_profile != 'test'
+              && inputs.test_profile != 'emulator' }}
         uses: StreamScapeTV/ci-workflows/actions/private-git@main
         env:
           TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
@@ -112,6 +116,10 @@ jobs:
 
       - name: Resolve IPTV Android develop dependency cache scope
         id: android_develop_cache_scope
+        if: >-
+          ${{ inputs.test_profile != 'build'
+              && inputs.test_profile != 'test'
+              && inputs.test_profile != 'emulator' }}
         shell: bash
         env:
           SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
@@ -154,6 +162,10 @@ jobs:
 
       - name: Resolve IPTV Android branch cache reader scope
         id: android_branch_cache_scope
+        if: >-
+          ${{ inputs.test_profile != 'build'
+              && inputs.test_profile != 'test'
+              && inputs.test_profile != 'emulator' }}
         shell: bash
         env:
           SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
@@ -231,6 +243,96 @@ jobs:
               )
             }}-
 
+      - name: Validate generic Android hosted request
+        if: >-
+          ${{ inputs.test_profile == 'build'
+              || inputs.test_profile == 'test'
+              || inputs.test_profile == 'emulator' }}
+        shell: bash
+        env:
+          PROJECT_DIRECTORY: ${{ inputs.project_directory }}
+          TEST_FILTER: ${{ inputs.test_filter }}
+          ROOM_SCHEMA: ${{ inputs.room_schema }}
+        run: |
+          set -Eeuo pipefail
+          test "${PROJECT_DIRECTORY}" = "." || {
+            echo "Generic Android hosted profiles require project_directory=." >&2
+            exit 2
+          }
+          test -z "${TEST_FILTER}" || {
+            echo "Generic Android hosted profiles do not accept test_filter" >&2
+            exit 2
+          }
+          test "${ROOM_SCHEMA}" = "false" || {
+            echo "Generic Android hosted profiles do not accept room_schema" >&2
+            exit 2
+          }
+          test -f scripts/ci/run-android-hosted-validation.sh || {
+            echo "Missing fixed Android hosted validation wrapper: scripts/ci/run-android-hosted-validation.sh" >&2
+            exit 2
+          }
+
+      - name: Prepare generic Android emulator
+        id: android_emulator
+        if: ${{ inputs.test_profile == 'emulator' }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          test -n "${sdk_root}" || {
+            echo "Android SDK root is unavailable on the hosted runner" >&2
+            exit 1
+          }
+          sdkmanager="$(command -v sdkmanager || true)"
+          avdmanager="$(command -v avdmanager || true)"
+          adb="$(command -v adb || true)"
+          emulator="$(command -v emulator || true)"
+          test -n "${sdkmanager}" || sdkmanager="${sdk_root}/cmdline-tools/latest/bin/sdkmanager"
+          test -n "${avdmanager}" || avdmanager="${sdk_root}/cmdline-tools/latest/bin/avdmanager"
+          test -n "${adb}" || adb="${sdk_root}/platform-tools/adb"
+          test -n "${emulator}" || emulator="${sdk_root}/emulator/emulator"
+          for tool in "${sdkmanager}" "${avdmanager}" "${adb}" "${emulator}"; do
+            test -x "${tool}" || {
+              printf 'Required Android emulator tool is unavailable: %s\n' "${tool}" >&2
+              exit 1
+            }
+          done
+
+          image='system-images;android-36;google_apis;x86_64'
+          avd_name='central-android-api36'
+          serial='emulator-5554'
+          "${sdkmanager}" --install platform-tools emulator "${image}" >> "${CI_LOG}" 2>&1
+          printf 'no\n' | "${avdmanager}" create avd --force \
+            --name "${avd_name}" --package "${image}" --device pixel >> "${CI_LOG}" 2>&1
+          if test -e /dev/kvm && test ! -w /dev/kvm; then
+            sudo chmod 666 /dev/kvm
+          fi
+          "${adb}" start-server >> "${CI_LOG}" 2>&1
+          "${emulator}" -avd "${avd_name}" -port 5554 \
+            -no-window -no-audio -no-boot-anim -no-snapshot-save -wipe-data \
+            -gpu swiftshader_indirect >> "${CI_LOG}" 2>&1 &
+          emulator_pid=$!
+          printf 'pid=%s\n' "${emulator_pid}" >> "${GITHUB_OUTPUT}"
+          printf 'ANDROID_SERIAL=%s\n' "${serial}" >> "${GITHUB_ENV}"
+
+          booted=false
+          for _ in $(seq 1 180); do
+            if "${adb}" -s "${serial}" shell getprop sys.boot_completed 2>/dev/null | grep -qx '1'; then
+              booted=true
+              break
+            fi
+            if ! kill -0 "${emulator_pid}" 2>/dev/null; then
+              echo "Android emulator exited before boot completed" >&2
+              exit 1
+            fi
+            sleep 2
+          done
+          test "${booted}" = true || {
+            echo "Android emulator did not boot within the bounded timeout" >&2
+            exit 1
+          }
+          "${adb}" -s "${serial}" shell input keyevent 82 >/dev/null 2>&1 || true
+
       - name: Run fixed Android profile
         id: commands
         shell: bash
@@ -242,14 +344,7 @@ jobs:
           CIW_MAVEN_PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
         run: |
           set -Eeuo pipefail
-          case "${PROJECT_DIRECTORY}" in
-            .|android) ;;
-            *) echo "Unsupported Android project_directory" >&2; exit 2 ;;
-          esac
-
           repository_root="${PWD}"
-          cd "${PROJECT_DIRECTORY}"
-          test -x gradlew
 
           run_logged() {
             local label="$1"
@@ -260,6 +355,22 @@ jobs:
               return 1
             fi
           }
+
+          case "${TEST_PROFILE}" in
+            build|test|emulator)
+              wrapper="${repository_root}/scripts/ci/run-android-hosted-validation.sh"
+              export CI_ANDROID_HOSTED_PROFILE="${TEST_PROFILE}"
+              run_logged "android-${TEST_PROFILE}" bash "${wrapper}"
+              exit 0
+              ;;
+          esac
+
+          case "${PROJECT_DIRECTORY}" in
+            .|android) ;;
+            *) echo "Unsupported Android project_directory" >&2; exit 2 ;;
+          esac
+          cd "${PROJECT_DIRECTORY}"
+          test -x gradlew
 
           run_gradle() {
             local started="${SECONDS}"
@@ -388,6 +499,24 @@ jobs:
               echo "Android room schema validation failed; inspect the private Google Drive CI log." >&2
               exit 1
             fi
+          fi
+
+      - name: Stop generic Android emulator
+        if: ${{ always() && inputs.test_profile == 'emulator' }}
+        shell: bash
+        env:
+          EMULATOR_PID: ${{ steps.android_emulator.outputs.pid }}
+        run: |
+          set -Eeuo pipefail
+          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          adb="$(command -v adb || true)"
+          test -n "${adb}" || adb="${sdk_root}/platform-tools/adb"
+          serial="${ANDROID_SERIAL:-emulator-5554}"
+          if test -x "${adb}"; then
+            "${adb}" -s "${serial}" emu kill >/dev/null 2>&1 || true
+          fi
+          if test -n "${EMULATOR_PID}" && kill -0 "${EMULATOR_PID}" 2>/dev/null; then
+            kill "${EMULATOR_PID}" 2>/dev/null || true
           fi
 
       - name: Record IPTV Android cache measurements

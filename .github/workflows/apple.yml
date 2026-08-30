@@ -72,6 +72,15 @@ jobs:
         run: |
           set -Eeuo pipefail
           case "${TEST_PROFILE}" in
+            build)
+              matrix='{"include":[{"lane":"hosted-build","cache_save":false}]}'
+              ;;
+            test)
+              matrix='{"include":[{"lane":"hosted-test","cache_save":false}]}'
+              ;;
+            simulator)
+              matrix='{"include":[{"lane":"hosted-simulator","cache_save":false}]}'
+              ;;
             host)
               matrix='{"include":[{"lane":"macos-test","cache_save":true}]}'
               ;;
@@ -129,6 +138,10 @@ jobs:
 
       - name: Prepare Apple develop dependency cache
         id: apple_develop_cache
+        if: >-
+          ${{ inputs.test_profile != 'build'
+              && inputs.test_profile != 'test'
+              && inputs.test_profile != 'simulator' }}
         shell: bash
         env:
           REQUEST_REPOSITORY: ${{ inputs.repository }}
@@ -346,6 +359,7 @@ jobs:
         shell: bash
         env:
           EXECUTION_LANE: ${{ matrix.lane }}
+          TEST_PROFILE: ${{ inputs.test_profile }}
           GH_TOKEN: ${{ steps.source.outputs.token || github.token }}
           CI_GITHUB_TOKEN: ${{ steps.source.outputs.token || github.token }}
         run: |
@@ -362,6 +376,20 @@ jobs:
             fi
             printf 'duration_seconds=%s\n' "$((SECONDS - started_at))" >> "${CI_LOG}"
           }
+
+          case "${TEST_PROFILE}" in
+            build|test|simulator)
+              wrapper="scripts/ci/run-apple-hosted-validation.sh"
+              test -f "${wrapper}" || {
+                printf 'Missing fixed Apple hosted validation wrapper: %s\n' "${wrapper}" >&2
+                exit 2
+              }
+              export CI_APPLE_HOSTED_PROFILE="${TEST_PROFILE}"
+              run_logged "apple-${TEST_PROFILE}" bash "${wrapper}"
+              exit 0
+              ;;
+          esac
+
           swiftpm_xcode_args=()
           if test "${APPLE_DEVELOP_CACHE_ENABLED:-false}" = "true"; then
             swiftpm_xcode_args=(-clonedSourcePackagesDirPath "${SWIFTPM_CLONES_DIR}")
