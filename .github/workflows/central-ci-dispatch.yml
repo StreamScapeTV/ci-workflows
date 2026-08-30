@@ -64,6 +64,34 @@ jobs:
               raise SystemExit("release.maven build_number must be one non-empty bounded release identifier")
           PY
 
+      - name: Validate Apple release request
+        if: ${{ steps.claim.outputs.workflow_key == 'release.apple' }}
+        shell: bash
+        env:
+          TEST_PROFILE: ${{ steps.claim.outputs.test_profile }}
+          INPUTS_JSON: ${{ steps.claim.outputs.inputs_json }}
+        run: |
+          set -Eeuo pipefail
+          test "${TEST_PROFILE}" = testflight || {
+            echo "release.apple supports only the testflight profile" >&2
+            exit 2
+          }
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+
+          try:
+              inputs = json.loads(os.environ["INPUTS_JSON"])
+          except (KeyError, json.JSONDecodeError) as exc:
+              raise SystemExit("release.apple inputs must be one JSON object") from exc
+          if not isinstance(inputs, dict) or set(inputs) != {"build_number"}:
+              raise SystemExit("release.apple requires exactly inputs.build_number")
+          build_number = inputs["build_number"]
+          if not isinstance(build_number, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}", build_number):
+              raise SystemExit("release.apple build_number must be one non-empty bounded release identifier")
+          PY
+
   apple:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'validation.apple' }}
@@ -76,6 +104,22 @@ jobs:
       ref: ${{ needs.request.outputs.ref }}
       source_is_tag: ${{ needs.request.outputs.is_tag == 'true' }}
       test_profile: ${{ needs.request.outputs.test_profile }}
+      ci_run_id: ${{ inputs.ci_run_id }}
+    secrets: inherit
+
+  apple_release:
+    needs: request
+    if: ${{ needs.request.outputs.workflow_key == 'release.apple' && needs.request.outputs.test_profile == 'testflight' }}
+    concurrency:
+      group: central-ci-${{ inputs.active_key }}
+      cancel-in-progress: true
+    uses: ./.github/workflows/apple.yml
+    with:
+      repository: ${{ needs.request.outputs.repository }}
+      ref: ${{ needs.request.outputs.ref }}
+      source_is_tag: ${{ needs.request.outputs.is_tag == 'true' }}
+      test_profile: testflight
+      build_number: ${{ fromJSON(needs.request.outputs.inputs_json).build_number }}
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
 
@@ -431,6 +475,7 @@ jobs:
     needs:
       - request
       - apple
+      - apple_release
       - android
       - python
       - node
@@ -445,6 +490,7 @@ jobs:
         (
           needs.request.result != 'success' ||
           needs.apple.result == 'cancelled' ||
+          needs.apple_release.result == 'cancelled' ||
           needs.android.result == 'cancelled' ||
           needs.python.result == 'cancelled' ||
           needs.node.result == 'cancelled' ||

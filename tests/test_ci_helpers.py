@@ -176,6 +176,7 @@ class CiHelperTests(unittest.TestCase):
         jobs = workflow["jobs"]
         execution_jobs = (
             "apple",
+            "apple_release",
             "android",
             "python",
             "node",
