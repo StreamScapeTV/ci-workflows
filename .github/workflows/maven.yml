@@ -1,0 +1,340 @@
+name: Streamscape Media Maven publication
+
+"on":
+  workflow_call:
+    secrets:
+      FORGEJO_REGISTRY_USERNAME:
+        required: true
+      FORGEJO_REGISTRY_TOKEN:
+        required: true
+      CIW_MAVEN_PACKAGE_READ_TOKEN:
+        required: true
+      TS_OAUTH_CLIENT_ID:
+        required: true
+      TS_OAUTH_SECRET:
+        required: true
+      GOOGLE_DRIVE_CLIENT_ID:
+        required: true
+      GOOGLE_DRIVE_CLIENT_SECRET:
+        required: true
+      GOOGLE_DRIVE_REFRESH_TOKEN:
+        required: true
+      GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID:
+        required: true
+    outputs:
+      release_version:
+        description: Exact Maven version published
+        value: ${{ jobs.publish.outputs.release_version }}
+      source_sha:
+        description: Exact Streamscape Media source SHA published
+        value: ${{ jobs.publish.outputs.source_sha }}
+      archive_sha256:
+        description: SHA-256 of the immutable Maven-layout mirror archive
+        value: ${{ jobs.publish.outputs.archive_sha256 }}
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      release_version: ${{ steps.identity.outputs.release_version }}
+      source_sha: ${{ steps.identity.outputs.source_sha }}
+      archive_sha256: ${{ steps.mirror.outputs.archive_sha256 }}
+    steps:
+      - name: Check out exact Streamscape Media source
+        uses: actions/checkout@v4
+        with:
+          repository: StreamScapeTV/streamscape-media
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Resolve exact publication identity
+        id: identity
+        shell: bash
+        env:
+          CALLER_REPOSITORY: ${{ github.repository }}
+          CALLER_REF: ${{ github.ref }}
+          CALLER_EVENT: ${{ github.event_name }}
+          CALLER_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          test "${CALLER_REPOSITORY}" = "StreamScapeTV/streamscape-media" || {
+            echo "This Maven workflow is fixed to Streamscape Media" >&2
+            exit 2
+          }
+          source_sha="$(git rev-parse HEAD)"
+          test "${source_sha}" = "${CALLER_SHA}" || {
+            echo "Streamscape Media checkout did not resolve the caller SHA" >&2
+            exit 1
+          }
+          [[ "${source_sha}" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          base_version="$(tr -d '[:space:]' < VERSION)"
+          [[ "${base_version}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+            echo "VERSION must contain stable MAJOR.MINOR.PATCH" >&2
+            exit 2
+          }
+          case "${CALLER_REF}" in
+            refs/heads/develop)
+              release_version="${base_version}-develop.${source_sha:0:12}"
+              ;;
+            "refs/tags/v${base_version}")
+              release_version="${base_version}"
+              ;;
+            refs/heads/*)
+              test "${CALLER_EVENT}" = "workflow_dispatch" || {
+                echo "Non-develop Maven publication requires owner manual dispatch" >&2
+                exit 2
+              }
+              release_version="${base_version}-manual.${source_sha:0:12}"
+              ;;
+            *)
+              echo "Maven publication accepts develop, the exact VERSION tag, or a manual branch source" >&2
+              exit 2
+              ;;
+          esac
+          printf 'source_sha=%s\n' "${source_sha}" >> "${GITHUB_OUTPUT}"
+          printf 'release_version=%s\n' "${release_version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Connect to private Forgejo service
+        uses: StreamScapeTV/ci-workflows/actions/private-git@main
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+
+      - name: Publish seven modules to Forgejo and local Maven staging
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.identity.outputs.release_version }}
+          FORGEJO_REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+          FORGEJO_REGISTRY_TOKEN: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          : "${FORGEJO_REGISTRY_USERNAME:?FORGEJO_REGISTRY_USERNAME is required}"
+          : "${FORGEJO_REGISTRY_TOKEN:?FORGEJO_REGISTRY_TOKEN is required}"
+          rm -rf dist/maven
+          forgejo_tasks=(
+            :playback-api:publishAllPublicationsToForgejoRepository
+            :playback-runtime:publishAllPublicationsToForgejoRepository
+            :platform-android:publishAllPublicationsToForgejoRepository
+            :engine-media3:publishAllPublicationsToForgejoRepository
+            :engine-mpv:publishAllPublicationsToForgejoRepository
+            :engine-vlc:publishAllPublicationsToForgejoRepository
+            :playback-android:publishAllPublicationsToForgejoRepository
+          )
+          local_tasks=(
+            :playback-api:publishAllPublicationsToStreamscapeLocalRepository
+            :playback-runtime:publishAllPublicationsToStreamscapeLocalRepository
+            :platform-android:publishAllPublicationsToStreamscapeLocalRepository
+            :engine-media3:publishAllPublicationsToStreamscapeLocalRepository
+            :engine-mpv:publishAllPublicationsToStreamscapeLocalRepository
+            :engine-vlc:publishAllPublicationsToStreamscapeLocalRepository
+            :playback-android:publishAllPublicationsToStreamscapeLocalRepository
+          )
+          (
+            cd android
+            ./gradlew --no-daemon \
+              "-PciMavenPublicationVersion=${RELEASE_VERSION}" \
+              "${local_tasks[@]}" \
+              "${forgejo_tasks[@]}"
+          )
+
+      - name: Build deterministic Maven-layout mirror and manifest
+        id: mirror
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.identity.outputs.release_version }}
+          SOURCE_SHA: ${{ steps.identity.outputs.source_sha }}
+        run: |
+          set -Eeuo pipefail
+          archive="${RUNNER_TEMP}/streamscape-media-maven.zip"
+          manifest="${RUNNER_TEMP}/manifest.json"
+          python3 - "${archive}" "${manifest}" "${RELEASE_VERSION}" "${SOURCE_SHA}" <<'PY'
+          from pathlib import Path
+          import hashlib
+          import json
+          import sys
+          import zipfile
+
+          archive_path, manifest_path, version, source_sha = sys.argv[1:]
+          artifacts = (
+              "streamscape-playback-api",
+              "streamscape-playback-runtime",
+              "streamscape-platform-android",
+              "streamscape-engine-media3",
+              "streamscape-engine-mpv",
+              "streamscape-engine-vlc",
+              "streamscape-playback-android",
+          )
+          group = "com.streamscape.media"
+          group_path = Path("com/streamscape/media")
+          repository = Path("dist/maven")
+          files = []
+          payloads = []
+          for artifact in artifacts:
+              version_dir = repository / group_path / artifact / version
+              if not version_dir.is_dir() or version_dir.is_symlink():
+                  raise SystemExit(f"missing staged Maven coordinate: {group}:{artifact}:{version}")
+              coordinate_files = sorted(
+                  path for path in version_dir.rglob("*") if path.is_file() and not path.is_symlink()
+              )
+              if not coordinate_files:
+                  raise SystemExit(f"empty staged Maven coordinate: {group}:{artifact}:{version}")
+              if not any(path.suffix == ".pom" for path in coordinate_files):
+                  raise SystemExit(f"missing POM for staged Maven coordinate: {group}:{artifact}:{version}")
+              if not any(path.suffix in {".jar", ".aar"} for path in coordinate_files):
+                  raise SystemExit(f"missing binary for staged Maven coordinate: {group}:{artifact}:{version}")
+              for path in coordinate_files:
+                  relative = path.relative_to(repository).as_posix()
+                  data = path.read_bytes()
+                  payloads.append((relative, data))
+                  files.append(
+                      {
+                          "path": relative,
+                          "sha256": hashlib.sha256(data).hexdigest(),
+                          "size_bytes": len(data),
+                      }
+                  )
+
+          with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+              for relative, data in sorted(payloads):
+                  info = zipfile.ZipInfo(relative, date_time=(1980, 1, 1, 0, 0, 0))
+                  info.compress_type = zipfile.ZIP_DEFLATED
+                  info.create_system = 3
+                  info.external_attr = 0o100644 << 16
+                  archive.writestr(info, data)
+
+          archive_bytes = Path(archive_path).read_bytes()
+          archive_sha256 = hashlib.sha256(archive_bytes).hexdigest()
+          value = {
+              "schema_version": 1,
+              "repository": "StreamScapeTV/streamscape-media",
+              "source_sha": source_sha,
+              "maven_version": version,
+              "group_id": group,
+              "module_coordinates": [f"{group}:{artifact}:{version}" for artifact in artifacts],
+              "files": sorted(files, key=lambda item: item["path"]),
+              "archive": {
+                  "file_name": "maven-layout.zip",
+                  "sha256": archive_sha256,
+                  "size_bytes": len(archive_bytes),
+              },
+          }
+          Path(manifest_path).write_text(
+              json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          print(archive_sha256)
+          PY
+          archive_sha256="$(python3 - "${archive}" <<'PY'
+          from pathlib import Path
+          import hashlib, sys
+          print(hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest())
+          PY
+          )"
+          printf 'archive=%s\n' "${archive}" >> "${GITHUB_OUTPUT}"
+          printf 'manifest=%s\n' "${manifest}" >> "${GITHUB_OUTPUT}"
+          printf 'archive_sha256=%s\n' "${archive_sha256}" >> "${GITHUB_OUTPUT}"
+
+      - name: Read back every staged Maven file with bounded read auth
+        shell: bash
+        env:
+          MANIFEST: ${{ steps.mirror.outputs.manifest }}
+          CIW_MAVEN_PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          : "${CIW_MAVEN_PACKAGE_READ_TOKEN:?CIW_MAVEN_PACKAGE_READ_TOKEN is required}"
+          readback_dir="${RUNNER_TEMP}/maven-readback"
+          rm -rf "${readback_dir}"
+          mkdir -p "${readback_dir}"
+          python3 - "${MANIFEST}" <<'PY' > "${RUNNER_TEMP}/maven-readback.tsv"
+          import json, sys
+          value = json.load(open(sys.argv[1], encoding="utf-8"))
+          for entry in value["files"]:
+              print(f"{entry['path']}\t{entry['sha256']}")
+          PY
+          while IFS=$'\t' read -r relative expected_sha256; do
+            test -n "${relative}" && test -n "${expected_sha256}"
+            destination="${readback_dir}/$(printf '%s' "${relative}" | tr '/' '_')"
+            curl --fail --silent --show-error \
+              --header "Authorization: token ${CIW_MAVEN_PACKAGE_READ_TOKEN}" \
+              --output "${destination}" \
+              "https://git.faruqi.dev/api/packages/mimranfaruqi/maven/${relative}"
+            actual_sha256="$(python3 - "${destination}" <<'PY'
+            from pathlib import Path
+            import hashlib, sys
+            print(hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest())
+            PY
+            )"
+            test "${actual_sha256}" = "${expected_sha256}" || {
+              echo "Forgejo Maven read-back digest mismatch" >&2
+              exit 1
+            }
+          done < "${RUNNER_TEMP}/maven-readback.tsv"
+          rm -rf "${readback_dir}" "${RUNNER_TEMP}/maven-readback.tsv"
+
+      - name: Store immutable Maven-layout archive in Google Drive
+        id: archive_upload
+        uses: StreamScapeTV/ci-workflows/actions/google-drive@agent2/issue-637-media-maven-release
+        env:
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
+        with:
+          repository: StreamScapeTV/streamscape-media
+          ref: releases
+          subdirectory: ${{ steps.identity.outputs.release_version }}
+          file_path: ${{ steps.mirror.outputs.archive }}
+          file_name: maven-layout.zip
+          mime_type: application/zip
+          immutable: true
+
+      - name: Store immutable release manifest in Google Drive
+        id: manifest_upload
+        uses: StreamScapeTV/ci-workflows/actions/google-drive@agent2/issue-637-media-maven-release
+        env:
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
+        with:
+          repository: StreamScapeTV/streamscape-media
+          ref: releases
+          subdirectory: ${{ steps.identity.outputs.release_version }}
+          file_path: ${{ steps.mirror.outputs.manifest }}
+          file_name: manifest.json
+          mime_type: application/json
+          immutable: true
+
+      - name: Verify archive and manifest share one immutable release folder
+        shell: bash
+        env:
+          ARCHIVE_FOLDER: ${{ steps.archive_upload.outputs.folder_id }}
+          MANIFEST_FOLDER: ${{ steps.manifest_upload.outputs.folder_id }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${ARCHIVE_FOLDER}"
+          test "${ARCHIVE_FOLDER}" = "${MANIFEST_FOLDER}"
+
+      - name: Clean publication workspace
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf dist/maven
+          rm -f "${RUNNER_TEMP}/streamscape-media-maven.zip" "${RUNNER_TEMP}/manifest.json"
+          git clean -ffdX
+          test -z "$(git status --porcelain=v1 --untracked-files=all)" || {
+            echo "Streamscape Media publication left source residue" >&2
+            exit 1
+          }
