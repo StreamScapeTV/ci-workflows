@@ -558,24 +558,45 @@ fi
         self.assertIn("'succeeded'", status)
         self.assertIn("'failed'", status)
 
-    def test_parallel_lanes_keep_independent_scrubbed_drive_logs(self) -> None:
+    def test_parallel_lanes_record_source_and_keep_independent_readable_logs(self) -> None:
         execute = self.workflow["jobs"]["execute"]
-        by_name = {step.get("name"): step for step in execute["steps"] if step.get("name")}
+        steps = execute["steps"]
+        names = [step.get("name") for step in steps]
+        by_name = {step.get("name"): step for step in steps if step.get("name")}
+        identity = by_name["Resolve observed source SHA"]
+        record = by_name["Record observed source SHA"]
         scrub = by_name["Scrub configured CI secrets from private log"]
         drive = by_name["Upload CI log to Google Drive"]
 
+        self.assertIn('source_sha="$(git rev-parse HEAD)"', identity["run"])
+        self.assertIn('[[ "${source_sha}" =~ ^[0-9A-Fa-f]{40}$ ]] || exit 2', identity["run"])
+        self.assertNotIn("github.sha", identity["run"])
+        self.assertEqual(record["if"], "${{ inputs.ci_run_id != '' }}")
+        self.assertEqual(record["uses"], "StreamScapeTV/ci-workflows/actions/agent-state@main")
+        self.assertEqual(record["with"]["phase"], "observe-source")
+        self.assertEqual(record["with"]["ci_run_id"], "${{ inputs.ci_run_id }}")
+        self.assertEqual(
+            record["with"]["observed_source_sha"],
+            "${{ steps.source_identity.outputs.source_sha }}",
+        )
+        self.assertLess(names.index("Check out source"), names.index("Resolve observed source SHA"))
+        self.assertLess(names.index("Resolve observed source SHA"), names.index("Record observed source SHA"))
+        self.assertLess(names.index("Record observed source SHA"), names.index("Run fixed Apple lane"))
+
         self.assertEqual(scrub["if"], "${{ always() }}")
         self.assertIn("steps.scrub.outcome == 'success'", drive["if"])
+        self.assertLess(names.index("Run fixed Apple lane"), names.index("Scrub configured CI secrets from private log"))
+        self.assertLess(names.index("Scrub configured CI secrets from private log"), names.index("Upload CI log to Google Drive"))
         self.assertEqual(
             drive["with"]["file_path"],
             "${{ runner.temp }}/central-ci-${{ matrix.lane }}.log",
         )
         self.assertEqual(
             drive["with"]["file_name"],
-            "${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.lane }}.log.gz",
+            "${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.lane }}.txt",
         )
-        self.assertEqual(drive["with"]["gzip"], "true")
-        self.assertEqual(drive["with"]["mime_type"], "application/gzip")
+        self.assertNotIn("gzip", drive["with"])
+        self.assertEqual(drive["with"]["mime_type"], "text/plain")
 
     def test_dependency_cache_scope_is_preserved_and_only_one_full_lane_can_save(self) -> None:
         execute = self.workflow["jobs"]["execute"]

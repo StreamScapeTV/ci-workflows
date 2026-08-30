@@ -10,7 +10,7 @@ class CiHelperTests(unittest.TestCase):
         inventory = yaml.safe_load((ROOT / "INVENTORY.yaml").read_text())
         self.assertEqual(
             set(inventory["workflows"]),
-            {"apple", "android", "python", "node", "flutter", "maven", "public_native_image_chart", "oci_reproducibility", "central_dispatch", "self_check", "runner_images"},
+            {"apple", "android", "python", "node", "flutter", "maven", "container_service", "public_native_image_chart", "oci_reproducibility", "central_dispatch", "self_check", "runner_images"},
         )
         self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive", "private_git"})
         self.assertEqual(set(inventory["scripts"]), {"oci_reproducibility"})
@@ -21,10 +21,10 @@ class CiHelperTests(unittest.TestCase):
 
     def test_workflows_use_no_reusable_prefix(self) -> None:
         names = {p.name for p in (ROOT / ".github/workflows").glob("*.yml")}
-        self.assertEqual(len(names), 11)
+        self.assertEqual(len(names), 12)
         self.assertNotIn("broker.yml", names)
         self.assertFalse(any(name.startswith("reusable-") for name in names))
-        for name in ("apple.yml", "android.yml", "python.yml", "node.yml", "flutter.yml", "maven.yml"):
+        for name in ("apple.yml", "android.yml", "python.yml", "node.yml", "flutter.yml", "maven.yml", "container-service.yml"):
             self.assertIn(name, names)
 
     def test_only_three_custom_actions_exist(self) -> None:
@@ -114,11 +114,11 @@ class CiHelperTests(unittest.TestCase):
                 self.assertNotIn("gzip: 'true'", text)
             elif name == "apple":
                 self.assertIn(
-                    "${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.lane }}.log.gz",
+                    "${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.lane }}.txt",
                     text,
                 )
-                self.assertIn("mime_type: application/gzip", text)
-                self.assertIn("gzip: 'true'", text)
+                self.assertIn("mime_type: text/plain", text)
+                self.assertNotIn("gzip: 'true'", text)
             else:
                 self.assertIn("${{ github.run_id }}-${{ github.run_attempt }}.log.gz", text)
                 self.assertIn("mime_type: application/gzip", text)
@@ -182,6 +182,7 @@ class CiHelperTests(unittest.TestCase):
             "node",
             "flutter",
             "maven",
+            "container_service",
             "public_native_image_chart",
             "oci_reproducibility",
         )
