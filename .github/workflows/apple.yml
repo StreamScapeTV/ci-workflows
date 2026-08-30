@@ -378,6 +378,8 @@ jobs:
             printf 'duration_seconds=%s\n' "$((SECONDS - started_at))" >> "${CI_LOG}"
           }
 
+          historical_recovery_active=false
+
           materialize_historical_media_bootstrap() {
             local helper="scripts/bootstrap-streamscape-media-binary.sh"
             if test -f "${helper}"; then
@@ -412,8 +414,34 @@ jobs:
                 "${approved_helper_blob}" "${actual_blob}" >&2
               return 1
             fi
+            historical_recovery_active=true
             printf 'Materialized approved historical Apple bootstrap helper for exact recovery tree.\n' \
               >> "${CI_LOG}"
+          }
+
+          run_xcode_logged() {
+            local label="$1"
+            shift
+            if test "${historical_recovery_active}" != "true"; then
+              run_logged "${label}" "$@"
+              return
+            fi
+            test -n "${CI_GITHUB_TOKEN}" || {
+              printf 'Historical Apple recovery requires the fixed source GitHub token.\n' >&2
+              return 1
+            }
+            local private_git_auth
+            private_git_auth="$(
+              printf 'x-access-token:%s' "${CI_GITHUB_TOKEN}" \
+                | /usr/bin/base64 \
+                | tr -d '\r\n'
+            )"
+            (
+              export GIT_CONFIG_COUNT=1
+              export GIT_CONFIG_KEY_0='http.https://github.com/StreamScapeTV/streamscape-media.git.extraheader'
+              export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${private_git_auth}"
+              run_logged "${label}" "$@"
+            )
           }
 
           case "${TEST_PROFILE}" in
@@ -438,7 +466,7 @@ jobs:
             macos-test)
               materialize_historical_media_bootstrap
               run_logged prepare-media bash scripts/bootstrap-streamscape-media-binary.sh
-              run_logged macos-test xcodebuild test \
+              run_xcode_logged macos-test xcodebuild test \
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
                 "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
@@ -449,7 +477,7 @@ jobs:
             ios-build)
               materialize_historical_media_bootstrap
               run_logged prepare-media bash scripts/bootstrap-streamscape-media-binary.sh
-              run_logged ios-build xcodebuild build \
+              run_xcode_logged ios-build xcodebuild build \
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
                 "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
@@ -459,7 +487,7 @@ jobs:
             tvos-build)
               materialize_historical_media_bootstrap
               run_logged prepare-media bash scripts/bootstrap-streamscape-media-binary.sh
-              run_logged tvos-build xcodebuild build \
+              run_xcode_logged tvos-build xcodebuild build \
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
                 "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \

@@ -48,9 +48,9 @@ class AppleWorkflowTests(unittest.TestCase):
         )
         script = command_step["run"]
 
-        self.assertIn("run_logged ios-build xcodebuild build", script)
-        self.assertIn("run_logged tvos-build xcodebuild build", script)
-        self.assertIn("run_logged macos-test xcodebuild test", script)
+        self.assertIn("run_xcode_logged ios-build xcodebuild build", script)
+        self.assertIn("run_xcode_logged tvos-build xcodebuild build", script)
+        self.assertIn("run_xcode_logged macos-test xcodebuild test", script)
         self.assertNotIn("build-for-testing", script)
         self.assertNotIn("macos-build", script)
         self.assertIn(
@@ -153,7 +153,18 @@ capture before {safe_expansion} after
         self.assertIn("492be28b492dd6bc3458cbd884893869e150818e", script)
         self.assertIn("application/vnd.github.raw+json", script)
         self.assertIn("git hash-object", script)
+        self.assertIn("run_xcode_logged()", script)
+        self.assertIn(
+            "http.https://github.com/StreamScapeTV/streamscape-media.git.extraheader",
+            script,
+        )
+        self.assertIn("GIT_CONFIG_COUNT=1", script)
+        self.assertIn("GIT_CONFIG_VALUE_0=\"AUTHORIZATION: basic ${private_git_auth}\"", script)
+        self.assertNotIn("git config --global", script)
+        self.assertNotIn("git config --local", script)
+        self.assertNotIn("insteadOf", script)
         self.assertEqual(script.count("materialize_historical_media_bootstrap"), 4)
+        self.assertEqual(script.count("run_xcode_logged"), 4)
         self.assertEqual(
             script.count("run_logged prepare-media bash scripts/bootstrap-streamscape-media-binary.sh"),
             4,
@@ -163,6 +174,7 @@ capture before {safe_expansion} after
         release_block = script[release_start:release_end]
         self.assertIn("test -f scripts/bootstrap-streamscape-media-binary.sh", release_block)
         self.assertNotIn("materialize_historical_media_bootstrap", release_block)
+        self.assertNotIn("run_xcode_logged", release_block)
 
         generic_start = script.index('build|test|simulator)')
         generic_end = script.index('swiftpm_xcode_args=()', generic_start)
@@ -201,7 +213,34 @@ gh() {{
 materialize_historical_media_bootstrap
 [[ -f scripts/bootstrap-streamscape-media-binary.sh ]]
 [[ "$gh_calls" -eq 1 ]]
+[[ "${{historical_recovery_active}}" == true ]]
 [[ "$(cat "$CI_LOG")" == *'Materialized approved historical Apple bootstrap helper'* ]]
+
+run_logged() {{
+  local label="$1"
+  shift
+  "$@"
+}}
+export CI_GITHUB_TOKEN='test-token'
+expected_auth="$(printf 'x-access-token:%s' "$CI_GITHUB_TOKEN" | /usr/bin/base64 | tr -d '\r\n')"
+assert_historical_git_env() {{
+  [[ "${{GIT_CONFIG_COUNT:-}}" == 1 ]]
+  [[ "${{GIT_CONFIG_KEY_0:-}}" == 'http.https://github.com/StreamScapeTV/streamscape-media.git.extraheader' ]]
+  [[ "${{GIT_CONFIG_VALUE_0:-}}" == "AUTHORIZATION: basic $expected_auth" ]]
+}}
+run_xcode_logged auth-probe assert_historical_git_env
+[[ -z "${{GIT_CONFIG_COUNT:-}}" ]]
+[[ -z "${{GIT_CONFIG_KEY_0:-}}" ]]
+[[ -z "${{GIT_CONFIG_VALUE_0:-}}" ]]
+
+# Current/non-historical Xcode receives no private Git config.
+historical_recovery_active=false
+assert_no_historical_git_env() {{
+  [[ -z "${{GIT_CONFIG_COUNT:-}}" ]]
+  [[ -z "${{GIT_CONFIG_KEY_0:-}}" ]]
+  [[ -z "${{GIT_CONFIG_VALUE_0:-}}" ]]
+}}
+run_xcode_logged normal-probe assert_no_historical_git_env
 
 # Existing current-source helper remains authoritative and skips historical retrieval.
 printf '#!/usr/bin/env bash\\n' > scripts/bootstrap-streamscape-media-binary.sh
