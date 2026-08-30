@@ -7,6 +7,7 @@ workflows:
   python: .github/workflows/python.yml
   node: .github/workflows/node.yml
   flutter: .github/workflows/flutter.yml
+  maven: .github/workflows/maven.yml
   public_native_image_chart: .github/workflows/public-native-image-chart.yml
   oci_reproducibility: .github/workflows/oci-reproducibility.yml
   central_dispatch: .github/workflows/central-ci-dispatch.yml
