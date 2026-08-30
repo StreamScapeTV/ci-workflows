@@ -36,6 +36,34 @@ jobs:
           phase: claim
           ci_run_id: ${{ inputs.ci_run_id }}
 
+      - name: Validate Maven release request
+        if: ${{ steps.claim.outputs.workflow_key == 'release.maven' }}
+        shell: bash
+        env:
+          TEST_PROFILE: ${{ steps.claim.outputs.test_profile }}
+          INPUTS_JSON: ${{ steps.claim.outputs.inputs_json }}
+        run: |
+          set -Eeuo pipefail
+          test "${TEST_PROFILE}" = publish || {
+            echo "release.maven supports only the publish profile" >&2
+            exit 2
+          }
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+
+          try:
+              inputs = json.loads(os.environ["INPUTS_JSON"])
+          except (KeyError, json.JSONDecodeError) as exc:
+              raise SystemExit("release.maven inputs must be one JSON object") from exc
+          if not isinstance(inputs, dict) or set(inputs) != {"build_number"}:
+              raise SystemExit("release.maven requires exactly inputs.build_number")
+          build_number = inputs["build_number"]
+          if not isinstance(build_number, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}", build_number):
+              raise SystemExit("release.maven build_number must be one non-empty bounded release identifier")
+          PY
+
   apple:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'validation.apple' }}
@@ -108,6 +136,20 @@ jobs:
       ref: ${{ needs.request.outputs.ref }}
       test_profile: ${{ needs.request.outputs.test_profile }}
       flutter_version: ${{ fromJSON(needs.request.outputs.inputs_json).flutter_version || '3.44.6' }}
+      ci_run_id: ${{ inputs.ci_run_id }}
+    secrets: inherit
+
+  maven:
+    needs: request
+    if: ${{ needs.request.outputs.workflow_key == 'release.maven' && needs.request.outputs.test_profile == 'publish' }}
+    concurrency:
+      group: central-ci-${{ inputs.active_key }}
+      cancel-in-progress: true
+    uses: ./.github/workflows/maven.yml
+    with:
+      repository: ${{ needs.request.outputs.repository }}
+      ref: ${{ needs.request.outputs.ref }}
+      build_number: ${{ fromJSON(needs.request.outputs.inputs_json).build_number }}
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
 
@@ -393,6 +435,7 @@ jobs:
       - python
       - node
       - flutter
+      - maven
       - public_native_image_chart
       - oci_reproducibility
       - source_snapshot
@@ -406,6 +449,7 @@ jobs:
           needs.python.result == 'cancelled' ||
           needs.node.result == 'cancelled' ||
           needs.flutter.result == 'cancelled' ||
+          needs.maven.result == 'cancelled' ||
           needs.public_native_image_chart.result == 'cancelled' ||
           needs.oci_reproducibility.result == 'cancelled' ||
           needs.source_snapshot.result == 'cancelled'
