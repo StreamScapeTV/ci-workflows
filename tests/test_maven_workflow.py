@@ -1,35 +1,16 @@
 from pathlib import Path
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
-import zipfile
 
 import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/maven.yml"
-
-ARTIFACTS = (
-    "streamscape-playback-api",
-    "streamscape-playback-runtime",
-    "streamscape-platform-android",
-    "streamscape-engine-media3",
-    "streamscape-engine-mpv",
-    "streamscape-engine-vlc",
-    "streamscape-playback-android",
-)
-FORGEJO_TASKS = (
-    ":playback-api:publishAllPublicationsToForgejoRepository",
-    ":playback-runtime:publishAllPublicationsToForgejoRepository",
-    ":platform-android:publishAllPublicationsToForgejoRepository",
-    ":engine-media3:publishAllPublicationsToForgejoRepository",
-    ":engine-mpv:publishAllPublicationsToForgejoRepository",
-    ":engine-vlc:publishAllPublicationsToForgejoRepository",
-    ":playback-android:publishAllPublicationsToForgejoRepository",
-)
 
 
 class MavenWorkflowTests(unittest.TestCase):
@@ -41,154 +22,273 @@ class MavenWorkflowTests(unittest.TestCase):
     def step(self, name: str) -> dict:
         return next(step for step in self.job["steps"] if step.get("name") == name)
 
-    def test_api_is_media_fixed_and_has_no_arbitrary_execution_inputs(self) -> None:
+    def test_api_is_product_neutral_and_bounded(self) -> None:
         call = self.workflow["on"]["workflow_call"]
-        self.assertNotIn("inputs", call)
+        self.assertEqual(
+            set(call["inputs"]),
+            {"repository", "ref", "ci_run_id", "upload_private_log"},
+        )
         self.assertEqual(
             set(call["secrets"]),
             {
-                "FORGEJO_REGISTRY_USERNAME",
-                "FORGEJO_REGISTRY_TOKEN",
-                "CIW_MAVEN_PACKAGE_READ_TOKEN",
-                "TS_OAUTH_CLIENT_ID",
-                "TS_OAUTH_SECRET",
+                "SOURCE_APP_ID",
+                "SOURCE_APP_PRIVATE_KEY",
+                "AGENT_STATE_SUPABASE_URL",
+                "AGENT_STATE_SUPABASE_SECRET_KEY",
+                "GOOGLE_DRIVE_CI_LOGS_FOLDER_ID",
+                "GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID",
                 "GOOGLE_DRIVE_CLIENT_ID",
                 "GOOGLE_DRIVE_CLIENT_SECRET",
                 "GOOGLE_DRIVE_REFRESH_TOKEN",
-                "GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID",
+                "TS_OAUTH_CLIENT_ID",
+                "TS_OAUTH_SECRET",
+                "MAVEN_PUBLISH_USERNAME",
+                "MAVEN_PUBLISH_TOKEN",
+                "MAVEN_READ_TOKEN",
             },
         )
-        self.assertTrue(all(value["required"] for value in call["secrets"].values()))
+        self.assertTrue(all(not value["required"] for value in call["secrets"].values()))
         self.assertEqual(self.job["runs-on"], "ubuntu-24.04")
-        checkout = self.step("Check out exact Streamscape Media source")
-        self.assertEqual(checkout["with"]["repository"], "StreamScapeTV/streamscape-media")
-        self.assertEqual(checkout["with"]["ref"], "${{ github.sha }}")
+        self.assertEqual(set(self.workflow["on"]), {"workflow_call"})
+
+        for forbidden in (
+            "Streamscape Media",
+            "streamscape-media",
+            "git.faruqi.dev",
+            "Forgejo",
+            "arguments_json",
+            "publishAllPublications",
+            "gradlew",
+            "com.streamscape",
+            "runner_label",
+            "registry_url",
+            "script_path",
+            "prepare_command",
+            "build_command",
+            "release_command",
+        ):
+            self.assertNotIn(forbidden, self.text)
+
+    def test_source_admission_and_fixed_wrapper_contract(self) -> None:
+        checkout = self.step("Check out source")
+        self.assertEqual(checkout["with"]["repository"], "${{ inputs.repository || github.repository }}")
+        self.assertEqual(checkout["with"]["ref"], "${{ inputs.ref || github.sha }}")
         self.assertFalse(checkout["with"]["persist-credentials"])
-        self.assertNotIn("arguments_json", self.text)
-        self.assertNotIn("runner_label", self.text)
-        self.assertNotIn("registry_url", self.text)
 
-    def test_publication_identity_is_develop_exact_tag_or_manual_branch_only(self) -> None:
-        script = self.step("Resolve exact publication identity")["run"]
-        self.assertIn('test "${CALLER_REPOSITORY}" = "StreamScapeTV/streamscape-media"', script)
-        self.assertIn("refs/heads/develop)", script)
-        self.assertIn('"refs/tags/v${base_version}")', script)
-        self.assertIn('test "${CALLER_EVENT}" = "workflow_dispatch"', script)
-        self.assertIn('release_version="${base_version}-develop.${source_sha:0:12}"', script)
-        self.assertIn('release_version="${base_version}-manual.${source_sha:0:12}"', script)
-        self.assertIn('test "${source_sha}" = "${CALLER_SHA}"', script)
+        identity = self.step("Resolve observed source SHA")
+        self.assertEqual(identity["env"]["DIRECT_CALLER"], "${{ inputs.repository == '' && inputs.ref == '' }}")
+        self.assertIn('test "${source_sha}" = "${CALLER_SHA}"', identity["run"])
 
-    def test_private_network_and_write_auth_are_bounded_to_publication(self) -> None:
-        network = self.step("Connect to private Forgejo service")
+        validate = self.step("Validate fixed Maven wrapper")["run"]
+        self.assertIn('wrapper="scripts/ci/run-maven-publication.sh"', validate)
+        self.assertIn('test ! -L "${wrapper}"', validate)
+        self.assertIn('git ls-files --error-unmatch -- "${wrapper}"', validate)
+
+        commands = self.step("Run fixed Maven publication profile")
+        self.assertEqual(commands["env"]["CI_MAVEN_PROFILE"], "publish")
+        self.assertEqual(commands["env"]["CI_MAVEN_SOURCE_SHA"], "${{ steps.source_identity.outputs.source_sha }}")
+        self.assertIn("run_logged maven-publish bash scripts/ci/run-maven-publication.sh", commands["run"])
+        self.assertNotIn("bash -lc", commands["run"])
+
+    def test_wrapper_validation_executes_fail_closed(self) -> None:
+        script = self.step("Validate fixed Maven wrapper")["run"]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            wrapper = root / "scripts/ci/run-maven-publication.sh"
+            wrapper.parent.mkdir(parents=True)
+
+            missing = subprocess.run(["bash", "-c", script], cwd=root, capture_output=True, text=True)
+            self.assertNotEqual(missing.returncode, 0)
+
+            wrapper.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+            untracked = subprocess.run(["bash", "-c", script], cwd=root, capture_output=True, text=True)
+            self.assertNotEqual(untracked.returncode, 0)
+
+            wrapper.unlink()
+            target = root / "wrapper-target.sh"
+            target.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+            wrapper.symlink_to(target)
+            symlink = subprocess.run(["bash", "-c", script], cwd=root, capture_output=True, text=True)
+            self.assertNotEqual(symlink.returncode, 0)
+
+            wrapper.unlink()
+            wrapper.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+            subprocess.run(["git", "add", "scripts/ci/run-maven-publication.sh"], cwd=root, check=True)
+            tracked = subprocess.run(["bash", "-c", script], cwd=root, capture_output=True, text=True)
+            self.assertEqual(tracked.returncode, 0, tracked.stderr)
+
+    def test_private_git_scope_is_optional_fixed_and_fail_closed(self) -> None:
+        scope = self.step("Resolve optional private-Git scope")
+        self.assertEqual(
+            set(scope["env"]),
+            {"PRIVATE_GIT_CLIENT_ID", "PRIVATE_GIT_SECRET"},
+        )
+        network = self.step("Connect to private Git service")
+        self.assertEqual(network["if"], "${{ steps.private_git_scope.outputs.enabled == 'true' }}")
         self.assertEqual(network["uses"], "StreamScapeTV/ci-workflows/actions/private-git@main")
-        publish = self.step("Publish seven modules to Forgejo and local Maven staging")
-        self.assertEqual(
-            set(publish["env"]),
-            {"RELEASE_VERSION", "FORGEJO_REGISTRY_USERNAME", "FORGEJO_REGISTRY_TOKEN"},
-        )
-        script = publish["run"]
-        for task in FORGEJO_TASKS:
-            self.assertEqual(script.count(task), 1)
-            self.assertIn(task.replace("Forgejo", "StreamscapeLocal"), script)
-        self.assertEqual(script.count("./gradlew --no-daemon"), 1)
+        self.assertNotIn("tailscale/github-action", self.text)
 
-        readback = self.step("Read back every staged Maven file with bounded read auth")
-        self.assertEqual(set(readback["env"]), {"MANIFEST", "CIW_MAVEN_PACKAGE_READ_TOKEN"})
-        self.assertNotIn("FORGEJO_REGISTRY_TOKEN", readback["env"])
-        self.assertIn('Authorization: token ${CIW_MAVEN_PACKAGE_READ_TOKEN}', readback["run"])
-        self.assertIn('test "${actual_sha256}" = "${expected_sha256}"', readback["run"])
+        script = scope["run"]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "output"
+            base_env = {**os.environ, "GITHUB_OUTPUT": str(output)}
 
-    def test_existing_forgejo_version_is_rejected_before_write_auth(self) -> None:
-        steps = self.job["steps"]
-        names = [step.get("name") for step in steps]
-        preflight = self.step("Reject pre-existing Forgejo Maven version")
-        publish = self.step("Publish seven modules to Forgejo and local Maven staging")
-
-        self.assertLess(names.index("Connect to private Forgejo service"), names.index(preflight["name"]))
-        self.assertLess(names.index(preflight["name"]), names.index(publish["name"]))
-        self.assertEqual(
-            set(preflight["env"]),
-            {"RELEASE_VERSION", "CIW_MAVEN_PACKAGE_READ_TOKEN"},
-        )
-        self.assertNotIn("FORGEJO_REGISTRY_TOKEN", preflight["env"])
-        self.assertNotIn("FORGEJO_REGISTRY_USERNAME", preflight["env"])
-        script = preflight["run"]
-        for artifact in ARTIFACTS:
-            self.assertIn(artifact, script)
-        self.assertIn('Authorization: token ${CIW_MAVEN_PACKAGE_READ_TOKEN}', script)
-        self.assertIn("Maven version already exists; refusing overwrite", script)
-        self.assertIn("404) ;;", script)
-        self.assertIn("200)", script)
-        self.assertIn("Forgejo Maven version preflight failed with HTTP", script)
-
-    def test_drive_mirror_is_nested_versioned_and_immutable(self) -> None:
-        archive = self.step("Store immutable Maven-layout archive in Google Drive")
-        manifest = self.step("Store immutable release manifest in Google Drive")
-        for step, file_name in ((archive, "maven-layout.zip"), (manifest, "manifest.json")):
-            self.assertEqual(
-                step["uses"],
-                "StreamScapeTV/ci-workflows/actions/google-drive@agent2/issue-637-media-maven-release",
+            none = subprocess.run(
+                ["bash", "-c", script],
+                env={**base_env, "PRIVATE_GIT_CLIENT_ID": "", "PRIVATE_GIT_SECRET": ""},
+                capture_output=True,
+                text=True,
             )
-            self.assertEqual(step["with"]["repository"], "StreamScapeTV/streamscape-media")
-            self.assertEqual(step["with"]["ref"], "releases")
-            self.assertEqual(step["with"]["subdirectory"], "${{ steps.identity.outputs.release_version }}")
+            self.assertEqual(none.returncode, 0, none.stderr)
+            self.assertIn("enabled=false", output.read_text())
+
+            output.write_text("")
+            partial = subprocess.run(
+                ["bash", "-c", script],
+                env={**base_env, "PRIVATE_GIT_CLIENT_ID": "id", "PRIVATE_GIT_SECRET": ""},
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(partial.returncode, 0)
+
+            output.write_text("")
+            complete = subprocess.run(
+                ["bash", "-c", script],
+                env={**base_env, "PRIVATE_GIT_CLIENT_ID": "id", "PRIVATE_GIT_SECRET": "secret"},
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(complete.returncode, 0, complete.stderr)
+            self.assertIn("enabled=true", output.read_text())
+
+    def test_product_credentials_are_fixed_and_scrubbed(self) -> None:
+        commands = self.step("Run fixed Maven publication profile")
+        self.assertEqual(
+            {
+                key: commands["env"][key]
+                for key in ("CI_MAVEN_PUBLISH_USERNAME", "CI_MAVEN_PUBLISH_TOKEN", "CI_MAVEN_READ_TOKEN")
+            },
+            {
+                "CI_MAVEN_PUBLISH_USERNAME": "${{ secrets.MAVEN_PUBLISH_USERNAME }}",
+                "CI_MAVEN_PUBLISH_TOKEN": "${{ secrets.MAVEN_PUBLISH_TOKEN }}",
+                "CI_MAVEN_READ_TOKEN": "${{ secrets.MAVEN_READ_TOKEN }}",
+            },
+        )
+        scrub = self.step("Scrub configured CI secrets from private log")
+        for name in (
+            "CI_SECRET_MAVEN_PUBLISH_USERNAME",
+            "CI_SECRET_MAVEN_PUBLISH_TOKEN",
+            "CI_SECRET_MAVEN_READ_TOKEN",
+            "CI_SECRET_TAILSCALE_OAUTH_CLIENT_ID",
+            "CI_SECRET_TAILSCALE_OAUTH_SECRET",
+        ):
+            self.assertIn(name, scrub["env"])
+
+    def test_evidence_convention_is_fixed_optional_and_immutable(self) -> None:
+        evidence = self.step("Validate optional immutable publication evidence")
+        run = evidence["run"]
+        self.assertEqual(evidence["env"]["EVIDENCE_DIR"], "${{ runner.temp }}/maven-publication-evidence")
+        self.assertEqual(evidence["env"]["RESULT_FILE"], "${{ runner.temp }}/maven-publication-result.json")
+        for value in (
+            "publication.zip",
+            "manifest.json",
+            '{"schema_version", "publication_id"}',
+            "[A-Za-z0-9][A-Za-z0-9._+-]{0,127}",
+            "Maven publication manifest must be a JSON object",
+        ):
+            self.assertIn(value, run)
+
+        archive = self.step("Store immutable Maven publication archive")
+        manifest = self.step("Store immutable Maven publication manifest")
+        for step, file_name in ((archive, "publication.zip"), (manifest, "manifest.json")):
+            self.assertEqual(step["uses"], "StreamScapeTV/ci-workflows/actions/google-drive@main")
+            self.assertEqual(step["if"], "${{ steps.evidence.outputs.produced == 'true' }}")
+            self.assertEqual(step["with"]["repository"], "${{ inputs.repository || github.repository }}")
+            self.assertEqual(step["with"]["ref"], "maven-releases")
+            self.assertEqual(step["with"]["subdirectory"], "${{ steps.evidence.outputs.publication_id }}")
             self.assertEqual(step["with"]["file_name"], file_name)
             self.assertTrue(step["with"]["immutable"])
         self.assertNotIn("latest", self.text.lower())
 
-    def test_mirror_builder_is_deterministic_and_records_every_file_digest(self) -> None:
-        run = self.step("Build deterministic Maven-layout mirror and manifest")["run"]
+    def test_evidence_result_parser_executes_fail_closed(self) -> None:
+        run = self.step("Validate optional immutable publication evidence")["run"]
         lines = run.splitlines()
-        start = next(i for i, line in enumerate(lines) if line.startswith('python3 - "${archive}"'))
+        start = next(i for i, line in enumerate(lines) if 'python3 - "${RESULT_FILE}" "${manifest}"' in line)
         end = next(i for i, line in enumerate(lines[start + 1 :], start + 1) if line == "PY")
         script = "\n".join(lines[start + 1 : end]) + "\n"
 
-        version = "1.2.3-develop.0123456789ab"
-        source_sha = "0123456789abcdef0123456789abcdef01234567"
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            for artifact in ARTIFACTS:
-                version_dir = root / "dist/maven/com/streamscape/media" / artifact / version
-                version_dir.mkdir(parents=True)
-                (version_dir / f"{artifact}-{version}.pom").write_text(
-                    f"<project><artifactId>{artifact}</artifactId></project>\n",
-                    encoding="utf-8",
-                )
-                (version_dir / f"{artifact}-{version}.jar").write_bytes(
-                    f"binary:{artifact}:{version}".encode()
-                )
+            result = root / "result.json"
+            manifest = root / "manifest.json"
+            manifest.write_text("{}\n", encoding="utf-8")
 
-            outputs = []
-            manifests = []
-            for suffix in ("a", "b"):
-                archive = root / f"mirror-{suffix}.zip"
-                manifest = root / f"manifest-{suffix}.json"
+            result.write_text(
+                json.dumps({"schema_version": 1, "publication_id": "1.2.3-test.abc"}) + "\n",
+                encoding="utf-8",
+            )
+            valid = subprocess.run(
+                [sys.executable, "-", str(result), str(manifest)],
+                input=script,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(valid.returncode, 0, valid.stderr)
+            self.assertEqual(valid.stdout.strip(), "1.2.3-test.abc")
+
+            for invalid in (
+                {"schema_version": 1, "publication_id": "../escape"},
+                {"schema_version": 2, "publication_id": "1.2.3"},
+                {"schema_version": 1, "publication_id": "1.2.3", "extra": True},
+            ):
+                result.write_text(json.dumps(invalid) + "\n", encoding="utf-8")
                 completed = subprocess.run(
-                    [sys.executable, "-", str(archive), str(manifest), version, source_sha],
+                    [sys.executable, "-", str(result), str(manifest)],
                     input=script,
                     text=True,
-                    cwd=root,
                     capture_output=True,
-                    check=False,
                 )
-                self.assertEqual(completed.returncode, 0, completed.stderr)
-                outputs.append(archive.read_bytes())
-                manifests.append(manifest.read_bytes())
+                self.assertNotEqual(completed.returncode, 0)
 
-            self.assertEqual(outputs[0], outputs[1])
-            self.assertEqual(manifests[0], manifests[1])
-            value = json.loads(manifests[0])
-            self.assertEqual(value["source_sha"], source_sha)
-            self.assertEqual(value["maven_version"], version)
-            self.assertEqual(
-                value["module_coordinates"],
-                [f"com.streamscape.media:{artifact}:{version}" for artifact in ARTIFACTS],
+            result.write_text(
+                json.dumps({"schema_version": 1, "publication_id": "1.2.3"}) + "\n",
+                encoding="utf-8",
             )
-            self.assertEqual(len(value["files"]), len(ARTIFACTS) * 2)
-            self.assertTrue(all(len(item["sha256"]) == 64 for item in value["files"]))
-            self.assertEqual(len(value["archive"]["sha256"]), 64)
-            with zipfile.ZipFile(root / "mirror-a.zip") as zf:
-                self.assertEqual(len(zf.namelist()), len(ARTIFACTS) * 2)
+            manifest.write_text("[]\n", encoding="utf-8")
+            non_object = subprocess.run(
+                [sys.executable, "-", str(result), str(manifest)],
+                input=script,
+                text=True,
+                capture_output=True,
+            )
+            self.assertNotEqual(non_object.returncode, 0)
+
+    def test_lifecycle_private_log_and_cleanup_are_central_owned(self) -> None:
+        names = [step.get("name") for step in self.job["steps"]]
+        self.assertLess(names.index("Mark Agent State run as running"), names.index("Check out source"))
+        self.assertLess(names.index("Check out source"), names.index("Record observed source SHA"))
+        self.assertLess(names.index("Run fixed Maven publication profile"), names.index("Scrub configured CI secrets from private log"))
+        self.assertLess(names.index("Scrub configured CI secrets from private log"), names.index("Upload CI log to Google Drive"))
+        self.assertLess(names.index("Clean publication workspace"), names.index("Finish Agent State run"))
+
+        commands = self.step("Run fixed Maven publication profile")["run"]
+        self.assertIn('>> "${CI_LOG}" 2>&1', commands)
+        self.assertNotIn("tee -a", commands)
+
+        drive = self.step("Upload CI log to Google Drive")
+        self.assertEqual(drive["uses"], "StreamScapeTV/ci-workflows/actions/google-drive@main")
+        self.assertEqual(drive["with"]["file_name"], "${{ github.run_id }}-${{ github.run_attempt }}.txt")
+        self.assertEqual(drive["with"]["mime_type"], "text/plain")
+
+        cleanup = self.step("Clean publication workspace")
+        self.assertEqual(cleanup["if"], "${{ always() }}")
+        self.assertIn("git clean -ffdX", cleanup["run"])
+        self.assertIn("git status --porcelain=v1 --untracked-files=all", cleanup["run"])
+
+        finish = self.step("Finish Agent State run")
+        self.assertEqual(finish["if"], "${{ always() && inputs.ci_run_id != '' }}")
+        self.assertIn("steps.cleanup.outcome == 'success'", finish["with"]["status"])
 
 
 if __name__ == "__main__":
