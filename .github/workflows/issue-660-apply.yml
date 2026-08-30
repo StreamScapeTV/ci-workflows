@@ -1,0 +1,47 @@
+name: Issue 660 exact candidate carrier
+
+"on":
+  push:
+    branches:
+      - agent1/issue-660-apple-observability
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Materialize exact reviewed candidate
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          expected_base='0c7f0b4466af41fbbe98736b3a9e2afb265b42b1'
+          expected_tree='6dad2e35c746e8e3d90f50072a01ae2588e8972a'
+          payload='.github/issue-660-final.patch.gz.b64'
+          patch="${RUNNER_TEMP}/issue-660.patch"
+
+          git merge-base --is-ancestor "${expected_base}" HEAD
+          printf '%s  %s\n' '640348f0f291bd828b304079a981e176c7afc492c5c06781ed3ace3b8343cccb' "${payload}" | sha256sum --check --strict -
+          base64 --decode < "${payload}" | gzip -dc > "${patch}"
+          printf '%s  %s\n' '132cf01b2e27e7bc3688cc4116e16c230bad4b78271782168b0b7755bc6336e5' "${patch}" | sha256sum --check --strict -
+
+          git apply --check "${patch}"
+          git apply --index "${patch}"
+          git rm "${payload}" .github/workflows/issue-660-apply.yml
+          git diff --cached --check
+          actual_tree="$(git write-tree)"
+          test "${actual_tree}" = "${expected_tree}" || {
+            printf 'Candidate tree mismatch: expected %s, got %s\n' "${expected_tree}" "${actual_tree}" >&2
+            exit 2
+          }
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m '[skip ci] [#660] Materialize exact Apple observability candidate'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
