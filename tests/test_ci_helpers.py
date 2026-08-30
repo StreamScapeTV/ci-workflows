@@ -10,7 +10,7 @@ class CiHelperTests(unittest.TestCase):
         inventory = yaml.safe_load((ROOT / "INVENTORY.yaml").read_text())
         self.assertEqual(
             set(inventory["workflows"]),
-            {"apple", "android", "python", "node", "flutter", "public_native_image_chart", "oci_reproducibility", "central_dispatch", "self_check", "runner_images"},
+            {"apple", "android", "python", "node", "flutter", "maven", "public_native_image_chart", "oci_reproducibility", "central_dispatch", "self_check", "runner_images"},
         )
         self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive", "private_git"})
         self.assertEqual(set(inventory["scripts"]), {"oci_reproducibility"})
@@ -21,10 +21,10 @@ class CiHelperTests(unittest.TestCase):
 
     def test_workflows_use_no_reusable_prefix(self) -> None:
         names = {p.name for p in (ROOT / ".github/workflows").glob("*.yml")}
-        self.assertEqual(len(names), 10)
+        self.assertEqual(len(names), 11)
         self.assertNotIn("broker.yml", names)
         self.assertFalse(any(name.startswith("reusable-") for name in names))
-        for name in ("apple.yml", "android.yml", "python.yml", "node.yml", "flutter.yml"):
+        for name in ("apple.yml", "android.yml", "python.yml", "node.yml", "flutter.yml", "maven.yml"):
             self.assertIn(name, names)
 
     def test_only_three_custom_actions_exist(self) -> None:

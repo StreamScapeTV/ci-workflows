@@ -1,0 +1,450 @@
+name: Maven publication
+
+"on":
+  workflow_call:
+    inputs:
+      repository:
+        type: string
+        required: false
+        default: ""
+      ref:
+        type: string
+        required: false
+        default: ""
+      ci_run_id:
+        type: string
+        required: false
+        default: ""
+      upload_private_log:
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      SOURCE_APP_ID:
+        required: false
+      SOURCE_APP_PRIVATE_KEY:
+        required: false
+      AGENT_STATE_SUPABASE_URL:
+        required: false
+      AGENT_STATE_SUPABASE_SECRET_KEY:
+        required: false
+      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID:
+        required: false
+      GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID:
+        required: false
+      GOOGLE_DRIVE_CLIENT_ID:
+        required: false
+      GOOGLE_DRIVE_CLIENT_SECRET:
+        required: false
+      GOOGLE_DRIVE_REFRESH_TOKEN:
+        required: false
+      TS_OAUTH_CLIENT_ID:
+        required: false
+      TS_OAUTH_SECRET:
+        required: false
+      MAVEN_PUBLISH_USERNAME:
+        required: false
+      MAVEN_PUBLISH_TOKEN:
+        required: false
+      MAVEN_READ_TOKEN:
+        required: false
+    outputs:
+      source_sha:
+        description: Exact source SHA observed by Central
+        value: ${{ jobs.publish.outputs.source_sha }}
+      publication_id:
+        description: Product-owned publication evidence identifier when evidence is emitted
+        value: ${{ jobs.publish.outputs.publication_id }}
+      archive_sha256:
+        description: SHA-256 of the optional immutable publication archive
+        value: ${{ jobs.publish.outputs.archive_sha256 }}
+      manifest_sha256:
+        description: SHA-256 of the optional immutable publication manifest
+        value: ${{ jobs.publish.outputs.manifest_sha256 }}
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    outputs:
+      source_sha: ${{ steps.source_identity.outputs.source_sha }}
+      publication_id: ${{ steps.evidence.outputs.publication_id }}
+      archive_sha256: ${{ steps.evidence.outputs.archive_sha256 }}
+      manifest_sha256: ${{ steps.evidence.outputs.manifest_sha256 }}
+    steps:
+      - name: Initialize CI log
+        shell: bash
+        run: |
+          log="${RUNNER_TEMP}/central-ci.log"
+          : > "${log}"
+          printf 'CI_LOG=%s\n' "${log}" >> "${GITHUB_ENV}"
+
+      - name: Mark Agent State run as running
+        if: ${{ inputs.ci_run_id != '' }}
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: start
+          ci_run_id: ${{ inputs.ci_run_id }}
+
+      - name: Prepare source token
+        id: source
+        if: ${{ inputs.repository != '' }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.SOURCE_APP_ID }}
+          private-key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          owner: StreamScapeTV
+
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.repository || github.repository }}
+          ref: ${{ inputs.ref || github.sha }}
+          token: ${{ steps.source.outputs.token || github.token }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Resolve observed source SHA
+        id: source_identity
+        shell: bash
+        env:
+          DIRECT_CALLER: ${{ inputs.repository == '' && inputs.ref == '' }}
+          CALLER_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          source_sha="$(git rev-parse HEAD)"
+          [[ "${source_sha}" =~ ^[0-9A-Fa-f]{40}$ ]] || exit 2
+          if test "${DIRECT_CALLER}" = true; then
+            test "${source_sha}" = "${CALLER_SHA}" || {
+              echo "Maven publication checkout did not resolve the exact caller SHA" >&2
+              exit 1
+            }
+          fi
+          printf 'source_sha=%s\n' "${source_sha}" >> "${GITHUB_OUTPUT}"
+
+      - name: Record observed source SHA
+        if: ${{ inputs.ci_run_id != '' }}
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: observe-source
+          ci_run_id: ${{ inputs.ci_run_id }}
+          observed_source_sha: ${{ steps.source_identity.outputs.source_sha }}
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Resolve optional private-Git scope
+        id: private_git_scope
+        shell: bash
+        env:
+          PRIVATE_GIT_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          PRIVATE_GIT_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+        run: |
+          set -Eeuo pipefail
+          enabled=false
+          if test -n "${PRIVATE_GIT_CLIENT_ID}" || test -n "${PRIVATE_GIT_SECRET}"; then
+            test -n "${PRIVATE_GIT_CLIENT_ID}" && test -n "${PRIVATE_GIT_SECRET}" || {
+              echo "Private-Git connectivity requires the complete fixed credential pair" >&2
+              exit 2
+            }
+            enabled=true
+          fi
+          printf 'enabled=%s\n' "${enabled}" >> "${GITHUB_OUTPUT}"
+
+      - name: Connect to private Git service
+        if: ${{ steps.private_git_scope.outputs.enabled == 'true' }}
+        uses: StreamScapeTV/ci-workflows/actions/private-git@main
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+
+      - name: Validate fixed Maven wrapper
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          wrapper="scripts/ci/run-maven-publication.sh"
+          test -f "${wrapper}" || {
+            echo "Missing fixed Maven publication wrapper: ${wrapper}" >&2
+            exit 2
+          }
+          test ! -L "${wrapper}" || {
+            echo "Maven publication wrapper must not be a symlink" >&2
+            exit 2
+          }
+          git ls-files --error-unmatch -- "${wrapper}" >/dev/null 2>&1 || {
+            echo "Maven publication wrapper must be tracked by the source repository" >&2
+            exit 2
+          }
+
+      - name: Run fixed Maven publication profile
+        id: commands
+        shell: bash
+        env:
+          CI_MAVEN_PROFILE: publish
+          CI_MAVEN_SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
+          CI_MAVEN_SOURCE_REF: ${{ inputs.ref || github.ref }}
+          CI_MAVEN_SOURCE_SHA: ${{ steps.source_identity.outputs.source_sha }}
+          CI_MAVEN_PUBLISH_USERNAME: ${{ secrets.MAVEN_PUBLISH_USERNAME }}
+          CI_MAVEN_PUBLISH_TOKEN: ${{ secrets.MAVEN_PUBLISH_TOKEN }}
+          CI_MAVEN_READ_TOKEN: ${{ secrets.MAVEN_READ_TOKEN }}
+          CI_MAVEN_EVIDENCE_DIR: ${{ runner.temp }}/maven-publication-evidence
+          CI_MAVEN_RESULT_FILE: ${{ runner.temp }}/maven-publication-result.json
+        run: |
+          set -Eeuo pipefail
+          rm -rf "${CI_MAVEN_EVIDENCE_DIR}"
+          rm -f "${CI_MAVEN_RESULT_FILE}"
+          mkdir -p "${CI_MAVEN_EVIDENCE_DIR}"
+
+          run_logged() {
+            local label="$1"
+            shift
+            printf '\n===== %s =====\n' "${label}" >> "${CI_LOG}"
+            if ! "$@" >> "${CI_LOG}" 2>&1; then
+              printf '%s failed; inspect the private Google Drive CI log.\n' "${label}" >&2
+              return 1
+            fi
+          }
+
+          run_logged maven-publish bash scripts/ci/run-maven-publication.sh
+
+      - name: Validate optional immutable publication evidence
+        id: evidence
+        if: ${{ steps.commands.outcome == 'success' }}
+        shell: bash
+        env:
+          EVIDENCE_DIR: ${{ runner.temp }}/maven-publication-evidence
+          RESULT_FILE: ${{ runner.temp }}/maven-publication-result.json
+        run: |
+          set -Eeuo pipefail
+          archive="${EVIDENCE_DIR}/publication.zip"
+          manifest="${EVIDENCE_DIR}/manifest.json"
+
+          if test ! -e "${RESULT_FILE}"; then
+            test -z "$(find "${EVIDENCE_DIR}" -mindepth 1 -print -quit)" || {
+              echo "Maven evidence files require the fixed publication result file" >&2
+              exit 2
+            }
+            printf 'produced=false\n' >> "${GITHUB_OUTPUT}"
+            printf 'publication_id=\n' >> "${GITHUB_OUTPUT}"
+            printf 'archive_sha256=\n' >> "${GITHUB_OUTPUT}"
+            printf 'manifest_sha256=\n' >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          test -f "${RESULT_FILE}" && test ! -L "${RESULT_FILE}" || {
+            echo "Maven publication result must be one regular non-symlink JSON file" >&2
+            exit 2
+          }
+          test -f "${archive}" && test ! -L "${archive}" || {
+            echo "Maven publication evidence requires publication.zip" >&2
+            exit 2
+          }
+          test -s "${archive}" || {
+            echo "Maven publication evidence archive must not be empty" >&2
+            exit 2
+          }
+          test -f "${manifest}" && test ! -L "${manifest}" || {
+            echo "Maven publication evidence requires manifest.json" >&2
+            exit 2
+          }
+          test -s "${manifest}" || {
+            echo "Maven publication evidence manifest must not be empty" >&2
+            exit 2
+          }
+
+          publication_id="$(
+            python3 - "${RESULT_FILE}" "${manifest}" <<'PY'
+          import json
+          import re
+          import sys
+
+          result_path, manifest_path = sys.argv[1:3]
+          with open(result_path, encoding="utf-8") as handle:
+              result = json.load(handle)
+          if set(result) != {"schema_version", "publication_id"}:
+              raise SystemExit("Maven publication result must contain only schema_version and publication_id")
+          if result["schema_version"] != 1:
+              raise SystemExit("unsupported Maven publication result schema")
+          publication_id = result["publication_id"]
+          if not isinstance(publication_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,127}", publication_id):
+              raise SystemExit("publication_id must be one bounded Drive-safe identifier")
+          with open(manifest_path, encoding="utf-8") as handle:
+              manifest = json.load(handle)
+          if not isinstance(manifest, dict):
+              raise SystemExit("Maven publication manifest must be a JSON object")
+          print(publication_id)
+          PY
+          )"
+
+          archive_sha256="$(python3 - "${archive}" <<'PY'
+          from pathlib import Path
+          import hashlib
+          import sys
+          print(hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest())
+          PY
+          )"
+          manifest_sha256="$(python3 - "${manifest}" <<'PY'
+          from pathlib import Path
+          import hashlib
+          import sys
+          print(hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest())
+          PY
+          )"
+
+          printf 'produced=true\n' >> "${GITHUB_OUTPUT}"
+          printf 'publication_id=%s\n' "${publication_id}" >> "${GITHUB_OUTPUT}"
+          printf 'archive_sha256=%s\n' "${archive_sha256}" >> "${GITHUB_OUTPUT}"
+          printf 'manifest_sha256=%s\n' "${manifest_sha256}" >> "${GITHUB_OUTPUT}"
+
+      - name: Scrub configured CI secrets from private log
+        id: scrub
+        if: ${{ always() }}
+        shell: bash
+        env:
+          CI_SECRET_SOURCE_TOKEN: ${{ steps.source.outputs.token }}
+          CI_SECRET_GITHUB_TOKEN: ${{ github.token }}
+          CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          CI_SECRET_AGENT_STATE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          CI_SECRET_AGENT_STATE_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+          CI_SECRET_DRIVE_LOG_FOLDER: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+          CI_SECRET_DRIVE_REPOSITORIES_FOLDER: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
+          CI_SECRET_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          CI_SECRET_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          CI_SECRET_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          CI_SECRET_TAILSCALE_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          CI_SECRET_TAILSCALE_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          CI_SECRET_MAVEN_PUBLISH_USERNAME: ${{ secrets.MAVEN_PUBLISH_USERNAME }}
+          CI_SECRET_MAVEN_PUBLISH_TOKEN: ${{ secrets.MAVEN_PUBLISH_TOKEN }}
+          CI_SECRET_MAVEN_READ_TOKEN: ${{ secrets.MAVEN_READ_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY_REDACT'
+          import os
+          from pathlib import Path
+
+          path = Path(os.environ["CI_LOG"])
+          data = path.read_bytes()
+          for name, value in os.environ.items():
+              if not name.startswith("CI_SECRET_") or not value:
+                  continue
+              raw = value.encode()
+              data = data.replace(raw, b"[REDACTED]")
+              escaped = value.replace("\n", "\\n").encode()
+              if escaped != raw:
+                  data = data.replace(escaped, b"[REDACTED]")
+          path.write_bytes(data)
+          PY_REDACT
+
+      - name: Upload CI log to Google Drive
+        id: drive
+        if: ${{ always() && steps.scrub.outcome == 'success' && (inputs.ci_run_id != '' || inputs.upload_private_log) }}
+        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
+        env:
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+        with:
+          repository: ${{ inputs.repository || github.repository }}
+          ref: ${{ inputs.ref || github.ref_name }}
+          file_path: ${{ runner.temp }}/central-ci.log
+          file_name: ${{ github.run_id }}-${{ github.run_attempt }}.txt
+          mime_type: text/plain
+
+      - name: Store immutable Maven publication archive
+        id: archive_upload
+        if: ${{ steps.evidence.outputs.produced == 'true' }}
+        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
+        env:
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
+        with:
+          repository: ${{ inputs.repository || github.repository }}
+          ref: maven-releases
+          subdirectory: ${{ steps.evidence.outputs.publication_id }}
+          file_path: ${{ runner.temp }}/maven-publication-evidence/publication.zip
+          file_name: publication.zip
+          mime_type: application/zip
+          immutable: true
+
+      - name: Store immutable Maven publication manifest
+        id: manifest_upload
+        if: ${{ steps.evidence.outputs.produced == 'true' }}
+        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
+        env:
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
+        with:
+          repository: ${{ inputs.repository || github.repository }}
+          ref: maven-releases
+          subdirectory: ${{ steps.evidence.outputs.publication_id }}
+          file_path: ${{ runner.temp }}/maven-publication-evidence/manifest.json
+          file_name: manifest.json
+          mime_type: application/json
+          immutable: true
+
+      - name: Verify immutable Maven evidence folder
+        id: evidence_folder
+        if: ${{ steps.evidence.outputs.produced == 'true' }}
+        shell: bash
+        env:
+          ARCHIVE_FOLDER: ${{ steps.archive_upload.outputs.folder_id }}
+          MANIFEST_FOLDER: ${{ steps.manifest_upload.outputs.folder_id }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${ARCHIVE_FOLDER}"
+          test "${ARCHIVE_FOLDER}" = "${MANIFEST_FOLDER}"
+
+      - name: Clean publication workspace
+        id: cleanup
+        if: ${{ always() }}
+        shell: bash
+        env:
+          EVIDENCE_DIR: ${{ runner.temp }}/maven-publication-evidence
+          RESULT_FILE: ${{ runner.temp }}/maven-publication-result.json
+        run: |
+          set -Eeuo pipefail
+          rm -rf "${EVIDENCE_DIR}"
+          rm -f "${RESULT_FILE}"
+          rm -f "${CI_LOG}"
+          git clean -ffdX
+          test -z "$(git status --porcelain=v1 --untracked-files=all)" || {
+            echo "Maven publication left source residue" >&2
+            exit 1
+          }
+
+      - name: Finish Agent State run
+        if: ${{ always() && inputs.ci_run_id != '' }}
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: finish
+          ci_run_id: ${{ inputs.ci_run_id }}
+          status: >-
+            ${{ steps.commands.outcome == 'success'
+                && steps.evidence.outcome == 'success'
+                && steps.scrub.outcome == 'success'
+                && steps.drive.outcome == 'success'
+                && (steps.archive_upload.outcome == 'success' || steps.archive_upload.outcome == 'skipped')
+                && (steps.manifest_upload.outcome == 'success' || steps.manifest_upload.outcome == 'skipped')
+                && (steps.evidence_folder.outcome == 'success' || steps.evidence_folder.outcome == 'skipped')
+                && steps.cleanup.outcome == 'success'
+                && 'succeeded' || 'failed' }}

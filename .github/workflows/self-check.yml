@@ -35,4 +35,6 @@ jobs:
           tests.test_oci_reproducibility
           tests.test_apple_workflow
           tests.test_node_flutter_observed_source
+          tests.test_google_drive_media_put
+          tests.test_maven_workflow
           -v
