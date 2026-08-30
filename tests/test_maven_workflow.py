@@ -26,7 +26,7 @@ class MavenWorkflowTests(unittest.TestCase):
         call = self.workflow["on"]["workflow_call"]
         self.assertEqual(
             set(call["inputs"]),
-            {"repository", "ref", "ci_run_id", "upload_private_log"},
+            {"repository", "ref", "build_number", "ci_run_id", "upload_private_log"},
         )
         self.assertEqual(
             set(call["secrets"]),
@@ -84,11 +84,129 @@ class MavenWorkflowTests(unittest.TestCase):
         self.assertIn('test ! -L "${wrapper}"', validate)
         self.assertIn('git ls-files --error-unmatch -- "${wrapper}"', validate)
 
+        context = self.step("Validate Maven release context")
+        self.assertEqual(context["env"]["CI_MAVEN_BUILD_NUMBER"], "${{ inputs.build_number }}")
+        self.assertNotIn("CI_MAVEN_SOURCE_REF", context["env"])
+
         commands = self.step("Run fixed Maven publication profile")
         self.assertEqual(commands["env"]["CI_MAVEN_PROFILE"], "publish")
+        self.assertEqual(commands["env"]["CI_MAVEN_BUILD_NUMBER"], "${{ inputs.build_number }}")
         self.assertEqual(commands["env"]["CI_MAVEN_SOURCE_SHA"], "${{ steps.source_identity.outputs.source_sha }}")
         self.assertIn("run_logged maven-publish bash scripts/ci/run-maven-publication.sh", commands["run"])
         self.assertNotIn("bash -lc", commands["run"])
+
+    def test_build_number_is_bounded_and_reaches_wrapper_unchanged(self) -> None:
+        context = self.step("Validate Maven release context")
+        context_script = context["run"]
+        for value in ("253", "Build.253+rc_1"):
+            completed = subprocess.run(
+                ["bash", "-c", context_script],
+                env={**os.environ, "CI_MAVEN_BUILD_NUMBER": value},
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+        for value in ("", "with space", "../escape", "x" * 65):
+            completed = subprocess.run(
+                ["bash", "-c", context_script],
+                env={**os.environ, "CI_MAVEN_BUILD_NUMBER": value},
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(completed.returncode, 0)
+
+        commands = self.step("Run fixed Maven publication profile")
+        script = commands["run"]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            wrapper = root / "scripts/ci/run-maven-publication.sh"
+            wrapper.parent.mkdir(parents=True)
+            wrapper.write_text(
+                '#!/usr/bin/env bash\nprintf "%s" "$CI_MAVEN_BUILD_NUMBER" > "$CAPTURE"\n',
+                encoding="utf-8",
+            )
+            capture = root / "captured.txt"
+            ci_log = root / "ci.log"
+            evidence = root / "evidence"
+            result = root / "result.json"
+            value = "Build.253+rc_1"
+            completed = subprocess.run(
+                ["bash", "-c", script],
+                cwd=root,
+                env={
+                    **os.environ,
+                    "CI_LOG": str(ci_log),
+                    "CI_MAVEN_BUILD_NUMBER": value,
+                    "CI_MAVEN_EVIDENCE_DIR": str(evidence),
+                    "CI_MAVEN_RESULT_FILE": str(result),
+                    "CAPTURE": str(capture),
+                },
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertEqual(capture.read_text(), value)
+
+    def test_central_dispatch_routes_bounded_maven_release_identity(self) -> None:
+        workflow = yaml.safe_load((ROOT / ".github/workflows/central-ci-dispatch.yml").read_text())
+        jobs = workflow["jobs"]
+        request_steps = jobs["request"]["steps"]
+        validate = next(step for step in request_steps if step.get("name") == "Validate Maven release request")
+        self.assertEqual(validate["if"], "${{ steps.claim.outputs.workflow_key == 'release.maven' }}")
+        self.assertEqual(set(validate["env"]), {"TEST_PROFILE", "INPUTS_JSON"})
+        self.assertEqual(validate["env"]["TEST_PROFILE"], "${{ steps.claim.outputs.test_profile }}")
+        self.assertEqual(validate["env"]["INPUTS_JSON"], "${{ steps.claim.outputs.inputs_json }}")
+
+        script = validate["run"]
+        for profile, inputs in (("publish", '{"build_number":"253"}'), ("publish", '{"build_number":"Build.253+rc_1"}')):
+            completed = subprocess.run(
+                ["bash", "-c", script],
+                env={**os.environ, "TEST_PROFILE": profile, "INPUTS_JSON": inputs},
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+        for profile, inputs in (
+            ("build", '{"build_number":"253"}'),
+            ("publish", '{}'),
+            ("publish", '{"build_number":""}'),
+            ("publish", '{"build_number":253}'),
+            ("publish", '{"build_number":"253","extra":"x"}'),
+        ):
+            completed = subprocess.run(
+                ["bash", "-c", script],
+                env={**os.environ, "TEST_PROFILE": profile, "INPUTS_JSON": inputs},
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(completed.returncode, 0)
+
+        job = jobs["maven"]
+        self.assertEqual(
+            job["if"],
+            "${{ needs.request.outputs.workflow_key == 'release.maven' && needs.request.outputs.test_profile == 'publish' }}",
+        )
+        self.assertEqual(job["uses"], "./.github/workflows/maven.yml")
+        self.assertEqual(set(job["with"]), {"repository", "ref", "build_number", "ci_run_id"})
+        self.assertEqual(job["with"]["repository"], "${{ needs.request.outputs.repository }}")
+        self.assertEqual(job["with"]["ref"], "${{ needs.request.outputs.ref }}")
+        self.assertEqual(
+            job["with"]["build_number"],
+            "${{ fromJSON(needs.request.outputs.inputs_json).build_number }}",
+        )
+        self.assertNotIn("ref", job["with"]["build_number"])
+        self.assertNotIn("sha", job["with"]["build_number"].lower())
+        self.assertEqual(job["with"]["ci_run_id"], "${{ inputs.ci_run_id }}")
+        self.assertTrue(job["secrets"] == "inherit")
+        self.assertEqual(job["concurrency"]["group"], "central-ci-${{ inputs.active_key }}")
+        self.assertTrue(job["concurrency"]["cancel-in-progress"])
+
+        settlement = jobs["settle_cancelled"]
+        self.assertIn("maven", settlement["needs"])
+        self.assertIn("needs.maven.result == 'cancelled'", settlement["if"])
+
+        for name in ("android", "apple", "python", "node", "flutter"):
+            self.assertNotIn("build_number", jobs[name]["with"])
 
     def test_wrapper_validation_executes_fail_closed(self) -> None:
         script = self.step("Validate fixed Maven wrapper")["run"]

@@ -180,6 +180,7 @@ class CiHelperTests(unittest.TestCase):
             "python",
             "node",
             "flutter",
+            "maven",
             "public_native_image_chart",
             "oci_reproducibility",
         )
