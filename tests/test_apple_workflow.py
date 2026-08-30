@@ -102,6 +102,40 @@ capture before {safe_expansion} after
             ],
         )
 
+
+    def test_generic_hosted_profiles_use_fixed_product_wrapper(self) -> None:
+        jobs = self.workflow["jobs"]
+        plan_script = next(
+            step
+            for step in jobs["plan"]["steps"]
+            if step.get("name") == "Resolve fixed Apple execution lanes"
+        )["run"]
+        self.assertIn("build)", plan_script)
+        self.assertIn('{"include":[{"lane":"hosted-build","cache_save":false}]}', plan_script)
+        self.assertIn("test)", plan_script)
+        self.assertIn('{"include":[{"lane":"hosted-test","cache_save":false}]}', plan_script)
+        self.assertIn("simulator)", plan_script)
+        self.assertIn('{"include":[{"lane":"hosted-simulator","cache_save":false}]}', plan_script)
+
+        execute_steps = jobs["execute"]["steps"]
+        by_name = {step.get("name"): step for step in execute_steps if step.get("name")}
+        cache_prepare = by_name["Prepare Apple develop dependency cache"]
+        for profile in ("build", "test", "simulator"):
+            self.assertIn(f"inputs.test_profile != '{profile}'", cache_prepare["if"])
+
+        command_step = by_name["Run fixed Apple lane"]
+        script = command_step["run"]
+        self.assertIn('build|test|simulator)', script)
+        self.assertIn('wrapper="scripts/ci/run-apple-hosted-validation.sh"', script)
+        self.assertIn('export CI_APPLE_HOSTED_PROFILE="${TEST_PROFILE}"', script)
+        self.assertIn('run_logged "apple-${TEST_PROFILE}" bash "${wrapper}"', script)
+        generic_start = script.index('build|test|simulator)')
+        generic_end = script.index('swiftpm_xcode_args=()', generic_start)
+        generic_block = script[generic_start:generic_end]
+        self.assertNotIn("streamscape-media", generic_block.lower())
+        self.assertNotIn("streamscapetv.xcworkspace", generic_block)
+        self.assertNotIn("xcodebuild", generic_block)
+
     def test_agent_state_lifecycle_is_single_coordinator_and_single_finalizer(self) -> None:
         self.assertEqual(self.text.count("phase: start"), 1)
         self.assertEqual(self.text.count("phase: finish"), 1)

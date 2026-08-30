@@ -178,5 +178,64 @@ class AndroidSharedCacheContractTest(unittest.TestCase):
         self.assertIn("steps.gradle_build_cache_save.outcome == 'success'", status)
 
 
+class AndroidGenericHostedProfileContractTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.workflow_text = WORKFLOW_PATH.read_text(encoding="utf-8")
+        cls.workflow = yaml.safe_load(cls.workflow_text)
+        steps = cls.workflow["jobs"]["ci"]["steps"]
+        cls.by_name = {step.get("name"): step for step in steps if step.get("name")}
+
+    def test_generic_profiles_use_one_fixed_product_wrapper(self) -> None:
+        preflight = self.by_name["Validate generic Android hosted request"]
+        for profile in ("build", "test", "emulator"):
+            self.assertIn(f"inputs.test_profile == '{profile}'", preflight["if"])
+        preflight_script = preflight["run"]
+        self.assertIn('test "${PROJECT_DIRECTORY}" = "."', preflight_script)
+        self.assertIn('test -z "${TEST_FILTER}"', preflight_script)
+        self.assertIn('test "${ROOM_SCHEMA}" = "false"', preflight_script)
+        self.assertIn("scripts/ci/run-android-hosted-validation.sh", preflight_script)
+
+        script = self.by_name["Run fixed Android profile"]["run"]
+        self.assertIn('build|test|emulator)', script)
+        self.assertIn(
+            'wrapper="${repository_root}/scripts/ci/run-android-hosted-validation.sh"',
+            script,
+        )
+        self.assertIn('export CI_ANDROID_HOSTED_PROFILE="${TEST_PROFILE}"', script)
+        self.assertIn('run_logged "android-${TEST_PROFILE}" bash "${wrapper}"', script)
+        self.assertLess(script.index('build|test|emulator)'), script.index('test -x gradlew'))
+        self.assertNotIn("streamscape-media", script.lower())
+
+    def test_generic_profiles_do_not_enter_iptv_private_git_or_cache_paths(self) -> None:
+        private_git = self.by_name["Connect to private Git service"]["if"]
+        develop_scope = self.by_name["Resolve IPTV Android develop dependency cache scope"]["if"]
+        branch_scope = self.by_name["Resolve IPTV Android branch cache reader scope"]["if"]
+        for profile in ("build", "test", "emulator"):
+            token = f"inputs.test_profile != '{profile}'"
+            self.assertIn(token, private_git)
+            self.assertIn(token, develop_scope)
+            self.assertIn(token, branch_scope)
+
+    def test_emulator_profile_uses_fixed_central_boot_and_cleanup(self) -> None:
+        prepare = self.by_name["Prepare generic Android emulator"]
+        cleanup = self.by_name["Stop generic Android emulator"]
+        self.assertEqual(prepare["if"], "${{ inputs.test_profile == 'emulator' }}")
+        script = prepare["run"]
+        self.assertIn("system-images;android-36;google_apis;x86_64", script)
+        self.assertIn("central-android-api36", script)
+        self.assertIn("emulator-5554", script)
+        self.assertIn("seq 1 180", script)
+        self.assertIn("sys.boot_completed", script)
+        self.assertIn("printf 'ANDROID_SERIAL=%s\\n'", script)
+        self.assertNotIn("inputs.", script)
+        self.assertEqual(
+            cleanup["if"],
+            "${{ always() && inputs.test_profile == 'emulator' }}",
+        )
+        self.assertIn("emu kill", cleanup["run"])
+
+
+
 if __name__ == "__main__":
     unittest.main()
