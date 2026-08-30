@@ -1,5 +1,7 @@
 from pathlib import Path
+import os
 import subprocess
+import tempfile
 import unittest
 import yaml
 
@@ -135,6 +137,282 @@ capture before {safe_expansion} after
         self.assertNotIn("streamscape-media", generic_block.lower())
         self.assertNotIn("streamscapetv.xcworkspace", generic_block)
         self.assertNotIn("xcodebuild", generic_block)
+
+    def test_testflight_uses_explicit_build_number_and_fixed_product_wrapper(self) -> None:
+        workflow_inputs = self.workflow["on"]["workflow_call"]["inputs"]
+        self.assertIn("build_number", workflow_inputs)
+        self.assertFalse(workflow_inputs["build_number"]["required"])
+        self.assertEqual(workflow_inputs["build_number"]["default"], "")
+
+        jobs = self.workflow["jobs"]
+        plan_script = next(
+            step
+            for step in jobs["plan"]["steps"]
+            if step.get("name") == "Resolve fixed Apple execution lanes"
+        )["run"]
+        self.assertIn("testflight)", plan_script)
+        self.assertIn(
+            '{"include":[{"lane":"testflight","cache_save":false}]}',
+            plan_script,
+        )
+
+        execute_steps = jobs["execute"]["steps"]
+        by_name = {step.get("name"): step for step in execute_steps if step.get("name")}
+        cache_prepare = by_name["Prepare Apple develop dependency cache"]
+        self.assertIn("inputs.test_profile != 'testflight'", cache_prepare["if"])
+
+        prepare = by_name["Prepare fixed TestFlight release context"]
+        self.assertEqual(prepare["if"], "${{ inputs.test_profile == 'testflight' }}")
+        self.assertEqual(prepare["env"]["BUILD_NUMBER"], "${{ inputs.build_number }}")
+        prepare_script = prepare["run"]
+        self.assertIn('test -n "${BUILD_NUMBER}"', prepare_script)
+        self.assertIn('${#BUILD_NUMBER} > 64', prepare_script)
+        self.assertIn('CI_APPLE_TESTFLIGHT_BUILD_NUMBER=%s', prepare_script)
+        self.assertNotIn("GITHUB_RUN_NUMBER", prepare_script)
+        self.assertNotIn("GITHUB_RUN_ID", prepare_script)
+        self.assertNotIn("GITHUB_SHA", prepare_script)
+        self.assertNotIn("CURRENT_PROJECT_VERSION", prepare_script)
+
+        command = by_name["Run fixed Apple lane"]
+        command_script = command["run"]
+        start = command_script.index('testflight)')
+        end = command_script.index('build|test|simulator)', start)
+        testflight_block = command_script[start:end]
+        self.assertIn('wrapper="scripts/ci/run-apple-testflight.sh"', testflight_block)
+        self.assertIn('run_logged apple-testflight bash "${wrapper}"', testflight_block)
+        self.assertIn('test ! -L "${wrapper}"', testflight_block)
+        self.assertIn('git ls-files --error-unmatch -- "${wrapper}"', testflight_block)
+        self.assertNotIn("xcodebuild", testflight_block)
+        self.assertNotIn("streamscapetv", testflight_block.lower())
+        self.assertNotIn("CFBundleVersion", testflight_block)
+        self.assertNotIn("CURRENT_PROJECT_VERSION", testflight_block)
+        self.assertNotIn("archivePath", testflight_block)
+        self.assertNotIn("exportArchive", testflight_block)
+
+    def test_testflight_wrapper_validation_executes_fail_closed(self) -> None:
+        execute_steps = self.workflow["jobs"]["execute"]["steps"]
+        command_script = next(
+            step for step in execute_steps if step.get("name") == "Run fixed Apple lane"
+        )["run"]
+        start = command_script.index('testflight)')
+        end = command_script.index('build|test|simulator)', start)
+        block = command_script[start:end].split("\n", 1)[1]
+        block = block.rsplit(";;", 1)[0]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "scripts/ci").mkdir(parents=True)
+            auth_key = root / "AuthKey.p8"
+            auth_key.write_text("test", encoding="utf-8")
+            env = {
+                "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                "CI_APPLE_TESTFLIGHT_BUILD_NUMBER": "253",
+                "CI_APPLE_TESTFLIGHT_AUTH_KEY_PATH": str(auth_key),
+                "CI_APPLE_TESTFLIGHT_TEMP_DIR": str(root / "release"),
+                "CI_APPLE_TESTFLIGHT_TEAM_ID": "TEAM",
+                "CI_APPLE_TESTFLIGHT_KEY_ID": "KEY",
+                "CI_APPLE_TESTFLIGHT_ISSUER_ID": "ISSUER",
+                "CI_LOG": str(root / "ci.log"),
+            }
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+
+            prefix = """
+set -Eeuo pipefail
+run_logged() {
+  shift
+  "$@"
+}
+"""
+            missing = subprocess.run(
+                ["bash", "-c", prefix + block], cwd=root, env=env, text=True, capture_output=True
+            )
+            self.assertNotEqual(missing.returncode, 0)
+
+            wrapper = root / "scripts/ci/run-apple-testflight.sh"
+            target = root / "wrapper-target.sh"
+            target.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+            wrapper.symlink_to(target)
+            symlink = subprocess.run(
+                ["bash", "-c", prefix + block], cwd=root, env=env, text=True, capture_output=True
+            )
+            self.assertNotEqual(symlink.returncode, 0)
+            wrapper.unlink()
+
+            wrapper.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+            untracked = subprocess.run(
+                ["bash", "-c", prefix + block], cwd=root, env=env, text=True, capture_output=True
+            )
+            self.assertNotEqual(untracked.returncode, 0)
+
+            subprocess.run(["git", "add", "scripts/ci/run-apple-testflight.sh"], cwd=root, check=True)
+            tracked = subprocess.run(
+                ["bash", "-c", prefix + block], cwd=root, env=env, text=True, capture_output=True
+            )
+            self.assertEqual(tracked.returncode, 0, tracked.stderr)
+
+    def test_testflight_credentials_are_isolated_and_always_cleaned(self) -> None:
+        workflow_call = self.workflow["on"]["workflow_call"]
+        for name in (
+            "APPLE_TEAM_ID",
+            "APP_STORE_CONNECT_KEY_ID",
+            "APP_STORE_CONNECT_ISSUER_ID",
+            "APP_STORE_CONNECT_API_KEY_P8_BASE64",
+        ):
+            self.assertIn(name, workflow_call["secrets"])
+            self.assertFalse(workflow_call["secrets"][name]["required"])
+
+        execute_steps = self.workflow["jobs"]["execute"]["steps"]
+        by_name = {step.get("name"): step for step in execute_steps if step.get("name")}
+        prepare = by_name["Prepare fixed TestFlight release context"]
+        prepare_script = prepare["run"]
+        self.assertIn('release_root="${RUNNER_TEMP}/central-apple-testflight"', prepare_script)
+        self.assertIn('chmod 700 "${release_root}"', prepare_script)
+        self.assertIn("path.chmod(0o600)", prepare_script)
+        self.assertIn("base64.b64decode(raw, validate=True)", prepare_script)
+
+        command_env = by_name["Run fixed Apple lane"]["env"]
+        self.assertEqual(
+            command_env["CI_APPLE_TESTFLIGHT_TEAM_ID"],
+            "${{ inputs.test_profile == 'testflight' && secrets.APPLE_TEAM_ID || '' }}",
+        )
+        self.assertEqual(
+            command_env["CI_APPLE_TESTFLIGHT_KEY_ID"],
+            "${{ inputs.test_profile == 'testflight' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}",
+        )
+        self.assertEqual(
+            command_env["CI_APPLE_TESTFLIGHT_ISSUER_ID"],
+            "${{ inputs.test_profile == 'testflight' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}",
+        )
+        self.assertNotIn("APP_STORE_CONNECT_API_KEY_P8_BASE64", command_env)
+
+        cleanup = by_name["Clean TestFlight credential and release state"]
+        self.assertEqual(cleanup["if"], "${{ always() && inputs.test_profile == 'testflight' }}")
+        self.assertIn('rm -rf -- "${release_root}"', cleanup["run"])
+        self.assertIn('test ! -e "${release_root}"', cleanup["run"])
+
+        scrub_env = by_name["Scrub configured CI secrets from private log"]["env"]
+        expected_scrub = {
+            "CI_SECRET_APPLE_TEAM_ID": "${{ inputs.test_profile == 'testflight' && secrets.APPLE_TEAM_ID || '' }}",
+            "CI_SECRET_APP_STORE_CONNECT_KEY_ID": "${{ inputs.test_profile == 'testflight' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}",
+            "CI_SECRET_APP_STORE_CONNECT_ISSUER_ID": "${{ inputs.test_profile == 'testflight' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}",
+            "CI_SECRET_APP_STORE_CONNECT_API_KEY": "${{ inputs.test_profile == 'testflight' && secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 || '' }}",
+        }
+        for name, expression in expected_scrub.items():
+            self.assertEqual(scrub_env[name], expression)
+
+    def test_testflight_build_number_validation_preserves_exact_value(self) -> None:
+        execute_steps = self.workflow["jobs"]["execute"]["steps"]
+        prepare = next(
+            step
+            for step in execute_steps
+            if step.get("name") == "Prepare fixed TestFlight release context"
+        )
+        script = prepare["run"]
+        validation_start = script.index('test -n "${BUILD_NUMBER}"')
+        validation_end = script.index('test -n "${APP_STORE_CONNECT_KEY_ID}"', validation_start)
+        validation = script[validation_start:validation_end]
+        probe = f"""
+set -Eeuo pipefail
+validate() {{
+  local BUILD_NUMBER="$1"
+  {validation}
+  printf '%s\\n' "$BUILD_NUMBER"
+}}
+validate '253'
+validate '1.2.3+45'
+if ( validate '' ); then exit 91; fi
+if ( validate 'has space' ); then exit 92; fi
+long="x$(printf '%064d' 0)"
+if ( validate "$long" ); then exit 93; fi
+"""
+        result = subprocess.run(
+            ["bash"],
+            input=probe,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), ["253", "1.2.3+45"])
+
+    def test_central_dispatch_routes_distinct_bounded_apple_release(self) -> None:
+        workflow = yaml.safe_load(
+            (ROOT / ".github/workflows/central-ci-dispatch.yml").read_text(encoding="utf-8")
+        )
+        jobs = workflow["jobs"]
+        validate = next(
+            step
+            for step in jobs["request"]["steps"]
+            if step.get("name") == "Validate Apple release request"
+        )
+        self.assertEqual(
+            validate["if"],
+            "${{ steps.claim.outputs.workflow_key == 'release.apple' }}",
+        )
+        self.assertEqual(set(validate["env"]), {"TEST_PROFILE", "INPUTS_JSON"})
+        validation = validate["run"]
+        for profile, inputs in (
+            ("testflight", '{"build_number":"253"}'),
+            ("testflight", '{"build_number":"Build.253+rc_1"}'),
+        ):
+            result = subprocess.run(
+                ["bash", "-c", validation],
+                env={"PATH": "/usr/bin:/bin", "TEST_PROFILE": profile, "INPUTS_JSON": inputs},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+        for profile, inputs in (
+            ("host", '{"build_number":"253"}'),
+            ("testflight", '{}'),
+            ("testflight", '{"build_number":""}'),
+            ("testflight", '{"build_number":253}'),
+            ("testflight", '{"build_number":"253","extra":"x"}'),
+        ):
+            result = subprocess.run(
+                ["bash", "-c", validation],
+                env={"PATH": "/usr/bin:/bin", "TEST_PROFILE": profile, "INPUTS_JSON": inputs},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+
+        release = jobs["apple_release"]
+        self.assertEqual(
+            release["if"],
+            "${{ needs.request.outputs.workflow_key == 'release.apple' && needs.request.outputs.test_profile == 'testflight' }}",
+        )
+        self.assertEqual(release["uses"], "./.github/workflows/apple.yml")
+        self.assertEqual(
+            set(release["with"]),
+            {"repository", "ref", "source_is_tag", "test_profile", "build_number", "ci_run_id"},
+        )
+        self.assertEqual(release["with"]["test_profile"], "testflight")
+        self.assertEqual(
+            release["with"]["build_number"],
+            "${{ fromJSON(needs.request.outputs.inputs_json).build_number }}",
+        )
+        self.assertNotIn("ref", release["with"]["build_number"])
+        self.assertNotIn("sha", release["with"]["build_number"].lower())
+        self.assertEqual(
+            release["with"]["source_is_tag"],
+            "${{ needs.request.outputs.is_tag == 'true' }}",
+        )
+        self.assertEqual(release["concurrency"]["group"], "central-ci-${{ inputs.active_key }}")
+        self.assertTrue(release["concurrency"]["cancel-in-progress"])
+        self.assertEqual(release["secrets"], "inherit")
+
+        validation_job = jobs["apple"]
+        self.assertNotIn("build_number", validation_job["with"])
+        self.assertEqual(
+            validation_job["if"],
+            "${{ needs.request.outputs.workflow_key == 'validation.apple' }}",
+        )
+        settlement = jobs["settle_cancelled"]
+        self.assertIn("apple_release", settlement["needs"])
+        self.assertIn("needs.apple_release.result == 'cancelled'", settlement["if"])
 
     def test_historical_host_materializes_only_the_exact_approved_bootstrap(self) -> None:
         execute = self.workflow["jobs"]["execute"]
