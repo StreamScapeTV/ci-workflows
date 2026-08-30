@@ -111,6 +111,43 @@ jobs:
           TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
 
+      - name: Reject pre-existing Forgejo Maven version
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.identity.outputs.release_version }}
+          CIW_MAVEN_PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          : "${CIW_MAVEN_PACKAGE_READ_TOKEN:?CIW_MAVEN_PACKAGE_READ_TOKEN is required}"
+          artifacts=(
+            streamscape-playback-api
+            streamscape-playback-runtime
+            streamscape-platform-android
+            streamscape-engine-media3
+            streamscape-engine-mpv
+            streamscape-engine-vlc
+            streamscape-playback-android
+          )
+          for artifact in "${artifacts[@]}"; do
+            relative="com/streamscape/media/${artifact}/${RELEASE_VERSION}/${artifact}-${RELEASE_VERSION}.pom"
+            http_code="$(curl --silent --show-error \
+              --output /dev/null \
+              --write-out '%{http_code}' \
+              --header "Authorization: token ${CIW_MAVEN_PACKAGE_READ_TOKEN}" \
+              "https://git.faruqi.dev/api/packages/mimranfaruqi/maven/${relative}")"
+            case "${http_code}" in
+              404) ;;
+              200)
+                echo "Maven version already exists; refusing overwrite: com.streamscape.media:${artifact}:${RELEASE_VERSION}" >&2
+                exit 1
+                ;;
+              *)
+                echo "Forgejo Maven version preflight failed with HTTP ${http_code}" >&2
+                exit 1
+                ;;
+            esac
+          done
+
       - name: Publish seven modules to Forgejo and local Maven staging
         shell: bash
         env:
