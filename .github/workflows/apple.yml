@@ -360,6 +360,7 @@ jobs:
         env:
           EXECUTION_LANE: ${{ matrix.lane }}
           TEST_PROFILE: ${{ inputs.test_profile }}
+          SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
           GH_TOKEN: ${{ steps.source.outputs.token || github.token }}
           CI_GITHUB_TOKEN: ${{ steps.source.outputs.token || github.token }}
         run: |
@@ -375,6 +376,44 @@ jobs:
               return 1
             fi
             printf 'duration_seconds=%s\n' "$((SECONDS - started_at))" >> "${CI_LOG}"
+          }
+
+          materialize_historical_media_bootstrap() {
+            local helper="scripts/bootstrap-streamscape-media-binary.sh"
+            if test -f "${helper}"; then
+              return 0
+            fi
+
+            local historical_sha="512db0f5b2513ad7d3a2b53bbc132ea29742bb63"
+            local historical_tree="f610e568dabf621cf5e9e23d5541571e2feb7122"
+            local approved_helper_ref="dbe258b0487b4dfe023bfda1f27bf2cc013c2490"
+            local approved_helper_blob="492be28b492dd6bc3458cbd884893869e150818e"
+            local source_sha source_tree actual_blob
+            source_sha="$(git rev-parse HEAD)"
+            source_tree="$(git rev-parse 'HEAD^{tree}')"
+
+            if test "${SOURCE_REPOSITORY}" != "StreamScapeTV/iptv-apple" \
+              || test "${source_sha}" != "${historical_sha}" \
+              || test "${source_tree}" != "${historical_tree}"; then
+              printf 'Missing required Apple bootstrap helper for source %s at %s/%s\n' \
+                "${SOURCE_REPOSITORY}" "${source_sha}" "${source_tree}" >&2
+              return 1
+            fi
+
+            mkdir -p "$(dirname "${helper}")"
+            gh api \
+              -H 'Accept: application/vnd.github.raw+json' \
+              "repos/StreamScapeTV/iptv-apple/contents/scripts/bootstrap-streamscape-media-binary.sh?ref=${approved_helper_ref}" \
+              > "${helper}"
+            actual_blob="$(git hash-object "${helper}")"
+            if test "${actual_blob}" != "${approved_helper_blob}"; then
+              rm -f "${helper}"
+              printf 'Approved historical Apple bootstrap helper blob mismatch: expected %s, got %s\n' \
+                "${approved_helper_blob}" "${actual_blob}" >&2
+              return 1
+            fi
+            printf 'Materialized approved historical Apple bootstrap helper for exact recovery tree.\n' \
+              >> "${CI_LOG}"
           }
 
           case "${TEST_PROFILE}" in
@@ -397,7 +436,7 @@ jobs:
 
           case "${EXECUTION_LANE}" in
             macos-test)
-              test -f scripts/bootstrap-streamscape-media-binary.sh
+              materialize_historical_media_bootstrap
               run_logged prepare-media bash scripts/bootstrap-streamscape-media-binary.sh
               run_logged macos-test xcodebuild test \
                 -workspace streamscapetv.xcworkspace \
@@ -408,7 +447,7 @@ jobs:
                 -only-testing:streamscapetvTests/SelectedBackendStateSyncRoutingIntegrationTests
               ;;
             ios-build)
-              test -f scripts/bootstrap-streamscape-media-binary.sh
+              materialize_historical_media_bootstrap
               run_logged prepare-media bash scripts/bootstrap-streamscape-media-binary.sh
               run_logged ios-build xcodebuild build \
                 -workspace streamscapetv.xcworkspace \
@@ -418,7 +457,7 @@ jobs:
                 CODE_SIGNING_ALLOWED=NO
               ;;
             tvos-build)
-              test -f scripts/bootstrap-streamscape-media-binary.sh
+              materialize_historical_media_bootstrap
               run_logged prepare-media bash scripts/bootstrap-streamscape-media-binary.sh
               run_logged tvos-build xcodebuild build \
                 -workspace streamscapetv.xcworkspace \
@@ -428,7 +467,7 @@ jobs:
                 CODE_SIGNING_ALLOWED=NO
               ;;
             release-build)
-              test -f scripts/bootstrap-streamscape-media-binary.sh
+              materialize_historical_media_bootstrap
               run_logged prepare-media bash scripts/bootstrap-streamscape-media-binary.sh
               run_logged ios-release-build xcodebuild build \
                 -workspace streamscapetv.xcworkspace \

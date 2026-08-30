@@ -136,6 +136,91 @@ capture before {safe_expansion} after
         self.assertNotIn("streamscapetv.xcworkspace", generic_block)
         self.assertNotIn("xcodebuild", generic_block)
 
+    def test_historical_host_materializes_only_the_exact_approved_bootstrap(self) -> None:
+        execute = self.workflow["jobs"]["execute"]
+        command_step = next(
+            step for step in execute["steps"] if step.get("name") == "Run fixed Apple lane"
+        )
+        script = command_step["run"]
+        self.assertEqual(
+            command_step["env"]["SOURCE_REPOSITORY"],
+            "${{ inputs.repository || github.repository }}",
+        )
+        self.assertIn("materialize_historical_media_bootstrap()", script)
+        self.assertIn("512db0f5b2513ad7d3a2b53bbc132ea29742bb63", script)
+        self.assertIn("f610e568dabf621cf5e9e23d5541571e2feb7122", script)
+        self.assertIn("dbe258b0487b4dfe023bfda1f27bf2cc013c2490", script)
+        self.assertIn("492be28b492dd6bc3458cbd884893869e150818e", script)
+        self.assertIn("application/vnd.github.raw+json", script)
+        self.assertIn("git hash-object", script)
+        self.assertEqual(script.count("materialize_historical_media_bootstrap"), 5)
+        self.assertEqual(
+            script.count("run_logged prepare-media bash scripts/bootstrap-streamscape-media-binary.sh"),
+            4,
+        )
+
+        generic_start = script.index('build|test|simulator)')
+        generic_end = script.index('swiftpm_xcode_args=()', generic_start)
+        generic_block = script[generic_start:generic_end]
+        self.assertNotIn("materialize_historical_media_bootstrap", generic_block)
+
+    def test_historical_bootstrap_guard_executes_without_caller_authority(self) -> None:
+        execute = self.workflow["jobs"]["execute"]
+        script = next(
+            step for step in execute["steps"] if step.get("name") == "Run fixed Apple lane"
+        )["run"]
+        start = script.index("materialize_historical_media_bootstrap() {")
+        end = script.index('\n\ncase "${TEST_PROFILE}"', start)
+        function_text = script[start:end]
+        probe = f"""
+set -Eeuo pipefail
+{function_text}
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+cd "$work"
+export CI_LOG="$work/ci.log"
+export SOURCE_REPOSITORY="StreamScapeTV/iptv-apple"
+gh_calls=0
+git() {{
+  case "$*" in
+    "rev-parse HEAD") printf '%s\\n' '512db0f5b2513ad7d3a2b53bbc132ea29742bb63' ;;
+    "rev-parse HEAD^{{tree}}") printf '%s\\n' 'f610e568dabf621cf5e9e23d5541571e2feb7122' ;;
+    "hash-object scripts/bootstrap-streamscape-media-binary.sh") printf '%s\\n' '492be28b492dd6bc3458cbd884893869e150818e' ;;
+    *) printf 'unexpected git call: %s\\n' "$*" >&2; return 97 ;;
+  esac
+}}
+gh() {{
+  gh_calls=$((gh_calls + 1))
+  printf '#!/usr/bin/env bash\\necho approved-helper\\n'
+}}
+materialize_historical_media_bootstrap
+[[ -f scripts/bootstrap-streamscape-media-binary.sh ]]
+[[ "$gh_calls" -eq 1 ]]
+[[ "$(cat "$CI_LOG")" == *'Materialized approved historical Apple bootstrap helper'* ]]
+
+# Existing current-source helper remains authoritative and skips historical retrieval.
+printf '#!/usr/bin/env bash\\n' > scripts/bootstrap-streamscape-media-binary.sh
+export SOURCE_REPOSITORY="StreamScapeTV/other"
+materialize_historical_media_bootstrap
+[[ "$gh_calls" -eq 1 ]]
+
+# Missing helper on any non-approved source fails closed.
+rm -f scripts/bootstrap-streamscape-media-binary.sh
+if materialize_historical_media_bootstrap; then
+  echo 'unexpected historical fallback for an unapproved repository' >&2
+  exit 98
+fi
+[[ "$gh_calls" -eq 1 ]]
+"""
+        result = subprocess.run(
+            ["bash"],
+            input=probe,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_agent_state_lifecycle_is_single_coordinator_and_single_finalizer(self) -> None:
         self.assertEqual(self.text.count("phase: start"), 1)
         self.assertEqual(self.text.count("phase: finish"), 1)
