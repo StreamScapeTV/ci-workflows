@@ -1,0 +1,48 @@
+name: Issue 636 candidate carrier
+
+"on":
+  push:
+    branches:
+      - agent1/issue-636-apple-testflight
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Materialize exact tested candidate
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          expected_base='c4b1d76692f1a2f1dad822835b01cb2be7409108'
+          expected_tree='d6377b0db5d5d72ce7b93c72608d47ed9013ab62'
+          encoded='${RUNNER_TEMP}/issue-636.patch.gz.b64'
+          patch='${RUNNER_TEMP}/issue-636.patch'
+
+          git merge-base --is-ancestor "${expected_base}" HEAD
+          cat .github/issue-636-carrier/{00,01,02,03,04,05,06,07,08,09} > "${encoded}"
+          printf '%s  %s\n' '904e863d6d71c7afa1b04df7a2c16d755846e6a4bcb4f1da8730129b3205aff0' "${encoded}" | sha256sum --check --strict -
+          base64 --decode < "${encoded}" | gzip -dc > "${patch}"
+          printf '%s  %s\n' 'c95166f7852208e88ed221625bee494c2f5b9958dbcfb57af3695b121267674c' "${patch}" | sha256sum --check --strict -
+
+          git apply --check "${patch}"
+          git apply --index "${patch}"
+          git rm -r .github/issue-636-carrier .github/workflows/issue-636-apply.yml
+          git diff --cached --check
+          actual_tree="$(git write-tree)"
+          test "${actual_tree}" = "${expected_tree}" || {
+            printf 'Candidate tree mismatch: expected %s, got %s\n' "${expected_tree}" "${actual_tree}" >&2
+            exit 2
+          }
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m '[skip ci] [#636] Materialize product-neutral TestFlight candidate'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
