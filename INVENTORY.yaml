@@ -8,6 +8,7 @@ workflows:
   node: .github/workflows/node.yml
   flutter: .github/workflows/flutter.yml
   maven: .github/workflows/maven.yml
+  container_service: .github/workflows/container-service.yml
   public_native_image_chart: .github/workflows/public-native-image-chart.yml
   oci_reproducibility: .github/workflows/oci-reproducibility.yml
   central_dispatch: .github/workflows/central-ci-dispatch.yml
