@@ -1,4 +1,5 @@
 from pathlib import Path
+import subprocess
 import unittest
 import yaml
 
@@ -55,6 +56,50 @@ class AppleWorkflowTests(unittest.TestCase):
         self.assertIn(
             "-only-testing:streamscapetvTests/SelectedBackendStateSyncRoutingIntegrationTests",
             script,
+        )
+
+    def test_optional_swiftpm_xcode_args_are_strict_bash_safe(self) -> None:
+        execute = self.workflow["jobs"]["execute"]
+        command_step = next(
+            step for step in execute["steps"] if step.get("name") == "Run fixed Apple lane"
+        )
+        script = command_step["run"]
+        safe_expansion = '"${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}"'
+
+        self.assertEqual(script.count(safe_expansion), 6)
+        self.assertNotIn('"${swiftpm_xcode_args[@]}"', script.replace(safe_expansion, ""))
+
+        probe = f"""
+set -Eeuo pipefail
+capture() {{
+  printf 'argc=%s\\n' "$#"
+  printf '<%s>\\n' "$@"
+}}
+swiftpm_xcode_args=()
+capture before {safe_expansion} after
+swiftpm_xcode_args=(-clonedSourcePackagesDirPath "/tmp/swift pm clones")
+capture before {safe_expansion} after
+"""
+        result = subprocess.run(
+            ["bash"],
+            input=probe,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout.splitlines(),
+            [
+                "argc=2",
+                "<before>",
+                "<after>",
+                "argc=4",
+                "<before>",
+                "<-clonedSourcePackagesDirPath>",
+                "</tmp/swift pm clones>",
+                "<after>",
+            ],
         )
 
     def test_agent_state_lifecycle_is_single_coordinator_and_single_finalizer(self) -> None:

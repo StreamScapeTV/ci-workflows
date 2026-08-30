@@ -374,7 +374,7 @@ jobs:
               run_logged macos-test xcodebuild test \
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
-                "${swiftpm_xcode_args[@]}" \
+                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
                 -destination 'platform=macOS' \
                 CODE_SIGNING_ALLOWED=NO \
                 -only-testing:streamscapetvTests/SelectedBackendStateSyncRoutingIntegrationTests
@@ -385,7 +385,7 @@ jobs:
               run_logged ios-build xcodebuild build \
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
-                "${swiftpm_xcode_args[@]}" \
+                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
                 -destination 'generic/platform=iOS Simulator' \
                 CODE_SIGNING_ALLOWED=NO
               ;;
@@ -395,7 +395,7 @@ jobs:
               run_logged tvos-build xcodebuild build \
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
-                "${swiftpm_xcode_args[@]}" \
+                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
                 -destination 'generic/platform=tvOS Simulator' \
                 CODE_SIGNING_ALLOWED=NO
               ;;
@@ -406,21 +406,21 @@ jobs:
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
                 -configuration Release \
-                "${swiftpm_xcode_args[@]}" \
+                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
                 -destination 'generic/platform=iOS Simulator' \
                 CODE_SIGNING_ALLOWED=NO
               run_logged tvos-release-build xcodebuild build \
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
                 -configuration Release \
-                "${swiftpm_xcode_args[@]}" \
+                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
                 -destination 'generic/platform=tvOS Simulator' \
                 CODE_SIGNING_ALLOWED=NO
               run_logged macos-release-build xcodebuild build \
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
                 -configuration Release \
-                "${swiftpm_xcode_args[@]}" \
+                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
                 -destination 'platform=macOS' \
                 CODE_SIGNING_ALLOWED=NO
               ;;
