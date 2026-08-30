@@ -48,17 +48,12 @@ permissions:
   contents: read
 
 jobs:
-  ci:
-    runs-on: macos-latest
-    timeout-minutes: 120
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.profile.outputs.matrix }}
     steps:
-      - name: Initialize CI log
-        shell: bash
-        run: |
-          log="${RUNNER_TEMP}/central-ci.log"
-          : > "${log}"
-          printf 'CI_LOG=%s\n' "${log}" >> "${GITHUB_ENV}"
-
       - name: Mark Agent State run as running
         if: ${{ inputs.ci_run_id != '' }}
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main
@@ -68,6 +63,60 @@ jobs:
         with:
           phase: start
           ci_run_id: ${{ inputs.ci_run_id }}
+
+      - name: Resolve fixed Apple execution lanes
+        id: profile
+        shell: bash
+        env:
+          TEST_PROFILE: ${{ inputs.test_profile }}
+        run: |
+          set -Eeuo pipefail
+          case "${TEST_PROFILE}" in
+            build)
+              matrix='{"include":[{"lane":"hosted-build","cache_save":false}]}'
+              ;;
+            test)
+              matrix='{"include":[{"lane":"hosted-test","cache_save":false}]}'
+              ;;
+            simulator)
+              matrix='{"include":[{"lane":"hosted-simulator","cache_save":false}]}'
+              ;;
+            host)
+              matrix='{"include":[{"lane":"macos-test","cache_save":true}]}'
+              ;;
+            full)
+              matrix='{"include":[{"lane":"ios-build","cache_save":false},{"lane":"tvos-build","cache_save":false},{"lane":"macos-test","cache_save":true}]}'
+              ;;
+            release-build)
+              matrix='{"include":[{"lane":"release-build","cache_save":true}]}'
+              ;;
+            swift-package)
+              matrix='{"include":[{"lane":"swift-package","cache_save":false}]}'
+              ;;
+            *)
+              printf 'Unsupported Apple test_profile: %s\n' "${TEST_PROFILE}" >&2
+              exit 2
+              ;;
+          esac
+          printf 'matrix=%s\n' "${matrix}" >> "${GITHUB_OUTPUT}"
+
+  execute:
+    needs: plan
+    name: ${{ matrix.lane }}
+    runs-on: macos-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - name: Initialize CI log
+        shell: bash
+        env:
+          LANE: ${{ matrix.lane }}
+        run: |
+          log="${RUNNER_TEMP}/central-ci-${LANE}.log"
+          : > "${log}"
+          printf 'CI_LOG=%s\n' "${log}" >> "${GITHUB_ENV}"
 
       - name: Prepare source token
         id: source
@@ -89,6 +138,10 @@ jobs:
 
       - name: Prepare Apple develop dependency cache
         id: apple_develop_cache
+        if: >-
+          ${{ inputs.test_profile != 'build'
+              && inputs.test_profile != 'test'
+              && inputs.test_profile != 'simulator' }}
         shell: bash
         env:
           REQUEST_REPOSITORY: ${{ inputs.repository }}
@@ -301,11 +354,13 @@ jobs:
             printf 'restore_seconds=%s\n' "${RESTORE_SECONDS:-0}"
           } >> "${CI_LOG}"
 
-      - name: Run fixed Apple profile
+      - name: Run fixed Apple lane
         id: commands
         shell: bash
         env:
+          EXECUTION_LANE: ${{ matrix.lane }}
           TEST_PROFILE: ${{ inputs.test_profile }}
+          SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
           GH_TOKEN: ${{ steps.source.outputs.token || github.token }}
           CI_GITHUB_TOKEN: ${{ steps.source.outputs.token || github.token }}
         run: |
@@ -314,48 +369,130 @@ jobs:
             local label="$1"
             shift
             local started_at="${SECONDS}"
-            printf '\n===== %s =====\n' "$label" >> "$CI_LOG"
-            if ! "$@" >> "$CI_LOG" 2>&1; then
-              printf 'duration_seconds=%s\n' "$((SECONDS - started_at))" >> "$CI_LOG"
-              printf '%s failed; inspect the private Google Drive CI log.\n' "$label" >&2
+            printf '\n===== %s =====\n' "${label}" >> "${CI_LOG}"
+            if ! "$@" >> "${CI_LOG}" 2>&1; then
+              printf 'duration_seconds=%s\n' "$((SECONDS - started_at))" >> "${CI_LOG}"
+              printf '%s failed; inspect the private Google Drive CI log.\n' "${label}" >&2
               return 1
             fi
-            printf 'duration_seconds=%s\n' "$((SECONDS - started_at))" >> "$CI_LOG"
+            printf 'duration_seconds=%s\n' "$((SECONDS - started_at))" >> "${CI_LOG}"
           }
+
+          historical_recovery_active=false
+
+          materialize_historical_media_bootstrap() {
+            local helper="scripts/bootstrap-streamscape-media-binary.sh"
+            if test -f "${helper}"; then
+              return 0
+            fi
+
+            local historical_sha="512db0f5b2513ad7d3a2b53bbc132ea29742bb63"
+            local historical_tree="f610e568dabf621cf5e9e23d5541571e2feb7122"
+            local approved_helper_ref="dbe258b0487b4dfe023bfda1f27bf2cc013c2490"
+            local approved_helper_blob="492be28b492dd6bc3458cbd884893869e150818e"
+            local source_sha source_tree actual_blob
+            source_sha="$(git rev-parse HEAD)"
+            source_tree="$(git rev-parse 'HEAD^{tree}')"
+
+            if test "${SOURCE_REPOSITORY}" != "StreamScapeTV/iptv-apple" \
+              || test "${source_sha}" != "${historical_sha}" \
+              || test "${source_tree}" != "${historical_tree}"; then
+              printf 'Missing required Apple bootstrap helper for source %s at %s/%s\n' \
+                "${SOURCE_REPOSITORY}" "${source_sha}" "${source_tree}" >&2
+              return 1
+            fi
+
+            mkdir -p "$(dirname "${helper}")"
+            gh api \
+              -H 'Accept: application/vnd.github.raw+json' \
+              "repos/StreamScapeTV/iptv-apple/contents/scripts/bootstrap-streamscape-media-binary.sh?ref=${approved_helper_ref}" \
+              > "${helper}"
+            actual_blob="$(git hash-object "${helper}")"
+            if test "${actual_blob}" != "${approved_helper_blob}"; then
+              rm -f "${helper}"
+              printf 'Approved historical Apple bootstrap helper blob mismatch: expected %s, got %s\n' \
+                "${approved_helper_blob}" "${actual_blob}" >&2
+              return 1
+            fi
+            historical_recovery_active=true
+            printf 'Materialized approved historical Apple bootstrap helper for exact recovery tree.\n' \
+              >> "${CI_LOG}"
+          }
+
+          run_xcode_logged() {
+            local label="$1"
+            shift
+            if test "${historical_recovery_active}" != "true"; then
+              run_logged "${label}" "$@"
+              return
+            fi
+            test -n "${CI_GITHUB_TOKEN}" || {
+              printf 'Historical Apple recovery requires the fixed source GitHub token.\n' >&2
+              return 1
+            }
+            local private_git_auth
+            private_git_auth="$(
+              printf 'x-access-token:%s' "${CI_GITHUB_TOKEN}" \
+                | /usr/bin/base64 \
+                | tr -d '\r\n'
+            )"
+            (
+              export GIT_CONFIG_COUNT=1
+              export GIT_CONFIG_KEY_0='http.https://github.com/StreamScapeTV/streamscape-media.git.extraheader'
+              export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${private_git_auth}"
+              run_logged "${label}" "$@"
+            )
+          }
+
+          case "${TEST_PROFILE}" in
+            build|test|simulator)
+              wrapper="scripts/ci/run-apple-hosted-validation.sh"
+              test -f "${wrapper}" || {
+                printf 'Missing fixed Apple hosted validation wrapper: %s\n' "${wrapper}" >&2
+                exit 2
+              }
+              export CI_APPLE_HOSTED_PROFILE="${TEST_PROFILE}"
+              run_logged "apple-${TEST_PROFILE}" bash "${wrapper}"
+              exit 0
+              ;;
+          esac
+
           swiftpm_xcode_args=()
           if test "${APPLE_DEVELOP_CACHE_ENABLED:-false}" = "true"; then
             swiftpm_xcode_args=(-clonedSourcePackagesDirPath "${SWIFTPM_CLONES_DIR}")
           fi
 
-          case "$TEST_PROFILE" in
-            host)
-              test -f scripts/bootstrap-streamscape-media-binary.sh
+          case "${EXECUTION_LANE}" in
+            macos-test)
+              materialize_historical_media_bootstrap
               run_logged prepare-media bash scripts/bootstrap-streamscape-media-binary.sh
-              run_logged ios-build xcodebuild build-for-testing \
+              run_xcode_logged macos-test xcodebuild test \
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
-                "${swiftpm_xcode_args[@]}" \
-                -destination 'generic/platform=iOS Simulator' \
-                CODE_SIGNING_ALLOWED=NO
-              run_logged tvos-build xcodebuild build-for-testing \
-                -workspace streamscapetv.xcworkspace \
-                -scheme streamscapetv \
-                "${swiftpm_xcode_args[@]}" \
-                -destination 'generic/platform=tvOS Simulator' \
-                CODE_SIGNING_ALLOWED=NO
-              run_logged macos-build xcodebuild build-for-testing \
-                -workspace streamscapetv.xcworkspace \
-                -scheme streamscapetv \
-                "${swiftpm_xcode_args[@]}" \
-                -destination 'platform=macOS' \
-                CODE_SIGNING_ALLOWED=NO
-              run_logged macos-test xcodebuild test \
-                -workspace streamscapetv.xcworkspace \
-                -scheme streamscapetv \
-                "${swiftpm_xcode_args[@]}" \
+                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
                 -destination 'platform=macOS' \
                 CODE_SIGNING_ALLOWED=NO \
                 -only-testing:streamscapetvTests/SelectedBackendStateSyncRoutingIntegrationTests
+              ;;
+            ios-build)
+              materialize_historical_media_bootstrap
+              run_logged prepare-media bash scripts/bootstrap-streamscape-media-binary.sh
+              run_xcode_logged ios-build xcodebuild build \
+                -workspace streamscapetv.xcworkspace \
+                -scheme streamscapetv \
+                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
+                -destination 'generic/platform=iOS Simulator' \
+                CODE_SIGNING_ALLOWED=NO
+              ;;
+            tvos-build)
+              materialize_historical_media_bootstrap
+              run_logged prepare-media bash scripts/bootstrap-streamscape-media-binary.sh
+              run_xcode_logged tvos-build xcodebuild build \
+                -workspace streamscapetv.xcworkspace \
+                -scheme streamscapetv \
+                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
+                -destination 'generic/platform=tvOS Simulator' \
+                CODE_SIGNING_ALLOWED=NO
               ;;
             release-build)
               test -f scripts/bootstrap-streamscape-media-binary.sh
@@ -364,21 +501,21 @@ jobs:
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
                 -configuration Release \
-                "${swiftpm_xcode_args[@]}" \
+                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
                 -destination 'generic/platform=iOS Simulator' \
                 CODE_SIGNING_ALLOWED=NO
               run_logged tvos-release-build xcodebuild build \
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
                 -configuration Release \
-                "${swiftpm_xcode_args[@]}" \
+                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
                 -destination 'generic/platform=tvOS Simulator' \
                 CODE_SIGNING_ALLOWED=NO
               run_logged macos-release-build xcodebuild build \
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
                 -configuration Release \
-                "${swiftpm_xcode_args[@]}" \
+                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
                 -destination 'platform=macOS' \
                 CODE_SIGNING_ALLOWED=NO
               ;;
@@ -386,14 +523,14 @@ jobs:
               run_logged swift-package swift test
               ;;
             *)
-              printf 'Unsupported Apple test_profile: %s\n' "$TEST_PROFILE" >&2
+              printf 'Unsupported Apple execution lane: %s\n' "${EXECUTION_LANE}" >&2
               exit 2
               ;;
           esac
 
       - name: Record Apple develop cache contents
         id: apple_develop_cache_contents
-        if: ${{ steps.apple_develop_cache.outputs.enabled == 'true' && steps.commands.outcome == 'success' }}
+        if: ${{ matrix.cache_save && steps.apple_develop_cache.outputs.enabled == 'true' && steps.commands.outcome == 'success' }}
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -415,7 +552,7 @@ jobs:
 
       - name: Prepare Apple develop dependency cache archive
         id: apple_develop_cache_archive
-        if: ${{ steps.apple_develop_cache.outputs.enabled == 'true' && steps.commands.outcome == 'success' && steps.apple_develop_cache_restore.outputs.cache_hit != 'true' }}
+        if: ${{ matrix.cache_save && steps.apple_develop_cache.outputs.enabled == 'true' && steps.commands.outcome == 'success' && steps.apple_develop_cache_restore.outputs.cache_hit != 'true' }}
         shell: bash
         env:
           GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
@@ -528,13 +665,20 @@ jobs:
         with:
           repository: ${{ inputs.repository || github.repository }}
           ref: ${{ inputs.ref || github.ref_name }}
-          file_path: ${{ runner.temp }}/central-ci.log
-          file_name: ${{ github.run_id }}-${{ github.run_attempt }}.log.gz
+          file_path: ${{ runner.temp }}/central-ci-${{ matrix.lane }}.log
+          file_name: ${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.lane }}.log.gz
           gzip: 'true'
           mime_type: application/gzip
 
+  finish:
+    needs:
+      - plan
+      - execute
+    if: ${{ always() && inputs.ci_run_id != '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
       - name: Finish Agent State run
-        if: ${{ always() && inputs.ci_run_id != '' }}
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main
         env:
           AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
@@ -542,4 +686,4 @@ jobs:
         with:
           phase: finish
           ci_run_id: ${{ inputs.ci_run_id }}
-          status: ${{ steps.commands.outcome == 'success' && (steps.apple_develop_cache_archive.outcome == 'success' || steps.apple_develop_cache_archive.outcome == 'skipped') && (steps.apple_develop_cache_save.outcome == 'success' || steps.apple_develop_cache_save.outcome == 'skipped') && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && 'succeeded' || 'failed' }}
+          status: ${{ (needs.plan.result == 'cancelled' || needs.execute.result == 'cancelled') && 'cancelled' || (needs.plan.result == 'success' && needs.execute.result == 'success') && 'succeeded' || 'failed' }}

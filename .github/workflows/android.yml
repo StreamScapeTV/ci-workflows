@@ -80,7 +80,11 @@ jobs:
           ci_run_id: ${{ inputs.ci_run_id }}
 
       - name: Connect to private Git service
-        if: ${{ inputs.test_profile != 'smoke' }}
+        if: >-
+          ${{ inputs.test_profile != 'smoke'
+              && inputs.test_profile != 'build'
+              && inputs.test_profile != 'test'
+              && inputs.test_profile != 'emulator' }}
         uses: StreamScapeTV/ci-workflows/actions/private-git@main
         env:
           TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
@@ -112,6 +116,10 @@ jobs:
 
       - name: Resolve IPTV Android develop dependency cache scope
         id: android_develop_cache_scope
+        if: >-
+          ${{ inputs.test_profile != 'build'
+              && inputs.test_profile != 'test'
+              && inputs.test_profile != 'emulator' }}
         shell: bash
         env:
           SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
@@ -129,7 +137,9 @@ jobs:
           if test "${SOURCE_REPOSITORY}" = StreamScapeTV/iptv-android && test "${source_ref}" = develop; then
             enabled=true
           fi
+          source_sha="$(git rev-parse HEAD)"
           printf 'enabled=%s\n' "${enabled}" >> "${GITHUB_OUTPUT}"
+          printf 'source_sha=%s\n' "${source_sha}" >> "${GITHUB_OUTPUT}"
 
       - name: Restore IPTV Android develop dependency cache
         id: gradle_dependency_cache
@@ -150,6 +160,179 @@ jobs:
               )
             }}
 
+      - name: Resolve IPTV Android branch cache reader scope
+        id: android_branch_cache_scope
+        if: >-
+          ${{ inputs.test_profile != 'build'
+              && inputs.test_profile != 'test'
+              && inputs.test_profile != 'emulator' }}
+        shell: bash
+        env:
+          SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
+          REQUESTED_REF: ${{ inputs.ref }}
+        run: |
+          set -Eeuo pipefail
+          source_ref="${REQUESTED_REF}"
+          normalized_ref="${source_ref#refs/heads/}"
+          checkout_branch="$(git symbolic-ref --quiet --short HEAD || true)"
+          enabled=false
+
+          if test "${SOURCE_REPOSITORY}" = StreamScapeTV/iptv-android; then
+            if [[ "${source_ref}" == refs/pull/* ]]; then
+              enabled=true
+            elif test -n "${checkout_branch}" \
+              && test "${checkout_branch}" != develop \
+              && test "${checkout_branch}" != main \
+              && test "${normalized_ref}" != develop \
+              && test "${normalized_ref}" != main; then
+              enabled=true
+            fi
+          fi
+
+          printf 'enabled=%s\n' "${enabled}" >> "${GITHUB_OUTPUT}"
+
+      - name: Restore IPTV Android branch dependency cache
+        id: gradle_branch_dependency_cache
+        if: ${{ steps.android_branch_cache_scope.outputs.enabled == 'true' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.gradle/wrapper
+            ~/.gradle/caches/modules-2
+          key: >-
+            iptv-android-develop-gradle-deps-v1-${{ runner.os }}-${{ runner.arch }}-${{
+              hashFiles(
+                'gradle/wrapper/gradle-wrapper.properties',
+                'gradle/**/*.toml',
+                'settings.gradle*',
+                'build.gradle*',
+                '**/build.gradle*'
+              )
+            }}
+          restore-keys: |
+            iptv-android-develop-gradle-deps-v1-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Restore IPTV Android Gradle build cache
+        id: gradle_build_cache
+        if: >-
+          ${{
+            steps.android_develop_cache_scope.outputs.enabled == 'true'
+            || steps.android_branch_cache_scope.outputs.enabled == 'true'
+          }}
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.gradle/caches/build-cache-1
+          key: >-
+            iptv-android-develop-gradle-build-v1-${{ runner.os }}-${{ runner.arch }}-${{
+              hashFiles(
+                'gradle/wrapper/gradle-wrapper.properties',
+                'gradle/**/*.toml',
+                'settings.gradle*',
+                'build.gradle*',
+                '**/build.gradle*'
+              )
+            }}-${{ steps.android_develop_cache_scope.outputs.source_sha }}
+          restore-keys: |
+            iptv-android-develop-gradle-build-v1-${{ runner.os }}-${{ runner.arch }}-${{
+              hashFiles(
+                'gradle/wrapper/gradle-wrapper.properties',
+                'gradle/**/*.toml',
+                'settings.gradle*',
+                'build.gradle*',
+                '**/build.gradle*'
+              )
+            }}-
+
+      - name: Validate generic Android hosted request
+        if: >-
+          ${{ inputs.test_profile == 'build'
+              || inputs.test_profile == 'test'
+              || inputs.test_profile == 'emulator' }}
+        shell: bash
+        env:
+          PROJECT_DIRECTORY: ${{ inputs.project_directory }}
+          TEST_FILTER: ${{ inputs.test_filter }}
+          ROOM_SCHEMA: ${{ inputs.room_schema }}
+        run: |
+          set -Eeuo pipefail
+          test "${PROJECT_DIRECTORY}" = "." || {
+            echo "Generic Android hosted profiles require project_directory=." >&2
+            exit 2
+          }
+          test -z "${TEST_FILTER}" || {
+            echo "Generic Android hosted profiles do not accept test_filter" >&2
+            exit 2
+          }
+          test "${ROOM_SCHEMA}" = "false" || {
+            echo "Generic Android hosted profiles do not accept room_schema" >&2
+            exit 2
+          }
+          test -f scripts/ci/run-android-hosted-validation.sh || {
+            echo "Missing fixed Android hosted validation wrapper: scripts/ci/run-android-hosted-validation.sh" >&2
+            exit 2
+          }
+
+      - name: Prepare generic Android emulator
+        id: android_emulator
+        if: ${{ inputs.test_profile == 'emulator' }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          test -n "${sdk_root}" || {
+            echo "Android SDK root is unavailable on the hosted runner" >&2
+            exit 1
+          }
+          sdkmanager="$(command -v sdkmanager || true)"
+          avdmanager="$(command -v avdmanager || true)"
+          adb="$(command -v adb || true)"
+          emulator="$(command -v emulator || true)"
+          test -n "${sdkmanager}" || sdkmanager="${sdk_root}/cmdline-tools/latest/bin/sdkmanager"
+          test -n "${avdmanager}" || avdmanager="${sdk_root}/cmdline-tools/latest/bin/avdmanager"
+          test -n "${adb}" || adb="${sdk_root}/platform-tools/adb"
+          test -n "${emulator}" || emulator="${sdk_root}/emulator/emulator"
+          for tool in "${sdkmanager}" "${avdmanager}" "${adb}" "${emulator}"; do
+            test -x "${tool}" || {
+              printf 'Required Android emulator tool is unavailable: %s\n' "${tool}" >&2
+              exit 1
+            }
+          done
+
+          image='system-images;android-36;google_apis;x86_64'
+          avd_name='central-android-api36'
+          serial='emulator-5554'
+          "${sdkmanager}" --install platform-tools emulator "${image}" >> "${CI_LOG}" 2>&1
+          printf 'no\n' | "${avdmanager}" create avd --force \
+            --name "${avd_name}" --package "${image}" --device pixel >> "${CI_LOG}" 2>&1
+          if test -e /dev/kvm && test ! -w /dev/kvm; then
+            sudo chmod 666 /dev/kvm
+          fi
+          "${adb}" start-server >> "${CI_LOG}" 2>&1
+          "${emulator}" -avd "${avd_name}" -port 5554 \
+            -no-window -no-audio -no-boot-anim -no-snapshot-save -wipe-data \
+            -gpu swiftshader_indirect >> "${CI_LOG}" 2>&1 &
+          emulator_pid=$!
+          printf 'pid=%s\n' "${emulator_pid}" >> "${GITHUB_OUTPUT}"
+          printf 'ANDROID_SERIAL=%s\n' "${serial}" >> "${GITHUB_ENV}"
+
+          booted=false
+          for _ in $(seq 1 180); do
+            if "${adb}" -s "${serial}" shell getprop sys.boot_completed 2>/dev/null | grep -qx '1'; then
+              booted=true
+              break
+            fi
+            if ! kill -0 "${emulator_pid}" 2>/dev/null; then
+              echo "Android emulator exited before boot completed" >&2
+              exit 1
+            fi
+            sleep 2
+          done
+          test "${booted}" = true || {
+            echo "Android emulator did not boot within the bounded timeout" >&2
+            exit 1
+          }
+          "${adb}" -s "${serial}" shell input keyevent 82 >/dev/null 2>&1 || true
+
       - name: Run fixed Android profile
         id: commands
         shell: bash
@@ -161,14 +344,7 @@ jobs:
           CIW_MAVEN_PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
         run: |
           set -Eeuo pipefail
-          case "${PROJECT_DIRECTORY}" in
-            .|android) ;;
-            *) echo "Unsupported Android project_directory" >&2; exit 2 ;;
-          esac
-
           repository_root="${PWD}"
-          cd "${PROJECT_DIRECTORY}"
-          test -x gradlew
 
           run_logged() {
             local label="$1"
@@ -179,6 +355,22 @@ jobs:
               return 1
             fi
           }
+
+          case "${TEST_PROFILE}" in
+            build|test|emulator)
+              wrapper="${repository_root}/scripts/ci/run-android-hosted-validation.sh"
+              export CI_ANDROID_HOSTED_PROFILE="${TEST_PROFILE}"
+              run_logged "android-${TEST_PROFILE}" bash "${wrapper}"
+              exit 0
+              ;;
+          esac
+
+          case "${PROJECT_DIRECTORY}" in
+            .|android) ;;
+            *) echo "Unsupported Android project_directory" >&2; exit 2 ;;
+          esac
+          cd "${PROJECT_DIRECTORY}"
+          test -x gradlew
 
           run_gradle() {
             local started="${SECONDS}"
@@ -195,6 +387,7 @@ jobs:
           }
 
           policy_root="${repository_root}/scripts/ci"
+          performance_test_class='com.streamscapetv.app.foundation.performance.testing.PerformanceBudgetTest'
 
           case "${TEST_PROFILE}" in
             smoke)
@@ -220,7 +413,19 @@ jobs:
               run_gradle assembleDebug
               ;;
             full)
-              run_gradle compileDebugKotlin testDebugUnitTest lintDebug assembleDebug
+              correctness_init_script="${RUNNER_TEMP}/android-full-correctness.init.gradle"
+              printf '%s\n' \
+                'allprojects {' \
+                '  tasks.withType(org.gradle.api.tasks.testing.Test).configureEach {' \
+                '    filter {' \
+                "      excludeTestsMatching \"${performance_test_class}\"" \
+                '    }' \
+                '  }' \
+                '}' > "${correctness_init_script}"
+              run_gradle --init-script "${correctness_init_script}" compileDebugKotlin testDebugUnitTest lintDebug assembleDebug
+              ;;
+            search-performance)
+              run_gradle testDebugUnitTest --tests "${performance_test_class}"
               ;;
             release)
               run_release_policy=false
@@ -296,6 +501,61 @@ jobs:
             fi
           fi
 
+      - name: Stop generic Android emulator
+        if: ${{ always() && inputs.test_profile == 'emulator' }}
+        shell: bash
+        env:
+          EMULATOR_PID: ${{ steps.android_emulator.outputs.pid }}
+        run: |
+          set -Eeuo pipefail
+          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          adb="$(command -v adb || true)"
+          test -n "${adb}" || adb="${sdk_root}/platform-tools/adb"
+          serial="${ANDROID_SERIAL:-emulator-5554}"
+          if test -x "${adb}"; then
+            "${adb}" -s "${serial}" emu kill >/dev/null 2>&1 || true
+          fi
+          if test -n "${EMULATOR_PID}" && kill -0 "${EMULATOR_PID}" 2>/dev/null; then
+            kill "${EMULATOR_PID}" 2>/dev/null || true
+          fi
+
+      - name: Record IPTV Android cache measurements
+        id: android_cache_measurements
+        if: >-
+          ${{
+            steps.android_develop_cache_scope.outputs.enabled == 'true'
+            || steps.android_branch_cache_scope.outputs.enabled == 'true'
+          }}
+        shell: bash
+        env:
+          DEVELOP_DEPENDENCY_HIT: ${{ steps.gradle_dependency_cache.outputs.cache-hit }}
+          BRANCH_DEPENDENCY_HIT: ${{ steps.gradle_branch_dependency_cache.outputs.cache-hit }}
+          BUILD_CACHE_HIT: ${{ steps.gradle_build_cache.outputs.cache-hit }}
+        run: |
+          set -Eeuo pipefail
+          measure_bytes() {
+            local label="$1"
+            local path="$2"
+            local bytes=0
+            if test -e "${path}"; then
+              bytes="$(du -sb "${path}" | awk '{print $1}')"
+            fi
+            printf '%s_bytes=%s\n' "${label}" "${bytes}" >> "${CI_LOG}"
+          }
+
+          {
+            printf '\n===== android-cache =====\n'
+            printf 'source_sha=%s\n' "${{ steps.android_develop_cache_scope.outputs.source_sha }}"
+            printf 'develop_writer=%s\n' "${{ steps.android_develop_cache_scope.outputs.enabled }}"
+            printf 'branch_reader=%s\n' "${{ steps.android_branch_cache_scope.outputs.enabled }}"
+            printf 'develop_dependency_hit=%s\n' "${DEVELOP_DEPENDENCY_HIT}"
+            printf 'branch_dependency_hit=%s\n' "${BRANCH_DEPENDENCY_HIT}"
+            printf 'build_cache_hit=%s\n' "${BUILD_CACHE_HIT}"
+          } >> "${CI_LOG}"
+          measure_bytes gradle_wrapper "${HOME}/.gradle/wrapper"
+          measure_bytes gradle_modules "${HOME}/.gradle/caches/modules-2"
+          measure_bytes gradle_build_cache "${HOME}/.gradle/caches/build-cache-1"
+
       - name: Save IPTV Android develop dependency cache
         id: gradle_dependency_cache_save
         if: >-
@@ -311,6 +571,20 @@ jobs:
             ~/.gradle/wrapper
             ~/.gradle/caches/modules-2
           key: ${{ steps.gradle_dependency_cache.outputs.cache-primary-key }}
+
+      - name: Save IPTV Android Gradle build cache
+        id: gradle_build_cache_save
+        if: >-
+          ${{
+            steps.android_develop_cache_scope.outputs.enabled == 'true'
+            && steps.commands.outcome == 'success'
+            && (inputs.test_profile == 'full' || inputs.test_profile == 'release')
+            && steps.gradle_build_cache.outputs.cache-hit != 'true'
+          }}
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.gradle/caches/build-cache-1
+          key: ${{ steps.gradle_build_cache.outputs.cache-primary-key }}
 
       - name: Scrub configured CI secrets from private log
         id: scrub
@@ -361,9 +635,8 @@ jobs:
           repository: ${{ inputs.repository || github.repository }}
           ref: ${{ inputs.ref || github.ref_name }}
           file_path: ${{ runner.temp }}/central-ci.log
-          file_name: ${{ github.run_id }}-${{ github.run_attempt }}.log.gz
-          gzip: 'true'
-          mime_type: application/gzip
+          file_name: ${{ github.run_id }}-${{ github.run_attempt }}.txt
+          mime_type: text/plain
 
       - name: Finish Agent State run
         if: ${{ always() && inputs.ci_run_id != '' }}
@@ -374,4 +647,4 @@ jobs:
         with:
           phase: finish
           ci_run_id: ${{ inputs.ci_run_id }}
-          status: ${{ steps.commands.outcome == 'success' && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && (steps.gradle_dependency_cache_save.outcome == 'success' || steps.gradle_dependency_cache_save.outcome == 'skipped') && 'succeeded' || 'failed' }}
+          status: ${{ steps.commands.outcome == 'success' && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && (steps.android_cache_measurements.outcome == 'success' || steps.android_cache_measurements.outcome == 'skipped') && (steps.gradle_dependency_cache_save.outcome == 'success' || steps.gradle_dependency_cache_save.outcome == 'skipped') && (steps.gradle_build_cache_save.outcome == 'success' || steps.gradle_build_cache_save.outcome == 'skipped') && 'succeeded' || 'failed' }}

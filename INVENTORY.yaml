@@ -7,7 +7,9 @@ workflows:
   python: .github/workflows/python.yml
   node: .github/workflows/node.yml
   flutter: .github/workflows/flutter.yml
+  maven: .github/workflows/maven.yml
   public_native_image_chart: .github/workflows/public-native-image-chart.yml
+  oci_reproducibility: .github/workflows/oci-reproducibility.yml
   central_dispatch: .github/workflows/central-ci-dispatch.yml
   self_check: .github/workflows/self-check.yml
   runner_images: .github/workflows/runner-images.yml
@@ -16,6 +18,9 @@ actions:
   agent_state: actions/agent-state/action.yml
   google_drive: actions/google-drive/action.yml
   private_git: actions/private-git/action.yml
+
+scripts:
+  oci_reproducibility: scripts/ci/oci_reproducibility.py
 
 services:
   runner_images: runner-images/
