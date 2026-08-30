@@ -127,22 +127,18 @@ jobs:
           persist-credentials: false
 
       - id: authority
-        name: Verify exact stable tag authority
+        name: Verify exact tag authority
         shell: bash
         env:
           RELEASE_TAG: ${{ inputs.ref }}
         run: |
           set -Eeuo pipefail
-          [[ "${RELEASE_TAG}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           git -C source show-ref --verify --quiet "refs/tags/${RELEASE_TAG}"
           source_sha="$(git -C source rev-parse HEAD)"
           tag_sha="$(git -C source rev-parse "refs/tags/${RELEASE_TAG}^{commit}")"
           test "${source_sha}" = "${tag_sha}"
           test -z "$(git -C source status --porcelain=v1 --untracked-files=all)"
-          {
-            printf 'version=%s\n' "${RELEASE_TAG}"
-            printf 'source_sha=%s\n' "${source_sha}"
-          } >> "${GITHUB_OUTPUT}"
+          printf 'source_sha=%s\n' "${source_sha}" >> "${GITHUB_OUTPUT}"
 
       - name: Record exact tagged product source SHA
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main
@@ -198,12 +194,37 @@ jobs:
           helm version --short >> "${CI_LOG}" 2>&1
           python3 .ciw/scripts/ci/native_image_chart_validate.py >> "${CI_LOG}" 2>&1
 
+      - name: Resolve product-owned publication version
+        id: publication
+        shell: bash
+        env:
+          CHART_PATH: ${{ inputs.chart_path }}
+        run: |
+          set -Eeuo pipefail
+          chart_metadata="$(helm show chart "source/${CHART_PATH}")"
+          publication_version="$(
+            printf '%s\n' "${chart_metadata}" |
+              awk '
+                $1 == "version:" {
+                  if (found++) exit 2
+                  if (NF != 2) exit 2
+                  value = $2
+                }
+                END {
+                  if (found != 1 || value == "") exit 2
+                  print value
+                }
+              '
+          )"
+          test -n "${publication_version}"
+          printf 'publication_version=%s\n' "${publication_version}" >> "${GITHUB_OUTPUT}"
+
       - id: prepare
         name: Build image and package chart
         shell: bash
         env:
           PYTHONPATH: ${{ github.workspace }}/.ciw/src
-          VERSION: ${{ steps.authority.outputs.version }}
+          VERSION: ${{ steps.publication.outputs.publication_version }}
           SOURCE_SHA: ${{ steps.authority.outputs.source_sha }}
           IMAGE_NAME: ${{ inputs.image_name }}
           CHART_NAME: ${{ inputs.chart_name }}
@@ -223,7 +244,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/.ciw/src
           CIW_REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
           CIW_REGISTRY_TOKEN: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
-          VERSION: ${{ steps.authority.outputs.version }}
+          VERSION: ${{ steps.publication.outputs.publication_version }}
           IMAGE_NAME: ${{ inputs.image_name }}
           CHART_NAME: ${{ inputs.chart_name }}
         run: |
@@ -264,7 +285,7 @@ jobs:
         id: revalidate
         shell: bash
         env:
-          RELEASE_TAG: ${{ steps.authority.outputs.version }}
+          RELEASE_TAG: ${{ inputs.ref }}
           SOURCE_SHA: ${{ steps.authority.outputs.source_sha }}
           SOURCE_TOKEN: ${{ steps.source_token.outputs.token }}
         run: |
@@ -282,10 +303,10 @@ jobs:
         id: publish
         shell: bash
         env:
-          VERSION: ${{ steps.authority.outputs.version }}
+          VERSION: ${{ steps.publication.outputs.publication_version }}
           IMAGE_NAME: ${{ inputs.image_name }}
           LOCAL_IMAGE_REFERENCE: ${{ steps.prepare.outputs.image_reference }}
-          REMOTE_IMAGE_REFERENCE: ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ inputs.image_name }}:${{ steps.authority.outputs.version }}
+          REMOTE_IMAGE_REFERENCE: ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ inputs.image_name }}:${{ steps.publication.outputs.publication_version }}
           PACKAGE_PATH: ${{ steps.prepare.outputs.package_path }}
         run: |
           set -Eeuo pipefail
@@ -300,10 +321,10 @@ jobs:
         name: Authenticated private registry read-back
         shell: bash
         env:
-          VERSION: ${{ steps.authority.outputs.version }}
+          VERSION: ${{ steps.publication.outputs.publication_version }}
           IMAGE_NAME: ${{ inputs.image_name }}
           CHART_NAME: ${{ inputs.chart_name }}
-          REMOTE_IMAGE_REFERENCE: ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ inputs.image_name }}:${{ steps.authority.outputs.version }}
+          REMOTE_IMAGE_REFERENCE: ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ inputs.image_name }}:${{ steps.publication.outputs.publication_version }}
           CHART_PACKAGE_SHA256: ${{ steps.prepare.outputs.chart_package_sha256 }}
         run: |
           set -Eeuo pipefail
@@ -426,4 +447,4 @@ jobs:
         with:
           phase: finish
           ci_run_id: ${{ inputs.ci_run_id }}
-          status: ${{ steps.private_git.outcome == 'success' && steps.validate.outcome == 'success' && steps.prepare.outcome == 'success' && steps.authenticate.outcome == 'success' && steps.revalidate.outcome == 'success' && steps.publish.outcome == 'success' && steps.readback.outcome == 'success' && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && steps.cleanup.outcome == 'success' && 'succeeded' || 'failed' }}
+          status: ${{ steps.private_git.outcome == 'success' && steps.validate.outcome == 'success' && steps.publication.outcome == 'success' && steps.prepare.outcome == 'success' && steps.authenticate.outcome == 'success' && steps.revalidate.outcome == 'success' && steps.publish.outcome == 'success' && steps.readback.outcome == 'success' && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && steps.cleanup.outcome == 'success' && 'succeeded' || 'failed' }}
