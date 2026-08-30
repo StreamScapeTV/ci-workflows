@@ -103,10 +103,26 @@ jobs:
           ci_run_id: ${{ inputs.ci_run_id }}
           observed_source_sha: ${{ steps.source_identity.outputs.source_sha }}
 
-      - name: Set up Python 3.12
+      - name: Resolve source Python version
+        id: python_version
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          version='3.x'
+          if test -f .python-version; then
+            test "$(wc -l < .python-version | tr -d '[:space:]')" = '1'
+            version="$(tr -d '\r\n' < .python-version)"
+            [[ "${version}" =~ ^3\.[0-9]{1,2}\.[0-9]{1,2}$ ]] || {
+              echo '.python-version must contain exactly one bounded CPython 3.x.y version' >&2
+              exit 2
+            }
+          fi
+          printf 'version=%s\n' "${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up source Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: ${{ steps.python_version.outputs.version }}
 
       - name: Run fixed Python profile
         id: commands
