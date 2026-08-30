@@ -467,7 +467,7 @@ jobs:
                 CODE_SIGNING_ALLOWED=NO
               ;;
             release-build)
-              materialize_historical_media_bootstrap
+              test -f scripts/bootstrap-streamscape-media-binary.sh
               run_logged prepare-media bash scripts/bootstrap-streamscape-media-binary.sh
               run_logged ios-release-build xcodebuild build \
                 -workspace streamscapetv.xcworkspace \

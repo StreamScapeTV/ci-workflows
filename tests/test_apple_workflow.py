@@ -153,11 +153,16 @@ capture before {safe_expansion} after
         self.assertIn("492be28b492dd6bc3458cbd884893869e150818e", script)
         self.assertIn("application/vnd.github.raw+json", script)
         self.assertIn("git hash-object", script)
-        self.assertEqual(script.count("materialize_historical_media_bootstrap"), 5)
+        self.assertEqual(script.count("materialize_historical_media_bootstrap"), 4)
         self.assertEqual(
             script.count("run_logged prepare-media bash scripts/bootstrap-streamscape-media-binary.sh"),
             4,
         )
+        release_start = script.index('release-build)')
+        release_end = script.index('swift-package)', release_start)
+        release_block = script[release_start:release_end]
+        self.assertIn("test -f scripts/bootstrap-streamscape-media-binary.sh", release_block)
+        self.assertNotIn("materialize_historical_media_bootstrap", release_block)
 
         generic_start = script.index('build|test|simulator)')
         generic_end = script.index('swiftpm_xcode_args=()', generic_start)
