@@ -98,6 +98,29 @@ class MavenWorkflowTests(unittest.TestCase):
         self.assertIn('Authorization: token ${CIW_MAVEN_PACKAGE_READ_TOKEN}', readback["run"])
         self.assertIn('test "${actual_sha256}" = "${expected_sha256}"', readback["run"])
 
+    def test_existing_forgejo_version_is_rejected_before_write_auth(self) -> None:
+        steps = self.job["steps"]
+        names = [step.get("name") for step in steps]
+        preflight = self.step("Reject pre-existing Forgejo Maven version")
+        publish = self.step("Publish seven modules to Forgejo and local Maven staging")
+
+        self.assertLess(names.index("Connect to private Forgejo service"), names.index(preflight["name"]))
+        self.assertLess(names.index(preflight["name"]), names.index(publish["name"]))
+        self.assertEqual(
+            set(preflight["env"]),
+            {"RELEASE_VERSION", "CIW_MAVEN_PACKAGE_READ_TOKEN"},
+        )
+        self.assertNotIn("FORGEJO_REGISTRY_TOKEN", preflight["env"])
+        self.assertNotIn("FORGEJO_REGISTRY_USERNAME", preflight["env"])
+        script = preflight["run"]
+        for artifact in ARTIFACTS:
+            self.assertIn(artifact, script)
+        self.assertIn('Authorization: token ${CIW_MAVEN_PACKAGE_READ_TOKEN}', script)
+        self.assertIn("Maven version already exists; refusing overwrite", script)
+        self.assertIn("404) ;;", script)
+        self.assertIn("200)", script)
+        self.assertIn("Forgejo Maven version preflight failed with HTTP", script)
+
     def test_drive_mirror_is_nested_versioned_and_immutable(self) -> None:
         archive = self.step("Store immutable Maven-layout archive in Google Drive")
         manifest = self.step("Store immutable release manifest in Google Drive")
