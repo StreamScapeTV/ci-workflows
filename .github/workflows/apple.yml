@@ -224,6 +224,7 @@ jobs:
             && test -n "${DRIVE_REFRESH_TOKEN}"; then
             transport_ready=true
           fi
+          # Historical sources may materialize the approved helper later in the lane.
           fingerprint_ready=false
           if test -f scripts/bootstrap-streamscape-media-binary.sh \
             && test -f streamscapetv.xcodeproj/project.pbxproj; then
