@@ -1,5 +1,13 @@
 from pathlib import Path
+import http.server
+import json
+import os
+import subprocess
+import tempfile
+import threading
+import urllib.parse
 import unittest
+from unittest.mock import patch
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -10,7 +18,7 @@ class CiHelperTests(unittest.TestCase):
         inventory = yaml.safe_load((ROOT / "INVENTORY.yaml").read_text())
         self.assertEqual(
             set(inventory["workflows"]),
-            {"apple", "android", "python", "node", "flutter", "maven", "container_service", "public_native_image_chart", "oci_reproducibility", "central_dispatch", "self_check", "runner_images"},
+            {"apple", "android", "python", "node", "flutter", "maven", "container_service", "public_native_image_chart", "oci_reproducibility", "branch_delete", "central_dispatch", "self_check", "runner_images"},
         )
         self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive", "private_git"})
         self.assertEqual(set(inventory["scripts"]), {"oci_reproducibility"})
@@ -21,10 +29,10 @@ class CiHelperTests(unittest.TestCase):
 
     def test_workflows_use_no_reusable_prefix(self) -> None:
         names = {p.name for p in (ROOT / ".github/workflows").glob("*.yml")}
-        self.assertEqual(len(names), 12)
+        self.assertEqual(len(names), 13)
         self.assertNotIn("broker.yml", names)
         self.assertFalse(any(name.startswith("reusable-") for name in names))
-        for name in ("apple.yml", "android.yml", "python.yml", "node.yml", "flutter.yml", "maven.yml", "container-service.yml"):
+        for name in ("apple.yml", "android.yml", "python.yml", "node.yml", "flutter.yml", "maven.yml", "container-service.yml", "branch-delete.yml"):
             self.assertIn(name, names)
 
     def test_only_three_custom_actions_exist(self) -> None:
@@ -192,6 +200,10 @@ class CiHelperTests(unittest.TestCase):
             self.assertEqual(jobs[name]["concurrency"]["group"], "central-ci-${{ inputs.active_key }}")
             self.assertTrue(jobs[name]["concurrency"]["cancel-in-progress"])
 
+        branch_delete = jobs["branch_delete"]["concurrency"]
+        self.assertEqual(branch_delete["group"], "central-ci-maintenance-${{ inputs.active_key }}")
+        self.assertFalse(branch_delete["cancel-in-progress"])
+
         snapshot = jobs["source_snapshot"]["concurrency"]
         self.assertEqual(snapshot["group"], "central-ci-snapshot-${{ inputs.active_key }}")
         self.assertTrue(snapshot["cancel-in-progress"])
@@ -199,10 +211,10 @@ class CiHelperTests(unittest.TestCase):
 
         settlement = jobs["settle_cancelled"]
         self.assertNotIn("concurrency", settlement)
-        self.assertEqual(set(settlement["needs"]), {"request", *execution_jobs, "source_snapshot"})
+        self.assertEqual(set(settlement["needs"]), {"request", *execution_jobs, "branch_delete", "source_snapshot"})
         self.assertIn("always()", settlement["if"])
         self.assertIn("needs.request.result != 'success'", settlement["if"])
-        for name in (*execution_jobs, "source_snapshot"):
+        for name in (*execution_jobs, "branch_delete", "source_snapshot"):
             self.assertIn(f"needs.{name}.result == 'cancelled'", settlement["if"])
         self.assertEqual(
             settlement["steps"][-1]["with"]["phase"],
@@ -230,6 +242,242 @@ class CiHelperTests(unittest.TestCase):
         )
         self.assertEqual(job["with"]["ci_run_id"], "${{ inputs.ci_run_id }}")
         self.assertTrue(job["secrets"] == "inherit")
+
+    def test_branch_delete_capability_is_bounded_and_fail_closed(self) -> None:
+        workflow = yaml.safe_load((ROOT / ".github/workflows/branch-delete.yml").read_text())
+        dispatch = yaml.safe_load((ROOT / ".github/workflows/central-ci-dispatch.yml").read_text())
+        call = workflow["on"]["workflow_call"]
+        self.assertEqual(set(call["inputs"]), {"repository", "branch", "expected_head", "ci_run_id"})
+        self.assertNotIn("workflow_dispatch", workflow["on"])
+        self.assertEqual(workflow["permissions"], {"contents": "read"})
+
+        steps = workflow["jobs"]["delete"]["steps"]
+        by_name = {step.get("name"): step for step in steps if step.get("name")}
+        start = by_name["Mark Agent State run as running"]
+        validate = by_name["Validate bounded branch deletion inputs"]
+        token = by_name["Create exact target repository token"]
+        delete = by_name["Delete exact eligible branch"]
+        finish = by_name["Finish Agent State run"]
+        self.assertEqual(start["with"]["phase"], "start")
+        self.assertEqual(token["uses"], "actions/create-github-app-token@v2")
+        self.assertEqual(token["with"]["owner"], "StreamScapeTV")
+        self.assertEqual(token["with"]["repositories"], "${{ steps.request.outputs.repository_name }}")
+        self.assertEqual(token["with"]["permission-contents"], "write")
+        self.assertIn('git check-ref-format --branch "${TARGET_BRANCH}"', validate["run"])
+        self.assertIn('branch in {"main", "develop"}', validate["run"])
+        self.assertIn("repository live default branch", delete["run"])
+        self.assertIn('branch_value.get("protected") is not False', delete["run"])
+        self.assertIn('rule.get("type") == "deletion"', delete["run"])
+        self.assertIn('for page in range(1, 11)', delete["run"])
+        self.assertIn('?per_page=100&page={page}', delete["run"])
+        self.assertIn('branch rules exceed the bounded verification limit', delete["run"])
+        self.assertGreaterEqual(delete["run"].count("validate_live_state()"), 2)
+        self.assertIn('/git/refs/heads/', delete["run"])
+        self.assertNotIn("tags/", delete["run"])
+        self.assertEqual(finish["if"], "${{ always() }}")
+        self.assertIn("steps.delete_branch.outcome == 'success'", finish["with"]["status"])
+
+        request_steps = dispatch["jobs"]["request"]["steps"]
+        request_by_name = {step.get("name"): step for step in request_steps if step.get("name")}
+        validator = request_by_name["Validate branch deletion request"]
+        self.assertEqual(validator["if"], "${{ steps.claim.outputs.workflow_key == 'maintenance.branch-delete' }}")
+        self.assertIn('test "${TEST_PROFILE}" = delete', validator["run"])
+        self.assertIn('test "${REQUEST_IS_TAG}" = false', validator["run"])
+        self.assertIn('set(inputs) != {"expected_head"}', validator["run"])
+
+        job = dispatch["jobs"]["branch_delete"]
+        self.assertEqual(
+            job["if"],
+            "${{ needs.request.outputs.workflow_key == 'maintenance.branch-delete' && needs.request.outputs.test_profile == 'delete' }}",
+        )
+        self.assertEqual(job["uses"], "./.github/workflows/branch-delete.yml")
+        self.assertEqual(set(job["with"]), {"repository", "branch", "expected_head", "ci_run_id"})
+        self.assertEqual(job["with"]["repository"], "${{ needs.request.outputs.repository }}")
+        self.assertEqual(job["with"]["branch"], "${{ needs.request.outputs.ref }}")
+        self.assertEqual(job["with"]["expected_head"], "${{ fromJSON(needs.request.outputs.inputs_json).expected_head }}")
+        self.assertTrue(job["secrets"] == "inherit")
+
+        expected_head = "a" * 40
+
+        def embedded_python(script: str) -> str:
+            marker = "python3 - <<'PY'\n"
+            start = script.index(marker) + len(marker)
+            end = script.index("\nPY", start)
+            return script[start:end] + "\n"
+
+        validate_python = embedded_python(validate["run"])
+        delete_python = embedded_python(delete["run"])
+
+        def run_embedded(source: str, env_updates: dict[str, str]) -> subprocess.CompletedProcess[str]:
+            try:
+                with patch.dict(os.environ, env_updates, clear=False):
+                    exec(compile(source, "<branch-delete-workflow>", "exec"), {"__name__": "__main__"})
+            except SystemExit as exc:
+                code = exc.code if isinstance(exc.code, int) else 1
+                return subprocess.CompletedProcess(["embedded-python"], code, "", str(exc))
+            except Exception as exc:  # pragma: no cover - surfaced as focused-test failure
+                return subprocess.CompletedProcess(["embedded-python"], 1, "", repr(exc))
+            return subprocess.CompletedProcess(["embedded-python"], 0, "", "")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "github-output"
+            def validate_branch(branch: str) -> subprocess.CompletedProcess[str]:
+                output.write_text("", encoding="utf-8")
+                env = os.environ.copy()
+                env.update(
+                    {
+                        "TARGET_REPOSITORY": "StreamScapeTV/example",
+                        "TARGET_BRANCH": branch,
+                        "EXPECTED_HEAD": expected_head,
+                        "GITHUB_OUTPUT": str(output),
+                    }
+                )
+                completed = run_embedded(validate_python, {
+                    "TARGET_REPOSITORY": env["TARGET_REPOSITORY"],
+                    "TARGET_BRANCH": env["TARGET_BRANCH"],
+                    "EXPECTED_HEAD": env["EXPECTED_HEAD"],
+                    "GITHUB_OUTPUT": env["GITHUB_OUTPUT"],
+                })
+                if completed.returncode == 0:
+                    ref_check = subprocess.run(
+                        ["git", "check-ref-format", "--branch", branch],
+                        cwd=ROOT,
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=False,
+                        timeout=10,
+                    )
+                    if ref_check.returncode != 0:
+                        return subprocess.CompletedProcess(
+                            completed.args,
+                            ref_check.returncode,
+                            completed.stdout,
+                            "branch deletion branch name is not a valid Git branch",
+                        )
+                return completed
+
+            self.assertEqual(validate_branch("feature/cleanup").returncode, 0)
+            self.assertNotEqual(validate_branch("main").returncode, 0)
+            self.assertNotEqual(validate_branch("develop").returncode, 0)
+            self.assertNotEqual(validate_branch("refs/heads/feature/cleanup").returncode, 0)
+
+        def run_delete_case(**scenario: object) -> tuple[subprocess.CompletedProcess[str], list[tuple[str, str]]]:
+            records: list[tuple[str, str]] = []
+            branch_calls = 0
+            repository_calls = 0
+            rules_calls = 0
+
+            class Handler(http.server.BaseHTTPRequestHandler):
+                def log_message(self, format: str, *args: object) -> None:
+                    return
+
+                def _send_json(self, status: int, value: object) -> None:
+                    body = json.dumps(value).encode("utf-8")
+                    self.send_response(status)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+
+                def do_GET(self) -> None:
+                    nonlocal branch_calls, repository_calls, rules_calls
+                    parsed = urllib.parse.urlsplit(self.path)
+                    path = urllib.parse.unquote(parsed.path)
+                    query = urllib.parse.parse_qs(parsed.query)
+                    records.append(("GET", path))
+                    if path == "/repos/StreamScapeTV/example":
+                        repository_calls += 1
+                        default_branch = str(scenario.get("default_branch", "trunk"))
+                        if repository_calls > 1 and scenario.get("second_default_branch"):
+                            default_branch = str(scenario["second_default_branch"])
+                        self._send_json(200, {"full_name": "StreamScapeTV/example", "default_branch": default_branch})
+                        return
+                    if path == "/repos/StreamScapeTV/example/branches/feature/cleanup":
+                        branch_calls += 1
+                        if scenario.get("missing"):
+                            self._send_json(404, {"message": "Not Found"})
+                            return
+                        head = str(scenario.get("head", expected_head))
+                        if branch_calls > 1 and scenario.get("second_head"):
+                            head = str(scenario["second_head"])
+                        self._send_json(
+                            200,
+                            {
+                                "name": "feature/cleanup",
+                                "protected": bool(scenario.get("protected", False)),
+                                "commit": {"sha": head},
+                            },
+                        )
+                        return
+                    if path == "/repos/StreamScapeTV/example/rules/branches/feature/cleanup":
+                        rules_calls += 1
+                        page = int(query.get("page", ["1"])[0])
+                        if scenario.get("deletion_rule_page_two"):
+                            if page == 1:
+                                self._send_json(200, [{"type": "required_linear_history"}] * 100)
+                            elif page == 2:
+                                self._send_json(200, [{"type": "deletion"}])
+                            else:
+                                self._send_json(200, [])
+                            return
+                        rules = [{"type": "deletion"}] if scenario.get("deletion_rule") else []
+                        self._send_json(200, rules)
+                        return
+                    self._send_json(404, {"message": "Not Found"})
+
+                def do_DELETE(self) -> None:
+                    path = urllib.parse.unquote(urllib.parse.urlsplit(self.path).path)
+                    records.append(("DELETE", path))
+                    if path == "/repos/StreamScapeTV/example/git/refs/heads/feature/cleanup":
+                        self.send_response(204)
+                        self.end_headers()
+                        return
+                    self._send_json(404, {"message": "Not Found"})
+
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                script = delete_python.replace(
+                    'api_root = "https://api.github.com"',
+                    f'api_root = "http://127.0.0.1:{server.server_port}"',
+                )
+                completed = run_embedded(
+                    script,
+                    {
+                        "TARGET_REPOSITORY": "StreamScapeTV/example",
+                        "TARGET_BRANCH": "feature/cleanup",
+                        "EXPECTED_HEAD": expected_head,
+                        "TARGET_TOKEN": "masked-test-token",
+                    },
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+            return completed, records
+
+        success, records = run_delete_case()
+        self.assertEqual(success.returncode, 0, success.stderr)
+        self.assertEqual(
+            [record for record in records if record[0] == "DELETE"],
+            [("DELETE", "/repos/StreamScapeTV/example/git/refs/heads/feature/cleanup")],
+        )
+
+        for scenario in (
+            {"default_branch": "feature/cleanup"},
+            {"second_default_branch": "feature/cleanup"},
+            {"head": "b" * 40},
+            {"second_head": "b" * 40},
+            {"missing": True},
+            {"protected": True},
+            {"deletion_rule": True},
+            {"deletion_rule_page_two": True},
+        ):
+            refused, refused_records = run_delete_case(**scenario)
+            self.assertNotEqual(refused.returncode, 0, scenario)
+            self.assertFalse(any(method == "DELETE" for method, _ in refused_records), scenario)
 
     def test_fixed_profiles_replace_arbitrary_command_transport(self) -> None:
         forbidden = ("prepare_command", "build_command", "test_command", "release_command", "bash -lc")
