@@ -224,12 +224,21 @@ jobs:
             && test -n "${DRIVE_REFRESH_TOKEN}"; then
             transport_ready=true
           fi
+          fingerprint_ready=false
+          if test -f scripts/bootstrap-streamscape-media-binary.sh \
+            && test -f streamscapetv.xcodeproj/project.pbxproj; then
+            fingerprint_ready=true
+          fi
           restore_enabled=false
-          if test "${restore_eligible}" = "true" && test "${transport_ready}" = "true"; then
+          if test "${restore_eligible}" = "true" \
+            && test "${transport_ready}" = "true" \
+            && test "${fingerprint_ready}" = "true"; then
             restore_enabled=true
           fi
           save_enabled=false
-          if test "${save_eligible}" = "true" && test "${transport_ready}" = "true"; then
+          if test "${save_eligible}" = "true" \
+            && test "${transport_ready}" = "true" \
+            && test "${fingerprint_ready}" = "true"; then
             save_enabled=true
           fi
 
@@ -248,8 +257,6 @@ jobs:
           } >> "${GITHUB_ENV}"
 
           if test "${restore_enabled}" = "true"; then
-            test -f scripts/bootstrap-streamscape-media-binary.sh
-            test -f streamscapetv.xcodeproj/project.pbxproj
             dependency_fingerprint="$(
               {
                 /usr/bin/shasum -a 256 scripts/bootstrap-streamscape-media-binary.sh
