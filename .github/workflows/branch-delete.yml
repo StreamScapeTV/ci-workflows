@@ -131,8 +131,16 @@ jobs:
           branch_path = f"{repository_path}/branches/{encoded_branch}"
           rules_path = f"{repository_path}/rules/branches/{encoded_branch}"
           delete_path = f"{repository_path}/git/refs/heads/{encoded_ref_branch}"
+          private_rules_unavailable_message = "Upgrade to GitHub Pro or make this repository public to enable this feature."
 
-          def api(path: str, *, method: str = "GET", allow_not_found: bool = False, label: str = "request"):
+          def api(
+              path: str,
+              *,
+              method: str = "GET",
+              allow_not_found: bool = False,
+              allow_private_feature_unavailable: bool = False,
+              label: str = "request",
+          ):
               request = urllib.request.Request(
                   api_root + path,
                   method=method,
@@ -157,6 +165,17 @@ jobs:
                           message = " ".join(payload["message"].split())[:240]
                   except (json.JSONDecodeError, UnicodeError):
                       pass
+                  if (
+                      allow_private_feature_unavailable
+                      and exc.code == 403
+                      and "metadata=read" in {value.strip() for value in accepted.split(",")}
+                      and message == private_rules_unavailable_message
+                  ):
+                      print(
+                          "GitHub branch rules feature is unavailable for this private repository plan; "
+                          "continuing with main/develop, live-default, protected-branch, exact-head, and server-side deletion guards."
+                      )
+                      return []
                   detail = f"; accepted-permissions={accepted}" if accepted else ""
                   if message:
                       detail += f"; message={message}"
@@ -178,6 +197,7 @@ jobs:
                   raise SystemExit("GitHub branch maintenance repository identity mismatch")
               if repository_value.get("default_branch") == branch:
                   raise SystemExit("branch deletion refuses the repository live default branch")
+              private_repository = repository_value.get("private") is True
 
               branch_value = api(branch_path, allow_not_found=True, label="branch metadata")
               if branch_value is None:
@@ -194,7 +214,11 @@ jobs:
 
               rules = []
               for page in range(1, 11):
-                  page_rules = api(f"{rules_path}?per_page=100&page={page}", label="branch rules")
+                  page_rules = api(
+                      f"{rules_path}?per_page=100&page={page}",
+                      allow_private_feature_unavailable=private_repository,
+                      label="branch rules",
+                  )
                   if not isinstance(page_rules, list):
                       raise SystemExit("GitHub branch maintenance could not verify branch rules")
                   rules.extend(page_rules)
