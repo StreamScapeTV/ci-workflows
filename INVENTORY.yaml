@@ -13,6 +13,7 @@ workflows:
   oci_reproducibility: .github/workflows/oci-reproducibility.yml
   branch_delete: .github/workflows/branch-delete.yml
   source_snapshot_delete: .github/workflows/source-snapshot-delete.yml
+  source_bundle_publish: .github/workflows/source-bundle-publish.yml
   central_dispatch: .github/workflows/central-ci-dispatch.yml
   self_check: .github/workflows/self-check.yml
   runner_images: .github/workflows/runner-images.yml
@@ -25,6 +26,7 @@ actions:
 scripts:
   oci_reproducibility: scripts/ci/oci_reproducibility.py
   source_snapshot_delete: scripts/ci/source_snapshot_delete.py
+  source_bundle_publish: scripts/ci/source_bundle_publish.py
 
 services:
   runner_images: runner-images/
