@@ -64,6 +64,40 @@ jobs:
               raise SystemExit("release.maven build_number must be one non-empty bounded release identifier")
           PY
 
+      - name: Validate container service request
+        if: ${{ steps.claim.outputs.workflow_key == 'validation.container-service' }}
+        shell: bash
+        env:
+          TEST_PROFILE: ${{ steps.claim.outputs.test_profile }}
+          INPUTS_JSON: ${{ steps.claim.outputs.inputs_json }}
+        run: |
+          set -Eeuo pipefail
+          test "${TEST_PROFILE}" = conformance || {
+            echo "validation.container-service supports only the conformance profile" >&2
+            exit 2
+          }
+          python3 - <<'PY_VALIDATE'
+          import json
+          import os
+
+          try:
+              inputs = json.loads(os.environ["INPUTS_JSON"])
+          except (KeyError, json.JSONDecodeError) as exc:
+              raise SystemExit("validation.container-service inputs must be one JSON object") from exc
+          allowed = {"service_port", "dockerfile_path", "build_context"}
+          if not isinstance(inputs, dict) or "service_port" not in inputs or not set(inputs) <= allowed:
+              raise SystemExit("validation.container-service requires service_port and only bounded build-path inputs")
+          port = inputs["service_port"]
+          if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+              raise SystemExit("validation.container-service service_port must be an integer from 1 through 65535")
+          for key in ("dockerfile_path", "build_context"):
+              if key not in inputs:
+                  continue
+              value = inputs[key]
+              if not isinstance(value, str) or not value or len(value) > 240 or "\\" in value or "\x00" in value:
+                  raise SystemExit(f"validation.container-service {key} is invalid")
+          PY_VALIDATE
+
       - name: Validate Apple release request
         if: ${{ steps.claim.outputs.workflow_key == 'release.apple' }}
         shell: bash
@@ -194,6 +228,22 @@ jobs:
       repository: ${{ needs.request.outputs.repository }}
       ref: ${{ needs.request.outputs.ref }}
       build_number: ${{ fromJSON(needs.request.outputs.inputs_json).build_number }}
+      ci_run_id: ${{ inputs.ci_run_id }}
+    secrets: inherit
+
+  container_service:
+    needs: request
+    if: ${{ needs.request.outputs.workflow_key == 'validation.container-service' && needs.request.outputs.test_profile == 'conformance' }}
+    concurrency:
+      group: central-ci-${{ inputs.active_key }}
+      cancel-in-progress: true
+    uses: ./.github/workflows/container-service.yml
+    with:
+      repository: ${{ needs.request.outputs.repository }}
+      ref: ${{ needs.request.outputs.ref }}
+      service_port: ${{ fromJSON(needs.request.outputs.inputs_json).service_port }}
+      dockerfile_path: ${{ fromJSON(needs.request.outputs.inputs_json).dockerfile_path || 'Dockerfile' }}
+      build_context: ${{ fromJSON(needs.request.outputs.inputs_json).build_context || '.' }}
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
 
@@ -481,6 +531,7 @@ jobs:
       - node
       - flutter
       - maven
+      - container_service
       - public_native_image_chart
       - oci_reproducibility
       - source_snapshot
@@ -496,6 +547,7 @@ jobs:
           needs.node.result == 'cancelled' ||
           needs.flutter.result == 'cancelled' ||
           needs.maven.result == 'cancelled' ||
+          needs.container_service.result == 'cancelled' ||
           needs.public_native_image_chart.result == 'cancelled' ||
           needs.oci_reproducibility.result == 'cancelled' ||
           needs.source_snapshot.result == 'cancelled'
