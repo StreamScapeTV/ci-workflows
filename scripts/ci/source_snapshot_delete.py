@@ -157,7 +157,7 @@ def _validate_manifest(
     expected_source_sha: str,
     ref_folder_id: str,
     manifest_id: str,
-    archive: dict[str, Any],
+    archive: dict[str, Any] | None,
 ) -> None:
     try:
         value = json.loads(raw)
@@ -174,17 +174,14 @@ def _validate_manifest(
         raise SnapshotDeleteError("Google Drive snapshot manifest has invalid resolved source SHA")
     if expected_source_sha and source_sha != expected_source_sha:
         raise SnapshotDeleteError("Google Drive snapshot manifest source SHA does not match expected source SHA")
-    if value.get("folder_id") not in (None, ref_folder_id):
-        raise SnapshotDeleteError("Google Drive snapshot manifest folder identity mismatch")
-    if value.get("manifest_file_id") not in (None, manifest_id):
-        raise SnapshotDeleteError("Google Drive snapshot manifest file identity mismatch")
+    # Embedded Drive IDs are descriptive snapshot-era metadata, not deletion
+    # authority. Older copied/migrated snapshots can legitimately retain IDs
+    # from the original Drive objects. The live bounded parent/name path and
+    # manifest repository/ref/source identity above are authoritative.
+    if archive is None:
+        return
 
-    archive_id = archive["id"]
     archive_name = archive["name"]
-    declared_ids = [value.get("archive_file_id"), value.get("source_zip_file_id")]
-    for declared in declared_ids:
-        if declared not in (None, archive_id):
-            raise SnapshotDeleteError("Google Drive snapshot manifest archive identity mismatch")
     declared_name = value.get("archive_filename")
     if declared_name is not None and declared_name != archive_name:
         raise SnapshotDeleteError("Google Drive snapshot manifest archive filename mismatch")
@@ -231,11 +228,11 @@ def delete_snapshot(
 
     manifests = [child for child in children if child.get("name") == "manifest.json"]
     archives = [child for child in children if child.get("name") != "manifest.json"]
-    if len(manifests) != 1 or len(archives) != 1:
-        raise SnapshotDeleteError("Google Drive snapshot ref folder must contain exactly manifest.json and one archive")
+    if len(manifests) != 1 or len(archives) > 1:
+        raise SnapshotDeleteError("Google Drive snapshot ref folder must contain exactly manifest.json and at most one archive")
 
     manifest = manifests[0]
-    archive = archives[0]
+    archive = archives[0] if archives else None
     _validate_manifest(
         client.media(manifest["id"]),
         repository=repository,
