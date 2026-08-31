@@ -614,6 +614,10 @@ fi
         self.assertIn('test "${restore_eligible}" = "true"', prepare)
         self.assertIn('test "${source_ref}" = "develop"', prepare)
         self.assertIn('test "${source_is_pr}" != "true"', prepare)
+        self.assertIn("fingerprint_ready=false", prepare)
+        self.assertIn("test -f scripts/bootstrap-streamscape-media-binary.sh", prepare)
+        self.assertIn("test -f streamscapetv.xcodeproj/project.pbxproj", prepare)
+        self.assertIn('test "${fingerprint_ready}" = "true"', prepare)
         self.assertIn("restore_enabled=false", prepare)
         self.assertIn("save_enabled=false", prepare)
         self.assertEqual(
@@ -735,6 +739,23 @@ fi
                 (unrelated["restore_enabled"], unrelated["save_enabled"]),
                 ("false", "false"),
             )
+
+            # The approved historical source intentionally lacks the bootstrap helper
+            # until Run fixed Apple lane materializes its pinned recovery. Cache
+            # preparation must bypass restore instead of failing before that recovery.
+            (root / "scripts/bootstrap-streamscape-media-binary.sh").unlink()
+            historical = cache_flags(
+                "StreamScapeTV/iptv-apple",
+                "512db0f5b2513ad7d3a2b53bbc132ea29742bb63",
+            )
+            self.assertEqual(historical["restore_eligible"], "true")
+            self.assertEqual(historical["save_eligible"], "false")
+            self.assertEqual(
+                (historical["restore_enabled"], historical["save_enabled"]),
+                ("false", "false"),
+            )
+            self.assertNotIn("key", historical)
+            self.assertNotIn("file_name", historical)
 
         plan_script = next(
             step
