@@ -23,6 +23,10 @@ inputs:
   file_name:
     description: Exact Google Drive filename
     required: true
+  previous_file_name:
+    description: Optional exact legacy filename to rename/update in place only when the new filename is absent
+    required: false
+    default: ""
   gzip:
     description: Gzip the local file before upload
     required: false
@@ -54,6 +58,7 @@ runs:
         DRIVE_REPOSITORY_FOLDER_ID: ${{ inputs.repository_folder_id }}
         DRIVE_FILE_PATH: ${{ inputs.file_path }}
         DRIVE_FILE_NAME: ${{ inputs.file_name }}
+        DRIVE_PREVIOUS_FILE_NAME: ${{ inputs.previous_file_name }}
         DRIVE_GZIP: ${{ inputs.gzip }}
         DRIVE_MIME_TYPE: ${{ inputs.mime_type }}
         DRIVE_IMMUTABLE: ${{ inputs.immutable }}
@@ -79,6 +84,16 @@ runs:
         if test "${DRIVE_IMMUTABLE}" = "true" && test "${DRIVE_GZIP}" = "true"; then
           echo "immutable uploads require caller-supplied deterministic bytes" >&2
           exit 2
+        fi
+        if test -n "${DRIVE_PREVIOUS_FILE_NAME}"; then
+          test "${DRIVE_PREVIOUS_FILE_NAME}" != "${DRIVE_FILE_NAME}" || {
+            echo "previous_file_name must differ from file_name" >&2
+            exit 2
+          }
+          test "${DRIVE_IMMUTABLE}" != "true" || {
+            echo "previous_file_name is not supported for immutable uploads" >&2
+            exit 2
+          }
         fi
         case "${DRIVE_REPOSITORY}" in
           */*) ;;
@@ -167,6 +182,29 @@ runs:
             raise SystemExit("duplicate Google Drive entries for one exact parent/name")
         print(files[0]["id"] if files else "")
         '
+        }
+
+        resolve_existing_file() {
+          current_response="$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer ${access_token}" \
+            "$(drive_list_url "${target_folder_id}" "${DRIVE_FILE_NAME}" file)")"
+          current_id="$(printf '%s' "${current_response}" | unique_id)"
+          previous_id=""
+          if test -n "${DRIVE_PREVIOUS_FILE_NAME}"; then
+            previous_response="$(curl --fail --silent --show-error \
+              --header "Authorization: Bearer ${access_token}" \
+              "$(drive_list_url "${target_folder_id}" "${DRIVE_PREVIOUS_FILE_NAME}" file)")"
+            previous_id="$(printf '%s' "${previous_response}" | unique_id)"
+          fi
+          if test -n "${current_id}" && test -n "${previous_id}" && test "${current_id}" != "${previous_id}"; then
+            echo "both current and previous Google Drive filenames exist; refusing ambiguous migration" >&2
+            return 1
+          fi
+          if test -n "${current_id}"; then
+            printf '%s' "${current_id}"
+          else
+            printf '%s' "${previous_id}"
+          fi
         }
 
         merge_folder_candidates() {
@@ -398,10 +436,7 @@ runs:
           target_folder_id="$(ensure_folder "${ref_folder_id}" "${DRIVE_SUBDIRECTORY}")"
         fi
 
-        existing_response="$(curl --fail --silent --show-error \
-          --header "Authorization: Bearer ${access_token}" \
-          "$(drive_list_url "${target_folder_id}" "${DRIVE_FILE_NAME}" file)")"
-        existing_id="$(printf '%s' "${existing_response}" | unique_id)"
+        existing_id="$(resolve_existing_file)"
         byte_size="$(python3 -c 'import os,sys; print(os.path.getsize(sys.argv[1]))' "${upload_path}")"
 
         if test -n "${existing_id}" && test "${DRIVE_IMMUTABLE}" = "true"; then

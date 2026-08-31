@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+
 import yaml
 
 from tests import test_ci_helpers as _prior
@@ -31,3 +33,109 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertNotIn('p_patch:{status:"cancelled"}', text)
         self.assertIn("Agent State cancellation settlement failed", text)
         self.assertNotIn("diagnostic_", text)
+
+    def test_source_snapshot_reuses_drive_helper_and_updates_manifest_in_place(self) -> None:
+        dispatch = (_prior.ROOT / ".github/workflows/central-ci-dispatch.yml").read_text()
+        agents = (_prior.ROOT / "AGENTS.md").read_text()
+        self.assertIn("workflow_key == 'source.snapshot'", dispatch)
+        self.assertIn("git -C source archive --format=zip", dispatch)
+        self.assertIn("GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID", dispatch)
+        self.assertIn("Resolve durable Drive repository folder", dispatch)
+        self.assertIn("Google Drive repository folder ID", dispatch)
+        self.assertEqual(dispatch.count("repository_folder_id: ${{ steps.drive_repository.outputs.folder_id }}"), 3)
+        self.assertIn("Google Drive repository folder ID: `1--JcV6RK8jdIIP3ONWw420QDVpNTQ7L8`", agents)
+        self.assertIn("file_name: ${{ steps.snapshot.outputs.archive_filename }}", dispatch)
+        self.assertIn("previous_file_name: source.zip", dispatch)
+        self.assertIn('ref_slug = urllib.parse.quote(ref, safe="")', dispatch)
+        self.assertIn('f"{repository_name}-{ref_slug}.zip"', dispatch)
+        self.assertEqual(dispatch.count("file_name: manifest.json"), 2)
+        for key in (
+            '"repository_name"',
+            '"archive_format": "zip"',
+            '"archive_format_version": 1',
+            '"archive_filename"',
+            '"archive_sha256"',
+            '"archive_size_bytes"',
+            '"resolved_source_sha"',
+            '"tree_sha"',
+            '"source_zip_sha256"',
+            '"source_zip_size_bytes"',
+            '"manifest_file_id"',
+            '"archive_file_id"',
+            '"source_zip_file_id"',
+            '"folder_id"',
+        ):
+            self.assertIn(key, dispatch)
+        self.assertIn('test "${CREATED_ID}" = "${UPDATED_ID}"', dispatch)
+        self.assertIn("Clean snapshot workspace", dispatch)
+
+        workflow = yaml.safe_load(dispatch)
+        steps = workflow["jobs"]["source_snapshot"]["steps"]
+        by_name = {step.get("name"): step for step in steps if step.get("name")}
+        names = [step.get("name") for step in steps]
+        identity = by_name["Resolve observed source SHA"]
+        record = by_name["Record observed source SHA"]
+        snapshot = by_name["Create exact tracked-source snapshot"]
+        upload = by_name["Upload repository snapshot archive"]
+        finish = by_name["Finish Agent State run"]
+        self.assertIn('source_sha="$(git -C source rev-parse HEAD)"', identity["run"])
+        self.assertEqual(record["with"]["phase"], "observe-source")
+        self.assertEqual(record["with"]["observed_source_sha"], "${{ steps.source_identity.outputs.source_sha }}")
+        self.assertNotIn("github.sha", record["with"]["observed_source_sha"])
+        self.assertEqual(snapshot["env"]["OBSERVED_SOURCE_SHA"], "${{ steps.source_identity.outputs.source_sha }}")
+        self.assertIn('source_sha="${OBSERVED_SOURCE_SHA}"', snapshot["run"])
+        self.assertIn('ref_slug = urllib.parse.quote(ref, safe="")', snapshot["run"])
+        self.assertIn('archive_filename=%s\\n', snapshot["run"])
+        self.assertEqual(upload["with"]["file_name"], "${{ steps.snapshot.outputs.archive_filename }}")
+        self.assertEqual(upload["with"]["previous_file_name"], "source.zip")
+        self.assertLess(names.index("Check out requested source"), names.index("Resolve observed source SHA"))
+        self.assertLess(names.index("Resolve observed source SHA"), names.index("Record observed source SHA"))
+        self.assertLess(names.index("Record observed source SHA"), names.index("Create exact tracked-source snapshot"))
+        self.assertEqual(finish["if"], "${{ always() }}")
+
+    def test_snapshot_archive_migration_reuses_legacy_file_and_refuses_ambiguous_siblings(self) -> None:
+        action = yaml.safe_load((_prior.ROOT / "actions/google-drive/action.yml").read_text())
+        self.assertEqual(action["inputs"]["previous_file_name"]["default"], "")
+        script = action["runs"]["steps"][0]["run"]
+        lines = script.splitlines()
+        start = next(i for i, line in enumerate(lines) if line.strip() == "drive_list_url() {")
+        end = next(i for i, line in enumerate(lines[start + 1 :], start + 1) if line.strip() == "merge_folder_candidates() {")
+        functions = "\n".join(lines[start:end])
+
+        def run(current: str, previous: str) -> subprocess.CompletedProcess[str]:
+            harness = f'''set -Eeuo pipefail
+{functions}
+access_token=masked
+target_folder_id=folder
+DRIVE_FILE_NAME=repo-main.zip
+DRIVE_PREVIOUS_FILE_NAME=source.zip
+CURRENT={current!r}
+PREVIOUS={previous!r}
+curl() {{
+  url="${{@: -1}}"
+  case "$url" in
+    *repo-main.zip*) printf '%s' "$CURRENT" ;;
+    *source.zip*) printf '%s' "$PREVIOUS" ;;
+    *) return 97 ;;
+  esac
+}}
+resolve_existing_file
+'''
+            return subprocess.run(
+                ["bash", "-c", harness],
+                cwd=_prior.ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        legacy_only = run('{"files":[]}', '{"files":[{"id":"legacy-id"}]}')
+        self.assertEqual(legacy_only.returncode, 0, legacy_only.stderr)
+        self.assertEqual(legacy_only.stdout, "legacy-id")
+
+        ambiguous = run(
+            '{"files":[{"id":"current-id"}]}',
+            '{"files":[{"id":"legacy-id"}]}',
+        )
+        self.assertNotEqual(ambiguous.returncode, 0)
+        self.assertIn("refusing ambiguous migration", ambiguous.stderr)
