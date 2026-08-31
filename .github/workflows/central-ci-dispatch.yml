@@ -131,6 +131,51 @@ jobs:
               raise SystemExit("maintenance.branch-delete expected_head must be one lowercase 40-character Git SHA")
           PY_VALIDATE_BRANCH_DELETE
 
+      - name: Validate source bundle publication request
+        if: ${{ steps.claim.outputs.workflow_key == 'source.bundle-publish' }}
+        shell: bash
+        env:
+          TEST_PROFILE: ${{ steps.claim.outputs.test_profile }}
+          REQUEST_IS_TAG: ${{ steps.claim.outputs.is_tag }}
+          REQUEST_REF: ${{ steps.claim.outputs.ref }}
+          INPUTS_JSON: ${{ steps.claim.outputs.inputs_json }}
+        run: |
+          set -Eeuo pipefail
+          test "${TEST_PROFILE}" = publish || {
+            echo "source.bundle-publish supports only the publish profile" >&2
+            exit 2
+          }
+          test "${REQUEST_IS_TAG}" = false || {
+            echo "source.bundle-publish does not accept tag requests" >&2
+            exit 2
+          }
+          case "${REQUEST_REF}" in
+            main|develop) echo "source.bundle-publish refuses protected integration branch names" >&2; exit 2 ;;
+          esac
+          python3 - <<'PY_VALIDATE_SOURCE_BUNDLE'
+          import json
+          import os
+          import re
+
+          try:
+              inputs = json.loads(os.environ["INPUTS_JSON"])
+          except (KeyError, json.JSONDecodeError) as exc:
+              raise SystemExit("source.bundle-publish inputs must be one JSON object") from exc
+          if not isinstance(inputs, dict) or set(inputs) != {"expected_head", "drive_bundle_file_id", "bundle_sha256"}:
+              raise SystemExit(
+                  "source.bundle-publish requires exactly expected_head, drive_bundle_file_id, and bundle_sha256"
+              )
+          expected_head = inputs["expected_head"]
+          file_id = inputs["drive_bundle_file_id"]
+          digest = inputs["bundle_sha256"]
+          if not isinstance(expected_head, str) or not re.fullmatch(r"[0-9a-f]{40}", expected_head):
+              raise SystemExit("source.bundle-publish expected_head must be one lowercase 40-character Git SHA")
+          if not isinstance(file_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{10,200}", file_id):
+              raise SystemExit("source.bundle-publish drive_bundle_file_id is invalid")
+          if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+              raise SystemExit("source.bundle-publish bundle_sha256 must be one lowercase 64-character SHA-256")
+          PY_VALIDATE_SOURCE_BUNDLE
+
       - name: Validate Apple release request
         if: ${{ steps.claim.outputs.workflow_key == 'release.apple' }}
         shell: bash
@@ -328,6 +373,22 @@ jobs:
       repository: ${{ needs.request.outputs.repository }}
       branch: ${{ needs.request.outputs.ref }}
       expected_head: ${{ fromJSON(needs.request.outputs.inputs_json).expected_head }}
+      ci_run_id: ${{ inputs.ci_run_id }}
+    secrets: inherit
+
+  source_bundle_publish:
+    needs: request
+    if: ${{ needs.request.outputs.workflow_key == 'source.bundle-publish' && needs.request.outputs.test_profile == 'publish' }}
+    concurrency:
+      group: central-ci-source-publish-${{ inputs.active_key }}
+      cancel-in-progress: false
+    uses: ./.github/workflows/source-bundle-publish.yml
+    with:
+      repository: ${{ needs.request.outputs.repository }}
+      branch: ${{ needs.request.outputs.ref }}
+      expected_head: ${{ fromJSON(needs.request.outputs.inputs_json).expected_head }}
+      drive_bundle_file_id: ${{ fromJSON(needs.request.outputs.inputs_json).drive_bundle_file_id }}
+      bundle_sha256: ${{ fromJSON(needs.request.outputs.inputs_json).bundle_sha256 }}
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
 
@@ -600,6 +661,7 @@ jobs:
       - public_native_image_chart
       - oci_reproducibility
       - branch_delete
+      - source_bundle_publish
       - source_snapshot
     if: >-
       ${{
@@ -617,6 +679,7 @@ jobs:
           needs.public_native_image_chart.result == 'cancelled' ||
           needs.oci_reproducibility.result == 'cancelled' ||
           needs.branch_delete.result == 'cancelled' ||
+          needs.source_bundle_publish.result == 'cancelled' ||
           needs.source_snapshot.result == 'cancelled'
         )
       }}

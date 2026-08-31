@@ -14,18 +14,19 @@ class CiHelperTests(_prior.CiHelperTests):
         inventory = yaml.safe_load((_prior.ROOT / "INVENTORY.yaml").read_text())
         self.assertEqual(
             set(inventory["workflows"]),
-            {"apple", "android", "python", "node", "flutter", "maven", "container_service", "public_native_image_chart", "oci_reproducibility", "branch_delete", "source_snapshot_delete", "central_dispatch", "self_check", "runner_images"},
+            {"apple", "android", "python", "node", "flutter", "maven", "container_service", "public_native_image_chart", "oci_reproducibility", "branch_delete", "source_snapshot_delete", "source_bundle_publish", "central_dispatch", "self_check", "runner_images"},
         )
         self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive", "private_git"})
-        self.assertEqual(set(inventory["scripts"]), {"oci_reproducibility", "source_snapshot_delete"})
+        self.assertEqual(set(inventory["scripts"]), {"oci_reproducibility", "source_snapshot_delete", "source_bundle_publish"})
         self.assertEqual(set(inventory["services"]), {"runner_images"})
 
     def test_workflows_use_no_reusable_prefix(self) -> None:
         names = {p.name for p in (_prior.ROOT / ".github/workflows").glob("*.yml")}
-        self.assertEqual(len(names), 14)
+        self.assertEqual(len(names), 15)
         self.assertNotIn("broker.yml", names)
         self.assertFalse(any(name.startswith("reusable-") for name in names))
         self.assertIn("source-snapshot-delete.yml", names)
+        self.assertIn("source-bundle-publish.yml", names)
 
     def test_branch_delete_capability_is_bounded_and_fail_closed(self) -> None:
         workflow = yaml.safe_load((_prior.ROOT / ".github/workflows/branch-delete.yml").read_text())
@@ -62,6 +63,93 @@ class CiHelperTests(_prior.CiHelperTests):
         finish = workflow["jobs"]["finish"]
         self.assertEqual(finish["if"], "${{ always() }}")
         self.assertIn("needs.snapshot_cleanup.result == 'success'", finish["steps"][0]["with"]["status"])
+
+    def test_central_dispatch_preserves_newest_run_wins_with_snapshot_isolation(self) -> None:
+        workflow = yaml.safe_load((_prior.ROOT / ".github/workflows/central-ci-dispatch.yml").read_text())
+        jobs = workflow["jobs"]
+        execution_jobs = (
+            "apple",
+            "apple_release",
+            "android",
+            "python",
+            "node",
+            "flutter",
+            "maven",
+            "container_service",
+            "public_native_image_chart",
+            "oci_reproducibility",
+        )
+        self.assertNotIn("concurrency", workflow)
+        self.assertNotIn("concurrency", jobs["request"])
+        for name in execution_jobs:
+            self.assertEqual(jobs[name]["concurrency"]["group"], "central-ci-${{ inputs.active_key }}")
+            self.assertTrue(jobs[name]["concurrency"]["cancel-in-progress"])
+
+        branch_delete = jobs["branch_delete"]["concurrency"]
+        self.assertEqual(branch_delete["group"], "central-ci-maintenance-${{ inputs.active_key }}")
+        self.assertFalse(branch_delete["cancel-in-progress"])
+
+        source_publish = jobs["source_bundle_publish"]["concurrency"]
+        self.assertEqual(source_publish["group"], "central-ci-source-publish-${{ inputs.active_key }}")
+        self.assertFalse(source_publish["cancel-in-progress"])
+
+        snapshot = jobs["source_snapshot"]["concurrency"]
+        self.assertEqual(snapshot["group"], "central-ci-snapshot-${{ inputs.active_key }}")
+        self.assertTrue(snapshot["cancel-in-progress"])
+        self.assertNotEqual(snapshot["group"], jobs["apple"]["concurrency"]["group"])
+
+        settlement = jobs["settle_cancelled"]
+        self.assertNotIn("concurrency", settlement)
+        expected = {"request", *execution_jobs, "branch_delete", "source_bundle_publish", "source_snapshot"}
+        self.assertEqual(set(settlement["needs"]), expected)
+        self.assertIn("always()", settlement["if"])
+        self.assertIn("needs.request.result != 'success'", settlement["if"])
+        for name in (*execution_jobs, "branch_delete", "source_bundle_publish", "source_snapshot"):
+            self.assertIn(f"needs.{name}.result == 'cancelled'", settlement["if"])
+        self.assertEqual(settlement["steps"][-1]["with"]["phase"], "cancel-if-active")
+
+    def test_source_bundle_publish_is_bounded_and_inventory_routed(self) -> None:
+        inventory = yaml.safe_load((_prior.ROOT / "INVENTORY.yaml").read_text())
+        self.assertEqual(inventory["workflows"]["source_bundle_publish"], ".github/workflows/source-bundle-publish.yml")
+        self.assertEqual(inventory["scripts"]["source_bundle_publish"], "scripts/ci/source_bundle_publish.py")
+
+        workflow = yaml.safe_load((_prior.ROOT / ".github/workflows/source-bundle-publish.yml").read_text())
+        call = workflow["on"]["workflow_call"]
+        self.assertEqual(
+            set(call["inputs"]),
+            {"repository", "branch", "expected_head", "drive_bundle_file_id", "bundle_sha256", "ci_run_id"},
+        )
+        self.assertNotIn("workflow_dispatch", workflow["on"])
+        self.assertEqual(workflow["permissions"], {"contents": "read"})
+        steps = workflow["jobs"]["publish"]["steps"]
+        by_name = {step.get("name"): step for step in steps if step.get("name")}
+        token = by_name["Create exact target repository token"]
+        self.assertEqual(token["with"]["permission-contents"], "write")
+        self.assertEqual(token["with"]["permission-metadata"], "read")
+        self.assertIn("drive/v3/files/${DRIVE_BUNDLE_FILE_ID}?alt=media", by_name["Download exact private Drive bundle"]["run"])
+        publish = by_name["Publish exact reviewed bundle"]
+        self.assertIn("source_bundle_publish.py", publish["run"])
+        self.assertNotIn("${{ inputs.", publish["run"])
+        self.assertEqual(by_name["Record observed source SHA"]["with"]["phase"], "observe-source")
+        finish = by_name["Finish Agent State run"]
+        self.assertEqual(finish["with"]["phase"], "finish")
+        self.assertIn("steps.record_source.outcome == 'success'", finish["with"]["status"])
+
+        dispatch_path = _prior.ROOT / ".github/workflows/central-ci-dispatch.yml"
+        dispatch_text = dispatch_path.read_text()
+        dispatch = yaml.safe_load(dispatch_text)
+        request_steps = dispatch["jobs"]["request"]["steps"]
+        request_by_name = {step.get("name"): step for step in request_steps if step.get("name")}
+        admission = request_by_name["Validate source bundle publication request"]
+        self.assertIn("source.bundle-publish supports only the publish profile", admission["run"])
+        self.assertIn("expected_head", admission["run"])
+        self.assertIn("drive_bundle_file_id", admission["run"])
+        self.assertIn("bundle_sha256", admission["run"])
+        job = dispatch["jobs"]["source_bundle_publish"]
+        self.assertEqual(job["uses"], "./.github/workflows/source-bundle-publish.yml")
+        self.assertEqual(job["with"]["branch"], "${{ needs.request.outputs.ref }}")
+        self.assertEqual(job["with"]["expected_head"], "${{ fromJSON(needs.request.outputs.inputs_json).expected_head }}")
+        self.assertEqual(job["concurrency"]["cancel-in-progress"], False)
 
     def test_agent_state_action_has_claim_start_observe_finish_lifecycle(self) -> None:
         path = _prior.ROOT / "actions/agent-state/action.yml"
