@@ -598,20 +598,143 @@ fi
         self.assertNotIn("gzip", drive["with"])
         self.assertEqual(drive["with"]["mime_type"], "text/plain")
 
-    def test_dependency_cache_scope_is_preserved_and_only_one_full_lane_can_save(self) -> None:
+    def test_dependency_cache_trust_separates_read_only_restore_from_develop_save(self) -> None:
         execute = self.workflow["jobs"]["execute"]
         by_name = {step.get("name"): step for step in execute["steps"] if step.get("name")}
         prepare = by_name["Prepare Apple develop dependency cache"]["run"]
         restore = by_name["Restore Apple develop dependency cache"]
+        restore_record = by_name["Record Apple develop cache restore"]
+        contents = by_name["Record Apple develop cache contents"]
         archive = by_name["Prepare Apple develop dependency cache archive"]
 
+        self.assertIn("restore_eligible=false", prepare)
         self.assertIn('test "${source_repository}" = "StreamScapeTV/iptv-apple"', prepare)
+        self.assertIn('test "${source_is_tag}" != "true"', prepare)
+        self.assertIn("save_eligible=false", prepare)
+        self.assertIn('test "${restore_eligible}" = "true"', prepare)
         self.assertIn('test "${source_ref}" = "develop"', prepare)
+        self.assertIn('test "${source_is_pr}" != "true"', prepare)
+        self.assertIn("restore_enabled=false", prepare)
+        self.assertIn("save_enabled=false", prepare)
+        self.assertEqual(
+            restore["if"],
+            "${{ steps.apple_develop_cache.outputs.restore_enabled == 'true' }}",
+        )
+        self.assertEqual(
+            restore_record["if"],
+            "${{ steps.apple_develop_cache.outputs.restore_enabled == 'true' }}",
+        )
         self.assertIn(
             'allowed = ("Vendor/StreamscapeMediaApple", "streamscapetv-swiftpm-clones")',
             restore["run"],
         )
+        self.assertIn(
+            'ref_folder_id="$(exact_child_id "${repository_folder_id}" develop folder)"',
+            restore["run"],
+        )
+        self.assertIn("steps.apple_develop_cache.outputs.save_enabled == 'true'", contents["if"])
+        self.assertIn("steps.apple_develop_cache.outputs.save_enabled == 'true'", archive["if"])
         self.assertIn("matrix.cache_save", archive["if"])
+        self.assertNotIn("DerivedData", self.text)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "scripts").mkdir()
+            (root / "scripts/bootstrap-streamscape-media-binary.sh").write_text(
+                "#!/bin/sh\n",
+                encoding="utf-8",
+            )
+            (root / "streamscapetv.xcodeproj").mkdir()
+            (root / "streamscapetv.xcodeproj/project.pbxproj").write_text(
+                "// fixture\n",
+                encoding="utf-8",
+            )
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            fake_xcodebuild = fake_bin / "xcodebuild"
+            fake_xcodebuild.write_text(
+                "#!/bin/sh\nprintf 'Xcode 16.4\\nBuild version 16F6\\n'\n",
+                encoding="utf-8",
+            )
+            fake_xcodebuild.chmod(0o755)
+            runner_temp = root / "runner-temp"
+            runner_temp.mkdir()
+
+            def cache_flags(
+                repository: str,
+                ref: str,
+                *,
+                is_tag: bool = False,
+                event: str = "workflow_call",
+            ) -> dict[str, str]:
+                output = root / "github-output"
+                github_env = root / "github-env"
+                output.write_text("", encoding="utf-8")
+                github_env.write_text("", encoding="utf-8")
+                env = os.environ.copy()
+                env.update(
+                    {
+                        "REQUEST_REPOSITORY": repository,
+                        "REQUEST_REF": ref,
+                        "REQUEST_IS_TAG": "true" if is_tag else "false",
+                        "CALLER_REPOSITORY": "StreamScapeTV/ci-workflows",
+                        "CALLER_REF": "refs/heads/main",
+                        "CALLER_REF_TYPE": "branch",
+                        "CALLER_EVENT_NAME": event,
+                        "DRIVE_CLIENT_ID": "client",
+                        "DRIVE_CLIENT_SECRET": "secret",
+                        "DRIVE_REFRESH_TOKEN": "refresh",
+                        "RUNNER_TEMP": str(runner_temp),
+                        "GITHUB_OUTPUT": str(output),
+                        "GITHUB_ENV": str(github_env),
+                        "PATH": f"{fake_bin}:{env['PATH']}",
+                    }
+                )
+                result = subprocess.run(
+                    ["bash"],
+                    cwd=root,
+                    env=env,
+                    input=prepare,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                return dict(
+                    line.split("=", 1)
+                    for line in output.read_text(encoding="utf-8").splitlines()
+                )
+
+            develop = cache_flags("StreamScapeTV/iptv-apple", "develop")
+            feature = cache_flags("StreamScapeTV/iptv-apple", "feature/cache")
+            pull_request = cache_flags(
+                "StreamScapeTV/iptv-apple",
+                "refs/pull/42/merge",
+                event="pull_request",
+            )
+            tag = cache_flags("StreamScapeTV/iptv-apple", "refs/tags/1.2.3")
+            unrelated = cache_flags("StreamScapeTV/other", "develop")
+
+            self.assertEqual(
+                (develop["restore_enabled"], develop["save_enabled"]),
+                ("true", "true"),
+            )
+            self.assertEqual(
+                (feature["restore_enabled"], feature["save_enabled"]),
+                ("true", "false"),
+            )
+            self.assertEqual(
+                (pull_request["restore_enabled"], pull_request["save_enabled"]),
+                ("true", "false"),
+            )
+            self.assertEqual(
+                (tag["restore_enabled"], tag["save_enabled"]),
+                ("false", "false"),
+            )
+            self.assertEqual(
+                (unrelated["restore_enabled"], unrelated["save_enabled"]),
+                ("false", "false"),
+            )
 
         plan_script = next(
             step
