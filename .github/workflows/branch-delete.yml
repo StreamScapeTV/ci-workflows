@@ -20,6 +20,14 @@ name: Delete repository branch
         required: true
       SOURCE_APP_PRIVATE_KEY:
         required: true
+      GOOGLE_DRIVE_CLIENT_ID:
+        required: true
+      GOOGLE_DRIVE_CLIENT_SECRET:
+        required: true
+      GOOGLE_DRIVE_REFRESH_TOKEN:
+        required: true
+      GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID:
+        required: true
       AGENT_STATE_SUPABASE_URL:
         required: true
       AGENT_STATE_SUPABASE_SECRET_KEY:
@@ -30,6 +38,8 @@ permissions:
 
 jobs:
   delete:
+    outputs:
+      branch_was_present: ${{ steps.delete_branch.outputs.branch_was_present }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -67,7 +77,6 @@ jobs:
               raise SystemExit("branch deletion requires one logical branch name, not a full ref")
           if not branch or len(branch.encode("utf-8")) > 255 or "\x00" in branch:
               raise SystemExit("branch deletion branch name is invalid")
-          # Exact Git ref syntax is checked by the shell after semantic validation.
           if not re.fullmatch(r"[0-9a-f]{40}", expected_head):
               raise SystemExit("branch deletion expected_head must be one lowercase 40-character Git SHA")
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
@@ -158,7 +167,7 @@ jobs:
 
               branch_value = api(branch_path, allow_not_found=True)
               if branch_value is None:
-                  raise SystemExit("branch deletion target branch does not exist")
+                  return None
               if not isinstance(branch_value, dict) or branch_value.get("name") != branch:
                   raise SystemExit("GitHub branch maintenance branch identity mismatch")
               if branch_value.get("protected") is not False:
@@ -183,21 +192,48 @@ jobs:
                   raise SystemExit("branch deletion refuses a branch protected by a deletion rule")
               return head
 
-          validate_live_state()
+          initial_head = validate_live_state()
+          if initial_head is None:
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+                  output.write("branch_was_present=false\n")
+              print("Branch is already absent; continuing with same-ref Drive snapshot cleanup.")
+              raise SystemExit(0)
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("branch_was_present=true\n")
           final_head = validate_live_state()
+          if final_head is None:
+              print("Branch became absent after validation; continuing with same-ref Drive snapshot cleanup.")
+              raise SystemExit(0)
           if final_head != expected_head:
               raise SystemExit("branch deletion expected head changed before deletion")
           api(delete_path, method="DELETE")
           PY
 
-      - name: Record bounded deletion result
+      - name: Record bounded GitHub deletion result
         if: ${{ steps.delete_branch.outcome == 'success' }}
         shell: bash
         run: |
-          printf '%s\n' 'Deleted one eligible repository branch at its exact expected head.' >> "${GITHUB_STEP_SUMMARY}"
+          printf '%s\n' 'GitHub branch is absent after bounded exact-head validation.' >> "${GITHUB_STEP_SUMMARY}"
 
+  snapshot_cleanup:
+    needs: delete
+    if: ${{ needs.delete.result == 'success' }}
+    uses: ./.github/workflows/source-snapshot-delete.yml
+    with:
+      repository: ${{ inputs.repository }}
+      ref: ${{ inputs.branch }}
+      expected_source_sha: ${{ needs.delete.outputs.branch_was_present == 'true' && '' || inputs.expected_head }}
+    secrets: inherit
+
+  finish:
+    needs:
+      - delete
+      - snapshot_cleanup
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    steps:
       - name: Finish Agent State run
-        if: ${{ always() }}
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main
         env:
           AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
@@ -205,4 +241,4 @@ jobs:
         with:
           phase: finish
           ci_run_id: ${{ inputs.ci_run_id }}
-          status: ${{ steps.delete_branch.outcome == 'success' && 'succeeded' || 'failed' }}
+          status: ${{ needs.delete.result == 'success' && needs.snapshot_cleanup.result == 'success' && 'succeeded' || 'failed' }}

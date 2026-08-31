@@ -37,5 +37,6 @@ jobs:
           tests.test_node_flutter_observed_source
           tests.test_python_workflow
           tests.test_google_drive_media_put
+          tests.test_source_snapshot_delete
           tests.test_maven_workflow
           -v

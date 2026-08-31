@@ -1,0 +1,100 @@
+name: Delete repository source snapshot
+
+"on":
+  workflow_call:
+    inputs:
+      repository:
+        type: string
+        required: true
+      ref:
+        type: string
+        required: true
+      expected_source_sha:
+        type: string
+        required: false
+        default: ""
+    secrets:
+      GOOGLE_DRIVE_CLIENT_ID:
+        required: true
+      GOOGLE_DRIVE_CLIENT_SECRET:
+        required: true
+      GOOGLE_DRIVE_REFRESH_TOKEN:
+        required: true
+      GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  delete:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out Central snapshot cleanup helper
+        uses: actions/checkout@v4
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: main
+          persist-credentials: false
+          path: central
+
+      - name: Validate bounded snapshot deletion inputs
+        shell: bash
+        env:
+          TARGET_REPOSITORY: ${{ inputs.repository }}
+          TARGET_REF: ${{ inputs.ref }}
+          EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import os
+          import re
+
+          repository = os.environ["TARGET_REPOSITORY"]
+          ref = os.environ["TARGET_REF"]
+          expected = os.environ["EXPECTED_SOURCE_SHA"]
+          if not re.fullmatch(r"StreamScapeTV/[A-Za-z0-9_.-]{1,100}", repository):
+              raise SystemExit("snapshot deletion repository must be one bounded StreamScapeTV owner/name")
+          if ref in {"main", "develop"}:
+              raise SystemExit("snapshot deletion refuses protected integration ref names")
+          if ref.startswith(("refs/heads/", "refs/tags/")) or not ref or len(ref.encode("utf-8")) > 255 or "\x00" in ref:
+              raise SystemExit("snapshot deletion ref name is invalid")
+          if expected and not re.fullmatch(r"[0-9a-f]{40}", expected):
+              raise SystemExit("snapshot deletion expected source SHA must be one lowercase 40-character Git SHA")
+          PY
+
+      - name: Resolve Google Drive access token
+        id: drive_token
+        shell: bash
+        env:
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          access_token="$(
+            curl --fail --silent --show-error \
+              --request POST \
+              --data-urlencode "client_id=${GOOGLE_DRIVE_CLIENT_ID}" \
+              --data-urlencode "client_secret=${GOOGLE_DRIVE_CLIENT_SECRET}" \
+              --data-urlencode "refresh_token=${GOOGLE_DRIVE_REFRESH_TOKEN}" \
+              --data-urlencode "grant_type=refresh_token" \
+              https://oauth2.googleapis.com/token \
+            | python3 -c 'import json,sys; value=json.load(sys.stdin); token=value.get("access_token", ""); assert token; print(token)'
+          )"
+          echo "::add-mask::${access_token}"
+          printf 'access_token=%s\n' "${access_token}" >> "${GITHUB_OUTPUT}"
+
+      - name: Delete exact Drive source snapshot
+        id: cleanup
+        shell: bash
+        env:
+          GOOGLE_DRIVE_ACCESS_TOKEN: ${{ steps.drive_token.outputs.access_token }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
+        run: |
+          set -Eeuo pipefail
+          python3 central/scripts/ci/source_snapshot_delete.py \
+            --repository '${{ inputs.repository }}' \
+            --ref '${{ inputs.ref }}' \
+            --expected-source-sha '${{ inputs.expected_source_sha }}'
