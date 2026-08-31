@@ -41,9 +41,12 @@ class CiHelperTests(_prior.CiHelperTests):
         delete_step = by_name["Delete exact eligible branch"]
         self.assertIn('branch in {"main", "develop"}', validate["run"])
         self.assertEqual(token["with"]["permission-contents"], "write")
+        self.assertEqual(token["with"]["permission-metadata"], "read")
         self.assertIn("repository live default branch", delete_step["run"])
         self.assertIn('branch_value.get("protected") is not False', delete_step["run"])
         self.assertIn('rule.get("type") == "deletion"', delete_step["run"])
+        self.assertIn('label="branch rules"', delete_step["run"])
+        self.assertIn("GitHub branch maintenance {label} was refused", delete_step["run"])
         self.assertIn("branch_was_present=false", delete_step["run"])
         self.assertIn("branch_was_present=true", delete_step["run"])
         cleanup = workflow["jobs"]["snapshot_cleanup"]

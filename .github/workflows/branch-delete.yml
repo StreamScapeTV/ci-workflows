@@ -96,6 +96,7 @@ jobs:
           owner: StreamScapeTV
           repositories: ${{ steps.request.outputs.repository_name }}
           permission-contents: write
+          permission-metadata: read
 
       - name: Delete exact eligible branch
         id: delete_branch
@@ -131,7 +132,7 @@ jobs:
           rules_path = f"{repository_path}/rules/branches/{encoded_branch}"
           delete_path = f"{repository_path}/git/refs/heads/{encoded_ref_branch}"
 
-          def api(path: str, *, method: str = "GET", allow_not_found: bool = False):
+          def api(path: str, *, method: str = "GET", allow_not_found: bool = False, label: str = "request"):
               request = urllib.request.Request(
                   api_root + path,
                   method=method,
@@ -148,7 +149,7 @@ jobs:
               except urllib.error.HTTPError as exc:
                   if allow_not_found and exc.code == 404:
                       return None
-                  raise SystemExit(f"GitHub branch maintenance request was refused with HTTP {exc.code}") from None
+                  raise SystemExit(f"GitHub branch maintenance {label} was refused with HTTP {exc.code}") from None
               except urllib.error.URLError:
                   raise SystemExit("GitHub branch maintenance request failed") from None
               if method == "DELETE":
@@ -159,13 +160,13 @@ jobs:
                   raise SystemExit("GitHub branch maintenance returned invalid JSON") from None
 
           def validate_live_state():
-              repository_value = api(repository_path)
+              repository_value = api(repository_path, label="repository metadata")
               if not isinstance(repository_value, dict) or repository_value.get("full_name") != repository:
                   raise SystemExit("GitHub branch maintenance repository identity mismatch")
               if repository_value.get("default_branch") == branch:
                   raise SystemExit("branch deletion refuses the repository live default branch")
 
-              branch_value = api(branch_path, allow_not_found=True)
+              branch_value = api(branch_path, allow_not_found=True, label="branch metadata")
               if branch_value is None:
                   return None
               if not isinstance(branch_value, dict) or branch_value.get("name") != branch:
@@ -180,7 +181,7 @@ jobs:
 
               rules = []
               for page in range(1, 11):
-                  page_rules = api(f"{rules_path}?per_page=100&page={page}")
+                  page_rules = api(f"{rules_path}?per_page=100&page={page}", label="branch rules")
                   if not isinstance(page_rules, list):
                       raise SystemExit("GitHub branch maintenance could not verify branch rules")
                   rules.extend(page_rules)
@@ -207,7 +208,7 @@ jobs:
               raise SystemExit(0)
           if final_head != expected_head:
               raise SystemExit("branch deletion expected head changed before deletion")
-          api(delete_path, method="DELETE")
+          api(delete_path, method="DELETE", label="branch ref deletion")
           PY
 
       - name: Record bounded GitHub deletion result
