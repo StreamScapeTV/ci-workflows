@@ -49,6 +49,10 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertIn("GitHub branch maintenance {label} was refused", delete_step["run"])
         self.assertIn("X-Accepted-GitHub-Permissions", delete_step["run"])
         self.assertIn("accepted-permissions=", delete_step["run"])
+        self.assertIn("private_rules_unavailable_message", delete_step["run"])
+        self.assertIn("Upgrade to GitHub Pro or make this repository public to enable this feature.", delete_step["run"])
+        self.assertIn('repository_value.get("private") is True', delete_step["run"])
+        self.assertIn("allow_private_feature_unavailable=private_repository", delete_step["run"])
         self.assertIn("branch_was_present=false", delete_step["run"])
         self.assertIn("branch_was_present=true", delete_step["run"])
         cleanup = workflow["jobs"]["snapshot_cleanup"]
