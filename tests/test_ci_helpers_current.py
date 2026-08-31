@@ -10,6 +10,53 @@ from tests import test_ci_helpers as _prior
 class CiHelperTests(_prior.CiHelperTests):
     """Current shared-helper contract while retaining the complete helper suite."""
 
+    def test_inventory_is_the_only_inventory_and_matches_the_small_surface(self) -> None:
+        inventory = yaml.safe_load((_prior.ROOT / "INVENTORY.yaml").read_text())
+        self.assertEqual(
+            set(inventory["workflows"]),
+            {"apple", "android", "python", "node", "flutter", "maven", "container_service", "public_native_image_chart", "oci_reproducibility", "branch_delete", "source_snapshot_delete", "central_dispatch", "self_check", "runner_images"},
+        )
+        self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive", "private_git"})
+        self.assertEqual(set(inventory["scripts"]), {"oci_reproducibility", "source_snapshot_delete"})
+        self.assertEqual(set(inventory["services"]), {"runner_images"})
+
+    def test_workflows_use_no_reusable_prefix(self) -> None:
+        names = {p.name for p in (_prior.ROOT / ".github/workflows").glob("*.yml")}
+        self.assertEqual(len(names), 14)
+        self.assertNotIn("broker.yml", names)
+        self.assertFalse(any(name.startswith("reusable-") for name in names))
+        self.assertIn("source-snapshot-delete.yml", names)
+
+    def test_branch_delete_capability_is_bounded_and_fail_closed(self) -> None:
+        workflow = yaml.safe_load((_prior.ROOT / ".github/workflows/branch-delete.yml").read_text())
+        call = workflow["on"]["workflow_call"]
+        self.assertEqual(set(call["inputs"]), {"repository", "branch", "expected_head", "ci_run_id"})
+        self.assertNotIn("workflow_dispatch", workflow["on"])
+        self.assertEqual(workflow["permissions"], {"contents": "read"})
+        delete = workflow["jobs"]["delete"]
+        steps = delete["steps"]
+        by_name = {step.get("name"): step for step in steps if step.get("name")}
+        validate = by_name["Validate bounded branch deletion inputs"]
+        token = by_name["Create exact target repository token"]
+        delete_step = by_name["Delete exact eligible branch"]
+        self.assertIn('branch in {"main", "develop"}', validate["run"])
+        self.assertEqual(token["with"]["permission-contents"], "write")
+        self.assertIn("repository live default branch", delete_step["run"])
+        self.assertIn('branch_value.get("protected") is not False', delete_step["run"])
+        self.assertIn('rule.get("type") == "deletion"', delete_step["run"])
+        self.assertIn("branch_was_present=false", delete_step["run"])
+        self.assertIn("branch_was_present=true", delete_step["run"])
+        cleanup = workflow["jobs"]["snapshot_cleanup"]
+        self.assertEqual(cleanup["uses"], "./.github/workflows/source-snapshot-delete.yml")
+        self.assertEqual(cleanup["with"]["ref"], "${{ inputs.branch }}")
+        self.assertEqual(
+            cleanup["with"]["expected_source_sha"],
+            "${{ needs.delete.outputs.branch_was_present == 'true' && '' || inputs.expected_head }}",
+        )
+        finish = workflow["jobs"]["finish"]
+        self.assertEqual(finish["if"], "${{ always() }}")
+        self.assertIn("needs.snapshot_cleanup.result == 'success'", finish["steps"][0]["with"]["status"])
+
     def test_agent_state_action_has_claim_start_observe_finish_lifecycle(self) -> None:
         path = _prior.ROOT / "actions/agent-state/action.yml"
         action = yaml.safe_load(path.read_text())
