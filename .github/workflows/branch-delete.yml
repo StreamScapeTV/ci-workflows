@@ -223,7 +223,7 @@ jobs:
     with:
       repository: ${{ inputs.repository }}
       ref: ${{ inputs.branch }}
-      expected_source_sha: ${{ needs.delete.outputs.branch_was_present == 'true' && '' || inputs.expected_head }}
+      expected_source_sha: ''
     secrets: inherit
 
   finish:

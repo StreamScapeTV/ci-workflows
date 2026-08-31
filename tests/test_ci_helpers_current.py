@@ -49,10 +49,7 @@ class CiHelperTests(_prior.CiHelperTests):
         cleanup = workflow["jobs"]["snapshot_cleanup"]
         self.assertEqual(cleanup["uses"], "./.github/workflows/source-snapshot-delete.yml")
         self.assertEqual(cleanup["with"]["ref"], "${{ inputs.branch }}")
-        self.assertEqual(
-            cleanup["with"]["expected_source_sha"],
-            "${{ needs.delete.outputs.branch_was_present == 'true' && '' || inputs.expected_head }}",
-        )
+        self.assertEqual(cleanup["with"]["expected_source_sha"], "")
         finish = workflow["jobs"]["finish"]
         self.assertEqual(finish["if"], "${{ always() }}")
         self.assertIn("needs.snapshot_cleanup.result == 'success'", finish["steps"][0]["with"]["status"])
