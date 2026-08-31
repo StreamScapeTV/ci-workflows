@@ -51,10 +51,7 @@ class SourceSnapshotDeleteTests(unittest.TestCase):
         self.assertEqual(cleanup["uses"], "./.github/workflows/source-snapshot-delete.yml")
         self.assertEqual(cleanup["with"]["repository"], "${{ inputs.repository }}")
         self.assertEqual(cleanup["with"]["ref"], "${{ inputs.branch }}")
-        self.assertEqual(
-            cleanup["with"]["expected_source_sha"],
-            "${{ needs.delete.outputs.branch_was_present == 'true' && '' || inputs.expected_head }}",
-        )
+        self.assertEqual(cleanup["with"]["expected_source_sha"], "")
         self.assertEqual(cleanup["secrets"], "inherit")
         self.assertIn("needs.snapshot_cleanup.result == 'success'", finish["steps"][0]["with"]["status"])
         delete_script = next(step for step in delete["steps"] if step.get("name") == "Delete exact eligible branch")["run"]
@@ -64,7 +61,7 @@ class SourceSnapshotDeleteTests(unittest.TestCase):
     def test_exact_manifest_identity_is_required_and_cleanup_is_idempotent(self) -> None:
         expected = "a" * 40
         records: list[tuple[str, str]] = []
-        state = {"missing_ref": False, "bad_sha": False}
+        state = {"missing_ref": False, "bad_sha": False, "manifest_only": False}
 
         class Handler(http.server.BaseHTTPRequestHandler):
             def log_message(self, format: str, *args: object) -> None:
@@ -87,10 +84,10 @@ class SourceSnapshotDeleteTests(unittest.TestCase):
                         "requested_ref": "feature/cleanup",
                         "is_tag": False,
                         "resolved_source_sha": "b" * 40 if state["bad_sha"] else expected,
-                        "folder_id": "ref-folder",
-                        "manifest_file_id": "manifest-id",
-                        "archive_file_id": "archive-id",
-                        "source_zip_file_id": "archive-id",
+                        "folder_id": "copied-from-old-folder",
+                        "manifest_file_id": "copied-from-old-manifest",
+                        "archive_file_id": "copied-from-old-archive",
+                        "source_zip_file_id": "copied-from-old-archive",
                         "archive_filename": "example-feature%2Fcleanup.zip",
                     }
                     self._json(200, manifest)
@@ -105,10 +102,12 @@ class SourceSnapshotDeleteTests(unittest.TestCase):
                     files = [] if state["missing_ref"] else [{"id": "ref-folder", "name": "feature/cleanup", "mimeType": _mod.FOLDER_MIME}]
                     self._json(200, {"files": files})
                 elif "'ref-folder' in parents" in q:
-                    self._json(200, {"files": [
+                    children = [
                         {"id": "manifest-id", "name": "manifest.json", "mimeType": "application/json"},
-                        {"id": "archive-id", "name": "example-feature%2Fcleanup.zip", "mimeType": "application/zip"},
-                    ]})
+                    ]
+                    if not state["manifest_only"]:
+                        children.append({"id": "archive-id", "name": "example-feature%2Fcleanup.zip", "mimeType": "application/zip"})
+                    self._json(200, {"files": children})
                 else:
                     self._json(200, {"files": []})
 
@@ -136,6 +135,19 @@ class SourceSnapshotDeleteTests(unittest.TestCase):
             )
             self.assertEqual(result, "trashed")
             self.assertIn(("PATCH", "/files/ref-folder"), records)
+
+            records.clear()
+            state["manifest_only"] = True
+            result = _mod.delete_snapshot(
+                client,
+                root_folder_id="root",
+                repository="StreamScapeTV/example",
+                ref="feature/cleanup",
+                expected_source_sha=expected,
+            )
+            self.assertEqual(result, "trashed")
+            self.assertIn(("PATCH", "/files/ref-folder"), records)
+            state["manifest_only"] = False
 
             records.clear()
             state["missing_ref"] = True
