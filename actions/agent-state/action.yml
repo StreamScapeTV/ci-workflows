@@ -88,7 +88,7 @@ runs:
             test "$(jq -r '.ok' <<<"${response}")" = true
             ;;
           finish)
-            case "${TERMINAL_STATUS}" in succeeded|failed|cancelled|timed_out) ;; *) exit 2 ;; esac
+            case "${TERMINAL_STATUS}" in succeeded|failed|cancelled) ;; *) exit 2 ;; esac
             response="$(rpc transition_ci_run "$(jq -cn --arg id "${CI_RUN_ID}" --arg status "${TERMINAL_STATUS}" '{p_ci_run_id:$id,p_patch:{status:$status}}')")"
             test "$(jq -r '.ok' <<<"${response}")" = true
             ;;
@@ -101,7 +101,7 @@ runs:
             if test "$(jq -r '.code // ""' <<<"${response}")" = already_terminal; then
               current_status="$(jq -r '.run.status // ""' <<<"${response}")"
               case "${current_status}" in
-                succeeded|failed|cancelled|timed_out) exit 0 ;;
+                succeeded|failed|cancelled) exit 0 ;;
               esac
             fi
             printf 'Agent State cancellation settlement failed: %s\n' "$(jq -r '.code // "unknown"' <<<"${response}")" >&2
