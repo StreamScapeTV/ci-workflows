@@ -207,12 +207,16 @@ jobs:
             pull_request|pull_request_target) source_is_pr=true ;;
           esac
 
-          eligible=false
+          restore_eligible=false
           if test "${source_repository}" = "StreamScapeTV/iptv-apple" \
+            && test "${source_is_tag}" != "true"; then
+            restore_eligible=true
+          fi
+          save_eligible=false
+          if test "${restore_eligible}" = "true" \
             && test "${source_ref}" = "develop" \
-            && test "${source_is_tag}" != "true" \
             && test "${source_is_pr}" != "true"; then
-            eligible=true
+            save_eligible=true
           fi
           transport_ready=false
           if test -n "${DRIVE_CLIENT_ID}" \
@@ -220,24 +224,30 @@ jobs:
             && test -n "${DRIVE_REFRESH_TOKEN}"; then
             transport_ready=true
           fi
-          enabled=false
-          if test "${eligible}" = "true" && test "${transport_ready}" = "true"; then
-            enabled=true
+          restore_enabled=false
+          if test "${restore_eligible}" = "true" && test "${transport_ready}" = "true"; then
+            restore_enabled=true
+          fi
+          save_enabled=false
+          if test "${save_eligible}" = "true" && test "${transport_ready}" = "true"; then
+            save_enabled=true
           fi
 
           swiftpm_clones_dir="${RUNNER_TEMP}/streamscapetv-swiftpm-clones"
           mkdir -p "${swiftpm_clones_dir}"
           {
-            printf 'eligible=%s\n' "${eligible}"
-            printf 'enabled=%s\n' "${enabled}"
+            printf 'restore_eligible=%s\n' "${restore_eligible}"
+            printf 'save_eligible=%s\n' "${save_eligible}"
+            printf 'restore_enabled=%s\n' "${restore_enabled}"
+            printf 'save_enabled=%s\n' "${save_enabled}"
             printf 'swiftpm_clones_dir=%s\n' "${swiftpm_clones_dir}"
           } >> "${GITHUB_OUTPUT}"
           {
             printf 'SWIFTPM_CLONES_DIR=%s\n' "${swiftpm_clones_dir}"
-            printf 'APPLE_DEVELOP_CACHE_ENABLED=%s\n' "${enabled}"
+            printf 'APPLE_DEVELOP_CACHE_ENABLED=%s\n' "${restore_enabled}"
           } >> "${GITHUB_ENV}"
 
-          if test "${enabled}" = "true"; then
+          if test "${restore_enabled}" = "true"; then
             test -f scripts/bootstrap-streamscape-media-binary.sh
             test -f streamscapetv.xcodeproj/project.pbxproj
             dependency_fingerprint="$(
@@ -257,7 +267,7 @@ jobs:
 
       - name: Restore Apple develop dependency cache
         id: apple_develop_cache_restore
-        if: ${{ steps.apple_develop_cache.outputs.enabled == 'true' }}
+        if: ${{ steps.apple_develop_cache.outputs.restore_enabled == 'true' }}
         shell: bash
         env:
           GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
@@ -375,7 +385,7 @@ jobs:
           } >> "${GITHUB_OUTPUT}"
 
       - name: Record Apple develop cache restore
-        if: ${{ steps.apple_develop_cache.outputs.enabled == 'true' }}
+        if: ${{ steps.apple_develop_cache.outputs.restore_enabled == 'true' }}
         shell: bash
         env:
           CACHE_HIT: ${{ steps.apple_develop_cache_restore.outputs.cache_hit }}
@@ -654,7 +664,7 @@ jobs:
 
       - name: Record Apple develop cache contents
         id: apple_develop_cache_contents
-        if: ${{ matrix.cache_save && steps.apple_develop_cache.outputs.enabled == 'true' && steps.commands.outcome == 'success' }}
+        if: ${{ matrix.cache_save && steps.apple_develop_cache.outputs.save_enabled == 'true' && steps.commands.outcome == 'success' }}
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -676,7 +686,7 @@ jobs:
 
       - name: Prepare Apple develop dependency cache archive
         id: apple_develop_cache_archive
-        if: ${{ matrix.cache_save && steps.apple_develop_cache.outputs.enabled == 'true' && steps.commands.outcome == 'success' && steps.apple_develop_cache_restore.outputs.cache_hit != 'true' }}
+        if: ${{ matrix.cache_save && steps.apple_develop_cache.outputs.save_enabled == 'true' && steps.commands.outcome == 'success' && steps.apple_develop_cache_restore.outputs.cache_hit != 'true' }}
         shell: bash
         env:
           GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
