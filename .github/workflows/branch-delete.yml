@@ -149,7 +149,20 @@ jobs:
               except urllib.error.HTTPError as exc:
                   if allow_not_found and exc.code == 404:
                       return None
-                  raise SystemExit(f"GitHub branch maintenance {label} was refused with HTTP {exc.code}") from None
+                  accepted = (exc.headers.get("X-Accepted-GitHub-Permissions") or "").strip()
+                  message = ""
+                  try:
+                      payload = json.loads(exc.read().decode("utf-8", errors="replace"))
+                      if isinstance(payload, dict) and isinstance(payload.get("message"), str):
+                          message = " ".join(payload["message"].split())[:240]
+                  except (json.JSONDecodeError, UnicodeError):
+                      pass
+                  detail = f"; accepted-permissions={accepted}" if accepted else ""
+                  if message:
+                      detail += f"; message={message}"
+                  raise SystemExit(
+                      f"GitHub branch maintenance {label} was refused with HTTP {exc.code}{detail}"
+                  ) from None
               except urllib.error.URLError:
                   raise SystemExit("GitHub branch maintenance request failed") from None
               if method == "DELETE":

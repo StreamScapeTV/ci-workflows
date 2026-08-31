@@ -47,6 +47,8 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertIn('rule.get("type") == "deletion"', delete_step["run"])
         self.assertIn('label="branch rules"', delete_step["run"])
         self.assertIn("GitHub branch maintenance {label} was refused", delete_step["run"])
+        self.assertIn("X-Accepted-GitHub-Permissions", delete_step["run"])
+        self.assertIn("accepted-permissions=", delete_step["run"])
         self.assertIn("branch_was_present=false", delete_step["run"])
         self.assertIn("branch_was_present=true", delete_step["run"])
         cleanup = workflow["jobs"]["snapshot_cleanup"]
