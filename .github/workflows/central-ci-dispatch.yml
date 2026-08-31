@@ -98,6 +98,39 @@ jobs:
                   raise SystemExit(f"validation.container-service {key} is invalid")
           PY_VALIDATE
 
+      - name: Validate branch deletion request
+        if: ${{ steps.claim.outputs.workflow_key == 'maintenance.branch-delete' }}
+        shell: bash
+        env:
+          TEST_PROFILE: ${{ steps.claim.outputs.test_profile }}
+          REQUEST_IS_TAG: ${{ steps.claim.outputs.is_tag }}
+          INPUTS_JSON: ${{ steps.claim.outputs.inputs_json }}
+        run: |
+          set -Eeuo pipefail
+          test "${TEST_PROFILE}" = delete || {
+            echo "maintenance.branch-delete supports only the delete profile" >&2
+            exit 2
+          }
+          test "${REQUEST_IS_TAG}" = false || {
+            echo "maintenance.branch-delete does not accept tag requests" >&2
+            exit 2
+          }
+          python3 - <<'PY_VALIDATE_BRANCH_DELETE'
+          import json
+          import os
+          import re
+
+          try:
+              inputs = json.loads(os.environ["INPUTS_JSON"])
+          except (KeyError, json.JSONDecodeError) as exc:
+              raise SystemExit("maintenance.branch-delete inputs must be one JSON object") from exc
+          if not isinstance(inputs, dict) or set(inputs) != {"expected_head"}:
+              raise SystemExit("maintenance.branch-delete requires exactly inputs.expected_head")
+          expected_head = inputs["expected_head"]
+          if not isinstance(expected_head, str) or not re.fullmatch(r"[0-9a-f]{40}", expected_head):
+              raise SystemExit("maintenance.branch-delete expected_head must be one lowercase 40-character Git SHA")
+          PY_VALIDATE_BRANCH_DELETE
+
       - name: Validate Apple release request
         if: ${{ steps.claim.outputs.workflow_key == 'release.apple' }}
         shell: bash
@@ -281,6 +314,20 @@ jobs:
       ref: ${{ needs.request.outputs.ref }}
       dockerfile_path: ${{ fromJSON(needs.request.outputs.inputs_json).dockerfile_path }}
       build_context: ${{ fromJSON(needs.request.outputs.inputs_json).build_context }}
+      ci_run_id: ${{ inputs.ci_run_id }}
+    secrets: inherit
+
+  branch_delete:
+    needs: request
+    if: ${{ needs.request.outputs.workflow_key == 'maintenance.branch-delete' && needs.request.outputs.test_profile == 'delete' }}
+    concurrency:
+      group: central-ci-maintenance-${{ inputs.active_key }}
+      cancel-in-progress: false
+    uses: ./.github/workflows/branch-delete.yml
+    with:
+      repository: ${{ needs.request.outputs.repository }}
+      branch: ${{ needs.request.outputs.ref }}
+      expected_head: ${{ fromJSON(needs.request.outputs.inputs_json).expected_head }}
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
 
@@ -534,6 +581,7 @@ jobs:
       - container_service
       - public_native_image_chart
       - oci_reproducibility
+      - branch_delete
       - source_snapshot
     if: >-
       ${{
@@ -550,6 +598,7 @@ jobs:
           needs.container_service.result == 'cancelled' ||
           needs.public_native_image_chart.result == 'cancelled' ||
           needs.oci_reproducibility.result == 'cancelled' ||
+          needs.branch_delete.result == 'cancelled' ||
           needs.source_snapshot.result == 'cancelled'
         )
       }}
