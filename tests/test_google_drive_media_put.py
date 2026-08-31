@@ -55,7 +55,7 @@ drive_list_url {parent!r} {name!r} folder
                 "mimeType = 'application/vnd.google-apps.folder'"
             ],
         )
-        self.assertEqual(query["fields"], ["files(id,name,mimeType,createdTime)"])
+        self.assertEqual(query["fields"], ["nextPageToken,files(id,name,mimeType,createdTime)"])
 
     def test_existing_exact_folder_is_reused_without_create(self) -> None:
         function_text = _function(self.script, "drive_list_url", "verify_repository_folder")
@@ -91,6 +91,46 @@ printf '%s' "${{result}}"
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertEqual(completed.stdout, "existing-id")
 
+    def test_existing_folder_lookup_paginates_before_canonical_selection(self) -> None:
+        function_text = _function(self.script, "drive_list_url", "verify_repository_folder")
+        harness = f'''set -Eeuo pipefail
+{function_text}
+access_token=masked-token
+curl() {{
+  method=GET
+  url=""
+  while test "$#" -gt 0; do
+    case "$1" in
+      --request) method="$2"; shift 2 ;;
+      http*) url="$1"; shift ;;
+      *) shift ;;
+    esac
+  done
+  test "${{method}}" = GET || {{ echo "unexpected ${{method}}" >&2; return 97; }}
+  case "${{url}}" in
+    *pageToken=page-2*)
+      printf '%s' '{{"files":[{{"id":"canonical-id","createdTime":"2026-08-31T00:00:01Z"}}]}}'
+      ;;
+    *)
+      printf '%s' '{{"nextPageToken":"page-2","files":[{{"id":"later-id","createdTime":"2026-08-31T00:00:02Z"}}]}}'
+      ;;
+  esac
+}}
+result="$(ensure_folder parent-id exact-name)"
+test "${{result}}" = canonical-id
+printf '%s' "${{result}}"
+'''
+        completed = subprocess.run(
+            ["bash", "-c", harness],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout, "canonical-id")
+        self.assertIn("preserving every non-canonical folder", completed.stderr)
+
     def test_concurrent_folder_creators_converge_and_empty_loser_is_trashed(self) -> None:
         function_text = _function(self.script, "drive_list_url", "verify_repository_folder")
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -125,7 +165,7 @@ curl() {{
   done
   printf '%s %s\n' "${{method}}" "${{url}}" >> "${{REQUEST_LOG}}"
   if test "${{method}}" = POST; then
-    emit "${{output}}" '{{"id":"own-id"}}'
+    emit "${{output}}" '{{"id":"own-id","createdTime":"2026-08-31T00:00:02Z"}}'
     return 0
   fi
   if test "${{method}}" = PATCH; then
@@ -144,7 +184,8 @@ curl() {{
   case "${{count}}" in
     1) body='{{"files":[]}}' ;;
     2) body='{{"files":[{{"id":"own-id","createdTime":"2026-08-31T00:00:02Z"}}]}}' ;;
-    *) body='{{"files":[{{"id":"own-id","createdTime":"2026-08-31T00:00:02Z"}},{{"id":"canonical-id","createdTime":"2026-08-31T00:00:01Z"}}]}}' ;;
+    3) body='{{"files":[{{"id":"own-id","createdTime":"2026-08-31T00:00:02Z"}},{{"id":"canonical-id","createdTime":"2026-08-31T00:00:01Z"}}]}}' ;;
+    *) body='{{"files":[{{"id":"own-id","createdTime":"2026-08-31T00:00:02Z"}}]}}' ;;
   esac
   emit "${{output}}" "${{body}}"
 }}
@@ -162,12 +203,16 @@ printf '%s' "${{result}}"
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertEqual(completed.stdout, "canonical-id")
             requests = request_log.read_text()
-            self.assertIn("POST https://www.googleapis.com/drive/v3/files?fields=id", requests)
+            self.assertIn("POST https://www.googleapis.com/drive/v3/files?fields=id,createdTime", requests)
             self.assertIn(
                 "PATCH https://www.googleapis.com/drive/v3/files/own-id?fields=id,trashed",
                 requests,
             )
             self.assertNotIn("PATCH https://www.googleapis.com/drive/v3/files/canonical-id", requests)
+            self.assertEqual(
+                sum(line.endswith("pageSize=1") for line in requests.splitlines()),
+                2,
+            )
 
     def test_preexisting_duplicate_folders_are_preserved_with_bounded_warning(self) -> None:
         function_text = _function(self.script, "drive_list_url", "verify_repository_folder")
