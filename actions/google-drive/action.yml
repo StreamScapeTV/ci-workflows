@@ -146,7 +146,7 @@ runs:
             {
                 "q": " and ".join(clauses),
                 "spaces": "drive",
-                "fields": "files(id,name,mimeType)",
+                "fields": "files(id,name,mimeType,createdTime)",
                 "pageSize": "100",
             }
         )
@@ -164,28 +164,131 @@ runs:
         '
         }
 
+        folder_selection() {
+          python3 -c '
+        import datetime, json, sys
+        files = json.load(sys.stdin).get("files", [])
+        for value in files:
+            if not value.get("id") or not value.get("createdTime"):
+                raise SystemExit("Google Drive folder lookup returned incomplete canonical metadata")
+        def created_at(value):
+            return datetime.datetime.fromisoformat(value["createdTime"].replace("Z", "+00:00"))
+        files.sort(key=lambda value: (created_at(value), value["id"]))
+        if files:
+            print(files[0]["id"], len(files))
+        else:
+            print("- 0")
+        '
+        }
+
+        drive_children_url() {
+          python3 - "$1" <<'PY'
+        import sys
+        import urllib.parse
+
+        parent = sys.argv[1]
+        literal = parent.replace("\\", "\\\\").replace("'", "\\'")
+        query = urllib.parse.urlencode(
+            {
+                "q": f"'{literal}' in parents and trashed = false",
+                "spaces": "drive",
+                "fields": "files(id)",
+                "pageSize": "1",
+            }
+        )
+        print("https://www.googleapis.com/drive/v3/files?" + query)
+        PY
+        }
+
+        folder_is_empty() {
+          response="$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer ${access_token}" \
+            "$(drive_children_url "$1")")"
+          printf '%s' "${response}" | python3 -c '
+        import json, sys
+        raise SystemExit(0 if not json.load(sys.stdin).get("files", []) else 1)
+        '
+        }
+
+        trash_folder() {
+          curl --fail --silent --show-error \
+            --request PATCH \
+            --header "Authorization: Bearer ${access_token}" \
+            --header "Content-Type: application/json; charset=UTF-8" \
+            --data '{"trashed":true}' \
+            --output /dev/null \
+            "https://www.googleapis.com/drive/v3/files/$1?fields=id,trashed"
+        }
+
+        drive_backoff_sleep() {
+          python3 - "$1" <<'PY'
+        import sys
+        import time
+        time.sleep(float(sys.argv[1]))
+        PY
+        }
+
         ensure_folder() {
           parent="$1"
           name="$2"
           response="$(curl --fail --silent --show-error \
             --header "Authorization: Bearer ${access_token}" \
             "$(drive_list_url "${parent}" "${name}" folder)")"
-          folder_id="$(printf '%s' "${response}" | unique_id)"
-          if test -z "${folder_id}"; then
-            metadata="$(python3 - "${parent}" "${name}" <<'PY'
+          selection="$(printf '%s' "${response}" | folder_selection)"
+          folder_id="${selection%% *}"
+          folder_count="${selection##* }"
+          test "${folder_id}" != "-" || folder_id=""
+
+          if test -n "${folder_id}"; then
+            if test "${folder_count}" -gt 1; then
+              echo "::warning::Google Drive has ${folder_count} existing folders for one exact parent/name; using canonical folder ${folder_id} and preserving every non-canonical folder." >&2
+            fi
+            printf '%s' "${folder_id}"
+            return 0
+          fi
+
+          metadata="$(python3 - "${parent}" "${name}" <<'PY'
         import json, sys
         parent, name = sys.argv[1:3]
         print(json.dumps({"name": name, "mimeType": "application/vnd.google-apps.folder", "parents": [parent]}))
         PY
         )"
+          response="$(curl --fail --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer ${access_token}" \
+            --header "Content-Type: application/json; charset=UTF-8" \
+            --data "${metadata}" \
+            'https://www.googleapis.com/drive/v3/files?fields=id')"
+          created_folder_id="$(printf '%s' "${response}" | python3 -c 'import json,sys; value=json.load(sys.stdin); print(value["id"])')"
+
+          for delay in 0 0.2 0.5 1.0; do
+            if test "${delay}" != 0; then
+              drive_backoff_sleep "${delay}"
+            fi
             response="$(curl --fail --silent --show-error \
-              --request POST \
               --header "Authorization: Bearer ${access_token}" \
-              --header "Content-Type: application/json; charset=UTF-8" \
-              --data "${metadata}" \
-              'https://www.googleapis.com/drive/v3/files?fields=id')"
-            folder_id="$(printf '%s' "${response}" | python3 -c 'import json,sys; value=json.load(sys.stdin); print(value["id"])')"
+              "$(drive_list_url "${parent}" "${name}" folder)")"
+          done
+
+          selection="$(printf '%s' "${response}" | folder_selection)"
+          folder_id="${selection%% *}"
+          folder_count="${selection##* }"
+          test "${folder_id}" != "-" || folder_id=""
+          test -n "${folder_id}" || {
+            echo "Google Drive folder was not visible after bounded post-create reconciliation" >&2
+            return 1
+          }
+
+          if test "${created_folder_id}" != "${folder_id}"; then
+            if folder_is_empty "${created_folder_id}"; then
+              trash_folder "${created_folder_id}"
+            else
+              echo "::warning::This upload created a non-canonical Drive folder that is no longer empty; preserving it instead of deleting data." >&2
+            fi
+          elif test "${folder_count}" -gt 1; then
+            echo "::warning::Concurrent Google Drive folder candidates converged on canonical folder ${folder_id}; other candidates are preserved for their creating invocations to reconcile safely." >&2
           fi
+
           printf '%s' "${folder_id}"
         }
 
