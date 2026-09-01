@@ -26,6 +26,10 @@ name: Android CI
         type: boolean
         required: false
         default: false
+      build_number:
+        type: string
+        required: false
+        default: ""
       ci_run_id:
         type: string
         required: false
@@ -52,6 +56,16 @@ name: Android CI
       GOOGLE_DRIVE_REFRESH_TOKEN:
         required: false
       CIW_MAVEN_PACKAGE_READ_TOKEN:
+        required: false
+      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64:
+        required: false
+      ANDROID_PLAY_UPLOAD_KEYSTORE_BASE64:
+        required: false
+      ANDROID_PLAY_UPLOAD_KEYSTORE_PASSWORD:
+        required: false
+      ANDROID_PLAY_UPLOAD_KEY_ALIAS:
+        required: false
+      ANDROID_PLAY_UPLOAD_KEY_PASSWORD:
         required: false
 
 permissions:
@@ -272,6 +286,71 @@ jobs:
             exit 2
           }
 
+      - name: Prepare fixed Google Play draft release context
+        id: play_prepare
+        if: ${{ inputs.test_profile == 'play' }}
+        shell: bash
+        env:
+          BUILD_NUMBER: ${{ inputs.build_number }}
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64 }}
+          ANDROID_PLAY_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_PLAY_UPLOAD_KEYSTORE_BASE64 }}
+          ANDROID_PLAY_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_PLAY_UPLOAD_KEYSTORE_PASSWORD }}
+          ANDROID_PLAY_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_PLAY_UPLOAD_KEY_ALIAS }}
+          ANDROID_PLAY_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_PLAY_UPLOAD_KEY_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          [[ "${BUILD_NUMBER}" =~ ^[1-9][0-9]{0,9}$ ]] || {
+            echo "Google Play build_number must be a positive decimal Android versionCode" >&2
+            exit 2
+          }
+          (( BUILD_NUMBER <= 2100000000 )) || {
+            echo "Google Play build_number exceeds the maximum Android versionCode 2100000000" >&2
+            exit 2
+          }
+          test -n "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64}" || {
+            echo "Google Play release credential is unavailable" >&2
+            exit 2
+          }
+          for name in ANDROID_PLAY_UPLOAD_KEYSTORE_BASE64 ANDROID_PLAY_UPLOAD_KEYSTORE_PASSWORD ANDROID_PLAY_UPLOAD_KEY_ALIAS ANDROID_PLAY_UPLOAD_KEY_PASSWORD; do
+            test -n "${!name}" || {
+              printf 'Google Play release signing secret is unavailable: %s\n' "${name}" >&2
+              exit 2
+            }
+          done
+          release_root="${RUNNER_TEMP}/central-android-play"
+          credential_path="${release_root}/service-account.json"
+          keystore_path="${release_root}/upload-key.jks"
+          rm -rf -- "${release_root}"
+          mkdir -p "${release_root}"
+          chmod 700 "${release_root}"
+          printf '%s' "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64}" | base64 --decode > "${credential_path}"
+          printf '%s' "${ANDROID_PLAY_UPLOAD_KEYSTORE_BASE64}" | base64 --decode > "${keystore_path}"
+          chmod 600 "${credential_path}" "${keystore_path}"
+          test -s "${keystore_path}"
+          python3 - "${credential_path}" <<'PY_PLAY_JSON'
+          from pathlib import Path
+          import json, sys
+          value = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          if value.get("type") != "service_account":
+              raise SystemExit("Google Play credential must be a service-account JSON key")
+          for field in ("client_email", "private_key", "token_uri"):
+              if not isinstance(value.get(field), str) or not value[field]:
+                  raise SystemExit(f"Google Play service-account JSON is missing {field}")
+          PY_PLAY_JSON
+          test "$(stat -c '%a' "${credential_path}")" = 600
+          test "$(stat -c '%a' "${keystore_path}")" = 600
+          keytool -list -keystore "${keystore_path}" -storepass "${ANDROID_PLAY_UPLOAD_KEYSTORE_PASSWORD}" -alias "${ANDROID_PLAY_UPLOAD_KEY_ALIAS}" >/dev/null
+          {
+            printf 'CI_ANDROID_PLAY_BUILD_NUMBER=%s\n' "${BUILD_NUMBER}"
+            printf 'CI_ANDROID_PLAY_SERVICE_ACCOUNT_PATH=%s\n' "${credential_path}"
+            printf 'CI_ANDROID_PLAY_UPLOAD_KEYSTORE_PATH=%s\n' "${keystore_path}"
+            printf 'CI_ANDROID_PLAY_UPLOAD_KEYSTORE_PASSWORD=%s\n' "${ANDROID_PLAY_UPLOAD_KEYSTORE_PASSWORD}"
+            printf 'CI_ANDROID_PLAY_UPLOAD_KEY_ALIAS=%s\n' "${ANDROID_PLAY_UPLOAD_KEY_ALIAS}"
+            printf 'CI_ANDROID_PLAY_UPLOAD_KEY_PASSWORD=%s\n' "${ANDROID_PLAY_UPLOAD_KEY_PASSWORD}"
+            printf 'CI_ANDROID_PLAY_TRACK=internal\n'
+            printf 'CI_ANDROID_PLAY_RELEASE_STATUS=draft\n'
+          } >> "${GITHUB_ENV}"
+
       - name: Prepare generic Android emulator
         id: android_emulator
         if: ${{ inputs.test_profile == 'emulator' }}
@@ -342,6 +421,14 @@ jobs:
           TEST_FILTER: ${{ inputs.test_filter }}
           ROOM_SCHEMA: ${{ inputs.room_schema }}
           CIW_MAVEN_PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+          CI_ANDROID_PLAY_BUILD_NUMBER: ${{ env.CI_ANDROID_PLAY_BUILD_NUMBER }}
+          CI_ANDROID_PLAY_SERVICE_ACCOUNT_PATH: ${{ env.CI_ANDROID_PLAY_SERVICE_ACCOUNT_PATH }}
+          CI_ANDROID_PLAY_UPLOAD_KEYSTORE_PATH: ${{ env.CI_ANDROID_PLAY_UPLOAD_KEYSTORE_PATH }}
+          CI_ANDROID_PLAY_UPLOAD_KEYSTORE_PASSWORD: ${{ env.CI_ANDROID_PLAY_UPLOAD_KEYSTORE_PASSWORD }}
+          CI_ANDROID_PLAY_UPLOAD_KEY_ALIAS: ${{ env.CI_ANDROID_PLAY_UPLOAD_KEY_ALIAS }}
+          CI_ANDROID_PLAY_UPLOAD_KEY_PASSWORD: ${{ env.CI_ANDROID_PLAY_UPLOAD_KEY_PASSWORD }}
+          CI_ANDROID_PLAY_TRACK: ${{ env.CI_ANDROID_PLAY_TRACK }}
+          CI_ANDROID_PLAY_RELEASE_STATUS: ${{ env.CI_ANDROID_PLAY_RELEASE_STATUS }}
         run: |
           set -Eeuo pipefail
           repository_root="${PWD}"
@@ -361,6 +448,28 @@ jobs:
               wrapper="${repository_root}/scripts/ci/run-android-hosted-validation.sh"
               export CI_ANDROID_HOSTED_PROFILE="${TEST_PROFILE}"
               run_logged "android-${TEST_PROFILE}" bash "${wrapper}"
+              exit 0
+              ;;
+            play)
+              wrapper="${repository_root}/scripts/ci/run-android-play-release.sh"
+              test -f "${wrapper}" || {
+                printf 'Missing fixed Android Play release wrapper: %s\n' "${wrapper}" >&2
+                exit 2
+              }
+              git ls-files --error-unmatch -- "${wrapper#${repository_root}/}" >/dev/null 2>&1 || {
+                printf 'Android Play release wrapper must be tracked source: %s\n' "${wrapper}" >&2
+                exit 2
+              }
+              test -n "${CI_ANDROID_PLAY_BUILD_NUMBER:-}"
+              test -n "${CI_ANDROID_PLAY_SERVICE_ACCOUNT_PATH:-}"
+              test -f "${CI_ANDROID_PLAY_SERVICE_ACCOUNT_PATH}"
+              test -f "${CI_ANDROID_PLAY_UPLOAD_KEYSTORE_PATH}"
+              test -n "${CI_ANDROID_PLAY_UPLOAD_KEYSTORE_PASSWORD:-}"
+              test -n "${CI_ANDROID_PLAY_UPLOAD_KEY_ALIAS:-}"
+              test -n "${CI_ANDROID_PLAY_UPLOAD_KEY_PASSWORD:-}"
+              test "${CI_ANDROID_PLAY_TRACK:-}" = internal
+              test "${CI_ANDROID_PLAY_RELEASE_STATUS:-}" = draft
+              run_logged android-play-draft bash "${wrapper}"
               exit 0
               ;;
           esac
@@ -501,6 +610,16 @@ jobs:
             fi
           fi
 
+      - name: Clean Google Play credential and release state
+        id: play_cleanup
+        if: ${{ always() && inputs.test_profile == 'play' }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          release_root="${RUNNER_TEMP}/central-android-play"
+          rm -rf -- "${release_root}"
+          test ! -e "${release_root}"
+
       - name: Stop generic Android emulator
         if: ${{ always() && inputs.test_profile == 'emulator' }}
         shell: bash
@@ -601,6 +720,11 @@ jobs:
           CI_SECRET_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
           CI_SECRET_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
           CI_SECRET_MAVEN_PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+          CI_SECRET_GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ inputs.test_profile == 'play' && secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64 || '' }}
+          CI_SECRET_ANDROID_PLAY_UPLOAD_KEYSTORE_BASE64: ${{ inputs.test_profile == 'play' && secrets.ANDROID_PLAY_UPLOAD_KEYSTORE_BASE64 || '' }}
+          CI_SECRET_ANDROID_PLAY_UPLOAD_KEYSTORE_PASSWORD: ${{ inputs.test_profile == 'play' && secrets.ANDROID_PLAY_UPLOAD_KEYSTORE_PASSWORD || '' }}
+          CI_SECRET_ANDROID_PLAY_UPLOAD_KEY_ALIAS: ${{ inputs.test_profile == 'play' && secrets.ANDROID_PLAY_UPLOAD_KEY_ALIAS || '' }}
+          CI_SECRET_ANDROID_PLAY_UPLOAD_KEY_PASSWORD: ${{ inputs.test_profile == 'play' && secrets.ANDROID_PLAY_UPLOAD_KEY_PASSWORD || '' }}
           CI_SECRET_TAILSCALE_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           CI_SECRET_TAILSCALE_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
         run: |
@@ -647,4 +771,4 @@ jobs:
         with:
           phase: finish
           ci_run_id: ${{ inputs.ci_run_id }}
-          status: ${{ steps.commands.outcome == 'success' && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && (steps.android_cache_measurements.outcome == 'success' || steps.android_cache_measurements.outcome == 'skipped') && (steps.gradle_dependency_cache_save.outcome == 'success' || steps.gradle_dependency_cache_save.outcome == 'skipped') && (steps.gradle_build_cache_save.outcome == 'success' || steps.gradle_build_cache_save.outcome == 'skipped') && 'succeeded' || 'failed' }}
+          status: ${{ steps.commands.outcome == 'success' && (steps.play_cleanup.outcome == 'success' || steps.play_cleanup.outcome == 'skipped') && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && (steps.android_cache_measurements.outcome == 'success' || steps.android_cache_measurements.outcome == 'skipped') && (steps.gradle_dependency_cache_save.outcome == 'success' || steps.gradle_dependency_cache_save.outcome == 'skipped') && (steps.gradle_build_cache_save.outcome == 'success' || steps.gradle_build_cache_save.outcome == 'skipped') && 'succeeded' || 'failed' }}

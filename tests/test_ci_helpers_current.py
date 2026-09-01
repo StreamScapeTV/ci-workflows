@@ -71,6 +71,7 @@ class CiHelperTests(_prior.CiHelperTests):
             "apple",
             "apple_release",
             "android",
+            "android_release",
             "python",
             "node",
             "flutter",
@@ -107,6 +108,36 @@ class CiHelperTests(_prior.CiHelperTests):
         for name in (*execution_jobs, "branch_delete", "source_bundle_publish", "source_snapshot"):
             self.assertIn(f"needs.{name}.result == 'cancelled'", settlement["if"])
         self.assertEqual(settlement["steps"][-1]["with"]["phase"], "cancel-if-active")
+
+    def test_android_release_is_bounded_to_play_internal_draft(self) -> None:
+        dispatch_path = _prior.ROOT / ".github/workflows/central-ci-dispatch.yml"
+        dispatch = yaml.safe_load(dispatch_path.read_text())
+        request_steps = dispatch["jobs"]["request"]["steps"]
+        request_by_name = {step.get("name"): step for step in request_steps if step.get("name")}
+        admission = request_by_name["Validate Android release request"]
+        self.assertEqual(admission["if"], "${{ steps.claim.outputs.workflow_key == 'release.android' }}")
+        script = admission["run"]
+        self.assertIn("release.android supports only the play profile", script)
+        self.assertIn('set(inputs) != {"build_number"}', script)
+        self.assertIn(r'[1-9][0-9]{0,9}', script)
+        self.assertIn("2100000000", script)
+        for forbidden in ("track", "status", "userFraction", "production"):
+            self.assertNotIn(f'inputs["{forbidden}"]', script)
+
+        job = dispatch["jobs"]["android_release"]
+        self.assertEqual(
+            job["if"],
+            "${{ needs.request.outputs.workflow_key == 'release.android' && needs.request.outputs.test_profile == 'play' }}",
+        )
+        self.assertEqual(job["uses"], "./.github/workflows/android.yml")
+        self.assertEqual(job["with"]["test_profile"], "play")
+        self.assertEqual(
+            job["with"]["build_number"],
+            "${{ fromJSON(needs.request.outputs.inputs_json).build_number }}",
+        )
+        self.assertNotIn("track", job["with"])
+        self.assertNotIn("status", job["with"])
+        self.assertTrue(job["concurrency"]["cancel-in-progress"])
 
     def test_source_bundle_publish_is_bounded_and_inventory_routed(self) -> None:
         inventory = yaml.safe_load((_prior.ROOT / "INVENTORY.yaml").read_text())

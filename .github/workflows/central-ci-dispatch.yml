@@ -176,6 +176,36 @@ jobs:
               raise SystemExit("source.bundle-publish bundle_sha256 must be one lowercase 64-character SHA-256")
           PY_VALIDATE_SOURCE_BUNDLE
 
+      - name: Validate Android release request
+        if: ${{ steps.claim.outputs.workflow_key == 'release.android' }}
+        shell: bash
+        env:
+          TEST_PROFILE: ${{ steps.claim.outputs.test_profile }}
+          INPUTS_JSON: ${{ steps.claim.outputs.inputs_json }}
+        run: |
+          set -Eeuo pipefail
+          test "${TEST_PROFILE}" = play || {
+            echo "release.android supports only the play profile" >&2
+            exit 2
+          }
+          python3 - <<'PY_VALIDATE_ANDROID_RELEASE'
+          import json
+          import os
+          import re
+
+          try:
+              inputs = json.loads(os.environ["INPUTS_JSON"])
+          except (KeyError, json.JSONDecodeError) as exc:
+              raise SystemExit("release.android inputs must be one JSON object") from exc
+          if not isinstance(inputs, dict) or set(inputs) != {"build_number"}:
+              raise SystemExit("release.android requires exactly inputs.build_number")
+          build_number = inputs["build_number"]
+          if not isinstance(build_number, str) or not re.fullmatch(r"[1-9][0-9]{0,9}", build_number):
+              raise SystemExit("release.android build_number must be one positive decimal Android versionCode")
+          if int(build_number) > 2100000000:
+              raise SystemExit("release.android build_number exceeds the maximum Android versionCode 2100000000")
+          PY_VALIDATE_ANDROID_RELEASE
+
       - name: Validate Apple release request
         if: ${{ steps.claim.outputs.workflow_key == 'release.apple' }}
         shell: bash
@@ -249,6 +279,21 @@ jobs:
       project_directory: ${{ fromJSON(needs.request.outputs.inputs_json).project_directory || '.' }}
       test_filter: ${{ fromJSON(needs.request.outputs.inputs_json).test_filter || '' }}
       room_schema: ${{ fromJSON(needs.request.outputs.inputs_json).room_schema || false }}
+      ci_run_id: ${{ inputs.ci_run_id }}
+    secrets: inherit
+
+  android_release:
+    needs: request
+    if: ${{ needs.request.outputs.workflow_key == 'release.android' && needs.request.outputs.test_profile == 'play' }}
+    concurrency:
+      group: central-ci-${{ inputs.active_key }}
+      cancel-in-progress: true
+    uses: ./.github/workflows/android.yml
+    with:
+      repository: ${{ needs.request.outputs.repository }}
+      ref: ${{ needs.request.outputs.ref }}
+      test_profile: play
+      build_number: ${{ fromJSON(needs.request.outputs.inputs_json).build_number }}
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
 
@@ -653,6 +698,7 @@ jobs:
       - apple
       - apple_release
       - android
+      - android_release
       - python
       - node
       - flutter
@@ -671,6 +717,7 @@ jobs:
           needs.apple.result == 'cancelled' ||
           needs.apple_release.result == 'cancelled' ||
           needs.android.result == 'cancelled' ||
+          needs.android_release.result == 'cancelled' ||
           needs.python.result == 'cancelled' ||
           needs.node.result == 'cancelled' ||
           needs.flutter.result == 'cancelled' ||
