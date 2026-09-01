@@ -237,5 +237,84 @@ class AndroidGenericHostedProfileContractTest(unittest.TestCase):
 
 
 
+class AndroidPlayReleaseContractTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.workflow_text = WORKFLOW_PATH.read_text(encoding="utf-8")
+        cls.workflow = yaml.safe_load(cls.workflow_text)
+        steps = cls.workflow["jobs"]["ci"]["steps"]
+        cls.by_name = {step.get("name"): step for step in steps if step.get("name")}
+
+    def test_play_release_has_one_explicit_build_number_and_one_private_credential(self) -> None:
+        call = self.workflow["on"]["workflow_call"]
+        self.assertIn("build_number", call["inputs"])
+        self.assertEqual(call["inputs"]["build_number"]["default"], "")
+        self.assertIn("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64", call["secrets"])
+        for secret in (
+            "ANDROID_PLAY_UPLOAD_KEYSTORE_BASE64",
+            "ANDROID_PLAY_UPLOAD_KEYSTORE_PASSWORD",
+            "ANDROID_PLAY_UPLOAD_KEY_ALIAS",
+            "ANDROID_PLAY_UPLOAD_KEY_PASSWORD",
+        ):
+            self.assertIn(secret, call["secrets"])
+        prepare = self.by_name["Prepare fixed Google Play draft release context"]
+        self.assertEqual(prepare["if"], "${{ inputs.test_profile == 'play' }}")
+        self.assertEqual(prepare["env"]["BUILD_NUMBER"], "${{ inputs.build_number }}")
+        self.assertEqual(
+            prepare["env"]["GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64"],
+            "${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64 }}",
+        )
+        script = prepare["run"]
+        self.assertIn('[[ "${BUILD_NUMBER}" =~ ^[1-9][0-9]{0,9}$ ]]', script)
+        self.assertIn("BUILD_NUMBER <= 2100000000", script)
+        self.assertIn("base64 --decode", script)
+        self.assertIn('chmod 600 "${credential_path}" "${keystore_path}"', script)
+        self.assertIn("ANDROID_PLAY_UPLOAD_KEYSTORE_BASE64", script)
+        self.assertIn('keytool -list -keystore "${keystore_path}"', script)
+        self.assertIn("CI_ANDROID_PLAY_UPLOAD_KEYSTORE_PATH", script)
+        self.assertIn('value.get("type") != "service_account"', script)
+        self.assertIn("client_email", script)
+        self.assertIn("private_key", script)
+        self.assertIn("token_uri", script)
+
+    def test_play_destination_is_fixed_internal_draft_not_caller_selectable(self) -> None:
+        prepare = self.by_name["Prepare fixed Google Play draft release context"]["run"]
+        self.assertIn("CI_ANDROID_PLAY_TRACK=internal", prepare)
+        self.assertIn("CI_ANDROID_PLAY_RELEASE_STATUS=draft", prepare)
+        commands = self.by_name["Run fixed Android profile"]
+        script = commands["run"]
+        self.assertIn("play)", script)
+        self.assertIn('wrapper="${repository_root}/scripts/ci/run-android-play-release.sh"', script)
+        self.assertIn('test "${CI_ANDROID_PLAY_TRACK:-}" = internal', script)
+        self.assertIn('test "${CI_ANDROID_PLAY_RELEASE_STATUS:-}" = draft', script)
+        self.assertIn('test -f "${CI_ANDROID_PLAY_UPLOAD_KEYSTORE_PATH}"', script)
+        self.assertIn('test -n "${CI_ANDROID_PLAY_UPLOAD_KEYSTORE_PASSWORD:-}"', script)
+        self.assertIn("run_logged android-play-draft", script)
+        for forbidden in ("production", "open testing", "closed testing", "userFraction"):
+            self.assertNotIn(forbidden, script)
+        self.assertNotIn("inputs.", script)
+
+    def test_play_credential_is_cleaned_and_not_exposed_to_ordinary_profiles(self) -> None:
+        cleanup = self.by_name["Clean Google Play credential and release state"]
+        self.assertEqual(cleanup["if"], "${{ always() && inputs.test_profile == 'play' }}")
+        self.assertIn('rm -rf -- "${release_root}"', cleanup["run"])
+        scrub = self.by_name["Scrub configured CI secrets from private log"]
+        self.assertEqual(
+            scrub["env"]["CI_SECRET_GOOGLE_PLAY_SERVICE_ACCOUNT_JSON"],
+            "${{ inputs.test_profile == 'play' && secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64 || '' }}",
+        )
+        for key in (
+            "CI_SECRET_ANDROID_PLAY_UPLOAD_KEYSTORE_BASE64",
+            "CI_SECRET_ANDROID_PLAY_UPLOAD_KEYSTORE_PASSWORD",
+            "CI_SECRET_ANDROID_PLAY_UPLOAD_KEY_ALIAS",
+            "CI_SECRET_ANDROID_PLAY_UPLOAD_KEY_PASSWORD",
+        ):
+            self.assertIn(key, scrub["env"])
+            self.assertIn("inputs.test_profile == 'play'", scrub["env"][key])
+        finish = self.by_name["Finish Agent State run"]
+        self.assertIn("steps.play_cleanup.outcome == 'success'", finish["with"]["status"])
+
+
+
 if __name__ == "__main__":
     unittest.main()
