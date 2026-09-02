@@ -66,6 +66,7 @@ jobs:
           owner: StreamScapeTV
           repositories: ${{ steps.request.outputs.repository_name }}
           permission-contents: write
+          permission-workflows: write
           permission-metadata: read
 
       - name: Verify exact mutable GitHub branch
