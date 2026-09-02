@@ -5,7 +5,7 @@
 - Repository: `StreamScapeTV/ci-workflows`
 - Agent State project key: `ci-workflows`
 - Protected integration branch: `main`
-- Shared organization policy: `StreamScapeTV/organization-rules@main/AGENTS.md`
+- Shared organization policy: `StreamScapeTV/organization-rules@main/AGENTS.yaml`
 - Local path inventory: `INVENTORY.yaml`
 - Google Drive repository folder ID: `1--JcV6RK8jdIIP3ONWw420QDVpNTQ7L8`
 
