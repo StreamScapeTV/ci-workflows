@@ -14,19 +14,20 @@ class CiHelperTests(_prior.CiHelperTests):
         inventory = yaml.safe_load((_prior.ROOT / "INVENTORY.yaml").read_text())
         self.assertEqual(
             set(inventory["workflows"]),
-            {"apple", "android", "python", "node", "flutter", "maven", "streamscape_media_release", "streamscape_media_apple_binary", "container_service", "public_native_image_chart", "oci_reproducibility", "branch_delete", "source_snapshot_delete", "source_bundle_publish", "central_dispatch", "self_check", "runner_images"},
+            {"apple", "android", "python", "node", "flutter", "maven", "streamscape_media_release", "streamscape_media_apple_binary", "container_service", "public_native_image_chart", "oci_reproducibility", "branch_delete", "source_snapshot_delete", "source_bundle_publish", "source_checkpoint_publish", "central_dispatch", "self_check", "runner_images"},
         )
         self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive", "private_git"})
-        self.assertEqual(set(inventory["scripts"]), {"oci_reproducibility", "source_snapshot_delete", "source_bundle_publish", "streamscape_media_release"})
+        self.assertEqual(set(inventory["scripts"]), {"oci_reproducibility", "source_snapshot_delete", "source_bundle_publish", "source_checkpoint_publish", "streamscape_media_release"})
         self.assertEqual(set(inventory["services"]), {"runner_images"})
 
     def test_workflows_use_no_reusable_prefix(self) -> None:
         names = {p.name for p in (_prior.ROOT / ".github/workflows").glob("*.yml")}
-        self.assertEqual(len(names), 17)
+        self.assertEqual(len(names), 18)
         self.assertNotIn("broker.yml", names)
         self.assertFalse(any(name.startswith("reusable-") for name in names))
         self.assertIn("source-snapshot-delete.yml", names)
         self.assertIn("source-bundle-publish.yml", names)
+        self.assertIn("source-checkpoint-publish.yml", names)
         self.assertIn("streamscape-media-release.yml", names)
         self.assertIn("streamscape-media-apple-binary.yml", names)
 
@@ -100,6 +101,10 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertEqual(source_publish["group"], "central-ci-source-publish-${{ inputs.active_key }}")
         self.assertFalse(source_publish["cancel-in-progress"])
 
+        checkpoint_publish = jobs["source_checkpoint_publish"]["concurrency"]
+        self.assertEqual(checkpoint_publish["group"], "central-ci-source-checkpoint-publish-${{ inputs.active_key }}")
+        self.assertFalse(checkpoint_publish["cancel-in-progress"])
+
         snapshot = jobs["source_snapshot"]["concurrency"]
         self.assertEqual(snapshot["group"], "central-ci-snapshot-${{ inputs.active_key }}")
         self.assertTrue(snapshot["cancel-in-progress"])
@@ -107,11 +112,11 @@ class CiHelperTests(_prior.CiHelperTests):
 
         settlement = jobs["settle_cancelled"]
         self.assertNotIn("concurrency", settlement)
-        expected = {"request", *execution_jobs, "streamscape_media_release", "branch_delete", "source_bundle_publish", "source_snapshot"}
+        expected = {"request", *execution_jobs, "streamscape_media_release", "branch_delete", "source_bundle_publish", "source_checkpoint_publish", "source_snapshot"}
         self.assertEqual(set(settlement["needs"]), expected)
         self.assertIn("always()", settlement["if"])
         self.assertIn("needs.request.result != 'success'", settlement["if"])
-        for name in (*execution_jobs, "streamscape_media_release", "branch_delete", "source_bundle_publish", "source_snapshot"):
+        for name in (*execution_jobs, "streamscape_media_release", "branch_delete", "source_bundle_publish", "source_checkpoint_publish", "source_snapshot"):
             self.assertIn(f"needs.{name}.result == 'cancelled'", settlement["if"])
         self.assertEqual(settlement["steps"][-1]["with"]["phase"], "cancel-if-active")
 

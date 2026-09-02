@@ -176,6 +176,42 @@ jobs:
               raise SystemExit("source.bundle-publish bundle_sha256 must be one lowercase 64-character SHA-256")
           PY_VALIDATE_SOURCE_BUNDLE
 
+      - name: Validate canonical source checkpoint publication request
+        if: ${{ steps.claim.outputs.workflow_key == 'source.checkpoint-publish' }}
+        shell: bash
+        env:
+          TEST_PROFILE: ${{ steps.claim.outputs.test_profile }}
+          REQUEST_IS_TAG: ${{ steps.claim.outputs.is_tag }}
+          REQUEST_REF: ${{ steps.claim.outputs.ref }}
+          INPUTS_JSON: ${{ steps.claim.outputs.inputs_json }}
+        run: |
+          set -Eeuo pipefail
+          test "${TEST_PROFILE}" = publish || {
+            echo "source.checkpoint-publish supports only the publish profile" >&2
+            exit 2
+          }
+          test "${REQUEST_IS_TAG}" = false || {
+            echo "source.checkpoint-publish does not accept tag requests" >&2
+            exit 2
+          }
+          case "${REQUEST_REF}" in
+            main|develop) echo "source.checkpoint-publish refuses protected integration branch names" >&2; exit 2 ;;
+          esac
+          python3 - <<'PY_VALIDATE_SOURCE_CHECKPOINT'
+          import json
+          import os
+          import re
+          try:
+              inputs = json.loads(os.environ["INPUTS_JSON"])
+          except (KeyError, json.JSONDecodeError) as exc:
+              raise SystemExit("source.checkpoint-publish inputs must be one JSON object") from exc
+          if not isinstance(inputs, dict) or set(inputs) != {"expected_head"}:
+              raise SystemExit("source.checkpoint-publish requires exactly inputs.expected_head")
+          expected_head = inputs["expected_head"]
+          if not isinstance(expected_head, str) or not re.fullmatch(r"[0-9a-f]{40}", expected_head):
+              raise SystemExit("source.checkpoint-publish expected_head must be one lowercase 40-character Git SHA")
+          PY_VALIDATE_SOURCE_CHECKPOINT
+
       - name: Validate Android release request
         if: ${{ steps.claim.outputs.workflow_key == 'release.android' }}
         shell: bash
@@ -489,6 +525,20 @@ jobs:
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
 
+  source_checkpoint_publish:
+    needs: request
+    if: ${{ needs.request.outputs.workflow_key == 'source.checkpoint-publish' && needs.request.outputs.test_profile == 'publish' }}
+    concurrency:
+      group: central-ci-source-checkpoint-publish-${{ inputs.active_key }}
+      cancel-in-progress: false
+    uses: ./.github/workflows/source-checkpoint-publish.yml
+    with:
+      repository: ${{ needs.request.outputs.repository }}
+      branch: ${{ needs.request.outputs.ref }}
+      expected_head: ${{ fromJSON(needs.request.outputs.inputs_json).expected_head }}
+      ci_run_id: ${{ inputs.ci_run_id }}
+    secrets: inherit
+
   source_snapshot:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'source.snapshot' }}
@@ -761,6 +811,7 @@ jobs:
       - oci_reproducibility
       - branch_delete
       - source_bundle_publish
+      - source_checkpoint_publish
       - source_snapshot
     if: >-
       ${{
@@ -781,6 +832,7 @@ jobs:
           needs.oci_reproducibility.result == 'cancelled' ||
           needs.branch_delete.result == 'cancelled' ||
           needs.source_bundle_publish.result == 'cancelled' ||
+          needs.source_checkpoint_publish.result == 'cancelled' ||
           needs.source_snapshot.result == 'cancelled'
         )
       }}
