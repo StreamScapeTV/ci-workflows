@@ -206,6 +206,44 @@ jobs:
               raise SystemExit("release.android build_number exceeds the maximum Android versionCode 2100000000")
           PY_VALIDATE_ANDROID_RELEASE
 
+      - name: Validate Streamscape Media release request
+        if: ${{ steps.claim.outputs.workflow_key == 'release.streamscape-media' }}
+        shell: bash
+        env:
+          TEST_PROFILE: ${{ steps.claim.outputs.test_profile }}
+          SOURCE_REPOSITORY: ${{ steps.claim.outputs.repository }}
+          REQUEST_REF: ${{ steps.claim.outputs.ref }}
+          REQUEST_IS_TAG: ${{ steps.claim.outputs.is_tag }}
+          INPUTS_JSON: ${{ steps.claim.outputs.inputs_json }}
+        run: |
+          set -Eeuo pipefail
+          test "${TEST_PROFILE}" = publish || {
+            echo "release.streamscape-media supports only the publish profile" >&2
+            exit 2
+          }
+          test "${SOURCE_REPOSITORY}" = StreamScapeTV/streamscape-media || {
+            echo "release.streamscape-media is restricted to StreamScapeTV/streamscape-media" >&2
+            exit 2
+          }
+          test "${REQUEST_IS_TAG}" = true || {
+            echo "release.streamscape-media requires a tag source selector" >&2
+            exit 2
+          }
+          [[ "${REQUEST_REF}" =~ ^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+            echo "release.streamscape-media requires ref=MAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH" >&2
+            exit 2
+          }
+          python3 - <<'PY_VALIDATE_STREAMSCAPE_MEDIA_RELEASE'
+          import json
+          import os
+          try:
+              inputs = json.loads(os.environ["INPUTS_JSON"])
+          except (KeyError, json.JSONDecodeError) as exc:
+              raise SystemExit("release.streamscape-media inputs must be one JSON object") from exc
+          if not isinstance(inputs, dict) or inputs:
+              raise SystemExit("release.streamscape-media accepts no semantic inputs; version and source come from the stable tag")
+          PY_VALIDATE_STREAMSCAPE_MEDIA_RELEASE
+
       - name: Validate Apple release request
         if: ${{ steps.claim.outputs.workflow_key == 'release.apple' }}
         shell: bash
@@ -351,6 +389,20 @@ jobs:
       repository: ${{ needs.request.outputs.repository }}
       ref: ${{ needs.request.outputs.ref }}
       build_number: ${{ fromJSON(needs.request.outputs.inputs_json).build_number }}
+      ci_run_id: ${{ inputs.ci_run_id }}
+    secrets: inherit
+
+  streamscape_media_release:
+    needs: request
+    if: ${{ needs.request.outputs.workflow_key == 'release.streamscape-media' && needs.request.outputs.test_profile == 'publish' }}
+    concurrency:
+      group: central-ci-streamscape-media-${{ inputs.active_key }}
+      cancel-in-progress: false
+    uses: ./.github/workflows/streamscape-media-release.yml
+    with:
+      repository: ${{ needs.request.outputs.repository }}
+      ref: ${{ needs.request.outputs.ref }}
+      source_is_tag: ${{ needs.request.outputs.is_tag == 'true' }}
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
 
@@ -703,6 +755,7 @@ jobs:
       - node
       - flutter
       - maven
+      - streamscape_media_release
       - container_service
       - public_native_image_chart
       - oci_reproducibility
@@ -722,6 +775,7 @@ jobs:
           needs.node.result == 'cancelled' ||
           needs.flutter.result == 'cancelled' ||
           needs.maven.result == 'cancelled' ||
+          needs.streamscape_media_release.result == 'cancelled' ||
           needs.container_service.result == 'cancelled' ||
           needs.public_native_image_chart.result == 'cancelled' ||
           needs.oci_reproducibility.result == 'cancelled' ||
