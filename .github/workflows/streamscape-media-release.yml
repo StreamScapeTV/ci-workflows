@@ -28,7 +28,7 @@ jobs:
           AGENT_STATE_SUPABASE_URL: "${{ secrets.AGENT_STATE_SUPABASE_URL }}"
           AGENT_STATE_SUPABASE_SECRET_KEY: "${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}"
         with: {phase: start, ci_run_id: "${{ inputs.ci_run_id }}"}
-      - name: Validate stable Streamscape Media tag request
+      - name: Validate Streamscape Media tag request
         env:
           REPOSITORY: "${{ inputs.repository }}"
           TAG: "${{ inputs.ref }}"
@@ -37,7 +37,7 @@ jobs:
           set -Eeuo pipefail
           test "${REPOSITORY}" = StreamScapeTV/streamscape-media
           test "${IS_TAG}" = true
-          [[ "${TAG}" =~ ^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          test -n "${TAG}"
       - id: source
         uses: actions/create-github-app-token@v2
         with:
@@ -49,18 +49,18 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: "${{ inputs.repository }}"
-          ref: "${{ inputs.ref }}"
+          ref: "refs/tags/${{ inputs.ref }}"
           token: "${{ steps.source.outputs.token }}"
           fetch-depth: 1
           persist-credentials: false
       - id: identity
-        name: Resolve tag-derived release identity
-        env: {RELEASE_TAG: "${{ inputs.ref }}"}
+        name: Resolve tag-selected release identity
         run: |
           set -Eeuo pipefail
-          version="${RELEASE_TAG}"; version="${version#v}"; source_sha="$(git rev-parse HEAD)"
+          version="$(tr -d '\r\n' < VERSION)"
+          [[ "${version}" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$ ]]
+          source_sha="$(git rev-parse HEAD)"
           [[ "${source_sha}" =~ ^[0-9a-f]{40}$ ]]
-          test "$(tr -d '\r\n' < VERSION)" = "${version}"
           printf 'version=%s\nsource_sha=%s\n' "${version}" "${source_sha}" >> "${GITHUB_OUTPUT}"
       - name: Record tag-resolved source provenance
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main
@@ -119,10 +119,11 @@ jobs:
         env:
           PACKAGE_USERNAME: "${{ secrets.MAVEN_PUBLISH_USERNAME }}"
           PACKAGE_TOKEN: "${{ secrets.MAVEN_PUBLISH_TOKEN }}"
+          RELEASE_TAG: "${{ inputs.ref }}"
         run: >-
           python3 scripts/ci/streamscape_media_release.py final
           --version '${{ needs.prepare.outputs.version }}'
-          --release-tag '${{ inputs.ref }}'
+          --release-tag "${RELEASE_TAG}"
           --source-sha '${{ needs.prepare.outputs.source_sha }}'
           --maven-source-sha '${{ needs.android_maven.outputs.source_sha }}'
           --apple-source-sha '${{ needs.apple_binary.outputs.source_sha }}'

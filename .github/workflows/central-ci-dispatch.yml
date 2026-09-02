@@ -229,8 +229,8 @@ jobs:
             echo "release.streamscape-media requires a tag source selector" >&2
             exit 2
           }
-          [[ "${REQUEST_REF}" =~ ^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
-            echo "release.streamscape-media requires ref=MAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH" >&2
+          test -n "${REQUEST_REF}" || {
+            echo "release.streamscape-media requires one exact non-empty Git tag name" >&2
             exit 2
           }
           python3 - <<'PY_VALIDATE_STREAMSCAPE_MEDIA_RELEASE'
@@ -241,7 +241,7 @@ jobs:
           except (KeyError, json.JSONDecodeError) as exc:
               raise SystemExit("release.streamscape-media inputs must be one JSON object") from exc
           if not isinstance(inputs, dict) or inputs:
-              raise SystemExit("release.streamscape-media accepts no semantic inputs; version and source come from the stable tag")
+              raise SystemExit("release.streamscape-media accepts no semantic inputs; source comes from the exact tag and version comes from product VERSION")
           PY_VALIDATE_STREAMSCAPE_MEDIA_RELEASE
 
       - name: Validate Apple release request
