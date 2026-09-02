@@ -75,7 +75,16 @@ class StreamscapeMediaReleaseTests(unittest.TestCase):
         self.assertEqual(set(workflow["on"]["workflow_call"]["inputs"]), {"repository", "ref", "version"})
         job = workflow["jobs"]["publish"]
         self.assertEqual(job["runs-on"], "macos-latest")
-        names = {s.get("name") for s in job["steps"]}
+        steps = {s.get("name"): s for s in job["steps"] if s.get("name")}
+        names = set(steps)
+        self.assertIn("Check out pinned Central publication helper", names)
+        self.assertEqual(steps["Check out pinned Central publication helper"]["with"]["repository"], "StreamScapeTV/ci-workflows")
+        self.assertEqual(steps["Check out pinned Central publication helper"]["with"]["path"], "central")
+        self.assertEqual(steps["Check out pinned release source"]["with"]["path"], "source")
+        self.assertIn("git -C source rev-parse HEAD", steps["Validate pinned Apple release source"]["run"])
+        self.assertIn("source/scripts/release/create-apple-binary-consumer-bundle.py", steps["Build deterministic Apple binary bundle"]["run"])
+        self.assertIn("central/scripts/ci/streamscape_media_release.py apple", steps["Publish immutable Apple generic package files"]["run"])
+        self.assertIn("--compatibility source/apple/ConsumerCompatibility.json", steps["Publish immutable Apple generic package files"]["run"])
         self.assertIn("Build deterministic Apple binary bundle", names)
         self.assertIn("Publish immutable Apple generic package files", names)
         self.assertIn("Upload private Apple publication log", names)

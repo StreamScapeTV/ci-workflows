@@ -43,6 +43,13 @@ jobs:
     steps:
       - name: Initialize private Apple publication log
         run: 'printf "" > "${RUNNER_TEMP}/streamscape-media-apple.log"'
+      - name: Check out pinned Central publication helper
+        uses: actions/checkout@v4
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: "${{ github.sha }}"
+          path: central
+          persist-credentials: false
       - id: source
         name: Prepare source token
         uses: actions/create-github-app-token@v2
@@ -58,6 +65,7 @@ jobs:
           ref: "${{ inputs.ref }}"
           token: "${{ steps.source.outputs.token }}"
           fetch-depth: 1
+          path: source
           persist-credentials: false
       - id: identity
         name: Validate pinned Apple release source
@@ -66,9 +74,9 @@ jobs:
           set -Eeuo pipefail
           test "${{ inputs.repository }}" = StreamScapeTV/streamscape-media
           [[ "${VERSION}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
-          source_sha="$(git rev-parse HEAD)"
+          source_sha="$(git -C source rev-parse HEAD)"
           [[ "${source_sha}" =~ ^[0-9a-f]{40}$ ]]
-          test "$(tr -d '\r\n' < VERSION)" = "${VERSION}"
+          test "$(tr -d '\r\n' < source/VERSION)" = "${VERSION}"
           printf 'source_sha=%s\n' "${source_sha}" >> "${GITHUB_OUTPUT}"
       - name: Install fixed Apple build prerequisite
         run: 'command -v xcodegen >/dev/null || brew install xcodegen'
@@ -81,7 +89,7 @@ jobs:
           set -Eeuo pipefail
           out="${RUNNER_TEMP}/streamscape-media-apple"
           mkdir -p "${out}"
-          archive="$(python3 scripts/release/create-apple-binary-consumer-bundle.py --output-dir "${out}" --version "${VERSION}" --commit-sha "${SOURCE_SHA}" 2>>"${RUNNER_TEMP}/streamscape-media-apple.log")"
+          archive="$(python3 source/scripts/release/create-apple-binary-consumer-bundle.py --output-dir "${out}" --version "${VERSION}" --commit-sha "${SOURCE_SHA}" 2>>"${RUNNER_TEMP}/streamscape-media-apple.log")"
           test -f "${archive}"; printf 'archive=%s\n' "${archive}" >> "${GITHUB_OUTPUT}"
       - name: Connect to fixed private package service
         uses: StreamScapeTV/ci-workflows/actions/private-git@main
@@ -94,11 +102,11 @@ jobs:
           PACKAGE_USERNAME: "${{ secrets.MAVEN_PUBLISH_USERNAME }}"
           PACKAGE_TOKEN: "${{ secrets.MAVEN_PUBLISH_TOKEN }}"
         run: >-
-          python3 scripts/ci/streamscape_media_release.py apple
+          python3 central/scripts/ci/streamscape_media_release.py apple
           --version '${{ inputs.version }}'
           --source-sha '${{ steps.identity.outputs.source_sha }}'
           --archive '${{ steps.build.outputs.archive }}'
-          --compatibility apple/ConsumerCompatibility.json
+          --compatibility source/apple/ConsumerCompatibility.json
           --output-dir '${{ runner.temp }}/streamscape-media-apple-evidence'
       - name: Scrub configured secrets from private Apple log
         if: "${{ always() }}"
