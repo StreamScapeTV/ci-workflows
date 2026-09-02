@@ -176,6 +176,12 @@ def _unique(values: list[dict[str, Any]], label: str) -> dict[str, Any]:
     return values[0]
 
 
+def _optional_unique(values: list[dict[str, Any]], label: str) -> dict[str, Any] | None:
+    if len(values) > 1:
+        raise CheckpointPublishError(f"Google Drive checkpoint has duplicate canonical {label}")
+    return values[0] if values else None
+
+
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -297,6 +303,83 @@ def load_canonical_checkpoint(
     if len(archive_bytes) != value["archive_size_bytes"] or _sha256(archive_bytes) != value["archive_sha256"]:
         raise CheckpointPublishError("canonical checkpoint archive bytes do not match manifest identity")
     return Checkpoint(value, manifest_bytes, archive_bytes, tree_sha, message)
+
+
+CHECKPOINT_FIELDS = {
+    "checkpoint_format_version", "checkpoint_base_sha", "checkpoint_commit_message",
+}
+
+
+def resume_snapshot_action(
+    client: DriveClient,
+    *,
+    root_folder_id: str,
+    repository: str,
+    branch: str,
+    is_tag: bool,
+    source_head: str,
+    source_tree: str,
+) -> str:
+    """Return preserve/refresh without ever mutating the canonical Drive checkpoint."""
+    if not REPOSITORY.fullmatch(repository):
+        raise CheckpointPublishError("snapshot repository must be one bounded StreamScapeTV owner/name")
+    if not branch or any(character in branch for character in ("\x00", "\r", "\n")):
+        raise CheckpointPublishError("snapshot ref name is invalid")
+    if not SHA40.fullmatch(source_head) or not SHA40.fullmatch(source_tree):
+        raise CheckpointPublishError("snapshot source identity is invalid")
+    if is_tag:
+        return "refresh"
+    if not DRIVE_FILE_ID.fullmatch(root_folder_id or ""):
+        raise CheckpointPublishError("Google Drive repositories root folder ID is invalid")
+
+    repository_name = repository.rsplit("/", 1)[1]
+    repository_folder = _optional_unique(client.exact_folders(root_folder_id, repository_name), "repository folder")
+    if repository_folder is None:
+        return "refresh"
+    ref_folder = _optional_unique(client.exact_folders(repository_folder["id"], branch), "ref folder")
+    if ref_folder is None:
+        return "refresh"
+    children = client.children(ref_folder["id"])
+    if any(value.get("mimeType") == FOLDER_MIME for value in children):
+        raise CheckpointPublishError("canonical checkpoint ref folder contains an unexpected child folder")
+    manifests = [value for value in children if value.get("name") == "manifest.json"]
+    archives = [value for value in children if value.get("name") != "manifest.json"]
+    if not manifests and not archives:
+        return "refresh"
+    manifest_file = _optional_unique(manifests, "manifest.json")
+    archive_file = _optional_unique(archives, "archive file")
+    if manifest_file is None or archive_file is None:
+        raise CheckpointPublishError("canonical checkpoint ref folder is incomplete")
+
+    manifest_bytes = client.media(manifest_file["id"])
+    value = _manifest_json(manifest_bytes)
+    present_checkpoint_fields = CHECKPOINT_FIELDS & set(value)
+    if not present_checkpoint_fields:
+        return "refresh"
+    if present_checkpoint_fields != CHECKPOINT_FIELDS:
+        raise CheckpointPublishError("canonical checkpoint manifest has incomplete checkpoint metadata")
+    base = value.get("checkpoint_base_sha")
+    if not isinstance(base, str) or SHA40.fullmatch(base) is None:
+        raise CheckpointPublishError("canonical checkpoint manifest has invalid checkpoint base SHA")
+    tree_sha, _ = _validate_checkpoint_manifest(
+        value,
+        repository=repository,
+        branch=branch,
+        expected_head=base,
+        ref_folder=ref_folder,
+        manifest_file=manifest_file,
+        archive_file=archive_file,
+    )
+    archive_bytes = client.media(archive_file["id"])
+    if len(archive_bytes) != value["archive_size_bytes"] or _sha256(archive_bytes) != value["archive_sha256"]:
+        raise CheckpointPublishError("canonical checkpoint archive bytes do not match manifest identity")
+    if base == source_head:
+        return "preserve"
+    if tree_sha == source_tree:
+        return "refresh"
+    raise CheckpointPublishError(
+        "GitHub branch moved away from an unpublished canonical Drive checkpoint; refusing to overwrite it"
+    )
 
 
 def _safe_member_path(name: str) -> PurePosixPath:
@@ -462,6 +545,14 @@ def main() -> int:
     materialize.add_argument("--worktree", required=True)
     materialize.add_argument("--expected-head", required=True)
 
+    resume = sub.add_parser("resume-action")
+    resume.add_argument("--repository", required=True)
+    resume.add_argument("--branch", required=True)
+    resume.add_argument("--is-tag", choices=("true", "false"), required=True)
+    resume.add_argument("--source-head", required=True)
+    resume.add_argument("--source-tree", required=True)
+    resume.add_argument("--api-root", default="https://www.googleapis.com/drive/v3")
+
     args = parser.parse_args()
     try:
         if args.command == "validate":
@@ -507,6 +598,22 @@ def main() -> int:
             materialize_checkpoint(Path(args.archive), worktree)
             stage_and_verify_tree(worktree, expected_head=args.expected_head, expected_tree=tree)
             print(tree)
+            return 0
+        if args.command == "resume-action":
+            token = os.environ.get("GOOGLE_DRIVE_ACCESS_TOKEN", "")
+            root = os.environ.get("GOOGLE_DRIVE_ROOT_FOLDER_ID", "")
+            if not token:
+                raise CheckpointPublishError("GOOGLE_DRIVE_ACCESS_TOKEN is required")
+            action = resume_snapshot_action(
+                DriveClient(token, args.api_root),
+                root_folder_id=root,
+                repository=args.repository,
+                branch=args.branch,
+                is_tag=args.is_tag == "true",
+                source_head=args.source_head,
+                source_tree=args.source_tree,
+            )
+            print(action)
             return 0
         raise AssertionError(args.command)
     except CheckpointPublishError as exc:

@@ -258,10 +258,16 @@ class CiHelperTests(_prior.CiHelperTests):
         names = [step.get("name") for step in steps]
         identity = by_name["Resolve observed source SHA"]
         record = by_name["Record observed source SHA"]
+        resume = by_name["Protect unpublished canonical Drive checkpoint"]
         snapshot = by_name["Create exact tracked-source snapshot"]
         upload = by_name["Upload repository snapshot archive"]
         finish = by_name["Finish Agent State run"]
         self.assertIn('source_sha="$(git -C source rev-parse HEAD)"', identity["run"])
+        self.assertIn("HEAD^{tree}", identity["run"])
+        self.assertIn("source_checkpoint_publish.py resume-action", resume["run"])
+        self.assertEqual(resume["env"]["OBSERVED_TREE_SHA"], "${{ steps.source_identity.outputs.tree_sha }}")
+        self.assertEqual(snapshot["if"], "${{ steps.checkpoint_resume.outputs.action != 'preserve' }}")
+        self.assertEqual(upload["if"], "${{ steps.checkpoint_resume.outputs.action != 'preserve' }}")
         self.assertEqual(record["with"]["phase"], "observe-source")
         self.assertEqual(record["with"]["observed_source_sha"], "${{ steps.source_identity.outputs.source_sha }}")
         self.assertNotIn("github.sha", record["with"]["observed_source_sha"])

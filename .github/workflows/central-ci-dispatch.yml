@@ -586,7 +586,8 @@ jobs:
         run: |
           set -Eeuo pipefail
           source_sha="$(git -C source rev-parse HEAD)"
-          printf 'source_sha=%s\n' "${source_sha}" >> "${GITHUB_OUTPUT}"
+          tree_sha="$(git -C source rev-parse 'HEAD^{tree}')"
+          printf 'source_sha=%s\ntree_sha=%s\n' "${source_sha}" "${tree_sha}" >> "${GITHUB_OUTPUT}"
 
       - name: Record observed source SHA
         uses: ./actions/agent-state
@@ -620,8 +621,51 @@ jobs:
           )"
           printf 'folder_id=%s\n' "${folder_id}" >> "${GITHUB_OUTPUT}"
 
+      - name: Resolve Google Drive access token for resume protection
+        id: snapshot_drive
+        shell: bash
+        env:
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          access_token="$(curl --fail --silent --show-error --request POST \
+            --data-urlencode "client_id=${GOOGLE_DRIVE_CLIENT_ID}" \
+            --data-urlencode "client_secret=${GOOGLE_DRIVE_CLIENT_SECRET}" \
+            --data-urlencode "refresh_token=${GOOGLE_DRIVE_REFRESH_TOKEN}" \
+            --data-urlencode "grant_type=refresh_token" \
+            https://oauth2.googleapis.com/token \
+            | python3 -c 'import json,sys; value=json.load(sys.stdin); token=value.get("access_token", ""); assert token; print(token)')"
+          echo "::add-mask::${access_token}"
+          printf 'access_token=%s\n' "${access_token}" >> "${GITHUB_OUTPUT}"
+
+      - name: Protect unpublished canonical Drive checkpoint
+        id: checkpoint_resume
+        shell: bash
+        env:
+          GOOGLE_DRIVE_ACCESS_TOKEN: ${{ steps.snapshot_drive.outputs.access_token }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
+          REQUESTED_REPOSITORY: ${{ needs.request.outputs.repository }}
+          REQUESTED_REF: ${{ needs.request.outputs.ref }}
+          REQUESTED_IS_TAG: ${{ needs.request.outputs.is_tag }}
+          OBSERVED_SOURCE_SHA: ${{ steps.source_identity.outputs.source_sha }}
+          OBSERVED_TREE_SHA: ${{ steps.source_identity.outputs.tree_sha }}
+        run: |
+          set -Eeuo pipefail
+          action="$(python3 scripts/ci/source_checkpoint_publish.py resume-action \
+            --repository "${REQUESTED_REPOSITORY}" --branch "${REQUESTED_REF}" --is-tag "${REQUESTED_IS_TAG}" \
+            --source-head "${OBSERVED_SOURCE_SHA}" --source-tree "${OBSERVED_TREE_SHA}")"
+          case "${action}" in preserve|refresh) ;; *) echo 'invalid source checkpoint resume action' >&2; exit 2 ;; esac
+          printf 'action=%s\n' "${action}" >> "${GITHUB_OUTPUT}"
+          if test "${action}" = preserve; then
+            printf 'Preserved unpublished canonical Drive checkpoint for `%s@%s`; GitHub remains at `%s`.\n' \
+              "${REQUESTED_REPOSITORY}" "${REQUESTED_REF}" "${OBSERVED_SOURCE_SHA}" >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
       - name: Create exact tracked-source snapshot
         id: snapshot
+        if: ${{ steps.checkpoint_resume.outputs.action != 'preserve' }}
         shell: bash
         env:
           REQUESTED_REPOSITORY: ${{ needs.request.outputs.repository }}
@@ -681,6 +725,7 @@ jobs:
           } >> "${GITHUB_OUTPUT}"
 
       - name: Upload repository snapshot archive
+        if: ${{ steps.checkpoint_resume.outputs.action != 'preserve' }}
         id: source_upload
         uses: ./actions/google-drive
         env:
@@ -698,6 +743,7 @@ jobs:
           mime_type: application/zip
 
       - name: Write first manifest with archive Drive identity
+        if: ${{ steps.checkpoint_resume.outputs.action != 'preserve' }}
         shell: bash
         env:
           MANIFEST: ${{ steps.snapshot.outputs.manifest }}
@@ -717,6 +763,7 @@ jobs:
           PY
 
       - name: Create manifest.json
+        if: ${{ steps.checkpoint_resume.outputs.action != 'preserve' }}
         id: manifest_create
         uses: ./actions/google-drive
         env:
@@ -733,6 +780,7 @@ jobs:
           mime_type: application/json
 
       - name: Add stable manifest Drive identity
+        if: ${{ steps.checkpoint_resume.outputs.action != 'preserve' }}
         shell: bash
         env:
           MANIFEST: ${{ steps.snapshot.outputs.manifest }}
@@ -749,6 +797,7 @@ jobs:
           PY
 
       - name: Update manifest.json in place
+        if: ${{ steps.checkpoint_resume.outputs.action != 'preserve' }}
         id: manifest_update
         uses: ./actions/google-drive
         env:
@@ -765,6 +814,7 @@ jobs:
           mime_type: application/json
 
       - name: Verify stable manifest identity
+        if: ${{ steps.checkpoint_resume.outputs.action != 'preserve' }}
         shell: bash
         env:
           CREATED_ID: ${{ steps.manifest_create.outputs.file_id }}

@@ -17,6 +17,7 @@ from scripts.ci.source_checkpoint_publish import (
     GitHubClient,
     load_canonical_checkpoint,
     materialize_checkpoint,
+    resume_snapshot_action,
     stage_and_verify_tree,
     validate_request,
 )
@@ -167,6 +168,57 @@ class SourceCheckpointPublishTests(unittest.TestCase):
             self.assertEqual(checkpoint.commit_message, value["checkpoint_commit_message"])
             self.assertEqual(checkpoint.archive_bytes, archive)
 
+    def test_resume_preserves_unpublished_checkpoint_and_refreshes_published_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            base, tree, archive = make_git_checkpoint(root)
+            value = manifest_for(base, tree, archive)
+            client = FakeDrive(value, archive)
+            base_tree = git(root / "source", "rev-parse", f"{base}^{{tree}}")
+            self.assertEqual(
+                resume_snapshot_action(
+                    client, root_folder_id="root_folder_12345", repository="StreamScapeTV/example",
+                    branch="feature/checkpoint", is_tag=False, source_head=base, source_tree=base_tree,
+                ),
+                "preserve",
+            )
+            self.assertEqual(
+                resume_snapshot_action(
+                    client, root_folder_id="root_folder_12345", repository="StreamScapeTV/example",
+                    branch="feature/checkpoint", is_tag=False, source_head="b" * 40, source_tree=tree,
+                ),
+                "refresh",
+            )
+            with self.assertRaisesRegex(CheckpointPublishError, "refusing to overwrite"):
+                resume_snapshot_action(
+                    client, root_folder_id="root_folder_12345", repository="StreamScapeTV/example",
+                    branch="feature/checkpoint", is_tag=False, source_head="b" * 40, source_tree="c" * 40,
+                )
+
+    def test_resume_refreshes_normal_snapshot_and_tags(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            base, tree, archive = make_git_checkpoint(root)
+            value = manifest_for(base, tree, archive)
+            for key in ("checkpoint_format_version", "checkpoint_base_sha", "checkpoint_commit_message"):
+                value.pop(key)
+            self.assertEqual(
+                resume_snapshot_action(
+                    FakeDrive(value, archive), root_folder_id="root_folder_12345",
+                    repository="StreamScapeTV/example", branch="feature/checkpoint", is_tag=False,
+                    source_head=base, source_tree=tree,
+                ),
+                "refresh",
+            )
+            self.assertEqual(
+                resume_snapshot_action(
+                    FakeDrive(manifest_for(base, tree, archive), archive), root_folder_id="root_folder_12345",
+                    repository="StreamScapeTV/example", branch="feature/checkpoint", is_tag=True,
+                    source_head=base, source_tree=tree,
+                ),
+                "refresh",
+            )
+
     def test_checkpoint_manifest_base_digest_and_drive_identity_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             base, tree, archive = make_git_checkpoint(Path(td))
@@ -242,6 +294,7 @@ class SourceCheckpointPublishTests(unittest.TestCase):
         self.assertNotIn("--force", steps["Publish non-force fast-forward branch update"]["run"])
         self.assertIn("ls-remote", steps["Publish non-force fast-forward branch update"]["run"])
         self.assertEqual(steps["Record published source SHA"]["with"]["observed_source_sha"], "${{ steps.commit.outputs.commit_sha }}")
+        self.assertIn("job.status == 'success'", steps["Finish Agent State run"]["with"]["status"])
         summary = steps["Record checkpoint publication result"]
         self.assertIn("TARGET_BRANCH", summary["env"])
         self.assertNotIn("${{ inputs.branch }}", summary["run"])
