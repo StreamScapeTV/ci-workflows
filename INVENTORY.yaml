@@ -15,7 +15,6 @@ workflows:
   oci_reproducibility: .github/workflows/oci-reproducibility.yml
   branch_delete: .github/workflows/branch-delete.yml
   source_snapshot_delete: .github/workflows/source-snapshot-delete.yml
-  source_bundle_publish: .github/workflows/source-bundle-publish.yml
   source_checkpoint_publish: .github/workflows/source-checkpoint-publish.yml
   central_dispatch: .github/workflows/central-ci-dispatch.yml
   self_check: .github/workflows/self-check.yml
@@ -29,7 +28,6 @@ actions:
 scripts:
   oci_reproducibility: scripts/ci/oci_reproducibility.py
   source_snapshot_delete: scripts/ci/source_snapshot_delete.py
-  source_bundle_publish: scripts/ci/source_bundle_publish.py
   source_checkpoint_publish: scripts/ci/source_checkpoint_publish.py
   streamscape_media_release: scripts/ci/streamscape_media_release.py
 
