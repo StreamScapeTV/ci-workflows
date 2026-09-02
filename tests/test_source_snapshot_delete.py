@@ -49,11 +49,16 @@ class SourceSnapshotDeleteTests(unittest.TestCase):
         finish = workflow["jobs"]["finish"]
         self.assertEqual(delete["outputs"]["branch_was_present"], "${{ steps.delete_branch.outputs.branch_was_present }}")
         self.assertEqual(cleanup["uses"], "./.github/workflows/source-snapshot-delete.yml")
-        self.assertEqual(cleanup["with"]["repository"], "${{ inputs.repository }}")
-        self.assertEqual(cleanup["with"]["ref"], "${{ inputs.branch }}")
+        self.assertEqual(delete["outputs"]["repository"], "${{ steps.request.outputs.repository }}")
+        self.assertEqual(delete["outputs"]["branch"], "${{ steps.request.outputs.branch }}")
+        self.assertEqual(delete["outputs"]["deletion_source"], "${{ steps.request.outputs.deletion_source }}")
+        self.assertEqual(cleanup["with"]["repository"], "${{ needs.delete.outputs.repository }}")
+        self.assertEqual(cleanup["with"]["ref"], "${{ needs.delete.outputs.branch }}")
         self.assertEqual(cleanup["with"]["expected_source_sha"], "")
         self.assertEqual(cleanup["secrets"], "inherit")
         self.assertIn("needs.snapshot_cleanup.result == 'success'", finish["steps"][0]["with"]["status"])
+        self.assertIn("github.event_name != 'delete'", finish["if"])
+        self.assertIn("inputs.deletion_source != 'github-delete-event'", finish["if"])
         delete_script = next(step for step in delete["steps"] if step.get("name") == "Delete exact eligible branch")["run"]
         self.assertIn('output.write("branch_was_present=false\\n")', delete_script)
         self.assertIn('output.write("branch_was_present=true\\n")', delete_script)
