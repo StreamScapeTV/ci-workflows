@@ -1,6 +1,7 @@
 name: Delete repository branch
 
 "on":
+  delete:
   workflow_call:
     inputs:
       repository:
@@ -11,10 +12,20 @@ name: Delete repository branch
         required: true
       expected_head:
         type: string
-        required: true
+        required: false
+        default: ''
       ci_run_id:
         type: string
-        required: true
+        required: false
+        default: ''
+      deletion_source:
+        type: string
+        required: false
+        default: agent-state
+      deleted_ref_type:
+        type: string
+        required: false
+        default: ''
     secrets:
       SOURCE_APP_ID:
         required: true
@@ -29,21 +40,29 @@ name: Delete repository branch
       GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID:
         required: true
       AGENT_STATE_SUPABASE_URL:
-        required: true
+        required: false
       AGENT_STATE_SUPABASE_SECRET_KEY:
-        required: true
+        required: false
 
 permissions:
   contents: read
 
+concurrency:
+  group: branch-retirement-${{ github.event_name == 'delete' && github.repository || inputs.repository }}-${{ github.event_name == 'delete' && github.event.ref || inputs.branch }}
+  cancel-in-progress: false
+
 jobs:
   delete:
     outputs:
+      repository: ${{ steps.request.outputs.repository }}
+      branch: ${{ steps.request.outputs.branch }}
+      deletion_source: ${{ steps.request.outputs.deletion_source }}
       branch_was_present: ${{ steps.delete_branch.outputs.branch_was_present }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Mark Agent State run as running
+        if: ${{ github.event_name != 'delete' && inputs.deletion_source != 'github-delete-event' }}
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main
         env:
           AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
@@ -56,9 +75,12 @@ jobs:
         id: request
         shell: bash
         env:
-          TARGET_REPOSITORY: ${{ inputs.repository }}
-          TARGET_BRANCH: ${{ inputs.branch }}
+          TARGET_REPOSITORY: ${{ github.event_name == 'delete' && github.repository || inputs.repository }}
+          TARGET_BRANCH: ${{ github.event_name == 'delete' && github.event.ref || inputs.branch }}
           EXPECTED_HEAD: ${{ inputs.expected_head }}
+          CI_RUN_ID: ${{ inputs.ci_run_id }}
+          DELETION_SOURCE: ${{ github.event_name == 'delete' && 'github-delete-event' || inputs.deletion_source }}
+          DELETED_REF_TYPE: ${{ github.event_name == 'delete' && github.event.ref_type || inputs.deleted_ref_type }}
         run: |
           set -Eeuo pipefail
           python3 - <<'PY'
@@ -68,6 +90,9 @@ jobs:
           repository = os.environ["TARGET_REPOSITORY"]
           branch = os.environ["TARGET_BRANCH"]
           expected_head = os.environ["EXPECTED_HEAD"]
+          ci_run_id = os.environ["CI_RUN_ID"]
+          deletion_source = os.environ["DELETION_SOURCE"]
+          deleted_ref_type = os.environ["DELETED_REF_TYPE"]
 
           if not re.fullmatch(r"StreamScapeTV/[A-Za-z0-9_.-]{1,100}", repository):
               raise SystemExit("branch deletion repository must be one bounded StreamScapeTV owner/name")
@@ -77,10 +102,29 @@ jobs:
               raise SystemExit("branch deletion requires one logical branch name, not a full ref")
           if not branch or len(branch.encode("utf-8")) > 255 or "\x00" in branch:
               raise SystemExit("branch deletion branch name is invalid")
-          if not re.fullmatch(r"[0-9a-f]{40}", expected_head):
-              raise SystemExit("branch deletion expected_head must be one lowercase 40-character Git SHA")
+          if deletion_source not in {"agent-state", "github-delete-event"}:
+              raise SystemExit("branch deletion source is invalid")
+
+          if deletion_source == "agent-state":
+              if deleted_ref_type:
+                  raise SystemExit("Agent State branch deletion does not accept deleted_ref_type")
+              if not re.fullmatch(r"[0-9a-f]{40}", expected_head):
+                  raise SystemExit("branch deletion expected_head must be one lowercase 40-character Git SHA")
+              if not ci_run_id:
+                  raise SystemExit("Agent State branch deletion requires ci_run_id")
+          else:
+              if deleted_ref_type != "branch":
+                  raise SystemExit("GitHub delete-event cleanup accepts branch refs only")
+              if expected_head:
+                  raise SystemExit("GitHub delete-event cleanup does not accept expected_head")
+              if ci_run_id:
+                  raise SystemExit("GitHub delete-event cleanup does not use Agent State ci_run_id")
+
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(f"repository_name={repository.split('/', 1)[1]}\n")
+              output.write(f"repository={repository}\n")
+              output.write(f"branch={branch}\n")
+              output.write(f"deletion_source={deletion_source}\n")
           PY
           git check-ref-format --branch "${TARGET_BRANCH}" >/dev/null 2>&1 || {
             echo "branch deletion branch name is not a valid Git branch" >&2
@@ -95,16 +139,17 @@ jobs:
           private-key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
           owner: StreamScapeTV
           repositories: ${{ steps.request.outputs.repository_name }}
-          permission-contents: write
+          permission-contents: ${{ steps.request.outputs.deletion_source == 'github-delete-event' && 'read' || 'write' }}
           permission-metadata: read
 
       - name: Delete exact eligible branch
         id: delete_branch
         shell: bash
         env:
-          TARGET_REPOSITORY: ${{ inputs.repository }}
-          TARGET_BRANCH: ${{ inputs.branch }}
+          TARGET_REPOSITORY: ${{ steps.request.outputs.repository }}
+          TARGET_BRANCH: ${{ steps.request.outputs.branch }}
           EXPECTED_HEAD: ${{ inputs.expected_head }}
+          DELETION_SOURCE: ${{ steps.request.outputs.deletion_source }}
           TARGET_TOKEN: ${{ steps.target_token.outputs.token }}
         run: |
           set -Eeuo pipefail
@@ -120,7 +165,9 @@ jobs:
           repository = os.environ["TARGET_REPOSITORY"]
           branch = os.environ["TARGET_BRANCH"]
           expected_head = os.environ["EXPECTED_HEAD"]
+          deletion_source = os.environ["DELETION_SOURCE"]
           token = os.environ["TARGET_TOKEN"]
+          github_delete_event = deletion_source == "github-delete-event"
 
           owner, repository_name = repository.split("/", 1)
           encoded_owner = urllib.parse.quote(owner, safe="")
@@ -202,6 +249,8 @@ jobs:
               branch_value = api(branch_path, allow_not_found=True, label="branch metadata")
               if branch_value is None:
                   return None
+              if github_delete_event:
+                  raise SystemExit("GitHub delete-event cleanup refuses to delete Drive state while the branch still exists")
               if not isinstance(branch_value, dict) or branch_value.get("name") != branch:
                   raise SystemExit("GitHub branch maintenance branch identity mismatch")
               if branch_value.get("protected") is not False:
@@ -231,6 +280,14 @@ jobs:
               return head
 
           initial_head = validate_live_state()
+          if github_delete_event:
+              if initial_head is not None:
+                  raise SystemExit("GitHub delete-event cleanup requires the exact branch to be absent")
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+                  output.write("branch_was_present=false\n")
+              print("GitHub delete event branch absence verified; continuing with same-ref Drive snapshot cleanup.")
+              raise SystemExit(0)
+
           if initial_head is None:
               with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
                   output.write("branch_was_present=false\n")
@@ -252,15 +309,15 @@ jobs:
         if: ${{ steps.delete_branch.outcome == 'success' }}
         shell: bash
         run: |
-          printf '%s\n' 'GitHub branch is absent after bounded exact-head validation.' >> "${GITHUB_STEP_SUMMARY}"
+          printf '%s\n' 'GitHub branch is absent after bounded branch-retirement validation.' >> "${GITHUB_STEP_SUMMARY}"
 
   snapshot_cleanup:
     needs: delete
     if: ${{ needs.delete.result == 'success' }}
     uses: ./.github/workflows/source-snapshot-delete.yml
     with:
-      repository: ${{ inputs.repository }}
-      ref: ${{ inputs.branch }}
+      repository: ${{ needs.delete.outputs.repository }}
+      ref: ${{ needs.delete.outputs.branch }}
       expected_source_sha: ''
     secrets: inherit
 
@@ -268,7 +325,7 @@ jobs:
     needs:
       - delete
       - snapshot_cleanup
-    if: ${{ always() }}
+    if: ${{ always() && github.event_name != 'delete' && inputs.deletion_source != 'github-delete-event' }}
     runs-on: ubuntu-24.04
     steps:
       - name: Finish Agent State run
