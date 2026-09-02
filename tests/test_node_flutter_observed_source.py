@@ -24,7 +24,10 @@ class NodeFlutterObservedSourceTests(unittest.TestCase):
                 "upload_private_log",
             },
         }
-        setup_name = {"node": "Set up Node 22.18.0", "flutter": "Validate Flutter version"}
+        setup_names = {
+            "node": ("Set up fixed Node 22.18.0", "Set up repository-pinned Node"),
+            "flutter": ("Validate Flutter version",),
+        }
 
         for name in ("node", "flutter"):
             with self.subTest(workflow=name):
@@ -55,8 +58,12 @@ class NodeFlutterObservedSourceTests(unittest.TestCase):
 
                 self.assertLess(names.index("Check out source"), names.index("Resolve observed source SHA"))
                 self.assertLess(names.index("Resolve observed source SHA"), names.index("Record observed source SHA"))
-                self.assertLess(names.index("Record observed source SHA"), names.index(setup_name[name]))
-                self.assertLess(names.index("Run fixed Node profile" if name == "node" else "Run fixed Flutter profile"), names.index("Scrub configured CI secrets from private log"))
+                for setup_name in setup_names[name]:
+                    self.assertLess(names.index("Record observed source SHA"), names.index(setup_name))
+                profile_name = "Run fixed Node profile" if name == "node" else "Run fixed Flutter profile"
+                for setup_name in setup_names[name]:
+                    self.assertLess(names.index(setup_name), names.index(profile_name))
+                self.assertLess(names.index(profile_name), names.index("Scrub configured CI secrets from private log"))
                 self.assertLess(names.index("Scrub configured CI secrets from private log"), names.index("Upload CI log to Google Drive"))
                 self.assertLess(names.index("Upload CI log to Google Drive"), names.index("Finish Agent State run"))
 
@@ -85,7 +92,17 @@ class NodeFlutterObservedSourceTests(unittest.TestCase):
             "run_logged repository-clean git diff --exit-code",
         ):
             self.assertIn(command, script)
-        self.assertEqual(by_name["Set up Node 22.18.0"]["with"]["node-version"], "22.18.0")
+        fixed = by_name["Set up fixed Node 22.18.0"]
+        repository_pinned = by_name["Set up repository-pinned Node"]
+        self.assertEqual(fixed["if"], "${{ inputs.test_profile == 'frontend-full' }}")
+        self.assertEqual(fixed["uses"], "actions/setup-node@v6")
+        self.assertEqual(fixed["with"]["node-version"], "22.18.0")
+        self.assertEqual(fixed["with"]["cache"], "")
+        self.assertEqual(repository_pinned["if"], "${{ inputs.test_profile == 'static-web' }}")
+        self.assertEqual(repository_pinned["uses"], "actions/setup-node@v6")
+        self.assertEqual(repository_pinned["with"]["node-version-file"], ".nvmrc")
+        self.assertEqual(repository_pinned["with"]["cache"], "")
+        self.assertNotIn("node-version", repository_pinned["with"])
 
     def test_fixed_flutter_profile_and_version_policy_are_unchanged(self) -> None:
         workflow, _, by_name = self._workflow("flutter")

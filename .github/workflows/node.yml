@@ -103,10 +103,18 @@ jobs:
           ci_run_id: ${{ inputs.ci_run_id }}
           observed_source_sha: ${{ steps.source_identity.outputs.source_sha }}
 
-      - name: Set up Node 22.18.0
+      - name: Set up fixed Node 22.18.0
+        if: ${{ inputs.test_profile == 'frontend-full' }}
         uses: actions/setup-node@v6
         with:
           node-version: "22.18.0"
+          cache: ""
+
+      - name: Set up repository-pinned Node
+        if: ${{ inputs.test_profile == 'static-web' }}
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: ".nvmrc"
           cache: ""
 
       - name: Run fixed Node profile
