@@ -66,7 +66,6 @@ jobs:
           owner: StreamScapeTV
           repositories: ${{ steps.request.outputs.repository_name }}
           permission-contents: write
-          permission-workflows: write
           permission-metadata: read
 
       - name: Verify exact mutable GitHub branch
@@ -154,6 +153,30 @@ jobs:
           --worktree target
           --expected-head "${EXPECTED_HEAD}"
 
+      - id: workflow_scope
+        name: Detect workflow-file checkpoint changes
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if git -C target diff --cached --quiet HEAD -- .github/workflows; then
+            printf 'required=false\n' >> "${GITHUB_OUTPUT}"
+          else
+            printf 'required=true\n' >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Create workflow-write target token when required
+        id: target_workflow_token
+        if: ${{ steps.workflow_scope.outputs.required == 'true' }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.SOURCE_APP_ID }}
+          private-key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          owner: StreamScapeTV
+          repositories: ${{ steps.request.outputs.repository_name }}
+          permission-contents: write
+          permission-workflows: write
+          permission-metadata: read
+
       - id: commit
         name: Create one normal Git commit from checkpoint
         shell: bash
@@ -178,7 +201,7 @@ jobs:
       - name: Publish non-force fast-forward branch update
         shell: bash
         env:
-          TARGET_TOKEN: ${{ steps.target_token.outputs.token }}
+          TARGET_TOKEN: ${{ steps.target_workflow_token.outputs.token || steps.target_token.outputs.token }}
           TARGET_BRANCH: ${{ inputs.branch }}
           EXPECTED_HEAD: ${{ inputs.expected_head }}
           PUBLISHED_COMMIT: ${{ steps.commit.outputs.commit_sha }}

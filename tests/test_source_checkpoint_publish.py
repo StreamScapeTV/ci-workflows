@@ -281,8 +281,16 @@ class SourceCheckpointPublishTests(unittest.TestCase):
         steps = {step.get("name"): step for step in workflow["jobs"]["publish"]["steps"] if step.get("name")}
         token = steps["Create exact target repository token"]
         self.assertEqual(token["with"]["permission-contents"], "write")
-        self.assertEqual(token["with"]["permission-workflows"], "write")
+        self.assertNotIn("permission-workflows", token["with"])
         self.assertEqual(token["with"]["permission-metadata"], "read")
+        elevated = steps["Create workflow-write target token when required"]
+        self.assertEqual(elevated["if"], "${{ steps.workflow_scope.outputs.required == 'true' }}")
+        self.assertEqual(elevated["with"]["permission-workflows"], "write")
+        publish = steps["Publish non-force fast-forward branch update"]
+        self.assertEqual(
+            publish["env"]["TARGET_TOKEN"],
+            "${{ steps.target_workflow_token.outputs.token || steps.target_token.outputs.token }}",
+        )
         self.assertIn("GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID", workflow["on"]["workflow_call"]["secrets"])
         checkout = steps["Check out exact target branch head"]
         self.assertEqual(checkout["with"]["ref"], "refs/heads/${{ inputs.branch }}")
