@@ -73,6 +73,7 @@ jobs:
           app-id: ${{ secrets.SOURCE_APP_ID }}
           private-key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
           owner: StreamScapeTV
+          permission-contents: ${{ inputs.test_profile == 'static-web-lock-refresh' && 'write' || 'read' }}
 
       - name: Check out source
         uses: actions/checkout@v4
@@ -81,7 +82,7 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           token: ${{ steps.source.outputs.token || github.token }}
           fetch-depth: 1
-          persist-credentials: false
+          persist-credentials: ${{ inputs.test_profile == 'static-web-lock-refresh' }}
 
       - name: Resolve observed source SHA
         id: source_identity
@@ -111,7 +112,7 @@ jobs:
           cache: ""
 
       - name: Set up repository-pinned Node
-        if: ${{ inputs.test_profile == 'static-web' }}
+        if: ${{ inputs.test_profile == 'static-web' || inputs.test_profile == 'static-web-lock-refresh' }}
         uses: actions/setup-node@v6
         with:
           node-version-file: ".nvmrc"
@@ -122,6 +123,8 @@ jobs:
         shell: bash
         env:
           TEST_PROFILE: ${{ inputs.test_profile }}
+          SOURCE_REPOSITORY: ${{ inputs.repository }}
+          TARGET_REF: ${{ inputs.ref }}
         run: |
           set -Eeuo pipefail
           run_logged() {
@@ -147,6 +150,52 @@ jobs:
               run_logged npm-ci npm ci
               run_logged check npm run check
               run_logged repository-clean git diff --exit-code
+              ;;
+            static-web-lock-refresh)
+              export NEXT_PUBLIC_API_URL=https://api.streamscapetv.com
+              export NEXT_TELEMETRY_DISABLED=1
+              test -n "${SOURCE_REPOSITORY}" || { echo "lock refresh requires an explicit source repository" >&2; exit 2; }
+              case "${TARGET_REF}" in
+                issue/*|orchestrator/*|agent*/*|codex*/*) ;;
+                *) echo "lock refresh accepts only bounded non-protected work branches" >&2; exit 2 ;;
+              esac
+              checked_out_head="$(git rev-parse HEAD)"
+              remote_head="$(git ls-remote --heads origin "refs/heads/${TARGET_REF}" | awk 'NR == 1 {print $1}')"
+              test -n "${remote_head}" && test "${remote_head}" = "${checked_out_head}" || {
+                echo "lock refresh source branch does not resolve to the checked-out head" >&2
+                exit 1
+              }
+              manifest_before="$(sha256sum package.json | awk '{print $1}')"
+              run_logged lock-refresh npm install --package-lock-only --ignore-scripts --no-audit
+              manifest_after="$(sha256sum package.json | awk '{print $1}')"
+              test "${manifest_after}" = "${manifest_before}" || {
+                echo "lock refresh modified package.json" >&2
+                exit 1
+              }
+              mapfile -t changed_paths < <(git diff --name-only)
+              test "${#changed_paths[@]}" -eq 1 && test "${changed_paths[0]}" = package-lock.json || {
+                printf 'lock refresh changed unexpected paths: %s\n' "${changed_paths[*]:-<none>}" >&2
+                exit 1
+              }
+              run_logged npm-ci npm ci
+              run_logged check npm run check
+              printf '\n===== audit-full =====\n' >> "$CI_LOG"
+              audit_full_status=0
+              npm audit --json >> "$CI_LOG" 2>&1 || audit_full_status=$?
+              printf 'audit-full-exit=%s\n' "${audit_full_status}" >> "$CI_LOG"
+              run_logged audit-production npm audit --omit=dev --audit-level=low --json
+              mapfile -t changed_paths < <(git diff --name-only)
+              test "${#changed_paths[@]}" -eq 1 && test "${changed_paths[0]}" = package-lock.json || {
+                printf 'validated lock refresh changed unexpected paths: %s\n' "${changed_paths[*]:-<none>}" >&2
+                exit 1
+              }
+              git config user.name "streamscape-ci-source[bot]"
+              git config user.email "320226917+streamscape-ci-source[bot]@users.noreply.github.com"
+              git add -- package-lock.json
+              git commit -m "[skip push ci] Refresh npm lockfile from reviewed manifest" >> "$CI_LOG" 2>&1
+              refreshed_head="$(git rev-parse HEAD)"
+              printf 'refreshed-head=%s\n' "${refreshed_head}" >> "$CI_LOG"
+              run_logged lock-push git push origin "HEAD:refs/heads/${TARGET_REF}"
               ;;
             *) echo "Unsupported Node test_profile: $TEST_PROFILE" >&2; exit 2 ;;
           esac
