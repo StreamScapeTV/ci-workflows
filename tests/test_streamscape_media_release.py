@@ -34,10 +34,16 @@ class StreamscapeMediaReleaseTests(unittest.TestCase):
             "REQUEST_IS_TAG": "true",
             "INPUTS_JSON": "{}",
         }
-        ok = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True)
-        self.assertEqual(ok.returncode, 0, ok.stderr)
+        for supported_ref in ("2.0.0", "v2.0.0"):
+            ok = subprocess.run(
+                ["bash", "-c", script],
+                env={**env, "REQUEST_REF": supported_ref},
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(ok.returncode, 0, (supported_ref, ok.stderr))
         for patch in (
-            {"REQUEST_REF": "2.0.0"}, {"REQUEST_REF": "v2.0.0-rc.1"},
+            {"REQUEST_REF": "v2.0.0-rc.1"}, {"REQUEST_REF": "vv2.0.0"},
             {"REQUEST_IS_TAG": "false"}, {"INPUTS_JSON": '{"version":"2.0.0"}'},
             {"INPUTS_JSON": '{"sha":"' + "a" * 40 + '"}'},
         ):
@@ -54,7 +60,9 @@ class StreamscapeMediaReleaseTests(unittest.TestCase):
         self.assertEqual(set(call["inputs"]), {"repository", "ref", "source_is_tag", "ci_run_id"})
         jobs = workflow["jobs"]
         prepare = {s.get("name"): s for s in jobs["prepare"]["steps"] if s.get("name")}
-        self.assertIn('version="${RELEASE_TAG#v}"', prepare["Resolve tag-derived release identity"]["run"])
+        validation = prepare["Validate stable Streamscape Media tag request"]["run"]
+        self.assertIn('^v?', validation)
+        self.assertIn('version="${RELEASE_TAG}"; version="${version#v}"', prepare["Resolve tag-derived release identity"]["run"])
         self.assertIn('source_sha="$(git rev-parse HEAD)"', prepare["Resolve tag-derived release identity"]["run"])
         self.assertEqual(prepare["Record tag-resolved source provenance"]["with"]["phase"], "observe-source")
         self.assertEqual(jobs["android_maven"]["with"]["ref"], "${{ needs.prepare.outputs.source_sha }}")
@@ -126,7 +134,7 @@ class StreamscapeMediaReleaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td); manifest = root / "release-manifest.json"
             args = type("Args", (), {
-                "version": "2.0.0", "source_sha": "a"*40, "maven_source_sha": "a"*40,
+                "version": "2.0.0", "release_tag": "2.0.0", "source_sha": "a"*40, "maven_source_sha": "a"*40,
                 "apple_source_sha": "a"*40, "maven_publication_id": "streamscape-2.0.0",
                 "maven_archive_sha256": "1"*64, "maven_manifest_sha256": "2"*64,
                 "apple_archive_sha256": "3"*64, "apple_compatibility_sha256": "4"*64,
@@ -144,13 +152,41 @@ class StreamscapeMediaReleaseTests(unittest.TestCase):
             with mock.patch.object(release, "request", side_effect=fake):
                 release.final(args)
             value=json.loads(manifest.read_text())
-            self.assertEqual(value["tag"], "v2.0.0")
+            self.assertEqual(value["tag"], "2.0.0")
             self.assertEqual(value["source_sha"], "a"*40)
             self.assertEqual(value["android"]["consumer_scope"], ["android-mobile","android-tv"])
             self.assertEqual(value["apple"]["distribution"], "forgejo-generic")
             self.assertFalse(any(method in {"DELETE","PATCH"} for method,_ in calls))
             args.apple_source_sha="b"*40
             with self.assertRaises(release.ReleaseError): release.final(args)
+            args.apple_source_sha="a"*40
+            args.release_tag="v2.0.0"
+            with mock.patch.object(release, "request", side_effect=fake):
+                with self.assertRaises(release.ReleaseError):
+                    release.final(args)
+
+    def test_fresh_v_prefixed_tag_is_supported_and_preserved(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td); manifest = root / "release-manifest.json"
+            args = type("Args", (), {
+                "version": "2.0.0", "release_tag": "v2.0.0", "source_sha": "a"*40,
+                "maven_source_sha": "a"*40, "apple_source_sha": "a"*40,
+                "maven_publication_id": "streamscape-2.0.0", "maven_archive_sha256": "1"*64,
+                "maven_manifest_sha256": "2"*64, "apple_archive_sha256": "3"*64,
+                "apple_compatibility_sha256": "4"*64, "apple_manifest_sha256": "5"*64,
+                "apple_platforms_json": '["ios","tvos"]',
+                "apple_boundary_json": '[{"engine":"avfoundation","included":true}]',
+                "manifest": str(manifest),
+            })()
+            stored: dict[str, bytes] = {}
+            def fake(method: str, url: str, *, data=None):
+                if method == "GET":
+                    return (200, stored[url]) if url in stored else (404, b"")
+                stored[url] = data
+                return 201, b""
+            with mock.patch.object(release, "request", side_effect=fake):
+                release.final(args)
+            self.assertEqual(json.loads(manifest.read_text())["tag"], "v2.0.0")
 
     def test_inventory_and_self_check_cover_new_surface(self) -> None:
         inventory=yaml.safe_load((ROOT/"INVENTORY.yaml").read_text())

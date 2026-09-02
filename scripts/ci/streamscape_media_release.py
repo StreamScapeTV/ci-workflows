@@ -203,11 +203,14 @@ def final(args: argparse.Namespace) -> None:
     boundary = json.loads(args.apple_boundary_json)
     if not isinstance(platforms, list) or not isinstance(boundary, list):
         raise ReleaseError("Apple publication outputs are invalid")
+    release_tag = args.release_tag
+    if release_tag not in (version, f"v{version}"):
+        raise ReleaseError("release tag does not normalize to the requested stable version")
     value = {
         "schema_version": 1,
         "project": "Streamscape Media",
         "version": version,
-        "tag": f"v{version}",
+        "tag": release_tag,
         "source_sha": source_sha,
         "android": {
             "distribution": "forgejo-maven",
@@ -253,7 +256,7 @@ def parser() -> argparse.ArgumentParser:
     a.set_defaults(func=apple)
     f = sub.add_parser("final")
     for name in (
-        "version", "source_sha", "maven_source_sha", "apple_source_sha", "maven_publication_id",
+        "version", "release_tag", "source_sha", "maven_source_sha", "apple_source_sha", "maven_publication_id",
         "maven_archive_sha256", "maven_manifest_sha256", "apple_archive_sha256",
         "apple_compatibility_sha256", "apple_manifest_sha256", "apple_platforms_json", "apple_boundary_json",
         "manifest",
