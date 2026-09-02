@@ -40,4 +40,5 @@ jobs:
           tests.test_source_snapshot_delete
           tests.test_source_bundle_publish
           tests.test_maven_workflow
+          tests.test_streamscape_media_release
           -v

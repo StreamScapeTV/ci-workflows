@@ -1,0 +1,135 @@
+name: Streamscape Media Apple binary publication
+
+"on":
+  workflow_call:
+    inputs:
+      repository: {type: string, required: true}
+      ref: {type: string, required: true}
+      version: {type: string, required: true}
+    secrets:
+      SOURCE_APP_ID: {required: false}
+      SOURCE_APP_PRIVATE_KEY: {required: false}
+      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID: {required: false}
+      GOOGLE_DRIVE_CLIENT_ID: {required: false}
+      GOOGLE_DRIVE_CLIENT_SECRET: {required: false}
+      GOOGLE_DRIVE_REFRESH_TOKEN: {required: false}
+      TS_OAUTH_CLIENT_ID: {required: false}
+      TS_OAUTH_SECRET: {required: false}
+      MAVEN_PUBLISH_USERNAME: {required: false}
+      MAVEN_PUBLISH_TOKEN: {required: false}
+    outputs:
+      source_sha: {value: "${{ jobs.publish.outputs.source_sha }}"}
+      package_name: {value: "${{ jobs.publish.outputs.package_name }}"}
+      archive_sha256: {value: "${{ jobs.publish.outputs.archive_sha256 }}"}
+      compatibility_sha256: {value: "${{ jobs.publish.outputs.compatibility_sha256 }}"}
+      manifest_sha256: {value: "${{ jobs.publish.outputs.manifest_sha256 }}"}
+      included_platforms_json: {value: "${{ jobs.publish.outputs.included_platforms_json }}"}
+      native_runtime_boundary_json: {value: "${{ jobs.publish.outputs.native_runtime_boundary_json }}"}
+
+permissions: {contents: read}
+
+jobs:
+  publish:
+    runs-on: macos-latest
+    timeout-minutes: 120
+    outputs:
+      source_sha: "${{ steps.identity.outputs.source_sha }}"
+      package_name: "${{ steps.publish.outputs.package_name }}"
+      archive_sha256: "${{ steps.publish.outputs.archive_sha256 }}"
+      compatibility_sha256: "${{ steps.publish.outputs.compatibility_sha256 }}"
+      manifest_sha256: "${{ steps.publish.outputs.manifest_sha256 }}"
+      included_platforms_json: "${{ steps.publish.outputs.included_platforms_json }}"
+      native_runtime_boundary_json: "${{ steps.publish.outputs.native_runtime_boundary_json }}"
+    steps:
+      - name: Initialize private Apple publication log
+        run: 'printf "" > "${RUNNER_TEMP}/streamscape-media-apple.log"'
+      - id: source
+        name: Prepare source token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: "${{ secrets.SOURCE_APP_ID }}"
+          private-key: "${{ secrets.SOURCE_APP_PRIVATE_KEY }}"
+          owner: StreamScapeTV
+          repositories: streamscape-media
+      - name: Check out pinned release source
+        uses: actions/checkout@v4
+        with:
+          repository: "${{ inputs.repository }}"
+          ref: "${{ inputs.ref }}"
+          token: "${{ steps.source.outputs.token }}"
+          fetch-depth: 1
+          persist-credentials: false
+      - id: identity
+        name: Validate pinned Apple release source
+        env: {VERSION: "${{ inputs.version }}"}
+        run: |
+          set -Eeuo pipefail
+          test "${{ inputs.repository }}" = StreamScapeTV/streamscape-media
+          [[ "${VERSION}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          source_sha="$(git rev-parse HEAD)"
+          [[ "${source_sha}" =~ ^[0-9a-f]{40}$ ]]
+          test "$(tr -d '\r\n' < VERSION)" = "${VERSION}"
+          printf 'source_sha=%s\n' "${source_sha}" >> "${GITHUB_OUTPUT}"
+      - name: Install fixed Apple build prerequisite
+        run: 'command -v xcodegen >/dev/null || brew install xcodegen'
+      - id: build
+        name: Build deterministic Apple binary bundle
+        env:
+          VERSION: "${{ inputs.version }}"
+          SOURCE_SHA: "${{ steps.identity.outputs.source_sha }}"
+        run: |
+          set -Eeuo pipefail
+          out="${RUNNER_TEMP}/streamscape-media-apple"
+          mkdir -p "${out}"
+          archive="$(python3 scripts/release/create-apple-binary-consumer-bundle.py --output-dir "${out}" --version "${VERSION}" --commit-sha "${SOURCE_SHA}" 2>>"${RUNNER_TEMP}/streamscape-media-apple.log")"
+          test -f "${archive}"; printf 'archive=%s\n' "${archive}" >> "${GITHUB_OUTPUT}"
+      - name: Connect to fixed private package service
+        uses: StreamScapeTV/ci-workflows/actions/private-git@main
+        env:
+          TS_OAUTH_CLIENT_ID: "${{ secrets.TS_OAUTH_CLIENT_ID }}"
+          TS_OAUTH_SECRET: "${{ secrets.TS_OAUTH_SECRET }}"
+      - id: publish
+        name: Publish immutable Apple generic package files
+        env:
+          PACKAGE_USERNAME: "${{ secrets.MAVEN_PUBLISH_USERNAME }}"
+          PACKAGE_TOKEN: "${{ secrets.MAVEN_PUBLISH_TOKEN }}"
+        run: >-
+          python3 scripts/ci/streamscape_media_release.py apple
+          --version '${{ inputs.version }}'
+          --source-sha '${{ steps.identity.outputs.source_sha }}'
+          --archive '${{ steps.build.outputs.archive }}'
+          --compatibility apple/ConsumerCompatibility.json
+          --output-dir '${{ runner.temp }}/streamscape-media-apple-evidence'
+      - name: Scrub configured secrets from private Apple log
+        if: "${{ always() }}"
+        env:
+          LOG: "${{ runner.temp }}/streamscape-media-apple.log"
+          SECRET1: "${{ secrets.MAVEN_PUBLISH_TOKEN }}"
+          SECRET2: "${{ secrets.SOURCE_APP_PRIVATE_KEY }}"
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          p=Path(os.environ['LOG']); data=p.read_bytes()
+          for key in ('SECRET1','SECRET2'):
+              value=os.environ.get(key,'')
+              if value: data=data.replace(value.encode(),b'[REDACTED]').replace(value.replace('\n','\\n').encode(),b'[REDACTED]')
+          p.write_bytes(data)
+          PY
+      - name: Upload private Apple publication log
+        if: "${{ always() }}"
+        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
+        env:
+          GOOGLE_DRIVE_CLIENT_ID: "${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}"
+          GOOGLE_DRIVE_CLIENT_SECRET: "${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}"
+          GOOGLE_DRIVE_REFRESH_TOKEN: "${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}"
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: "${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}"
+        with:
+          repository: "${{ inputs.repository }}"
+          ref: "${{ inputs.ref }}"
+          file_path: "${{ runner.temp }}/streamscape-media-apple.log"
+          file_name: "${{ github.run_id }}-${{ github.run_attempt }}-apple-binary.txt"
+          mime_type: text/plain
+      - name: Clean Apple publication workspace
+        if: "${{ always() }}"
+        run: 'rm -rf "${RUNNER_TEMP}/streamscape-media-apple" "${RUNNER_TEMP}/streamscape-media-apple-evidence"'
