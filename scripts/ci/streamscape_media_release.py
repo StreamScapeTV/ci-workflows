@@ -18,7 +18,7 @@ OWNER = "mimranfaruqi"
 BASE = f"https://git.faruqi.dev/api/packages/{OWNER}/generic"
 APPLE_PACKAGE = "streamscape-media-apple"
 RELEASE_PACKAGE = "streamscape-media-release"
-SEMVER = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
+RELEASE_VERSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}")
 SHA = re.compile(r"[0-9a-f]{40}")
 HEX64 = re.compile(r"[0-9a-f]{64}")
 
@@ -36,8 +36,14 @@ def digest(path: Path) -> str:
 
 
 def require_version(value: str) -> str:
-    if not SEMVER.fullmatch(value):
-        raise ReleaseError("release version must be stable MAJOR.MINOR.PATCH")
+    if not RELEASE_VERSION.fullmatch(value):
+        raise ReleaseError("release version must be one bounded package-safe identifier")
+    return value
+
+
+def require_tag(value: str) -> str:
+    if not value or any(character in value for character in ("\x00", "\r", "\n")):
+        raise ReleaseError("release tag must be one exact non-empty Git tag name")
     return value
 
 
@@ -138,7 +144,7 @@ def apple(args: argparse.Namespace) -> None:
         raise ReleaseError("Apple publication inputs are missing")
     expected_name = f"streamscape-media-{version}-apple-binary.zip"
     if archive.name != expected_name:
-        raise ReleaseError("Apple archive filename does not match stable release version")
+        raise ReleaseError("Apple archive filename does not match release version")
     distribution = distribution_from_archive(archive)
     if distribution.get("version") != version or distribution.get("commitSha") != source_sha:
         raise ReleaseError("Apple archive provenance does not match release source")
@@ -203,9 +209,7 @@ def final(args: argparse.Namespace) -> None:
     boundary = json.loads(args.apple_boundary_json)
     if not isinstance(platforms, list) or not isinstance(boundary, list):
         raise ReleaseError("Apple publication outputs are invalid")
-    release_tag = args.release_tag
-    if release_tag not in (version, f"v{version}"):
-        raise ReleaseError("release tag does not normalize to the requested stable version")
+    release_tag = require_tag(args.release_tag)
     value = {
         "schema_version": 1,
         "project": "Streamscape Media",
