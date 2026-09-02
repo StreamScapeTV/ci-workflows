@@ -80,7 +80,7 @@ class NodeFlutterObservedSourceTests(unittest.TestCase):
                     "${{ steps.commands.outcome == 'success' && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && 'succeeded' || 'failed' }}",
                 )
 
-    def test_fixed_node_profiles_are_unchanged(self) -> None:
+    def test_fixed_node_profiles_and_lock_refresh_policy(self) -> None:
         _, _, by_name = self._workflow("node")
         script = by_name["Run fixed Node profile"]["run"]
         for command in (
@@ -92,17 +92,46 @@ class NodeFlutterObservedSourceTests(unittest.TestCase):
             "run_logged repository-clean git diff --exit-code",
         ):
             self.assertIn(command, script)
+
+        source = by_name["Prepare source token"]
+        checkout = by_name["Check out source"]
         fixed = by_name["Set up fixed Node 22.18.0"]
         repository_pinned = by_name["Set up repository-pinned Node"]
+
+        self.assertEqual(
+            source["with"]["permission-contents"],
+            "${{ inputs.test_profile == 'static-web-lock-refresh' && 'write' || 'read' }}",
+        )
+        self.assertEqual(
+            checkout["with"]["persist-credentials"],
+            "${{ inputs.test_profile == 'static-web-lock-refresh' }}",
+        )
         self.assertEqual(fixed["if"], "${{ inputs.test_profile == 'frontend-full' }}")
         self.assertEqual(fixed["uses"], "actions/setup-node@v6")
         self.assertEqual(fixed["with"]["node-version"], "22.18.0")
         self.assertEqual(fixed["with"]["cache"], "")
-        self.assertEqual(repository_pinned["if"], "${{ inputs.test_profile == 'static-web' }}")
+        self.assertEqual(
+            repository_pinned["if"],
+            "${{ inputs.test_profile == 'static-web' || inputs.test_profile == 'static-web-lock-refresh' }}",
+        )
         self.assertEqual(repository_pinned["uses"], "actions/setup-node@v6")
         self.assertEqual(repository_pinned["with"]["node-version-file"], ".nvmrc")
         self.assertEqual(repository_pinned["with"]["cache"], "")
         self.assertNotIn("node-version", repository_pinned["with"])
+
+        for invariant in (
+            "static-web-lock-refresh)",
+            "npm install --package-lock-only --ignore-scripts --no-audit",
+            'test "${manifest_after}" = "${manifest_before}"',
+            'test "${#changed_paths[@]}" -eq 1 && test "${changed_paths[0]}" = package-lock.json',
+            "npm audit --json",
+            "run_logged audit-production npm audit --omit=dev --audit-level=low --json",
+            'git add -- package-lock.json',
+            'git push origin "HEAD:refs/heads/${TARGET_REF}"',
+        ):
+            self.assertIn(invariant, script)
+        self.assertNotIn("--force", script)
+        self.assertNotIn("--legacy-peer-deps", script)
 
     def test_fixed_flutter_profile_and_version_policy_are_unchanged(self) -> None:
         workflow, _, by_name = self._workflow("flutter")
