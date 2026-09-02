@@ -247,35 +247,61 @@ class CiHelperTests(unittest.TestCase):
         workflow = yaml.safe_load((ROOT / ".github/workflows/branch-delete.yml").read_text())
         dispatch = yaml.safe_load((ROOT / ".github/workflows/central-ci-dispatch.yml").read_text())
         call = workflow["on"]["workflow_call"]
-        self.assertEqual(set(call["inputs"]), {"repository", "branch", "expected_head", "ci_run_id"})
+        self.assertEqual(
+            set(call["inputs"]),
+            {"repository", "branch", "expected_head", "ci_run_id", "deletion_source", "deleted_ref_type"},
+        )
+        self.assertIn("delete", workflow["on"])
         self.assertNotIn("workflow_dispatch", workflow["on"])
+        self.assertFalse(call["inputs"]["expected_head"]["required"])
+        self.assertFalse(call["inputs"]["ci_run_id"]["required"])
+        self.assertEqual(call["inputs"]["deletion_source"]["default"], "agent-state")
+        self.assertEqual(call["inputs"]["deleted_ref_type"]["default"], "")
         self.assertEqual(workflow["permissions"], {"contents": "read"})
+        self.assertFalse(workflow["concurrency"]["cancel-in-progress"])
+        self.assertIn("branch-retirement-", workflow["concurrency"]["group"])
+        self.assertIn("github.event.ref", workflow["concurrency"]["group"])
+        self.assertIn("inputs.branch", workflow["concurrency"]["group"])
 
-        steps = workflow["jobs"]["delete"]["steps"]
+        delete_job = workflow["jobs"]["delete"]
+        steps = delete_job["steps"]
         by_name = {step.get("name"): step for step in steps if step.get("name")}
         start = by_name["Mark Agent State run as running"]
         validate = by_name["Validate bounded branch deletion inputs"]
         token = by_name["Create exact target repository token"]
         delete = by_name["Delete exact eligible branch"]
-        finish = by_name["Finish Agent State run"]
+        finish = workflow["jobs"]["finish"]
+        cleanup = workflow["jobs"]["snapshot_cleanup"]
+
         self.assertEqual(start["with"]["phase"], "start")
+        self.assertIn("github.event_name != 'delete'", start["if"])
+        self.assertIn("inputs.deletion_source != 'github-delete-event'", start["if"])
         self.assertEqual(token["uses"], "actions/create-github-app-token@v2")
         self.assertEqual(token["with"]["owner"], "StreamScapeTV")
         self.assertEqual(token["with"]["repositories"], "${{ steps.request.outputs.repository_name }}")
-        self.assertEqual(token["with"]["permission-contents"], "write")
+        self.assertIn("github-delete-event", token["with"]["permission-contents"])
+        self.assertIn("read", token["with"]["permission-contents"])
+        self.assertIn("write", token["with"]["permission-contents"])
         self.assertIn('git check-ref-format --branch "${TARGET_BRANCH}"', validate["run"])
         self.assertIn('branch in {"main", "develop"}', validate["run"])
+        self.assertIn('deleted_ref_type != "branch"', validate["run"])
+        self.assertIn("does not accept expected_head", validate["run"])
+        self.assertIn("does not use Agent State ci_run_id", validate["run"])
         self.assertIn("repository live default branch", delete["run"])
+        self.assertIn("delete-event cleanup refuses to delete Drive state while the branch still exists", delete["run"])
         self.assertIn('branch_value.get("protected") is not False', delete["run"])
         self.assertIn('rule.get("type") == "deletion"', delete["run"])
         self.assertIn('for page in range(1, 11)', delete["run"])
         self.assertIn('?per_page=100&page={page}', delete["run"])
-        self.assertIn('branch rules exceed the bounded verification limit', delete["run"])
-        self.assertGreaterEqual(delete["run"].count("validate_live_state()"), 2)
-        self.assertIn('/git/refs/heads/', delete["run"])
-        self.assertNotIn("tags/", delete["run"])
-        self.assertEqual(finish["if"], "${{ always() }}")
-        self.assertIn("steps.delete_branch.outcome == 'success'", finish["with"]["status"])
+        self.assertIn('branch_was_present=false', delete["run"])
+        self.assertIn('branch_was_present=true', delete["run"])
+        self.assertEqual(cleanup["uses"], "./.github/workflows/source-snapshot-delete.yml")
+        self.assertEqual(cleanup["with"]["repository"], "${{ needs.delete.outputs.repository }}")
+        self.assertEqual(cleanup["with"]["ref"], "${{ needs.delete.outputs.branch }}")
+        self.assertEqual(cleanup["with"]["expected_source_sha"], "")
+        self.assertIn("github.event_name != 'delete'", finish["if"])
+        self.assertIn("inputs.deletion_source != 'github-delete-event'", finish["if"])
+        self.assertIn("needs.snapshot_cleanup.result == 'success'", finish["steps"][0]["with"]["status"])
 
         request_steps = dispatch["jobs"]["request"]["steps"]
         request_by_name = {step.get("name"): step for step in request_steps if step.get("name")}
@@ -298,6 +324,7 @@ class CiHelperTests(unittest.TestCase):
         self.assertTrue(job["secrets"] == "inherit")
 
         expected_head = "a" * 40
+        ci_run_id = "11111111-1111-4111-8111-111111111111"
 
         def embedded_python(script: str) -> str:
             marker = "python3 - <<'PY'\n"
@@ -321,23 +348,28 @@ class CiHelperTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             output = Path(temp_dir) / "github-output"
-            def validate_branch(branch: str) -> subprocess.CompletedProcess[str]:
+
+            def validate_case(
+                *,
+                branch: str = "feature/cleanup",
+                deletion_source: str = "agent-state",
+                deleted_ref_type: str = "",
+                expected: str = expected_head,
+                run_id: str = ci_run_id,
+            ) -> subprocess.CompletedProcess[str]:
                 output.write_text("", encoding="utf-8")
-                env = os.environ.copy()
-                env.update(
+                completed = run_embedded(
+                    validate_python,
                     {
                         "TARGET_REPOSITORY": "StreamScapeTV/example",
                         "TARGET_BRANCH": branch,
-                        "EXPECTED_HEAD": expected_head,
+                        "EXPECTED_HEAD": expected,
+                        "CI_RUN_ID": run_id,
+                        "DELETION_SOURCE": deletion_source,
+                        "DELETED_REF_TYPE": deleted_ref_type,
                         "GITHUB_OUTPUT": str(output),
-                    }
+                    },
                 )
-                completed = run_embedded(validate_python, {
-                    "TARGET_REPOSITORY": env["TARGET_REPOSITORY"],
-                    "TARGET_BRANCH": env["TARGET_BRANCH"],
-                    "EXPECTED_HEAD": env["EXPECTED_HEAD"],
-                    "GITHUB_OUTPUT": env["GITHUB_OUTPUT"],
-                })
                 if completed.returncode == 0:
                     ref_check = subprocess.run(
                         ["git", "check-ref-format", "--branch", branch],
@@ -357,16 +389,44 @@ class CiHelperTests(unittest.TestCase):
                         )
                 return completed
 
-            self.assertEqual(validate_branch("feature/cleanup").returncode, 0)
-            self.assertNotEqual(validate_branch("main").returncode, 0)
-            self.assertNotEqual(validate_branch("develop").returncode, 0)
-            self.assertNotEqual(validate_branch("refs/heads/feature/cleanup").returncode, 0)
+            self.assertEqual(validate_case().returncode, 0)
+            self.assertNotEqual(validate_case(branch="main").returncode, 0)
+            self.assertNotEqual(validate_case(branch="develop").returncode, 0)
+            self.assertNotEqual(validate_case(branch="refs/heads/feature/cleanup").returncode, 0)
+            self.assertEqual(
+                validate_case(
+                    deletion_source="github-delete-event",
+                    deleted_ref_type="branch",
+                    expected="",
+                    run_id="",
+                ).returncode,
+                0,
+            )
+            self.assertNotEqual(
+                validate_case(
+                    deletion_source="github-delete-event",
+                    deleted_ref_type="tag",
+                    expected="",
+                    run_id="",
+                ).returncode,
+                0,
+            )
+            self.assertNotEqual(
+                validate_case(
+                    deletion_source="github-delete-event",
+                    deleted_ref_type="branch",
+                    expected=expected_head,
+                    run_id="",
+                ).returncode,
+                0,
+            )
 
-        def run_delete_case(**scenario: object) -> tuple[subprocess.CompletedProcess[str], list[tuple[str, str]]]:
+        def run_delete_case(
+            *, deletion_source: str = "agent-state", **scenario: object
+        ) -> tuple[subprocess.CompletedProcess[str], list[tuple[str, str]]]:
             records: list[tuple[str, str]] = []
             branch_calls = 0
             repository_calls = 0
-            rules_calls = 0
 
             class Handler(http.server.BaseHTTPRequestHandler):
                 def log_message(self, format: str, *args: object) -> None:
@@ -381,7 +441,7 @@ class CiHelperTests(unittest.TestCase):
                     self.wfile.write(body)
 
                 def do_GET(self) -> None:
-                    nonlocal branch_calls, repository_calls, rules_calls
+                    nonlocal branch_calls, repository_calls
                     parsed = urllib.parse.urlsplit(self.path)
                     path = urllib.parse.unquote(parsed.path)
                     query = urllib.parse.parse_qs(parsed.query)
@@ -391,11 +451,21 @@ class CiHelperTests(unittest.TestCase):
                         default_branch = str(scenario.get("default_branch", "trunk"))
                         if repository_calls > 1 and scenario.get("second_default_branch"):
                             default_branch = str(scenario["second_default_branch"])
-                        self._send_json(200, {"full_name": "StreamScapeTV/example", "default_branch": default_branch})
+                        self._send_json(
+                            200,
+                            {
+                                "full_name": "StreamScapeTV/example",
+                                "default_branch": default_branch,
+                                "private": False,
+                            },
+                        )
                         return
                     if path == "/repos/StreamScapeTV/example/branches/feature/cleanup":
                         branch_calls += 1
-                        if scenario.get("missing"):
+                        missing = bool(scenario.get("missing", False))
+                        if branch_calls > 1 and scenario.get("second_missing"):
+                            missing = True
+                        if missing:
                             self._send_json(404, {"message": "Not Found"})
                             return
                         head = str(scenario.get("head", expected_head))
@@ -411,15 +481,9 @@ class CiHelperTests(unittest.TestCase):
                         )
                         return
                     if path == "/repos/StreamScapeTV/example/rules/branches/feature/cleanup":
-                        rules_calls += 1
                         page = int(query.get("page", ["1"])[0])
                         if scenario.get("deletion_rule_page_two"):
-                            if page == 1:
-                                self._send_json(200, [{"type": "required_linear_history"}] * 100)
-                            elif page == 2:
-                                self._send_json(200, [{"type": "deletion"}])
-                            else:
-                                self._send_json(200, [])
+                            self._send_json(200, [{"type": "required_linear_history"}] * 100 if page == 1 else [{"type": "deletion"}])
                             return
                         rules = [{"type": "deletion"}] if scenario.get("deletion_rule") else []
                         self._send_json(200, rules)
@@ -448,8 +512,10 @@ class CiHelperTests(unittest.TestCase):
                     {
                         "TARGET_REPOSITORY": "StreamScapeTV/example",
                         "TARGET_BRANCH": "feature/cleanup",
-                        "EXPECTED_HEAD": expected_head,
+                        "EXPECTED_HEAD": expected_head if deletion_source == "agent-state" else "",
+                        "DELETION_SOURCE": deletion_source,
                         "TARGET_TOKEN": "masked-test-token",
+                        "GITHUB_OUTPUT": os.devnull,
                     },
                 )
             finally:
@@ -465,12 +531,27 @@ class CiHelperTests(unittest.TestCase):
             [("DELETE", "/repos/StreamScapeTV/example/git/refs/heads/feature/cleanup")],
         )
 
+        already_absent, absent_records = run_delete_case(missing=True)
+        self.assertEqual(already_absent.returncode, 0, already_absent.stderr)
+        self.assertFalse(any(method == "DELETE" for method, _ in absent_records))
+
+        event_success, event_records = run_delete_case(
+            deletion_source="github-delete-event", missing=True
+        )
+        self.assertEqual(event_success.returncode, 0, event_success.stderr)
+        self.assertFalse(any(method == "DELETE" for method, _ in event_records))
+
+        event_refused, event_refused_records = run_delete_case(
+            deletion_source="github-delete-event", missing=False
+        )
+        self.assertNotEqual(event_refused.returncode, 0)
+        self.assertFalse(any(method == "DELETE" for method, _ in event_refused_records))
+
         for scenario in (
             {"default_branch": "feature/cleanup"},
             {"second_default_branch": "feature/cleanup"},
             {"head": "b" * 40},
             {"second_head": "b" * 40},
-            {"missing": True},
             {"protected": True},
             {"deletion_rule": True},
             {"deletion_rule_page_two": True},

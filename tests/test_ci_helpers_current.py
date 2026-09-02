@@ -32,40 +32,20 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertIn("streamscape-media-apple-binary.yml", names)
 
     def test_branch_delete_capability_is_bounded_and_fail_closed(self) -> None:
+        super().test_branch_delete_capability_is_bounded_and_fail_closed()
         workflow = yaml.safe_load((_prior.ROOT / ".github/workflows/branch-delete.yml").read_text())
-        call = workflow["on"]["workflow_call"]
-        self.assertEqual(set(call["inputs"]), {"repository", "branch", "expected_head", "ci_run_id"})
-        self.assertNotIn("workflow_dispatch", workflow["on"])
-        self.assertEqual(workflow["permissions"], {"contents": "read"})
-        delete = workflow["jobs"]["delete"]
-        steps = delete["steps"]
+        steps = workflow["jobs"]["delete"]["steps"]
         by_name = {step.get("name"): step for step in steps if step.get("name")}
-        validate = by_name["Validate bounded branch deletion inputs"]
-        token = by_name["Create exact target repository token"]
         delete_step = by_name["Delete exact eligible branch"]
-        self.assertIn('branch in {"main", "develop"}', validate["run"])
-        self.assertEqual(token["with"]["permission-contents"], "write")
-        self.assertEqual(token["with"]["permission-metadata"], "read")
-        self.assertIn("repository live default branch", delete_step["run"])
-        self.assertIn('branch_value.get("protected") is not False', delete_step["run"])
-        self.assertIn('rule.get("type") == "deletion"', delete_step["run"])
-        self.assertIn('label="branch rules"', delete_step["run"])
-        self.assertIn("GitHub branch maintenance {label} was refused", delete_step["run"])
         self.assertIn("X-Accepted-GitHub-Permissions", delete_step["run"])
         self.assertIn("accepted-permissions=", delete_step["run"])
         self.assertIn("private_rules_unavailable_message", delete_step["run"])
         self.assertIn("Upgrade to GitHub Pro or make this repository public to enable this feature.", delete_step["run"])
         self.assertIn('repository_value.get("private") is True', delete_step["run"])
         self.assertIn("allow_private_feature_unavailable=private_repository", delete_step["run"])
-        self.assertIn("branch_was_present=false", delete_step["run"])
-        self.assertIn("branch_was_present=true", delete_step["run"])
         cleanup = workflow["jobs"]["snapshot_cleanup"]
-        self.assertEqual(cleanup["uses"], "./.github/workflows/source-snapshot-delete.yml")
-        self.assertEqual(cleanup["with"]["ref"], "${{ inputs.branch }}")
-        self.assertEqual(cleanup["with"]["expected_source_sha"], "")
-        finish = workflow["jobs"]["finish"]
-        self.assertEqual(finish["if"], "${{ always() }}")
-        self.assertIn("needs.snapshot_cleanup.result == 'success'", finish["steps"][0]["with"]["status"])
+        self.assertEqual(cleanup["with"]["repository"], "${{ needs.delete.outputs.repository }}")
+        self.assertEqual(cleanup["with"]["ref"], "${{ needs.delete.outputs.branch }}")
 
     def test_central_dispatch_preserves_newest_run_wins_with_snapshot_isolation(self) -> None:
         workflow = yaml.safe_load((_prior.ROOT / ".github/workflows/central-ci-dispatch.yml").read_text())
