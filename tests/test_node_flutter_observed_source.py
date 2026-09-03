@@ -1,4 +1,7 @@
 from pathlib import Path
+import os
+import subprocess
+import tempfile
 import unittest
 import yaml
 
@@ -75,16 +78,24 @@ class NodeFlutterObservedSourceTests(unittest.TestCase):
                 self.assertEqual(drive["with"]["mime_type"], "text/plain")
                 self.assertNotIn("gzip", drive["with"])
                 self.assertEqual(finish["if"], "${{ always() && inputs.ci_run_id != '' }}")
-                self.assertEqual(
-                    finish["with"]["status"],
-                    "${{ steps.commands.outcome == 'success' && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && 'succeeded' || 'failed' }}",
-                )
+                if name == "node":
+                    self.assertEqual(
+                        finish["with"]["status"],
+                        "${{ steps.commands.outcome == 'success' && (steps.node_modules_cache_save.outcome == 'success' || steps.node_modules_cache_save.outcome == 'skipped') && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && 'succeeded' || 'failed' }}",
+                    )
+                else:
+                    self.assertEqual(
+                        finish["with"]["status"],
+                        "${{ steps.commands.outcome == 'success' && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && 'succeeded' || 'failed' }}",
+                    )
 
     def test_fixed_node_profiles_and_lock_refresh_policy(self) -> None:
         _, _, by_name = self._workflow("node")
         script = by_name["Run fixed Node profile"]["run"]
         for command in (
             "run_logged npm-ci npm ci",
+            "ensure_node_modules",
+            "node_modules cache hit; npm ci skipped",
             "run_logged test npm test",
             "run_logged typecheck npm run typecheck",
             "run_logged build npm run build",
@@ -132,6 +143,83 @@ class NodeFlutterObservedSourceTests(unittest.TestCase):
             self.assertIn(invariant, script)
         self.assertNotIn("--force", script)
         self.assertNotIn("--legacy-peer-deps", script)
+
+    def test_node_cache_is_repository_scoped_and_default_branch_write_only(self) -> None:
+        _, _, by_name = self._workflow("node")
+        scope = by_name["Resolve Node default-branch cache scope"]
+        restore = by_name["Restore Node modules cache"]
+        save = by_name["Save Node modules cache"]
+        script = scope["run"]
+
+        self.assertIn("https://api.github.com/repos/${SOURCE_REPOSITORY}", script)
+        self.assertIn('get("default_branch", "")', script)
+        self.assertIn('test "${normalized_ref}" = "${default_branch}"', script)
+        self.assertIn('test "${checkout_branch}" = "${default_branch}"', script)
+        self.assertIn('test "${TEST_PROFILE}" != "static-web-lock-refresh"', script)
+        self.assertIn("node-modules-v1-${repository_key}-${RUNNER_OS_NAME}-${RUNNER_ARCH_NAME}", script)
+        self.assertIn("sha256sum package.json", script)
+        self.assertIn("sha256sum package-lock.json", script)
+        self.assertEqual(restore["uses"], "actions/cache/restore@v4")
+        self.assertEqual(restore["with"]["path"], "node_modules")
+        self.assertEqual(restore["with"]["key"], "${{ steps.node_cache_scope.outputs.key }}")
+        self.assertEqual(save["uses"], "actions/cache/save@v4")
+        self.assertEqual(save["with"]["path"], "node_modules")
+        self.assertEqual(save["with"]["key"], "${{ steps.node_modules_cache.outputs.cache-primary-key }}")
+        self.assertIn("steps.node_cache_scope.outputs.save_enabled == 'true'", save["if"])
+        self.assertIn("steps.node_modules_cache.outputs.cache-hit != 'true'", save["if"])
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            subprocess.run(["git", "init", "-b", "main"], cwd=root, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "ci@example.invalid"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.name", "CI"], cwd=root, check=True)
+            (root / "package.json").write_text('{"name":"fixture","version":"1.0.0"}\n', encoding="utf-8")
+            (root / "package-lock.json").write_text('{"name":"fixture","version":"1.0.0","lockfileVersion":3,"packages":{}}\n', encoding="utf-8")
+            subprocess.run(["git", "add", "package.json", "package-lock.json"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-m", "fixture"], cwd=root, check=True, capture_output=True)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            fake_curl = fake_bin / "curl"
+            fake_curl.write_text(
+                "#!/bin/sh\nprintf '{\"default_branch\":\"%s\"}\\n' \"${FAKE_DEFAULT_BRANCH:-main}\"\n",
+                encoding="utf-8",
+            )
+            fake_curl.chmod(0o755)
+
+            def flags(ref: str, default_branch: str, profile: str = "static-web") -> dict[str, str]:
+                output = root / "github-output"
+                output.write_text("", encoding="utf-8")
+                env = os.environ.copy()
+                env.update(
+                    {
+                        "SOURCE_REPOSITORY": "StreamScapeTV/StreamScapeWeb",
+                        "REQUESTED_REF": ref,
+                        "TEST_PROFILE": profile,
+                        "SOURCE_TOKEN": "token",
+                        "RUNNER_OS_NAME": "Linux",
+                        "RUNNER_ARCH_NAME": "X64",
+                        "FAKE_DEFAULT_BRANCH": default_branch,
+                        "GITHUB_OUTPUT": str(output),
+                        "PATH": f"{fake_bin}:{env['PATH']}",
+                    }
+                )
+                result = subprocess.run(
+                    ["bash"], cwd=root, env=env, input=script, text=True, capture_output=True, check=False
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                return dict(line.split("=", 1) for line in output.read_text().splitlines())
+
+            main = flags("main", "main")
+            self.assertEqual((main["restore_enabled"], main["save_enabled"]), ("true", "true"))
+            self.assertIn("StreamScapeTV-StreamScapeWeb", main["key"])
+            self.assertIn("npm", main["key"])
+
+            subprocess.run(["git", "switch", "-c", "feature/cache"], cwd=root, check=True, capture_output=True)
+            feature = flags("feature/cache", "main")
+            self.assertEqual((feature["restore_enabled"], feature["save_enabled"]), ("true", "false"))
+
+            lock_refresh = flags("feature/cache", "main", profile="static-web-lock-refresh")
+            self.assertEqual(lock_refresh["save_enabled"], "false")
 
     def test_fixed_flutter_profile_and_version_policy_are_unchanged(self) -> None:
         workflow, _, by_name = self._workflow("flutter")
