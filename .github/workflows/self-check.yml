@@ -40,5 +40,5 @@ jobs:
           tests.test_source_snapshot_delete
           tests.test_source_checkpoint_publish
           tests.test_maven_workflow
-          tests.test_streamscape_media_release
+          tests.test_apple_binary_workflow
           -v

@@ -354,6 +354,7 @@ if ( validate "$long" ); then exit 93; fi
         for profile, inputs in (
             ("testflight", '{"build_number":"253"}'),
             ("testflight", '{"build_number":"Build.253+rc_1"}'),
+            ("binary-package", '{}'),
         ):
             result = subprocess.run(
                 ["bash", "-c", validation],
@@ -365,6 +366,7 @@ if ( validate "$long" ); then exit 93; fi
             self.assertEqual(result.returncode, 0, result.stderr)
         for profile, inputs in (
             ("host", '{"build_number":"253"}'),
+            ("binary-package", '{"build_number":"253"}'),
             ("testflight", '{}'),
             ("testflight", '{"build_number":""}'),
             ("testflight", '{"build_number":253}'),
@@ -412,7 +414,9 @@ if ( validate "$long" ); then exit 93; fi
         )
         settlement = jobs["settle_cancelled"]
         self.assertIn("apple_release", settlement["needs"])
+        self.assertIn("apple_binary", settlement["needs"])
         self.assertIn("needs.apple_release.result == 'cancelled'", settlement["if"])
+        self.assertIn("needs.apple_binary.result == 'cancelled'", settlement["if"])
 
     def test_historical_host_materializes_only_the_exact_approved_bootstrap(self) -> None:
         execute = self.workflow["jobs"]["execute"]
