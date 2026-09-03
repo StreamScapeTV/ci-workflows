@@ -184,15 +184,38 @@ class CiHelperTests(_prior.CiHelperTests):
         workflow = yaml.safe_load(workflow_path.read_text())
         trigger = workflow["on"]
         self.assertEqual(trigger["push"]["branches"], ["main", "develop"])
-        self.assertIn("workflow_call", trigger)
-        self.assertEqual(workflow["concurrency"]["group"], "source-snapshot-${{ github.repository }}-${{ github.ref_name }}")
+        self.assertNotIn("workflow_call", trigger)
+        dispatch = trigger["workflow_dispatch"]["inputs"]
+        self.assertEqual(set(dispatch), {"repository", "repository_name", "ref", "source_sha"})
+        self.assertTrue(all(spec["required"] for spec in dispatch.values()))
+        self.assertEqual(
+            workflow["concurrency"]["group"],
+            "source-snapshot-${{ github.event_name == 'push' && github.repository || inputs.repository }}-${{ github.event_name == 'push' && github.ref_name || inputs.ref }}",
+        )
         self.assertFalse(workflow["concurrency"]["cancel-in-progress"])
-        steps = workflow["jobs"]["snapshot"]["steps"]
+        job = workflow["jobs"]["snapshot"]
+        self.assertIn("github.event_name == 'workflow_dispatch'", job["if"])
+        self.assertIn("inputs.ref == 'main'", job["if"])
+        self.assertIn("inputs.ref == 'develop'", job["if"])
+        steps = job["steps"]
         by_name = {step.get("name"): step for step in steps if step.get("name")}
         refresh = by_name["Refresh exact integration-branch snapshot"]
-        self.assertEqual(refresh["with"]["repository"], "${{ github.repository }}")
-        self.assertEqual(refresh["with"]["ref"], "${{ github.ref_name }}")
-        self.assertEqual(refresh["with"]["source_sha"], "${{ github.sha }}")
+        self.assertEqual(
+            refresh["with"]["repository"],
+            "${{ github.event_name == 'push' && github.repository || inputs.repository }}",
+        )
+        self.assertEqual(
+            refresh["with"]["repository_name"],
+            "${{ github.event_name == 'push' && github.event.repository.name || inputs.repository_name }}",
+        )
+        self.assertEqual(
+            refresh["with"]["ref"],
+            "${{ github.event_name == 'push' && github.ref_name || inputs.ref }}",
+        )
+        self.assertEqual(
+            refresh["with"]["source_sha"],
+            "${{ github.event_name == 'push' && github.sha || inputs.source_sha }}",
+        )
         action = yaml.safe_load(action_path.read_text())
         self.assertEqual(action["runs"]["using"], "composite")
         action_text = action_path.read_text()
