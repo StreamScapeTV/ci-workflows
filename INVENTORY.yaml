@@ -30,6 +30,7 @@ actions:
 scripts:
   oci_reproducibility: scripts/ci/oci_reproducibility.py
   source_snapshot_delete: scripts/ci/source_snapshot_delete.py
+  source_snapshot_reconcile: scripts/ci/source_snapshot_reconcile.py
   source_checkpoint_publish: scripts/ci/source_checkpoint_publish.py
   streamscape_media_release: scripts/ci/streamscape_media_release.py
 

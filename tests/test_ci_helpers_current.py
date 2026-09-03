@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import importlib.util
 import subprocess
+import sys
 
 import yaml
 
@@ -17,7 +19,7 @@ class CiHelperTests(_prior.CiHelperTests):
             {"apple", "android", "python", "node", "flutter", "maven", "streamscape_media_release", "streamscape_media_apple_binary", "container_service", "public_native_image_chart", "oci_reproducibility", "branch_delete", "source_snapshot_delete", "source_snapshot", "source_checkpoint_publish", "central_dispatch", "self_check", "runner_images"},
         )
         self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive", "private_git", "source_snapshot"})
-        self.assertEqual(set(inventory["scripts"]), {"oci_reproducibility", "source_snapshot_delete", "source_checkpoint_publish", "streamscape_media_release"})
+        self.assertEqual(set(inventory["scripts"]), {"oci_reproducibility", "source_snapshot_delete", "source_snapshot_reconcile", "source_checkpoint_publish", "streamscape_media_release"})
         self.assertEqual(set(inventory["services"]), {"runner_images"})
 
     def test_only_three_custom_actions_exist(self) -> None:
@@ -200,38 +202,45 @@ class CiHelperTests(_prior.CiHelperTests):
         workflow = yaml.safe_load(workflow_path.read_text())
         trigger = workflow["on"]
         self.assertEqual(trigger["push"]["branches"], ["main", "develop"])
+        self.assertEqual(trigger["schedule"], [{"cron": "2-57/5 * * * *"}])
         self.assertNotIn("workflow_call", trigger)
         dispatch = trigger["workflow_dispatch"]["inputs"]
         self.assertEqual(set(dispatch), {"repository", "repository_name", "ref", "source_sha"})
         self.assertTrue(all(spec["required"] for spec in dispatch.values()))
+        self.assertEqual(workflow["permissions"], {"actions": "write", "contents": "read"})
+
+        reconcile = workflow["jobs"]["reconcile"]
+        self.assertEqual(reconcile["if"], "${{ github.event_name == 'schedule' }}")
+        self.assertEqual(reconcile["concurrency"]["group"], "source-snapshot-reconcile")
+        self.assertFalse(reconcile["concurrency"]["cancel-in-progress"])
+        reconcile_by_name = {step.get("name"): step for step in reconcile["steps"] if step.get("name")}
+        planner = reconcile_by_name["Plan stale integration snapshots"]
+        self.assertIn("source_snapshot_reconcile.py", planner["run"])
+        dispatcher = reconcile_by_name["Dispatch exact stale integration snapshots"]
+        dispatch_script = dispatcher["run"]
+        self.assertIn("actions/workflows/source-snapshot.yml/dispatches", dispatch_script)
+        self.assertIn('{ref:"main",inputs:{repository:$repository,repository_name:$repository_name,ref:$ref,source_sha:$source_sha}}', dispatch_script)
+        self.assertNotIn("ci_run_id", dispatch_script)
+        text = workflow_path.read_text()
+        self.assertNotIn("ci-broker", text)
+        self.assertNotIn("AGENT_STATE_SUPABASE", text)
+
+        job = workflow["jobs"]["snapshot"]
         self.assertEqual(
-            workflow["concurrency"]["group"],
+            job["concurrency"]["group"],
             "source-snapshot-${{ github.event_name == 'push' && github.repository || inputs.repository }}-${{ github.event_name == 'push' && github.ref_name || inputs.ref }}",
         )
-        self.assertFalse(workflow["concurrency"]["cancel-in-progress"])
-        job = workflow["jobs"]["snapshot"]
+        self.assertFalse(job["concurrency"]["cancel-in-progress"])
         self.assertIn("github.event_name == 'workflow_dispatch'", job["if"])
         self.assertIn("inputs.ref == 'main'", job["if"])
         self.assertIn("inputs.ref == 'develop'", job["if"])
-        steps = job["steps"]
-        by_name = {step.get("name"): step for step in steps if step.get("name")}
+        by_name = {step.get("name"): step for step in job["steps"] if step.get("name")}
         refresh = by_name["Refresh exact integration-branch snapshot"]
-        self.assertEqual(
-            refresh["with"]["repository"],
-            "${{ github.event_name == 'push' && github.repository || inputs.repository }}",
-        )
-        self.assertEqual(
-            refresh["with"]["repository_name"],
-            "${{ github.event_name == 'push' && github.event.repository.name || inputs.repository_name }}",
-        )
-        self.assertEqual(
-            refresh["with"]["ref"],
-            "${{ github.event_name == 'push' && github.ref_name || inputs.ref }}",
-        )
-        self.assertEqual(
-            refresh["with"]["source_sha"],
-            "${{ github.event_name == 'push' && github.sha || inputs.source_sha }}",
-        )
+        self.assertEqual(refresh["with"]["repository"], "${{ github.event_name == 'push' && github.repository || inputs.repository }}")
+        self.assertEqual(refresh["with"]["repository_name"], "${{ github.event_name == 'push' && github.event.repository.name || inputs.repository_name }}")
+        self.assertEqual(refresh["with"]["ref"], "${{ github.event_name == 'push' && github.ref_name || inputs.ref }}")
+        self.assertEqual(refresh["with"]["source_sha"], "${{ github.event_name == 'push' && github.sha || inputs.source_sha }}")
+
         action = yaml.safe_load(action_path.read_text())
         self.assertEqual(action["runs"]["using"], "composite")
         action_text = action_path.read_text()
@@ -241,6 +250,45 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertIn("snapshot-readback.zip", action_text)
         self.assertIn("cmp -s", action_text)
         self.assertNotIn("AGENT_STATE_SUPABASE", action_text)
+
+    def test_source_snapshot_reconcile_planner_skips_exact_current_manifest(self) -> None:
+        path = _prior.ROOT / "scripts/ci/source_snapshot_reconcile.py"
+        spec = importlib.util.spec_from_file_location("source_snapshot_reconcile", path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        self.assertEqual(module.INTEGRATION_REFS, ("main", "develop"))
+        repository = "StreamScapeTV/example"
+        repository_name = "example"
+        ref = "develop"
+        source_sha = "1" * 40
+        tree_sha = "2" * 40
+        folder_id = "folder"
+        manifest_id = "manifest"
+        archive_id = "archive"
+        archive_name = "example-develop.zip"
+        digest = "3" * 64
+        manifest = {
+            "repository": repository, "repository_name": repository_name,
+            "requested_ref": ref, "is_tag": False, "resolved_source_sha": source_sha,
+            "tree_sha": tree_sha, "archive_format": "zip", "archive_format_version": 1,
+            "archive_filename": archive_name, "archive_sha256": digest, "archive_size_bytes": 42,
+            "source_zip_sha256": digest, "source_zip_size_bytes": 42,
+            "archive_file_id": archive_id, "source_zip_file_id": archive_id,
+            "manifest_file_id": manifest_id, "folder_id": folder_id,
+        }
+        archive = {"id": archive_id, "name": archive_name, "size": "42", "parents": [folder_id], "trashed": False}
+        self.assertTrue(module.manifest_is_current(manifest, repository=repository, repository_name=repository_name, ref=ref, source_sha=source_sha, tree_sha=tree_sha, ref_folder_id=folder_id, manifest_file_id=manifest_id, archive_metadata=archive))
+        stale = dict(manifest)
+        stale["resolved_source_sha"] = "4" * 40
+        self.assertFalse(module.manifest_is_current(stale, repository=repository, repository_name=repository_name, ref=ref, source_sha=source_sha, tree_sha=tree_sha, ref_folder_id=folder_id, manifest_file_id=manifest_id, archive_metadata=archive))
+        planner_text = path.read_text()
+        self.assertIn("/installation/repositories", planner_text)
+        self.assertIn("missing-ref-folder", planner_text)
+        self.assertIn("stale-or-invalid-manifest", planner_text)
+        self.assertNotIn("source.snapshot", planner_text)
+        self.assertNotIn("ci-broker", planner_text)
 
     def test_source_snapshot_reuses_drive_helper_and_updates_manifest_in_place(self) -> None:
         dispatch = (_prior.ROOT / ".github/workflows/central-ci-dispatch.yml").read_text()
