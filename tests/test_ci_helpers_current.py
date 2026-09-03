@@ -281,12 +281,22 @@ class CiHelperTests(_prior.CiHelperTests):
         steps = workflow["jobs"]["source_snapshot"]["steps"]
         by_name = {step.get("name"): step for step in steps if step.get("name")}
         names = [step.get("name") for step in steps]
+        requested_ref = by_name["Resolve requested human Git ref"]
+        checkout = by_name["Check out requested source"]
         identity = by_name["Resolve observed source SHA"]
         record = by_name["Record observed source SHA"]
         resume = by_name["Protect unpublished canonical Drive checkpoint"]
         snapshot = by_name["Create exact tracked-source snapshot"]
         upload = by_name["Upload repository snapshot archive"]
         finish = by_name["Finish Agent State run"]
+        self.assertEqual(requested_ref["env"]["REQUESTED_REF"], "${{ needs.request.outputs.ref }}")
+        self.assertEqual(requested_ref["env"]["REQUESTED_IS_TAG"], "${{ needs.request.outputs.is_tag }}")
+        self.assertIn("false) namespace=refs/heads", requested_ref["run"])
+        self.assertIn("true) namespace=refs/tags", requested_ref["run"])
+        self.assertIn('git check-ref-format "${full_ref}"', requested_ref["run"])
+        self.assertNotIn(r"[0-9a-f]{40}", requested_ref["run"])
+        self.assertEqual(checkout["with"]["ref"], "${{ steps.requested_ref.outputs.full_ref }}")
+        self.assertNotEqual(checkout["with"]["ref"], "${{ needs.request.outputs.ref }}")
         self.assertIn('source_sha="$(git -C source rev-parse HEAD)"', identity["run"])
         self.assertIn("HEAD^{tree}", identity["run"])
         self.assertIn("source_checkpoint_publish.py resume-action", resume["run"])
@@ -302,6 +312,7 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertIn('archive_filename=%s\\n', snapshot["run"])
         self.assertEqual(upload["with"]["file_name"], "${{ steps.snapshot.outputs.archive_filename }}")
         self.assertEqual(upload["with"]["previous_file_name"], "source.zip")
+        self.assertLess(names.index("Resolve requested human Git ref"), names.index("Check out requested source"))
         self.assertLess(names.index("Check out requested source"), names.index("Resolve observed source SHA"))
         self.assertLess(names.index("Resolve observed source SHA"), names.index("Record observed source SHA"))
         self.assertLess(names.index("Record observed source SHA"), names.index("Create exact tracked-source snapshot"))
