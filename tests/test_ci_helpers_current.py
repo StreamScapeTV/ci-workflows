@@ -14,18 +14,23 @@ class CiHelperTests(_prior.CiHelperTests):
         inventory = yaml.safe_load((_prior.ROOT / "INVENTORY.yaml").read_text())
         self.assertEqual(
             set(inventory["workflows"]),
-            {"apple", "android", "python", "node", "flutter", "maven", "streamscape_media_release", "streamscape_media_apple_binary", "container_service", "public_native_image_chart", "oci_reproducibility", "branch_delete", "source_snapshot_delete", "source_checkpoint_publish", "central_dispatch", "self_check", "runner_images"},
+            {"apple", "android", "python", "node", "flutter", "maven", "streamscape_media_release", "streamscape_media_apple_binary", "container_service", "public_native_image_chart", "oci_reproducibility", "branch_delete", "source_snapshot_delete", "source_snapshot", "source_checkpoint_publish", "central_dispatch", "self_check", "runner_images"},
         )
-        self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive", "private_git"})
+        self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive", "private_git", "source_snapshot"})
         self.assertEqual(set(inventory["scripts"]), {"oci_reproducibility", "source_snapshot_delete", "source_checkpoint_publish", "streamscape_media_release"})
         self.assertEqual(set(inventory["services"]), {"runner_images"})
 
+    def test_only_three_custom_actions_exist(self) -> None:
+        actions = {p.name for p in (_prior.ROOT / "actions").iterdir() if p.is_dir()}
+        self.assertEqual(actions, {"agent-state", "google-drive", "private-git", "source-snapshot"})
+
     def test_workflows_use_no_reusable_prefix(self) -> None:
         names = {p.name for p in (_prior.ROOT / ".github/workflows").glob("*.yml")}
-        self.assertEqual(len(names), 17)
+        self.assertEqual(len(names), 18)
         self.assertNotIn("broker.yml", names)
         self.assertFalse(any(name.startswith("reusable-") for name in names))
         self.assertIn("source-snapshot-delete.yml", names)
+        self.assertIn("source-snapshot.yml", names)
         self.assertNotIn("source-bundle-publish.yml", names)
         self.assertIn("source-checkpoint-publish.yml", names)
         self.assertIn("streamscape-media-release.yml", names)
@@ -172,6 +177,31 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertNotIn('p_patch:{status:"cancelled"}', text)
         self.assertIn("Agent State cancellation settlement failed", text)
         self.assertNotIn("diagnostic_", text)
+
+    def test_source_snapshot_auto_refreshes_integration_pushes(self) -> None:
+        workflow_path = _prior.ROOT / ".github/workflows/source-snapshot.yml"
+        action_path = _prior.ROOT / "actions/source-snapshot/action.yml"
+        workflow = yaml.safe_load(workflow_path.read_text())
+        trigger = workflow["on"]
+        self.assertEqual(trigger["push"]["branches"], ["main", "develop"])
+        self.assertIn("workflow_call", trigger)
+        self.assertEqual(workflow["concurrency"]["group"], "source-snapshot-${{ github.repository }}-${{ github.ref_name }}")
+        self.assertFalse(workflow["concurrency"]["cancel-in-progress"])
+        steps = workflow["jobs"]["snapshot"]["steps"]
+        by_name = {step.get("name"): step for step in steps if step.get("name")}
+        refresh = by_name["Refresh exact integration-branch snapshot"]
+        self.assertEqual(refresh["with"]["repository"], "${{ github.repository }}")
+        self.assertEqual(refresh["with"]["ref"], "${{ github.ref_name }}")
+        self.assertEqual(refresh["with"]["source_sha"], "${{ github.sha }}")
+        action = yaml.safe_load(action_path.read_text())
+        self.assertEqual(action["runs"]["using"], "composite")
+        action_text = action_path.read_text()
+        self.assertIn("Verify branch is still at triggering SHA", action_text)
+        self.assertIn("Recheck branch immediately before Drive mutation", action_text)
+        self.assertIn("git -C source archive --format=zip", action_text)
+        self.assertIn("snapshot-readback.zip", action_text)
+        self.assertIn("cmp -s", action_text)
+        self.assertNotIn("AGENT_STATE_SUPABASE", action_text)
 
     def test_source_snapshot_reuses_drive_helper_and_updates_manifest_in_place(self) -> None:
         dispatch = (_prior.ROOT / ".github/workflows/central-ci-dispatch.yml").read_text()

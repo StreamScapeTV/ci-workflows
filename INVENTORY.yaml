@@ -15,6 +15,7 @@ workflows:
   oci_reproducibility: .github/workflows/oci-reproducibility.yml
   branch_delete: .github/workflows/branch-delete.yml
   source_snapshot_delete: .github/workflows/source-snapshot-delete.yml
+  source_snapshot: .github/workflows/source-snapshot.yml
   source_checkpoint_publish: .github/workflows/source-checkpoint-publish.yml
   central_dispatch: .github/workflows/central-ci-dispatch.yml
   self_check: .github/workflows/self-check.yml
@@ -24,6 +25,7 @@ actions:
   agent_state: actions/agent-state/action.yml
   google_drive: actions/google-drive/action.yml
   private_git: actions/private-git/action.yml
+  source_snapshot: actions/source-snapshot/action.yml
 
 scripts:
   oci_reproducibility: scripts/ci/oci_reproducibility.py
