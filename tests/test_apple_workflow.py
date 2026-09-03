@@ -121,7 +121,7 @@ capture before {safe_expansion} after
 
         execute_steps = jobs["execute"]["steps"]
         by_name = {step.get("name"): step for step in execute_steps if step.get("name")}
-        cache_prepare = by_name["Prepare Apple develop dependency cache"]
+        cache_prepare = by_name["Resolve Apple default-branch dependency cache scope"]
         for profile in ("build", "test", "simulator"):
             self.assertIn(f"inputs.test_profile != '{profile}'", cache_prepare["if"])
 
@@ -158,7 +158,7 @@ capture before {safe_expansion} after
 
         execute_steps = jobs["execute"]["steps"]
         by_name = {step.get("name"): step for step in execute_steps if step.get("name")}
-        cache_prepare = by_name["Prepare Apple develop dependency cache"]
+        cache_prepare = by_name["Resolve Apple default-branch dependency cache scope"]
         self.assertIn("inputs.test_profile != 'testflight'", cache_prepare["if"])
 
         prepare = by_name["Prepare fixed TestFlight release context"]
@@ -598,48 +598,62 @@ fi
         self.assertNotIn("gzip", drive["with"])
         self.assertEqual(drive["with"]["mime_type"], "text/plain")
 
-    def test_dependency_cache_trust_separates_read_only_restore_from_develop_save(self) -> None:
+    def test_dependency_cache_uses_native_github_cache_with_default_branch_only_writes(self) -> None:
         execute = self.workflow["jobs"]["execute"]
         by_name = {step.get("name"): step for step in execute["steps"] if step.get("name")}
-        prepare = by_name["Prepare Apple develop dependency cache"]["run"]
-        restore = by_name["Restore Apple develop dependency cache"]
-        restore_record = by_name["Record Apple develop cache restore"]
-        contents = by_name["Record Apple develop cache contents"]
-        archive = by_name["Prepare Apple develop dependency cache archive"]
+        scope = by_name["Resolve Apple default-branch dependency cache scope"]
+        prepare = scope["run"]
+        restore = by_name["Restore Apple default-branch dependency cache"]
+        restore_record = by_name["Record Apple default-branch cache restore"]
+        contents = by_name["Record Apple default-branch cache contents"]
+        save = by_name["Save Apple default-branch dependency cache"]
 
         self.assertIn("restore_eligible=false", prepare)
         self.assertIn('test "${source_repository}" = "StreamScapeTV/iptv-apple"', prepare)
         self.assertIn('test "${source_is_tag}" != "true"', prepare)
-        self.assertIn("save_eligible=false", prepare)
-        self.assertIn('test "${restore_eligible}" = "true"', prepare)
-        self.assertIn('test "${source_ref}" = "develop"', prepare)
+        self.assertIn('refs/pull/*', prepare)
+        self.assertIn("https://api.github.com/repos/${source_repository}", prepare)
+        self.assertIn('get("default_branch", "")', prepare)
+        self.assertIn('test "${source_ref}" = "${default_branch}"', prepare)
+        self.assertIn('test "${checkout_branch}" = "${default_branch}"', prepare)
         self.assertIn('test "${source_is_pr}" != "true"', prepare)
         self.assertIn("fingerprint_ready=false", prepare)
         self.assertIn("test -f scripts/bootstrap-streamscape-media-binary.sh", prepare)
         self.assertIn("test -f streamscapetv.xcodeproj/project.pbxproj", prepare)
-        self.assertIn('test "${fingerprint_ready}" = "true"', prepare)
         self.assertIn("restore_enabled=false", prepare)
         self.assertIn("save_enabled=false", prepare)
+        self.assertIn("iptv-apple-default-deps-v3-", prepare)
+        self.assertNotIn("dependency-cache", prepare)
+        self.assertNotIn("oauth2.googleapis.com", prepare)
+        self.assertNotIn("GOOGLE_DRIVE", scope.get("env", {}))
+
         self.assertEqual(
             restore["if"],
-            "${{ steps.apple_develop_cache.outputs.restore_enabled == 'true' }}",
+            "${{ steps.apple_default_cache.outputs.restore_enabled == 'true' }}",
         )
+        self.assertEqual(restore["uses"], "actions/cache/restore@v4")
+        self.assertEqual(
+            restore["with"]["path"],
+            "Vendor/StreamscapeMediaApple\n${{ steps.apple_default_cache.outputs.swiftpm_clones_dir }}\n",
+        )
+        self.assertEqual(restore["with"]["key"], "${{ steps.apple_default_cache.outputs.key }}")
         self.assertEqual(
             restore_record["if"],
-            "${{ steps.apple_develop_cache.outputs.restore_enabled == 'true' }}",
+            "${{ steps.apple_default_cache.outputs.restore_enabled == 'true' }}",
         )
-        self.assertIn(
-            'allowed = ("Vendor/StreamscapeMediaApple", "streamscapetv-swiftpm-clones")',
-            restore["run"],
-        )
-        self.assertIn(
-            'ref_folder_id="$(exact_child_id "${repository_folder_id}" develop folder)"',
-            restore["run"],
-        )
-        self.assertIn("steps.apple_develop_cache.outputs.save_enabled == 'true'", contents["if"])
-        self.assertIn("steps.apple_develop_cache.outputs.save_enabled == 'true'", archive["if"])
-        self.assertIn("matrix.cache_save", archive["if"])
+        self.assertIn("steps.apple_default_cache.outputs.save_enabled == 'true'", contents["if"])
+        self.assertIn("matrix.cache_save", contents["if"])
+        self.assertEqual(save["uses"], "actions/cache/save@v4")
+        self.assertIn("steps.apple_default_cache.outputs.save_enabled == 'true'", save["if"])
+        self.assertIn("matrix.cache_save", save["if"])
+        self.assertIn("steps.apple_default_cache_restore.outputs.cache-hit != 'true'", save["if"])
+        self.assertEqual(save["with"]["key"], "${{ steps.apple_default_cache_restore.outputs.cache-primary-key }}")
+        self.assertEqual(save["with"]["path"], restore["with"]["path"])
+        self.assertNotIn("StreamScapeTV/ci-workflows/actions/google-drive", str(restore))
+        self.assertNotIn("StreamScapeTV/ci-workflows/actions/google-drive", str(save))
         self.assertNotIn("DerivedData", self.text)
+        self.assertNotIn("APPLE_DEVELOP_CACHE_ENABLED", self.text)
+        self.assertIn("APPLE_DEFAULT_CACHE_ENABLED", self.text)
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -661,15 +675,26 @@ fi
                 encoding="utf-8",
             )
             fake_xcodebuild.chmod(0o755)
+            fake_curl = fake_bin / "curl"
+            fake_curl.write_text(
+                "#!/bin/sh\nprintf '{\"default_branch\":\"%s\"}\\n' \"${FAKE_DEFAULT_BRANCH:-develop}\"\n",
+                encoding="utf-8",
+            )
+            fake_curl.chmod(0o755)
             runner_temp = root / "runner-temp"
             runner_temp.mkdir()
+            subprocess.run(["git", "init", "-b", "develop"], cwd=root, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "ci@example.invalid"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.name", "CI"], cwd=root, check=True)
+            subprocess.run(["git", "add", "scripts/bootstrap-streamscape-media-binary.sh", "streamscapetv.xcodeproj/project.pbxproj"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-m", "fixture"], cwd=root, check=True, capture_output=True)
 
             def cache_flags(
                 repository: str,
                 ref: str,
                 *,
                 is_tag: bool = False,
-                event: str = "workflow_call",
+                default_branch: str = "develop",
             ) -> dict[str, str]:
                 output = root / "github-output"
                 github_env = root / "github-env"
@@ -683,11 +708,8 @@ fi
                         "REQUEST_IS_TAG": "true" if is_tag else "false",
                         "CALLER_REPOSITORY": "StreamScapeTV/ci-workflows",
                         "CALLER_REF": "refs/heads/main",
-                        "CALLER_REF_TYPE": "branch",
-                        "CALLER_EVENT_NAME": event,
-                        "DRIVE_CLIENT_ID": "client",
-                        "DRIVE_CLIENT_SECRET": "secret",
-                        "DRIVE_REFRESH_TOKEN": "refresh",
+                        "SOURCE_TOKEN": "token",
+                        "FAKE_DEFAULT_BRANCH": default_branch,
                         "RUNNER_TEMP": str(runner_temp),
                         "GITHUB_OUTPUT": str(output),
                         "GITHUB_ENV": str(github_env),
@@ -710,52 +732,33 @@ fi
                 )
 
             develop = cache_flags("StreamScapeTV/iptv-apple", "develop")
+            main = cache_flags("StreamScapeTV/iptv-apple", "main")
             feature = cache_flags("StreamScapeTV/iptv-apple", "feature/cache")
-            pull_request = cache_flags(
-                "StreamScapeTV/iptv-apple",
-                "refs/pull/42/merge",
-                event="pull_request",
-            )
+            pull_request = cache_flags("StreamScapeTV/iptv-apple", "refs/pull/42/merge")
             tag = cache_flags("StreamScapeTV/iptv-apple", "refs/tags/1.2.3")
             unrelated = cache_flags("StreamScapeTV/other", "develop")
 
-            self.assertEqual(
-                (develop["restore_enabled"], develop["save_enabled"]),
-                ("true", "true"),
-            )
-            self.assertEqual(
-                (feature["restore_enabled"], feature["save_enabled"]),
-                ("true", "false"),
-            )
-            self.assertEqual(
-                (pull_request["restore_enabled"], pull_request["save_enabled"]),
-                ("true", "false"),
-            )
-            self.assertEqual(
-                (tag["restore_enabled"], tag["save_enabled"]),
-                ("false", "false"),
-            )
-            self.assertEqual(
-                (unrelated["restore_enabled"], unrelated["save_enabled"]),
-                ("false", "false"),
-            )
+            self.assertEqual((develop["restore_enabled"], develop["save_enabled"]), ("true", "true"))
+            self.assertEqual((main["restore_enabled"], main["save_enabled"]), ("true", "false"))
+            self.assertEqual((feature["restore_enabled"], feature["save_enabled"]), ("true", "false"))
+            self.assertEqual((pull_request["restore_enabled"], pull_request["save_enabled"]), ("true", "false"))
+            self.assertEqual((tag["restore_enabled"], tag["save_enabled"]), ("false", "false"))
+            self.assertEqual((unrelated["restore_enabled"], unrelated["save_enabled"]), ("false", "false"))
 
-            # The approved historical source intentionally lacks the bootstrap helper
-            # until Run fixed Apple lane materializes its pinned recovery. Cache
-            # preparation must bypass restore instead of failing before that recovery.
+            subprocess.run(["git", "switch", "-c", "main"], cwd=root, check=True, capture_output=True)
+            main_default = cache_flags("StreamScapeTV/iptv-apple", "main", default_branch="main")
+            old_develop = cache_flags("StreamScapeTV/iptv-apple", "develop", default_branch="main")
+            self.assertEqual((main_default["restore_enabled"], main_default["save_enabled"]), ("true", "true"))
+            self.assertEqual((old_develop["restore_enabled"], old_develop["save_enabled"]), ("true", "false"))
+
             (root / "scripts/bootstrap-streamscape-media-binary.sh").unlink()
             historical = cache_flags(
                 "StreamScapeTV/iptv-apple",
                 "512db0f5b2513ad7d3a2b53bbc132ea29742bb63",
             )
             self.assertEqual(historical["restore_eligible"], "true")
-            self.assertEqual(historical["save_eligible"], "false")
-            self.assertEqual(
-                (historical["restore_enabled"], historical["save_enabled"]),
-                ("false", "false"),
-            )
+            self.assertEqual((historical["restore_enabled"], historical["save_enabled"]), ("false", "false"))
             self.assertNotIn("key", historical)
-            self.assertNotIn("file_name", historical)
 
         plan_script = next(
             step

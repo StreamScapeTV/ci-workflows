@@ -1,4 +1,7 @@
 from pathlib import Path
+import os
+import subprocess
+import tempfile
 import unittest
 
 import yaml
@@ -51,12 +54,12 @@ class AndroidSearchPerformanceProfileContractTest(unittest.TestCase):
         self.assertIn("lintDebug", body)
         self.assertIn("assembleDebug", body)
 
-    def test_profile_does_not_broaden_develop_dependency_cache(self) -> None:
+    def test_profile_does_not_broaden_default_branch_dependency_cache(self) -> None:
         steps = self.workflow["jobs"]["ci"]["steps"]
         save_step = next(
             step
             for step in steps
-            if step.get("name") == "Save IPTV Android develop dependency cache"
+            if step.get("name") == "Save IPTV Android default-branch dependency cache"
         )
         self.assertNotIn("search-performance", save_step["if"])
         self.assertIn("inputs.test_profile == 'full'", save_step["if"])
@@ -71,20 +74,68 @@ class AndroidSharedCacheContractTest(unittest.TestCase):
         steps = cls.workflow["jobs"]["ci"]["steps"]
         cls.by_name = {step.get("name"): step for step in steps if step.get("name")}
 
-    def test_feature_and_pr_reader_scope_excludes_main_develop_and_detached_tags(self) -> None:
-        scope = self.by_name["Resolve IPTV Android branch cache reader scope"]
+    def test_feature_and_pr_reader_scope_excludes_actual_default_branch_and_detached_tags(self) -> None:
+        scope = self.by_name["Resolve IPTV Android non-default cache reader scope"]
         script = scope["run"]
         self.assertIn("StreamScapeTV/iptv-android", script)
         self.assertIn("git symbolic-ref --quiet --short HEAD", script)
         self.assertIn('[[ "${source_ref}" == refs/pull/* ]]', script)
-        self.assertIn('test "${checkout_branch}" != develop', script)
-        self.assertIn('test "${checkout_branch}" != main', script)
-        self.assertIn('test "${normalized_ref}" != develop', script)
-        self.assertIn('test "${normalized_ref}" != main', script)
+        self.assertIn('test "${checkout_branch}" != "${DEFAULT_BRANCH}"', script)
+        self.assertIn('test "${normalized_ref}" != "${DEFAULT_BRANCH}"', script)
+        self.assertNotIn('test "${checkout_branch}" != develop', script)
+        self.assertNotIn('test "${checkout_branch}" != main', script)
         self.assertNotIn("refs/tags/*", script)
 
-    def test_branch_dependency_restore_is_read_only_and_uses_trusted_develop_family(self) -> None:
-        restore = self.by_name["Restore IPTV Android branch dependency cache"]
+    def test_default_writer_follows_github_repository_metadata(self) -> None:
+        scope = self.by_name["Resolve IPTV Android default-branch cache scope"]
+        script = scope["run"]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            subprocess.run(["git", "init", "-b", "develop"], cwd=root, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "ci@example.invalid"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.name", "CI"], cwd=root, check=True)
+            (root / "README.md").write_text("fixture\n", encoding="utf-8")
+            subprocess.run(["git", "add", "README.md"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-m", "fixture"], cwd=root, check=True, capture_output=True)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            fake_curl = fake_bin / "curl"
+            fake_curl.write_text(
+                "#!/bin/sh\nprintf '{\"default_branch\":\"%s\"}\\n' \"${FAKE_DEFAULT_BRANCH:-develop}\"\n",
+                encoding="utf-8",
+            )
+            fake_curl.chmod(0o755)
+
+            def writer_enabled(ref: str, default_branch: str) -> str:
+                output = root / "github-output"
+                output.write_text("", encoding="utf-8")
+                env = os.environ.copy()
+                env.update(
+                    {
+                        "SOURCE_REPOSITORY": "StreamScapeTV/iptv-android",
+                        "REQUESTED_REF": ref,
+                        "CURRENT_REF_NAME": "",
+                        "CURRENT_REF_TYPE": "branch",
+                        "SOURCE_TOKEN": "token",
+                        "FAKE_DEFAULT_BRANCH": default_branch,
+                        "GITHUB_OUTPUT": str(output),
+                        "PATH": f"{fake_bin}:{env['PATH']}",
+                    }
+                )
+                result = subprocess.run(
+                    ["bash"], cwd=root, env=env, input=script, text=True, capture_output=True, check=False
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                return values["enabled"]
+
+            self.assertEqual(writer_enabled("develop", "develop"), "true")
+            self.assertEqual(writer_enabled("develop", "main"), "false")
+            subprocess.run(["git", "switch", "-c", "main"], cwd=root, check=True, capture_output=True)
+            self.assertEqual(writer_enabled("main", "main"), "true")
+
+    def test_branch_dependency_restore_is_read_only_and_uses_trusted_default_family(self) -> None:
+        restore = self.by_name["Restore IPTV Android non-default dependency cache"]
         self.assertEqual(
             restore["if"],
             "${{ steps.android_branch_cache_scope.outputs.enabled == 'true' }}",
@@ -94,25 +145,25 @@ class AndroidSharedCacheContractTest(unittest.TestCase):
             restore["with"]["path"],
             "~/.gradle/wrapper\n~/.gradle/caches/modules-2\n",
         )
-        self.assertIn("iptv-android-develop-gradle-deps-v1-", restore["with"]["key"])
+        self.assertIn("iptv-android-default-gradle-deps-v2-", restore["with"]["key"])
         self.assertIn(
-            "iptv-android-develop-gradle-deps-v1-",
+            "iptv-android-default-gradle-deps-v2-",
             restore["with"]["restore-keys"],
         )
         self.assertNotIn("actions/cache/save", str(restore))
 
-    def test_gradle_build_cache_has_per_source_develop_generations_and_prefix_restore(self) -> None:
+    def test_gradle_build_cache_has_per_source_default_generations_and_prefix_restore(self) -> None:
         restore = self.by_name["Restore IPTV Android Gradle build cache"]
         save = self.by_name["Save IPTV Android Gradle build cache"]
         self.assertEqual(restore["uses"], "actions/cache/restore@v4")
         self.assertEqual(restore["with"]["path"], "~/.gradle/caches/build-cache-1")
-        self.assertIn("iptv-android-develop-gradle-build-v1-", restore["with"]["key"])
+        self.assertIn("iptv-android-default-gradle-build-v2-", restore["with"]["key"])
         self.assertIn(
-            "steps.android_develop_cache_scope.outputs.source_sha",
+            "steps.android_default_cache_scope.outputs.source_sha",
             restore["with"]["key"],
         )
         self.assertIn(
-            "iptv-android-develop-gradle-build-v1-",
+            "iptv-android-default-gradle-build-v2-",
             restore["with"]["restore-keys"],
         )
         self.assertNotIn("source_sha", restore["with"]["restore-keys"])
@@ -123,15 +174,15 @@ class AndroidSharedCacheContractTest(unittest.TestCase):
             "${{ steps.gradle_build_cache.outputs.cache-primary-key }}",
         )
 
-    def test_only_develop_full_or_release_can_save_either_cache_layer(self) -> None:
+    def test_only_default_branch_full_or_release_can_save_either_cache_layer(self) -> None:
         for name in (
-            "Save IPTV Android develop dependency cache",
+            "Save IPTV Android default-branch dependency cache",
             "Save IPTV Android Gradle build cache",
         ):
             step = self.by_name[name]
             condition = step["if"]
             self.assertIn(
-                "steps.android_develop_cache_scope.outputs.enabled == 'true'",
+                "steps.android_default_cache_scope.outputs.enabled == 'true'",
                 condition,
             )
             self.assertIn("steps.commands.outcome == 'success'", condition)
@@ -141,10 +192,10 @@ class AndroidSharedCacheContractTest(unittest.TestCase):
 
     def test_cache_paths_exclude_raw_build_outputs_source_credentials_and_full_gradle_home(self) -> None:
         cache_steps = (
-            self.by_name["Restore IPTV Android develop dependency cache"],
-            self.by_name["Restore IPTV Android branch dependency cache"],
+            self.by_name["Restore IPTV Android default-branch dependency cache"],
+            self.by_name["Restore IPTV Android non-default dependency cache"],
             self.by_name["Restore IPTV Android Gradle build cache"],
-            self.by_name["Save IPTV Android develop dependency cache"],
+            self.by_name["Save IPTV Android default-branch dependency cache"],
             self.by_name["Save IPTV Android Gradle build cache"],
         )
         cached_paths = "\n".join(str(step["with"]["path"]) for step in cache_steps)
@@ -209,12 +260,12 @@ class AndroidGenericHostedProfileContractTest(unittest.TestCase):
 
     def test_generic_profiles_do_not_enter_iptv_private_git_or_cache_paths(self) -> None:
         private_git = self.by_name["Connect to private Git service"]["if"]
-        develop_scope = self.by_name["Resolve IPTV Android develop dependency cache scope"]["if"]
-        branch_scope = self.by_name["Resolve IPTV Android branch cache reader scope"]["if"]
+        default_scope = self.by_name["Resolve IPTV Android default-branch cache scope"]["if"]
+        branch_scope = self.by_name["Resolve IPTV Android non-default cache reader scope"]["if"]
         for profile in ("build", "test", "emulator"):
             token = f"inputs.test_profile != '{profile}'"
             self.assertIn(token, private_git)
-            self.assertIn(token, develop_scope)
+            self.assertIn(token, default_scope)
             self.assertIn(token, branch_scope)
 
     def test_emulator_profile_uses_fixed_central_boot_and_cleanup(self) -> None:

@@ -118,6 +118,76 @@ jobs:
           node-version-file: ".nvmrc"
           cache: ""
 
+      - name: Resolve Node default-branch cache scope
+        id: node_cache_scope
+        shell: bash
+        env:
+          SOURCE_REPOSITORY: ${{ inputs.repository }}
+          REQUESTED_REF: ${{ inputs.ref }}
+          TEST_PROFILE: ${{ inputs.test_profile }}
+          SOURCE_TOKEN: ${{ steps.source.outputs.token }}
+          RUNNER_OS_NAME: ${{ runner.os }}
+          RUNNER_ARCH_NAME: ${{ runner.arch }}
+        run: |
+          set -Eeuo pipefail
+          restore_enabled=false
+          save_enabled=false
+          default_branch=""
+          cache_key=""
+
+          source_ref="${REQUESTED_REF}"
+          normalized_ref="${source_ref#refs/heads/}"
+          checkout_branch="$(git symbolic-ref --quiet --short HEAD || true)"
+          source_is_pr=false
+          case "${source_ref}" in
+            refs/pull/*) source_is_pr=true ;;
+          esac
+
+          if test -n "${SOURCE_REPOSITORY}" &&
+            [[ "${SOURCE_REPOSITORY}" == StreamScapeTV/* ]] &&
+            test -n "${SOURCE_TOKEN}" &&
+            test -f package.json &&
+            test -f package-lock.json; then
+            repository_json="$(curl --fail --silent --show-error --header "Authorization: Bearer ${SOURCE_TOKEN}" --header 'Accept: application/vnd.github+json' --header 'X-GitHub-Api-Version: 2022-11-28' "https://api.github.com/repos/${SOURCE_REPOSITORY}" || true)"
+            if test -n "${repository_json}"; then
+              default_branch="$(printf '%s' "${repository_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("default_branch", ""))' 2>/dev/null || true)"
+            fi
+
+            if test "${source_is_pr}" = "true" || test -n "${checkout_branch}"; then
+              restore_enabled=true
+            fi
+            if test "${restore_enabled}" = "true" &&
+              test "${normalized_ref}" = "${default_branch}" &&
+              test "${checkout_branch}" = "${default_branch}" &&
+              test "${TEST_PROFILE}" != "static-web-lock-refresh"; then
+              save_enabled=true
+            fi
+
+            if test "${restore_enabled}" = "true"; then
+              repository_key="$(printf '%s' "${SOURCE_REPOSITORY}" | tr '/' '-')"
+              node_identity="$(node --version | tr -cd 'A-Za-z0-9._-')"
+              npm_identity="$(npm --version | tr -cd 'A-Za-z0-9._-')"
+              dependency_fingerprint="$({
+                sha256sum package.json
+                sha256sum package-lock.json
+              } | sha256sum | awk '{print $1}')"
+              cache_key="node-modules-v1-${repository_key}-${RUNNER_OS_NAME}-${RUNNER_ARCH_NAME}-${node_identity}-npm${npm_identity}-${dependency_fingerprint}"
+            fi
+          fi
+
+          printf 'restore_enabled=%s\n' "${restore_enabled}" >> "${GITHUB_OUTPUT}"
+          printf 'save_enabled=%s\n' "${save_enabled}" >> "${GITHUB_OUTPUT}"
+          printf 'default_branch=%s\n' "${default_branch}" >> "${GITHUB_OUTPUT}"
+          printf 'key=%s\n' "${cache_key}" >> "${GITHUB_OUTPUT}"
+
+      - name: Restore Node modules cache
+        id: node_modules_cache
+        if: ${{ steps.node_cache_scope.outputs.restore_enabled == 'true' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: node_modules
+          key: ${{ steps.node_cache_scope.outputs.key }}
+
       - name: Run fixed Node profile
         id: commands
         shell: bash
@@ -125,6 +195,7 @@ jobs:
           TEST_PROFILE: ${{ inputs.test_profile }}
           SOURCE_REPOSITORY: ${{ inputs.repository }}
           TARGET_REF: ${{ inputs.ref }}
+          NODE_MODULES_CACHE_HIT: ${{ steps.node_modules_cache.outputs.cache-hit }}
         run: |
           set -Eeuo pipefail
           run_logged() {
@@ -136,10 +207,17 @@ jobs:
               return 1
             fi
           }
+          ensure_node_modules() {
+            if test "${NODE_MODULES_CACHE_HIT:-false}" = "true"; then
+              printf '\n===== npm-ci =====\nnode_modules cache hit; npm ci skipped\n' >> "$CI_LOG"
+            else
+              run_logged npm-ci npm ci
+            fi
+          }
 
           case "$TEST_PROFILE" in
             frontend-full)
-              run_logged npm-ci npm ci
+              ensure_node_modules
               run_logged test npm test
               run_logged typecheck npm run typecheck
               run_logged build npm run build
@@ -147,7 +225,7 @@ jobs:
             static-web)
               export NEXT_PUBLIC_API_URL=https://api.streamscapetv.com
               export NEXT_TELEMETRY_DISABLED=1
-              run_logged npm-ci npm ci
+              ensure_node_modules
               run_logged check npm run check
               run_logged repository-clean git diff --exit-code
               ;;
@@ -199,6 +277,14 @@ jobs:
               ;;
             *) echo "Unsupported Node test_profile: $TEST_PROFILE" >&2; exit 2 ;;
           esac
+
+      - name: Save Node modules cache
+        id: node_modules_cache_save
+        if: ${{ steps.node_cache_scope.outputs.save_enabled == 'true' && steps.commands.outcome == 'success' && steps.node_modules_cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: node_modules
+          key: ${{ steps.node_modules_cache.outputs.cache-primary-key }}
 
       - name: Scrub configured CI secrets from private log
         id: scrub
@@ -258,4 +344,4 @@ jobs:
         with:
           phase: finish
           ci_run_id: ${{ inputs.ci_run_id }}
-          status: ${{ steps.commands.outcome == 'success' && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && 'succeeded' || 'failed' }}
+          status: ${{ steps.commands.outcome == 'success' && (steps.node_modules_cache_save.outcome == 'success' || steps.node_modules_cache_save.outcome == 'skipped') && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && 'succeeded' || 'failed' }}

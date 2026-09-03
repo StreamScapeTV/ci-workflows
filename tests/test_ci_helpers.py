@@ -572,26 +572,31 @@ class CiHelperTests(unittest.TestCase):
         for value in forbidden[:-1]:
             self.assertNotIn(value, dispatch)
 
-    def test_android_dependency_cache_is_iptv_android_develop_only(self) -> None:
+    def test_android_dependency_cache_uses_github_default_branch_writer_policy(self) -> None:
         workflow = yaml.safe_load((ROOT / ".github/workflows/android.yml").read_text())
         steps = workflow["jobs"]["ci"]["steps"]
         by_name = {step.get("name"): step for step in steps if step.get("name")}
-        scope = by_name["Resolve IPTV Android develop dependency cache scope"]
-        restore = by_name["Restore IPTV Android develop dependency cache"]
-        save = by_name["Save IPTV Android develop dependency cache"]
+        scope = by_name["Resolve IPTV Android default-branch cache scope"]
+        restore = by_name["Restore IPTV Android default-branch dependency cache"]
+        save = by_name["Save IPTV Android default-branch dependency cache"]
         expected_paths = "~/.gradle/wrapper\n~/.gradle/caches/modules-2\n"
 
-        self.assertIn("StreamScapeTV/iptv-android", scope["run"])
-        self.assertIn('test "${source_ref}" = develop', scope["run"])
-        self.assertIn('source_ref="${source_ref#refs/heads/}"', scope["run"])
+        script = scope["run"]
+        self.assertIn("StreamScapeTV/iptv-android", script)
+        self.assertIn("https://api.github.com/repos/${SOURCE_REPOSITORY}", script)
+        self.assertIn('get("default_branch", "")', script)
+        self.assertIn('test "${source_ref}" = "${default_branch}"', script)
+        self.assertIn('test "${checkout_branch}" = "${default_branch}"', script)
+        self.assertNotIn('test "${source_ref}" = develop', script)
+        self.assertIn('source_ref="${source_ref#refs/heads/}"', script)
         self.assertIn("inputs.repository || github.repository", scope["env"]["SOURCE_REPOSITORY"])
         self.assertIn("inputs.ref", scope["env"]["REQUESTED_REF"])
-        self.assertEqual(restore["if"], "${{ steps.android_develop_cache_scope.outputs.enabled == 'true' }}")
+        self.assertEqual(restore["if"], "${{ steps.android_default_cache_scope.outputs.enabled == 'true' }}")
         self.assertEqual(restore["uses"], "actions/cache/restore@v4")
         self.assertEqual(save["uses"], "actions/cache/save@v4")
         self.assertEqual(restore["with"]["path"], expected_paths)
         self.assertEqual(save["with"]["path"], expected_paths)
-        self.assertIn("iptv-android-develop-gradle-deps-v1-", restore["with"]["key"])
+        self.assertIn("iptv-android-default-gradle-deps-v2-", restore["with"]["key"])
         self.assertNotIn("inputs.ref", restore["with"]["key"])
         self.assertNotIn("github.ref", restore["with"]["key"])
         self.assertEqual(save["with"]["key"], "${{ steps.gradle_dependency_cache.outputs.cache-primary-key }}")

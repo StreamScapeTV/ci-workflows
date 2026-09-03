@@ -178,6 +178,22 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertIn("Agent State cancellation settlement failed", text)
         self.assertNotIn("diagnostic_", text)
 
+    def test_persistent_dependency_cache_is_limited_to_apple_android_and_node(self) -> None:
+        cache_capable = ("apple", "android", "node")
+        for name in cache_capable:
+            text = (_prior.ROOT / ".github/workflows" / f"{name}.yml").read_text()
+            self.assertIn("actions/cache/restore@v4", text, name)
+            self.assertIn("actions/cache/save@v4", text, name)
+
+        for name in ("python", "flutter"):
+            text = (_prior.ROOT / ".github/workflows" / f"{name}.yml").read_text()
+            self.assertNotIn("actions/cache/restore@v4", text, name)
+            self.assertNotIn("actions/cache/save@v4", text, name)
+
+        apple = (_prior.ROOT / ".github/workflows/apple.yml").read_text()
+        self.assertNotIn("dependency-cache", apple)
+        self.assertNotIn("apple-develop-cache", apple)
+
     def test_source_snapshot_auto_refreshes_integration_pushes(self) -> None:
         workflow_path = _prior.ROOT / ".github/workflows/source-snapshot.yml"
         action_path = _prior.ROOT / "actions/source-snapshot/action.yml"
