@@ -5,31 +5,35 @@ name: Refresh canonical repository source snapshot
     branches:
       - main
       - develop
-  workflow_call:
-    secrets:
-      SOURCE_APP_ID:
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: Exact StreamScapeTV repository to snapshot
         required: true
-      SOURCE_APP_PRIVATE_KEY:
+        type: string
+      repository_name:
+        description: Exact repository name matching repository
         required: true
-      GOOGLE_DRIVE_CLIENT_ID:
+        type: string
+      ref:
+        description: Integration branch name; main or develop
         required: true
-      GOOGLE_DRIVE_CLIENT_SECRET:
+        type: string
+      source_sha:
+        description: Exact current branch head SHA
         required: true
-      GOOGLE_DRIVE_REFRESH_TOKEN:
-        required: true
-      GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID:
-        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: source-snapshot-${{ github.repository }}-${{ github.ref_name }}
+  group: source-snapshot-${{ github.event_name == 'push' && github.repository || inputs.repository }}-${{ github.event_name == 'push' && github.ref_name || inputs.ref }}
   cancel-in-progress: false
 
 jobs:
   snapshot:
-    if: ${{ github.ref_type == 'branch' && (github.ref_name == 'main' || github.ref_name == 'develop') }}
+    if: ${{ (github.event_name == 'push' && github.ref_type == 'branch' && (github.ref_name == 'main' || github.ref_name == 'develop')) || (github.event_name == 'workflow_dispatch' && (inputs.ref == 'main' || inputs.ref == 'develop')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -49,9 +53,9 @@ jobs:
           GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
           GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
         with:
-          repository: ${{ github.repository }}
-          repository_name: ${{ github.event.repository.name }}
-          ref: ${{ github.ref_name }}
-          source_sha: ${{ github.sha }}
+          repository: ${{ github.event_name == 'push' && github.repository || inputs.repository }}
+          repository_name: ${{ github.event_name == 'push' && github.event.repository.name || inputs.repository_name }}
+          ref: ${{ github.event_name == 'push' && github.ref_name || inputs.ref }}
+          source_sha: ${{ github.event_name == 'push' && github.sha || inputs.source_sha }}
           source_app_id: ${{ secrets.SOURCE_APP_ID }}
           source_app_private_key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
