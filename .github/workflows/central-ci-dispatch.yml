@@ -509,11 +509,35 @@ jobs:
           private-key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
           owner: StreamScapeTV
 
+      - name: Resolve requested human Git ref
+        id: requested_ref
+        shell: bash
+        env:
+          REQUESTED_REF: ${{ needs.request.outputs.ref }}
+          REQUESTED_IS_TAG: ${{ needs.request.outputs.is_tag }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${REQUESTED_REF}" || {
+            echo "source.snapshot requires one non-empty branch or tag name" >&2
+            exit 2
+          }
+          case "${REQUESTED_IS_TAG}" in
+            false) namespace=refs/heads ;;
+            true) namespace=refs/tags ;;
+            *) echo "source.snapshot is_tag must be true or false" >&2; exit 2 ;;
+          esac
+          full_ref="${namespace}/${REQUESTED_REF}"
+          git check-ref-format "${full_ref}" >/dev/null || {
+            echo "source.snapshot requested branch/tag name is not a valid Git ref" >&2
+            exit 2
+          }
+          printf 'full_ref=%s\n' "${full_ref}" >> "${GITHUB_OUTPUT}"
+
       - name: Check out requested source
         uses: actions/checkout@v4
         with:
           repository: ${{ needs.request.outputs.repository }}
-          ref: ${{ needs.request.outputs.ref }}
+          ref: ${{ steps.requested_ref.outputs.full_ref }}
           token: ${{ steps.source_token.outputs.token }}
           path: source
           fetch-depth: 1
