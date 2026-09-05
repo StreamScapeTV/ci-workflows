@@ -1,0 +1,43 @@
+name: Apply issue 791 source patch
+
+"on":
+  push:
+    branches:
+      - orchestrator/issue-791-targeted-native-tests
+    paths:
+      - .github/workflows/apply-791.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Apply exact reviewed patch and remove bootstrap
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cat .ci/issue-791/part-* > "${RUNNER_TEMP}/issue-791.patch"
+          git apply --check -p1 "${RUNNER_TEMP}/issue-791.patch"
+          git apply -p1 "${RUNNER_TEMP}/issue-791.patch"
+          rm -rf .ci/issue-791 .github/workflows/apply-791.yml
+          git diff --check
+          python3 -m pip install --quiet PyYAML
+          python3 -m unittest \
+            tests.test_ci_helpers_current \
+            tests.test_native_targeted_profiles \
+            tests.test_android_search_performance_profile \
+            tests.test_apple_workflow \
+            -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "[#791] Add bounded targeted native test selection"
+          git push origin HEAD:orchestrator/issue-791-targeted-native-tests
