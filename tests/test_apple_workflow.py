@@ -623,9 +623,13 @@ fi
         self.assertIn("fingerprint_ready=false", prepare)
         self.assertIn("test -f scripts/bootstrap-streamscape-media-binary.sh", prepare)
         self.assertIn("test -f streamscapetv.xcodeproj/project.pbxproj", prepare)
+        self.assertIn('section_body("XCLocalSwiftPackageReference")', prepare)
+        self.assertIn('section_body("XCRemoteSwiftPackageReference")', prepare)
+        self.assertIn('fields.get("repositoryURL")', prepare)
+        self.assertNotIn('/usr/bin/shasum -a 256 streamscapetv.xcodeproj/project.pbxproj', prepare)
         self.assertIn("restore_enabled=false", prepare)
         self.assertIn("save_enabled=false", prepare)
-        self.assertIn("iptv-apple-default-deps-v3-", prepare)
+        self.assertIn("iptv-apple-default-deps-v4-", prepare)
         self.assertNotIn("dependency-cache", prepare)
         self.assertNotIn("oauth2.googleapis.com", prepare)
         self.assertNotIn("GOOGLE_DRIVE", scope.get("env", {}))
@@ -661,13 +665,39 @@ fi
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             (root / "scripts").mkdir()
+            bootstrap_fixture = """#!/bin/sh
+RELEASE_REPOSITORY="StreamScapeTV/streamscape-media"
+RELEASE_TAG="v1.2.1"
+RELEASE_COMMIT="22c2ebb662d774d862e3dcb65e1dbb55b3e9253d"
+ASSET_NAME="streamscape-media-1.2.1-apple-binary.zip"
+ASSET_SHA256="0fc2e0c9713863bc3015628a04cccf2d36fccf8c1f56bb6f30204469a684a51a"
+"""
             (root / "scripts/bootstrap-streamscape-media-binary.sh").write_text(
-                "#!/bin/sh\n",
+                bootstrap_fixture,
                 encoding="utf-8",
             )
             (root / "streamscapetv.xcodeproj").mkdir()
-            (root / "streamscapetv.xcodeproj/project.pbxproj").write_text(
-                "// fixture\n",
+            project_path = root / "streamscapetv.xcodeproj/project.pbxproj"
+            project_path.write_text(
+                """// fixture
+CURRENT_PROJECT_VERSION = 1;
+/* Begin XCLocalSwiftPackageReference section */
+\t\tA1B2C3D4E5F60718293A4B5D /* XCLocalSwiftPackageReference "StreamscapeMediaApple" */ = {
+\t\t\tisa = XCLocalSwiftPackageReference;
+\t\t\trelativePath = Vendor/StreamscapeMediaApple;
+\t\t};
+/* End XCLocalSwiftPackageReference section */
+/* Begin XCRemoteSwiftPackageReference section */
+\t\tDBC44F5D80EDBFA365244685 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */ = {
+\t\t\tisa = XCRemoteSwiftPackageReference;
+\t\t\trepositoryURL = "https://github.com/RevenueCat/purchases-ios-spm";
+\t\t\trequirement = {
+\t\t\t\tkind = upToNextMajorVersion;
+\t\t\t\tminimumVersion = 5.87.1;
+\t\t\t};
+\t\t};
+/* End XCRemoteSwiftPackageReference section */
+""",
                 encoding="utf-8",
             )
             fake_bin = root / "bin"
@@ -747,6 +777,43 @@ fi
             self.assertEqual((pull_request["restore_enabled"], pull_request["save_enabled"]), ("true", "false"))
             self.assertEqual((tag["restore_enabled"], tag["save_enabled"]), ("false", "false"))
             self.assertEqual((unrelated["restore_enabled"], unrelated["save_enabled"]), ("false", "false"))
+
+            baseline_key = develop["key"]
+            project_text = project_path.read_text(encoding="utf-8")
+            project_path.write_text(
+                project_text.replace("CURRENT_PROJECT_VERSION = 1;", "CURRENT_PROJECT_VERSION = 2;"),
+                encoding="utf-8",
+            )
+            self.assertEqual(cache_flags("StreamScapeTV/iptv-apple", "develop")["key"], baseline_key)
+
+            project_path.write_text(
+                project_text.replace("minimumVersion = 5.87.1;", "minimumVersion = 5.88.0;"),
+                encoding="utf-8",
+            )
+            self.assertNotEqual(cache_flags("StreamScapeTV/iptv-apple", "develop")["key"], baseline_key)
+
+            project_path.write_text(
+                project_text.replace(
+                    "relativePath = Vendor/StreamscapeMediaApple;",
+                    "relativePath = Vendor/StreamscapeMediaAppleV2;",
+                ),
+                encoding="utf-8",
+            )
+            self.assertNotEqual(cache_flags("StreamScapeTV/iptv-apple", "develop")["key"], baseline_key)
+
+            project_path.write_text(project_text, encoding="utf-8")
+            bootstrap = root / "scripts/bootstrap-streamscape-media-binary.sh"
+            bootstrap.write_text(bootstrap_fixture + "# logging-only edit\n", encoding="utf-8")
+            self.assertEqual(cache_flags("StreamScapeTV/iptv-apple", "develop")["key"], baseline_key)
+            bootstrap.write_text(
+                bootstrap_fixture.replace(
+                    'ASSET_SHA256="0fc2e0c9713863bc3015628a04cccf2d36fccf8c1f56bb6f30204469a684a51a"',
+                    'ASSET_SHA256="1fc2e0c9713863bc3015628a04cccf2d36fccf8c1f56bb6f30204469a684a51a"',
+                ),
+                encoding="utf-8",
+            )
+            self.assertNotEqual(cache_flags("StreamScapeTV/iptv-apple", "develop")["key"], baseline_key)
+            bootstrap.write_text(bootstrap_fixture, encoding="utf-8")
 
             subprocess.run(["git", "switch", "-c", "main"], cwd=root, check=True, capture_output=True)
             main_default = cache_flags("StreamScapeTV/iptv-apple", "main", default_branch="main")
