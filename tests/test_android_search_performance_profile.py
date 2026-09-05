@@ -244,6 +244,8 @@ class AndroidGenericHostedProfileContractTest(unittest.TestCase):
         preflight_script = preflight["run"]
         self.assertIn('test "${PROJECT_DIRECTORY}" = "."', preflight_script)
         self.assertIn('test -z "${TEST_FILTER}"', preflight_script)
+        self.assertIn('test "${TEST_SELECTORS}" = "[]"', preflight_script)
+        self.assertIn('test -z "${TEST_PLATFORM}"', preflight_script)
         self.assertIn('test "${ROOM_SCHEMA}" = "false"', preflight_script)
         self.assertIn("scripts/ci/run-android-hosted-validation.sh", preflight_script)
 
@@ -271,7 +273,9 @@ class AndroidGenericHostedProfileContractTest(unittest.TestCase):
     def test_emulator_profile_uses_fixed_central_boot_and_cleanup(self) -> None:
         prepare = self.by_name["Prepare generic Android emulator"]
         cleanup = self.by_name["Stop generic Android emulator"]
-        self.assertEqual(prepare["if"], "${{ inputs.test_profile == 'emulator' }}")
+        self.assertIn("inputs.test_profile == 'emulator'", prepare["if"])
+        self.assertIn("inputs.test_profile == 'targeted-tests'", prepare["if"])
+        self.assertIn("inputs.test_platform == 'instrumentation'", prepare["if"])
         script = prepare["run"]
         self.assertIn("system-images;android-36;google_apis;x86_64", script)
         self.assertIn("central-android-api36", script)
@@ -280,10 +284,9 @@ class AndroidGenericHostedProfileContractTest(unittest.TestCase):
         self.assertIn("sys.boot_completed", script)
         self.assertIn("printf 'ANDROID_SERIAL=%s\\n'", script)
         self.assertNotIn("inputs.", script)
-        self.assertEqual(
-            cleanup["if"],
-            "${{ always() && inputs.test_profile == 'emulator' }}",
-        )
+        self.assertIn("inputs.test_profile == 'emulator'", cleanup["if"])
+        self.assertIn("inputs.test_profile == 'targeted-tests'", cleanup["if"])
+        self.assertIn("inputs.test_platform == 'instrumentation'", cleanup["if"])
         self.assertIn("emu kill", cleanup["run"])
 
 

@@ -607,7 +607,7 @@ class CiHelperTests(unittest.TestCase):
 
     def test_android_owner_profiles_and_gitops_retirement_are_explicit(self) -> None:
         android = (ROOT / ".github/workflows/android.yml").read_text()
-        for profile in ("smoke)", "compile)", "unit)", "targeted-unit)", "lint)", "assemble)", "full)", "release)"):
+        for profile in ("smoke)", "compile)", "unit)", "targeted-unit)", "targeted-tests)", "lint)", "assemble)", "full)", "release)"):
             self.assertIn(profile, android)
         self.assertIn("CIW_MAVEN_PACKAGE_READ_TOKEN", android)
         self.assertIn("compileDebugKotlin testDebugUnitTest lintDebug assembleDebug", android)

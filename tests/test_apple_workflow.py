@@ -55,10 +55,9 @@ class AppleWorkflowTests(unittest.TestCase):
         self.assertIn("run_xcode_logged macos-test xcodebuild test", script)
         self.assertNotIn("build-for-testing", script)
         self.assertNotIn("macos-build", script)
-        self.assertIn(
-            "-only-testing:streamscapetvTests/SelectedBackendStateSyncRoutingIntegrationTests",
-            script,
-        )
+        self.assertNotIn("SelectedBackendStateSyncRoutingIntegrationTests", script)
+        macos_full = script[script.index("macos-test)"):script.index("macos-targeted-tests)")]
+        self.assertNotIn("-only-testing:", macos_full)
 
     def test_optional_swiftpm_xcode_args_are_strict_bash_safe(self) -> None:
         execute = self.workflow["jobs"]["execute"]
@@ -68,7 +67,7 @@ class AppleWorkflowTests(unittest.TestCase):
         script = command_step["run"]
         safe_expansion = '"${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}"'
 
-        self.assertEqual(script.count(safe_expansion), 6)
+        self.assertEqual(script.count(safe_expansion), 9)
         self.assertNotIn('"${swiftpm_xcode_args[@]}"', script.replace(safe_expansion, ""))
 
         probe = f"""
@@ -445,11 +444,11 @@ if ( validate "$long" ); then exit 93; fi
         self.assertNotIn("git config --global", script)
         self.assertNotIn("git config --local", script)
         self.assertNotIn("insteadOf", script)
-        self.assertEqual(script.count("materialize_historical_media_bootstrap"), 4)
-        self.assertEqual(script.count("run_xcode_logged"), 4)
+        self.assertEqual(script.count("materialize_historical_media_bootstrap"), 7)
+        self.assertEqual(script.count("run_xcode_logged"), 7)
         self.assertEqual(
             script.count("run_logged prepare-media bash scripts/bootstrap-streamscape-media-binary.sh"),
-            4,
+            7,
         )
         release_start = script.index('release-build)')
         release_end = script.index('swift-package)', release_start)
