@@ -45,6 +45,14 @@ Keep self-validation proportional to the changed behavior:
 4. when runtime behavior materially changes, prove it with a real product
    consumer before treating the candidate as final.
 
+During iterative Android/Apple real-consumer proof of a Central change, prefer
+the deployed `targeted-tests` profile with only the relevant safe selectors and
+fixed platform when that evidence covers the changed behavior. Reserve broad
+native `full` validation for the final exact-head candidate/acceptance gate,
+unless issue or product authority explicitly requires broader evidence earlier.
+Read the exact profile/input contract from the selected workflow YAML; do not
+copy it into this file or `INVENTORY.yaml`.
+
 A green self-check proves Central source consistency, not an external product,
 publication, deployment, signing, or physical-device result that did not run.
 
