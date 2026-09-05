@@ -290,6 +290,13 @@ class ContainerServiceWorkflowTests(unittest.TestCase):
         self.assertIn('test -x "source/${PRODUCT_WRAPPER}"', source["run"])
         self.assertIn("wrapper.is_symlink()", source["run"])
         self.assertIn("org.opencontainers.image.revision=${SOURCE_SHA}", build["run"])
+        state_root_assignment = 'state_root="${RUNTIME_ROOT}/buildah"'
+        state_root_create = 'mkdir -m 0700 "${state_root}"'
+        first_child = '"${state_root}/graphroot"'
+        self.assertLess(build["run"].index(state_root_assignment), build["run"].index(state_root_create))
+        self.assertLess(build["run"].index(state_root_create), build["run"].index(first_child))
+        for child in ("graphroot", "runroot", "tmp", "home", "cache"):
+            self.assertIn(f'"${{state_root}}/{child}"', build["run"])
         self.assertIn('--root "${state_root}/graphroot"', build["run"])
         self.assertIn('--runroot "${state_root}/runroot"', build["run"])
         self.assertIn("--storage-driver vfs", build["run"])
