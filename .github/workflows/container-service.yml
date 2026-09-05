@@ -192,6 +192,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           state_root="${RUNTIME_ROOT}/buildah"
+          mkdir -m 0700 "${state_root}"
           mkdir -m 0700 \
             "${state_root}/graphroot" \
             "${state_root}/runroot" \
