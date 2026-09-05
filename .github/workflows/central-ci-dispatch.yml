@@ -63,21 +63,23 @@ jobs:
           platform = inputs.get("test_platform", "")
           legacy_filter = inputs.get("test_filter", "")
 
-          if profile == "targeted-tests":
+          if profile in {"targeted-tests", "candidate"}:
+              if profile == "candidate" and workflow != "validation.apple":
+                  raise SystemExit("candidate is supported only by validation.apple")
               if legacy_filter not in (None, ""):
-                  raise SystemExit("targeted-tests does not accept legacy test_filter")
+                  raise SystemExit(f"{profile} does not accept legacy test_filter")
               if not isinstance(selector_payload, str) or len(selector_payload) > 2048:
-                  raise SystemExit("targeted-tests test_selectors must be one bounded JSON-array string")
+                  raise SystemExit(f"{profile} test_selectors must be one bounded JSON-array string")
               try:
                   selectors = json.loads(selector_payload)
               except json.JSONDecodeError as exc:
-                  raise SystemExit("targeted-tests test_selectors must be valid JSON") from exc
+                  raise SystemExit(f"{profile} test_selectors must be valid JSON") from exc
               if not isinstance(selectors, list) or not 1 <= len(selectors) <= 20:
-                  raise SystemExit("targeted-tests requires 1 through 20 selectors")
+                  raise SystemExit(f"{profile} requires 1 through 20 selectors")
               if any(not isinstance(value, str) for value in selectors):
-                  raise SystemExit("targeted-tests selectors must be strings")
+                  raise SystemExit(f"{profile} selectors must be strings")
               if len(selectors) != len(set(selectors)):
-                  raise SystemExit("targeted-tests selectors must be unique")
+                  raise SystemExit(f"{profile} selectors must be unique")
 
               if workflow == "validation.android":
                   if platform == "jvm":
@@ -89,11 +91,14 @@ jobs:
                   if any(not pattern.fullmatch(value) or value.startswith("-") for value in selectors):
                       raise SystemExit("Android targeted-tests contains an invalid selector")
               elif workflow == "validation.apple":
-                  if platform not in {"macos", "ios", "tvos"}:
-                      raise SystemExit("Apple targeted-tests requires test_platform=macos, ios, or tvos")
+                  if profile == "targeted-tests":
+                      if platform not in {"macos", "ios", "tvos"}:
+                          raise SystemExit("Apple targeted-tests requires test_platform=macos, ios, or tvos")
+                  elif platform not in (None, ""):
+                      raise SystemExit("Apple candidate fixes macOS tests and does not accept test_platform")
                   pattern = re.compile(r"[A-Za-z0-9_.$/-]{1,240}")
                   if any(not pattern.fullmatch(value) or value.startswith("-") or "/" not in value for value in selectors):
-                      raise SystemExit("Apple targeted-tests contains an invalid selector")
+                      raise SystemExit(f"Apple {profile} contains an invalid selector")
               else:
                   raise SystemExit("unsupported native targeted workflow")
           elif workflow == "validation.android" and profile == "targeted-unit":
@@ -103,7 +108,7 @@ jobs:
                   raise SystemExit("legacy targeted-unit requires one bounded test_filter")
           else:
               if selector_payload not in (None, "[]") or platform not in (None, ""):
-                  raise SystemExit("targeted test inputs are accepted only by targeted-tests")
+                  raise SystemExit("targeted test inputs are accepted only by targeted-tests or Apple candidate")
               if legacy_filter not in (None, ""):
                   raise SystemExit("test_filter is accepted only by legacy Android targeted-unit")
           PY_VALIDATE_NATIVE_TARGETED

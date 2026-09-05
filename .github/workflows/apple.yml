@@ -93,16 +93,26 @@ jobs:
           TEST_PLATFORM: ${{ inputs.test_platform }}
         run: |
           set -Eeuo pipefail
-          if test "${TEST_PROFILE}" != targeted-tests; then
-            test "${TEST_SELECTORS}" = "[]" || {
-              echo "test_selectors is accepted only by the targeted-tests profile" >&2
-              exit 2
-            }
-            test -z "${TEST_PLATFORM}" || {
-              echo "test_platform is accepted only by the targeted-tests profile" >&2
-              exit 2
-            }
-          fi
+          case "${TEST_PROFILE}" in
+            targeted-tests)
+              ;;
+            candidate)
+              test -z "${TEST_PLATFORM}" || {
+                echo "candidate fixes macOS test execution and does not accept test_platform" >&2
+                exit 2
+              }
+              ;;
+            *)
+              test "${TEST_SELECTORS}" = "[]" || {
+                echo "test_selectors is accepted only by targeted-tests or candidate" >&2
+                exit 2
+              }
+              test -z "${TEST_PLATFORM}" || {
+                echo "test_platform is accepted only by targeted-tests" >&2
+                exit 2
+              }
+              ;;
+          esac
           case "${TEST_PROFILE}" in
             build)
               matrix='{"include":[{"lane":"hosted-build","cache_save":false}]}'
@@ -123,33 +133,9 @@ jobs:
                 tvos) matrix='{"include":[{"lane":"tvos-targeted-tests","cache_save":false}]}' ;;
                 *) echo "targeted-tests requires test_platform=macos, ios, or tvos" >&2; exit 2 ;;
               esac
-              TEST_SELECTORS_JSON="${TEST_SELECTORS}" python3 - <<'PY_TEST_SELECTORS'
-          import json
-          import os
-          import re
-
-          raw = os.environ.get("TEST_SELECTORS_JSON", "")
-          if len(raw) > 2048:
-              raise SystemExit("targeted-tests test_selectors payload is too large")
-          try:
-              values = json.loads(raw)
-          except json.JSONDecodeError as exc:
-              raise SystemExit("targeted-tests test_selectors must be valid JSON") from exc
-          if not isinstance(values, list) or not 1 <= len(values) <= 20:
-              raise SystemExit("targeted-tests requires 1 through 20 test selectors")
-          if any(not isinstance(value, str) for value in values):
-              raise SystemExit("targeted-tests selectors must be strings")
-          if len(values) != len(set(values)):
-              raise SystemExit("targeted-tests test selectors must be unique")
-          pattern = re.compile(r"[A-Za-z0-9_.$/-]{1,240}")
-          for value in values:
-              if (
-                  not pattern.fullmatch(value)
-                  or value.startswith("-")
-                  or "/" not in value
-              ):
-                  raise SystemExit("targeted-tests contains an invalid Apple test selector")
-          PY_TEST_SELECTORS
+              ;;
+            candidate)
+              matrix='{"include":[{"lane":"ios-build","cache_save":false},{"lane":"tvos-build","cache_save":false},{"lane":"macos-targeted-tests","cache_save":true}]}'
               ;;
             full)
               matrix='{"include":[{"lane":"ios-build","cache_save":false},{"lane":"tvos-build","cache_save":false},{"lane":"macos-test","cache_save":true}]}'
@@ -168,6 +154,36 @@ jobs:
               exit 2
               ;;
           esac
+          if test "${TEST_PROFILE}" = targeted-tests || test "${TEST_PROFILE}" = candidate; then
+            TEST_SELECTORS_JSON="${TEST_SELECTORS}" TEST_PROFILE_NAME="${TEST_PROFILE}" python3 - <<'PY_TEST_SELECTORS'
+          import json
+          import os
+          import re
+
+          profile = os.environ.get("TEST_PROFILE_NAME", "targeted-tests")
+          raw = os.environ.get("TEST_SELECTORS_JSON", "")
+          if len(raw) > 2048:
+              raise SystemExit(f"{profile} test_selectors payload is too large")
+          try:
+              values = json.loads(raw)
+          except json.JSONDecodeError as exc:
+              raise SystemExit(f"{profile} test_selectors must be valid JSON") from exc
+          if not isinstance(values, list) or not 1 <= len(values) <= 20:
+              raise SystemExit(f"{profile} requires 1 through 20 test selectors")
+          if any(not isinstance(value, str) for value in values):
+              raise SystemExit(f"{profile} selectors must be strings")
+          if len(values) != len(set(values)):
+              raise SystemExit(f"{profile} test selectors must be unique")
+          pattern = re.compile(r"[A-Za-z0-9_.$/-]{1,240}")
+          for value in values:
+              if (
+                  not pattern.fullmatch(value)
+                  or value.startswith("-")
+                  or "/" not in value
+              ):
+                  raise SystemExit(f"{profile} contains an invalid Apple test selector")
+          PY_TEST_SELECTORS
+          fi
           printf 'matrix=%s\n' "${matrix}" >> "${GITHUB_OUTPUT}"
 
   execute:
@@ -612,7 +628,7 @@ jobs:
           fi
 
           targeted_test_args=()
-          if test "${TEST_PROFILE}" = targeted-tests; then
+          if test "${TEST_PROFILE}" = targeted-tests || test "${TEST_PROFILE}" = candidate; then
             test_selectors=()
             while IFS= read -r selector; do
               test_selectors+=("${selector}")
