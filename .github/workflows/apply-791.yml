@@ -24,10 +24,10 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          cat .ci/issue-791/part-* > "${RUNNER_TEMP}/issue-791.patch"
+          cat .ci/issue-791-v2/part-* > "${RUNNER_TEMP}/issue-791.patch"
           git apply --check -p1 "${RUNNER_TEMP}/issue-791.patch"
           git apply -p1 "${RUNNER_TEMP}/issue-791.patch"
-          rm -rf .ci/issue-791 .github/workflows/apply-791.yml
+          rm -rf .ci/issue-791 .ci/issue-791-v2 .github/workflows/apply-791.yml
           git diff --check
           python3 -m pip install --quiet PyYAML
           python3 -m unittest \
