@@ -40,7 +40,8 @@ class ReleaseObservabilityTests(unittest.TestCase):
 
         self.assertEqual(publication["env"]["CHART_PATH"], "${{ inputs.chart_path }}")
         self.assertIn('helm show chart "source/${CHART_PATH}"', publication["run"])
-        self.assertIn('$1 == "version:"', publication["run"])
+        self.assertIn('/^version:[[:space:]]+/', publication["run"])
+        self.assertNotIn('$1 == "version:"', publication["run"])
         self.assertIn("found != 1", publication["run"])
         self.assertIn("publication_version=%s", publication["run"])
         self.assertNotIn("RELEASE_TAG", publication["run"])
@@ -115,7 +116,9 @@ class ReleaseObservabilityTests(unittest.TestCase):
                 "#!/usr/bin/env bash\n"
                 "set -Eeuo pipefail\n"
                 "test \"$1\" = show && test \"$2\" = chart\n"
-                "printf '%s\\n' 'apiVersion: v2' 'name: fixture' 'version: 2.4.0-build.253+linux'\n",
+                "printf '%s\\n' 'apiVersion: v2' 'name: fixture' "
+                "'version: 2.4.0-build.253+linux' 'dependencies:' "
+                "'  - name: valkey' '    version: 0.11.0'\n",
                 encoding="utf-8",
             )
             helm.chmod(0o755)
