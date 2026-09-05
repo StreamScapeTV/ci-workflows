@@ -1,0 +1,97 @@
+name: Apply issue 791 source patch
+
+"on":
+  push:
+    branches:
+      - orchestrator/issue-791-targeted-native-tests
+    paths:
+      - .github/workflows/apply-791.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Apply, validate, and stage exact source blobs
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          patch="${RUNNER_TEMP}/issue-791.patch"
+          output_root=".ci/issue-791-output"
+          cat .ci/issue-791-v2/part-* > "${patch}"
+          git apply --check -p1 "${patch}"
+          git apply -p1 "${patch}"
+          git diff --check
+          python3 -m pip install --quiet PyYAML
+          python3 -m unittest \
+            tests.test_ci_helpers_current \
+            tests.test_native_targeted_profiles \
+            tests.test_android_search_performance_profile \
+            tests.test_apple_workflow \
+            -q
+
+          rm -rf "${output_root}"
+          mkdir -p "${output_root}"
+          PATCH_PATH="${patch}" OUTPUT_ROOT="${output_root}" python3 - <<'PY_STAGE'
+          import hashlib
+          import json
+          import os
+          import shutil
+          import subprocess
+          from pathlib import Path
+
+          patch = Path(os.environ["PATCH_PATH"]).read_text(encoding="utf-8")
+          root = Path(os.environ["OUTPUT_ROOT"])
+          paths = []
+          for line in patch.splitlines():
+              if not line.startswith("+++ "):
+                  continue
+              value = line[4:].split("\t", 1)[0]
+              if value == "/dev/null":
+                  continue
+              prefix = "ci-workflows-791/"
+              if not value.startswith(prefix):
+                  raise SystemExit(f"unexpected patch destination: {value}")
+              relative = value[len(prefix):]
+              if relative not in paths:
+                  paths.append(relative)
+
+          if not paths:
+              raise SystemExit("patch produced no destination paths")
+
+          manifest = []
+          for relative in paths:
+              source = Path(relative)
+              if not source.is_file():
+                  raise SystemExit(f"patched destination is not a file: {relative}")
+              destination = root / relative
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(source, destination)
+              blob_sha = subprocess.check_output(
+                  ["git", "hash-object", str(source)], text=True
+              ).strip()
+              manifest.append({"path": relative, "blob_sha": blob_sha})
+
+          (root / "manifest.json").write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print("staged paths:")
+          for item in manifest:
+              print(f"  {item['blob_sha']}  {item['path']}")
+          PY_STAGE
+
+          git reset --hard HEAD
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "${output_root}"
+          git commit -m "[#791] Stage validated targeted native CI blobs"
+          git push origin HEAD:orchestrator/issue-791-targeted-native-tests
