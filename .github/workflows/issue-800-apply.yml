@@ -1,0 +1,48 @@
+name: Issue 800 Apple cache patch
+
+"on":
+  push:
+    branches:
+      - agent1/issue-800-apple-dependency-fingerprint
+    paths:
+      - .github/workflows/issue-800-apply.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ github.repository == 'StreamScapeTV/ci-workflows' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Apply exact Apple dependency-cache patch
+        run: python3 scripts/ci/issue_800_apply.py
+
+      - name: Validate source-final patch
+        run: |
+          set -Eeuo pipefail
+          python3 -m unittest tests.test_apple_workflow
+          python3 -m unittest tests.test_ci_helpers_current
+          python3 - <<'PY'
+          from pathlib import Path
+          import yaml
+          yaml.safe_load(Path('.github/workflows/apple.yml').read_text(encoding='utf-8'))
+          PY
+
+      - name: Commit only final issue-owned source
+        env:
+          TARGET_BRANCH: agent1/issue-800-apple-dependency-fingerprint
+        run: |
+          set -Eeuo pipefail
+          rm -f scripts/ci/issue_800_apply.py .github/workflows/issue-800-apply.yml
+          git add -A -- .github/workflows/apple.yml tests/test_apple_workflow.py scripts/ci/issue_800_apply.py .github/workflows/issue-800-apply.yml
+          git diff --cached --quiet && { echo 'Issue #800 patch produced no staged changes' >&2; exit 1; }
+          git config user.name 'streamscape-ci-source[bot]'
+          git config user.email '320226917+streamscape-ci-source[bot]@users.noreply.github.com'
+          git commit -m '[#800] Narrow Apple dependency cache fingerprint'
+          git push origin "HEAD:refs/heads/${TARGET_BRANCH}"
