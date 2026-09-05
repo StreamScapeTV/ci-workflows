@@ -31,6 +31,7 @@ jobs:
         run: >-
           python3 -m unittest
           tests.test_ci_helpers_current
+          tests.test_native_targeted_profiles
           tests.test_android_search_performance_profile
           tests.test_oci_reproducibility
           tests.test_apple_workflow

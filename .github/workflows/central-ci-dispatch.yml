@@ -36,6 +36,78 @@ jobs:
           phase: claim
           ci_run_id: ${{ inputs.ci_run_id }}
 
+      - name: Validate native targeted test request
+        if: ${{ steps.claim.outputs.workflow_key == 'validation.android' || steps.claim.outputs.workflow_key == 'validation.apple' }}
+        shell: bash
+        env:
+          WORKFLOW_KEY: ${{ steps.claim.outputs.workflow_key }}
+          TEST_PROFILE: ${{ steps.claim.outputs.test_profile }}
+          INPUTS_JSON: ${{ steps.claim.outputs.inputs_json }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY_VALIDATE_NATIVE_TARGETED'
+          import json
+          import os
+          import re
+
+          workflow = os.environ.get("WORKFLOW_KEY", "")
+          profile = os.environ.get("TEST_PROFILE", "")
+          try:
+              inputs = json.loads(os.environ.get("INPUTS_JSON", "{}"))
+          except json.JSONDecodeError as exc:
+              raise SystemExit("native validation inputs must be one JSON object") from exc
+          if not isinstance(inputs, dict):
+              raise SystemExit("native validation inputs must be one JSON object")
+
+          selector_payload = inputs.get("test_selectors", "[]")
+          platform = inputs.get("test_platform", "")
+          legacy_filter = inputs.get("test_filter", "")
+
+          if profile == "targeted-tests":
+              if legacy_filter not in (None, ""):
+                  raise SystemExit("targeted-tests does not accept legacy test_filter")
+              if not isinstance(selector_payload, str) or len(selector_payload) > 2048:
+                  raise SystemExit("targeted-tests test_selectors must be one bounded JSON-array string")
+              try:
+                  selectors = json.loads(selector_payload)
+              except json.JSONDecodeError as exc:
+                  raise SystemExit("targeted-tests test_selectors must be valid JSON") from exc
+              if not isinstance(selectors, list) or not 1 <= len(selectors) <= 20:
+                  raise SystemExit("targeted-tests requires 1 through 20 selectors")
+              if any(not isinstance(value, str) for value in selectors):
+                  raise SystemExit("targeted-tests selectors must be strings")
+              if len(selectors) != len(set(selectors)):
+                  raise SystemExit("targeted-tests selectors must be unique")
+
+              if workflow == "validation.android":
+                  if platform == "jvm":
+                      pattern = re.compile(r"[A-Za-z0-9_.$*?-]{1,240}")
+                  elif platform == "instrumentation":
+                      pattern = re.compile(r"(?:[A-Za-z_][A-Za-z0-9_$]*\.)+[A-Za-z_][A-Za-z0-9_$]*(?:#[A-Za-z_][A-Za-z0-9_$]*)?")
+                  else:
+                      raise SystemExit("Android targeted-tests requires test_platform=jvm or instrumentation")
+                  if any(not pattern.fullmatch(value) or value.startswith("-") for value in selectors):
+                      raise SystemExit("Android targeted-tests contains an invalid selector")
+              elif workflow == "validation.apple":
+                  if platform not in {"macos", "ios", "tvos"}:
+                      raise SystemExit("Apple targeted-tests requires test_platform=macos, ios, or tvos")
+                  pattern = re.compile(r"[A-Za-z0-9_.$/-]{1,240}")
+                  if any(not pattern.fullmatch(value) or value.startswith("-") or "/" not in value for value in selectors):
+                      raise SystemExit("Apple targeted-tests contains an invalid selector")
+              else:
+                  raise SystemExit("unsupported native targeted workflow")
+          elif workflow == "validation.android" and profile == "targeted-unit":
+              if selector_payload not in (None, "[]") or platform not in (None, ""):
+                  raise SystemExit("legacy targeted-unit does not accept new targeted-tests inputs")
+              if not isinstance(legacy_filter, str) or not re.fullmatch(r"[A-Za-z0-9_.$*?-]{1,240}", legacy_filter):
+                  raise SystemExit("legacy targeted-unit requires one bounded test_filter")
+          else:
+              if selector_payload not in (None, "[]") or platform not in (None, ""):
+                  raise SystemExit("targeted test inputs are accepted only by targeted-tests")
+              if legacy_filter not in (None, ""):
+                  raise SystemExit("test_filter is accepted only by legacy Android targeted-unit")
+          PY_VALIDATE_NATIVE_TARGETED
+
       - name: Validate Maven release request
         if: ${{ steps.claim.outputs.workflow_key == 'release.maven' }}
         shell: bash
@@ -242,6 +314,8 @@ jobs:
       ref: ${{ needs.request.outputs.ref }}
       source_is_tag: ${{ needs.request.outputs.is_tag == 'true' }}
       test_profile: ${{ needs.request.outputs.test_profile }}
+      test_selectors: ${{ fromJSON(needs.request.outputs.inputs_json).test_selectors || '[]' }}
+      test_platform: ${{ fromJSON(needs.request.outputs.inputs_json).test_platform || '' }}
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
 
@@ -301,6 +375,8 @@ jobs:
       test_profile: ${{ needs.request.outputs.test_profile }}
       project_directory: ${{ fromJSON(needs.request.outputs.inputs_json).project_directory || '.' }}
       test_filter: ${{ fromJSON(needs.request.outputs.inputs_json).test_filter || '' }}
+      test_selectors: ${{ fromJSON(needs.request.outputs.inputs_json).test_selectors || '[]' }}
+      test_platform: ${{ fromJSON(needs.request.outputs.inputs_json).test_platform || '' }}
       room_schema: ${{ fromJSON(needs.request.outputs.inputs_json).room_schema || false }}
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
