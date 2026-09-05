@@ -1,0 +1,135 @@
++          PY_TEST_SELECTORS
++              ;;
+             full)
+               matrix='{"include":[{"lane":"ios-build","cache_save":false},{"lane":"tvos-build","cache_save":false},{"lane":"macos-test","cache_save":true}]}'
+               ;;
+@@ -344,6 +399,7 @@
+         env:
+           EXECUTION_LANE: ${{ matrix.lane }}
+           TEST_PROFILE: ${{ inputs.test_profile }}
++          TEST_SELECTORS: ${{ inputs.test_selectors }}
+           SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
+           GH_TOKEN: ${{ steps.source.outputs.token || github.token }}
+           CI_GITHUB_TOKEN: ${{ steps.source.outputs.token || github.token }}
+@@ -473,6 +529,41 @@
+             swiftpm_xcode_args=(-clonedSourcePackagesDirPath "${SWIFTPM_CLONES_DIR}")
+           fi
+ 
++          targeted_test_args=()
++          if test "${TEST_PROFILE}" = targeted-tests; then
++            test_selectors=()
++            while IFS= read -r selector; do
++              test_selectors+=("${selector}")
++            done < <(
++              TEST_SELECTORS_JSON="${TEST_SELECTORS}" python3 - <<'PY_TEST_SELECTORS'
++          import json
++          import os
++          import re
++
++          values = json.loads(os.environ.get("TEST_SELECTORS_JSON", ""))
++          if not isinstance(values, list) or not 1 <= len(values) <= 20:
++              raise SystemExit("invalid targeted-tests selector list")
++          if any(not isinstance(value, str) for value in values):
++              raise SystemExit("invalid targeted-tests selector list")
++          if len(values) != len(set(values)):
++              raise SystemExit("invalid targeted-tests selector list")
++          pattern = re.compile(r"[A-Za-z0-9_.$/-]{1,240}")
++          for value in values:
++              if (
++                  not pattern.fullmatch(value)
++                  or value.startswith("-")
++                  or "/" not in value
++              ):
++                  raise SystemExit("invalid Apple targeted-tests selector")
++              print(value)
++          PY_TEST_SELECTORS
++            )
++            test "${#test_selectors[@]}" -ge 1
++            for selector in "${test_selectors[@]}"; do
++              targeted_test_args+=("-only-testing:${selector}")
++            done
++          fi
++
+           case "${EXECUTION_LANE}" in
+             macos-test)
+               materialize_historical_media_bootstrap
+@@ -482,8 +573,40 @@
+                 -scheme streamscapetv \
+                 "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
+                 -destination 'platform=macOS' \
++                CODE_SIGNING_ALLOWED=NO
++              ;;
++            macos-targeted-tests)
++              materialize_historical_media_bootstrap
++              run_logged prepare-media bash scripts/bootstrap-streamscape-media-binary.sh
++              run_xcode_logged macos-targeted-tests xcodebuild test \
++                -workspace streamscapetv.xcworkspace \
++                -scheme streamscapetv \
++                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
++                -destination 'platform=macOS' \
++                CODE_SIGNING_ALLOWED=NO \
++                "${targeted_test_args[@]}"
++              ;;
++            ios-targeted-tests)
++              materialize_historical_media_bootstrap
++              run_logged prepare-media bash scripts/bootstrap-streamscape-media-binary.sh
++              run_xcode_logged ios-targeted-tests xcodebuild test \
++                -workspace streamscapetv.xcworkspace \
++                -scheme streamscapetv \
++                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
++                -destination 'platform=iOS Simulator,name=iPhone 17' \
++                CODE_SIGNING_ALLOWED=NO \
++                "${targeted_test_args[@]}"
++              ;;
++            tvos-targeted-tests)
++              materialize_historical_media_bootstrap
++              run_logged prepare-media bash scripts/bootstrap-streamscape-media-binary.sh
++              run_xcode_logged tvos-targeted-tests xcodebuild test \
++                -workspace streamscapetv.xcworkspace \
++                -scheme streamscapetv \
++                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
++                -destination 'platform=tvOS Simulator,name=Apple TV' \
+                 CODE_SIGNING_ALLOWED=NO \
+-                -only-testing:streamscapetvTests/SelectedBackendStateSyncRoutingIntegrationTests
++                "${targeted_test_args[@]}"
+               ;;
+             ios-build)
+               materialize_historical_media_bootstrap
+diff -ruN '--exclude=__pycache__' ci-workflows-baseline/.github/workflows/central-ci-dispatch.yml ci-workflows-791/.github/workflows/central-ci-dispatch.yml
+--- ci-workflows-baseline/.github/workflows/central-ci-dispatch.yml	2026-09-05 01:54:05.000000000 +0000
++++ ci-workflows-791/.github/workflows/central-ci-dispatch.yml	2026-09-05 13:21:29.789767720 +0000
+@@ -36,6 +36,78 @@
+           phase: claim
+           ci_run_id: ${{ inputs.ci_run_id }}
+ 
++      - name: Validate native targeted test request
++        if: ${{ steps.claim.outputs.workflow_key == 'validation.android' || steps.claim.outputs.workflow_key == 'validation.apple' }}
++        shell: bash
++        env:
++          WORKFLOW_KEY: ${{ steps.claim.outputs.workflow_key }}
++          TEST_PROFILE: ${{ steps.claim.outputs.test_profile }}
++          INPUTS_JSON: ${{ steps.claim.outputs.inputs_json }}
++        run: |
++          set -Eeuo pipefail
++          python3 - <<'PY_VALIDATE_NATIVE_TARGETED'
++          import json
++          import os
++          import re
++
++          workflow = os.environ.get("WORKFLOW_KEY", "")
++          profile = os.environ.get("TEST_PROFILE", "")
++          try:
++              inputs = json.loads(os.environ.get("INPUTS_JSON", "{}"))
++          except json.JSONDecodeError as exc:
++              raise SystemExit("native validation inputs must be one JSON object") from exc
++          if not isinstance(inputs, dict):
++              raise SystemExit("native validation inputs must be one JSON object")
++
++          selector_payload = inputs.get("test_selectors", "[]")
++          platform = inputs.get("test_platform", "")
++          legacy_filter = inputs.get("test_filter", "")
++
++          if profile == "targeted-tests":
++              if legacy_filter not in (None, ""):
++                  raise SystemExit("targeted-tests does not accept legacy test_filter")
++              if not isinstance(selector_payload, str) or len(selector_payload) > 2048:
