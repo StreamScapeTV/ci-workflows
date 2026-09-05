@@ -1,0 +1,123 @@
+ted-tests")
++              if legacy_filter not in (None, ""):
++                  raise SystemExit("test_filter is accepted only by legacy Android targeted-unit")
++          PY_VALIDATE_NATIVE_TARGETED
++
+       - name: Validate Maven release request
+         if: ${{ steps.claim.outputs.workflow_key == 'release.maven' }}
+         shell: bash
+@@ -242,6 +314,8 @@
+       ref: ${{ needs.request.outputs.ref }}
+       source_is_tag: ${{ needs.request.outputs.is_tag == 'true' }}
+       test_profile: ${{ needs.request.outputs.test_profile }}
++      test_selectors: ${{ fromJSON(needs.request.outputs.inputs_json).test_selectors || '[]' }}
++      test_platform: ${{ fromJSON(needs.request.outputs.inputs_json).test_platform || '' }}
+       ci_run_id: ${{ inputs.ci_run_id }}
+     secrets: inherit
+ 
+@@ -301,6 +375,8 @@
+       test_profile: ${{ needs.request.outputs.test_profile }}
+       project_directory: ${{ fromJSON(needs.request.outputs.inputs_json).project_directory || '.' }}
+       test_filter: ${{ fromJSON(needs.request.outputs.inputs_json).test_filter || '' }}
++      test_selectors: ${{ fromJSON(needs.request.outputs.inputs_json).test_selectors || '[]' }}
++      test_platform: ${{ fromJSON(needs.request.outputs.inputs_json).test_platform || '' }}
+       room_schema: ${{ fromJSON(needs.request.outputs.inputs_json).room_schema || false }}
+       ci_run_id: ${{ inputs.ci_run_id }}
+     secrets: inherit
+diff -ruN '--exclude=__pycache__' ci-workflows-baseline/.github/workflows/self-check.yml ci-workflows-791/.github/workflows/self-check.yml
+--- ci-workflows-baseline/.github/workflows/self-check.yml	2026-09-05 01:54:05.000000000 +0000
++++ ci-workflows-791/.github/workflows/self-check.yml	2026-09-05 13:23:28.889522896 +0000
+@@ -31,6 +31,7 @@
+         run: >-
+           python3 -m unittest
+           tests.test_ci_helpers_current
++          tests.test_native_targeted_profiles
+           tests.test_android_search_performance_profile
+           tests.test_oci_reproducibility
+           tests.test_apple_workflow
+diff -ruN '--exclude=__pycache__' ci-workflows-baseline/tests/test_android_search_performance_profile.py ci-workflows-791/tests/test_android_search_performance_profile.py
+--- ci-workflows-baseline/tests/test_android_search_performance_profile.py	2026-09-05 01:54:05.000000000 +0000
++++ ci-workflows-791/tests/test_android_search_performance_profile.py	2026-09-05 13:19:49.128425087 +0000
+@@ -244,6 +244,8 @@
+         preflight_script = preflight["run"]
+         self.assertIn('test "${PROJECT_DIRECTORY}" = "."', preflight_script)
+         self.assertIn('test -z "${TEST_FILTER}"', preflight_script)
++        self.assertIn('test "${TEST_SELECTORS}" = "[]"', preflight_script)
++        self.assertIn('test -z "${TEST_PLATFORM}"', preflight_script)
+         self.assertIn('test "${ROOM_SCHEMA}" = "false"', preflight_script)
+         self.assertIn("scripts/ci/run-android-hosted-validation.sh", preflight_script)
+ 
+@@ -271,7 +273,9 @@
+     def test_emulator_profile_uses_fixed_central_boot_and_cleanup(self) -> None:
+         prepare = self.by_name["Prepare generic Android emulator"]
+         cleanup = self.by_name["Stop generic Android emulator"]
+-        self.assertEqual(prepare["if"], "${{ inputs.test_profile == 'emulator' }}")
++        self.assertIn("inputs.test_profile == 'emulator'", prepare["if"])
++        self.assertIn("inputs.test_profile == 'targeted-tests'", prepare["if"])
++        self.assertIn("inputs.test_platform == 'instrumentation'", prepare["if"])
+         script = prepare["run"]
+         self.assertIn("system-images;android-36;google_apis;x86_64", script)
+         self.assertIn("central-android-api36", script)
+@@ -280,10 +284,9 @@
+         self.assertIn("sys.boot_completed", script)
+         self.assertIn("printf 'ANDROID_SERIAL=%s\\n'", script)
+         self.assertNotIn("inputs.", script)
+-        self.assertEqual(
+-            cleanup["if"],
+-            "${{ always() && inputs.test_profile == 'emulator' }}",
+-        )
++        self.assertIn("inputs.test_profile == 'emulator'", cleanup["if"])
++        self.assertIn("inputs.test_profile == 'targeted-tests'", cleanup["if"])
++        self.assertIn("inputs.test_platform == 'instrumentation'", cleanup["if"])
+         self.assertIn("emu kill", cleanup["run"])
+ 
+ 
+diff -ruN '--exclude=__pycache__' ci-workflows-baseline/tests/test_apple_workflow.py ci-workflows-791/tests/test_apple_workflow.py
+--- ci-workflows-baseline/tests/test_apple_workflow.py	2026-09-05 01:54:05.000000000 +0000
++++ ci-workflows-791/tests/test_apple_workflow.py	2026-09-05 13:14:03.042135820 +0000
+@@ -55,10 +55,9 @@
+         self.assertIn("run_xcode_logged macos-test xcodebuild test", script)
+         self.assertNotIn("build-for-testing", script)
+         self.assertNotIn("macos-build", script)
+-        self.assertIn(
+-            "-only-testing:streamscapetvTests/SelectedBackendStateSyncRoutingIntegrationTests",
+-            script,
+-        )
++        self.assertNotIn("SelectedBackendStateSyncRoutingIntegrationTests", script)
++        macos_full = script[script.index("macos-test)"):script.index("macos-targeted-tests)")]
++        self.assertNotIn("-only-testing:", macos_full)
+ 
+     def test_optional_swiftpm_xcode_args_are_strict_bash_safe(self) -> None:
+         execute = self.workflow["jobs"]["execute"]
+@@ -68,7 +67,7 @@
+         script = command_step["run"]
+         safe_expansion = '"${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}"'
+ 
+-        self.assertEqual(script.count(safe_expansion), 6)
++        self.assertEqual(script.count(safe_expansion), 9)
+         self.assertNotIn('"${swiftpm_xcode_args[@]}"', script.replace(safe_expansion, ""))
+ 
+         probe = f"""
+@@ -445,11 +444,11 @@
+         self.assertNotIn("git config --global", script)
+         self.assertNotIn("git config --local", script)
+         self.assertNotIn("insteadOf", script)
+-        self.assertEqual(script.count("materialize_historical_media_bootstrap"), 4)
+-        self.assertEqual(script.count("run_xcode_logged"), 4)
++        self.assertEqual(script.count("materialize_historical_media_bootstrap"), 7)
++        self.assertEqual(script.count("run_xcode_logged"), 7)
+         self.assertEqual(
+             script.count("run_logged prepare-media bash scripts/bootstrap-streamscape-media-binary.sh"),
+-            4,
++            7,
+         )
+         release_start = script.index('release-build)')
+         release_end = script.index('swift-package)', release_start)
+diff -ruN '--exclude=__pycache__' ci-workflows-baseline/tests/test_ci_helpers.py ci-workflows-791/tests/test_ci_helpers.py
+--- ci-workflows-baseline/tests/test_ci_helpers.py	2026-09-05 01:54:05.000000000 +0000
++++ ci-workflows-791/tests/test_ci_helpers.py	2026-09-05 13:19:49.128363084 +0000
+@@ -607,7 +607,7 @@
+ 
+     def test_android_owner_profiles_and_gitops_retirement_are_explicit(self) -> None:
+         android = (ROOT / ".github/workflows/android.yml").read_text()
+-        for profile in ("smoke)", "compile)", "unit)", "target
