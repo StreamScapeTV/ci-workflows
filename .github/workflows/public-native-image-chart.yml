@@ -163,12 +163,17 @@ jobs:
           set -Eeuo pipefail
           state_root="${RUNNER_TEMP}/private-native-image-chart"
           test ! -e "${state_root}"
-          mkdir -m 0700 "${state_root}" "${state_root}/packages"
+          mkdir -m 0700 \
+            "${state_root}" \
+            "${state_root}/packages" \
+            "${state_root}/helm-repository-cache"
           printf '{}\n' > "${state_root}/auth.json"
           chmod 0600 "${state_root}/auth.json"
           {
             printf 'REGISTRY_AUTH_FILE=%s\n' "${state_root}/auth.json"
             printf 'HELM_REGISTRY_CONFIG=%s\n' "${state_root}/helm-registry.json"
+            printf 'HELM_REPOSITORY_CONFIG=%s\n' "${state_root}/helm-repositories.yaml"
+            printf 'HELM_REPOSITORY_CACHE=%s\n' "${state_root}/helm-repository-cache"
             printf 'PACKAGE_ROOT=%s\n' "${state_root}/packages"
           } >> "${GITHUB_ENV}"
 
@@ -219,6 +224,64 @@ jobs:
           test -n "${publication_version}"
           printf 'publication_version=%s\n' "${publication_version}" >> "${GITHUB_OUTPUT}"
 
+      - name: Prepare isolated locked Helm dependencies
+        id: chart_prepare
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}/.ciw/src
+          CHART_PATH: ${{ inputs.chart_path }}
+        run: |
+          set -Eeuo pipefail
+          source_chart="source/${CHART_PATH}"
+          prepared_chart="${RUNNER_TEMP}/private-native-image-chart/chart"
+          test -d "${source_chart}"
+          test ! -e "${prepared_chart}"
+          mkdir -m 0700 "${prepared_chart}"
+          cp -a "${source_chart}/." "${prepared_chart}/"
+
+          if test -f "${prepared_chart}/Chart.lock"; then
+            dependency_table="$(helm dependency list "${prepared_chart}" 2>>"${CI_LOG}")"
+            printf '%s\n' "${dependency_table}" >> "${CI_LOG}"
+            mapfile -t repositories < <(
+              printf '%s\n' "${dependency_table}" |
+                awk 'NR > 1 && NF >= 4 { print $3 }' |
+                LC_ALL=C sort -u
+            )
+            repository_index=0
+            for repository in "${repositories[@]}"; do
+              case "${repository}" in
+                http://*|https://*)
+                  repository_index=$((repository_index + 1))
+                  helm repo add \
+                    "ciw-dependency-${repository_index}" \
+                    "${repository}" \
+                    --force-update >> "${CI_LOG}" 2>&1
+                  ;;
+                file://*|oci://*)
+                  ;;
+                @*|alias:*)
+                  printf 'isolated release preparation does not accept Helm repository aliases: %s\n' "${repository}" >> "${CI_LOG}"
+                  exit 2
+                  ;;
+                *)
+                  printf 'unsupported Helm dependency repository: %s\n' "${repository}" >> "${CI_LOG}"
+                  exit 2
+                  ;;
+              esac
+            done
+            python3 - "${prepared_chart}" <<'PY' >> "${CI_LOG}" 2>&1
+          import os
+          import sys
+          from pathlib import Path
+          from ci_workflows.packaging_primitives import helm_dependency_build
+
+          chart = Path(sys.argv[1]).resolve()
+          helm_dependency_build(chart, environment=dict(os.environ))
+          PY
+          fi
+
+          printf 'chart_path=%s\n' "${prepared_chart}" >> "${GITHUB_OUTPUT}"
+
       - id: prepare
         name: Build image and package chart
         shell: bash
@@ -228,7 +291,7 @@ jobs:
           SOURCE_SHA: ${{ steps.authority.outputs.source_sha }}
           IMAGE_NAME: ${{ inputs.image_name }}
           CHART_NAME: ${{ inputs.chart_name }}
-          CHART_PATH: ${{ inputs.chart_path }}
+          CHART_PATH: ${{ steps.chart_prepare.outputs.chart_path }}
           DOCKERFILE_PATH: ${{ inputs.dockerfile_path }}
           BUILD_CONTEXT: ${{ inputs.build_context }}
           REGISTRY: localhost
@@ -447,4 +510,4 @@ jobs:
         with:
           phase: finish
           ci_run_id: ${{ inputs.ci_run_id }}
-          status: ${{ steps.private_git.outcome == 'success' && steps.validate.outcome == 'success' && steps.publication.outcome == 'success' && steps.prepare.outcome == 'success' && steps.authenticate.outcome == 'success' && steps.revalidate.outcome == 'success' && steps.publish.outcome == 'success' && steps.readback.outcome == 'success' && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && steps.cleanup.outcome == 'success' && 'succeeded' || 'failed' }}
+          status: ${{ steps.private_git.outcome == 'success' && steps.validate.outcome == 'success' && steps.publication.outcome == 'success' && steps.chart_prepare.outcome == 'success' && steps.prepare.outcome == 'success' && steps.authenticate.outcome == 'success' && steps.revalidate.outcome == 'success' && steps.publish.outcome == 'success' && steps.readback.outcome == 'success' && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && steps.cleanup.outcome == 'success' && 'succeeded' || 'failed' }}
