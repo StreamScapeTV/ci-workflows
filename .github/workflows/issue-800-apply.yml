@@ -21,7 +21,10 @@ jobs:
           fetch-depth: 1
 
       - name: Apply exact Apple dependency-cache patch
-        run: python3 scripts/ci/issue_800_apply.py
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/ci/issue_800_apply.py
+          rm -f scripts/ci/issue_800_apply.py .github/workflows/issue-800-apply.yml
 
       - name: Validate source-final patch
         run: |
@@ -39,7 +42,6 @@ jobs:
           TARGET_BRANCH: agent1/issue-800-apple-dependency-fingerprint
         run: |
           set -Eeuo pipefail
-          rm -f scripts/ci/issue_800_apply.py .github/workflows/issue-800-apply.yml
           git add -A -- .github/workflows/apple.yml tests/test_apple_workflow.py scripts/ci/issue_800_apply.py .github/workflows/issue-800-apply.yml
           git diff --cached --quiet && { echo 'Issue #800 patch produced no staged changes' >&2; exit 1; }
           git config user.name 'streamscape-ci-source[bot]'
